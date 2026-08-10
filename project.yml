@@ -1,0 +1,34 @@
+name: DynamicIsland
+options:
+  bundleIdPrefix: dev.dynamicisland
+packages:
+  IslandCore:
+    path: Packages/IslandCore
+targets:
+  DynamicIsland:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: DynamicIsland
+        excludes:
+          - "Supporting Files/**"
+    dependencies:
+      - package: IslandCore
+    info:
+      path: DynamicIsland/Supporting Files/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleDisplayName: Dynamic Island
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.dynamicisland.app
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ENABLE_HARDENED_RUNTIME: true
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        # Non-sandboxed (locked decision: direct-download distribution).
+        # No CODE_SIGN_ENTITLEMENTS — nothing to declare beyond the default
+        # for a hardened-runtime, non-sandboxed app.
