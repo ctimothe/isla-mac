@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 
 public struct NotchGeometry: Equatable {
@@ -32,5 +33,16 @@ public struct NotchGeometry: Equatable {
             height: fallbackHeight
         )
         return NotchGeometry(frameInScreen: rect)
+    }
+
+    /// Thin, non-unit-tested wrapper around the real NSScreen API (see `compute`
+    /// for the pure, tested logic). Manual QA covers this per the plan.
+    public static func detect(for screen: NSScreen) -> NotchGeometry? {
+        compute(
+            screenFrame: screen.frame,
+            topInset: screen.safeAreaInsets.top,
+            auxiliaryLeft: screen.auxiliaryTopLeftArea,
+            auxiliaryRight: screen.auxiliaryTopRightArea
+        )
     }
 }

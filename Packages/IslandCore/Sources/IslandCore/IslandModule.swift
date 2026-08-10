@@ -1,6 +1,7 @@
 import Combine
 import SwiftUI
 
+@MainActor
 public protocol IslandModule: AnyObject {
     var id: String { get }
     var priority: Int { get }

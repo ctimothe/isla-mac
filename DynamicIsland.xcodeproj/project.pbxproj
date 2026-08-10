@@ -1,0 +1,401 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0647E70BECEBCF23AEB672C7 /* IslandShellViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00188F081049C18B300DDFBC /* IslandShellViewModel.swift */; };
+		5539B68648FE6AFDAE7EE1A6 /* IslandPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E775CAB09504ED7041C6695F /* IslandPanelController.swift */; };
+		8CCF91CE2BF7D2D883AD03E9 /* IslandPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2E4BE27C6E8522736FD20DC /* IslandPanel.swift */; };
+		908F2B96882DB0354056CD2B /* MusicModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE4834BD295EB20FB9229B2 /* MusicModule.swift */; };
+		923C66E748B66C6DDDC255E2 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67C8025A1CEBF659764A187C /* AppDelegate.swift */; };
+		9E299C9D3B8923F84BD7FD03 /* IslandShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E143B815936FD917219295B9 /* IslandShellView.swift */; };
+		C5A6D81391CA2B46FF2BB898 /* IslandCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0C31901C2192AE7072165C0C /* IslandCore */; };
+		CC996F780B06D2592A06E043 /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4AFADCE39AFB8C13114293D /* StatusItemController.swift */; };
+		D7832A0D2638650FFD1F2AAA /* DynamicIslandApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A7C68649A765931CF50EF54 /* DynamicIslandApp.swift */; };
+		E37EEC1AB1B36E6251E48AF8 /* IslandState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F540D6C4715DC9FA9D6BD868 /* IslandState.swift */; };
+		EA2C325C202D8228455872E8 /* MusicExpandedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B865806A4D0FFE85E978051 /* MusicExpandedView.swift */; };
+		F87180D673A70D2DC1BCB6A8 /* MusicCompactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C7AFE95E5357AA91652416E /* MusicCompactView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		00188F081049C18B300DDFBC /* IslandShellViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandShellViewModel.swift; sourceTree = "<group>"; };
+		3B865806A4D0FFE85E978051 /* MusicExpandedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicExpandedView.swift; sourceTree = "<group>"; };
+		67C8025A1CEBF659764A187C /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		6A7C68649A765931CF50EF54 /* DynamicIslandApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicIslandApp.swift; sourceTree = "<group>"; };
+		8ED32FFC6B2F300C1FC7806B /* DynamicIsland.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DynamicIsland.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9C7AFE95E5357AA91652416E /* MusicCompactView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicCompactView.swift; sourceTree = "<group>"; };
+		A2E4BE27C6E8522736FD20DC /* IslandPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandPanel.swift; sourceTree = "<group>"; };
+		E143B815936FD917219295B9 /* IslandShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandShellView.swift; sourceTree = "<group>"; };
+		E775CAB09504ED7041C6695F /* IslandPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandPanelController.swift; sourceTree = "<group>"; };
+		F4AFADCE39AFB8C13114293D /* StatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemController.swift; sourceTree = "<group>"; };
+		F540D6C4715DC9FA9D6BD868 /* IslandState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandState.swift; sourceTree = "<group>"; };
+		FA61CC8EBED381976AEC59A4 /* IslandCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = IslandCore; path = Packages/IslandCore; sourceTree = SOURCE_ROOT; };
+		FEE4834BD295EB20FB9229B2 /* MusicModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicModule.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BB06F56062F8A125F602046C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C5A6D81391CA2B46FF2BB898 /* IslandCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		06F460EDA66BBDD311F5F392 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				FA61CC8EBED381976AEC59A4 /* IslandCore */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		0DF09B016CC49109C6276F2F = {
+			isa = PBXGroup;
+			children = (
+				97EA19542E0F81AE17D0A6C7 /* DynamicIsland */,
+				06F460EDA66BBDD311F5F392 /* Packages */,
+				5DAEC5E551B6D6CE100739E3 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5DAEC5E551B6D6CE100739E3 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8ED32FFC6B2F300C1FC7806B /* DynamicIsland.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		97EA19542E0F81AE17D0A6C7 /* DynamicIsland */ = {
+			isa = PBXGroup;
+			children = (
+				D511A7F8090B0A6694851670 /* App */,
+				CDA5A1F50EFD1B75F6A48636 /* Modules */,
+				F19D6B971B572A9162221996 /* Shell */,
+			);
+			path = DynamicIsland;
+			sourceTree = "<group>";
+		};
+		98F7E9B77D447D2BE17CF47F /* Music */ = {
+			isa = PBXGroup;
+			children = (
+				9C7AFE95E5357AA91652416E /* MusicCompactView.swift */,
+				3B865806A4D0FFE85E978051 /* MusicExpandedView.swift */,
+				FEE4834BD295EB20FB9229B2 /* MusicModule.swift */,
+			);
+			path = Music;
+			sourceTree = "<group>";
+		};
+		CDA5A1F50EFD1B75F6A48636 /* Modules */ = {
+			isa = PBXGroup;
+			children = (
+				98F7E9B77D447D2BE17CF47F /* Music */,
+			);
+			path = Modules;
+			sourceTree = "<group>";
+		};
+		D511A7F8090B0A6694851670 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				67C8025A1CEBF659764A187C /* AppDelegate.swift */,
+				6A7C68649A765931CF50EF54 /* DynamicIslandApp.swift */,
+				F4AFADCE39AFB8C13114293D /* StatusItemController.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		F19D6B971B572A9162221996 /* Shell */ = {
+			isa = PBXGroup;
+			children = (
+				A2E4BE27C6E8522736FD20DC /* IslandPanel.swift */,
+				E775CAB09504ED7041C6695F /* IslandPanelController.swift */,
+				E143B815936FD917219295B9 /* IslandShellView.swift */,
+				00188F081049C18B300DDFBC /* IslandShellViewModel.swift */,
+				F540D6C4715DC9FA9D6BD868 /* IslandState.swift */,
+			);
+			path = Shell;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0CC19FB4CD7CA4B5DE049B1C /* DynamicIsland */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 37B527515115C32BF53A4552 /* Build configuration list for PBXNativeTarget "DynamicIsland" */;
+			buildPhases = (
+				83F675404FCD26A43827D75C /* Sources */,
+				BB06F56062F8A125F602046C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DynamicIsland;
+			packageProductDependencies = (
+				0C31901C2192AE7072165C0C /* IslandCore */,
+			);
+			productName = DynamicIsland;
+			productReference = 8ED32FFC6B2F300C1FC7806B /* DynamicIsland.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		9381D094EE97C21810ADE8F2 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = DCBE24DB2E8EBA881ADCA701 /* Build configuration list for PBXProject "DynamicIsland" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 0DF09B016CC49109C6276F2F;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				3B51D1FC6CBC5344CAC49173 /* XCLocalSwiftPackageReference "Packages/IslandCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5DAEC5E551B6D6CE100739E3 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0CC19FB4CD7CA4B5DE049B1C /* DynamicIsland */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		83F675404FCD26A43827D75C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				923C66E748B66C6DDDC255E2 /* AppDelegate.swift in Sources */,
+				D7832A0D2638650FFD1F2AAA /* DynamicIslandApp.swift in Sources */,
+				8CCF91CE2BF7D2D883AD03E9 /* IslandPanel.swift in Sources */,
+				5539B68648FE6AFDAE7EE1A6 /* IslandPanelController.swift in Sources */,
+				9E299C9D3B8923F84BD7FD03 /* IslandShellView.swift in Sources */,
+				0647E70BECEBCF23AEB672C7 /* IslandShellViewModel.swift in Sources */,
+				E37EEC1AB1B36E6251E48AF8 /* IslandState.swift in Sources */,
+				F87180D673A70D2DC1BCB6A8 /* MusicCompactView.swift in Sources */,
+				EA2C325C202D8228455872E8 /* MusicExpandedView.swift in Sources */,
+				908F2B96882DB0354056CD2B /* MusicModule.swift in Sources */,
+				CC996F780B06D2592A06E043 /* StatusItemController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		5F782B2DDEE6FD42FD25A580 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AFD3092E9A008B3ADCBAC03A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "DynamicIsland/Supporting Files/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.dynamicisland.app;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		E76CBA71E6B4E9CF375F9971 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		EA3FCA8400A98EBF3AFADAF1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "DynamicIsland/Supporting Files/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.dynamicisland.app;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		37B527515115C32BF53A4552 /* Build configuration list for PBXNativeTarget "DynamicIsland" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EA3FCA8400A98EBF3AFADAF1 /* Debug */,
+				AFD3092E9A008B3ADCBAC03A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DCBE24DB2E8EBA881ADCA701 /* Build configuration list for PBXProject "DynamicIsland" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5F782B2DDEE6FD42FD25A580 /* Debug */,
+				E76CBA71E6B4E9CF375F9971 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		3B51D1FC6CBC5344CAC49173 /* XCLocalSwiftPackageReference "Packages/IslandCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/IslandCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0C31901C2192AE7072165C0C /* IslandCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = IslandCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 9381D094EE97C21810ADE8F2 /* Project object */;
+}
