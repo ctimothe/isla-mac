@@ -5,6 +5,42 @@ packages:
   IslandCore:
     path: Packages/IslandCore
 targets:
+  # Vendored from ungive/mediaremote-adapter (BSD-3-Clause, pinned commit in
+  # Vendor/mediaremote-adapter/VENDORED_COMMIT.txt). Upstream ships source only
+  # (no prebuilt binary release) — built here as a native Xcode framework
+  # target instead of shelling out to their CMake setup, using their exact
+  # unmodified source files and matching compiler/link settings.
+  # NOT linked into DynamicIsland — the vendored perl script loads it via
+  # dlopen at runtime from Resources/mediaremote-adapter, dynamic islands's
+  # own Swift code never calls into it directly.
+  MediaRemoteAdapter:
+    type: framework
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Vendor/mediaremote-adapter/include
+      - path: Vendor/mediaremote-adapter/src/adapter
+      - path: Vendor/mediaremote-adapter/src/private
+      - path: Vendor/mediaremote-adapter/src/utility
+    settings:
+      base:
+        PRODUCT_NAME: MediaRemoteAdapter
+        PRODUCT_BUNDLE_IDENTIFIER: com.vandenbe.MediaRemoteAdapter
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GCC_PREPROCESSOR_DEFINITIONS: "$(inherited)"
+        OTHER_CFLAGS: "-fobjc-arc -fvisibility=default"
+        DEFINES_MODULE: true
+        SKIP_INSTALL: true
+        GENERATE_INFOPLIST_FILE: true
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)/Vendor/mediaremote-adapter/src"
+          - "$(SRCROOT)/Vendor/mediaremote-adapter/include"
+    postBuildScripts:
+      - name: Ad-hoc sign (matches upstream CMakeLists.txt)
+        script: |
+          codesign --force --deep --sign - "$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME"
   DynamicIsland:
     type: application
     platform: macOS
@@ -15,6 +51,9 @@ targets:
           - "Supporting Files/**"
     dependencies:
       - package: IslandCore
+      - target: MediaRemoteAdapter
+        embed: false
+        link: false
     info:
       path: DynamicIsland/Supporting Files/Info.plist
       properties:
@@ -32,3 +71,13 @@ targets:
         # Non-sandboxed (locked decision: direct-download distribution).
         # No CODE_SIGN_ENTITLEMENTS — nothing to declare beyond the default
         # for a hardened-runtime, non-sandboxed app.
+    postCompileScripts:
+      - name: Vendor mediaremote-adapter into Resources
+        script: |
+          set -euo pipefail
+          DEST="$CONTENTS_FOLDER_PATH/Resources/mediaremote-adapter"
+          mkdir -p "$BUILT_PRODUCTS_DIR/$DEST"
+          cp -R "$BUILT_PRODUCTS_DIR/MediaRemoteAdapter.framework" "$BUILT_PRODUCTS_DIR/$DEST/"
+          cp "$SRCROOT/Vendor/mediaremote-adapter/bin/mediaremote-adapter.pl" "$BUILT_PRODUCTS_DIR/$DEST/"
+          cp "$SRCROOT/Vendor/mediaremote-adapter/LICENSE" "$BUILT_PRODUCTS_DIR/$DEST/LICENSE"
+          codesign --force --deep --sign - "$BUILT_PRODUCTS_DIR/$DEST/MediaRemoteAdapter.framework"
