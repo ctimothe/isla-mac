@@ -8,7 +8,7 @@ import EventKit
 /// just because the app launched.
 @MainActor
 final class CalendarStore: ObservableObject {
-    enum Access {
+    enum Access: Equatable {
         case notRequested
         case granted
         case denied
@@ -45,7 +45,8 @@ final class CalendarStore: ObservableObject {
     /// Recomputed on a timer so the countdown in the header stays honest.
     @Published private(set) var now = Date()
 
-    private let store = EKEventStore()
+    private let store: EKEventStore
+    private let authorization: CalendarAuthorizationClient
     private var timer: Timer?
     private var observer: Any?
     /// Whether the panel is open. The half-minute tick serves eyes only — it
@@ -56,6 +57,14 @@ final class CalendarStore: ObservableObject {
     /// when one wonders what tomorrow looks like. A week is still glanceable
     /// because only the next meeting gets the large treatment.
     private let horizon: TimeInterval = 7 * 24 * 3600
+
+    init(
+        store: EKEventStore = EKEventStore(),
+        authorization: CalendarAuthorizationClient? = nil
+    ) {
+        self.store = store
+        self.authorization = authorization ?? EventKitCalendarAuthorizationClient(store: store)
+    }
 
     var next: Meeting? {
         meetings.first { $0.end > Date() }
@@ -69,7 +78,7 @@ final class CalendarStore: ObservableObject {
     // MARK: - Lifecycle
 
     func start() {
-        access = Self.currentAccess()
+        access = currentAccess()
         guard access == .granted else { return }
         observe()
         reload()
@@ -96,7 +105,7 @@ final class CalendarStore: ObservableObject {
     /// Called when the calendar tab is shown. Never prompts — it only notices
     /// that access was granted elsewhere, or since last launch.
     func refreshAccess() {
-        access = Self.currentAccess()
+        access = currentAccess()
         guard access == .granted else { return }
         observe()
         reload()
@@ -105,13 +114,14 @@ final class CalendarStore: ObservableObject {
 
     /// Prompts. Only ever called from the button the user presses.
     func requestAccess() {
-        guard Self.currentAccess() == .notRequested else {
+        guard currentAccess() == .notRequested else {
             refreshAccess()
             return
         }
-        store.requestFullAccessToEvents { [weak self] granted, _ in
+        authorization.requestFullAccess { [weak self] result in
             Task { @MainActor in
                 guard let self else { return }
+                let granted = (try? result.get()) ?? false
                 self.access = granted ? .granted : .denied
                 guard granted else { return }
                 self.observe()
@@ -121,8 +131,8 @@ final class CalendarStore: ObservableObject {
         }
     }
 
-    private static func currentAccess() -> Access {
-        switch EKEventStore.authorizationStatus(for: .event) {
+    private func currentAccess() -> Access {
+        switch authorization.status {
         case .fullAccess: return .granted
         case .notDetermined: return .notRequested
         default: return .denied
