@@ -1,86 +1,81 @@
 #!/bin/bash
-# Выпуск версии: тег в гите и релиз на GitHub с приложенным образом.
-#
-# Номер берется из Scripts/version — единственного места, где он записан.
-# Оттуда же он попадает в Info.plist приложения и в имя .dmg, так что тег,
-# приложение и файл не могут разойтись: расходятся они молча, а замечается
-# это у того, кому образ отдали.
+# Explicit publishing path: verify, Developer ID sign, notarize, tag, then upload.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version")"
 TAG="v$VERSION"
 DMG="$ROOT/build/DynamicIsland-$VERSION.dmg"
+NOTES="$ROOT/docs/releases/$VERSION.md"
 
 cd "$ROOT"
 
 fail() { echo "!!! $1" >&2; exit 1; }
+require_env() { [ -n "${!1:-}" ] || fail "$1 is required"; }
 
-command -v gh >/dev/null || fail "нужен gh: brew install gh"
-gh auth status >/dev/null 2>&1 || fail "gh не авторизован: gh auth login"
+# A release points at a commit, never at an uncommitted local artifact.
+[ -z "$(git status --porcelain)" ] || fail "working tree is not clean"
+[ -s "$NOTES" ] || fail "release notes are required at docs/releases/$VERSION.md"
 
-# Тег указывает на коммит, а не на рабочее дерево. Если в дереве есть
-# несохраненное, тег будет указывать не на то, что собрано.
-[ -z "$(git status --porcelain)" ] || fail "есть несохраненные изменения — закоммить их сначала"
+command -v gh >/dev/null || fail "GitHub CLI is required: brew install gh"
+gh auth status >/dev/null 2>&1 || fail "GitHub CLI is not authenticated: gh auth login"
+command -v xcrun >/dev/null || fail "Xcode command-line tools are required"
+
+require_env DEVELOPER_ID_APPLICATION
+require_env APPLE_ID
+require_env APPLE_TEAM_ID
+require_env APPLE_APP_SPECIFIC_PASSWORD
+security find-identity -v -p codesigning | grep -F "$DEVELOPER_ID_APPLICATION" >/dev/null || \
+    fail "Developer ID Application identity is not installed in the keychain"
 
 git fetch --quiet origin
-[ -z "$(git rev-list @{u}..HEAD 2>/dev/null)" ] || fail "есть незапушенные коммиты — тег указывал бы на то, чего нет на GitHub"
-
+[ -z "$(git rev-list @{u}..HEAD 2>/dev/null)" ] || \
+    fail "unpushed commits would make the tag unavailable on GitHub"
 if git rev-parse "$TAG" >/dev/null 2>&1; then
-    fail "тег $TAG уже есть. Подними номер в Scripts/version"
+    fail "tag $TAG already exists; increment Scripts/version"
 fi
 
-# Заметки к релизу состоят из двух частей, и первую не напишет никто, кроме
-# человека. Список коммитов отвечает на вопрос "что изменилось в коде";
-# пришедший спрашивает "что мне это даст" — это разные ответы, и второй
-# автоматически не получается. Поэтому файл обязателен: если его нет, скрипт
-# заводит болванку и останавливается, вместо того чтобы выпустить версию,
-# о которой нечего сказать.
-NOTES="$ROOT/docs/releases/$VERSION.md"
-if [ ! -f "$NOTES" ]; then
-    mkdir -p "$(dirname "$NOTES")"
-    cat > "$NOTES" <<TEMPLATE
-Что нового в $VERSION — пара строк о том, что человек заметит, открыв
-приложение. Список коммитов допишется сам, повторять его здесь не нужно.
-TEMPLATE
-    fail "нет заметок к релизу. Завел $NOTES — впиши, что нового, и запусти снова"
-fi
+echo "==> local release gates"
+swift test
+bash Scripts/test-provenance.sh
+bash Scripts/test-branding.sh
+bash Scripts/test-localizations.sh
+bash Scripts/bundle.sh release
+bash Scripts/test-helper.sh
+bash Scripts/test-package.sh
+bash Scripts/dmg.sh
+[ -f "$DMG" ] || fail "disk image was not built: $DMG"
 
-cat <<'NOTE'
+echo "==> sign and notarize $DMG"
+codesign --force --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$DMG"
+xcrun notarytool submit "$DMG" \
+    --apple-id "$APPLE_ID" \
+    --team-id "$APPLE_TEAM_ID" \
+    --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+    --wait
+xcrun stapler staple "$DMG"
+xcrun stapler validate "$DMG"
 
-    Перед выпуском — docs/release-checklist.md. Две минуты руками; всё, что там,
-    сборка и CI не проверяют по своей природе.
-
-NOTE
-
-echo "==> сборка образа $VERSION"
-"$ROOT/Scripts/dmg.sh" >/dev/null
-[ -f "$DMG" ] || fail "образ не собрался: $DMG"
-
-echo "==> тег $TAG"
+echo "==> tag $TAG"
 git tag -a "$TAG" -m "Dynamic Island $VERSION"
 git push --quiet origin "$TAG"
 
-echo "==> релиз на GitHub"
-# Список коммитов берется у GitHub отдельным вызовом, а не флагом
-# --generate-notes: флаг заменил бы собой все тело, и человеческая часть в него
-# бы не попала. Так две части просто складываются в нужном порядке.
+echo "==> GitHub release"
 REPO="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')"
 PREVIOUS="$(git tag --sort=-v:refname | sed -n 2p)"
+GENERATE_ARGS=(-f "tag_name=$TAG")
+if [ -n "$PREVIOUS" ]; then
+    GENERATE_ARGS+=(-f "previous_tag_name=$PREVIOUS")
+fi
 GENERATED="$(gh api "repos/$REPO/releases/generate-notes" \
-    -f tag_name="$TAG" \
-    ${PREVIOUS:+-f previous_tag_name="$PREVIOUS"} \
-    --jq '.body' 2>/dev/null || echo "")"
+    "${GENERATE_ARGS[@]}" --jq '.body' 2>/dev/null || true)"
 
 BODY="$(mktemp)"
 trap 'rm -f "$BODY"' EXIT
-cat "$NOTES" > "$BODY"
-
-# Контрольная сумма в заметках — единственное, чем скачавший может проверить,
-# что у него тот самый файл. Образ подписан ad-hoc, без Developer ID, так что
-# подпись ему об этом не скажет: сумму приходится публиковать руками.
+cp "$NOTES" "$BODY"
 SUM="$(shasum -a 256 "$DMG" | cut -d' ' -f1)"
-printf '\n\n**SHA-256** `%s`\n\nПроверить: `shasum -a 256 DynamicIsland-%s.dmg`\n' "$SUM" "$VERSION" >> "$BODY"
+printf '\n\n**SHA-256** `%s`\n\nVerify with `shasum -a 256 DynamicIsland-%s.dmg`.\n' \
+    "$SUM" "$VERSION" >> "$BODY"
 [ -n "$GENERATED" ] && printf '\n\n---\n\n%s\n' "$GENERATED" >> "$BODY"
 
 gh release create "$TAG" "$DMG" \
@@ -88,14 +83,4 @@ gh release create "$TAG" "$DMG" \
     --notes-file "$BODY" \
     --latest
 
-echo "==> готово"
-gh release view "$TAG" --json url --jq '"    " + .url'
-
-if ! gh repo view --json visibility --jq '.visibility' | grep -qi public; then
-    cat <<'NOTE'
-
-    Репозиторий приватный, поэтому ссылка на релиз откроется только у тех,
-    у кого есть доступ к нему. Чтобы образ мог скачать кто угодно по ссылке,
-    репозиторий нужно сделать публичным.
-NOTE
-fi
+gh release view "$TAG" --json url --jq '"==> released: " + .url'

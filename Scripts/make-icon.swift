@@ -53,7 +53,7 @@ func bitmap(size: Int) -> NSBitmapImageRep {
         options: []
     )
 
-    // The hardware pill is a product cue, not Cyclop's eye motif.
+    // The hardware pill is a product cue, distinct from the upstream eye motif.
     context.setFillColor(CGColor(gray: 0.005, alpha: 1))
     context.addPath(capsule(CGRect(x: 347, y: 838, width: 330, height: 86)))
     context.fillPath()

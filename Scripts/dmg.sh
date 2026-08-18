@@ -14,6 +14,15 @@ DMG="$ROOT/build/DynamicIsland-$VERSION.dmg"
 # заметить это можно лишь запустив его.
 "$ROOT/Scripts/bundle.sh" release
 
+# Verify before producing the image, so a version mismatch cannot leave behind
+# a DMG whose filename advertises content it does not contain.
+INSIDE="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
+    "$APP/Contents/Info.plist" 2>/dev/null || echo "?")"
+if [ "$INSIDE" != "$VERSION" ]; then
+    echo "!!! в образе лежит версия $INSIDE, а имя обещает $VERSION" >&2
+    exit 1
+fi
+
 echo "==> раскладка образа"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
@@ -33,13 +42,6 @@ hdiutil create \
 SIZE="$(du -h "$DMG" | cut -f1 | tr -d ' ')"
 echo "==> готово: $DMG ($SIZE)"
 
-# Имя образа обещает версию, и обещание стоит проверить: расходятся они молча.
-INSIDE="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
-    "$APP/Contents/Info.plist" 2>/dev/null || echo "?")"
-if [ "$INSIDE" != "$VERSION" ]; then
-    echo "!!! в образе лежит версия $INSIDE, а имя обещает $VERSION" >&2
-    exit 1
-fi
 echo "==> версия внутри совпадает: $INSIDE"
 
 # Сказано здесь, потому что узнать это иначе можно только от человека, у

@@ -11,7 +11,7 @@
 # было — вызов за списком команд, вложенный в колбэк на той же последовательной
 # очереди, не возвращал ответ, и вкладка «Музыка» становилась мёртвой в релизе,
 # пройдя всю сборку зелёной.
-set -uo pipefail
+set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DYLIB="${1:-$ROOT/build/Dynamic Island.app/Contents/Resources/libdynamicislandmedia.dylib}"
@@ -23,15 +23,19 @@ fail() { echo "!!! $1" >&2; exit 1; }
 [ -x /usr/bin/perl ] || fail "нет /usr/bin/perl — хелперу негде запускаться"
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"; [ -n "${PERL_PID:-}" ] && kill "$PERL_PID" 2>/dev/null' EXIT
+trap 'rm -rf "$WORK"; [ -n "${HOLDER_PID:-}" ] && kill "$HOLDER_PID" 2>/dev/null; [ -n "${PERL_PID:-}" ] && kill "$PERL_PID" 2>/dev/null' EXIT
 
 FIFO="$WORK/in"
+CLOSE="$WORK/close"
 OUT="$WORK/out"
-mkfifo "$FIFO"
+mkfifo "$FIFO" "$CLOSE"
 
-# Держатель stdin посылает одну команду и закрывается через секунду. Хелпер
-# обязан ответить и завершить perl-хост вслед за закрытым каналом команд.
-( exec 3>"$FIFO"; echo "get" >&3; sleep 1; exec 3>&- ) &
+# Держатель stdin посылает одну команду и держит канал открытым весь допустимый
+# срок. Закрыть его просит основной поток только после проверки ответа: холодный
+# MediaRemote иногда отвечает дольше секунды, и прежний таймер сам убивал
+# корректный хелпер до истечения заявленного TIMEOUT.
+( exec 3>"$FIFO"; echo "get" >&3; read -r _ < "$CLOSE"; exec 3>&- ) &
+HOLDER_PID=$!
 
 /usr/bin/perl -e '
     use DynaLoader;
@@ -97,6 +101,9 @@ PY
 
 # Закрытый stdin — контракт жизненного цикла. Без этого perl-хост остаётся
 # сиротой после недоступного маршрута или завершения приложения.
+echo close > "$CLOSE"
+wait "$HOLDER_PID" 2>/dev/null
+HOLDER_PID=""
 for _ in $(seq 1 30); do
     ! kill -0 "$PERL_PID" 2>/dev/null && break
     sleep 0.1
