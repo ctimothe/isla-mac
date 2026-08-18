@@ -8,6 +8,7 @@ import ServiceManagement
 /// other than as a menu that grows a new row per feature.
 struct SettingsPane: View {
     @ObservedObject var shelf: ShelfStore
+    let screenshotVault: ScreenshotVault
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
@@ -31,14 +32,14 @@ struct SettingsPane: View {
                         isOn: saveClipboardImagesBinding
                     )
                     actionRow(symbol: "folder", title: localized("Show Screenshots Folder")) {
-                        ScreenshotVault.reveal()
+                        screenshotVault.reveal()
                     }
                     actionRow(
                         symbol: "trash",
                         title: clearTitle,
                         disabled: screenshotUsage.files == 0
                     ) {
-                        ScreenshotVault.clear()
+                        screenshotVault.clear()
                         shelf.load()
                         // The files were just deleted, so the cards have to go
                         // with them. Safe to look here: the vault lives in the
@@ -107,7 +108,7 @@ struct SettingsPane: View {
     /// big, and this is the thread the whole panel lives on (#11).
     private func refreshUsage() {
         DispatchQueue.global(qos: .userInitiated).async {
-            let usage = ScreenshotVault.usage()
+            let usage = screenshotVault.usage()
             DispatchQueue.main.async { screenshotUsage = usage }
         }
     }

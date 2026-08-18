@@ -28,10 +28,15 @@ final class ShelfStore: ObservableObject {
     @Published private(set) var selection: Set<UUID> = []
 
     private let defaultsKey = "shelf.urls"
+    private let defaults: UserDefaults
     /// Generous, because saved screenshots accumulate here and nothing is
     /// deleted behind the user's back. Cards past the limit leave the shelf,
     /// but their files stay in the folder.
     private let limit = 60
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     /// Rebuilds the cards from the stored paths without reading a single file.
     ///
@@ -52,7 +57,7 @@ final class ShelfStore: ObservableObject {
         // the ids it holds now name nothing. Kept, they showed as a phantom
         // "Selected: N" in the footer with no card marked (#10).
         selection.removeAll()
-        let paths = UserDefaults.standard.stringArray(forKey: defaultsKey) ?? []
+        let paths = defaults.stringArray(forKey: defaultsKey) ?? []
         items = paths
             .map(URL.init(fileURLWithPath:))
             .map { ShelfItem(url: $0, icon: Self.icon(forName: $0)) }
@@ -204,6 +209,6 @@ final class ShelfStore: ObservableObject {
     }
 
     private func persist() {
-        UserDefaults.standard.set(items.map(\.url.path), forKey: defaultsKey)
+        defaults.set(items.map(\.url.path), forKey: defaultsKey)
     }
 }
