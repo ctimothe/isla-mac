@@ -174,7 +174,7 @@ final class NotchController {
         // bar, and a pointer crossing the middle of it is usually on its way
         // somewhere else — unfolding the panel over what it was reaching for is
         // the whole complaint. Staying put is what asks for the panel.
-        pointer.openDelay = geometry.isPhysical ? 0.05 : 0.3
+        pointer.openDelay = NotchMetrics.openDelay
         pointer.isDragging = { [weak root] in root?.isReceivingDrag ?? false }
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
         pointer.onChange = { [weak self] inside in
@@ -364,4 +364,3 @@ final class NotchController {
             .insetBy(dx: open ? -Theme.openTopRadius : 0, dy: 0)
     }
 }
-

@@ -27,21 +27,21 @@ final class PointerWatcher {
 
     /// Short enough to feel immediate, long enough that a pointer sweeping
     /// across the top of the screen does not trigger the panel.
-    var openDelay: TimeInterval = 0.05
-    var closeDelay: TimeInterval = 0.32
+    var openDelay = NotchMetrics.openDelay
+    var closeDelay = NotchMetrics.closeDelay
 
     /// Band along the top of the screen that switches sampling to full rate.
     /// The pointer has to cross it to reach the notch, so the fast rate is
     /// always already running by the time hovering matters.
     var warmZone: CGRect = .zero
     /// Hysteresis: how far below the band the pointer must fall to cool down.
-    var coolMargin: CGFloat = 80
+    var coolMargin = NotchMetrics.coolMargin
     /// How long the pointer may stand still before sampling drops to the idle
     /// rate wherever it stands. Movement re-warms on the next idle tick.
-    var restThreshold: TimeInterval = 3
+    var restThreshold = NotchMetrics.restThreshold
 
-    private let fastInterval: TimeInterval = 1.0 / 60
-    private let idleInterval: TimeInterval = 1.0 / 8
+    private let fastInterval = NotchMetrics.fastPointerInterval
+    private let idleInterval = NotchMetrics.idlePointerInterval
 
     var onChange: ((Bool) -> Void)?
     var onInteractiveChange: ((Bool) -> Void)?
@@ -170,4 +170,3 @@ final class PointerWatcher {
         onChange?(inside)
     }
 }
-
