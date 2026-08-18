@@ -25,11 +25,12 @@ final class NoteStore: ObservableObject {
     /// choice survives the pane being unmounted with the panel.
     @Published var selected: Note.ID?
 
-    private static let file = Support.file("notes.json")
+    private let fileURL: URL
 
     private let saves = DebouncedWrite()
 
-    init() {
+    init(fileURL: URL = AppPaths.live.supportFile("notes.json")) {
+        self.fileURL = fileURL
         load()
     }
 
@@ -72,7 +73,7 @@ final class NoteStore: ObservableObject {
     // MARK: - Persistence
 
     private func load() {
-        guard let data = try? Data(contentsOf: Self.file),
+        guard let data = try? Data(contentsOf: fileURL),
               let stored = try? JSONDecoder().decode([Note].self, from: data) else { return }
         notes = stored
         selected = notes.first?.id
@@ -89,7 +90,7 @@ final class NoteStore: ObservableObject {
 
     private func persist() {
         do {
-            try JSONEncoder().encode(notes).write(to: Self.file, options: .atomic)
+            try JSONEncoder().encode(notes).write(to: fileURL, options: .atomic)
         } catch {
             NSLog("Dynamic Island: cannot write notes.json: \(error.localizedDescription)")
         }

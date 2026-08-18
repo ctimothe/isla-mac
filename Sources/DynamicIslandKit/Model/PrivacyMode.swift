@@ -50,8 +50,10 @@ final class PrivacyMode: ObservableObject {
     /// it and the camera is.
     @Published private(set) var revealed: Set<String> = []
 
-    init() {
-        let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         if let stored = defaults.array(forKey: Self.key) as? [String] {
             sections = Set(stored.compactMap(Section.init(rawValue:)))
         } else if defaults.bool(forKey: Self.legacyKey) {
@@ -83,10 +85,10 @@ final class PrivacyMode: ObservableObject {
     }
 
     private func persist() {
-        UserDefaults.standard.set(sections.map(\.rawValue).sorted(), forKey: Self.key)
+        defaults.set(sections.map(\.rawValue).sorted(), forKey: Self.key)
         // Kept in step so that rolling back to an older build finds the switch
         // where it left it, rather than off.
-        UserDefaults.standard.set(coversAny, forKey: Self.legacyKey)
+        defaults.set(coversAny, forKey: Self.legacyKey)
         if !coversAny { revealed.removeAll() }
     }
 

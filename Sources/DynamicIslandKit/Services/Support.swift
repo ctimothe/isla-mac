@@ -12,18 +12,16 @@ enum Support {
     /// `createDirectory` with `withIntermediateDirectories` is content to find
     /// the folder already there.
     static let folder: URL = {
-        let fm = FileManager.default
-        let url = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(ProductIdentity.supportDirectoryName, isDirectory: true)
-        try? fm.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+        let paths = AppPaths.live
+        try? paths.ensureSupportDirectory()
+        return paths.supportDirectory
     }()
 
     /// A file inside it, with the folder guaranteed to exist by the time the
     /// path is handed back — which is the only reason this is a function and
     /// not string concatenation at the call site.
     static func file(_ name: String) -> URL {
-        folder.appendingPathComponent(name)
+        AppPaths.live.supportFile(name)
     }
 
     /// A subfolder inside it, created the same way.
