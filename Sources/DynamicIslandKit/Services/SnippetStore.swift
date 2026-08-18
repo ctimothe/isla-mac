@@ -74,11 +74,25 @@ final class SnippetStore: ObservableObject {
     /// `{"label": "...", "text": "..."}`, where `label` may be left out.
     static let file = Support.file("snippets.json")
 
+    private let fileURL: URL
+    private let pasteboard: NSPasteboard
+    private let log: (String) -> Void
+
+    init(
+        fileURL: URL = AppPaths.live.supportFile("snippets.json"),
+        pasteboard: NSPasteboard = .general,
+        log: @escaping (String) -> Void = { NSLog("%@", $0) }
+    ) {
+        self.fileURL = fileURL
+        self.pasteboard = pasteboard
+        self.log = log
+    }
+
     /// Re-read on every visit to the tab. The file is edited from outside the
     /// app, so the only sensible moment to trust what is in memory is the
     /// moment before it is shown.
     func reload() {
-        guard let data = try? Data(contentsOf: Self.file) else {
+        guard let data = try? Data(contentsOf: fileURL) else {
             // No file is an honest empty list, and writing one is safe.
             items = []
             fileBroken = false
@@ -93,7 +107,7 @@ final class SnippetStore: ObservableObject {
             // say so: silence here is what used to turn a stray comma into a
             // lost file.
             fileBroken = true
-            NSLog("Dynamic Island: snippets.json is not readable: \(error.localizedDescription)")
+            log("Dynamic Island: snippets.json is not readable: \(error.localizedDescription)")
         }
     }
 
@@ -111,7 +125,7 @@ final class SnippetStore: ObservableObject {
         // dropped rather than kept in memory as if saved: pretending would
         // trade a visible refusal now for a silent loss at relaunch.
         guard !fileBroken else {
-            NSLog("Dynamic Island: refusing to write over an unreadable snippets.json")
+            log("Dynamic Island: refusing to write over an unreadable snippets.json")
             return
         }
         // Identity is the name, or the value when there is no name. Two rows
@@ -135,9 +149,9 @@ final class SnippetStore: ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
         do {
-            try encoder.encode(items).write(to: Self.file, options: .atomic)
+            try encoder.encode(items).write(to: fileURL, options: .atomic)
         } catch {
-            NSLog("Dynamic Island: cannot write snippets.json: \(error.localizedDescription)")
+            log("Dynamic Island: cannot write snippets.json: \(error.localizedDescription)")
         }
     }
 
@@ -147,7 +161,6 @@ final class SnippetStore: ObservableObject {
     /// asking for Accessibility, which this app is built not to do. Whatever
     /// was there is overwritten, and stays available in the clipboard tab.
     func copy(_ snippet: Snippet) {
-        let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(snippet.text, forType: .string)
     }
