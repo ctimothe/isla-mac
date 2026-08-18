@@ -5,20 +5,26 @@ import AppKit
 /// A screenshot taken to the clipboard exists only in memory: paste it once and
 /// it is gone. The vault writes it to disk so the shelf can hold on to it.
 /// Nothing here is ever deleted automatically — the folder is the user's.
-enum ScreenshotVault {
+struct ScreenshotVault {
+    private let paths: AppPaths
+
+    init(paths: AppPaths = .live) {
+        self.paths = paths
+    }
+
     /// `~/Pictures/DynamicIsland` when it can be created — it is findable, and unlike
     /// Desktop or Documents it is not behind a TCC prompt. Falls back to the
     /// app's own support folder, which always works.
-    static let folder: URL = {
+    private var folder: URL {
         let fm = FileManager.default
-        let pictures = fm.homeDirectoryForCurrentUser
-            .appendingPathComponent("Pictures", isDirectory: true)
-            .appendingPathComponent(ProductIdentity.screenshotDirectoryName, isDirectory: true)
+        let pictures = paths.screenshotDirectory
         if (try? fm.createDirectory(at: pictures, withIntermediateDirectories: true)) != nil {
             return pictures
         }
-        return Support.directory("Screenshots")
-    }()
+        let fallback = paths.supportDirectory.appendingPathComponent("Screenshots", isDirectory: true)
+        try? fm.createDirectory(at: fallback, withIntermediateDirectories: true)
+        return fallback
+    }
 
     private static let stamp: DateFormatter = {
         let formatter = DateFormatter()
@@ -27,8 +33,8 @@ enum ScreenshotVault {
         return formatter
     }()
 
-    static func save(_ png: Data, at date: Date = Date()) -> URL? {
-        let base = "\(localized("Screenshot")) \(stamp.string(from: date))"
+    func save(_ png: Data, at date: Date = Date()) -> URL? {
+        let base = "\(localized("Screenshot")) \(Self.stamp.string(from: date))"
         var url = folder.appendingPathComponent("\(base).png")
         // Two screenshots inside one second would otherwise collide.
         var attempt = 2
@@ -45,13 +51,13 @@ enum ScreenshotVault {
         }
     }
 
-    static func reveal() {
+    func reveal() {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: folder.path)
     }
 
     /// What the folder holds right now — for the menu item that offers to
     /// clear it, so the offer names its price.
-    static func usage() -> (files: Int, bytes: Int64) {
+    func usage() -> (files: Int, bytes: Int64) {
         let fm = FileManager.default
         guard let urls = try? fm.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
@@ -65,7 +71,7 @@ enum ScreenshotVault {
     /// To the Trash, not gone. The folder's promise is that nothing in it is
     /// ever deleted behind the user's back; the menu item is the user's own
     /// hand, and the Trash keeps even that reversible.
-    static func clear() {
+    func clear() {
         let fm = FileManager.default
         guard let urls = try? fm.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]

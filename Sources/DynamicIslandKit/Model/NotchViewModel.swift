@@ -105,6 +105,7 @@ final class NotchViewModel: ObservableObject {
     let media: MediaController
     let shelf: ShelfStore
     let clipboard: ClipboardStore
+    let screenshotVault: ScreenshotVault
     let calendar: CalendarStore
     let translator: Translator
     let snippets: SnippetStore
@@ -120,6 +121,7 @@ final class NotchViewModel: ObservableObject {
         self.media = MediaController()
         self.shelf = ShelfStore()
         self.clipboard = ClipboardStore()
+        self.screenshotVault = ScreenshotVault()
         self.calendar = CalendarStore()
         self.translator = Translator()
         self.snippets = SnippetStore()
@@ -219,7 +221,7 @@ final class NotchViewModel: ObservableObject {
         // exactly the machines whose owners turned the feature off.
         clipboard.wantsImages = { Self.saveClipboardImagesEnabled }
         clipboard.onImage = { [weak self] png in
-            guard let self, let url = ScreenshotVault.save(png) else { return }
+            guard let self, let url = self.screenshotVault.save(png) else { return }
             self.receivedScreenshot(at: url)
         }
         clipboard.start()
