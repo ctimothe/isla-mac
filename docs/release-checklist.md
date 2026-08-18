@@ -4,7 +4,7 @@
 - Measured implementation commit: `2a454aa154ae505e603073f65244427fcb711a88`
 - Tester/date: `Codex / 2026-08-18`
 - Mac/macOS: `Mac16,8 / macOS 26.5.2 (25F84)`
-- Artifact SHA-256: `8b0d40ae3a9cccd661fb4399d68b41157a1816e190ce49205da8303d884169c3`
+- Artifact SHA-256: `a70ddc5d93e8c4d1c81675ad129e24c88c6cdb5eb2e76caff89987a2131e8594`
 
 Complete the commands and manual flows in [runbook.md](runbook.md). Add a short
 result, evidence path, or issue link to every gate.
