@@ -203,7 +203,7 @@ private struct Rail: View {
 
     /// Long enough to swallow a pass-through, short enough that a deliberate
     /// hover still feels like it answered instantly.
-    private let dwell = Duration.milliseconds(150)
+    private let dwell = Duration.seconds(NotchMetrics.tabDwell)
 
     var body: some View {
         VStack(spacing: NotchGeometry.railSpacing) {

@@ -24,7 +24,7 @@ struct NotchGeometry {
     /// spread from one slider (#27). What differs between Macs lives in
     /// `railIconHeight` instead, which is the one thing in the body actually
     /// free to give.
-    let expandedSize = CGSize(width: 620, height: 208)
+    let expandedSize = NotchMetrics.standardBody
 
     /// Body for the teleprompter, the one tab that asks for more.
     ///
@@ -33,7 +33,7 @@ struct NotchGeometry {
     /// it. The height is the smallest that fits a paragraph at a size readable
     /// without focusing: below this the tab shows the current line and the next
     /// one, which is a countdown, not a script.
-    static let tallBodyHeight: CGFloat = 400
+    static let tallBodyHeight = NotchMetrics.teleprompterBody.height
     var tallExpandedSize: CGSize {
         CGSize(width: expandedSize.width, height: Self.tallBodyHeight)
     }
@@ -120,10 +120,12 @@ struct NotchGeometry {
     // MARK: - Derived frames
 
     var windowSize: CGSize {
-        CGSize(
+        let size = CGSize(
             width: expandedSize.width + windowPadding.left + windowPadding.right,
             height: maxBodyHeight + windowPadding.bottom
         )
+        assert(size == NotchMetrics.maximumWindow)
+        return size
     }
 
     /// Panel frame in global screen coordinates, flush with the top of the display.
@@ -192,9 +194,9 @@ struct NotchGeometry {
     var warmZone: CGRect {
         includingTopEdge(CGRect(
             x: screen.frame.minX,
-            y: screen.frame.maxY - 260,
+            y: screen.frame.maxY - NotchMetrics.warmZoneHeight,
             width: screen.frame.width,
-            height: 260
+            height: NotchMetrics.warmZoneHeight
         ))
     }
 
