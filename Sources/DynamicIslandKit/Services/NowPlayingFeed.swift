@@ -1,7 +1,7 @@
 import AppKit
 
 /// Runs the Now Playing helper inside `/usr/bin/perl` and turns its stdout into
-/// snapshots. See `Sources/CyclopMediaHelper/helper.m` for why perl is the host.
+/// snapshots. See `Sources/DynamicIslandMediaHelper/helper.m` for why perl is the host.
 @MainActor
 final class NowPlayingFeed {
     struct Snapshot {
@@ -52,7 +52,7 @@ final class NowPlayingFeed {
     private var stopped = false
 
     private var helperPath: String? {
-        Bundle.main.path(forResource: "libcyclopmedia", ofType: "dylib")
+        Bundle.main.path(forResource: ProductIdentity.helperResourceName, ofType: "dylib")
     }
 
     // MARK: - Lifecycle
@@ -103,7 +103,7 @@ final class NowPlayingFeed {
         do {
             try task.run()
         } catch {
-            NSLog("Cyclop: helper failed to launch: \(error.localizedDescription)")
+            NSLog("Dynamic Island: helper failed to launch: \(error.localizedDescription)")
             onUnavailable?()
             return
         }
@@ -139,7 +139,7 @@ final class NowPlayingFeed {
         do {
             try input.write(contentsOf: data)
         } catch {
-            NSLog("Cyclop: helper write failed: \(error.localizedDescription)")
+            NSLog("Dynamic Island: helper write failed: \(error.localizedDescription)")
         }
     }
 

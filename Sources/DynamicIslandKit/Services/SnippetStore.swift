@@ -70,7 +70,7 @@ final class SnippetStore: ObservableObject {
         return items.filter { $0.label.matches(needle) || $0.text.matches(needle) }
     }
 
-    /// `~/Library/Application Support/Cyclop/snippets.json`. A plain array of
+    /// `~/Library/Application Support/Dynamic Island/snippets.json`. A plain array of
     /// `{"label": "...", "text": "..."}`, where `label` may be left out.
     static let file = Support.file("snippets.json")
 
@@ -93,7 +93,7 @@ final class SnippetStore: ObservableObject {
             // say so: silence here is what used to turn a stray comma into a
             // lost file.
             fileBroken = true
-            NSLog("Cyclop: snippets.json is not readable: \(error.localizedDescription)")
+            NSLog("Dynamic Island: snippets.json is not readable: \(error.localizedDescription)")
         }
     }
 
@@ -111,7 +111,7 @@ final class SnippetStore: ObservableObject {
         // dropped rather than kept in memory as if saved: pretending would
         // trade a visible refusal now for a silent loss at relaunch.
         guard !fileBroken else {
-            NSLog("Cyclop: refusing to write over an unreadable snippets.json")
+            NSLog("Dynamic Island: refusing to write over an unreadable snippets.json")
             return
         }
         // Identity is the name, or the value when there is no name. Two rows
@@ -137,7 +137,7 @@ final class SnippetStore: ObservableObject {
         do {
             try encoder.encode(items).write(to: Self.file, options: .atomic)
         } catch {
-            NSLog("Cyclop: cannot write snippets.json: \(error.localizedDescription)")
+            NSLog("Dynamic Island: cannot write snippets.json: \(error.localizedDescription)")
         }
     }
 

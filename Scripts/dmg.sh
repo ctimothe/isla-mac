@@ -5,9 +5,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="$ROOT/build/Cyclop.app"
+APP="$ROOT/build/Dynamic Island.app"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" 2>/dev/null || echo 0.1.0)"
-DMG="$ROOT/build/Cyclop-$VERSION.dmg"
+DMG="$ROOT/build/DynamicIsland-$VERSION.dmg"
 
 # Всегда, а не только когда приложения нет. Иначе образ уносит то, что лежало в
 # build с прошлого раза: номер на образе новый, приложение внутри старое, и
@@ -17,13 +17,13 @@ DMG="$ROOT/build/Cyclop-$VERSION.dmg"
 echo "==> раскладка образа"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
-cp -R "$APP" "$STAGE/Cyclop.app"
+cp -R "$APP" "$STAGE/Dynamic Island.app"
 ln -s /Applications "$STAGE/Applications"
 
 echo "==> сборка $DMG"
 rm -f "$DMG"
 hdiutil create \
-    -volname "Cyclop $VERSION" \
+    -volname "Dynamic Island $VERSION" \
     -srcfolder "$STAGE" \
     -fs HFS+ \
     -format UDZO \

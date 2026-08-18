@@ -12,7 +12,7 @@
 // yields the full record: title, artist, album, duration, position, artwork.
 //
 // The helper prints one JSON object per line on stdout and takes commands on
-// stdin. It exits as soon as stdin closes, so it can never outlive Cyclop.
+// stdin. It exits as soon as stdin closes, so it can never outlive Dynamic Island.
 
 #import <Foundation/Foundation.h>
 #import <dlfcn.h>
@@ -189,7 +189,7 @@ static void handleCommand(NSString *line) {
 
 static void startFeed(void) {
     [NSThread detachNewThreadWithBlock:^{
-        sQueue = dispatch_queue_create("com.cyclop.mediaremote", DISPATCH_QUEUE_SERIAL);
+        sQueue = dispatch_queue_create("dev.dynamicisland.mediaremote", DISPATCH_QUEUE_SERIAL);
 
         void *handle = dlopen(kMediaRemotePath.UTF8String, RTLD_NOW);
         if (!handle) {
@@ -252,13 +252,13 @@ static void startCommandReader(void) {
                 if (line.length) handleCommand(line);
             }
         }
-        // Cyclop closed the pipe or went away.
+        // Dynamic Island closed the pipe or went away.
         exit(0);
     }];
 }
 
 __attribute__((constructor))
-static void cyclop_helper_init(void) {
+static void dynamic_island_helper_init(void) {
     startFeed();
     startCommandReader();
 }

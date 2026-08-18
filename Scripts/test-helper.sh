@@ -14,7 +14,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DYLIB="${1:-$ROOT/build/Cyclop.app/Contents/Resources/libcyclopmedia.dylib}"
+DYLIB="${1:-$ROOT/build/Dynamic Island.app/Contents/Resources/libdynamicislandmedia.dylib}"
 TIMEOUT="${TIMEOUT:-8}"
 
 fail() { echo "!!! $1" >&2; exit 1; }

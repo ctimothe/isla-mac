@@ -4,7 +4,7 @@ import EventKit
 /// Today's meetings, and the link that joins the next one.
 ///
 /// Access is requested only when the user first opens the calendar tab: it is
-/// the one permission Cyclop needs at all, and nobody should be asked for it
+/// the one permission Dynamic Island needs at all, and nobody should be asked for it
 /// just because the app launched.
 @MainActor
 final class CalendarStore: ObservableObject {
@@ -148,7 +148,7 @@ final class CalendarStore: ObservableObject {
         // hidden" and quietly puts the hidden calendars back on screen. Nobody
         // files that as a bug — they just see meetings that are not theirs.
         guard let disabled = stored as? [String: [String]] else {
-            NSLog("Cyclop: com.apple.iCal DisabledCalendars is no longer [String: [String]] — hidden calendars will be shown again")
+            NSLog("Dynamic Island: com.apple.iCal DisabledCalendars is no longer [String: [String]] — hidden calendars will be shown again")
             return []
         }
         return Set(disabled.values.flatMap { $0 })
@@ -267,7 +267,7 @@ final class CalendarStore: ObservableObject {
 }
 
 /// Whether the panel shows a calendar, kept apart from whether Calendar.app
-/// does (#36). A calendar Cyclop has never been asked about takes the answer
+/// does (#36). A calendar Dynamic Island has never been asked about takes the answer
 /// `hiddenCalendarIdentifiers()` already gives, so nothing changes for anyone
 /// who never opens the picker — but once picked here, that pick holds
 /// regardless of what the checkbox in Calendar.app does afterwards. Hiding a

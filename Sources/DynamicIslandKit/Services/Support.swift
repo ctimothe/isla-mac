@@ -1,6 +1,6 @@
 import Foundation
 
-/// `~/Library/Application Support/Cyclop` — where everything Cyclop keeps of
+/// `~/Library/Application Support/DynamicIsland` — where everything Dynamic Island keeps of
 /// its own lives.
 ///
 /// One place for the path, because four stores were each spelling out the same
@@ -14,7 +14,7 @@ enum Support {
     static let folder: URL = {
         let fm = FileManager.default
         let url = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Cyclop", isDirectory: true)
+            .appendingPathComponent(ProductIdentity.supportDirectoryName, isDirectory: true)
         try? fm.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }()

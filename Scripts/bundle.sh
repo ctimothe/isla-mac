@@ -1,34 +1,34 @@
 #!/bin/bash
-# Builds Cyclop.app without Xcode: SwiftPM produces the binary, this script
+# Builds Dynamic Island.app without Xcode: SwiftPM produces the binary, this script
 # assembles the bundle around it and ad-hoc signs it.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${1:-release}"
-APP="$ROOT/build/Cyclop.app"
+APP="$ROOT/build/Dynamic Island.app"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" 2>/dev/null || echo 0.1.0)"
 
 echo "==> swift build -c $CONFIG"
 swift build -c "$CONFIG" --package-path "$ROOT"
-BIN="$(swift build -c "$CONFIG" --package-path "$ROOT" --show-bin-path)/Cyclop"
+BIN="$(swift build -c "$CONFIG" --package-path "$ROOT" --show-bin-path)/DynamicIsland"
 
 echo "==> assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/Cyclop"
+cp "$BIN" "$APP/Contents/MacOS/DynamicIsland"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Cyclop</string>
+    <key>CFBundleName</key><string>Dynamic Island</string>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleLocalizations</key>
     <array><string>en</string><string>ru</string></array>
-    <key>CFBundleDisplayName</key><string>Cyclop</string>
-    <key>CFBundleIdentifier</key><string>com.cyclop.app</string>
-    <key>CFBundleExecutable</key><string>Cyclop</string>
+    <key>CFBundleDisplayName</key><string>Dynamic Island</string>
+    <key>CFBundleIdentifier</key><string>dev.dynamicisland.app</string>
+    <key>CFBundleExecutable</key><string>DynamicIsland</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
@@ -39,11 +39,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSSupportsAutomaticTermination</key><false/>
     <key>NSSupportsSuddenTermination</key><false/>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Cyclop читает название текущего трека и управляет воспроизведением в Apple Music и Spotify.</string>
+    <string>Dynamic Island reads the current track and controls Music or Spotify when its primary media route is unavailable.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
-    <string>Cyclop показывает ближайшие встречи и кнопку подключения к ним.</string>
+    <string>Dynamic Island shows upcoming meetings and their join buttons.</string>
     <key>NSCalendarsUsageDescription</key>
-    <string>Cyclop показывает ближайшие встречи и кнопку подключения к ним.</string>
+    <string>Dynamic Island shows upcoming meetings and their join buttons.</string>
     <key>NSHumanReadableCopyright</key><string>MIT License</string>
 </dict>
 </plist>
@@ -69,8 +69,8 @@ echo "==> building Now Playing helper"
 clang -dynamiclib -fobjc-arc -O2 \
     -mmacosx-version-min=15.0 \
     -framework Foundation \
-    -o "$APP/Contents/Resources/libcyclopmedia.dylib" \
-    "$ROOT/Sources/CyclopMediaHelper/helper.m"
+    -o "$APP/Contents/Resources/libdynamicislandmedia.dylib" \
+    "$ROOT/Sources/DynamicIslandMediaHelper/helper.m"
 
 echo "==> ad-hoc signing"
 # Расширенные атрибуты снимаются первыми. iCloud вешает на файлы

@@ -143,7 +143,7 @@ final class TeleprompterStore: ObservableObject {
         do {
             try script.write(to: Self.file, atomically: true, encoding: .utf8)
         } catch {
-            NSLog("Cyclop: cannot write teleprompter.txt: \(error.localizedDescription)")
+            NSLog("Dynamic Island: cannot write teleprompter.txt: \(error.localizedDescription)")
         }
     }
 

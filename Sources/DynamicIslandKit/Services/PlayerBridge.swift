@@ -47,7 +47,7 @@ struct PlayerState {
 }
 
 enum PlayerBridge {
-    private static let queue = DispatchQueue(label: "com.cyclop.applescript", qos: .utility)
+    private static let queue = DispatchQueue(label: "dev.dynamicisland.applescript", qos: .utility)
 
     // MARK: - State
 
@@ -221,7 +221,7 @@ enum PlayerBridge {
             var error: NSDictionary?
             let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
             if let error, let code = error[NSAppleScript.errorNumber] as? Int, code != 0 {
-                NSLog("Cyclop: AppleScript error \(code): \(error[NSAppleScript.errorMessage] ?? "")")
+                NSLog("Dynamic Island: AppleScript error \(code): \(error[NSAppleScript.errorMessage] ?? "")")
             }
             DispatchQueue.main.async { completion(result) }
         }
