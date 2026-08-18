@@ -233,6 +233,7 @@ final class NotchViewModel: ObservableObject {
         calendar.stop()
         // Whatever was typed makes it to disk even when quitting mid-thought.
         notes.flush()
+        teleprompter.flush()
     }
 
     /// A screenshot that arrived on its own — copied elsewhere, or synced
