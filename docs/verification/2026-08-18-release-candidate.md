@@ -18,7 +18,7 @@ remain blocking release gates.
 - Synthetic display: unavailable; no external/non-notch display connected
 - Measured implementation commit: `2a454aa154ae505e603073f65244427fcb711a88`
 - Cyclop reference commit: `7ab60c8198681ea6c895fa55458448efb6e4c36e`
-- DMG SHA-256: `8b0d40ae3a9cccd661fb4399d68b41157a1816e190ce49205da8303d884169c3`
+- DMG SHA-256: `a70ddc5d93e8c4d1c81675ad129e24c88c6cdb5eb2e76caff89987a2131e8594`
 
 ## Automated gates
 
