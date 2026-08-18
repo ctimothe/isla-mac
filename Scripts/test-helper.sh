@@ -29,9 +29,9 @@ FIFO="$WORK/in"
 OUT="$WORK/out"
 mkfifo "$FIFO"
 
-# Держатель stdin: закрыться он должен позже, чем хелпер успеет ответить, иначе
-# perl увидит конец ввода и выйдет раньше, чем придёт строка.
-( exec 3>"$FIFO"; sleep 1; echo "get" >&3; sleep "$TIMEOUT"; exec 3>&- ) &
+# Держатель stdin посылает одну команду и закрывается через секунду. Хелпер
+# обязан ответить и завершить perl-хост вслед за закрытым каналом команд.
+( exec 3>"$FIFO"; echo "get" >&3; sleep 1; exec 3>&- ) &
 
 /usr/bin/perl -e '
     use DynaLoader;
@@ -46,9 +46,6 @@ for _ in $(seq 1 $((TIMEOUT * 10))); do
     [ -s "$OUT" ] && break
     sleep 0.1
 done
-kill "$PERL_PID" 2>/dev/null
-wait "$PERL_PID" 2>/dev/null
-PERL_PID=""
 
 [ -s "$OUT" ] || fail "хелпер не ответил ни одной строкой за ${TIMEOUT}с — лента молчит"
 
@@ -97,3 +94,16 @@ if "commands" in payload:
 title = payload["title"] or "—"
 print(f"  ✓ хелпер ответил снимком (playing={payload['playing']}, трек: {title[:40]}{extra})")
 PY
+
+# Закрытый stdin — контракт жизненного цикла. Без этого perl-хост остаётся
+# сиротой после недоступного маршрута или завершения приложения.
+for _ in $(seq 1 30); do
+    ! kill -0 "$PERL_PID" 2>/dev/null && break
+    sleep 0.1
+done
+if kill -0 "$PERL_PID" 2>/dev/null; then
+    fail "хелпер не завершился за 3с после закрытия stdin"
+fi
+wait "$PERL_PID" 2>/dev/null
+PERL_PID=""
+echo "  ✓ хелпер завершился после закрытия stdin"
