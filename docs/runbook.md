@@ -135,7 +135,7 @@ Build the pinned reference and product, then run:
 ```bash
 bash Scripts/build-reference.sh
 bash Scripts/measure-performance.sh \
-  ".parity/Cyclop-0.6.5.app" \
+  "build/reference/Cyclop.app" \
   "build/Dynamic Island.app" \
   "docs/performance/2026-08-18-cyclop-0.6.5-baseline.md"
 ```
