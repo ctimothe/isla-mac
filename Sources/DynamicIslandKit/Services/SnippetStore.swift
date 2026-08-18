@@ -70,10 +70,6 @@ final class SnippetStore: ObservableObject {
         return items.filter { $0.label.matches(needle) || $0.text.matches(needle) }
     }
 
-    /// `~/Library/Application Support/Dynamic Island/snippets.json`. A plain array of
-    /// `{"label": "...", "text": "..."}`, where `label` may be left out.
-    static let file = Support.file("snippets.json")
-
     private let fileURL: URL
     private let pasteboard: NSPasteboard
     private let log: (String) -> Void
@@ -169,11 +165,11 @@ final class SnippetStore: ObservableObject {
     /// nothing opens, nothing errors. Before the first snippet is added there
     /// is nothing to select, so an empty list is written first: the same
     /// state `reload()` already treats as a valid, empty file.
-    static func reveal() {
-        if !FileManager.default.fileExists(atPath: file.path) {
-            try? Data("[]".utf8).write(to: file)
+    func reveal() {
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            try? Data("[]".utf8).write(to: fileURL)
         }
-        NSWorkspace.shared.activateFileViewerSelecting([file])
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
     }
 }
 

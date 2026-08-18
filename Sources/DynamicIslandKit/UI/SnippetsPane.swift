@@ -94,7 +94,7 @@ struct SnippetsPane: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .onTapGesture { SnippetStore.reveal() }
+        .onTapGesture { snippets.reveal() }
     }
 
     // MARK: - Adding

@@ -57,15 +57,19 @@ final class TeleprompterStore: ObservableObject {
 
     private static let speedKey = "teleprompter.speed"
     private static let fontKey = "teleprompter.fontSize"
-    private let defaults = UserDefaults.standard
-
-    private static let file = Support.file("teleprompter.txt")
+    private let defaults: UserDefaults
+    private let fileURL: URL
 
     private var timer: Timer?
     private let saves = DebouncedWrite()
 
-    init() {
-        script = (try? String(contentsOf: Self.file, encoding: .utf8)) ?? ""
+    init(
+        fileURL: URL = AppPaths.live.supportFile("teleprompter.txt"),
+        defaults: UserDefaults = .standard
+    ) {
+        self.fileURL = fileURL
+        self.defaults = defaults
+        script = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
         // Reading the file above went through `script`'s observer and armed a
         // save of what was just loaded. Harmless, but worth not doing.
         saves.cancel()
@@ -141,16 +145,16 @@ final class TeleprompterStore: ObservableObject {
 
     private func persist() {
         do {
-            try script.write(to: Self.file, atomically: true, encoding: .utf8)
+            try script.write(to: fileURL, atomically: true, encoding: .utf8)
         } catch {
             NSLog("Dynamic Island: cannot write teleprompter.txt: \(error.localizedDescription)")
         }
     }
 
-    static func reveal() {
-        if !FileManager.default.fileExists(atPath: file.path) {
-            try? "".write(to: file, atomically: true, encoding: .utf8)
+    func reveal() {
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            try? "".write(to: fileURL, atomically: true, encoding: .utf8)
         }
-        NSWorkspace.shared.activateFileViewerSelecting([file])
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
     }
 }

@@ -9,6 +9,7 @@ import ServiceManagement
 struct SettingsPane: View {
     @ObservedObject var shelf: ShelfStore
     let screenshotVault: ScreenshotVault
+    let snippets: SnippetStore
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
@@ -51,7 +52,7 @@ struct SettingsPane: View {
 
                 section(localized("Snippets")) {
                     actionRow(symbol: "doc.text", title: localized("Show Snippets File")) {
-                        SnippetStore.reveal()
+                        snippets.reveal()
                     }
                 }
             }
