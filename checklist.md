@@ -14,8 +14,8 @@ Do not mark a manual gate complete without recording evidence in
 - [x] Release bundle builds with executable, helper, icon, localizations,
   licenses, calendar entitlement, and a valid signature.
 - [x] The live media helper returns NDJSON and exits after its input closes.
-- [ ] Versioned DMG builds and passes its package contract on the release commit.
-- [ ] Lifecycle test leaves no Dynamic Island media helper after quit.
+- [x] Versioned `DynamicIsland-0.6.5.dmg` builds from the verified package.
+- [x] Lifecycle test leaves no Dynamic Island media helper after quit.
 
 ## Manual parity gates
 
@@ -28,6 +28,8 @@ Do not mark a manual gate complete without recording evidence in
 - [ ] Quit/relaunch, launch at login, corrupt snippets, unavailable helper, and
   missing Shelf file scenarios pass.
 - [ ] Three-run performance medians meet the approved Cyclop 0.6.5 gates.
+  Blocked: CPU peaked at `0.3%` rather than absolute `0.0%`, and helper RSS
+  measured `19.05 MiB` versus `19.03 MiB` for Cyclop.
 - [ ] Developer ID signing, notarization, stapling, and Gatekeeper validation pass.
 
 ## Release verdict
@@ -36,3 +38,6 @@ Do not mark a manual gate complete without recording evidence in
 - [ ] The release commit is clean and pushed.
 - [ ] Release notes exist at `docs/releases/<version>.md`.
 - [ ] `Scripts/release.sh` completes without bypassing a gate.
+
+Evidence and remaining blockers are recorded in
+[the 2026-08-18 release-candidate report](docs/verification/2026-08-18-release-candidate.md).

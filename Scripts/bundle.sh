@@ -80,6 +80,12 @@ clang -dynamiclib -fobjc-arc -O2 \
     -o "$APP/Contents/Resources/libdynamicislandmedia.dylib" \
     "$ROOT/Sources/DynamicIslandMediaHelper/helper.m"
 
+# SwiftPM's release executable still contains local symbols. They add more than
+# the entire UI payload to a direct-download bundle and have no runtime value;
+# strip before signing, because changing a Mach-O afterwards invalidates it.
+echo "==> stripping release symbols"
+strip -x "$APP/Contents/MacOS/DynamicIsland"
+
 SIGN_IDENTITY="${DEVELOPER_ID_APPLICATION:--}"
 if [ "$SIGN_IDENTITY" = "-" ]; then
     echo "==> ad-hoc signing"
