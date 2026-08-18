@@ -14,6 +14,9 @@ trap '[ -n "$APP_PID" ] && kill "$APP_PID" 2>/dev/null || true' EXIT
 
 "$BINARY" >/dev/null 2>&1 &
 APP_PID=$!
+# The process is tracked by PID below. Removing it from Bash's job table keeps
+# the expected SIGTERM from printing a misleading `Terminated: 15` diagnostic.
+disown "$APP_PID" 2>/dev/null || true
 for _ in $(seq 1 50); do
     kill -0 "$APP_PID" 2>/dev/null && break
     sleep 0.1
@@ -36,7 +39,6 @@ if kill -0 "$APP_PID" 2>/dev/null; then
     echo "Dynamic Island did not terminate within 5 seconds" >&2
     exit 1
 fi
-wait "$APP_PID" 2>/dev/null || true
 APP_PID=""
 
 for _ in $(seq 1 50); do
