@@ -113,7 +113,7 @@ final class ClipboardStore: ObservableObject {
         guard pasteboard.availableType(from: optOut) == nil else { return }
         // Our own write — copying a screenshot back out of the shelf must not
         // save it to disk all over again.
-        guard pasteboard.data(forType: .cyclopInternal) == nil else { return }
+        guard pasteboard.data(forType: .dynamicIslandInternal) == nil else { return }
 
         // A copied file arrives as a URL, not as image data, so URLs win first.
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]

@@ -23,14 +23,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(
-            systemSymbolName: "eye.fill",
-            accessibilityDescription: "Cyclop"
+            systemSymbolName: ProductIdentity.statusSymbolName,
+            accessibilityDescription: ProductIdentity.displayName
         )
         item.button?.image?.isTemplate = true
 
         let menu = NSMenu()
         menu.delegate = self
-        menu.addItem(withTitle: "Cyclop \(Bundle.main.shortVersion)", action: nil, keyEquivalent: "")
+        menu.addItem(
+            withTitle: "\(ProductIdentity.displayName) \(Bundle.main.shortVersion)",
+            action: nil,
+            keyEquivalent: ""
+        )
         menu.addItem(.separator())
 
         let toggle = NSMenuItem(
@@ -133,4 +137,3 @@ extension Bundle {
         (infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
     }
 }
-

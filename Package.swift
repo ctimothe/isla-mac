@@ -2,17 +2,27 @@
 import PackageDescription
 
 let package = Package(
-    name: "Cyclop",
-    // macOS 15 for Translation.framework, which the translate tab runs on.
+    name: "DynamicIsland",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "Cyclop", targets: ["Cyclop"])
+        .executable(name: "DynamicIsland", targets: ["DynamicIsland"]),
     ],
     targets: [
-        .executableTarget(
-            name: "Cyclop",
-            path: "Sources/Cyclop",
+        .target(
+            name: "DynamicIslandKit",
+            path: "Sources/DynamicIslandKit",
             swiftSettings: [.swiftLanguageMode(.v5)]
-        )
+        ),
+        .executableTarget(
+            name: "DynamicIsland",
+            dependencies: ["DynamicIslandKit"],
+            path: "Sources/DynamicIsland",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "DynamicIslandKitTests",
+            dependencies: ["DynamicIslandKit"],
+            path: "Tests/DynamicIslandKitTests"
+        ),
     ]
 )

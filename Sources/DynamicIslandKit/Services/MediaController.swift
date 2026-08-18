@@ -200,7 +200,7 @@ final class MediaController: ObservableObject {
         // drives both skip — so the arrows come back rather than staying dim
         // on a state no longer being refreshed.
         canSkip = true
-        NSLog("Cyclop: Now Playing helper unavailable, falling back to Music/Spotify scripting")
+        NSLog("Dynamic Island: Now Playing helper unavailable, falling back to Music/Spotify scripting")
 
         let center = DistributedNotificationCenter.default()
         for app in PlayerApp.allCases {

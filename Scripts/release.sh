@@ -10,7 +10,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version")"
 TAG="v$VERSION"
-DMG="$ROOT/build/Cyclop-$VERSION.dmg"
+DMG="$ROOT/build/DynamicIsland-$VERSION.dmg"
 
 cd "$ROOT"
 
@@ -58,7 +58,7 @@ echo "==> сборка образа $VERSION"
 [ -f "$DMG" ] || fail "образ не собрался: $DMG"
 
 echo "==> тег $TAG"
-git tag -a "$TAG" -m "Cyclop $VERSION"
+git tag -a "$TAG" -m "Dynamic Island $VERSION"
 git push --quiet origin "$TAG"
 
 echo "==> релиз на GitHub"
@@ -80,11 +80,11 @@ cat "$NOTES" > "$BODY"
 # что у него тот самый файл. Образ подписан ad-hoc, без Developer ID, так что
 # подпись ему об этом не скажет: сумму приходится публиковать руками.
 SUM="$(shasum -a 256 "$DMG" | cut -d' ' -f1)"
-printf '\n\n**SHA-256** `%s`\n\nПроверить: `shasum -a 256 Cyclop-%s.dmg`\n' "$SUM" "$VERSION" >> "$BODY"
+printf '\n\n**SHA-256** `%s`\n\nПроверить: `shasum -a 256 DynamicIsland-%s.dmg`\n' "$SUM" "$VERSION" >> "$BODY"
 [ -n "$GENERATED" ] && printf '\n\n---\n\n%s\n' "$GENERATED" >> "$BODY"
 
 gh release create "$TAG" "$DMG" \
-    --title "Cyclop $VERSION" \
+    --title "Dynamic Island $VERSION" \
     --notes-file "$BODY" \
     --latest
 

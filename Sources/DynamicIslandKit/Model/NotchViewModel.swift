@@ -58,7 +58,7 @@ final class NotchViewModel: ObservableObject {
         didSet {
             // Opening the tab only re-checks the status. The permission prompt
             // is the user's own press on the button inside the pane: this is
-            // the one permission Cyclop asks for at all, and it deserves an
+            // the one permission Dynamic Island asks for at all, and it deserves an
             // explanation before the system dialog, not after.
             if tab == .calendar { calendar.refreshAccess() }
             // The snippets file is edited from outside the app, so it is read
