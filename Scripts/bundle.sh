@@ -8,6 +8,9 @@ CONFIG="${1:-release}"
 APP="$ROOT/build/Dynamic Island.app"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" 2>/dev/null || echo 0.1.0)"
 
+echo "==> generating original app icon"
+swift "$ROOT/Scripts/make-icon.swift" "$ROOT/Resources/AppIcon.icns"
+
 echo "==> swift build -c $CONFIG"
 swift build -c "$CONFIG" --package-path "$ROOT"
 BIN="$(swift build -c "$CONFIG" --package-path "$ROOT" --show-bin-path)/DynamicIsland"
@@ -53,6 +56,11 @@ if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
     cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
 
+echo "==> licenses and notices"
+mkdir -p "$APP/Contents/Resources/Licenses"
+cp "$ROOT/LICENSE" "$APP/Contents/Resources/Licenses/LICENSE"
+cp "$ROOT/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.md"
+
 # Таблицы строк кладутся прямо в бандл, а не через ресурсы SwiftPM: бандл здесь
 # собирается вручную, и .lproj рядом с исполняемым файлом — то, где их ищет сама
 # macOS. Язык она выбирает потом сама, по списку предпочитаемых у пользователя.
@@ -72,7 +80,18 @@ clang -dynamiclib -fobjc-arc -O2 \
     -o "$APP/Contents/Resources/libdynamicislandmedia.dylib" \
     "$ROOT/Sources/DynamicIslandMediaHelper/helper.m"
 
-echo "==> ad-hoc signing"
+SIGN_IDENTITY="${DEVELOPER_ID_APPLICATION:--}"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+    echo "==> ad-hoc signing"
+    SIGN_ARGS=(--force --deep --entitlements "$ROOT/Resources/DynamicIsland.entitlements" --sign -)
+else
+    echo "==> Developer ID signing: $SIGN_IDENTITY"
+    SIGN_ARGS=(
+        --force --deep --options runtime --timestamp
+        --entitlements "$ROOT/Resources/DynamicIsland.entitlements"
+        --sign "$SIGN_IDENTITY"
+    )
+fi
 # Расширенные атрибуты снимаются первыми. iCloud вешает на файлы
 # com.apple.FinderInfo, а codesign отказывается подписывать что-либо с ним —
 # «resource fork, Finder information, or similar detritus not allowed». Папка
@@ -85,7 +104,7 @@ xattr -cr "$APP"
 # бандл, про который codesign говорит «code object is not signed at all».
 # Заметить это можно было только по возвращающимся запросам TCC — то есть у
 # того, кто уже поставил приложение.
-codesign --force --deep --sign - "$APP" || {
+codesign "${SIGN_ARGS[@]}" "$APP" || {
     echo "!!! codesign не смог подписать бандл — см. вывод выше" >&2
     exit 1
 }
