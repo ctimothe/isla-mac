@@ -200,9 +200,13 @@ static void handleCommand(NSString *line) {
             publish();
         });
     } else if ([line hasPrefix:@"seek "]) {
-        double seconds = [line substringFromIndex:5].doubleValue;
-        sendCommandToPlayer(MRCommandSeekToPlaybackPosition, @{@"kMRMediaRemoteOptionPlaybackPosition": @(seconds)}, 0);
-        publish();
+        NSArray<NSString *> *parts = [line componentsSeparatedByString:@" "];
+        double seconds = parts.count > 1 ? parts[1].doubleValue : 0;
+        int playerPID = parts.count > 2 ? parts[2].intValue : 0;
+        dispatch_async(sQueue, ^{
+            sendCommandToPlayer(MRCommandSeekToPlaybackPosition, @{@"kMRMediaRemoteOptionPlaybackPosition": @(seconds)}, playerPID);
+            publish();
+        });
     }
 }
 
