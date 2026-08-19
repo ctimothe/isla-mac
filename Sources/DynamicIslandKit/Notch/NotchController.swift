@@ -85,8 +85,13 @@ final class NotchController {
 
     func toggle() {
         guard let viewModel else { return }
-        setOpen(!viewModel.isOpen)
-        pointer.setInside(viewModel.isOpen)
+        // `setOpen`'s close path defers the `isOpen` mutation to the next run
+        // loop pass, so reading `viewModel.isOpen` right after calling it would
+        // read the stale, pre-close value. Capture the intended target state
+        // once, up front, and use that for both calls.
+        let opening = !viewModel.isOpen
+        setOpen(opening)
+        pointer.setInside(opening)
     }
 
     // MARK: - Construction
@@ -163,7 +168,7 @@ final class NotchController {
 
         applyActiveRect(open: false)
 
-        pointer.openRect = geometry.hoverRect
+        pointer.openRect = geometry.collapsedHoverRect(for: vm.bodySize.width)
         pointer.warmZone = geometry.warmZone
         // Cut for the tab that will be showing, not for the standard body: a
         // rebuild restores the previous tab, and the teleprompter reaches
@@ -206,6 +211,17 @@ final class NotchController {
                     // while the property is still being set.
                     DispatchQueue.main.async { self.refreshOpenRects() }
                 }
+            }
+            .store(in: &cancellables)
+
+        // A track appearing or disappearing changes the collapsed shell's
+        // width. Re-cut both pointer and hit-test regions after @Published has
+        // committed the new value, without disturbing an already open panel.
+        vm.media.$track
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshCollapsedRects() }
             }
             .store(in: &cancellables)
 
@@ -342,6 +358,11 @@ final class NotchController {
         pointer.closeRect = vm.geometry.hoverRect(for: vm.openBodySize)
     }
 
+    private func refreshCollapsedRects() {
+        guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted else { return }
+        applyActiveRect(open: false)
+    }
+
     private func applyActiveRect(open: Bool) {
         guard let vm = viewModel, let rootView else { return }
         // Collapsed, the panel claims only its target strip — on a synthetic
@@ -350,7 +371,16 @@ final class NotchController {
         // The open size is the current tab's, not a constant: the teleprompter
         // is taller, and a rect cut for 208 would leave the bottom half of it
         // visible but untouchable.
-        let size = open ? vm.openBodySize : vm.geometry.collapsedSize
+        let size: CGSize
+        if open {
+            size = vm.openBodySize
+        } else {
+            // A synthetic notch still claims only the top strip so menu-bar
+            // items underneath remain clickable, but the strip spans the full
+            // width of the visible compact activity.
+            size = CGSize(width: vm.bodySize.width, height: vm.geometry.collapsedDepth)
+            pointer.openRect = vm.geometry.collapsedHoverRect(for: vm.bodySize.width)
+        }
         var rect = vm.geometry.contentRect(for: size)
         if open {
             // Slack so the concave shoulders stay grabbable. Never while
