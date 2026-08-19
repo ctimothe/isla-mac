@@ -30,6 +30,7 @@ final class MediaController: ObservableObject {
 
     private let feed = NowPlayingFeed()
     private var feedAvailable = true
+    private var displayedPlayerPID: pid_t?
 
     private var activeApp: PlayerApp?
     private var artworkKey: String?
@@ -112,7 +113,7 @@ final class MediaController: ObservableObject {
         key: PlayerBridge.MediaKey
     ) {
         if feedAvailable {
-            feed.send(command)
+            feed.send(command, playerPID: displayedPlayerPID)
         } else if let activeApp {
             script(activeApp)
         } else {
@@ -130,6 +131,7 @@ final class MediaController: ObservableObject {
         isPlaying = snapshot.isPlaying || snapshot.rate > 0
         duration = snapshot.duration
         sourceName = snapshot.source
+        displayedPlayerPID = snapshot.playerPID
         // Both directions travel together: no player has ever offered one
         // without the other, and two separately dimmed arrows would read as
         // a glitch rather than a limit.
@@ -187,6 +189,7 @@ final class MediaController: ObservableObject {
         duration = 0
         position = 0
         sourceName = nil
+        displayedPlayerPID = nil
         canSkip = true
         updateTicker()
     }

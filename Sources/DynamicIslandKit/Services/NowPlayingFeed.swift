@@ -19,6 +19,10 @@ final class NowPlayingFeed {
         var artwork: Data?
         /// Name of the app owning the session, resolved from its pid.
         var source: String?
+        /// Process that owned the snapshot. Transport commands carry this
+        /// identity so another media session cannot steal the click between
+        /// display and dispatch.
+        var playerPID: pid_t?
         /// Command codes the player offers right now, or nil when the helper
         /// could not ask. Nil means unknown, not none — a browser tab with a
         /// single video offers no skip commands at all, and that is worth
@@ -39,6 +43,11 @@ final class NowPlayingFeed {
     /// knows it is in.
     enum Command: Int {
         case play = 0, pause = 1, next = 4, previous = 5
+
+        func wireLine(playerPID: pid_t?) -> String {
+            guard let playerPID, playerPID > 0 else { return "cmd \(rawValue)" }
+            return "cmd \(rawValue) \(playerPID)"
+        }
     }
 
     var onUpdate: ((Snapshot) -> Void)?
@@ -139,7 +148,9 @@ final class NowPlayingFeed {
     // MARK: - Commands
 
     func refresh() { write("get") }
-    func send(_ command: Command) { write("cmd \(command.rawValue)") }
+    func send(_ command: Command, playerPID: pid_t?) {
+        write(command.wireLine(playerPID: playerPID))
+    }
     func seek(to seconds: TimeInterval) { write("seek \(Int(seconds))") }
 
     private func write(_ line: String) {

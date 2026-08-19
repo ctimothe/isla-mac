@@ -38,6 +38,7 @@ enum NowPlayingPayloadDecoder {
             snapshot.artwork = artwork
         }
         if let pid = (object["pid"] as? NSNumber)?.int32Value, pid > 0 {
+            snapshot.playerPID = pid_t(pid)
             snapshot.source = sourceName(pid_t(pid))
         }
         if let commands = object["commands"] as? [Int] {
