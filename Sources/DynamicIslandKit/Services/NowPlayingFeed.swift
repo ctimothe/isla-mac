@@ -151,7 +151,17 @@ final class NowPlayingFeed {
     func send(_ command: Command, playerPID: pid_t?) {
         write(command.wireLine(playerPID: playerPID))
     }
-    func seek(to seconds: TimeInterval) { write("seek \(Int(seconds))") }
+    /// Seeks the player currently shown in the panel — the same target
+    /// identity `send(_:playerPID:)` carries, so a seek can never land on
+    /// whichever session macOS considers active in the moment it arrives.
+    func seek(to seconds: TimeInterval, playerPID: pid_t?) {
+        write(Self.seekWireLine(seconds: seconds, playerPID: playerPID))
+    }
+
+    nonisolated static func seekWireLine(seconds: TimeInterval, playerPID: pid_t?) -> String {
+        guard let playerPID, playerPID > 0 else { return "seek \(Int(seconds))" }
+        return "seek \(Int(seconds)) \(playerPID)"
+    }
 
     private func write(_ line: String) {
         guard let input, let data = (line + "\n").data(using: .utf8) else { return }

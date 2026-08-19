@@ -103,7 +103,7 @@ final class MediaController: ObservableObject {
         setAnchor(clamped)
         pendingSeek = (clamped, Date())
         if feedAvailable {
-            feed.seek(to: clamped)
+            feed.seek(to: clamped, playerPID: displayedPlayerPID)
         } else if let activeApp {
             PlayerBridge.seek(activeApp, to: clamped)
         }

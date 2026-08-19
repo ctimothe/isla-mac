@@ -15,4 +15,11 @@ final class NowPlayingCommandTests: XCTestCase {
             "cmd 1 42"
         )
     }
+
+    func testSeekLineTargetsThePlayerShownInThePanel() {
+        XCTAssertEqual(
+            NowPlayingFeed.seekWireLine(seconds: 30, playerPID: 42),
+            "seek 30 42"
+        )
+    }
 }

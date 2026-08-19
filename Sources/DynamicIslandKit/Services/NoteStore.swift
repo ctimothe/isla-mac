@@ -29,6 +29,12 @@ final class NoteStore: ObservableObject {
     /// Which note the editor shows. Lives here rather than in the pane so the
     /// choice survives the pane being unmounted with the panel.
     @Published var selected: Note.ID?
+    /// True when the file exists but cannot be parsed — a hand edit, or
+    /// something else, left it broken. Writing is forbidden in that state,
+    /// same as `SnippetStore`: a debounced `persist()` that fired against a
+    /// corrupted file would otherwise overwrite it with whatever happened to
+    /// be in memory (#7).
+    @Published private(set) var fileBroken = false
 
     private let fileURL: URL
 
@@ -78,10 +84,17 @@ final class NoteStore: ObservableObject {
     // MARK: - Persistence
 
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL),
-              let stored = try? JSONDecoder().decode([Note].self, from: data) else { return }
-        notes = stored
-        selected = notes.first?.id
+        // No file is an honest empty list — first launch — and not corruption.
+        guard let data = try? Data(contentsOf: fileURL) else { return }
+        do {
+            notes = try JSONDecoder().decode([Note].self, from: data)
+            selected = notes.first?.id
+        } catch {
+            // The file exists and says something — it just cannot be read.
+            // Raise the flag so persist() refuses to write over it.
+            fileBroken = true
+            NSLog("Dynamic Island: notes.json is not readable: \(error.localizedDescription)")
+        }
     }
 
     /// A moment after the typing pauses, not on every keystroke: the text
@@ -94,6 +107,7 @@ final class NoteStore: ObservableObject {
     func flush() { saves.flush() }
 
     private func persist() {
+        guard !fileBroken else { return }
         do {
             try JSONEncoder().encode(notes).write(to: fileURL, options: .atomic)
         } catch {
