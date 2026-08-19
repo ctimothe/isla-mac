@@ -73,7 +73,11 @@ struct NotchGeometry {
     let windowPadding = NSEdgeInsets(top: 0, left: 40, bottom: 44, right: 40)
 
     static func current() -> NotchGeometry {
-        let screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens[0]
+        // `NSScreen.main` tracks the key window, and this panel is a
+        // non-activating one that never becomes key or main — so `.main` here
+        // would be meaningless and nondeterministic rather than a real
+        // fallback. Go straight to the first screen instead.
+        let screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.screens[0]
 
         if screen.safeAreaInsets.top > 0,
            let left = screen.auxiliaryTopLeftArea,
