@@ -88,7 +88,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = item
     }
 
-    @objc private func togglePanel() {
+    /// Not `private`: the Settings tab's own "Open Panel" row calls this
+    /// same method through `NSApp.delegate`, rather than reaching for
+    /// `NotchController` itself and reinventing what the menu already does.
+    @objc func togglePanel() {
         controller?.toggle()
     }
 
