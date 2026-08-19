@@ -38,4 +38,30 @@ final class MediaControllerTests: XCTestCase {
             "elapsed-time interpolation must not freeze when rate > 0"
         )
     }
+
+    func testTrackIdentityIncludesPlayerPIDSoTwoPlayersSharingATitleDoNotShareArtwork() {
+        let controller = MediaController()
+
+        var fromPlayerOne = NowPlayingFeed.Snapshot()
+        fromPlayerOne.title = "Same Title"
+        fromPlayerOne.artist = "Same Artist"
+        fromPlayerOne.album = "Same Album"
+        fromPlayerOne.isPlaying = true
+        fromPlayerOne.playerPID = 100
+        controller.apply(fromPlayerOne)
+        let keyForPlayerOne = controller.track?.key
+
+        // The OS switched its active Now Playing session to a different
+        // player that happens to report the exact same title/artist/album.
+        var fromPlayerTwo = fromPlayerOne
+        fromPlayerTwo.playerPID = 200
+        controller.apply(fromPlayerTwo)
+        let keyForPlayerTwo = controller.track?.key
+
+        XCTAssertNotEqual(
+            keyForPlayerOne,
+            keyForPlayerTwo,
+            "same title/artist/album from a different player PID must not share track identity"
+        )
+    }
 }

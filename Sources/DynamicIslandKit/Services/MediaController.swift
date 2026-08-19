@@ -141,7 +141,11 @@ final class MediaController: ObservableObject {
     func apply(_ snapshot: NowPlayingFeed.Snapshot) {
         guard !snapshot.isEmpty else { return clear() }
 
-        let key = "\(snapshot.title)|\(snapshot.artist)|\(snapshot.album)"
+        // The PID rides along with title/artist/album: two different players
+        // can report the exact same metadata, and without it a switch
+        // between them would read as no change at all — stale commands and
+        // artwork surviving into the newly displayed track.
+        let key = "\(snapshot.playerPID ?? 0)|\(snapshot.title)|\(snapshot.artist)|\(snapshot.album)"
         track = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
         let playerChanged = displayedPlayerPID != snapshot.playerPID
         displayedPlayerPID = snapshot.playerPID

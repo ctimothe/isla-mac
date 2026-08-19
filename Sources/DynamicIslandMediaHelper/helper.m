@@ -80,9 +80,16 @@ static void emit(NSDictionary *payload) {
 /// is nothing to skip to — so those codes are absent and anything sent for
 /// them is dropped without a word. macOS greys its own skip buttons out on
 /// exactly these sessions.
-static NSArray *sCommands;
+///
+/// Keyed by owner pid rather than a single flat cache: right after macOS
+/// switches its active Now Playing session, a global cache still reads back
+/// whatever the *previous* player answered — one publish cycle where the new
+/// player's buttons reflect the old player's capabilities. Per-pid caching
+/// means a player the current publish has not heard from yet reports nothing
+/// cached, not something borrowed from someone else.
+static NSMutableDictionary<NSNumber *, NSArray *> *sCommandsByPID;
 
-static void refreshCommands(id path) {
+static void refreshCommands(int ownerPID, id path) {
     if (!sGetCommandsForPlayer) return;
     if (!path) return;
     sGetCommandsForPlayer(path, sQueue, ^(NSArray *infos) {
@@ -97,7 +104,9 @@ static void refreshCommands(id path) {
                 [codes addObject:code];
             }
         }
-        sCommands = codes;
+        if (ownerPID > 0) {
+            sCommandsByPID[@(ownerPID)] = codes;
+        }
     });
 }
 
@@ -109,7 +118,7 @@ static void refreshCommands(id path) {
 /// session that has been playing for three minutes still reports the second it
 /// started at. What advances is the clock beside it, so both have to travel.
 static void publishSnapshot(int ownerPID, id path) {
-    refreshCommands(path);
+    refreshCommands(ownerPID, path);
     sGetIsPlaying(sQueue, ^(Boolean playing) {
         sGetInfo(sQueue, ^(CFDictionaryRef raw) {
             NSDictionary *info = (__bridge NSDictionary *)raw;
@@ -139,7 +148,14 @@ static void publishSnapshot(int ownerPID, id path) {
                 ? @([(NSDate *)stamp timeIntervalSince1970])
                 : @0;
 
-            NSString *artworkID = info[@"kMRMediaRemoteNowPlayingInfoArtworkIdentifier"] ?: title;
+            // The owner pid rides along with the identifier: two different
+            // players can report the same title|artist|album (or the same
+            // opaque artwork identifier), and without the pid a switch
+            // between them would look like no change at all — the new
+            // player's artwork would never publish because it matched the
+            // previous player's cached identity.
+            NSString *rawArtworkID = info[@"kMRMediaRemoteNowPlayingInfoArtworkIdentifier"] ?: title;
+            NSString *artworkID = [NSString stringWithFormat:@"%d|%@", ownerPID, rawArtworkID];
             NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
             if (artwork.length > 0 && ![artworkID isEqualToString:sArtworkID]) {
                 out[@"artwork"] = [artwork base64EncodedStringWithOptions:0];
@@ -147,10 +163,12 @@ static void publishSnapshot(int ownerPID, id path) {
             }
             if (title.length == 0) sArtworkID = nil;
 
-            // Left out entirely until an answer has arrived: absent is not the
-            // same as empty, and "unknown" must not read as "accepts nothing"
-            // and dim every button.
-            if (sCommands) out[@"commands"] = sCommands;
+            // Left out entirely until an answer has arrived for this player:
+            // absent is not the same as empty, and "unknown" must not read as
+            // "accepts nothing" and dim every button — nor should it borrow
+            // the previous player's answer.
+            NSArray *commands = ownerPID > 0 ? sCommandsByPID[@(ownerPID)] : nil;
+            if (commands) out[@"commands"] = commands;
 
             emit(out);
         });
@@ -214,6 +232,7 @@ static void startFeed(void) {
     [NSThread detachNewThreadWithBlock:^{
         sQueue = dispatch_queue_create("dev.dynamicisland.mediaremote", DISPATCH_QUEUE_SERIAL);
         sPlayerPathsByPID = [NSMutableDictionary dictionary];
+        sCommandsByPID = [NSMutableDictionary dictionary];
 
         void *handle = dlopen(kMediaRemotePath.UTF8String, RTLD_NOW);
         if (!handle) {
