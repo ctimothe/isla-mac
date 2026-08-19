@@ -31,6 +31,7 @@ final class MediaController: ObservableObject {
     private let feed = NowPlayingFeed()
     private var feedAvailable = true
     private var displayedPlayerPID: pid_t?
+    private var playbackIntent = PlaybackIntent(reported: false)
 
     private var activeApp: PlayerApp?
     private var artworkKey: String?
@@ -79,12 +80,13 @@ final class MediaController: ObservableObject {
     // MARK: - Transport
 
     func togglePlayPause() {
-        // Optimistic flip so the button feels instant; the feed corrects it.
-        isPlaying.toggle()
+        let target = playbackIntent.toggle(at: Date())
+        // The latest tap owns the icon immediately. Reports from before the
+        // command completed are reconciled without repainting it backwards.
+        isPlaying = playbackIntent.desired
         setAnchor(position)
-        // The per-client command set has no toggle of its own (#23) — Play
-        // and Pause are sent explicitly, by the state just flipped to above.
-        dispatch(feed: isPlaying ? .play : .pause, script: { PlayerBridge.playPause($0) }, key: .playPause)
+        updateTicker()
+        if let target { dispatchPlayback(target) }
     }
 
     func next() {
@@ -121,6 +123,16 @@ final class MediaController: ObservableObject {
         }
     }
 
+    private func dispatchPlayback(_ playing: Bool) {
+        // The per-client command set has no toggle of its own (#23), so the
+        // desired state travels explicitly.
+        dispatch(
+            feed: playing ? .play : .pause,
+            script: { PlayerBridge.playPause($0) },
+            key: .playPause
+        )
+    }
+
     // MARK: - Feed
 
     private func apply(_ snapshot: NowPlayingFeed.Snapshot) {
@@ -128,10 +140,18 @@ final class MediaController: ObservableObject {
 
         let key = "\(snapshot.title)|\(snapshot.artist)|\(snapshot.album)"
         track = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
-        isPlaying = snapshot.isPlaying || snapshot.rate > 0
+        let playerChanged = displayedPlayerPID != snapshot.playerPID
+        displayedPlayerPID = snapshot.playerPID
+        let queuedTarget: Bool?
+        if playerChanged {
+            playbackIntent = PlaybackIntent(reported: snapshot.isPlaying)
+            queuedTarget = nil
+        } else {
+            queuedTarget = playbackIntent.reconcile(reported: snapshot.isPlaying, at: Date())
+        }
+        isPlaying = playbackIntent.desired
         duration = snapshot.duration
         sourceName = snapshot.source
-        displayedPlayerPID = snapshot.playerPID
         // Both directions travel together: no player has ever offered one
         // without the other, and two separately dimmed arrows would read as
         // a glitch rather than a limit.
@@ -152,6 +172,7 @@ final class MediaController: ObservableObject {
             adopt(reported)
         }
         updateTicker()
+        if let queuedTarget { dispatchPlayback(queuedTarget) }
 
         if let data = snapshot.artwork {
             artworkKey = key
@@ -190,6 +211,7 @@ final class MediaController: ObservableObject {
         position = 0
         sourceName = nil
         displayedPlayerPID = nil
+        playbackIntent = PlaybackIntent(reported: false)
         canSkip = true
         updateTicker()
     }
@@ -224,13 +246,22 @@ final class MediaController: ObservableObject {
             guard let self else { return }
             guard let state else { return self.clear() }
 
+            let playerChanged = self.activeApp != state.app
             self.activeApp = state.app
             self.sourceName = state.app.displayName
             self.track = Track(title: state.title, artist: state.artist, album: state.album, key: state.key)
-            self.isPlaying = state.isPlaying
+            let queuedTarget: Bool?
+            if playerChanged {
+                self.playbackIntent = PlaybackIntent(reported: state.isPlaying)
+                queuedTarget = nil
+            } else {
+                queuedTarget = self.playbackIntent.reconcile(reported: state.isPlaying, at: Date())
+            }
+            self.isPlaying = self.playbackIntent.desired
             self.duration = state.duration
             self.adopt(state.position)
             self.updateTicker()
+            if let queuedTarget { self.dispatchPlayback(queuedTarget) }
 
             guard self.artworkKey != state.key else { return }
             self.artworkKey = state.key
@@ -257,7 +288,7 @@ final class MediaController: ObservableObject {
     /// So the reading is aged by the clock that came with it. A paused session
     /// is left alone — its reading is not moving and there is nothing to add.
     private func reportedPosition(from snapshot: NowPlayingFeed.Snapshot) -> TimeInterval {
-        guard snapshot.isPlaying || snapshot.rate > 0, let takenAt = snapshot.takenAt else {
+        guard snapshot.isPlaying, let takenAt = snapshot.takenAt else {
             return snapshot.elapsed
         }
         let since = Date().timeIntervalSince(takenAt)
