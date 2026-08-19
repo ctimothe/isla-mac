@@ -132,7 +132,18 @@ final class SnippetStore: ObservableObject {
         persist()
     }
 
+    /// Removes one and writes the file.
+    ///
+    /// Re-reads first, for the same reason `add()` does: the copy in memory is
+    /// only as fresh as the last visit to the tab, and a file that turned
+    /// unreadable in between must not be overwritten just because a removal
+    /// was requested against the stale copy.
     func remove(_ snippet: Snippet) {
+        reload()
+        guard !fileBroken else {
+            log("Dynamic Island: refusing to write over an unreadable snippets.json")
+            return
+        }
         items.removeAll { $0.id == snippet.id }
         persist()
     }
