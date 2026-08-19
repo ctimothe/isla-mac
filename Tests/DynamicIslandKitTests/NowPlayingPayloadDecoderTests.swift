@@ -20,6 +20,7 @@ final class NowPlayingPayloadDecoderTests: XCTestCase {
         XCTAssertEqual(value.duration, 240)
         XCTAssertEqual(value.elapsed, 12.5)
         XCTAssertEqual(value.rate, 1)
+        XCTAssertEqual(value.playerPID, 42)
         XCTAssertEqual(value.source, "Player")
         XCTAssertEqual(value.commands, Set([0, 1, 4, 5]))
     }

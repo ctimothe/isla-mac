@@ -8,4 +8,11 @@ final class NowPlayingCommandTests: XCTestCase {
         XCTAssertEqual(NowPlayingFeed.Command.next.rawValue, 4)
         XCTAssertEqual(NowPlayingFeed.Command.previous.rawValue, 5)
     }
+
+    func testCommandLineTargetsThePlayerShownInThePanel() {
+        XCTAssertEqual(
+            NowPlayingFeed.Command.pause.wireLine(playerPID: 42),
+            "cmd 1 42"
+        )
+    }
 }

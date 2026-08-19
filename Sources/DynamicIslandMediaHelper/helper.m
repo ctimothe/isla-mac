@@ -31,9 +31,12 @@ static MRGetPIDFn sGetPID;
 static MRGetClientsFn sGetClients;
 static MRSendCommandToPlayerFn sSendCommandToPlayer;
 static MRGetCommandsForPlayerFn sGetCommandsForPlayer;
-static int sOwnerPID;
 static dispatch_queue_t sQueue;
 static NSString *sArtworkID;
+/// Real player paths observed while publishing. macOS can change its global
+/// "active" player between drawing a track and clicking its controls; keeping
+/// the path by owner PID makes the click follow the track that was drawn.
+static NSMutableDictionary<NSNumber *, id> *sPlayerPathsByPID;
 
 static NSString *const kMediaRemotePath =
     @"/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote";
@@ -79,9 +82,8 @@ static void emit(NSDictionary *payload) {
 /// exactly these sessions.
 static NSArray *sCommands;
 
-static void refreshCommands(void) {
+static void refreshCommands(id path) {
     if (!sGetCommandsForPlayer) return;
-    id path = activePlayerPath();
     if (!path) return;
     sGetCommandsForPlayer(path, sQueue, ^(NSArray *infos) {
         NSMutableArray *codes = [NSMutableArray array];
@@ -106,15 +108,16 @@ static void refreshCommands(void) {
 /// that field running: it is a reading from the last change of state, and a
 /// session that has been playing for three minutes still reports the second it
 /// started at. What advances is the clock beside it, so both have to travel.
-static void publish(void) {
-    if (!sGetInfo || !sGetIsPlaying) return;
-    // Cached rather than nested a call deeper: it only labels the source.
-    if (sGetPID) sGetPID(sQueue, ^(int pid) { sOwnerPID = pid; });
-    refreshCommands();
+static void publishSnapshot(int ownerPID, id path) {
+    refreshCommands(path);
     sGetIsPlaying(sQueue, ^(Boolean playing) {
         sGetInfo(sQueue, ^(CFDictionaryRef raw) {
             NSDictionary *info = (__bridge NSDictionary *)raw;
             NSString *title = info[@"kMRMediaRemoteNowPlayingInfoTitle"] ?: @"";
+
+            if (ownerPID > 0 && path) {
+                sPlayerPathsByPID[@(ownerPID)] = path;
+            }
 
             NSMutableDictionary *out = [NSMutableDictionary dictionary];
             // `playing ? @YES : @NO`, not `@(playing ? YES : NO)`: in C the
@@ -129,7 +132,7 @@ static void publish(void) {
             out[@"duration"] = info[@"kMRMediaRemoteNowPlayingInfoDuration"] ?: @0;
             out[@"elapsed"] = info[@"kMRMediaRemoteNowPlayingInfoElapsedTime"] ?: @0;
             out[@"rate"] = info[@"kMRMediaRemoteNowPlayingInfoPlaybackRate"] ?: @0;
-            out[@"pid"] = @(sOwnerPID);
+            out[@"pid"] = @(ownerPID);
 
             id stamp = info[@"kMRMediaRemoteNowPlayingInfoTimestamp"];
             out[@"timestamp"] = [stamp isKindOfClass:NSDate.class]
@@ -154,6 +157,16 @@ static void publish(void) {
     });
 }
 
+static void publish(void) {
+    if (!sGetInfo || !sGetIsPlaying) return;
+    id path = activePlayerPath();
+    if (sGetPID) {
+        sGetPID(sQueue, ^(int pid) { publishSnapshot(pid, path); });
+    } else {
+        publishSnapshot(0, path);
+    }
+}
+
 /// The service already tracks which player is "active" for the whole
 /// system — asking it directly gives an already-resolved, already-matched
 /// path. Building one by hand from a bundle id resolves too, but the
@@ -167,9 +180,10 @@ static id activePlayerPath(void) {
     return [serviceClient performSelector:@selector(activePlayerPath)];
 }
 
-static void sendCommandToActivePlayer(MRCommand command, NSDictionary *options) {
+static void sendCommandToPlayer(MRCommand command, NSDictionary *options, int playerPID) {
     if (!sSendCommandToPlayer) return;
-    id path = activePlayerPath();
+    id path = playerPID > 0 ? sPlayerPathsByPID[@(playerPID)] : nil;
+    if (!path) path = activePlayerPath();
     if (!path) return;
     sSendCommandToPlayer(command, (__bridge CFDictionaryRef)options, nil, path, nil, ^(id result){});
 }
@@ -178,11 +192,16 @@ static void handleCommand(NSString *line) {
     if ([line isEqualToString:@"get"]) {
         publish();
     } else if ([line hasPrefix:@"cmd "]) {
-        sendCommandToActivePlayer((MRCommand)[line substringFromIndex:4].intValue, nil);
-        publish();
+        NSArray<NSString *> *parts = [line componentsSeparatedByString:@" "];
+        MRCommand command = (MRCommand)(parts.count > 1 ? parts[1].intValue : -1);
+        int playerPID = parts.count > 2 ? parts[2].intValue : 0;
+        dispatch_async(sQueue, ^{
+            sendCommandToPlayer(command, nil, playerPID);
+            publish();
+        });
     } else if ([line hasPrefix:@"seek "]) {
         double seconds = [line substringFromIndex:5].doubleValue;
-        sendCommandToActivePlayer(MRCommandSeekToPlaybackPosition, @{@"kMRMediaRemoteOptionPlaybackPosition": @(seconds)});
+        sendCommandToPlayer(MRCommandSeekToPlaybackPosition, @{@"kMRMediaRemoteOptionPlaybackPosition": @(seconds)}, 0);
         publish();
     }
 }
@@ -190,6 +209,7 @@ static void handleCommand(NSString *line) {
 static void startFeed(void) {
     [NSThread detachNewThreadWithBlock:^{
         sQueue = dispatch_queue_create("dev.dynamicisland.mediaremote", DISPATCH_QUEUE_SERIAL);
+        sPlayerPathsByPID = [NSMutableDictionary dictionary];
 
         void *handle = dlopen(kMediaRemotePath.UTF8String, RTLD_NOW);
         if (!handle) {
