@@ -135,19 +135,26 @@ final class MediaController: ObservableObject {
 
     // MARK: - Feed
 
-    private func apply(_ snapshot: NowPlayingFeed.Snapshot) {
+    /// Not private: the feed hands snapshots to this one entry point, and
+    /// tests drive it the same way rather than standing up the real helper
+    /// process.
+    func apply(_ snapshot: NowPlayingFeed.Snapshot) {
         guard !snapshot.isEmpty else { return clear() }
 
         let key = "\(snapshot.title)|\(snapshot.artist)|\(snapshot.album)"
         track = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
         let playerChanged = displayedPlayerPID != snapshot.playerPID
         displayedPlayerPID = snapshot.playerPID
+        // Some Now Playing sessions — browser tabs especially — report
+        // `isPlaying == false` while `rate` is still positive. Either one
+        // means audio is moving.
+        let reportedPlaying = snapshot.isPlaying || snapshot.rate > 0
         let queuedTarget: Bool?
         if playerChanged {
-            playbackIntent = PlaybackIntent(reported: snapshot.isPlaying)
+            playbackIntent = PlaybackIntent(reported: reportedPlaying)
             queuedTarget = nil
         } else {
-            queuedTarget = playbackIntent.reconcile(reported: snapshot.isPlaying, at: Date())
+            queuedTarget = playbackIntent.reconcile(reported: reportedPlaying, at: Date())
         }
         isPlaying = playbackIntent.desired
         duration = snapshot.duration
@@ -288,7 +295,7 @@ final class MediaController: ObservableObject {
     /// So the reading is aged by the clock that came with it. A paused session
     /// is left alone — its reading is not moving and there is nothing to add.
     private func reportedPosition(from snapshot: NowPlayingFeed.Snapshot) -> TimeInterval {
-        guard snapshot.isPlaying, let takenAt = snapshot.takenAt else {
+        guard snapshot.isPlaying || snapshot.rate > 0, let takenAt = snapshot.takenAt else {
             return snapshot.elapsed
         }
         let since = Date().timeIntervalSince(takenAt)
