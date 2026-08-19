@@ -15,6 +15,8 @@ final class NotchMetricsTests: XCTestCase {
         XCTAssertEqual(NotchMetrics.restThreshold, 3.0)
         XCTAssertEqual(NotchMetrics.warmZoneHeight, 260)
         XCTAssertEqual(NotchMetrics.coolMargin, 80)
+        XCTAssertEqual(NotchMetrics.collapseRectShrinkDelay, 0.45)
+        XCTAssertEqual(NotchMetrics.pointerAwayCollapseDelay, 0.6)
     }
 
     /// `NotchGeometry.windowSize` used to return a locally computed `size`

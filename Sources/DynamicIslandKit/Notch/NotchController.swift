@@ -336,11 +336,11 @@ final class NotchController {
         // clicks land on whatever is behind the panel.
         let work = DispatchWorkItem { [weak self] in self?.applyActiveRect(open: false) }
         closeActiveRectWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.collapseRectShrinkDelay, execute: work)
     }
 
     private func scheduleCollapseIfPointerAway() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.pointerAwayCollapseDelay) { [weak self] in
             guard let self, let vm = self.viewModel else { return }
             // Resync either way. A pointer that is still on the panel has to be
             // recorded as inside, or hover tracking stays convinced it left and
