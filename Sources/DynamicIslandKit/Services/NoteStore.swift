@@ -4,11 +4,6 @@ struct Note: Identifiable, Codable, Equatable {
     let id: UUID
     var text: String
     var edited: Date
-
-    var title: String {
-        text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-            .first.map(String.init) ?? ""
-    }
 }
 
 /// Scratch notes: somewhere to put a thought down for an hour.
