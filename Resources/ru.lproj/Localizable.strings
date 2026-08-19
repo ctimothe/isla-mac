@@ -23,6 +23,9 @@
 "Clear Screenshots Folder" = "Очистить папку снимков";
 "Clear Screenshots Folder (%@)" = "Очистить папку снимков (%@)";
 "Show Snippets File" = "Показать файл заготовок";
+"Privacy" = "Конфиденциальность";
+"Application" = "Приложение";
+"About %@" = "О программе %@";
 
 /* Полка */
 "Selected: %d" = "Выбрано: %d";

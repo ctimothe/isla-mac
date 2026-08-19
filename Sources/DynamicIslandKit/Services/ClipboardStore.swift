@@ -170,6 +170,10 @@ final class ClipboardStore: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                // Rechecked on every tick, not just when the wait began: image
+                // saving can be switched off while a picture is still in
+                // flight, and finishing the wait would save it anyway.
+                guard self.wantsImages() else { return }
                 guard self.pasteboard.changeCount == changeCount else { return }
                 if let png = self.pngFromPasteboard(self.pasteboard) {
                     self.onImage?(png)

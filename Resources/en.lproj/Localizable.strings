@@ -24,6 +24,9 @@
 "Clear Screenshots Folder" = "Clear Screenshots Folder";
 "Clear Screenshots Folder (%@)" = "Clear Screenshots Folder (%@)";
 "Show Snippets File" = "Show Snippets File";
+"Privacy" = "Privacy";
+"Application" = "Application";
+"About %@" = "About %@";
 
 /* Shelf */
 "Selected: %d" = "Selected: %d";

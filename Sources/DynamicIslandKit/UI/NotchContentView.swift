@@ -5,6 +5,7 @@ struct NotchContentView: View {
 
     private var isOpen: Bool { vm.isOpen || vm.isDropTargeted }
     private var size: CGSize { vm.bodySize }
+    private var compactActivity: CompactMediaActivity { vm.compactMediaActivity }
     private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : Theme.collapsedTopRadius }
 
     var body: some View {
@@ -17,7 +18,16 @@ struct NotchContentView: View {
             )
             .fill(Color.black)
             .frame(width: size.width + 2 * topRadius, height: size.height)
-            .shadow(color: .black.opacity(isOpen ? 0.5 : 0), radius: 18, y: 8)
+            .shadow(
+                color: .black.opacity(isOpen ? 0.5 : (compactActivity.isVisible ? 0.28 : 0)),
+                radius: isOpen ? 18 : 5,
+                y: isOpen ? 8 : 2
+            )
+
+            if !isOpen, compactActivity.isVisible {
+                compactWingSurface
+                    .transition(.opacity)
+            }
 
             VStack(spacing: 0) {
                 header
@@ -32,6 +42,7 @@ struct NotchContentView: View {
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Theme.openAnimation, value: isOpen)
+        .animation(Theme.compactAnimation, value: compactActivity)
         .animation(Theme.paneAnimation, value: vm.tab)
     }
 
@@ -43,27 +54,138 @@ struct NotchContentView: View {
     // clicking here toggles them as a side effect. Nothing interactive goes in
     // this row; the tab switcher lives in the rail below.
 
+    @ViewBuilder
     private var header: some View {
+        if isOpen {
+            openHeader
+        } else if compactActivity.isVisible {
+            compactMediaHeader
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        } else {
+            Color.clear
+                .frame(width: vm.geometry.notchSize.width, height: vm.geometry.notchSize.height)
+        }
+    }
+
+    private var openHeader: some View {
         HStack(spacing: 0) {
-            if isOpen {
-                Text(vm.tab.title.uppercased())
-                    .font(.system(size: 9, weight: .semibold))
-                    .tracking(0.8)
-                    .foregroundStyle(Theme.tertiary)
-                    .padding(.leading, 16)
-                    .id(vm.tab)
-                    .transition(.opacity)
-            }
+            Text(vm.tab.title.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(Theme.tertiary)
+                .padding(.leading, 16)
+                .id(vm.tab)
+                .transition(.opacity)
             Spacer(minLength: 0)
             Color.clear.frame(width: vm.geometry.notchSize.width, height: 1)
             Spacer(minLength: 0)
-            if isOpen {
-                trailing
-                    .padding(.trailing, 16)
-                    .transition(.opacity)
-            }
+            trailing
+                .padding(.trailing, 16)
+                .transition(.opacity)
         }
         .frame(height: vm.geometry.notchSize.height)
+    }
+
+    private var compactMediaHeader: some View {
+        let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2)
+        return HStack(spacing: 0) {
+            compactArtwork
+                .frame(width: wingWidth)
+
+            Color.clear
+                .frame(width: vm.geometry.notchSize.width, height: 1)
+
+            compactPlaybackState
+                .frame(width: wingWidth)
+        }
+        .frame(width: size.width, height: vm.geometry.notchSize.height)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(compactAccessibilityLabel)
+    }
+
+    /// The display can never reproduce the physical cutout's zero-light black
+    /// at every brightness. The software-only wings therefore fade from an
+    /// intentional graphite surface into true black at the hardware edges.
+    /// That makes the difference read as depth rather than a failed colour
+    /// match, while the centre remains visually continuous with the camera.
+    private var compactWingSurface: some View {
+        let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2 + topRadius)
+        return HStack(spacing: 0) {
+            CompactWingSurface(side: .left)
+                .frame(width: wingWidth)
+
+            Color.clear
+                .frame(width: vm.geometry.notchSize.width)
+
+            CompactWingSurface(side: .right)
+                .frame(width: wingWidth)
+        }
+        .frame(width: size.width + 2 * topRadius, height: size.height)
+        .clipShape(
+            NotchShape(
+                topRadius: Theme.collapsedTopRadius,
+                bottomRadius: Theme.collapsedBottomRadius
+            )
+        )
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private var compactArtwork: some View {
+        ZStack {
+            Group {
+                if let artwork = vm.media.artwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                        .id(vm.media.track?.key)
+                        .transition(.opacity)
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.75))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Theme.surface)
+                }
+            }
+            .opacity(compactActivity.showsArtworkPlayBadge ? 0.58 : 1)
+
+            if compactActivity.showsArtworkPlayBadge {
+                Circle()
+                    .fill(Color.black.opacity(0.72))
+                    .frame(width: 15, height: 15)
+                    .overlay(
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.92))
+                            .offset(x: 0.5)
+                    )
+                    .overlay(
+                        Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.82)))
+            }
+        }
+        .frame(width: 22, height: 22)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
+        )
+        .animation(Theme.contentAnimation, value: compactActivity.showsArtworkPlayBadge)
+    }
+
+    private var compactPlaybackState: some View {
+        EqualizerBars(
+            isAnimating: compactActivity.animatesEqualizer,
+            opacity: compactActivity == .playing ? 0.82 : 0.58
+        )
+    }
+
+    private var compactAccessibilityLabel: String {
+        guard let track = vm.media.track else { return "" }
+        let state = compactActivity == .playing ? "Playing" : "Paused"
+        return "\(state): \(track.title), \(track.artist)"
     }
 
     @ViewBuilder
@@ -166,7 +288,50 @@ struct NotchContentView: View {
         case .teleprompter:
             TeleprompterPane(prompter: vm.teleprompter, wantsKeyboard: $vm.wantsKeyboard)
         case .settings:
-            SettingsPane(shelf: vm.shelf, screenshotVault: vm.screenshotVault, snippets: vm.snippets)
+            SettingsPane(
+                shelf: vm.shelf,
+                screenshotVault: vm.screenshotVault,
+                snippets: vm.snippets,
+                calendar: vm.calendar,
+                privacy: vm.privacy
+            )
+        }
+    }
+}
+
+private struct CompactWingSurface: View {
+    enum Side { case left, right }
+
+    let side: Side
+
+    private var outer: UnitPoint { side == .left ? .leading : .trailing }
+    private var inner: UnitPoint { side == .left ? .trailing : .leading }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.075, green: 0.080, blue: 0.092),
+                    Color(red: 0.035, green: 0.038, blue: 0.046),
+                    .black,
+                ],
+                startPoint: outer,
+                endPoint: inner
+            )
+
+            LinearGradient(
+                colors: [Color.white.opacity(0.065), .clear, Color.black.opacity(0.14)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .overlay(alignment: .bottom) {
+            LinearGradient(
+                colors: [.clear, Color.white.opacity(0.10), .clear],
+                startPoint: outer,
+                endPoint: inner
+            )
+            .frame(height: 0.5)
         }
     }
 }
