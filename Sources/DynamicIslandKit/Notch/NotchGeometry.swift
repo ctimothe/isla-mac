@@ -128,8 +128,11 @@ struct NotchGeometry {
             width: expandedSize.width + windowPadding.left + windowPadding.right,
             height: maxBodyHeight + windowPadding.bottom
         )
+        // The assert is a debug-only consistency check that the padding math
+        // still agrees with the constant — it must not be what the contract
+        // depends on, since assert() is stripped from Release builds.
         assert(size == NotchMetrics.maximumWindow)
-        return size
+        return NotchMetrics.maximumWindow
     }
 
     /// Panel frame in global screen coordinates, flush with the top of the display.

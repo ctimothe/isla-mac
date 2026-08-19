@@ -16,4 +16,12 @@ final class NotchMetricsTests: XCTestCase {
         XCTAssertEqual(NotchMetrics.warmZoneHeight, 260)
         XCTAssertEqual(NotchMetrics.coolMargin, 80)
     }
+
+    /// `NotchGeometry.windowSize` used to return a locally computed `size`
+    /// that only matched `NotchMetrics.maximumWindow` because of an
+    /// `assert()` — which vanishes in Release builds, so the contract held
+    /// only in debug. It must return the constant unconditionally.
+    func testWindowSizeAlwaysReturnsTheMaximumWindowContract() {
+        XCTAssertEqual(NotchGeometry.current().windowSize, NotchMetrics.maximumWindow)
+    }
 }
