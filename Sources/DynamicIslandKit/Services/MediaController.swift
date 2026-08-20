@@ -40,6 +40,8 @@ final class MediaController: ObservableObject {
     /// Where we asked the player to jump, and when — see `apply`.
     private var pendingSeek: (target: TimeInterval, at: Date)?
     private var ticker: Timer?
+    /// Deferred blanking of a cover whose replacement is still in flight.
+    private var blankArtwork: Task<Void, Never>?
     private var observers: [Any] = []
     /// Whether the panel is open — the ticker below runs only then.
     private var isActive = false
@@ -192,13 +194,26 @@ final class MediaController: ObservableObject {
         if let queuedTarget { dispatchPlayback(queuedTarget) }
 
         if let data = snapshot.artwork {
+            blankArtwork?.cancel()
+            blankArtwork = nil
             artworkKey = key
             decodeArtwork(data, for: key)
         } else if artworkKey != key {
-            // Track changed and the payload carried no artwork; the skeleton
-            // covers the gap until the system publishes the new cover.
             artworkKey = key
-            artwork = nil
+            // Measured: on a skip the new title arrives at +51ms and its
+            // artwork at +68ms, in the very next line. Blanking the moment the
+            // title changes therefore buys nothing and costs two crossfades —
+            // old cover to skeleton, skeleton to new cover — where one would
+            // do, which is most of what makes a skip feel slow. Waiting out
+            // that gap first collapses it to a single swap; a track that
+            // genuinely has no cover still falls back to the skeleton, just
+            // late enough that nobody sees a flash.
+            blankArtwork?.cancel()
+            blankArtwork = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(180))
+                guard !Task.isCancelled else { return }
+                self?.artwork = nil
+            }
         }
     }
 
@@ -221,6 +236,8 @@ final class MediaController: ObservableObject {
     private func clear() {
         activeApp = nil
         track = nil
+        blankArtwork?.cancel()
+        blankArtwork = nil
         artwork = nil
         artworkKey = nil
         isPlaying = false
