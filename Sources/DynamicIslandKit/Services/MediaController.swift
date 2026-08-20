@@ -185,7 +185,7 @@ final class MediaController: ObservableObject {
                 pendingSeek = nil
                 adopt(reported)
             }
-        } else {
+        } else if !describesAMomentAlreadyPast(snapshot, isPlaying: reportedPlaying) {
             adopt(reported)
         }
         updateTicker()
@@ -321,6 +321,29 @@ final class MediaController: ObservableObject {
         let rate = snapshot.rate > 0 ? snapshot.rate : 1
         let aged = snapshot.elapsed + since * rate
         return snapshot.duration > 0 ? min(aged, snapshot.duration) : aged
+    }
+
+    /// Whether a reading describes a moment we are already past, and so has
+    /// nothing to say about where the track stands now.
+    ///
+    /// This is the pause glitch. MediaRemote does not keep `elapsed` running:
+    /// it republishes the reading from the last change of state, so a track
+    /// three minutes in still reports the second it started at. While playing
+    /// that is harmless, because the reading is aged by the clock beside it.
+    /// Paused, there is nothing to age it by — the raw reading is used — and a
+    /// pause publishes before the player has refreshed it. The bar was told to
+    /// go back three minutes, `adopt` read a jump that large as a deliberate
+    /// seek and obeyed, and the next poll brought the real position and threw
+    /// it forward again. Two visible jumps for standing still.
+    ///
+    /// A reading stamped before the moment we last knew the position is not
+    /// news, so it is ignored until the player publishes a fresher one.
+    private func describesAMomentAlreadyPast(
+        _ snapshot: NowPlayingFeed.Snapshot,
+        isPlaying: Bool
+    ) -> Bool {
+        guard !isPlaying, let takenAt = snapshot.takenAt, let anchor else { return false }
+        return takenAt < anchor.at
     }
 
     private func setAnchor(_ value: TimeInterval) {
