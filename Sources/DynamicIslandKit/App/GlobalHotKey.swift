@@ -15,13 +15,17 @@ import Carbon.HIToolbox
 @MainActor
 final class GlobalHotKey {
     private var reference: EventHotKeyRef?
-    private var handler: EventHandlerRef?
     private let action: () -> Void
 
-    /// Identifies our registration in the Carbon callback, which is C and gets
-    /// no context pointer of its own worth trusting across a process.
+    /// Identifies our registrations in the Carbon callback, which is C and gets
+    /// no context pointer of its own worth trusting across a process. Each
+    /// registration takes an id and the callback looks the instance back up,
+    /// so more than one shortcut can coexist.
     private static let signature = OSType(0x444E4953) // 'DNIS'
-    private static var live: GlobalHotKey?
+    private static var live: [UInt32: GlobalHotKey] = [:]
+    private static var nextID: UInt32 = 1
+    private static var sharedHandler: EventHandlerRef?
+    private let id: UInt32
 
     /// - Parameters:
     ///   - keyCode: a virtual key code, so the binding survives a layout
@@ -30,43 +34,57 @@ final class GlobalHotKey {
     ///     the person typing Russian.
     init?(keyCode: UInt32, modifiers: UInt32, action: @escaping () -> Void) {
         self.action = action
+        self.id = Self.nextID
+        Self.nextID += 1
 
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
-        let installed = InstallEventHandler(
-            GetApplicationEventTarget(),
-            { _, _, _ in
-                MainActor.assumeIsolated { GlobalHotKey.live?.action() }
-                return noErr
-            },
-            1,
-            &eventType,
-            nil,
-            &handler
-        )
-        guard installed == noErr else { return nil }
+        // One handler for every shortcut, installed once: Carbon dispatches
+        // all hot-key presses through it and the id says which one fired.
+        if Self.sharedHandler == nil {
+            var eventType = EventTypeSpec(
+                eventClass: OSType(kEventClassKeyboard),
+                eventKind: UInt32(kEventHotKeyPressed)
+            )
+            var installed: EventHandlerRef?
+            let status = InstallEventHandler(
+                GetApplicationEventTarget(),
+                { _, event, _ in
+                    var fired = EventHotKeyID()
+                    GetEventParameter(
+                        event,
+                        EventParamName(kEventParamDirectObject),
+                        EventParamType(typeEventHotKeyID),
+                        nil,
+                        MemoryLayout<EventHotKeyID>.size,
+                        nil,
+                        &fired
+                    )
+                    MainActor.assumeIsolated { GlobalHotKey.live[fired.id]?.action() }
+                    return noErr
+                },
+                1,
+                &eventType,
+                nil,
+                &installed
+            )
+            guard status == noErr else { return nil }
+            Self.sharedHandler = installed
+        }
 
-        let id = EventHotKeyID(signature: Self.signature, id: 1)
+        let hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
         let registered = RegisterEventHotKey(
             keyCode,
             modifiers,
-            id,
+            hotKeyID,
             GetApplicationEventTarget(),
             0,
             &reference
         )
-        guard registered == noErr, reference != nil else {
-            if let handler { RemoveEventHandler(handler) }
-            return nil
-        }
-        Self.live = self
+        guard registered == noErr, reference != nil else { return nil }
+        Self.live[id] = self
     }
 
     deinit {
         if let reference { UnregisterEventHotKey(reference) }
-        if let handler { RemoveEventHandler(handler) }
     }
 }
 
@@ -74,4 +92,7 @@ extension GlobalHotKey {
     /// ⌥⌘I — free in macOS's own shortcut set, and mnemonic for the island.
     static let defaultKeyCode = UInt32(kVK_ANSI_I)
     static let defaultModifiers = UInt32(optionKey | cmdKey)
+
+    /// ⌥⌘T translates whatever is on the clipboard.
+    static let translateKeyCode = UInt32(kVK_ANSI_T)
 }

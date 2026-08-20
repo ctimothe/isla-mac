@@ -33,6 +33,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key><string>dev.dynamicisland.app</string>
     <key>CFBundleExecutable</key><string>DynamicIsland</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>NSServices</key>
+    <array><dict>
+        <key>NSMenuItem</key>
+        <dict><key>default</key><string>Translate in Dynamic Island</string></dict>
+        <key>NSMessage</key><string>translateSelection</string>
+        <key>NSPortName</key><string>Dynamic Island</string>
+        <key>NSSendTypes</key><array><string>NSStringPboardType</string></array>
+    </dict></array>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>

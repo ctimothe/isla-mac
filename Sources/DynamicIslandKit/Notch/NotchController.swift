@@ -89,6 +89,22 @@ final class NotchController {
         panel?.orderOut(nil)
     }
 
+    /// Opens on the translate tab with this text already in it.
+    func translate(_ text: String) {
+        guard let vm = viewModel else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        peekWork?.cancel()
+        vm.isPeeking = false
+        vm.translator.input = trimmed
+        vm.tab = .translate
+        setOpen(true)
+        pointer.setInside(true)
+        // Held open by the pointer rule like any other tab, so it folds when
+        // the user moves away — a translation they walked away from is done.
+        scheduleCollapseIfPointerAway()
+    }
+
     func toggle() {
         guard let viewModel else { return }
         // `setOpen`'s close path defers the `isOpen` mutation to the next run

@@ -4,6 +4,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: NotchController?
     private var hotKey: GlobalHotKey?
+    private var translateHotKey: GlobalHotKey?
     private var statusItem: NSStatusItem?
     private var privacyItem: NSMenuItem?
     private var privacyAllItem: NSMenuItem?
@@ -22,6 +23,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ) { [weak self] in
             self?.togglePanel()
         }
+
+        // Translation without a window, an app switch, or a permission.
+        //
+        // Two routes, because they suit different moments and neither costs
+        // anything. The shortcut translates whatever is already on the
+        // clipboard, which needs no setup at all. The service takes the
+        // current selection from any app that offers one — macOS hands the
+        // text over itself, so reading a selection asks for no Accessibility
+        // access, which is what every other route to it would have cost.
+        translateHotKey = GlobalHotKey(
+            keyCode: GlobalHotKey.translateKeyCode,
+            modifiers: GlobalHotKey.defaultModifiers
+        ) { [weak self] in
+            guard let text = NSPasteboard.general.string(forType: .string) else { return }
+            self?.controller?.translate(text)
+        }
+        NSApp.servicesProvider = self
+    }
+
+    /// Entry point for the "Translate in Dynamic Island" service, named in the
+    /// bundle's NSServices. macOS passes the selection on a private pasteboard.
+    @objc func translateSelection(
+        _ pasteboard: NSPasteboard,
+        userData: String?,
+        error: AutoreleasingUnsafeMutablePointer<NSString>?
+    ) {
+        guard let text = pasteboard.string(forType: .string) else { return }
+        controller?.translate(text)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
