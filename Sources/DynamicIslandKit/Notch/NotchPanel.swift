@@ -28,6 +28,15 @@ final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { acceptsKeyboard }
     override var canBecomeMain: Bool { false }
 
+    /// One notch above the status bar, so the panel covers the menu bar
+    /// itself. Named because it is set from two places: `init` puts the panel
+    /// here, and the lock-screen presence — which raises the level past the
+    /// shield while the Mac is locked — needs the exact resting place to put
+    /// it back on unlock.
+    static var normalLevel: NSWindow.Level {
+        NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 1)
+    }
+
     /// Physical keys, so the shortcuts survive a keyboard layout change. A
     /// Cyrillic layout answers ⌘C with "с" (U+0441), not "c" (U+0063) — they
     /// are indistinguishable on screen and unequal to every string comparison,
@@ -118,8 +127,7 @@ final class NotchPanel: NSPanel {
 
         isFloatingPanel = true
         becomesKeyOnlyIfNeeded = true
-        // One notch above the status bar so we cover the menu bar itself.
-        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 1)
+        level = Self.normalLevel
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         isOpaque = false
         backgroundColor = .clear

@@ -211,6 +211,19 @@ final class NotchViewModel: ObservableObject {
         return defaults.bool(forKey: sneakPeekKey)
     }
 
+    static let showOnLockScreenKey = "showOnLockScreen"
+
+    /// Defaults to on: the pill over the lock screen is the closest this app
+    /// gets to the iPhone's always-on island, and it shows nothing the lock
+    /// screen does not already show — the same track macOS puts in its own
+    /// now-playing widget there. Off restores the old behaviour exactly: the
+    /// panel sinks under the shield with every other window.
+    static var showOnLockScreenEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: showOnLockScreenKey) != nil else { return true }
+        return defaults.bool(forKey: showOnLockScreenKey)
+    }
+
     /// Keeps the panel out of screenshots and screen recordings.
     static let hideFromCaptureKey = "hideFromCapture"
 

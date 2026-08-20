@@ -8,6 +8,7 @@ final class NotchController {
     private var rootView: NotchRootView?
     private var viewModel: NotchViewModel?
     private let pointer = PointerWatcher()
+    private let lockPresence = LockScreenPresence()
     private var closeActiveRectWork: DispatchWorkItem?
     private var peekWork: DispatchWorkItem?
     private var cancellables = Set<AnyCancellable>()
@@ -53,6 +54,13 @@ final class NotchController {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.pointer.start() }
         }
+        // Locking replaces the desktop with the shield, and the pill stays on
+        // it — see `LockScreenPresence` for the mechanism. Wired here because
+        // the two sides of the transition are this controller's verbs: fold,
+        // stop the sampler, raise the level; then put all three back.
+        lockPresence.onLock = { [weak self] in self?.screenLocked() }
+        lockPresence.onUnlock = { [weak self] in self?.screenUnlocked() }
+        lockPresence.start()
     }
 
     /// The panel belongs to the desktop it was opened on. ⌘-Tab to another one
@@ -72,6 +80,37 @@ final class NotchController {
         pointer.setInside(false)
     }
 
+    /// The lock screen is display-only for the panel: the compact pill keeps
+    /// rendering — `MediaController` never stops with the shield up, so
+    /// artwork, equalizer and the playing/paused state stay current — but
+    /// nothing may open over the shield and nothing may take a click that was
+    /// aimed at the password field. Mirrors the display-sleep handler above,
+    /// with the level raise on top. The switch lives in Settings; off means
+    /// none of this happens and the panel sinks under the shield as any
+    /// ordinary window does.
+    private func screenLocked() {
+        guard NotchViewModel.showOnLockScreenEnabled else { return }
+        setOpen(false)
+        pointer.setInside(false)
+        // The cursor still moves on the lock screen — that is how the
+        // password field is summoned — so a running sampler would count a
+        // pass over the notch as a hover and unfold the panel there.
+        pointer.stop()
+        // Click-through for the whole locked stretch. `build` starts panels
+        // this way, and the first sample after unlock puts it right again.
+        panel?.ignoresMouseEvents = true
+        lockPresence.apply(to: panel, locked: true)
+    }
+
+    /// Unconditional, unlike the lock side: the toggle may have been flipped
+    /// mid-lock, and putting a panel back on a level it already occupies
+    /// costs nothing. `pointer.start()` doubles with the wake handler when
+    /// the display slept too — starting twice only reschedules the timer.
+    private func screenUnlocked() {
+        lockPresence.apply(to: panel, locked: false)
+        pointer.start()
+    }
+
     private func screenParametersChanged() {
         let fresh = NotchGeometry.current()
         guard let current = viewModel?.geometry, current.matches(fresh) else {
@@ -83,6 +122,7 @@ final class NotchController {
     }
 
     func teardown() {
+        lockPresence.stop()
         pointer.stop()
         viewModel?.stop()
         panel?.acceptsKeyboard = false
@@ -314,6 +354,13 @@ final class NotchController {
             pointer.setInside(true)
             setOpen(true)
         }
+
+        // A rebuild can land mid-lock — plugging in a display does not wait
+        // for the password. The fresh panel starts at the normal level with
+        // its sampler running; dress it for the lock screen again, or the
+        // pill vanishes from the shield at the exact moment a display
+        // changes. Last, so it also undoes the reopen just above.
+        if lockPresence.isLocked { screenLocked() }
     }
 
     // MARK: - Open / close
