@@ -264,4 +264,26 @@ final class MediaControllerTests: XCTestCase {
         controller.apply(snapshot(title: "Song", pid: 100, playing: false, rate: 0))
         XCTAssertFalse(controller.isPlaying)
     }
+
+    /// The lyric line must not be chosen from a stale extrapolation: opening
+    /// the panel marks the position unsettled until a real reading lands.
+    func testPositionSettlesOnlyOnARealReading() {
+        let controller = MediaController()
+        controller.setActive(true)
+        XCTAssertFalse(controller.positionSettled, "opening the panel must unsettle the position")
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 200
+        playing.elapsed = 50
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        XCTAssertTrue(controller.positionSettled, "a real reading settles it")
+    }
 }

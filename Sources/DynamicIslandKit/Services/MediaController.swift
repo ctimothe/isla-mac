@@ -52,6 +52,13 @@ final class MediaController: ObservableObject {
     /// clock rather than MediaRemote's. The lyric lead reads this: with a
     /// precise position most of the compensation is unnecessary.
     @Published private(set) var precisionSync = false
+    /// False from panel-open or track-change until the first authoritative
+    /// reading lands. The moment the panel opens, the position is a stale
+    /// extrapolation from whenever it closed — usually right, but wrong
+    /// whenever a pause or seek happened while it was shut, and a lyric line
+    /// chosen from it flashes wrong and then corrects. The lyric waits the
+    /// ~150ms for a real fix instead.
+    @Published private(set) var positionSettled = false
     private var precisionTimer: Timer?
     private var precisionInFlight = false
 
@@ -88,6 +95,7 @@ final class MediaController: ObservableObject {
     /// whatever drifted a beat later.
     func setActive(_ active: Bool) {
         isActive = active
+        if active { positionSettled = false }
         updateTicker()
         updatePrecisionSync()
         guard active else { return }
@@ -142,7 +150,19 @@ final class MediaController: ObservableObject {
             guard let self else { return }
             self.precisionInFlight = false
             guard let value, self.isActive, self.displayedPlayerIsSpotify else { return }
-            guard self.pendingSeek == nil else { return }
+
+            // With corrections stewarding the position, this loop must also
+            // settle a pending seek — the MediaRemote branch that used to is
+            // skipped, and skipping this too left pendingSeek set forever
+            // after one in-panel seek: corrections permanently disabled, the
+            // clock free-running on a dead anchor, and everything downstream
+            // of the position drifting for the rest of the track.
+            if let pending = self.pendingSeek {
+                let settled = abs(value - pending.target) < 2.5
+                let expired = Date().timeIntervalSince(pending.at) > 1.5
+                guard settled || expired else { return }
+                self.pendingSeek = nil
+            }
 
             // The script's answer is already old by the time it arrives —
             // it describes the moment mid-round-trip, so while playing it is
@@ -162,6 +182,7 @@ final class MediaController: ObservableObject {
             } else {
                 self.anchor = (self.position, Date())
             }
+            if !self.positionSettled { self.positionSettled = true }
         }
     }
 
@@ -271,6 +292,7 @@ final class MediaController: ObservableObject {
         let playerChanged = displayedPlayerPID != snapshot.playerPID
         displayedPlayerPID = snapshot.playerPID
         if playerChanged {
+            positionSettled = false
             updatePrecisionSync()
             // Both readers carry state about the player that just went away:
             // the flag history that decides what a dropped flag means, and the
@@ -409,6 +431,7 @@ final class MediaController: ObservableObject {
         reportedPlayback = ReportedPlayback()
         lastReadingAt = nil
         foreignSince = nil
+        positionSettled = false
         canSkip = true
         updateTicker()
     }
@@ -579,6 +602,7 @@ final class MediaController: ObservableObject {
     /// anything past the jitter. Left alone, the bar keeps its own count, which
     /// runs at exactly the speed the music does.
     private func adopt(_ reported: TimeInterval) {
+        if !positionSettled { positionSettled = true }
         var value = max(0, reported)
         if duration > 0 { value = min(value, duration) }
         let delta = value - position

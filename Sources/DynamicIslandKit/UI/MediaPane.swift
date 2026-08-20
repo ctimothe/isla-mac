@@ -295,7 +295,7 @@ struct MediaPane: View {
     /// the music, not a document.
     @ViewBuilder
     private var lyricsLine: some View {
-        if case .synced(let lines) = lyrics.state {
+        if media.positionSettled, case .synced(let lines) = lyrics.state {
             let at = media.position + (media.precisionSync ? Self.precisionLyricsLead : Self.lyricsLead)
             let current = LyricsStore.current(in: lines, at: at)
             if let line = current.line {
