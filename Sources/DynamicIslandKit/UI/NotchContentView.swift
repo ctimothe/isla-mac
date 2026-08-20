@@ -91,6 +91,11 @@ struct NotchContentView: View {
     private var compactMediaHeader: some View {
         let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2)
         return HStack(spacing: 0) {
+            // Resting, each wing centres its content the way it always did —
+            // pinning to the edges put the artwork and equalizer flush against
+            // the pill's rounded ends with no inset at all. Only the peek
+            // leads-aligns, because a title reads from the left, and it takes
+            // an inset with it so nothing touches the curve.
             HStack(spacing: 7) {
                 compactArtwork
                 // Only while peeking, and only on the left wing: the title is
@@ -108,16 +113,18 @@ struct NotchContentView: View {
                             .lineLimit(1)
                     }
                     .transition(.opacity)
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
             }
-            .frame(width: wingWidth)
+            .padding(.leading, vm.isPeeking ? 10 : 0)
+            .frame(width: wingWidth, alignment: vm.isPeeking ? .leading : .center)
 
             Color.clear
                 .frame(width: vm.geometry.notchSize.width, height: 1)
 
             compactPlaybackState
-                .frame(width: wingWidth, alignment: .trailing)
+                .padding(.trailing, vm.isPeeking ? 12 : 0)
+                .frame(width: wingWidth, alignment: vm.isPeeking ? .trailing : .center)
         }
         .frame(width: size.width, height: vm.geometry.notchSize.height)
         .accessibilityElement(children: .ignore)
