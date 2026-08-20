@@ -59,8 +59,13 @@ final class MediaController: ObservableObject {
     /// chosen from it flashes wrong and then corrects. The lyric waits the
     /// ~150ms for a real fix instead.
     @Published private(set) var positionSettled = false
+    /// Spotify's catalogue id for the displayed track, when Spotify is the
+    /// displayed player and has answered. The word-synced lyrics database is
+    /// keyed by it; everything else falls back to title/artist matching.
+    @Published private(set) var spotifyTrackID: String?
     private var precisionTimer: Timer?
     private var precisionInFlight = false
+    private var spotifyStateObserver: (any NSObjectProtocol)?
 
     private var ticker: Timer?
     /// Deferred blanking of a cover whose replacement is still in flight.
@@ -75,11 +80,37 @@ final class MediaController: ObservableObject {
         feed.onUpdate = { [weak self] snapshot in self?.apply(snapshot) }
         feed.onUnavailable = { [weak self] in self?.switchToScriptingFallback() }
         feed.start()
+
+        // Spotify broadcasts every play, pause and track change as a
+        // distributed notification carrying its position to the millisecond —
+        // measured arriving 10-30ms after the change, needing no permission
+        // at all. It does not fire on seeks (MediaRemote pushes a fresh pair
+        // ~185ms after those, covering the gap) and delivery is not
+        // guaranteed, so it is an anchor source, never the only source.
+        spotifyStateObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.spotify.client.PlaybackStateChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated { self?.applySpotifyBroadcast(note) }
+        }
+    }
+
+    private func applySpotifyBroadcast(_ note: Notification) {
+        guard displayedPlayerIsSpotify,
+              let position = note.userInfo?["Playback Position"] as? Double else { return }
+        guard pendingSeek == nil else { return }
+        setAnchor(position)
+        if !positionSettled { positionSettled = true }
     }
 
     func stop() {
         precisionTimer?.invalidate()
         precisionTimer = nil
+        if let spotifyStateObserver {
+            DistributedNotificationCenter.default().removeObserver(spotifyStateObserver)
+        }
+        spotifyStateObserver = nil
         feed.stop()
         observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
         observers.removeAll()
@@ -289,11 +320,22 @@ final class MediaController: ObservableObject {
         let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
         let trackChanged = track?.key != key
         if track != fresh { track = fresh }
+        if trackChanged {
+            spotifyTrackID = nil
+            if displayedPlayerIsSpotify {
+                let expected = key
+                PlayerBridge.spotifyTrackID { [weak self] id in
+                    guard let self, self.track?.key == expected else { return }
+                    self.spotifyTrackID = id
+                }
+            }
+        }
         let playerChanged = displayedPlayerPID != snapshot.playerPID
         displayedPlayerPID = snapshot.playerPID
         if playerChanged {
             positionSettled = false
             updatePrecisionSync()
+            spotifyTrackID = nil
             // Both readers carry state about the player that just went away:
             // the flag history that decides what a dropped flag means, and the
             // stamp that decides whether a reading is news. Carried across, a
@@ -432,6 +474,7 @@ final class MediaController: ObservableObject {
         lastReadingAt = nil
         foreignSince = nil
         positionSettled = false
+        spotifyTrackID = nil
         canSkip = true
         updateTicker()
     }
