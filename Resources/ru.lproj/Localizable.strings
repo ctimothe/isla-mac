@@ -48,7 +48,6 @@
 /* Перевод */
 "Translation Languages…" = "Языки перевода…";
 "Retry" = "Повторить";
-"macOS does not translate this pair of languages." = "macOS не переводит эту пару языков.";
 
 /* Календарь */
 "Done" = "Готово";
@@ -75,5 +74,10 @@
 "Done" = "Готово";
 "Playing" = "Воспроизводится";
 "Paused" = "На паузе";
-"macOS has no %@ → %@ translation asset. If it is listed as downloaded, remove it and download it again." = "В macOS нет ресурса перевода %@ → %@. Если он указан как загруженный, удалите его и загрузите заново.";
-"Translation timed out." = "Время перевода истекло.";
+"Translation needs macOS 26 or newer." = "Для перевода нужна macOS 26 или новее.";
+"This Mac does not support Apple Intelligence." = "Этот Mac не поддерживает Apple Intelligence.";
+"Turn on Apple Intelligence to translate." = "Включите Apple Intelligence для перевода.";
+"The on-device model is still downloading." = "Локальная модель ещё загружается.";
+"macOS refused to translate this text." = "macOS отказалась переводить этот текст.";
+"This text is too long to translate at once." = "Этот текст слишком длинный для одного перевода.";
+"The translation could not be completed." = "Не удалось выполнить перевод.";

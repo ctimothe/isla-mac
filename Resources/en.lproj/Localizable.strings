@@ -49,7 +49,6 @@
 /* Translate */
 "Translation Languages…" = "Translation Languages…";
 "Retry" = "Retry";
-"macOS does not translate this pair of languages." = "macOS does not translate this pair of languages.";
 
 /* Calendar */
 "Done" = "Done";
@@ -76,5 +75,10 @@
 "Done" = "Done";
 "Playing" = "Playing";
 "Paused" = "Paused";
-"macOS has no %@ → %@ translation asset. If it is listed as downloaded, remove it and download it again." = "macOS has no %@ → %@ translation asset. If it is listed as downloaded, remove it and download it again.";
-"Translation timed out." = "Translation timed out.";
+"Translation needs macOS 26 or newer." = "Translation needs macOS 26 or newer.";
+"This Mac does not support Apple Intelligence." = "This Mac does not support Apple Intelligence.";
+"Turn on Apple Intelligence to translate." = "Turn on Apple Intelligence to translate.";
+"The on-device model is still downloading." = "The on-device model is still downloading.";
+"macOS refused to translate this text." = "macOS refused to translate this text.";
+"This text is too long to translate at once." = "This text is too long to translate at once.";
+"The translation could not be completed." = "The translation could not be completed.";

@@ -1,5 +1,4 @@
 import SwiftUI
-import Translation
 
 /// Two columns, the way every translator is laid out: source on the left,
 /// result on the right. The left one sits on a surface — that is the whole
@@ -13,7 +12,6 @@ struct TranslatePane: View {
     @Binding var wantsKeyboard: Bool
 
     @FocusState private var focused: Bool
-    @State private var configuration: TranslationSession.Configuration?
     /// Measured once, off the layout path. See `body`.
     @State private var paneSize: CGSize = .zero
 
@@ -44,9 +42,6 @@ struct TranslatePane: View {
         // One task for both the text and the retry counter: a keystroke
         // cancels the pending sleep, so only a pause actually translates.
         .task(id: translator.request) { await schedule() }
-        .translationTask(configuration) { session in
-            await translator.run(session)
-        }
         .onAppear { focused = wantsKeyboard }
         .onChange(of: wantsKeyboard) { _, wants in focused = wants }
     }
@@ -120,7 +115,7 @@ struct TranslatePane: View {
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 10) {
-                    if translator.needsDownload {
+                    if translator.needsSettings {
                         Button("Translation Languages…") { Translator.openLanguageSettings() }
                     }
                     Button("Retry") { translator.retry() }
@@ -209,7 +204,6 @@ struct TranslatePane: View {
     private func schedule() async {
         let text = translator.trimmed
         guard !text.isEmpty else {
-            configuration = nil
             translator.clear()
             return
         }
@@ -218,14 +212,6 @@ struct TranslatePane: View {
         try? await Task.sleep(for: .milliseconds(320))
         guard !Task.isCancelled else { return }
 
-        let route = Translator.route(for: text)
-        if var current = configuration, current.source == route.source, current.target == route.target {
-            // Same pair, different text. The modifier only re-runs when the
-            // configuration changes, and invalidating is how one says "again".
-            current.invalidate()
-            configuration = current
-        } else {
-            configuration = TranslationSession.Configuration(source: route.source, target: route.target)
-        }
+        await translator.translate()
     }
 }
