@@ -82,3 +82,6 @@
 "macOS refused to translate this text." = "macOS refused to translate this text.";
 "This text is too long to translate at once." = "This text is too long to translate at once.";
 "The translation could not be completed." = "The translation could not be completed.";
+"Hide From Screen Recording" = "Hide From Screen Recording";
+"Translating…" = "Translating…";
+"notes.json cannot be read, so nothing is being saved." = "notes.json cannot be read, so nothing is being saved.";

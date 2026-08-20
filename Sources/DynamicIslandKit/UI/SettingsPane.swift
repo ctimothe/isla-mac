@@ -12,6 +12,7 @@ struct SettingsPane: View {
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
+    @State private var hideFromCapture = NotchViewModel.hideFromCaptureEnabled
     @State private var screenshotUsage: (files: Int, bytes: Int64) = (0, 0)
 
     var body: some View {
@@ -57,6 +58,20 @@ struct SettingsPane: View {
                             isOn: privacyCoversBinding(for: privacySection)
                         )
                     }
+                    toggleRow(
+                        symbol: "eye.slash",
+                        title: localized("Hide From Screen Recording"),
+                        isOn: Binding(
+                            get: { hideFromCapture },
+                            set: { wants in
+                                hideFromCapture = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.hideFromCaptureKey)
+                                // The live panel, not just the next one built.
+                                (NSApp.windows.first { $0 is NotchPanel } as? NotchPanel)?
+                                    .applyCaptureExclusion()
+                            }
+                        )
+                    )
                 }
 
                 section(localized("Application")) {
