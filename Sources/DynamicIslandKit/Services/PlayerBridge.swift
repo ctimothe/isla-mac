@@ -61,6 +61,24 @@ enum PlayerBridge {
 
     /// Never launches a player: only already-running ones are queried, and a
     /// playing app wins over a merely-open one.
+    /// Spotify's own playback position, fractional seconds, asked directly.
+    /// The one scriptable value that beats MediaRemote: the daemon's readings
+    /// sit about a second stale, the player's own answer lands within ~50ms.
+    static func preciseSpotifyPosition(completion: @escaping @MainActor (TimeInterval?) -> Void) {
+        let script = """
+        tell application id "\(PlayerApp.spotify.bundleID)"
+            if it is running then
+                return (player position as text)
+            end if
+        end tell
+        """
+        runScript(script) { result in
+            MainActor.assumeIsolated {
+                completion(result?.stringValue.flatMap { TimeInterval($0.replacingOccurrences(of: ",", with: ".")) })
+            }
+        }
+    }
+
     static func currentState(completion: @escaping (PlayerState?) -> Void) {
         let candidates = PlayerApp.allCases.filter(\.isRunning)
         guard !candidates.isEmpty else { return completion(nil) }

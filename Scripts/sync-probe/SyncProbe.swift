@@ -83,10 +83,19 @@ final class Probe {
     ]
 }
 
+final class ProbeDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { @MainActor in await Probe().run() }
+    }
+}
+
 @main
 struct Main {
     static func main() {
-        Task { @MainActor in await Probe().run() }
-        RunLoop.main.run()
+        let app = NSApplication.shared
+        let delegate = ProbeDelegate()
+        app.delegate = delegate
+        app.setActivationPolicy(.prohibited)
+        app.run()
     }
 }

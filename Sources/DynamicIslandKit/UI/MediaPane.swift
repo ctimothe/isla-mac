@@ -285,6 +285,9 @@ struct MediaPane: View {
     /// roughly their sum is what karaoke has always done — the line appears as
     /// the voice does, not noticeably after it.
     private static let lyricsLead: TimeInterval = 0.45
+    /// With the position corrected against the player's own clock the
+    /// pipeline's share of the lag is gone; what remains is display cost.
+    private static let precisionLyricsLead: TimeInterval = 0.25
 
     /// One line, sung now, where the eye already is — with the sung part of it
     /// brightening as the voice moves through. No scrolling wall of text: the
@@ -293,7 +296,7 @@ struct MediaPane: View {
     @ViewBuilder
     private var lyricsLine: some View {
         if case .synced(let lines) = lyrics.state {
-            let at = media.position + Self.lyricsLead
+            let at = media.position + (media.precisionSync ? Self.precisionLyricsLead : Self.lyricsLead)
             let current = LyricsStore.current(in: lines, at: at)
             if let line = current.line {
                 // Where the voice stands inside this line, 0...1. The catalogue

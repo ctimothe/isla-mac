@@ -48,6 +48,13 @@ final class MediaController: ObservableObject {
     private var anchor: (position: TimeInterval, at: Date)?
     /// Where we asked the player to jump, and when — see `apply`.
     private var pendingSeek: (target: TimeInterval, at: Date)?
+    /// True while the position is being corrected against the player's own
+    /// clock rather than MediaRemote's. The lyric lead reads this: with a
+    /// precise position most of the compensation is unnecessary.
+    @Published private(set) var precisionSync = false
+    private var precisionTimer: Timer?
+    private var precisionInFlight = false
+
     private var ticker: Timer?
     /// Deferred blanking of a cover whose replacement is still in flight.
     private var blankArtwork: Task<Void, Never>?
@@ -64,6 +71,8 @@ final class MediaController: ObservableObject {
     }
 
     func stop() {
+        precisionTimer?.invalidate()
+        precisionTimer = nil
         feed.stop()
         observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
         observers.removeAll()
@@ -80,12 +89,63 @@ final class MediaController: ObservableObject {
     func setActive(_ active: Bool) {
         isActive = active
         updateTicker()
+        updatePrecisionSync()
         guard active else { return }
         tick()
         if feedAvailable {
             feed.refresh()
         } else {
             refreshFromPlayers()
+        }
+    }
+
+    // MARK: - Precision sync
+
+    /// MediaRemote's readings are the floor on accuracy: measured against
+    /// Spotify's own clock they sit 0.9–1.1s stale, because the daemon
+    /// re-serves one elapsed/timestamp pair between state changes. Spotify,
+    /// though, answers its exact position over scripting to within ~50ms —
+    /// so while the panel is open and Spotify is the displayed player, the
+    /// position is corrected against the player itself every two seconds.
+    ///
+    /// Spotify only, deliberately: it is the player that answers, and the
+    /// first use raises macOS's one-time automation consent for it. Scoped to
+    /// the open panel so a closed pill costs nothing and prompts for nothing.
+    private var displayedPlayerIsSpotify: Bool {
+        guard let pid = displayedPlayerPID else { return false }
+        return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == PlayerApp.spotify.bundleID
+    }
+
+    private func updatePrecisionSync() {
+        let wanted = isActive && displayedPlayerIsSpotify
+        if precisionSync != wanted { precisionSync = wanted }
+        guard wanted else {
+            precisionTimer?.invalidate()
+            precisionTimer = nil
+            return
+        }
+        guard precisionTimer == nil else { return }
+        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.precisionCorrect() }
+        }
+        timer.tolerance = 0.2
+        RunLoop.main.add(timer, forMode: .common)
+        precisionTimer = timer
+        precisionCorrect()
+    }
+
+    private func precisionCorrect() {
+        guard !precisionInFlight, displayedPlayerIsSpotify else { return }
+        precisionInFlight = true
+        PlayerBridge.preciseSpotifyPosition { [weak self] value in
+            guard let self else { return }
+            self.precisionInFlight = false
+            guard let value, self.isActive, self.displayedPlayerIsSpotify else { return }
+            // The player's own answer outranks every heuristic: no tolerance,
+            // no ratchet — while paused it simply confirms where we stand,
+            // and a pending seek still gets its settle window.
+            guard self.pendingSeek == nil else { return }
+            self.setAnchor(value)
         }
     }
 
@@ -194,6 +254,7 @@ final class MediaController: ObservableObject {
         let playerChanged = displayedPlayerPID != snapshot.playerPID
         displayedPlayerPID = snapshot.playerPID
         if playerChanged {
+            updatePrecisionSync()
             // Both readers carry state about the player that just went away:
             // the flag history that decides what a dropped flag means, and the
             // stamp that decides whether a reading is news. Carried across, a
