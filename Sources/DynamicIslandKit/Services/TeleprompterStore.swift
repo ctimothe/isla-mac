@@ -29,6 +29,14 @@ final class TeleprompterStore: ObservableObject {
     /// felt right while setting up never survives the first paragraph.
     @Published var speed: Double = 1.0 {
         didSet {
+            // Enforced here, not just at today's call sites (init's defaults
+            // read, the Slider, the increment buttons): the model is the one
+            // place every caller passes through.
+            let clamped = min(max(speed, 0.3), 3.0)
+            if clamped != speed {
+                speed = clamped
+                return
+            }
             guard speed != oldValue else { return }
             defaults.set(speed, forKey: Self.speedKey)
         }
@@ -39,6 +47,11 @@ final class TeleprompterStore: ObservableObject {
     /// the attention available while talking to a camera.
     @Published var fontSize: Double = 30 {
         didSet {
+            let clamped = min(max(fontSize, 18), 64)
+            if clamped != fontSize {
+                fontSize = clamped
+                return
+            }
             guard fontSize != oldValue else { return }
             defaults.set(fontSize, forKey: Self.fontKey)
         }
