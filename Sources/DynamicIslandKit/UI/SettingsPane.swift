@@ -218,6 +218,13 @@ struct SettingsPane: View {
     private func connectSpotify() {
         let account = SpotifyAccount.shared
         if account.clientID == nil {
+            // The dashboard opens first, instantly — the browser is already
+            // loading the page where the Client ID comes from while the paste
+            // dialog is still being read, instead of a modal blocking an
+            // empty screen.
+            if let dashboard = URL(string: "https://developer.spotify.com/dashboard") {
+                NSWorkspace.shared.open(dashboard)
+            }
             let alert = NSAlert()
             alert.messageText = localized("Connect Spotify")
             alert.informativeText = localized("Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI dynamicisland://spotify-callback).")
