@@ -184,7 +184,7 @@ struct NotchContentView: View {
 
     private var compactAccessibilityLabel: String {
         guard let track = vm.media.track else { return "" }
-        let state = compactActivity == .playing ? "Playing" : "Paused"
+        let state = compactActivity == .playing ? localized("Playing") : localized("Paused")
         return "\(state): \(track.title), \(track.artist)"
     }
 
