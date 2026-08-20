@@ -3,6 +3,7 @@ import SwiftUI
 struct MediaPane: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var scrubHover = false
     /// Set while dragging, so the bar follows the finger instead of the clock.
@@ -275,30 +276,44 @@ struct MediaPane: View {
         .animation(.easeInOut(duration: 0.15), value: media.canSkip)
     }
 
-    /// One line, sung now, where the eye already is. No scrolling wall of
-    /// text: the pane is 122pt of album art and transport, and the lyric is a
-    /// caption to the music, not a document. The position the ticker already
-    /// interpolates four times a second is what the line keys off, so the sync
-    /// is as tight as the bar's.
+    /// How far ahead of the clock the lyric runs.
+    ///
+    /// Three real delays stack between the singer and the screen: the position
+    /// ticks four times a second, so a line lands up to 250ms after its
+    /// timestamp; the crossfade spends another 160ms arriving; and the
+    /// pipeline's own readings run slightly behind the audio. Leading by
+    /// roughly their sum is what karaoke has always done — the line appears as
+    /// the voice does, not noticeably after it.
+    private static let lyricsLead: TimeInterval = 0.45
+
+    /// One line, sung now, where the eye already is — with the sung part of it
+    /// brightening as the voice moves through. No scrolling wall of text: the
+    /// pane is 122pt of album art and transport, and the lyric is a caption to
+    /// the music, not a document.
     @ViewBuilder
     private var lyricsLine: some View {
         if case .synced(let lines) = lyrics.state {
-            let current = LyricsStore.current(in: lines, at: media.position)
-            if current.line != nil || current.next != nil {
-                Text(current.line?.text ?? " ")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+            let at = media.position + Self.lyricsLead
+            let current = LyricsStore.current(in: lines, at: at)
+            if let line = current.line {
+                // Where the voice stands inside this line, 0...1. The catalogue
+                // carries line timestamps, not word ones, so within a line the
+                // sweep is linear time — even pacing, which is what singing
+                // mostly is. The end of the last line borrows a spoken-line
+                // length rather than running to the end of the track.
+                let end = current.next?.at ?? line.at + 6
+                let span = max(end - line.at, 0.5)
+                let fraction = min(max((at - line.at) / span, 0), 1)
+                KaraokeLine(text: line.text, fraction: fraction, reduceMotion: reduceMotion)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 5)
                     // Keyed so a line change crossfades instead of morphing
                     // glyph-by-glyph in place.
-                    .id(current.line?.at ?? -1)
+                    .id(line.at)
                     .transition(.opacity)
-                    .animation(Theme.contentAnimation, value: current.line?.at)
+                    .animation(Theme.contentAnimation, value: line.at)
                     .accessibilityLabel(localized("Lyrics"))
-                    .accessibilityValue(current.line?.text ?? "")
+                    .accessibilityValue(line.text)
             }
         }
     }
@@ -315,5 +330,42 @@ struct MediaPane: View {
                 .foregroundStyle(Theme.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// A line of lyric whose sung part is bright and whose unsung part is dim,
+/// the boundary sweeping with the voice.
+///
+/// A mask over a second copy of the same text, not per-word styling: the
+/// brief asked for rhythm, not typography — no underline, no boxes, just the
+/// reading edge moving. The linear animation between position ticks is what
+/// turns four updates a second into one continuous sweep.
+private struct KaraokeLine: View {
+    let text: String
+    let fraction: Double
+    let reduceMotion: Bool
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Theme.tertiary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .overlay(alignment: .leading) {
+                if !reduceMotion {
+                    Text(text)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.92))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .mask(
+                            GeometryReader { geo in
+                                Rectangle()
+                                    .frame(width: geo.size.width * fraction)
+                                    .animation(.linear(duration: 0.25), value: fraction)
+                            }
+                        )
+                }
+            }
     }
 }

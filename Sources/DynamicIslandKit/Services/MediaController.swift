@@ -34,6 +34,15 @@ final class MediaController: ObservableObject {
     private var playbackIntent = PlaybackIntent(reported: false)
     private var reportedPlayback = ReportedPlayback()
 
+    /// How long a non-playing stranger has to keep claiming the session
+    /// before it is believed. Long enough to ride out window switching,
+    /// short enough that a genuinely departed player does not leave a ghost.
+    /// Internal so the tests can collapse it.
+    var foreignHoldWindow: TimeInterval = 10
+    /// When a non-playing session from another PID first tried to take the
+    /// display from a session we are still showing.
+    private var foreignSince: Date?
+
     private var activeApp: PlayerApp?
     private var artworkKey: String?
     private var anchor: (position: TimeInterval, at: Date)?
@@ -143,6 +152,32 @@ final class MediaController: ObservableObject {
     /// process.
     func apply(_ snapshot: NowPlayingFeed.Snapshot) {
         guard !snapshot.isEmpty else { return clear() }
+
+        // macOS's "active" session follows app focus, not audio: focusing a
+        // browser holding a paused video displaces the player that is
+        // actually making sound, and the feed starts describing the wrong
+        // one. The island keeps its own counsel — a session that is not
+        // playing never takes the display away from the one being shown.
+        //
+        // The hold is not forever, because the displayed player may be
+        // genuinely gone — quit, or its session expired — and then the
+        // stranger is all there is. A stranger that persists for the whole
+        // window is adopted; one that starts playing is adopted at once,
+        // because new audio is the one claim that outranks everything.
+        if let currentPID = displayedPlayerPID,
+           let snapshotPID = snapshot.playerPID,
+           snapshotPID != currentPID,
+           !snapshot.isPlaying, snapshot.rate <= 0 {
+            let now = Date()
+            if let foreignSince {
+                if now.timeIntervalSince(foreignSince) < foreignHoldWindow { return }
+                // Held long enough: fall through and adopt it.
+            } else {
+                foreignSince = now
+                return
+            }
+        }
+        foreignSince = nil
 
         // The PID rides along with title/artist/album: two different players
         // can report the exact same metadata, and without it a switch
@@ -283,6 +318,7 @@ final class MediaController: ObservableObject {
         playbackIntent = PlaybackIntent(reported: false)
         reportedPlayback = ReportedPlayback()
         lastReadingAt = nil
+        foreignSince = nil
         canSkip = true
         updateTicker()
     }
