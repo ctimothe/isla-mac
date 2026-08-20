@@ -6,6 +6,8 @@ struct MediaPane: View {
     @State private var scrubHover = false
     /// Set while dragging, so the bar follows the finger instead of the clock.
     @State private var scrubbing: Double?
+    /// Cursor x inside the bar while hovering, for the floating time preview.
+    @State private var hoverX: CGFloat?
 
     /// Artwork and the text column share this height, so their top and bottom
     /// edges line up instead of the column floating past them.
@@ -118,6 +120,12 @@ struct MediaPane: View {
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onHover { scrubHover = $0 }
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active(let location): hoverX = location.x
+                    case .ended: hoverX = nil
+                    }
+                }
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
@@ -135,6 +143,9 @@ struct MediaPane: View {
                         }
                 )
                 .animation(Theme.contentAnimation, value: scrubHover)
+                .overlay(alignment: .topLeading) {
+                    previewBubble(width: width, filled: filled)
+                }
             }
             .frame(height: 14)
 
@@ -143,6 +154,35 @@ struct MediaPane: View {
         }
         .font(.system(size: 10, weight: .medium).monospacedDigit())
         .foregroundStyle(Theme.tertiary)
+    }
+
+    /// Bubble width is fixed rather than measured: formatTime yields "m:ss"
+    /// through "mm:ss" in the 10 pt monospaced ramp, which all fit in 44 pt,
+    /// and a constant keeps ScrubPreview's clamping deterministic.
+    private static let bubbleWidth: CGFloat = 44
+
+    /// Floating time preview above the bar. Drag wins over hover: while a
+    /// drag is in flight the bubble follows the thumb, not the cursor.
+    @ViewBuilder
+    private func previewBubble(width: CGFloat, filled: CGFloat) -> some View {
+        let anchorX: CGFloat? = scrubbing != nil ? filled : hoverX
+        if let anchorX,
+           scrubbing != nil || scrubHover,
+           let fraction = ScrubPreview.fraction(x: anchorX, width: width, duration: media.duration) {
+            Text(formatTime(fraction * media.duration))
+                .font(.system(size: 10, weight: .medium).monospacedDigit())
+                .foregroundStyle(Color.white.opacity(0.9))
+                .frame(width: Self.bubbleWidth, height: 18)
+                .background(Theme.surface, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
+                .position(
+                    x: ScrubPreview.bubbleCenterX(x: anchorX, width: width, bubbleWidth: Self.bubbleWidth),
+                    y: -17
+                )
+                .allowsHitTesting(false)
+                .transition(.opacity)
+                .animation(Theme.contentAnimation, value: scrubHover)
+        }
     }
 
     // MARK: - Transport
