@@ -26,6 +26,10 @@ final class ShelfStore: ObservableObject {
     @Published private(set) var items: [ShelfItem] = []
     /// Cards picked for a group drag. Empty means "drag whatever is grabbed".
     @Published private(set) var selection: Set<UUID> = []
+    /// The last plainly-clicked card, from which a Shift range extends —
+    /// matching Finder, where Shift always reaches back to the last item
+    /// clicked without a modifier, not to whatever Cmd-click last touched.
+    private var anchor: UUID?
 
     private let defaultsKey = "shelf.urls"
     private let defaults: UserDefaults
@@ -149,8 +153,17 @@ final class ShelfStore: ObservableObject {
 
     // MARK: - Selection
 
-    /// Plain click replaces the selection; ⌘ or ⇧ adds to it, matching Finder.
+    /// Plain click replaces the selection; ⌘ toggles one card; ⇧ selects the
+    /// contiguous run between the anchor and the clicked card, matching Finder.
     func select(_ item: ShelfItem, modifiers: NSEvent.ModifierFlags) {
+        if modifiers.contains(.shift),
+           let anchor,
+           let anchorIndex = items.firstIndex(where: { $0.id == anchor }),
+           let targetIndex = items.firstIndex(where: { $0.id == item.id }) {
+            let range = anchorIndex <= targetIndex ? anchorIndex...targetIndex : targetIndex...anchorIndex
+            selection = Set(items[range].map(\.id))
+            return
+        }
         if modifiers.contains(.command) || modifiers.contains(.shift) {
             if selection.contains(item.id) {
                 selection.remove(item.id)
@@ -159,8 +172,10 @@ final class ShelfStore: ObservableObject {
             }
         } else if selection == [item.id] {
             selection.removeAll()
+            anchor = nil
         } else {
             selection = [item.id]
+            anchor = item.id
         }
     }
 
