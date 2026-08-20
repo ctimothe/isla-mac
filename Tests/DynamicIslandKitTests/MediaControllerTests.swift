@@ -196,4 +196,72 @@ final class MediaControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.position, 90, accuracy: 2, "a stampless paused zero must not reset the bar")
     }
+
+    // MARK: - Focus-follows displacement
+
+    private func snapshot(
+        title: String, pid: pid_t, playing: Bool, rate: Double
+    ) -> NowPlayingFeed.Snapshot {
+        var s = NowPlayingFeed.Snapshot()
+        s.title = title
+        s.artist = "Artist"
+        s.album = "Album"
+        s.duration = 200
+        s.elapsed = 10
+        s.rate = rate
+        s.isPlaying = playing
+        s.takenAt = Date()
+        s.playerPID = pid
+        return s
+    }
+
+    /// macOS's "active" session follows app focus: focusing a browser with a
+    /// paused video displaces the player that is actually making sound. The
+    /// island must not follow — a session that is not playing never takes the
+    /// display from one that is.
+    func testAPausedSessionDoesNotDisplaceAPlayingOne() {
+        let controller = MediaController()
+        controller.foreignHoldWindow = 3600
+
+        controller.apply(snapshot(title: "Song", pid: 100, playing: true, rate: 1))
+        XCTAssertEqual(controller.track?.title, "Song")
+
+        controller.apply(snapshot(title: "Some Video", pid: 200, playing: false, rate: 0))
+        XCTAssertEqual(controller.track?.title, "Song", "a paused stranger must not take the display")
+        XCTAssertTrue(controller.isPlaying, "and the playing state must survive it")
+    }
+
+    /// A stranger that is actually playing is new audio — it wins at once.
+    func testAPlayingSessionDisplacesImmediately() {
+        let controller = MediaController()
+        controller.foreignHoldWindow = 3600
+
+        controller.apply(snapshot(title: "Song", pid: 100, playing: true, rate: 1))
+        controller.apply(snapshot(title: "New Audio", pid: 200, playing: true, rate: 1))
+        XCTAssertEqual(controller.track?.title, "New Audio")
+    }
+
+    /// The hold cannot be forever: the displayed player may genuinely be gone
+    /// — quit, or its session expired — and then the stranger is all there is.
+    func testAPersistentForeignSessionIsEventuallyAdopted() {
+        let controller = MediaController()
+        controller.foreignHoldWindow = 0
+
+        controller.apply(snapshot(title: "Song", pid: 100, playing: true, rate: 1))
+        controller.apply(snapshot(title: "Some Video", pid: 200, playing: false, rate: 0))
+        // Window elapsed (zero for the test): the next foreign report lands.
+        controller.apply(snapshot(title: "Some Video", pid: 200, playing: false, rate: 0))
+        XCTAssertEqual(controller.track?.title, "Some Video")
+    }
+
+    /// The displayed player's own reports always land — pausing your own
+    /// music is not displacement.
+    func testTheDisplayedPlayersOwnPauseStillLands() {
+        let controller = MediaController()
+        controller.foreignHoldWindow = 3600
+
+        controller.apply(snapshot(title: "Song", pid: 100, playing: true, rate: 1))
+        controller.apply(snapshot(title: "Song", pid: 100, playing: false, rate: 0))
+        XCTAssertFalse(controller.isPlaying)
+    }
 }
