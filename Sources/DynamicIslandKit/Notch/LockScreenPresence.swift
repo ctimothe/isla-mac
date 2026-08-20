@@ -81,23 +81,121 @@ final class LockScreenPresence {
         onUnlock?()
     }
 
-    /// Raises the panel past the shield, or puts it back exactly where
-    /// `NotchPanel` normally keeps it. Fronting is re-asserted both ways: at
-    /// lock because the panel has just been handed a new level in a new
-    /// ordering, at unlock for the same reason a space change re-fronts it —
-    /// the transition can leave it behind.
+    /// Moves the panel into a SkyLight space above the shield, or returns it
+    /// to the ordinary world.
+    ///
+    /// The public route was tried first and lost, exactly as the precedent
+    /// warned: raised past `CGShieldingWindowLevel()` with
+    /// `canBecomeVisibleWithoutLogin`, the pill still never appeared on a
+    /// physically locked Mac. The modern lock screen is not a window to
+    /// out-level — it is a whole compositor space at absolute level 300,
+    /// drawn over every window of the spaces beneath it whatever their level.
+    /// The only way over it is a space of one's own, one level higher, which
+    /// is what boring.notch and mew-notch both ship: `SLSSpaceCreate`, set to
+    /// absolute level 400, and the panel's window moved into it for the
+    /// duration of the lock. Private SPI, knowingly adopted on the user's
+    /// explicit call after the public route failed the physical test.
+    ///
+    /// Coming back matters as much as going up: the window is removed from
+    /// the custom space and re-ordered, which rebinds it to the active space;
+    /// the space itself is hidden and destroyed so nothing leaks across
+    /// lock cycles.
     func apply(to panel: NSPanel?, locked: Bool) {
         guard let panel else { return }
         if locked {
             panel.canBecomeVisibleWithoutLogin = true
-            panel.level = NSWindow.Level(rawValue: Self.lockedLevel(
-                base: NotchPanel.normalLevel.rawValue,
-                shield: Int(CGShieldingWindowLevel())
-            ))
+            SkyLight.shared?.lift(windowNumber: panel.windowNumber)
         } else {
+            SkyLight.shared?.lower(windowNumber: panel.windowNumber)
             panel.level = NotchPanel.normalLevel
             panel.canBecomeVisibleWithoutLogin = false
         }
         panel.orderFrontRegardless()
+    }
+}
+
+/// The four SkyLight calls, resolved at runtime.
+///
+/// dlopen/dlsym rather than linking: the framework is private, its symbols
+/// carry no headers, and resolving by name means a macOS release that
+/// removes one degrades to the public behavior (pill hidden while locked)
+/// instead of failing to launch.
+@MainActor
+final class SkyLight {
+    /// The lock screen's own space sits at absolute level 300
+    /// (kCGSSpaceAbsoluteLevelScreenLock); 400 is the notification-center-
+    /// at-lock level the shipping notch apps use — above the shield, below
+    /// nothing that matters.
+    private static let aboveShield: Int32 = 400
+
+    static let shared = SkyLight()
+
+    private typealias MainConnectionID = @convention(c) () -> Int32
+    private typealias SpaceCreate = @convention(c) (Int32, Int32, Int32) -> UInt64
+    private typealias SpaceDestroy = @convention(c) (Int32, UInt64) -> Void
+    private typealias SpaceSetAbsoluteLevel = @convention(c) (Int32, UInt64, Int32) -> Void
+    private typealias ShowSpaces = @convention(c) (Int32, CFArray) -> Void
+    private typealias HideSpaces = @convention(c) (Int32, CFArray) -> Void
+    private typealias SpaceAddWindows = @convention(c) (Int32, UInt64, CFArray, Int32) -> Void
+    private typealias RemoveWindowsFromSpaces = @convention(c) (Int32, CFArray, CFArray) -> Void
+
+    private let connection: Int32
+    private let spaceCreate: SpaceCreate
+    private let spaceDestroy: SpaceDestroy
+    private let setAbsoluteLevel: SpaceSetAbsoluteLevel
+    private let showSpaces: ShowSpaces
+    private let hideSpaces: HideSpaces
+    private let addWindows: SpaceAddWindows
+    private let removeWindows: RemoveWindowsFromSpaces
+
+    private var space: UInt64 = 0
+
+    private init?() {
+        guard let handle = dlopen(
+            "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW
+        ) else { return nil }
+
+        func symbol<T>(_ name: String, as type: T.Type) -> T? {
+            guard let raw = dlsym(handle, name) else { return nil }
+            return unsafeBitCast(raw, to: type)
+        }
+
+        guard
+            let main = symbol("SLSMainConnectionID", as: MainConnectionID.self),
+            let create = symbol("SLSSpaceCreate", as: SpaceCreate.self),
+            let destroy = symbol("SLSSpaceDestroy", as: SpaceDestroy.self),
+            let level = symbol("SLSSpaceSetAbsoluteLevel", as: SpaceSetAbsoluteLevel.self),
+            let show = symbol("SLSShowSpaces", as: ShowSpaces.self),
+            let hide = symbol("SLSHideSpaces", as: HideSpaces.self),
+            let add = symbol("SLSSpaceAddWindowsAndRemoveFromSpaces", as: SpaceAddWindows.self),
+            let remove = symbol("SLSRemoveWindowsFromSpaces", as: RemoveWindowsFromSpaces.self)
+        else { return nil }
+
+        connection = main()
+        spaceCreate = create
+        spaceDestroy = destroy
+        setAbsoluteLevel = level
+        showSpaces = show
+        hideSpaces = hide
+        addWindows = add
+        removeWindows = remove
+    }
+
+    func lift(windowNumber: Int) {
+        if space == 0 {
+            space = spaceCreate(connection, 1, 0)
+            guard space != 0 else { return }
+            setAbsoluteLevel(connection, space, Self.aboveShield)
+        }
+        showSpaces(connection, [space] as CFArray)
+        addWindows(connection, space, [windowNumber] as CFArray, 7)
+    }
+
+    func lower(windowNumber: Int) {
+        guard space != 0 else { return }
+        removeWindows(connection, [windowNumber] as CFArray, [space] as CFArray)
+        hideSpaces(connection, [space] as CFArray)
+        spaceDestroy(connection, space)
+        space = 0
     }
 }
