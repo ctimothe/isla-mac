@@ -53,9 +53,10 @@ enum ScrubPreview {
   clears it. The existing `scrubHover` bool stays (drives bar thickness/knob).
 - Bubble is an `overlay(alignment: .topLeading)` on the bar: monospaced
   `formatTime(fraction * media.duration)` in a capsule — `Theme.surface`
-  background, `Theme.hairline` stroke, `Theme.tertiary`-contrast text matching
-  the scrubber's existing type ramp — positioned ~8 pt above the bar at
-  `bubbleCenterX`.
+  background, `Theme.hairline` stroke, `Color.white.opacity(0.9)` text (same
+  emphasis as the filled bar, brighter than the `Theme.tertiary` labels since
+  the bubble is the momentary focus) at the scrubber's existing 10 pt
+  monospaced size — positioned ~8 pt above the bar at `bubbleCenterX`.
 - Precedence: while `scrubbing != nil` (drag in flight) the bubble follows the
   thumb (`filled` x), not the hover x. Drag end seeks (existing behavior,
   untouched) and the bubble returns to hover-driven.
