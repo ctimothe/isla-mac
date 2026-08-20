@@ -328,7 +328,7 @@ struct CalendarPane: View {
             Text("No more meetings")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Theme.secondary)
-            Text("Nothing on the calendar for the next day")
+            Text("Nothing on the calendar this week")
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.tertiary)
         }
