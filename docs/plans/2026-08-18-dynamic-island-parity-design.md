@@ -96,6 +96,14 @@ and Notes explicitly request keyboard focus when active.
 
 ## Feature parity contract
 
+> **Amended 2026-08-20.** The Snippets and Calendar sections below are
+> **withdrawn**: both features were removed from the product by owner
+> decision. Their requirements no longer bind, the calendar entitlement
+> and its usage strings are gone, and `snippets.json` is no longer read
+> or written. The rails, privacy covers, and Settings contract stated
+> elsewhere in this document are superseded accordingly. Everything else
+> stands.
+
 ### Music
 
 - Show artwork, title, artist, elapsed time, duration, and progress.

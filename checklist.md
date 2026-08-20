@@ -12,20 +12,28 @@ Do not mark a manual gate complete without recording evidence in
 - [x] Dynamic Island branding and path audits pass.
 - [x] English and Russian localization tables validate with matching keys.
 - [x] Release bundle builds with executable, helper, icon, localizations,
-  licenses, calendar entitlement, and a valid signature.
+  licenses, and a valid signature.
 - [x] The live media helper returns NDJSON and exits after its input closes.
 - [x] Versioned `DynamicIsland-0.6.5.dmg` builds from the verified package.
 - [x] Lifecycle test leaves no Dynamic Island media helper after quit.
 
+## Scope divergence from Cyclop 0.6.5
+
+Snippets and Calendar were removed from the product on 2026-08-20 by
+owner decision. They are not deferred and not hidden — the tabs, stores,
+panes, privacy sections, localization, and tests are gone, and the
+calendar entitlement went with them, so the app now requests no
+user-grantable permission at all. Parity gates below no longer cover
+either feature, and the parity claim is explicitly partial as a result.
+
 ## Manual parity gates
 
 - [ ] Every tab passes its workflow on a clean macOS account.
-- [ ] Calendar permission appears only after the in-panel **Allow** action.
 - [ ] Protected Shelf files prompt only when the Shelf is opened or used.
 - [ ] Physical-notch behavior passes on a supported MacBook.
 - [ ] Synthetic-notch behavior passes on an external/non-notch display.
 - [ ] English and Russian layouts have no clipping or untranslated product copy.
-- [ ] Quit/relaunch, launch at login, corrupt snippets, unavailable helper, and
+- [ ] Quit/relaunch, launch at login, unavailable helper, and
   missing Shelf file scenarios pass.
 - [ ] Three-run performance medians meet the approved Cyclop 0.6.5 gates.
   Blocked: CPU peaked at `0.3%` rather than absolute `0.0%`, and helper RSS

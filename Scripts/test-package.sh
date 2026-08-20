@@ -19,7 +19,10 @@ test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$PLIST")" = "Dyna
 test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleDisplayName' "$PLIST")" = "Dynamic Island"
 test "$(/usr/libexec/PlistBuddy -c 'Print LSMinimumSystemVersion' "$PLIST")" = "15.0"
 codesign --verify --deep --strict "$APP"
-codesign -d --entitlements :- "$APP" 2>&1 | \
+# The calendar entitlement must stay gone: Calendar was removed from the
+# product, and a binary that still claims the permission asks users for
+# something it cannot use.
+! codesign -d --entitlements :- "$APP" 2>&1 | \
     grep -q 'com.apple.security.personal-information.calendars'
 
 echo "  ✓ Dynamic Island bundle contract is complete"
