@@ -156,6 +156,17 @@ final class NotchController {
             return accepted
         }
 
+        // Escape folds the panel from any tab. It used to be bound inside the
+        // two panes that take the keyboard, which meant the teleprompter's
+        // documented "ends three ways" was really one — its pane never held
+        // the keyboard, so Escape never reached it and the pin outlived the
+        // script.
+        panel.onEscape = { [weak self] in
+            guard let self else { return }
+            self.setOpen(false)
+            self.pointer.setInside(false)
+        }
+
         // Clicking away drops the keyboard but leaves the tab where it was, so
         // a click back into the panel has to be able to ask for it again.
         panel.onPress = { [weak self] in

@@ -89,3 +89,12 @@
 "Delete These Files?" = "Delete These Files?";
 "Quit Dynamic Island?" = "Quit Dynamic Island?";
 "Asks for confirmation before acting." = "Asks for confirmation before acting.";
+"Previous Track" = "Previous Track";
+"Next Track" = "Next Track";
+"Play" = "Play";
+"Pause" = "Pause";
+"Playback Position" = "Playback Position";
+"%@ of %@" = "%@ of %@";
+"Scroll Speed" = "Scroll Speed";
+"Remove Entry" = "Remove Entry";
+"Copy Entry" = "Copy Entry";

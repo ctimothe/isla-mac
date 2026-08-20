@@ -360,6 +360,8 @@ private struct Rail: View {
                         .scaleEffect(reduceMotion ? 1 : (hovered == tab ? 1.15 : 1))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(tab.title)
+                .accessibilityAddTraits(vm.tab == tab ? [.isButton, .isSelected] : .isButton)
                 .onHover { inside in
                     if inside {
                         hovered = tab

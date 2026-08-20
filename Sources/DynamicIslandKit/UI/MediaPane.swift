@@ -174,6 +174,27 @@ struct MediaPane: View {
                 }
             }
             .frame(height: 14)
+            // A capsule with a drag gesture is nothing at all to assistive
+            // tech. Declared as one adjustable element instead, seeking in
+            // five-percent steps, so the position can be both heard and moved
+            // without the pointer.
+            .accessibilityElement()
+            .accessibilityLabel(localized("Playback Position"))
+            .accessibilityValue(
+                localized(
+                    "%@ of %@",
+                    formatTime(progress * media.duration),
+                    formatTime(media.duration)
+                )
+            )
+            .accessibilityAdjustableAction { direction in
+                let step = media.duration * 0.05
+                switch direction {
+                case .increment: media.seek(to: media.position + step)
+                case .decrement: media.seek(to: media.position - step)
+                @unknown default: break
+                }
+            }
 
             Text(formatTime(media.duration))
                 .frame(width: 32, alignment: .trailing)
@@ -224,14 +245,17 @@ struct MediaPane: View {
                 .buttonStyle(NotchButtonStyle(size: 30))
                 .disabled(!media.canSkip)
                 .opacity(media.canSkip ? 1 : 0.35)
+                .accessibilityLabel(localized("Previous Track"))
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
             }
             .buttonStyle(NotchButtonStyle(size: 40, prominent: true))
+            .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Button { media.next() } label: { Image(systemName: "forward.fill") }
                 .buttonStyle(NotchButtonStyle(size: 30))
                 .disabled(!media.canSkip)
                 .opacity(media.canSkip ? 1 : 0.35)
+                .accessibilityLabel(localized("Next Track"))
         }
         .frame(maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.15), value: media.canSkip)

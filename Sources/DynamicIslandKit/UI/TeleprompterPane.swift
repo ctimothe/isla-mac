@@ -172,6 +172,7 @@ struct TeleprompterPane: View {
     private var speedControl: some View {
         HStack(spacing: 7) {
             Slider(value: $prompter.speed, in: 0.3...3.0)
+                .accessibilityLabel(localized("Scroll Speed"))
                 .controlSize(.mini)
                 .tint(.white.opacity(0.7))
                 .frame(width: 96)
