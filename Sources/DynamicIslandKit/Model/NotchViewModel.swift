@@ -185,6 +185,18 @@ final class NotchViewModel: ObservableObject {
         return defaults.bool(forKey: saveClipboardImagesKey)
     }
 
+    /// Keeps the panel out of screenshots and screen recordings.
+    static let hideFromCaptureKey = "hideFromCapture"
+
+    /// Defaults to off, despite the panel being able to hold a clipboard and
+    /// scratch notes. Excluding a window from capture also excludes it from the
+    /// user's own screenshots, and somebody photographing their island to show
+    /// somebody else is a likelier need than somebody screen-sharing it by
+    /// accident. Offered rather than assumed.
+    static var hideFromCaptureEnabled: Bool {
+        UserDefaults.standard.bool(forKey: hideFromCaptureKey)
+    }
+
     /// Hover and click both land here. A tab that types takes the keyboard
     /// either way: showing a field one cannot type into is worse than briefly
     /// dimming the caret of the window underneath, and the dwell threshold on

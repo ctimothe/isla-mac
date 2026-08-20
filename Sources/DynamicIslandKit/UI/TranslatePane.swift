@@ -134,10 +134,21 @@ struct TranslatePane: View {
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else if translator.isTranslating {
+            // The on-device model is not instant the way a lookup table would
+            // be — a paragraph takes a beat, and the very first request after
+            // a boot can take considerably longer while the model loads. An
+            // empty column through all of that is indistinguishable from a
+            // translation that came back blank.
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(localized("Translating…"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.tertiary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else {
-            // Nothing while it works. The translation lands in a fraction of a
-            // second, so a status would be a word that flashes up and leaves —
-            // more movement in the column than the result it announces.
             Color.clear
         }
     }

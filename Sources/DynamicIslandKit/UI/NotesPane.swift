@@ -20,9 +20,29 @@ struct NotesPane: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            list
-            editor
+        VStack(spacing: 6) {
+            // Silence here costs the user their writing: with an unreadable
+            // notes.json the store refuses to save anything at all, so every
+            // keystroke lands on screen, nothing reaches disk, and the whole
+            // session goes when the app quits. Said out loud, and kept on
+            // screen rather than flashed, because there is nothing the app can
+            // do about it on the user's behalf.
+            if notes.fileBroken {
+                Text(localized("notes.json cannot be read, so nothing is being saved."))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color.white.opacity(0.12))
+                    )
+            }
+            HStack(spacing: 10) {
+                list
+                editor
+            }
         }
         .padding(.top, 2)
         // Arriving means arriving to type. With nothing to select, an empty

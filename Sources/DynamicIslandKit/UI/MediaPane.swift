@@ -35,7 +35,12 @@ struct MediaPane: View {
                     Spacer(minLength: 6)
                     controls
                     Spacer(minLength: 6)
-                    scrubber
+                    // A live stream has no duration, and a scrubber with no
+                    // length is a control that reads 0:00 / 0:00, refuses to
+                    // be dragged, and looks broken rather than absent.
+                    if media.duration > 0 {
+                        scrubber
+                    }
                 }
                 .frame(height: blockHeight)
             }

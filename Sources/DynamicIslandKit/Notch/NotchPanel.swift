@@ -121,5 +121,13 @@ final class NotchPanel: NSPanel {
         acceptsMouseMovedEvents = true
         isReleasedWhenClosed = false
         animationBehavior = .none
+        applyCaptureExclusion()
+    }
+
+    /// Screen sharing and recording pick up every ordinary window, this one
+    /// included — and this one can be showing clipboard history or a scratch
+    /// note. `.none` hides it from capture without hiding it from the screen.
+    func applyCaptureExclusion() {
+        sharingType = NotchViewModel.hideFromCaptureEnabled ? .none : .readWrite
     }
 }
