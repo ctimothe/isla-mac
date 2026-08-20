@@ -3,7 +3,41 @@ import XCTest
 
 @MainActor
 final class MediaControllerTests: XCTestCase {
-    func testRateAboveZeroIsTreatedAsPlayingEvenWhenIsPlayingReportsFalse() {
+    /// A browser tab never raises the flag at all — it reports
+    /// `isPlaying == false` with a positive rate from the very first snapshot.
+    /// That shape must read as playing, or such sessions show as paused for
+    /// their whole life and their elapsed time never moves.
+    func testRateAboveZeroIsTreatedAsPlayingForASessionThatNeverRaisesTheFlag() {
+        let controller = MediaController()
+
+        var browserTab = NowPlayingFeed.Snapshot()
+        browserTab.title = "Track"
+        browserTab.artist = "Artist"
+        browserTab.album = "Album"
+        browserTab.duration = 200
+        browserTab.elapsed = 10
+        browserTab.rate = 2.0
+        browserTab.isPlaying = false
+        browserTab.takenAt = Date().addingTimeInterval(-2)
+        browserTab.playerPID = 123
+        controller.apply(browserTab)
+
+        XCTAssertTrue(
+            controller.isPlaying,
+            "rate > 0 must be treated as playing when isPlaying is never set"
+        )
+        XCTAssertGreaterThan(
+            controller.position,
+            browserTab.elapsed,
+            "elapsed-time interpolation must not freeze when rate > 0"
+        )
+    }
+
+    /// The counterpart, and the reason the rule is not a plain OR: on a real
+    /// pause the flag drops about half a second before the rate does
+    /// (measured at 165ms versus 712ms against Spotify). Counting that stale
+    /// rate leaves the island animating after the music has stopped.
+    func testAFreshPauseIsNotHeldOpenByARateThatHasNotSettled() {
         let controller = MediaController()
 
         var playing = NowPlayingFeed.Snapshot()
@@ -19,23 +53,15 @@ final class MediaControllerTests: XCTestCase {
         controller.apply(playing)
         XCTAssertTrue(controller.isPlaying)
 
-        // A browser tab: MediaRemote reports `isPlaying == false` while the
-        // playback rate is still positive (#see MediaController.swift).
-        var browserTab = playing
-        browserTab.isPlaying = false
-        browserTab.rate = 2.0
-        browserTab.elapsed = 10
-        browserTab.takenAt = Date().addingTimeInterval(-2)
-        controller.apply(browserTab)
+        var justPaused = playing
+        justPaused.isPlaying = false
+        justPaused.rate = 1 // has not caught up yet
+        justPaused.takenAt = Date()
+        controller.apply(justPaused)
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             controller.isPlaying,
-            "rate > 0 must be treated as playing even when isPlaying reports false"
-        )
-        XCTAssertGreaterThan(
-            controller.position,
-            browserTab.elapsed,
-            "elapsed-time interpolation must not freeze when rate > 0"
+            "a flag that has just dropped must win over a rate that has not settled"
         )
     }
 
