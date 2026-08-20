@@ -33,7 +33,9 @@ final class CalendarStore: ObservableObject {
         }
     }
 
-    /// One calendar as the picker in the status-bar menu shows it (#36).
+    /// One calendar as the gear/list picker inside CalendarPane shows it (#36).
+    /// There is no calendar picker in the status-bar menu — this is the only
+    /// place a calendar can be shown or hidden.
     struct CalendarOption: Identifiable {
         let id: String
         let title: String
@@ -238,9 +240,9 @@ final class CalendarStore: ObservableObject {
         now = Date()
     }
 
-    /// Calendars for the status-bar picker (#36), each labelled with the pick
-    /// already in effect. Empty until access is granted — the menu checks
-    /// that separately and shows a hint instead.
+    /// Calendars for CalendarPane's in-panel picker (#36), each labelled with
+    /// the pick already in effect. Empty until access is granted — the pane
+    /// checks that separately and shows a hint instead.
     var calendarOptions: [CalendarOption] {
         guard access == .granted else { return [] }
         let hidden = Self.hiddenCalendarIdentifiers()
