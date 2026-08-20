@@ -99,6 +99,11 @@ final class NotchController {
         // Click-through for the whole locked stretch. `build` starts panels
         // this way, and the first sample after unlock puts it right again.
         panel?.ignoresMouseEvents = true
+        // The card shows a moving bar and a sung line, so the position must
+        // stay live with the shield up: setActive keeps the ticker and the
+        // precision loop running exactly as an open panel would.
+        viewModel?.isLockedPresentation = true
+        viewModel?.media.setActive(true)
         lockPresence.apply(to: panel, locked: true)
     }
 
@@ -108,6 +113,10 @@ final class NotchController {
     /// the display slept too — starting twice only reschedules the timer.
     private func screenUnlocked() {
         lockPresence.apply(to: panel, locked: false)
+        viewModel?.isLockedPresentation = false
+        // The ticker belongs to an open panel, and the panel is folded after
+        // unlock — setActive(false) puts the idle contract back.
+        viewModel?.media.setActive(false)
         pointer.start()
     }
 
