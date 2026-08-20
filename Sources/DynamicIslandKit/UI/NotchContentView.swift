@@ -44,6 +44,7 @@ struct NotchContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Theme.open(reduceMotion: reduceMotion), value: isOpen)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: compactActivity)
+        .animation(Theme.compact(reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.paneAnimation, value: vm.tab)
     }
 
@@ -90,14 +91,33 @@ struct NotchContentView: View {
     private var compactMediaHeader: some View {
         let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2)
         return HStack(spacing: 0) {
-            compactArtwork
-                .frame(width: wingWidth)
+            HStack(spacing: 7) {
+                compactArtwork
+                // Only while peeking, and only on the left wing: the title is
+                // what the peek exists to show, and the right wing keeps the
+                // equalizer so the pill still says whether audio is moving.
+                if vm.isPeeking, let track = vm.media.track {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(track.title)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text(track.artist)
+                            .font(.system(size: 9))
+                            .foregroundStyle(Theme.secondary)
+                            .lineLimit(1)
+                    }
+                    .transition(.opacity)
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(width: wingWidth)
 
             Color.clear
                 .frame(width: vm.geometry.notchSize.width, height: 1)
 
             compactPlaybackState
-                .frame(width: wingWidth)
+                .frame(width: wingWidth, alignment: .trailing)
         }
         .frame(width: size.width, height: vm.geometry.notchSize.height)
         .accessibilityElement(children: .ignore)

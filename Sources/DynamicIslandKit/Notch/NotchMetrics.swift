@@ -5,6 +5,9 @@ enum NotchMetrics {
     static let standardBody = CGSize(width: 620, height: 208)
     static let teleprompterBody = CGSize(width: 620, height: 400)
     static let maximumWindow = CGSize(width: 700, height: 444)
+    /// Extra room split equally between the two sides of a collapsed notch:
+    /// artwork on the left, playback state on the right.
+    static let compactMediaExtension: CGFloat = 104
     static let openDelay: TimeInterval = 0.05
     static let closeDelay: TimeInterval = 0.32
     static let tabDwell: TimeInterval = 0.15
@@ -22,4 +25,13 @@ enum NotchMetrics {
     /// really left, after losing the keyboard or a drag exiting. Long enough
     /// to outlast a hand moving from the keyboard back to the trackpad.
     static let pointerAwayCollapseDelay: TimeInterval = 0.6
+
+    /// How long a new track shows itself before folding back. Long enough to
+    /// read a title at a glance, short enough that it is over before it can
+    /// become an interruption.
+    static let sneakPeekDuration: TimeInterval = 2.2
+
+    /// How much wider the pill goes while peeking, over the compact width.
+    /// Enough for a title beside the artwork without reaching the full body.
+    static let sneakPeekExtension: CGFloat = 300
 }
