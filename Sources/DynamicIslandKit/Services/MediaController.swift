@@ -32,6 +32,7 @@ final class MediaController: ObservableObject {
     private var feedAvailable = true
     private var displayedPlayerPID: pid_t?
     private var playbackIntent = PlaybackIntent(reported: false)
+    private var reportedPlayback = ReportedPlayback()
 
     private var activeApp: PlayerApp?
     private var artworkKey: String?
@@ -149,16 +150,21 @@ final class MediaController: ObservableObject {
         track = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
         let playerChanged = displayedPlayerPID != snapshot.playerPID
         displayedPlayerPID = snapshot.playerPID
-        // Some Now Playing sessions — browser tabs especially — report
-        // `isPlaying == false` while `rate` is still positive. Either one
-        // means audio is moving.
-        let reportedPlaying = snapshot.isPlaying || snapshot.rate > 0
+        // Both fields are consulted, but not as a plain OR: the rate settles
+        // about half a second after the flag on a real pause, and counting it
+        // during that gap keeps the island playing after the music stopped.
+        let now = Date()
+        let reportedPlaying = reportedPlayback.resolve(
+            isPlaying: snapshot.isPlaying,
+            rate: snapshot.rate,
+            at: now
+        )
         let queuedTarget: Bool?
         if playerChanged {
             playbackIntent = PlaybackIntent(reported: reportedPlaying)
             queuedTarget = nil
         } else {
-            queuedTarget = playbackIntent.reconcile(reported: reportedPlaying, at: Date())
+            queuedTarget = playbackIntent.reconcile(reported: reportedPlaying, at: now)
         }
         isPlaying = playbackIntent.desired
         duration = snapshot.duration
@@ -168,7 +174,7 @@ final class MediaController: ObservableObject {
         // a glitch rather than a limit.
         canSkip = snapshot.offers(.next) && snapshot.offers(.previous)
 
-        let reported = reportedPosition(from: snapshot)
+        let reported = reportedPosition(from: snapshot, isPlaying: reportedPlaying)
 
         // A player needs a moment to act on a seek, and until it does it keeps
         // reporting the old position. Accepting that would yank the bar back.
@@ -223,6 +229,7 @@ final class MediaController: ObservableObject {
         sourceName = nil
         displayedPlayerPID = nil
         playbackIntent = PlaybackIntent(reported: false)
+        reportedPlayback = ReportedPlayback()
         canSkip = true
         updateTicker()
     }
@@ -298,8 +305,14 @@ final class MediaController: ObservableObject {
     ///
     /// So the reading is aged by the clock that came with it. A paused session
     /// is left alone — its reading is not moving and there is nothing to add.
-    private func reportedPosition(from snapshot: NowPlayingFeed.Snapshot) -> TimeInterval {
-        guard snapshot.isPlaying || snapshot.rate > 0, let takenAt = snapshot.takenAt else {
+    private func reportedPosition(
+        from snapshot: NowPlayingFeed.Snapshot,
+        isPlaying: Bool
+    ) -> TimeInterval {
+        // The already-resolved verdict, not the raw fields: a session judged
+        // paused must not have its reading aged forward by a rate that has
+        // simply not settled yet.
+        guard isPlaying, let takenAt = snapshot.takenAt else {
             return snapshot.elapsed
         }
         let since = Date().timeIntervalSince(takenAt)
