@@ -127,4 +127,73 @@ final class MediaControllerTests: XCTestCase {
             "a paused reading older than what is already known must not move the bar"
         )
     }
+
+    /// The staleness guard must not be able to lock the player out.
+    ///
+    /// Keyed against our own clock it could: any local tap or seek pushed the
+    /// baseline past the player's last publish, and a player that had not
+    /// published since was then refused forever, freezing the bar for the
+    /// whole paused period.
+    func testAFreshReadingIsStillAcceptedAfterALocalAction() {
+        let controller = MediaController()
+        let start = Date()
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 10
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = start
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        // A local action — this is what used to poison the baseline.
+        controller.togglePlayPause()
+
+        // The player then publishes a genuinely newer reading.
+        var paused = playing
+        paused.isPlaying = false
+        paused.rate = 0
+        paused.elapsed = 42
+        paused.takenAt = start.addingTimeInterval(1)
+        controller.apply(paused)
+
+        XCTAssertEqual(
+            controller.position,
+            42,
+            accuracy: 1,
+            "a reading newer than the last one accepted must still be adopted"
+        )
+    }
+
+    /// Sessions that publish no timestamp also report elapsed as a plain zero.
+    /// Taken literally while paused, every poll dragged the bar back to the
+    /// start of the track.
+    func testAPausedReadingWithNoTimestampIsIgnored() {
+        let controller = MediaController()
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 90
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        var paused = playing
+        paused.isPlaying = false
+        paused.rate = 0
+        paused.elapsed = 0
+        paused.takenAt = nil
+        controller.apply(paused)
+
+        XCTAssertEqual(controller.position, 90, accuracy: 2, "a stampless paused zero must not reset the bar")
+    }
 }

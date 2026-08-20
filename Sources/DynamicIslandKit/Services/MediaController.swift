@@ -149,9 +149,24 @@ final class MediaController: ObservableObject {
         // between them would read as no change at all — stale commands and
         // artwork surviving into the newly displayed track.
         let key = "\(snapshot.playerPID ?? 0)|\(snapshot.title)|\(snapshot.artist)|\(snapshot.album)"
-        track = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
+        // Assigned only when it actually differs. `@Published` never compares,
+        // so rebuilding an identical Track every poll fired objectWillChange
+        // every two seconds forever, and the whole panel graph was rebuilt off
+        // the back of it — measured at roughly a quarter of the app's idle CPU,
+        // spent re-rendering a collapsed shell that had not changed.
+        let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
+        if track != fresh { track = fresh }
         let playerChanged = displayedPlayerPID != snapshot.playerPID
         displayedPlayerPID = snapshot.playerPID
+        if playerChanged {
+            // Both readers carry state about the player that just went away:
+            // the flag history that decides what a dropped flag means, and the
+            // stamp that decides whether a reading is news. Carried across, a
+            // switch to a session that reports differently reads as a state
+            // change that never happened.
+            reportedPlayback = ReportedPlayback()
+            lastReadingAt = nil
+        }
         // Both fields are consulted, but not as a plain OR: the rate settles
         // about half a second after the flag on a real pause, and counting it
         // during that gap keeps the island playing after the music stopped.
@@ -168,28 +183,38 @@ final class MediaController: ObservableObject {
         } else {
             queuedTarget = playbackIntent.reconcile(reported: reportedPlaying, at: now)
         }
-        isPlaying = playbackIntent.desired
-        duration = snapshot.duration
-        sourceName = snapshot.source
+        // Same reason as `track` above: unconditional writes to @Published are
+        // what turned a quiet 2s poll into a full SwiftUI invalidation.
+        if isPlaying != playbackIntent.desired { isPlaying = playbackIntent.desired }
+        if duration != snapshot.duration { duration = snapshot.duration }
+        if sourceName != snapshot.source { sourceName = snapshot.source }
         // Both directions travel together: no player has ever offered one
         // without the other, and two separately dimmed arrows would read as
         // a glitch rather than a limit.
-        canSkip = snapshot.offers(.next) && snapshot.offers(.previous)
+        let skippable = snapshot.offers(.next) && snapshot.offers(.previous)
+        if canSkip != skippable { canSkip = skippable }
 
         let reported = reportedPosition(from: snapshot, isPlaying: reportedPlaying)
 
         // A player needs a moment to act on a seek, and until it does it keeps
         // reporting the old position. Accepting that would yank the bar back.
+        let stale = describesAMomentAlreadyPast(snapshot, isPlaying: reportedPlaying)
         if let pending = pendingSeek {
             let settled = abs(reported - pending.target) < 2.5
             let expired = Date().timeIntervalSince(pending.at) > 1.5
             if settled || expired {
                 pendingSeek = nil
-                adopt(reported)
+                // Even on expiry the reading has to be worth having. A seek
+                // made while paused often gets no fresh reading at all until
+                // playback resumes, and adopting the pre-seek one then threw
+                // the bar back to where the track was before the drag — the
+                // exact yank this whole path exists to avoid.
+                if !stale { adopt(reported) }
             }
-        } else if !describesAMomentAlreadyPast(snapshot, isPlaying: reportedPlaying) {
+        } else if !stale {
             adopt(reported)
         }
+        if !stale, let takenAt = snapshot.takenAt { lastReadingAt = takenAt }
         updateTicker()
         if let queuedTarget { dispatchPlayback(queuedTarget) }
 
@@ -221,7 +246,17 @@ final class MediaController: ObservableObject {
     /// so it happens off it and the finished image is handed back.
     private func decodeArtwork(_ data: Data, for key: String) {
         DispatchQueue.global(qos: .userInitiated).async {
-            guard let rep = NSBitmapImageRep(data: data), let cgImage = rep.cgImage else { return }
+            guard let rep = NSBitmapImageRep(data: data), let cgImage = rep.cgImage else {
+                // An undecodable payload must not leave the previous track's
+                // cover standing: the deferred blank was already cancelled on
+                // the strength of this data existing, and no later snapshot
+                // for this track will schedule another one.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.artworkKey == key else { return }
+                    self.artwork = nil
+                }
+                return
+            }
             let image = NSImage(
                 cgImage: cgImage,
                 size: NSSize(width: rep.pixelsWide, height: rep.pixelsHigh)
@@ -247,6 +282,7 @@ final class MediaController: ObservableObject {
         displayedPlayerPID = nil
         playbackIntent = PlaybackIntent(reported: false)
         reportedPlayback = ReportedPlayback()
+        lastReadingAt = nil
         canSkip = true
         updateTicker()
     }
@@ -340,6 +376,15 @@ final class MediaController: ObservableObject {
         return snapshot.duration > 0 ? min(aged, snapshot.duration) : aged
     }
 
+    /// The stamp on the last player reading whose position was accepted.
+    ///
+    /// Deliberately not our own clock. Comparing against `anchor.at` was the
+    /// first attempt and it wedges: `anchor.at` is pushed forward by every tap
+    /// and every seek we make, so a single local action locks out a player
+    /// that has not published since, and the bar then stays frozen for the
+    /// whole paused period. Only the player advances this one.
+    private var lastReadingAt: Date?
+
     /// Whether a reading describes a moment we are already past, and so has
     /// nothing to say about where the track stands now.
     ///
@@ -359,8 +404,20 @@ final class MediaController: ObservableObject {
         _ snapshot: NowPlayingFeed.Snapshot,
         isPlaying: Bool
     ) -> Bool {
-        guard !isPlaying, let takenAt = snapshot.takenAt, let anchor else { return false }
-        return takenAt < anchor.at
+        // Playing readings are aged forward by the clock that came with them,
+        // so they always describe now and are always worth having.
+        guard !isPlaying else { return false }
+
+        guard let takenAt = snapshot.takenAt else {
+            // No stamp at all. Freshness cannot be judged, and the sessions
+            // that omit one are the same sessions this file documents as
+            // reporting elapsed as a plain zero — taking those literally
+            // sawtoothed the bar back to the start of the track every poll.
+            return true
+        }
+
+        guard let lastReadingAt else { return false }
+        return takenAt <= lastReadingAt
     }
 
     private func setAnchor(_ value: TimeInterval) {
