@@ -33,6 +33,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key><string>dev.dynamicisland.app</string>
     <key>CFBundleExecutable</key><string>DynamicIsland</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleURLTypes</key>
+    <array><dict>
+        <key>CFBundleURLName</key><string>dev.dynamicisland.oauth</string>
+        <key>CFBundleURLSchemes</key><array><string>dynamicisland</string></array>
+    </dict></array>
     <key>NSServices</key>
     <array><dict>
         <key>NSMenuItem</key>

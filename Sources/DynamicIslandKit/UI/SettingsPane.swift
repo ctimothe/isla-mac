@@ -16,6 +16,7 @@ struct SettingsPane: View {
     @State private var sneakPeek = NotchViewModel.sneakPeekEnabled
     @State private var showOnLockScreen = NotchViewModel.showOnLockScreenEnabled
     @State private var showLyrics = NotchViewModel.showLyricsEnabled
+    @State private var spotifyConnected = SpotifyAccount.shared.isConnected
     @State private var screenshotUsage: (files: Int, bytes: Int64) = (0, 0)
 
     var body: some View {
@@ -88,6 +89,19 @@ struct SettingsPane: View {
                             }
                         )
                     )
+                }
+
+                section(localized("Spotify")) {
+                    if spotifyConnected {
+                        actionRow(symbol: "heart.fill", title: localized("Disconnect Spotify Account")) {
+                            SpotifyAccount.shared.disconnect()
+                            spotifyConnected = false
+                        }
+                    } else {
+                        actionRow(symbol: "heart", title: localized("Connect Spotify Account…")) {
+                            connectSpotify()
+                        }
+                    }
                 }
 
                 section(localized("Privacy")) {
@@ -196,6 +210,29 @@ struct SettingsPane: View {
         case .clipboard: return "list.clipboard.fill"
         case .notes: return "note.text"
         }
+    }
+
+    /// The one flow that needs a real dialog: pasting the client id. NSAlert
+    /// with a text field, because the panel cannot present sheets — it never
+    /// activates. The id is remembered, so this runs once.
+    private func connectSpotify() {
+        let account = SpotifyAccount.shared
+        if account.clientID == nil {
+            let alert = NSAlert()
+            alert.messageText = localized("Connect Spotify")
+            alert.informativeText = localized("Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI dynamicisland://spotify-callback).")
+            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 22))
+            alert.accessoryView = field
+            alert.addButton(withTitle: localized("Continue"))
+            alert.addButton(withTitle: localized("Cancel"))
+            NSApp.activate(ignoringOtherApps: true)
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            let id = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty else { return }
+            UserDefaults.standard.set(id, forKey: SpotifyAccount.clientIDKey)
+        }
+        account.beginAuthorization()
+        spotifyConnected = account.isConnected
     }
 
     /// Off the main thread: walking the folder takes as long as the folder is

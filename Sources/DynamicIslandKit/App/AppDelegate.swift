@@ -10,6 +10,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var privacyAllItem: NSMenuItem?
     private var privacySectionItems: [PrivacyMode.Section: NSMenuItem] = [:]
 
+    /// The browser returns from Spotify's consent page through the app's URL
+    /// scheme; the account object finishes the token exchange.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.scheme == "dynamicisland" {
+            SpotifyAccount.shared.handleCallback(url)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         controller = NotchController()
         controller?.install()
