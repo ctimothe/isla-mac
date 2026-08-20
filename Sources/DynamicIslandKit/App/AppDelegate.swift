@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: NotchController?
+    private var hotKey: GlobalHotKey?
     private var statusItem: NSStatusItem?
     private var privacyItem: NSMenuItem?
     private var privacyAllItem: NSMenuItem?
@@ -12,6 +13,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controller = NotchController()
         controller?.install()
         installStatusItem()
+        // The panel never activates, so without this it cannot be opened from
+        // the keyboard at all — and anything that cannot be opened from the
+        // keyboard cannot be reached by assistive tech either.
+        hotKey = GlobalHotKey(
+            keyCode: GlobalHotKey.defaultKeyCode,
+            modifiers: GlobalHotKey.defaultModifiers
+        ) { [weak self] in
+            self?.togglePanel()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

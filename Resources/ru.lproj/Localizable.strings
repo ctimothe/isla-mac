@@ -88,3 +88,12 @@
 "Delete These Files?" = "Удалить эти файлы?";
 "Quit Dynamic Island?" = "Выйти из Dynamic Island?";
 "Asks for confirmation before acting." = "Запрашивает подтверждение перед действием.";
+"Previous Track" = "Предыдущий трек";
+"Next Track" = "Следующий трек";
+"Play" = "Воспроизвести";
+"Pause" = "Пауза";
+"Playback Position" = "Позиция воспроизведения";
+"%@ of %@" = "%@ из %@";
+"Scroll Speed" = "Скорость прокрутки";
+"Remove Entry" = "Удалить запись";
+"Copy Entry" = "Копировать запись";

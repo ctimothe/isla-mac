@@ -39,6 +39,7 @@ final class NotchPanel: NSPanel {
         static let x: UInt16 = 7
         static let c: UInt16 = 8
         static let v: UInt16 = 9
+        static let escape: UInt16 = 53
     }
 
     /// ⌘A, ⌘X, ⌘C, ⌘V and ⌘Z are ordinarily key equivalents of the Edit menu,
@@ -58,7 +59,16 @@ final class NotchPanel: NSPanel {
     /// be noticed is here, where every event the window receives passes.
     var onPress: (() -> Void)?
 
+    /// Raised on Escape, whatever has the keyboard. Collapsing is the one
+    /// thing every tab agrees Escape should do, and binding it inside
+    /// individual panes meant it worked on two of them and nowhere else.
+    var onEscape: (() -> Void)?
+
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, event.keyCode == Key.escape {
+            onEscape?()
+            return
+        }
         if event.type == .keyDown, editingAction(for: event) != nil, perform(event) { return }
         // Before `super`, so the window is already key by the time the click
         // reaches the field and places a caret.

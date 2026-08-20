@@ -303,6 +303,8 @@ private struct NoteRow: View {
                 Button(action: delete) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                         .foregroundStyle(Theme.secondary)
                 }
                 .buttonStyle(.plain)

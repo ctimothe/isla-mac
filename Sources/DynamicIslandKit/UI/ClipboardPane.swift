@@ -67,8 +67,15 @@ private struct ClipRow: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(Theme.secondary)
+                        // A 9pt glyph is a ~10pt target sitting beside the
+                        // reveal eye, inside a row whose own background
+                        // copies to the pasteboard — missing it by two
+                        // points overwrote what the user had copied.
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(localized("Remove Entry"))
             }
         }
         .padding(.horizontal, 9)
@@ -80,6 +87,16 @@ private struct ClipRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture {
+            clipboard.copy(item)
+            flash($justCopied)
+        }
+        // The row's primary action is a tap gesture, which carries no role
+        // and no action for assistive tech. Declared explicitly so copying
+        // is reachable without the pointer.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(localized("Copy Entry"))
+        .accessibilityAction { 
             clipboard.copy(item)
             flash($justCopied)
         }
