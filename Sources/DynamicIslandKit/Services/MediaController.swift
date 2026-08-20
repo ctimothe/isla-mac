@@ -137,15 +137,31 @@ final class MediaController: ObservableObject {
     private func precisionCorrect() {
         guard !precisionInFlight, displayedPlayerIsSpotify else { return }
         precisionInFlight = true
+        let asked = Date()
         PlayerBridge.preciseSpotifyPosition { [weak self] value in
             guard let self else { return }
             self.precisionInFlight = false
             guard let value, self.isActive, self.displayedPlayerIsSpotify else { return }
-            // The player's own answer outranks every heuristic: no tolerance,
-            // no ratchet — while paused it simply confirms where we stand,
-            // and a pending seek still gets its settle window.
             guard self.pendingSeek == nil else { return }
-            self.setAnchor(value)
+
+            // The script's answer is already old by the time it arrives —
+            // it describes the moment mid-round-trip, so while playing it is
+            // aged by half the trip before use. Without this every correction
+            // pulled the clock back by its own latency, and the measured
+            // result was a position that froze for a third of a second every
+            // two seconds: the exact stutter this path exists to remove.
+            let latency = Date().timeIntervalSince(asked)
+            let corrected = self.isPlaying ? value + latency / 2 : value
+            let delta = corrected - self.position
+
+            // Monotonic while playing: time does not go backwards, so a small
+            // backward disagreement is sampling noise and only re-bases the
+            // clock. A large one is a real rewind and is taken whole.
+            if delta >= 0 || delta <= -1.0 || !self.isPlaying {
+                self.setAnchor(corrected)
+            } else {
+                self.anchor = (self.position, Date())
+            }
         }
     }
 
@@ -250,6 +266,7 @@ final class MediaController: ObservableObject {
         // the back of it — measured at roughly a quarter of the app's idle CPU,
         // spent re-rendering a collapsed shell that had not changed.
         let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
+        let trackChanged = track?.key != key
         if track != fresh { track = fresh }
         let playerChanged = displayedPlayerPID != snapshot.playerPID
         displayedPlayerPID = snapshot.playerPID
@@ -294,8 +311,20 @@ final class MediaController: ObservableObject {
 
         // A player needs a moment to act on a seek, and until it does it keeps
         // reporting the old position. Accepting that would yank the bar back.
+        // While the position is being corrected against the player's own
+        // clock, MediaRemote's readings are strictly the worse source — and
+        // letting both steer measurably oscillated: MediaRemote's stale-pair
+        // aging pushed the clock ahead, the next correction pulled it back,
+        // and the lyric edge stuttered on the beat of the poll. One steward
+        // at a time. A track change still adopts, so a skip does not wait
+        // two seconds for the next correction.
+        let precisionSteers = precisionSync && !playerChanged && !trackChanged
         let stale = describesAMomentAlreadyPast(snapshot, isPlaying: reportedPlaying)
-        if let pending = pendingSeek {
+        if precisionSteers {
+            // Position is the correction loop's job; everything else in the
+            // snapshot — track, playing state, commands, artwork — landed
+            // above as usual.
+        } else if let pending = pendingSeek {
             let settled = abs(reported - pending.target) < 2.5
             let expired = Date().timeIntervalSince(pending.at) > 1.5
             if settled || expired {
