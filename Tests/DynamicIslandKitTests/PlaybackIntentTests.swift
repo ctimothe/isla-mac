@@ -40,4 +40,40 @@ final class PlaybackIntentTests: XCTestCase {
         XCTAssertTrue(intent.desired)
         XCTAssertFalse(intent.hasInFlightCommand)
     }
+
+    /// A tap coalesced behind an unconfirmed command must not be thrown away.
+    ///
+    /// Press play then pause on a slow player: the pause is queued behind the
+    /// play, the play is never confirmed, and adopting the reported state on
+    /// timeout silently discarded the pause — the music kept going.
+    func testACoalescedTapIsResentWhenTheFirstCommandTimesOut() {
+        let start = Date()
+        var intent = PlaybackIntent(reported: false)
+
+        XCTAssertEqual(intent.toggle(at: start), true)      // play, sent
+        XCTAssertNil(intent.toggle(at: start))              // pause, coalesced
+        XCTAssertEqual(intent.desired, false)
+
+        // The player still reports the pre-command state past the timeout.
+        let resent = intent.reconcile(reported: false, at: start.addingTimeInterval(2))
+        XCTAssertEqual(resent, false, "the queued pause must be sent rather than discarded")
+        XCTAssertEqual(intent.desired, false)
+    }
+
+    /// A player that never answers must not be retried forever.
+    func testAnUnansweredCommandIsResentOnlyOnce() {
+        let start = Date()
+        var intent = PlaybackIntent(reported: false)
+
+        _ = intent.toggle(at: start)
+        XCTAssertNil(intent.toggle(at: start))
+
+        XCTAssertEqual(intent.reconcile(reported: false, at: start.addingTimeInterval(2)), false)
+        // Still disagreeing after the retry: give up rather than resend again.
+        XCTAssertNil(
+            intent.reconcile(reported: true, at: start.addingTimeInterval(4)),
+            "a second failure gives up instead of resending forever"
+        )
+        XCTAssertTrue(intent.desired, "giving up adopts what the player reports")
+    }
 }

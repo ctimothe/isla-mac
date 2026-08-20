@@ -71,6 +71,16 @@ final class NowPlayingFeed {
         stopped = false
         buffer = NDJSONBuffer()
         failurePolicy.recordSuccess()
+        // A pid is recycled by the system, so a cached name has to die with
+        // the process that earned it.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            MainActor.assumeIsolated { self?.appNames.removeValue(forKey: app.processIdentifier) }
+        }
         launch()
     }
 
@@ -182,9 +192,20 @@ final class NowPlayingFeed {
         }
     }
 
+    /// pid → app name, because resolving one is a synchronous cross-process
+    /// XPC round trip (`_LSCopyApplicationInformation`) on the main thread, and
+    /// the poll asked for the same answer every two seconds forever. Measured
+    /// at 70µs uncached against 0.4µs cached. Dropped when the app quits, so a
+    /// recycled pid can never inherit the previous owner's name.
+    private var appNames: [pid_t: String] = [:]
+
     private func handle(line: Data) {
-        let event = NowPlayingPayloadDecoder.decode(line) { pid in
-            NSRunningApplication(processIdentifier: pid)?.localizedName
+        let event = NowPlayingPayloadDecoder.decode(line) { [weak self] pid in
+            guard let self else { return NSRunningApplication(processIdentifier: pid)?.localizedName }
+            if let cached = self.appNames[pid] { return cached }
+            guard let name = NSRunningApplication(processIdentifier: pid)?.localizedName else { return nil }
+            self.appNames[pid] = name
+            return name
         }
         switch event {
         case .unavailable:

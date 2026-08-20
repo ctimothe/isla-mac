@@ -12,6 +12,13 @@ struct PlaybackIntent {
 
     private(set) var desired: Bool
     private var inFlight: InFlight?
+    /// Whether a tap arrived while a command was in flight and so was never
+    /// sent. Distinct from `desired != reported`, which is also true of a
+    /// single tap the player simply has not confirmed yet — that one has been
+    /// sent and deserves no second attempt.
+    private var hasQueuedTap = false
+    /// Whether a queued tap has already been given its one retry.
+    private var hasResent = false
 
     init(reported: Bool) {
         desired = reported
@@ -24,7 +31,10 @@ struct PlaybackIntent {
     /// the player confirms the first transition.
     mutating func toggle(at now: Date) -> Bool? {
         desired.toggle()
-        guard inFlight == nil else { return nil }
+        guard inFlight == nil else {
+            hasQueuedTap = true
+            return nil
+        }
         inFlight = InFlight(target: desired, sentAt: now)
         return desired
     }
@@ -40,6 +50,8 @@ struct PlaybackIntent {
 
         if reported == inFlight.target {
             self.inFlight = nil
+            hasResent = false
+            hasQueuedTap = false
             guard desired != reported else { return nil }
             self.inFlight = InFlight(target: desired, sentAt: now)
             return desired
@@ -47,7 +59,23 @@ struct PlaybackIntent {
 
         if now.timeIntervalSince(inFlight.sentAt) >= Self.confirmationTimeout {
             self.inFlight = nil
-            desired = reported
+            guard hasQueuedTap, !hasResent else {
+                hasQueuedTap = false
+                hasResent = false
+                desired = reported
+                return nil
+            }
+            hasQueuedTap = false
+            // A tap was coalesced behind this command and the command was
+            // never confirmed, so that tap has been sitting unsent while the
+            // player carried on doing the opposite of what was last asked of
+            // it. Adopting the reported state here silently threw the tap
+            // away — press pause on a slow player and the music kept playing.
+            // Sent once more instead; a second failure gives up, so a player
+            // that never answers cannot be retried forever.
+            hasResent = true
+            self.inFlight = InFlight(target: desired, sentAt: now)
+            return desired
         }
         return nil
     }
