@@ -14,6 +14,7 @@ struct SettingsPane: View {
     @State private var saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
     @State private var hideFromCapture = NotchViewModel.hideFromCaptureEnabled
     @State private var sneakPeek = NotchViewModel.sneakPeekEnabled
+    @State private var showLyrics = NotchViewModel.showLyricsEnabled
     @State private var screenshotUsage: (files: Int, bytes: Int64) = (0, 0)
 
     var body: some View {
@@ -53,6 +54,17 @@ struct SettingsPane: View {
                 }
 
                 section(localized("Music")) {
+                    toggleRow(
+                        symbol: "quote.bubble",
+                        title: localized("Show Lyrics"),
+                        isOn: Binding(
+                            get: { showLyrics },
+                            set: { wants in
+                                showLyrics = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.showLyricsKey)
+                            }
+                        )
+                    )
                     toggleRow(
                         symbol: "sparkles",
                         title: localized("Peek at New Tracks"),

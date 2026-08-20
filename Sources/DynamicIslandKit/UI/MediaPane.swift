@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MediaPane: View {
     @ObservedObject var media: MediaController
+    @ObservedObject var lyrics: LyricsStore
 
     @State private var scrubHover = false
     /// Set while dragging, so the bar follows the finger instead of the clock.
@@ -41,10 +42,23 @@ struct MediaPane: View {
                     if media.duration > 0 {
                         scrubber
                     }
+                    lyricsLine
                 }
                 .frame(height: blockHeight)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .task(id: track.key) {
+                guard NotchViewModel.showLyricsEnabled else {
+                    lyrics.clear()
+                    return
+                }
+                lyrics.load(
+                    title: track.title,
+                    artist: track.artist,
+                    album: track.album,
+                    duration: media.duration
+                )
+            }
             // Title and artist arrive together, so the whole column can cross-
             // fade as one unit when the track changes.
             .animation(Theme.artworkAnimation, value: track.key)
@@ -259,6 +273,34 @@ struct MediaPane: View {
         }
         .frame(maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.15), value: media.canSkip)
+    }
+
+    /// One line, sung now, where the eye already is. No scrolling wall of
+    /// text: the pane is 122pt of album art and transport, and the lyric is a
+    /// caption to the music, not a document. The position the ticker already
+    /// interpolates four times a second is what the line keys off, so the sync
+    /// is as tight as the bar's.
+    @ViewBuilder
+    private var lyricsLine: some View {
+        if case .synced(let lines) = lyrics.state {
+            let current = LyricsStore.current(in: lines, at: media.position)
+            if current.line != nil || current.next != nil {
+                Text(current.line?.text ?? " ")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 5)
+                    // Keyed so a line change crossfades instead of morphing
+                    // glyph-by-glyph in place.
+                    .id(current.line?.at ?? -1)
+                    .transition(.opacity)
+                    .animation(Theme.contentAnimation, value: current.line?.at)
+                    .accessibilityLabel(localized("Lyrics"))
+                    .accessibilityValue(current.line?.text ?? "")
+            }
+        }
     }
 
     private var emptyState: some View {

@@ -99,6 +99,7 @@ final class NotchViewModel: ObservableObject {
     let translator: Translator
     let notes: NoteStore
     let teleprompter: TeleprompterStore
+    let lyrics: LyricsStore
     /// Shared by every pane that shows something worth not showing.
     let privacy = PrivacyMode()
 
@@ -113,6 +114,7 @@ final class NotchViewModel: ObservableObject {
         self.translator = Translator()
         self.notes = NoteStore()
         self.teleprompter = TeleprompterStore()
+        self.lyrics = LyricsStore()
 
         // The panel header reads through to the stores — counters, the source
         // name, the equalizer. Nested ObservableObjects do not propagate on
@@ -187,6 +189,16 @@ final class NotchViewModel: ObservableObject {
         let defaults = UserDefaults.standard
         guard defaults.object(forKey: saveClipboardImagesKey) != nil else { return true }
         return defaults.bool(forKey: saveClipboardImagesKey)
+    }
+
+    static let showLyricsKey = "showLyrics"
+
+    /// Defaults to on. This is the app's only network use, so the switch is
+    /// the honest one: off means no request ever leaves.
+    static var showLyricsEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: showLyricsKey) != nil else { return true }
+        return defaults.bool(forKey: showLyricsKey)
     }
 
     static let sneakPeekKey = "sneakPeek"
