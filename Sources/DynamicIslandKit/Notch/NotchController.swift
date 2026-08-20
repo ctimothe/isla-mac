@@ -9,6 +9,7 @@ final class NotchController {
     private var viewModel: NotchViewModel?
     private let pointer = PointerWatcher()
     private var closeActiveRectWork: DispatchWorkItem?
+    private var peekWork: DispatchWorkItem?
     private var cancellables = Set<AnyCancellable>()
     /// Monotonic stamp for the deferred half of closing: any newer open or
     /// close outdates the one still in flight.
@@ -103,6 +104,7 @@ final class NotchController {
 
     private func rebuild() {
         let previousTab = viewModel?.tab
+        peekWork?.cancel()
         pointer.stop()
         viewModel?.stop()
         closeActiveRectWork?.cancel()
@@ -242,6 +244,33 @@ final class NotchController {
             }
             .store(in: &cancellables)
 
+        // Peeking changes the collapsed pill's width, so the pointer and
+        // hit-test regions have to be re-cut with it or the wider shell would
+        // look interactive while only the old strip answered.
+        vm.$isPeeking
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshCollapsedRects() }
+            }
+            .store(in: &cancellables)
+
+        // Sneak peek: a new track shows itself, then gets out of the way.
+        //
+        // Keyed on the track's identity rather than on any of the fields that
+        // describe it. A single skip publishes several snapshots in the space
+        // of a hundred milliseconds — the immediate one, the settled echo, the
+        // artwork — and peeking per snapshot is the flicker every app in this
+        // category has shipped at least once.
+        vm.media.$track
+            .map { $0?.key }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] key in
+                guard key != nil else { return }
+                self?.sneakPeek()
+            }
+            .store(in: &cancellables)
+
         // Driven by the deliberate request, not by which tab is showing: a
         // hover can land on the typing tab now, and that alone must not take
         // the keyboard away from the window underneath.
@@ -371,6 +400,34 @@ final class NotchController {
         guard let vm = viewModel, vm.isOpen else { return }
         applyActiveRect(open: true)
         pointer.closeRect = vm.geometry.hoverRect(for: vm.openBodySize)
+    }
+
+    /// Shows the new track for a moment, then folds back.
+    ///
+    /// Deliberately does nothing when the panel is already open, when the
+    /// pointer is on the panel, or during a drag: in all three cases the user
+    /// is doing something, and the peek would either be redundant or would
+    /// fold the panel out from under them when it ended.
+    private func sneakPeek() {
+        guard NotchViewModel.sneakPeekEnabled else { return }
+        guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted else { return }
+        guard !pointer.isInside else { return }
+
+        peekWork?.cancel()
+        vm.isPeeking = true
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let vm = self.viewModel else { return }
+            // The pointer may have arrived while the peek was up, and a peek
+            // ending must never take a panel the user is now using with it.
+            guard !vm.isOpen, !self.pointer.isInside else {
+                vm.isPeeking = false
+                return
+            }
+            withAnimation(Theme.contentAnimation) { vm.isPeeking = false }
+        }
+        peekWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.sneakPeekDuration, execute: work)
     }
 
     private func refreshCollapsedRects() {

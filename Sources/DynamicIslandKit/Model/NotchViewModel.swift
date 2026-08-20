@@ -50,6 +50,8 @@ final class NotchViewModel: ObservableObject {
 
     @Published var isOpen = false
     @Published var isDropTargeted = false
+    /// Briefly true when a new track has just arrived and is showing itself.
+    @Published var isPeeking = false
     @Published var tab: Tab = .media {
         didSet {
             // The shelf can hold files inside the folders macOS guards, and
@@ -170,9 +172,11 @@ final class NotchViewModel: ObservableObject {
 
     /// Size of the visible body for the current state.
     var bodySize: CGSize {
-        isOpen || isDropTargeted
-            ? openBodySize
-            : compactMediaActivity.bodySize(notchSize: geometry.notchSize)
+        if isOpen || isDropTargeted { return openBodySize }
+        return compactMediaActivity.bodySize(
+            notchSize: geometry.notchSize,
+            peeking: isPeeking
+        )
     }
 
     /// Off switch for people who copy images all day and do not want them kept.
@@ -183,6 +187,16 @@ final class NotchViewModel: ObservableObject {
         let defaults = UserDefaults.standard
         guard defaults.object(forKey: saveClipboardImagesKey) != nil else { return true }
         return defaults.bool(forKey: saveClipboardImagesKey)
+    }
+
+    static let sneakPeekKey = "sneakPeek"
+
+    /// Defaults to on: it is the one thing a notch panel can do that a menu
+    /// bar item cannot, and it costs nothing when nothing is playing.
+    static var sneakPeekEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: sneakPeekKey) != nil else { return true }
+        return defaults.bool(forKey: sneakPeekKey)
     }
 
     /// Keeps the panel out of screenshots and screen recordings.

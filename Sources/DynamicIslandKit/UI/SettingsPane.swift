@@ -13,6 +13,7 @@ struct SettingsPane: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
     @State private var hideFromCapture = NotchViewModel.hideFromCaptureEnabled
+    @State private var sneakPeek = NotchViewModel.sneakPeekEnabled
     @State private var screenshotUsage: (files: Int, bytes: Int64) = (0, 0)
 
     var body: some View {
@@ -49,6 +50,20 @@ struct SettingsPane: View {
                         shelf.refreshFromDisk()
                         refreshUsage()
                     }
+                }
+
+                section(localized("Music")) {
+                    toggleRow(
+                        symbol: "sparkles",
+                        title: localized("Peek at New Tracks"),
+                        isOn: Binding(
+                            get: { sneakPeek },
+                            set: { wants in
+                                sneakPeek = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.sneakPeekKey)
+                            }
+                        )
+                    )
                 }
 
                 section(localized("Privacy")) {
