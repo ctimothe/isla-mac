@@ -34,7 +34,15 @@ final class SpotifyAccount: ObservableObject {
     private let keychain = KeychainStore(service: "dev.dynamicisland.spotify")
 
     private init() {
-        isConnected = keychain.read("refreshToken") != nil
+        // Lazily, off the main thread: a keychain read can block on the
+        // system's own password prompt — every rebuild re-signs the app, the
+        // ACL treats it as a stranger, and the prompt parks whatever thread
+        // asked. Parked on the main thread it froze the entire panel, unlock
+        // handler included, with the lock card stranded on the desktop.
+        Task.detached { [keychain] in
+            let connected = keychain.read("refreshToken") != nil
+            await MainActor.run { SpotifyAccount.shared.isConnected = connected }
+        }
     }
 
     var clientID: String? {
@@ -104,27 +112,42 @@ final class SpotifyAccount: ObservableObject {
     }
 
     private func store(_ tokens: Tokens) {
-        keychain.write("accessToken", tokens.access_token)
-        if let refresh = tokens.refresh_token { keychain.write("refreshToken", refresh) }
-        keychain.write("expiresAt", String(Date().timeIntervalSince1970 + Double(tokens.expires_in) - 60))
+        let keychain = keychain
+        let expiry = String(Date().timeIntervalSince1970 + Double(tokens.expires_in) - 60)
+        let access = tokens.access_token
+        let refresh = tokens.refresh_token
+        Task.detached {
+            keychain.write("accessToken", access)
+            if let refresh { keychain.write("refreshToken", refresh) }
+            keychain.write("expiresAt", expiry)
+        }
         isConnected = true
     }
 
     func disconnect() {
-        keychain.delete("accessToken")
-        keychain.delete("refreshToken")
-        keychain.delete("expiresAt")
+        let keychain = keychain
+        Task.detached {
+            keychain.delete("accessToken")
+            keychain.delete("refreshToken")
+            keychain.delete("expiresAt")
+        }
         saved = [:]
         isConnected = false
     }
 
     private func freshAccessToken() async -> String? {
-        if let expires = keychain.read("expiresAt").flatMap(Double.init),
+        let keychain = keychain
+        let stored = await Task.detached { () -> (expires: Double?, access: String?, refresh: String?) in
+            (keychain.read("expiresAt").flatMap(Double.init),
+             keychain.read("accessToken"),
+             keychain.read("refreshToken"))
+        }.value
+        if let expires = stored.expires,
            Date().timeIntervalSince1970 < expires,
-           let token = keychain.read("accessToken") {
+           let token = stored.access {
             return token
         }
-        guard let refresh = keychain.read("refreshToken"), let clientID else { return nil }
+        guard let refresh = stored.refresh, let clientID else { return nil }
         let body = "grant_type=refresh_token&refresh_token=\(refresh)&client_id=\(clientID)"
         guard let tokens = await tokenRequest(body: body) else { return nil }
         store(tokens)
