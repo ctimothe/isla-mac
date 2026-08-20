@@ -302,7 +302,7 @@ struct MediaPane: View {
                 // mostly is. The end of the last line borrows a spoken-line
                 // length rather than running to the end of the track.
                 let end = current.next?.at ?? line.at + 6
-                let span = max(end - line.at, 0.5)
+                let span = LyricsStore.sweepSpan(text: line.text, slot: end - line.at)
                 let fraction = min(max((at - line.at) / span, 0), 1)
                 KaraokeLine(text: line.text, fraction: fraction, reduceMotion: reduceMotion)
                     .frame(maxWidth: .infinity, alignment: .leading)

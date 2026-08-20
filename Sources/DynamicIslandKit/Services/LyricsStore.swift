@@ -106,6 +106,20 @@ final class LyricsStore: ObservableObject {
         return (line, next)
     }
 
+    /// How long the voice plausibly spends singing `text`, inside a slot that
+    /// runs until the next line starts.
+    ///
+    /// The slot is the wrong span to sweep over: it includes whatever
+    /// instrumental gap follows the words, so a line before a pause swept at
+    /// half the voice's speed and sat behind every word from the middle on.
+    /// Singing runs on the order of twelve characters a second; estimating
+    /// from length and capping at the slot means the sweep finishes when the
+    /// words do and then holds, full, through the silence.
+    static func sweepSpan(text: String, slot: TimeInterval) -> TimeInterval {
+        let estimated = Double(text.count) * 0.08
+        return min(max(estimated, 1.0), max(slot, 0.5))
+    }
+
     // MARK: - Fetch
 
     private func fetch(key: String, title: String, artist: String, album: String, duration: TimeInterval) async {
