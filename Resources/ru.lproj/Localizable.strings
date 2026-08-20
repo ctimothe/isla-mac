@@ -48,7 +48,6 @@
 /* Перевод */
 "Translation Languages…" = "Языки перевода…";
 "Retry" = "Повторить";
-"The %@ → %@ language pack is not installed." = "Не скачан языковой пакет %@ → %@.";
 "macOS does not translate this pair of languages." = "macOS не переводит эту пару языков.";
 
 /* Календарь */
@@ -76,3 +75,5 @@
 "Done" = "Готово";
 "Playing" = "Воспроизводится";
 "Paused" = "На паузе";
+"macOS has no %@ → %@ translation asset. If it is listed as downloaded, remove it and download it again." = "В macOS нет ресурса перевода %@ → %@. Если он указан как загруженный, удалите его и загрузите заново.";
+"Translation timed out." = "Время перевода истекло.";

@@ -72,32 +72,70 @@ final class Translator: ObservableObject {
         guard !text.isEmpty else { clear(); return }
         guard let source = session.sourceLanguage, let target = session.targetLanguage else { return }
 
-        // No language pack ships installed. `prepareTranslation()` is what asks
-        // for one, but it blocks until its system prompt is answered — and that
-        // prompt has nowhere to appear over a borderless panel of an app that
-        // never activates, so it would hang forever. Check instead, and send
-        // the user to the one place that can actually install it.
+        // `.installed` is the gate, and it has to stay the gate.
+        //
+        // Measured, because this looks wrong and invites exactly the wrong
+        // fix: attempting a `.supported` pair anyway does not work. On a Mac
+        // reporting en→es `.installed` and en→ru `.supported`, the first
+        // translates ("hello" → "Hola") and the second fails every time with
+        // `TranslationError(cause: .internalError)` — "Unable to Translate",
+        // domain Translation.TranslationError code 1, empty userInfo — even
+        // though `prepareTranslation()` returns without throwing first. So
+        // `.supported` means "will fail", and refusing up front with an
+        // actionable message beats surfacing an opaque internal error.
+        //
+        // The message says asset rather than pack deliberately: macOS can
+        // list a language as downloaded under Translation Languages while the
+        // framework still has no asset for it, which is what makes this state
+        // so confusing to hit.
         let status = await LanguageAvailability().status(from: source, to: target)
         guard status == .installed else {
             output = ""
             needsDownload = status == .supported
             failure = needsDownload
-                ? localized("The %@ → %@ language pack is not installed.", Self.name(source), Self.name(target))
+                ? localized(
+                    "macOS has no %@ → %@ translation asset. If it is listed as downloaded, remove it and download it again.",
+                    Self.name(source),
+                    Self.name(target)
+                )
                 : localized("macOS does not translate this pair of languages.")
             return
         }
 
         do {
-            let response = try await session.translate(text)
+            let translated = try await translate(text, using: session)
             guard !Task.isCancelled else { return }
-            output = response.targetText
+            output = translated
             failure = nil
             needsDownload = false
         } catch {
             guard !Task.isCancelled else { return }
             output = ""
             needsDownload = false
-            failure = error.localizedDescription
+            failure = error is Timeout
+                ? localized("Translation timed out.")
+                : error.localizedDescription
+        }
+    }
+
+    private struct Timeout: Error {}
+
+    /// Bounded, because the failure mode being guarded against is a hang
+    /// rather than an error: asking for an asset that is not there can put up
+    /// a system prompt, and this app is an `.accessory` behind a borderless
+    /// panel that never activates, so such a prompt has nowhere to appear and
+    /// nothing would ever come back. A translation that has not answered in
+    /// this long is treated as one that never will.
+    private func translate(_ text: String, using session: TranslationSession) async throws -> String {
+        try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask { try await session.translate(text).targetText }
+            group.addTask {
+                try await Task.sleep(for: .seconds(8))
+                throw Timeout()
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { throw Timeout() }
+            return first
         }
     }
 
