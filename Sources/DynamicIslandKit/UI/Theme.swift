@@ -20,7 +20,12 @@ enum Theme {
     static let openBottomRadius: CGFloat = 22
 
     static let secondary = Color.white.opacity(0.55)
-    static let tertiary = Color.white.opacity(0.32)
+    /// Carries nearly every 9–10pt label in the panel — tab titles, counters,
+    /// scrubber times, section headers, placeholders. At 0.32 white over black
+    /// that computes to 2.67:1, far under the 4.5:1 WCAG AA asks of text this
+    /// size, and 9pt is precisely the type least able to afford it. 0.46 gives
+    /// 4.58:1 and clears it without turning every label into a headline.
+    static let tertiary = Color.white.opacity(0.46)
     static let surface = Color.white.opacity(0.08)
     static let surfaceHover = Color.white.opacity(0.14)
     static let hairline = Color.white.opacity(0.10)
