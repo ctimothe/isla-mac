@@ -8,6 +8,10 @@ struct MediaPane: View {
     @State private var scrubbing: Double?
     /// Cursor x inside the bar while hovering, for the floating time preview.
     @State private var hoverX: CGFloat?
+    /// Set once the current track has waited long enough for artwork that it
+    /// is evidently not coming. Some sources never publish a cover, and a
+    /// shimmer that promises one forever reads as stuck, not loading.
+    @State private var artworkWaitExpired = false
 
     /// Artwork and the text column share this height, so their top and bottom
     /// edges line up instead of the column floating past them.
@@ -61,9 +65,26 @@ struct MediaPane: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .transition(.opacity)
+            } else if artworkWaitExpired {
+                // Quiet placeholder, not a shimmer: the wait is over and the
+                // cover is not coming for this track.
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Theme.surface)
+                    .overlay(
+                        Image(systemName: "music.note")
+                            .font(.system(size: 26, weight: .light))
+                            .foregroundStyle(Theme.tertiary)
+                    )
+                    .transition(.opacity)
             } else {
                 SkeletonBox(cornerRadius: 14)
             }
+        }
+        .task(id: track.key) {
+            artworkWaitExpired = false
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            artworkWaitExpired = true
         }
         .frame(width: 118, height: 118)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
