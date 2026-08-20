@@ -49,7 +49,6 @@
 /* Translate */
 "Translation Languages…" = "Translation Languages…";
 "Retry" = "Retry";
-"The %@ → %@ language pack is not installed." = "The %@ → %@ language pack is not installed.";
 "macOS does not translate this pair of languages." = "macOS does not translate this pair of languages.";
 
 /* Calendar */
@@ -77,3 +76,5 @@
 "Done" = "Done";
 "Playing" = "Playing";
 "Paused" = "Paused";
+"macOS has no %@ → %@ translation asset. If it is listed as downloaded, remove it and download it again." = "macOS has no %@ → %@ translation asset. If it is listed as downloaded, remove it and download it again.";
+"Translation timed out." = "Translation timed out.";
