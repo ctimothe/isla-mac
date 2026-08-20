@@ -29,10 +29,10 @@ struct ClipboardPane: View {
     private var footer: some View {
         HStack {
             Spacer()
-            Button("Clear") { clipboard.clear() }
-                .buttonStyle(.plain)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Theme.secondary)
+            ConfirmTextButton(
+                title: localized("Clear"),
+                armedTitle: localized("Clear Everything?")
+            ) { clipboard.clear() }
         }
         .padding(.top, 2)
     }

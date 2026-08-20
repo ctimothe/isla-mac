@@ -84,3 +84,7 @@
 "Hide From Screen Recording" = "Скрыть от записи экрана";
 "Translating…" = "Перевод…";
 "notes.json cannot be read, so nothing is being saved." = "notes.json не читается, ничего не сохраняется.";
+"Clear Everything?" = "Очистить всё?";
+"Delete These Files?" = "Удалить эти файлы?";
+"Quit Dynamic Island?" = "Выйти из Dynamic Island?";
+"Asks for confirmation before acting." = "Запрашивает подтверждение перед действием.";

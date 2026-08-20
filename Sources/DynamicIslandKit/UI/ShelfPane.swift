@@ -103,10 +103,10 @@ struct ShelfPane: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(Theme.secondary)
             }
-            Button("Clear") { shelf.clear() }
-                .buttonStyle(.plain)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Theme.secondary)
+            ConfirmTextButton(
+                title: localized("Clear"),
+                armedTitle: localized("Clear Everything?")
+            ) { shelf.clear() }
         }
         .padding(.top, 2)
     }
