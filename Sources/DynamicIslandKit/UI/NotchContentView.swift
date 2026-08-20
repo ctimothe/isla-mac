@@ -11,13 +11,29 @@ struct NotchContentView: View {
 
     var body: some View {
         if vm.isLockedPresentation {
-            // The lock screen gets the card, not the shell: the notch shape,
-            // the rails and the hover machinery all belong to a desktop that
-            // is currently behind a shield. Centered under the notch, where
-            // the eye lands on a locked laptop.
-            LockScreenCard(media: vm.media, lyrics: vm.lyrics)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.top, vm.geometry.notchSize.height + 24)
+            // Two layers with the shield up: the pill where it always lives —
+            // visible, never hoverable, the island refusing to disappear just
+            // because the desktop did — and the player at the true center of
+            // the display, where a locked laptop is actually looked at.
+            ZStack(alignment: .top) {
+                if compactActivity.isVisible {
+                    ZStack(alignment: .top) {
+                        NotchShape(
+                            topRadius: Theme.collapsedTopRadius,
+                            bottomRadius: Theme.collapsedBottomRadius
+                        )
+                        .fill(Color.black)
+                        .frame(
+                            width: size.width + 2 * Theme.collapsedTopRadius,
+                            height: vm.geometry.notchSize.height
+                        )
+                        compactMediaHeader
+                    }
+                    .frame(maxWidth: .infinity, alignment: .top)
+                }
+                LockScreenCard(media: vm.media, lyrics: vm.lyrics)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
         } else {
             shell
         }

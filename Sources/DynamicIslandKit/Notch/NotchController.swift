@@ -105,20 +105,27 @@ final class NotchController {
         panel?.ignoresMouseEvents = false
         viewModel?.isLockedPresentation = true
         viewModel?.media.setActive(true)
+        // The card sits at the true center of the display, so the window has
+        // to cover the display: the panel grows to the full screen for the
+        // locked stretch and shrinks back to its notch frame on unlock.
+        if let panel {
+            let screen = panel.screen ?? NSScreen.screens.first
+            if let screen { panel.setFrame(screen.frame, display: true) }
+        }
         applyLockedActiveRect()
         lockPresence.apply(to: panel, locked: true)
     }
 
-    /// Cuts the hit region to exactly the lock card's frame: centered, under
-    /// the notch by the same 24pt the SwiftUI layout uses.
+    /// Cuts the hit region to exactly the lock card's frame — dead center of
+    /// the now screen-sized window. The pill at the top stays outside the
+    /// rect on purpose: visible, never hoverable, per the product call.
     private func applyLockedActiveRect() {
-        guard let vm = viewModel, let rootView else { return }
+        guard let panel, let rootView else { return }
         let size = LockScreenCard.size
-        let windowSize = vm.geometry.windowSize
-        let top = vm.geometry.notchSize.height + 24
+        let window = panel.frame.size
         let rect = CGRect(
-            x: (windowSize.width - size.width) / 2,
-            y: windowSize.height - top - size.height,
+            x: (window.width - size.width) / 2,
+            y: (window.height - size.height) / 2,
             width: size.width,
             height: size.height
         )
@@ -132,8 +139,9 @@ final class NotchController {
     private func screenUnlocked() {
         lockPresence.apply(to: panel, locked: false)
         viewModel?.isLockedPresentation = false
-        // Back to the collapsed strip's rect; the first pointer sample after
-        // unlock re-applies the normal hover machinery.
+        // The notch frame first, then the collapsed strip's rect; the first
+        // pointer sample after unlock re-applies the hover machinery.
+        if let vm = viewModel { panel?.setFrame(vm.geometry.windowFrame, display: true) }
         applyActiveRect(open: false)
         // The ticker belongs to an open panel, and the panel is folded after
         // unlock — setActive(false) puts the idle contract back.
