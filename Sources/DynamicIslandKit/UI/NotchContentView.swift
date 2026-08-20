@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NotchContentView: View {
     @ObservedObject var vm: NotchViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isOpen: Bool { vm.isOpen || vm.isDropTargeted }
     private var size: CGSize { vm.bodySize }
@@ -41,8 +42,8 @@ struct NotchContentView: View {
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(Theme.openAnimation, value: isOpen)
-        .animation(Theme.compactAnimation, value: compactActivity)
+        .animation(Theme.open(reduceMotion: reduceMotion), value: isOpen)
+        .animation(Theme.compact(reduceMotion: reduceMotion), value: compactActivity)
         .animation(Theme.paneAnimation, value: vm.tab)
     }
 
@@ -60,7 +61,7 @@ struct NotchContentView: View {
             openHeader
         } else if compactActivity.isVisible {
             compactMediaHeader
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
         } else {
             Color.clear
                 .frame(width: vm.geometry.notchSize.width, height: vm.geometry.notchSize.height)
@@ -163,7 +164,7 @@ struct NotchContentView: View {
                     .overlay(
                         Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.5)
                     )
-                    .transition(.opacity.combined(with: .scale(scale: 0.82)))
+                    .transition(Theme.scaleIn(0.82, reduceMotion: reduceMotion))
             }
         }
         .frame(width: 22, height: 22)
@@ -331,6 +332,7 @@ private struct Rail: View {
     let tabs: [NotchViewModel.Tab]
 
     @State private var hovered: NotchViewModel.Tab?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Long enough to swallow a pass-through, short enough that a deliberate
     /// hover still feels like it answered instantly.
@@ -355,7 +357,7 @@ private struct Rail: View {
                         // would re-lay out the rail on every hover, and layout
                         // that runs on pointer movement is exactly the kind
                         // that shows up as a stutter.
-                        .scaleEffect(hovered == tab ? 1.15 : 1)
+                        .scaleEffect(reduceMotion ? 1 : (hovered == tab ? 1.15 : 1))
                 }
                 .buttonStyle(.plain)
                 .onHover { inside in

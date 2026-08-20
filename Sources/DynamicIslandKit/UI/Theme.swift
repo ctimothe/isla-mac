@@ -14,6 +14,22 @@ enum Theme {
     // enough that the swap is still a fade rather than a cut.
     static let artworkAnimation = Animation.easeOut(duration: 0.16)
 
+    /// Motion-aware variants. Reduce Motion asks for the state change to
+    /// still happen, just without the travel — so the spring becomes a short
+    /// fade and scale transitions become plain opacity, rather than the panel
+    /// snapping between states with no transition at all.
+    static func open(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : openAnimation
+    }
+
+    static func compact(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : compactAnimation
+    }
+
+    static func scaleIn(_ scale: CGFloat, reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: scale))
+    }
+
     static let collapsedTopRadius: CGFloat = 6
     static let collapsedBottomRadius: CGFloat = 9
     static let openTopRadius: CGFloat = 12

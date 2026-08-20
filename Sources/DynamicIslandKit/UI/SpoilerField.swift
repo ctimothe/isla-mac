@@ -26,16 +26,32 @@ struct SpoilerField: View {
     /// as one texture copied down the list instead of as noise.
     var seed: UInt64 = 0x9E3779B97F4A7C15
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @ViewBuilder
     var body: some View {
-        // The dots are animated, so this view is alive only while the panel is
-        // open — a folded panel has no content view at all, and the app's idle
-        // cost stays where it was.
-        TimelineView(.animation(minimumInterval: 1.0 / 20)) { timeline in
+        if reduceMotion {
+            // One frame, drawn once. The dust is here to make text
+            // unreadable and does that just as well standing still; the
+            // drifting is the decorative half. It matters more here than
+            // anywhere else in the panel because this is the surface that
+            // sits on screen for minutes at a time, filling the notes
+            // editor with continuous movement.
             Canvas(opaque: false, rendersAsynchronously: false) { context, size in
-                draw(in: context, size: size, time: timeline.date.timeIntervalSinceReferenceDate)
+                draw(in: context, size: size, time: 0)
             }
+            .drawingGroup()
+        } else {
+            // The dots are animated, so this view is alive only while the panel
+            // is open — a folded panel has no content view at all, and the
+            // app's idle cost stays where it was.
+            TimelineView(.animation(minimumInterval: 1.0 / 20)) { timeline in
+                Canvas(opaque: false, rendersAsynchronously: false) { context, size in
+                    draw(in: context, size: size, time: timeline.date.timeIntervalSinceReferenceDate)
+                }
+            }
+            .drawingGroup()
         }
-        .drawingGroup()
     }
 
     private func draw(in context: GraphicsContext, size: CGSize, time: TimeInterval) {
