@@ -308,31 +308,11 @@ private struct CompactWingSurface: View {
     private var inner: UnitPoint { side == .left ? .trailing : .leading }
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.075, green: 0.080, blue: 0.092),
-                    Color(red: 0.035, green: 0.038, blue: 0.046),
-                    .black,
-                ],
-                startPoint: outer,
-                endPoint: inner
-            )
-
-            LinearGradient(
-                colors: [Color.white.opacity(0.065), .clear, Color.black.opacity(0.14)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
-        .overlay(alignment: .bottom) {
-            LinearGradient(
-                colors: [.clear, Color.white.opacity(0.10), .clear],
-                startPoint: outer,
-                endPoint: inner
-            )
-            .frame(height: 0.5)
-        }
+        // Solid black, no graphite and no sheen: the wings sit flush against
+        // the physical cutout, and on hardware the cutout is zero-light black —
+        // any lighter surface reads as a grey strip glued to the notch rather
+        // than the notch itself. Content on the wings carries the contrast.
+        Color.black
     }
 }
 
