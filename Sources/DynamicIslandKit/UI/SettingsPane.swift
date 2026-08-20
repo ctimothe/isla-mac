@@ -16,7 +16,10 @@ struct SettingsPane: View {
     @State private var sneakPeek = NotchViewModel.sneakPeekEnabled
     @State private var showOnLockScreen = NotchViewModel.showOnLockScreenEnabled
     @State private var showLyrics = NotchViewModel.showLyricsEnabled
-    @State private var spotifyConnected = SpotifyAccount.shared.isConnected
+    /// Observed, not snapshotted: the connect flow completes in the browser
+    /// long after this pane rendered, and a one-shot copy of isConnected sat
+    /// on "Connect" forever while the tokens were already in the keychain.
+    @ObservedObject private var spotify = SpotifyAccount.shared
     @State private var screenshotUsage: (files: Int, bytes: Int64) = (0, 0)
 
     var body: some View {
@@ -92,10 +95,9 @@ struct SettingsPane: View {
                 }
 
                 section(localized("Spotify")) {
-                    if spotifyConnected {
+                    if spotify.isConnected {
                         actionRow(symbol: "heart.fill", title: localized("Disconnect Spotify Account")) {
                             SpotifyAccount.shared.disconnect()
-                            spotifyConnected = false
                         }
                     } else {
                         actionRow(symbol: "heart", title: localized("Connect Spotify Account…")) {
@@ -220,7 +222,6 @@ struct SettingsPane: View {
     /// read — the way every other platform's connect button behaves.
     private func connectSpotify() {
         SpotifyAccount.shared.beginAuthorization()
-        spotifyConnected = SpotifyAccount.shared.isConnected
     }
 
     /// Off the main thread: walking the folder takes as long as the folder is

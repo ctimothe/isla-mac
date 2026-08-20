@@ -231,7 +231,7 @@ struct LockScreenCard: View {
     /// than no heart.
     @ViewBuilder
     private var heart: some View {
-        if spotify.isConnected, let id = media.spotifyTrackID {
+        if spotify.isConnected, !spotify.apiBlocked, let id = media.spotifyTrackID {
             let isSaved = spotify.saved[id] ?? false
             Button { spotify.toggleSaved(trackID: id) } label: {
                 Image(systemName: isSaved ? "heart.fill" : "heart")

@@ -23,6 +23,10 @@ final class SpotifyAccount: ObservableObject {
     static let redirectURI = "dynamicisland://spotify-callback"
 
     @Published private(set) var isConnected = false
+    /// True once the API has refused a library call for account reasons —
+    /// Spotify gates the whole Web API behind Premium as of 2026. The heart
+    /// hides rather than lies; this clears on the next successful call.
+    @Published private(set) var apiBlocked = false
     /// Track id → saved?, so hearts answer instantly and survive re-renders.
     @Published private(set) var saved: [String: Bool] = [:]
 
@@ -136,9 +140,14 @@ final class SpotifyAccount: ObservableObject {
                   let url = URL(string: "https://api.spotify.com/v1/me/tracks/contains?ids=\(trackID)") else { return }
             var request = URLRequest(url: url)
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            guard let (data, _) = try? await URLSession.shared.data(for: request),
-                  let flags = try? JSONDecoder().decode([Bool].self, from: data),
+            guard let (data, response) = try? await URLSession.shared.data(for: request) else { return }
+            if (response as? HTTPURLResponse)?.statusCode == 403 {
+                apiBlocked = true
+                return
+            }
+            guard let flags = try? JSONDecoder().decode([Bool].self, from: data),
                   let flag = flags.first else { return }
+            apiBlocked = false
             saved[trackID] = flag
         }
     }
@@ -160,8 +169,11 @@ final class SpotifyAccount: ObservableObject {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             let status = (try? await URLSession.shared.data(for: request))
                 .flatMap { ($0.1 as? HTTPURLResponse)?.statusCode }
+            if status == 403 { apiBlocked = true }
             if !(status.map { (200..<300).contains($0) } ?? false) {
                 saved[trackID] = !wants
+            } else {
+                apiBlocked = false
             }
         }
     }
