@@ -52,7 +52,17 @@ final class NotchController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pointer.start() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.pointer.start()
+                // Repair path: if the unlock notification was ever missed —
+                // it once queued behind a main-thread block and the card
+                // stayed stranded on the desktop — waking with the shield
+                // down puts the panel back to normal.
+                if !self.lockPresence.isLocked, self.viewModel?.isLockedPresentation == true {
+                    self.screenUnlocked()
+                }
+            }
         }
         // Locking replaces the desktop with the shield, and the pill stays on
         // it — see `LockScreenPresence` for the mechanism. Wired here because
@@ -69,6 +79,12 @@ final class NotchController {
     /// Collapsing also puts hover tracking back in step: nothing moved the
     /// mouse, so nothing else would have.
     private func activeSpaceChanged() {
+        // Same repair as the wake handler: a space change with the shield
+        // down while the panel still thinks it is locked means the unlock
+        // transition was lost — recover rather than stay stranded.
+        if !lockPresence.isLocked, viewModel?.isLockedPresentation == true {
+            screenUnlocked()
+        }
         // Re-assert z-order on the space just arrived at. `.canJoinAllSpaces`
         // keeps the panel present everywhere, but a transition can leave it
         // behind other windows' ordering on the new space; fronting it again
