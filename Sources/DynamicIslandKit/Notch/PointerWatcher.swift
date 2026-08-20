@@ -56,6 +56,13 @@ final class PointerWatcher {
 
     func start() {
         schedule(warm: false)
+        // The timer above does not fire until its first interval has
+        // elapsed — up to `idleInterval` (125 ms) away. Left alone, a panel
+        // that was just built or rebuilt stays click-through for that whole
+        // stretch, since `panel.ignoresMouseEvents` only ever changes from
+        // `onInteractiveChange`, which only `tick()` calls. Sample once here,
+        // synchronously, so interactivity is correct from the first frame.
+        tick()
     }
 
     func stop() {
