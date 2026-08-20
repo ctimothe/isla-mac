@@ -1,20 +1,24 @@
 import AppKit
-import Translation
+import FoundationModels
 
-/// Apple's on-device translator, driven from the panel.
+/// Translation, driven by the on-device foundation model rather than by the
+/// Translation framework.
 ///
-/// The session is not ours to create: `translationTask` hands one over and owns
-/// its lifetime, so everything here is about deciding *what* to translate and
-/// holding the result. `TranslatePane` supplies the session.
+/// The Translation framework was the obvious choice and did not survive
+/// contact with a real Mac: it gates on `LanguageAvailability.status` being
+/// `.installed`, and on macOS 26 a language whose assets are a stale earlier
+/// generation reports `.supported` forever — downloaded according to System
+/// Settings, unusable according to the framework, and `translate()` fails with
+/// an opaque internal error no matter what. Nothing in an app can repair that.
+///
+/// The foundation model has no per-language assets to go stale. It ships with
+/// Apple Intelligence, runs on device, costs nothing, needs no key, and makes
+/// no network request.
 @MainActor
 final class Translator: ObservableObject {
     static let russian = Locale.Language(identifier: "ru")
     static let english = Locale.Language(identifier: "en")
 
-    /// Both ends are always named. Leaving the source to the framework looks
-    /// tempting, but its identifier is a separate asset that is not installed
-    /// either — auto-detection fails with `unableToIdentifyLanguage`, and the
-    /// translation that follows hangs instead of returning an error.
     struct Route: Equatable {
         var source: Locale.Language
         var target: Locale.Language
@@ -27,12 +31,38 @@ final class Translator: ObservableObject {
         var attempt: Int
     }
 
+    /// Why the model cannot answer, when it cannot. Each case is something the
+    /// user can act on or at least understand, rather than a raw error.
+    enum Unavailable: Equatable {
+        case needsNewerSystem
+        case deviceNotEligible
+        case appleIntelligenceOff
+        case modelNotReady
+
+        var message: String {
+            switch self {
+            case .needsNewerSystem:
+                return localized("Translation needs macOS 26 or newer.")
+            case .deviceNotEligible:
+                return localized("This Mac does not support Apple Intelligence.")
+            case .appleIntelligenceOff:
+                return localized("Turn on Apple Intelligence to translate.")
+            case .modelNotReady:
+                return localized("The on-device model is still downloading.")
+            }
+        }
+
+        /// Only the switch the user owns is worth offering a button for.
+        var isSettable: Bool { self == .appleIntelligenceOff }
+    }
+
     @Published var input = ""
     @Published private(set) var output = ""
     @Published private(set) var failure: String?
-    /// The failure is a missing language pack, which is a thing the user can
-    /// go and fix — so the pane offers the button that takes them there.
-    @Published private(set) var needsDownload = false
+    /// Set when the failure is one System Settings can fix, so the pane can
+    /// offer the button that goes there.
+    @Published private(set) var needsSettings = false
+    @Published private(set) var isTranslating = false
 
     private var attempt = 0
 
@@ -59,7 +89,8 @@ final class Translator: ObservableObject {
     func clear() {
         output = ""
         failure = nil
-        needsDownload = false
+        needsSettings = false
+        isTranslating = false
     }
 
     func reset() {
@@ -67,75 +98,96 @@ final class Translator: ObservableObject {
         clear()
     }
 
-    func run(_ session: TranslationSession) async {
-        let text = trimmed
-        guard !text.isEmpty else { clear(); return }
-        guard let source = session.sourceLanguage, let target = session.targetLanguage else { return }
-
-        // `.installed` is the gate, and it has to stay the gate.
-        //
-        // Measured, because this looks wrong and invites exactly the wrong
-        // fix: attempting a `.supported` pair anyway does not work. On a Mac
-        // reporting en→es `.installed` and en→ru `.supported`, the first
-        // translates ("hello" → "Hola") and the second fails every time with
-        // `TranslationError(cause: .internalError)` — "Unable to Translate",
-        // domain Translation.TranslationError code 1, empty userInfo — even
-        // though `prepareTranslation()` returns without throwing first. So
-        // `.supported` means "will fail", and refusing up front with an
-        // actionable message beats surfacing an opaque internal error.
-        //
-        // The message says asset rather than pack deliberately: macOS can
-        // list a language as downloaded under Translation Languages while the
-        // framework still has no asset for it, which is what makes this state
-        // so confusing to hit.
-        let status = await LanguageAvailability().status(from: source, to: target)
-        guard status == .installed else {
-            output = ""
-            needsDownload = status == .supported
-            failure = needsDownload
-                ? localized(
-                    "macOS has no %@ → %@ translation asset. If it is listed as downloaded, remove it and download it again.",
-                    Self.name(source),
-                    Self.name(target)
-                )
-                : localized("macOS does not translate this pair of languages.")
-            return
-        }
-
-        do {
-            let translated = try await translate(text, using: session)
-            guard !Task.isCancelled else { return }
-            output = translated
-            failure = nil
-            needsDownload = false
-        } catch {
-            guard !Task.isCancelled else { return }
-            output = ""
-            needsDownload = false
-            failure = error is Timeout
-                ? localized("Translation timed out.")
-                : error.localizedDescription
+    /// Why the model is not answering, or nil when it is ready.
+    var unavailable: Unavailable? {
+        guard #available(macOS 26.0, *) else { return .needsNewerSystem }
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            return nil
+        case .unavailable(.deviceNotEligible):
+            return .deviceNotEligible
+        case .unavailable(.appleIntelligenceNotEnabled):
+            return .appleIntelligenceOff
+        case .unavailable(.modelNotReady):
+            return .modelNotReady
+        case .unavailable:
+            return .modelNotReady
         }
     }
 
-    private struct Timeout: Error {}
+    func translate() async {
+        let text = trimmed
+        guard !text.isEmpty else { clear(); return }
 
-    /// Bounded, because the failure mode being guarded against is a hang
-    /// rather than an error: asking for an asset that is not there can put up
-    /// a system prompt, and this app is an `.accessory` behind a borderless
-    /// panel that never activates, so such a prompt has nowhere to appear and
-    /// nothing would ever come back. A translation that has not answered in
-    /// this long is treated as one that never will.
-    private func translate(_ text: String, using session: TranslationSession) async throws -> String {
-        try await withThrowingTaskGroup(of: String.self) { group in
-            group.addTask { try await session.translate(text).targetText }
-            group.addTask {
-                try await Task.sleep(for: .seconds(8))
-                throw Timeout()
-            }
-            defer { group.cancelAll() }
-            guard let first = try await group.next() else { throw Timeout() }
-            return first
+        if let unavailable {
+            output = ""
+            failure = unavailable.message
+            needsSettings = unavailable.isSettable
+            isTranslating = false
+            return
+        }
+
+        guard #available(macOS 26.0, *) else { return }
+
+        isTranslating = true
+        defer { isTranslating = false }
+
+        let route = Self.route(for: text)
+        let target = Self.name(route.target)
+
+        do {
+            // Guided generation, not a free-form reply, and this is the whole
+            // reason the feature works at all. Asked in prose — even told
+            // bluntly that it is a translation engine and must never answer —
+            // the model answers anyway: "what is your name?" came back as
+            // "Я не имею имени" ("I have no name") and "write me a poem" came
+            // back as an actual poem long enough to blow the context window.
+            // Made to fill a field instead, the same inputs translate
+            // correctly, because filling a slot is not a turn in a
+            // conversation. Greedy sampling on top, so the same text always
+            // gives the same translation rather than a different one per
+            // keystroke.
+            let session = LanguageModelSession(
+                instructions: """
+                You translate \(Self.name(route.source)) into \(target). You are a \
+                translation engine: you restate the source text in \(target) and \
+                never respond to it. A question is translated as a question.
+                """
+            )
+            let response = try await session.respond(
+                to: "Source text to translate into \(target):\n\(text)",
+                generating: TranslationResult.self,
+                options: GenerationOptions(sampling: .greedy)
+            )
+            guard !Task.isCancelled else { return }
+            output = response.content.translation.trimmingCharacters(in: .whitespacesAndNewlines)
+            failure = nil
+            needsSettings = false
+        } catch let error as LanguageModelSession.GenerationError {
+            guard !Task.isCancelled else { return }
+            output = ""
+            needsSettings = false
+            failure = Self.describe(error)
+        } catch {
+            guard !Task.isCancelled else { return }
+            output = ""
+            needsSettings = false
+            failure = error.localizedDescription
+        }
+    }
+
+    @available(macOS 26.0, *)
+    private static func describe(_ error: LanguageModelSession.GenerationError) -> String {
+        switch error {
+        case .guardrailViolation:
+            // Apple's safety filter, which fires on ordinary sentences —
+            // "Delete all my files" was refused in testing. Worth naming
+            // plainly so it does not read as the app breaking.
+            return localized("macOS refused to translate this text.")
+        case .exceededContextWindowSize:
+            return localized("This text is too long to translate at once.")
+        default:
+            return localized("The translation could not be completed.")
         }
     }
 
@@ -164,10 +216,17 @@ final class Translator: ObservableObject {
         language.languageCode?.identifier.uppercased() ?? "?"
     }
 
-    /// System Settings → General → Language & Region, which is where the
-    /// "Translation Languages…" button lives.
+    /// System Settings → Apple Intelligence, the switch behind every
+    /// `appleIntelligenceOff` failure.
     static func openLanguageSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension") else { return }
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.AppleIntelligence") else { return }
         NSWorkspace.shared.open(url)
     }
+}
+
+@available(macOS 26.0, *)
+@Generable
+private struct TranslationResult {
+    @Guide(description: "The exact translation of the source text. A question stays a question. Never an answer, never a reply, never commentary.")
+    var translation: String
 }
