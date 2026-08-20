@@ -16,6 +16,7 @@ import SwiftUI
 struct LockScreenCard: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    @ObservedObject private var spotify = SpotifyAccount.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var palette: ArtworkPalette?
@@ -201,6 +202,7 @@ struct LockScreenCard: View {
 
     private var controls: some View {
         HStack(spacing: 26) {
+            heart
             Spacer()
             Button { media.previous() } label: { Image(systemName: "backward.fill") }
                 .buttonStyle(NotchButtonStyle(size: 32))
@@ -218,6 +220,28 @@ struct LockScreenCard: View {
                 .opacity(media.canSkip ? 1 : 0.35)
                 .accessibilityLabel(localized("Next Track"))
             Spacer()
+            // Symmetry for the heart, so the transport cluster stays centered.
+            Color.clear.frame(width: 32, height: 32)
+        }
+    }
+
+    /// Saved-to-Liked-Songs, through the user's own authorized account —
+    /// the one Spotify feature with no local API at all. Hidden rather than
+    /// disabled when it cannot work: a heart that never answers is worse
+    /// than no heart.
+    @ViewBuilder
+    private var heart: some View {
+        if spotify.isConnected, let id = media.spotifyTrackID {
+            let isSaved = spotify.saved[id] ?? false
+            Button { spotify.toggleSaved(trackID: id) } label: {
+                Image(systemName: isSaved ? "heart.fill" : "heart")
+                    .foregroundStyle(isSaved ? accent : .white)
+            }
+            .buttonStyle(NotchButtonStyle(size: 32))
+            .accessibilityLabel(isSaved ? localized("Remove from Liked Songs") : localized("Add to Liked Songs"))
+            .task(id: id) { spotify.refreshSavedState(trackID: id) }
+        } else {
+            Color.clear.frame(width: 32, height: 32)
         }
     }
 }

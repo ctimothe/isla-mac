@@ -101,3 +101,12 @@
 "Show Lyrics" = "Показывать текст песни";
 "Lyrics" = "Текст песни";
 "Show on Lock Screen" = "Показывать на экране блокировки";
+"Add to Liked Songs" = "Добавить в любимые треки";
+"Remove from Liked Songs" = "Убрать из любимых треков";
+"Connect Spotify Account…" = "Подключить аккаунт Spotify…";
+"Disconnect Spotify Account" = "Отключить аккаунт Spotify";
+"Connect Spotify" = "Подключение Spotify";
+"Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI dynamicisland://spotify-callback)." = "Вставьте Client ID вашего приложения Spotify (developer.spotify.com/dashboard, redirect URI dynamicisland://spotify-callback).";
+"Continue" = "Продолжить";
+"Cancel" = "Отмена";
+"Spotify" = "Spotify";

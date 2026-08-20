@@ -102,3 +102,12 @@
 "Show Lyrics" = "Show Lyrics";
 "Lyrics" = "Lyrics";
 "Show on Lock Screen" = "Show on Lock Screen";
+"Add to Liked Songs" = "Add to Liked Songs";
+"Remove from Liked Songs" = "Remove from Liked Songs";
+"Connect Spotify Account…" = "Connect Spotify Account…";
+"Disconnect Spotify Account" = "Disconnect Spotify Account";
+"Connect Spotify" = "Connect Spotify";
+"Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI dynamicisland://spotify-callback)." = "Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI dynamicisland://spotify-callback).";
+"Continue" = "Continue";
+"Cancel" = "Cancel";
+"Spotify" = "Spotify";
