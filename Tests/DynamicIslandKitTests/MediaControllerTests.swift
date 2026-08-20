@@ -90,4 +90,41 @@ final class MediaControllerTests: XCTestCase {
             "same title/artist/album from a different player PID must not share track identity"
         )
     }
+
+    /// Pausing must leave the bar exactly where it stood.
+    ///
+    /// MediaRemote keeps republishing the reading from the last state change,
+    /// so right after a pause it still describes where the track was when it
+    /// started playing — minutes behind. Adopting that yanks the bar back, and
+    /// the next poll yanks it forward again.
+    func testAStalePausedReadingDoesNotMoveThePosition() {
+        let controller = MediaController()
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 5
+        playing.rate = 1
+        playing.isPlaying = true
+        // Playback began 160s ago, at 0:05. The reading has not moved since.
+        playing.takenAt = Date().addingTimeInterval(-160)
+        playing.playerPID = 1
+        controller.apply(playing)
+        XCTAssertEqual(controller.position, 165, accuracy: 3)
+
+        // Paused now, but the payload still carries that same old reading.
+        var paused = playing
+        paused.isPlaying = false
+        paused.rate = 0
+        controller.apply(paused)
+
+        XCTAssertEqual(
+            controller.position,
+            165,
+            accuracy: 3,
+            "a paused reading older than what is already known must not move the bar"
+        )
+    }
 }
