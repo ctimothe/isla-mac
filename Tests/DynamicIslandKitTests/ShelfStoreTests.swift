@@ -69,4 +69,57 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertFalse(store.isSelected(store.items[1]))
         XCTAssertFalse(store.isSelected(store.items[2]))
     }
+
+    /// A card whose file has actually been deleted is evicted the next time
+    /// the shelf is refreshed from disk.
+    func testRefreshFromDiskEvictsACardWhoseFileWasDeleted() throws {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("gone.txt")
+        try "x".write(to: file, atomically: true, encoding: .utf8)
+        defaults.set([file.path], forKey: "shelf.urls")
+        let store = ShelfStore(defaults: defaults)
+        store.load()
+        XCTAssertEqual(store.items.count, 1)
+
+        try FileManager.default.removeItem(at: file)
+        store.refreshFromDisk()
+
+        XCTAssertTrue(store.items.isEmpty)
+    }
+
+    /// A card whose file exists but can no longer be read — its containing
+    /// directory's traversal permission revoked, the way a "Don't Allow" on a
+    /// protected folder leaves things — must not be evicted alongside a card
+    /// that is genuinely gone (#10-adjacent regression covered by isGone()).
+    func testRefreshFromDiskKeepsACardWhoseFileExistsButIsUnreadable() throws {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("secret.txt")
+        try "x".write(to: file, atomically: true, encoding: .utf8)
+        defaults.set([file.path], forKey: "shelf.urls")
+        let store = ShelfStore(defaults: defaults)
+        store.load()
+        XCTAssertEqual(store.items.count, 1)
+
+        // Revoking traversal on the directory (not the file's own bits, which
+        // `stat` does not consult) is what actually reproduces "present but
+        // denied" rather than "missing".
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: dir.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+
+        store.refreshFromDisk()
+
+        XCTAssertEqual(store.items.count, 1)
+    }
 }
