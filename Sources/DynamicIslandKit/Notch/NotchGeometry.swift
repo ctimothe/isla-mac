@@ -187,10 +187,17 @@ struct NotchGeometry {
     /// Hover target while collapsed, in global screen coordinates. Slightly
     /// taller than the notch so the panel opens just before the pointer lands.
     var hoverRect: CGRect {
+        collapsedHoverRect(for: notchSize.width)
+    }
+
+    /// The live media activity grows sideways beyond the physical notch. Its
+    /// full visible width must remain a hover target or the new wings would
+    /// look interactive while only the camera cutout actually responded.
+    func collapsedHoverRect(for width: CGFloat) -> CGRect {
         includingTopEdge(CGRect(
-            x: notchCenterX - notchSize.width / 2 - 6,
+            x: notchCenterX - width / 2 - 6,
             y: screen.frame.maxY - collapsedDepth - (isPhysical ? 4 : 0),
-            width: notchSize.width + 12,
+            width: width + 12,
             height: collapsedDepth + (isPhysical ? 4 : 0)
         ))
     }
