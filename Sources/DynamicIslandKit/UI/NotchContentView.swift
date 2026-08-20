@@ -10,6 +10,20 @@ struct NotchContentView: View {
     private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : Theme.collapsedTopRadius }
 
     var body: some View {
+        if vm.isLockedPresentation {
+            // The lock screen gets the card, not the shell: the notch shape,
+            // the rails and the hover machinery all belong to a desktop that
+            // is currently behind a shield. Centered under the notch, where
+            // the eye lands on a locked laptop.
+            LockScreenCard(media: vm.media, lyrics: vm.lyrics)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, vm.geometry.notchSize.height + 24)
+        } else {
+            shell
+        }
+    }
+
+    private var shell: some View {
         // The shape is wider than the body by `topRadius` on each side: that
         // slack is where the concave shoulders live, so it must not be clipped.
         ZStack(alignment: .top) {

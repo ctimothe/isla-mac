@@ -52,6 +52,9 @@ final class NotchViewModel: ObservableObject {
     @Published var isDropTargeted = false
     /// Briefly true when a new track has just arrived and is showing itself.
     @Published var isPeeking = false
+    /// True while the shield is up and the panel is presenting the lock-screen
+    /// card instead of its normal shell.
+    @Published var isLockedPresentation = false
     @Published var tab: Tab = .media {
         didSet {
             // The shelf can hold files inside the folders macOS guards, and
