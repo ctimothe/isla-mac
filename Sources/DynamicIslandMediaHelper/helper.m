@@ -216,6 +216,13 @@ static void handleCommand(NSString *line) {
         dispatch_async(sQueue, ^{
             sendCommandToPlayer(command, nil, playerPID);
             publish();
+            // The publish above races the player: it reads state before the
+            // command has taken effect (~150ms), so a tap coalesced behind an
+            // in-flight command would otherwise wait for the 2s poll to
+            // confirm. One echo after the player has settled confirms it fast.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), sQueue, ^{
+                publish();
+            });
         });
     } else if ([line hasPrefix:@"seek "]) {
         NSArray<NSString *> *parts = [line componentsSeparatedByString:@" "];
@@ -224,6 +231,10 @@ static void handleCommand(NSString *line) {
         dispatch_async(sQueue, ^{
             sendCommandToPlayer(MRCommandSeekToPlaybackPosition, @{@"kMRMediaRemoteOptionPlaybackPosition": @(seconds)}, playerPID);
             publish();
+            // Same echo as `cmd`: the player needs a moment to land the jump.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), sQueue, ^{
+                publish();
+            });
         });
     }
 }
