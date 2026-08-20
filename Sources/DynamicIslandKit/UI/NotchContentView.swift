@@ -292,7 +292,7 @@ struct NotchContentView: View {
     private var pane: some View {
         switch vm.tab {
         case .media:
-            MediaPane(media: vm.media)
+            MediaPane(media: vm.media, lyrics: vm.lyrics)
         case .shelf:
             ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)
         case .clipboard:
