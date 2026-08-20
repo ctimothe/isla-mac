@@ -60,6 +60,11 @@ final class NotchController {
     /// Collapsing also puts hover tracking back in step: nothing moved the
     /// mouse, so nothing else would have.
     private func activeSpaceChanged() {
+        // Re-assert z-order on the space just arrived at. `.canJoinAllSpaces`
+        // keeps the panel present everywhere, but a transition can leave it
+        // behind other windows' ordering on the new space; fronting it again
+        // makes the island read as fixed to the notch the way the hardware is.
+        panel?.orderFrontRegardless()
         guard viewModel?.isOpen == true else { return }
         // What was typed is kept — only the panel closes.
         setOpen(false)
