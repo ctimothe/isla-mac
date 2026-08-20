@@ -43,10 +43,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSSupportsSuddenTermination</key><false/>
     <key>NSAppleEventsUsageDescription</key>
     <string>Dynamic Island reads the current track and controls Music or Spotify when its primary media route is unavailable.</string>
-    <key>NSCalendarsFullAccessUsageDescription</key>
-    <string>Dynamic Island shows upcoming meetings and their join buttons.</string>
-    <key>NSCalendarsUsageDescription</key>
-    <string>Dynamic Island shows upcoming meetings and their join buttons.</string>
     <key>NSHumanReadableCopyright</key><string>MIT License</string>
 </dict>
 </plist>

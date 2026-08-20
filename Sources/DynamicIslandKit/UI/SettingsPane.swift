@@ -8,8 +8,6 @@ import ServiceManagement
 struct SettingsPane: View {
     @ObservedObject var shelf: ShelfStore
     let screenshotVault: ScreenshotVault
-    let snippets: SnippetStore
-    @ObservedObject var calendar: CalendarStore
     @ObservedObject var privacy: PrivacyMode
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -51,36 +49,6 @@ struct SettingsPane: View {
                     }
                 }
 
-                section(localized("Snippets")) {
-                    actionRow(symbol: "doc.text", title: localized("Show Snippets File")) {
-                        snippets.reveal()
-                    }
-                }
-
-                section(localized("Calendars")) {
-                    if calendar.access == .granted {
-                        ForEach(calendar.calendarOptions) { option in
-                            toggleRow(
-                                symbol: "calendar",
-                                title: option.title,
-                                isOn: calendarShownBinding(for: option.id)
-                            )
-                        }
-                    } else {
-                        // Access is asked for from inside the Calendar tab only
-                        // (see CalendarStore) — Settings explains the same
-                        // permission rather than prompting for it a second way.
-                        Text(localized(
-                            "Dynamic Island needs access to Calendar. It is the only permission\nthe app asks for, and only for this tab."
-                        ))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Theme.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                    }
-                }
-
                 section(localized("Privacy")) {
                     ForEach(PrivacyMode.Section.allCases) { privacySection in
                         toggleRow(
@@ -115,9 +83,6 @@ struct SettingsPane: View {
             launchAtLogin = SMAppService.mainApp.status == .enabled
             saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
             refreshUsage()
-            // Never prompts (see CalendarStore) — only notices access granted
-            // elsewhere, or from the Calendar tab, since this tab was last shown.
-            calendar.refreshAccess()
         }
     }
 
@@ -155,19 +120,6 @@ struct SettingsPane: View {
         )
     }
 
-    /// Reuses `CalendarStore`'s own pick per calendar (#36) — the same one the
-    /// Calendar tab's gear/list picker writes to — rather than keeping a
-    /// second copy of "which calendars are shown" here.
-    private func calendarShownBinding(for identifier: String) -> Binding<Bool> {
-        Binding(
-            get: {
-                calendar.calendarOptions.first(where: { $0.id == identifier })?.isShown ?? true
-            },
-            set: { wants in
-                calendar.setCalendarShown(wants, identifier: identifier)
-            }
-        )
-    }
 
     /// Reuses `PrivacyMode`'s own per-section cover, the same switch the
     /// status-bar menu's "Hide Contents" submenu flips.
@@ -183,8 +135,6 @@ struct SettingsPane: View {
     private func privacySymbol(for section: PrivacyMode.Section) -> String {
         switch section {
         case .clipboard: return "list.clipboard.fill"
-        case .snippets: return "pin.fill"
-        case .calendar: return "calendar"
         case .notes: return "note.text"
         }
     }

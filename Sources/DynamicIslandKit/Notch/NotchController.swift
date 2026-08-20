@@ -212,11 +212,6 @@ final class NotchController {
             .sink { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    // Calendar's poll follows the tab wherever it goes,
-                    // including away from `.calendar` while the panel stays
-                    // open — not gated on `isOpen` below, which only guards
-                    // the rect refresh.
-                    self.syncCalendarActive()
                     guard let vm = self.viewModel, vm.isOpen else { return }
                     // A pass later: `bodySize` reads `tab`, and this fires
                     // while the property is still being set.
@@ -308,7 +303,6 @@ final class NotchController {
             applyActiveRect(open: true)
             withAnimation(Theme.openAnimation) { vm.isOpen = true }
             vm.media.setActive(true)
-            syncCalendarActive()
         } else {
             // The keyboard goes first and the fold goes second — one run-loop
             // pass apart, never together. Dropped in the same pass, resigning
@@ -341,7 +335,6 @@ final class NotchController {
         vm.privacy.coverEverything()
         withAnimation(Theme.openAnimation) { vm.isOpen = false }
         vm.media.setActive(false)
-        syncCalendarActive()
         // Shrink only once the panel has finished collapsing. Doing it
         // while it is still visibly there would leave a window in which
         // clicks land on whatever is behind the panel.
@@ -374,16 +367,6 @@ final class NotchController {
         applyActiveRect(open: false)
     }
 
-    /// Calendar's countdown tick has nothing to refresh unless its own tab is
-    /// the one actually on screen — active for the whole time any tab of the
-    /// open panel happens to be showing was a 30 s poll running for an empty
-    /// pane. On, only when the panel is open and showing `.calendar`; off the
-    /// moment either stops being true, whether that is a tab switch or the
-    /// panel closing.
-    private func syncCalendarActive() {
-        guard let vm = viewModel else { return }
-        vm.calendar.setActive(vm.isOpen && vm.tab == .calendar)
-    }
 
     private func applyActiveRect(open: Bool) {
         guard let vm = viewModel, let rootView else { return }

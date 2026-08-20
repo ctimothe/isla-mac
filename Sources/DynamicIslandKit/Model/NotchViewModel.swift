@@ -4,7 +4,7 @@ import Combine
 @MainActor
 final class NotchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case media, shelf, clipboard, snippets, calendar, translate, notes, teleprompter, settings
+        case media, shelf, clipboard, translate, notes, teleprompter, settings
         var id: String { rawValue }
 
         var symbol: String {
@@ -12,8 +12,6 @@ final class NotchViewModel: ObservableObject {
             case .media: return "music.note"
             case .shelf: return "tray.full.fill"
             case .clipboard: return "list.clipboard.fill"
-            case .snippets: return "pin.fill"
-            case .calendar: return "calendar"
             case .translate: return "translate"
             case .notes: return "note.text"
             case .teleprompter: return "text.viewfinder"
@@ -26,8 +24,6 @@ final class NotchViewModel: ObservableObject {
             case .media: return localized("Music")
             case .shelf: return localized("Shelf")
             case .clipboard: return localized("Clipboard")
-            case .snippets: return localized("Snippets")
-            case .calendar: return localized("Calendar")
             case .translate: return localized("Translate")
             case .notes: return localized("Notes")
             case .teleprompter: return localized("Teleprompter")
@@ -37,7 +33,7 @@ final class NotchViewModel: ObservableObject {
 
         /// Tabs with a field in them. Landing on one hands it the keyboard, so
         /// that arriving and typing is a single move.
-        var needsKeyboard: Bool { self == .translate || self == .snippets || self == .notes }
+        var needsKeyboard: Bool { self == .translate || self == .notes }
 
         /// Which rail the icon sits on. The left one carries the original six
         /// and is full — icon height is a ceiling now, not a constant (#26,
@@ -48,7 +44,7 @@ final class NotchViewModel: ObservableObject {
         /// column rather than the content rail: it is not something to hover
         /// past on the way to a track or a calendar, so it sits last,
         /// furthest from the tabs people actually rest on.
-        static let leftRail: [Tab] = [.media, .shelf, .clipboard, .snippets, .calendar, .translate]
+        static let leftRail: [Tab] = [.media, .shelf, .clipboard, .translate]
         static let rightRail: [Tab] = [.notes, .teleprompter, .settings]
     }
 
@@ -56,18 +52,10 @@ final class NotchViewModel: ObservableObject {
     @Published var isDropTargeted = false
     @Published var tab: Tab = .media {
         didSet {
-            // Opening the tab only re-checks the status. The permission prompt
-            // is the user's own press on the button inside the pane: this is
-            // the one permission Dynamic Island asks for at all, and it deserves an
-            // explanation before the system dialog, not after.
-            if tab == .calendar { calendar.refreshAccess() }
-            // The snippets file is edited from outside the app, so it is read
-            // on the way in rather than held from launch.
-            if tab == .snippets { snippets.reload() }
-            // Same reason, sharper stakes: the shelf can hold files inside the
-            // folders macOS guards, and looking at one raises a permission
-            // prompt. It is asked here, with the shelf on screen, rather than
-            // at launch with nothing to explain it.
+            // The shelf can hold files inside the folders macOS guards, and
+            // looking at one raises a permission prompt. It is asked here,
+            // with the shelf on screen, rather than at launch with nothing to
+            // explain it.
             if tab == .shelf { shelf.refreshFromDisk() }
             // Leaving the notes sweeps out the blank ones — they cost one
             // hover to recreate, and a trail of empty cards is the clutter a
@@ -106,9 +94,7 @@ final class NotchViewModel: ObservableObject {
     let shelf: ShelfStore
     let clipboard: ClipboardStore
     let screenshotVault: ScreenshotVault
-    let calendar: CalendarStore
     let translator: Translator
-    let snippets: SnippetStore
     let notes: NoteStore
     let teleprompter: TeleprompterStore
     /// Shared by every pane that shows something worth not showing.
@@ -122,9 +108,7 @@ final class NotchViewModel: ObservableObject {
         self.shelf = ShelfStore()
         self.clipboard = ClipboardStore()
         self.screenshotVault = ScreenshotVault()
-        self.calendar = CalendarStore()
         self.translator = Translator()
-        self.snippets = SnippetStore()
         self.notes = NoteStore()
         self.teleprompter = TeleprompterStore()
 
@@ -133,25 +117,26 @@ final class NotchViewModel: ObservableObject {
         // their own, so those would only refresh when something else happened
         // to redraw the view.
         //
-        // Forwarded only while the panel is open. Collapsed, there is nothing
-        // these redraws could change — the panel is a black shape — yet the
-        // stores keep their own schedule: a track change every few minutes, a
-        // copy whenever one happens, and each send re-evaluated the whole
-        // view for nobody. Opening repaints from the stores directly, because
-        // `isOpen` is itself @Published and its own send does that.
+        // Media is forwarded even while closed: a current track now turns the
+        // black notch into a compact live activity. Its position ticker still
+        // runs only while the full panel is open, so this does not redraw the
+        // collapsed shell four times a second.
         //
-        // The stores with a text field in their pane — the translator, the
-        // snippets and the notes — are deliberately absent. They change on every
+        // The stores with a text field in their pane — the translator and the
+        // notes — are deliberately absent. They change on every
         // keystroke, and redrawing the whole panel per letter costs more than a
         // stale counter: it rebuilds the field, which drops the focus, so the
         // first letter typed is also the last one that lands. Their panes
         // observe them directly, and the header counter refreshes anyway,
         // because the list is only ever re-read on the way into the tab.
+        media.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        // The remaining stores have nothing to paint while collapsed.
         for child in [
-            media.objectWillChange,
             shelf.objectWillChange,
             clipboard.objectWillChange,
-            calendar.objectWillChange,
         ] {
             child
                 .sink { [weak self] _ in
@@ -179,9 +164,15 @@ final class NotchViewModel: ObservableObject {
         tab == .teleprompter ? geometry.tallExpandedSize : geometry.expandedSize
     }
 
+    var compactMediaActivity: CompactMediaActivity {
+        CompactMediaActivity(hasTrack: media.track != nil, isPlaying: media.isPlaying)
+    }
+
     /// Size of the visible body for the current state.
     var bodySize: CGSize {
-        isOpen || isDropTargeted ? openBodySize : geometry.notchSize
+        isOpen || isDropTargeted
+            ? openBodySize
+            : compactMediaActivity.bodySize(notchSize: geometry.notchSize)
     }
 
     /// Off switch for people who copy images all day and do not want them kept.
@@ -206,10 +197,6 @@ final class NotchViewModel: ObservableObject {
     func start() {
         media.start()
         shelf.load()
-        snippets.reload()
-        // Only picks up where it left off if access was granted earlier; it
-        // never prompts on its own.
-        calendar.start()
 
         // Screenshots reach the shelf through here whether they were taken on
         // this Mac or on a phone: a copy made on the phone arrives in the same
@@ -230,7 +217,6 @@ final class NotchViewModel: ObservableObject {
     func stop() {
         media.stop()
         clipboard.stop()
-        calendar.stop()
         // Whatever was typed makes it to disk even when quitting mid-thought.
         notes.flush()
         teleprompter.flush()

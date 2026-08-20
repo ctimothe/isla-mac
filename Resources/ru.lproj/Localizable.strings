@@ -5,8 +5,6 @@
 "Music" = "Музыка";
 "Shelf" = "Полка";
 "Clipboard" = "Буфер";
-"Snippets" = "Заготовки";
-"Calendar" = "Календарь";
 "Translate" = "Перевод";
 "Settings" = "Настройки";
 
@@ -22,7 +20,6 @@
 "Show Screenshots Folder" = "Показать папку скриншотов";
 "Clear Screenshots Folder" = "Очистить папку снимков";
 "Clear Screenshots Folder (%@)" = "Очистить папку снимков (%@)";
-"Show Snippets File" = "Показать файл заготовок";
 "Privacy" = "Конфиденциальность";
 "Application" = "Приложение";
 "About %@" = "О программе %@";
@@ -40,12 +37,7 @@
 "Nothing is playing" = "Ничего не играет";
 
 /* Заготовки */
-"Add a snippet" = "Добавить заготовку";
-"Name" = "Название";
-"Text" = "Текст";
 "Delete" = "Удалить";
-"Nothing here yet — add with +" = "Пока пусто — добавь через +";
-"snippets.json is broken — click to open; nothing is overwritten" = "snippets.json не читается — нажми, чтобы открыть; поверх ничего не пишется";
 
 /* Заметки */
 "Notes" = "Заметки";
@@ -60,30 +52,11 @@
 "macOS does not translate this pair of languages." = "macOS не переводит эту пару языков.";
 
 /* Календарь */
-"Join" = "Подключиться";
-"Join · %@" = "Подключиться · %@";
-"No other meetings this week" = "Других встреч на неделе нет";
-"See your next meetings" = "Показать ближайшие встречи";
-"Dynamic Island needs access to Calendar. It is the only permission\nthe app asks for, and only for this tab." = "Нужен доступ к Календарю. Это единственное разрешение,\nкоторое просит Dynamic Island — и только для этой вкладки.";
-"Allow" = "Разрешить";
-"Calendar access is off" = "Доступ к Календарю закрыт";
-"Settings → Privacy → Calendars" = "Настройки → Конфиденциальность → Календари";
-"No more meetings" = "Встреч больше нет";
-"Nothing on the calendar this week" = "На этой неделе календарь пуст";
-"Untitled" = "Без названия";
-"Calendars" = "Календари";
 "Done" = "Готово";
 
 /* Отсчёт со строчной: прописную ставит то место, где строится подпись.
    Сокращения намеренные: в шапку панели помещается «через 12 мин», но
    не полное слово с падежом, а сокращение не склоняется ни в каком языке. */
-"now" = "идёт сейчас";
-"any moment" = "вот-вот";
-"tomorrow" = "завтра";
-"in %d min" = "через %d мин";
-"in %d h" = "через %d ч";
-"in %d h %d min" = "через %d ч %d мин";
-"in %d d" = "через %d дн";
 
 /* Сохранённые снимки. Ключ — сам формат даты, чтобы язык мог переставить части
    в своём порядке. */
