@@ -13,10 +13,12 @@ import CryptoKit
 final class SpotifyAccount: ObservableObject {
     static let shared = SpotifyAccount()
 
-    /// The user's own registration, pasted once in Settings. Shipping a baked
-    /// client id would mean shipping the author's Spotify app identity to
-    /// every install; each user bringing their own keeps the account edge
-    /// clean and costs two minutes at developer.spotify.com.
+    /// The registration made for this install — created in the user's own
+    /// Spotify developer dashboard, at their request, so Connect is one
+    /// click. A client id is public information by design in PKCE: there is
+    /// no secret to protect, the id only names the app on the consent page.
+    /// A different id pasted into defaults still overrides it.
+    static let builtInClientID = "358067117334450d8cd1c09f689ffeec"
     static let clientIDKey = "spotifyClientID"
     static let redirectURI = "dynamicisland://spotify-callback"
 
@@ -34,7 +36,7 @@ final class SpotifyAccount: ObservableObject {
     var clientID: String? {
         let value = UserDefaults.standard.string(forKey: Self.clientIDKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (value?.isEmpty ?? true) ? nil : value
+        return (value?.isEmpty ?? true) ? Self.builtInClientID : value
     }
 
     // MARK: - Authorization (PKCE)

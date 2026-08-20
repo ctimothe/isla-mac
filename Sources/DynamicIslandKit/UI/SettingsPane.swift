@@ -215,31 +215,12 @@ struct SettingsPane: View {
     /// The one flow that needs a real dialog: pasting the client id. NSAlert
     /// with a text field, because the panel cannot present sheets — it never
     /// activates. The id is remembered, so this runs once.
+    /// One click: straight to Spotify's consent page in the browser. The
+    /// registration is built in, so there is nothing to paste and nothing to
+    /// read — the way every other platform's connect button behaves.
     private func connectSpotify() {
-        let account = SpotifyAccount.shared
-        if account.clientID == nil {
-            // The dashboard opens first, instantly — the browser is already
-            // loading the page where the Client ID comes from while the paste
-            // dialog is still being read, instead of a modal blocking an
-            // empty screen.
-            if let dashboard = URL(string: "https://developer.spotify.com/dashboard") {
-                NSWorkspace.shared.open(dashboard)
-            }
-            let alert = NSAlert()
-            alert.messageText = localized("Connect Spotify")
-            alert.informativeText = localized("Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI dynamicisland://spotify-callback).")
-            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 22))
-            alert.accessoryView = field
-            alert.addButton(withTitle: localized("Continue"))
-            alert.addButton(withTitle: localized("Cancel"))
-            NSApp.activate(ignoringOtherApps: true)
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
-            let id = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !id.isEmpty else { return }
-            UserDefaults.standard.set(id, forKey: SpotifyAccount.clientIDKey)
-        }
-        account.beginAuthorization()
-        spotifyConnected = account.isConnected
+        SpotifyAccount.shared.beginAuthorization()
+        spotifyConnected = SpotifyAccount.shared.isConnected
     }
 
     /// Off the main thread: walking the folder takes as long as the folder is
