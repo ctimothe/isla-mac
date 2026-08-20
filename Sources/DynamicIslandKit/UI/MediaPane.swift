@@ -48,7 +48,10 @@ struct MediaPane: View {
                 .frame(height: blockHeight)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .task(id: track.key) {
+            // The Spotify id rides in the task identity: it arrives a beat
+            // after the metadata, and its arrival is what unlocks the
+            // word-synced database, so it must re-fire the load.
+            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")") {
                 guard NotchViewModel.showLyricsEnabled else {
                     lyrics.clear()
                     return
@@ -57,7 +60,8 @@ struct MediaPane: View {
                     title: track.title,
                     artist: track.artist,
                     album: track.album,
-                    duration: media.duration
+                    duration: media.duration,
+                    spotifyID: media.spotifyTrackID
                 )
             }
             // Title and artist arrive together, so the whole column can cross-
@@ -305,9 +309,11 @@ struct MediaPane: View {
                 // mostly is. The end of the last line borrows a spoken-line
                 // length rather than running to the end of the track.
                 let end = current.next?.at ?? line.at + 6
-                let span = LyricsStore.sweepSpan(text: line.text, slot: end - line.at)
-                let fraction = min(max((at - line.at) / span, 0), 1)
-                KaraokeLine(text: line.text, fraction: fraction, reduceMotion: reduceMotion)
+                KaraokeLine(
+                    text: line.text,
+                    fraction: Self.sweepFraction(line: line, at: at, end: end),
+                    reduceMotion: reduceMotion
+                )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 5)
                     // Keyed so a line change crossfades instead of morphing
@@ -319,6 +325,16 @@ struct MediaPane: View {
                     .accessibilityValue(line.text)
             }
         }
+    }
+
+    /// Real word timing when a source had it; the singing-speed estimate only
+    /// for lines that never got any.
+    private static func sweepFraction(line: LyricsStore.Line, at: TimeInterval, end: TimeInterval) -> Double {
+        guard line.words.isEmpty else {
+            return WordSyncedLyrics.wordFraction(words: line.words, at: at, lineEnd: end)
+        }
+        let span = LyricsStore.sweepSpan(text: line.text, slot: end - line.at)
+        return min(max((at - line.at) / span, 0), 1)
     }
 
     private var emptyState: some View {

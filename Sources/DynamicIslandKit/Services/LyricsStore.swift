@@ -19,6 +19,14 @@ final class LyricsStore: ObservableObject {
         /// Seconds from the start of the track at which this line begins.
         let at: TimeInterval
         let text: String
+        /// Word starts within this line, when a word-synced source had them.
+        var words: [WordSyncedLyrics.Word] = []
+
+        init(at: TimeInterval, text: String, words: [WordSyncedLyrics.Word] = []) {
+            self.at = at
+            self.text = text
+            self.words = words
+        }
     }
 
     enum State: Equatable {
@@ -52,10 +60,17 @@ final class LyricsStore: ObservableObject {
     }
 
     /// Called with the displayed track. Same track twice is free.
-    func load(title: String, artist: String, album: String, duration: TimeInterval) {
+    /// - Parameter spotifyID: the catalogue id when Spotify is the player —
+    ///   the community word-synced database is keyed by it.
+    func load(title: String, artist: String, album: String, duration: TimeInterval, spotifyID: String? = nil) {
         let key = Self.cacheKey(title: title, artist: artist, album: album, duration: duration)
-        guard key != loadedKey else { return }
-        loadedKey = key
+        // A track whose Spotify id arrives a beat after its metadata reloads
+        // once: the id unlocks the word-synced database, and it is worth one
+        // more lookup. An id-bearing load is never replaced by an id-less one.
+        let identity = key + (spotifyID.map { "|\($0)" } ?? "")
+        guard identity != loadedKey else { return }
+        if let loadedKey, loadedKey.hasPrefix(key), spotifyID == nil { return }
+        loadedKey = identity
         inFlight?.cancel()
 
         guard !title.isEmpty, duration > 0 else {
@@ -70,7 +85,10 @@ final class LyricsStore: ObservableObject {
 
         state = .loading
         inFlight = Task { [weak self] in
-            await self?.fetch(key: key, title: title, artist: artist, album: album, duration: duration)
+            await self?.fetch(
+                key: identity, cacheKey: key, spotifyID: spotifyID,
+                title: title, artist: artist, album: album, duration: duration
+            )
         }
     }
 
@@ -122,7 +140,95 @@ final class LyricsStore: ObservableObject {
 
     // MARK: - Fetch
 
-    private func fetch(key: String, title: String, artist: String, album: String, duration: TimeInterval) async {
+    private func fetch(
+        key: String, cacheKey: String, spotifyID: String?,
+        title: String, artist: String, album: String, duration: TimeInterval
+    ) async {
+        // Best source first. The community TTML database carries hand-reviewed
+        // word timing and is keyed by the exact track id, so there is no
+        // matching to get wrong; Kugou's KRC is word-synced too but found by
+        // search; LRCLIB's LRC is line-level and the floor.
+        if let spotifyID, let words = await fetchAmll(spotifyID: spotifyID) {
+            guard !Task.isCancelled, loadedKey == key else { return }
+            writeCache(cacheKey, lines: words)
+            state = .synced(words)
+            return
+        }
+        if let words = await fetchKugou(title: title, artist: artist, duration: duration) {
+            guard !Task.isCancelled, loadedKey == key else { return }
+            writeCache(cacheKey, lines: words)
+            state = .synced(words)
+            return
+        }
+        await fetchLRCLIB(key: key, cacheKey: cacheKey, title: title, artist: artist, album: album, duration: duration)
+    }
+
+    /// The amll-ttml-db community database: CC0, word-by-word TTML, one file
+    /// per Spotify track id, served straight from the repository.
+    private func fetchAmll(spotifyID: String) async -> [Line]? {
+        guard let url = URL(string: "https://raw.githubusercontent.com/Steve-xmh/amll-ttml-db/main/spotify-lyrics/\(spotifyID).ttml") else { return nil }
+        guard let (data, response) = try? await session.data(from: url),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        let parsed = WordSyncedLyrics.parseTTML(data)
+        guard !parsed.isEmpty else { return nil }
+        return parsed.map { Line(at: $0.at, text: $0.text, words: $0.words) }
+    }
+
+    /// Kugou's lyric search and KRC download. Unofficial and keyless; the
+    /// duration gate (±3s) keeps a cover or remix from masquerading, the same
+    /// rule the LRCLIB search fallback uses.
+    private func fetchKugou(title: String, artist: String, duration: TimeInterval) async -> [Line]? {
+        var search = URLComponents(string: "https://lyrics.kugou.com/search")!
+        search.queryItems = [
+            URLQueryItem(name: "ver", value: "1"),
+            URLQueryItem(name: "man", value: "yes"),
+            URLQueryItem(name: "client", value: "pc"),
+            URLQueryItem(name: "keyword", value: "\(artist) - \(title)"),
+            URLQueryItem(name: "duration", value: String(Int(duration * 1000))),
+        ]
+        struct SearchReply: Decodable {
+            struct Candidate: Decodable {
+                let id: String
+                let accesskey: String
+                let duration: Int?
+            }
+            let candidates: [Candidate]
+        }
+        guard let searchURL = search.url,
+              let (data, _) = try? await session.data(from: searchURL),
+              let reply = try? JSONDecoder().decode(SearchReply.self, from: data) else { return nil }
+        let match = reply.candidates.first {
+            guard let ms = $0.duration else { return false }
+            // Kugou reports candidate duration in milliseconds.
+            return abs(TimeInterval(ms) / 1000 - duration) <= 3
+        }
+        guard let match else { return nil }
+
+        var download = URLComponents(string: "https://lyrics.kugou.com/download")!
+        download.queryItems = [
+            URLQueryItem(name: "ver", value: "1"),
+            URLQueryItem(name: "client", value: "pc"),
+            URLQueryItem(name: "id", value: match.id),
+            URLQueryItem(name: "accesskey", value: match.accesskey),
+            URLQueryItem(name: "fmt", value: "krc"),
+            URLQueryItem(name: "charset", value: "utf8"),
+        ]
+        struct DownloadReply: Decodable { let content: String? }
+        guard let downloadURL = download.url,
+              let (body, _) = try? await session.data(from: downloadURL),
+              let payload = try? JSONDecoder().decode(DownloadReply.self, from: body),
+              let base64 = payload.content,
+              let encrypted = Data(base64Encoded: base64),
+              let decrypted = WordSyncedLyrics.decryptKRC(encrypted) else { return nil }
+        let parsed = WordSyncedLyrics.parseKRCBody(decrypted)
+        guard !parsed.isEmpty else { return nil }
+        return parsed.map { Line(at: $0.at, text: $0.text, words: $0.words) }
+    }
+
+    private func fetchLRCLIB(
+        key: String, cacheKey: String,
+        title: String, artist: String, album: String, duration: TimeInterval
+    ) async {
         var components = URLComponents(string: "https://lrclib.net/api/get")!
         components.queryItems = [
             URLQueryItem(name: "track_name", value: title),
@@ -183,7 +289,7 @@ final class LyricsStore: ObservableObject {
 
             // A miss is an answer too, and caching it is what keeps a track
             // with no lyrics from being asked about on every replay.
-            writeCache(key, lines: lines)
+            writeCache(cacheKey, lines: lines)
         } catch {
             guard !Task.isCancelled, loadedKey == key else { return }
             // Offline or refused: say nothing rather than something wrong,
@@ -250,24 +356,40 @@ final class LyricsStore: ObservableObject {
     }
 
     private func cacheURL(_ key: String) -> URL {
-        cacheDirectory.appendingPathComponent("\(key).lrc.json")
+        // v2: the payload gained word timing; v1 files decode without it and
+        // would pin a track to line-level forever, so they are simply ignored.
+        cacheDirectory.appendingPathComponent("\(key).lrc2.json")
     }
 
     private struct CachedLyrics: Codable {
         let times: [TimeInterval]
         let texts: [String]
+        var wordTimes: [[TimeInterval]]? = nil
+        var wordTexts: [[String]]? = nil
     }
 
     private func readCache(_ key: String) -> [Line]? {
         guard let data = try? Data(contentsOf: cacheURL(key)),
               let cached = try? JSONDecoder().decode(CachedLyrics.self, from: data),
               cached.times.count == cached.texts.count else { return nil }
-        return zip(cached.times, cached.texts).map { Line(at: $0, text: $1) }
+        return cached.times.indices.map { index in
+            var words: [WordSyncedLyrics.Word] = []
+            if let wt = cached.wordTimes, let wx = cached.wordTexts,
+               index < wt.count, index < wx.count, wt[index].count == wx[index].count {
+                words = zip(wt[index], wx[index]).map { WordSyncedLyrics.Word(at: $0, text: $1) }
+            }
+            return Line(at: cached.times[index], text: cached.texts[index], words: words)
+        }
     }
 
     private func writeCache(_ key: String, lines: [Line]) {
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-        let cached = CachedLyrics(times: lines.map(\.at), texts: lines.map(\.text))
+        let cached = CachedLyrics(
+            times: lines.map(\.at),
+            texts: lines.map(\.text),
+            wordTimes: lines.map { $0.words.map(\.at) },
+            wordTexts: lines.map { $0.words.map(\.text) }
+        )
         guard let data = try? JSONEncoder().encode(cached) else { return }
         try? data.write(to: cacheURL(key), options: .atomic)
     }

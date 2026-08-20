@@ -59,8 +59,24 @@ enum PlayerBridge {
         }
     }
 
-    /// Never launches a player: only already-running ones are queried, and a
-    /// playing app wins over a merely-open one.
+    /// The Spotify catalogue id of the current track ("spotify:track:…" →
+    /// the bare id). The community word-lyrics database is keyed by it.
+    static func spotifyTrackID(completion: @escaping @MainActor (String?) -> Void) {
+        let script = """
+        tell application id "\(PlayerApp.spotify.bundleID)"
+            if it is running then
+                return (id of current track as text)
+            end if
+        end tell
+        """
+        runScript(script) { result in
+            MainActor.assumeIsolated {
+                let raw = result?.stringValue ?? ""
+                completion(raw.hasPrefix("spotify:track:") ? String(raw.dropFirst("spotify:track:".count)) : nil)
+            }
+        }
+    }
+
     /// Spotify's own playback position, fractional seconds, asked directly.
     /// The one scriptable value that beats MediaRemote: the daemon's readings
     /// sit about a second stale, the player's own answer lands within ~50ms.
@@ -79,6 +95,8 @@ enum PlayerBridge {
         }
     }
 
+    /// Never launches a player: only already-running ones are queried, and a
+    /// playing app wins over a merely-open one.
     static func currentState(completion: @escaping (PlayerState?) -> Void) {
         let candidates = PlayerApp.allCases.filter(\.isRunning)
         guard !candidates.isEmpty else { return completion(nil) }
