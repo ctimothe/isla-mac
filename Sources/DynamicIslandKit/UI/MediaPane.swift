@@ -359,10 +359,11 @@ struct MediaPane: View {
 /// brief asked for rhythm, not typography — no underline, no boxes, just the
 /// reading edge moving. The linear animation between position ticks is what
 /// turns four updates a second into one continuous sweep.
-private struct KaraokeLine: View {
+struct KaraokeLine: View {
     let text: String
     let fraction: Double
     let reduceMotion: Bool
+    var accent: Color = Color.white.opacity(0.92)
 
     var body: some View {
         Text(text)
@@ -374,7 +375,7 @@ private struct KaraokeLine: View {
                 if !reduceMotion {
                     Text(text)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.92))
+                        .foregroundStyle(accent)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .mask(

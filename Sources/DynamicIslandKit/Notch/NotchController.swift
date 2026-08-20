@@ -98,13 +98,31 @@ final class NotchController {
         pointer.stop()
         // Click-through for the whole locked stretch. `build` starts panels
         // this way, and the first sample after unlock puts it right again.
-        panel?.ignoresMouseEvents = true
-        // The card shows a moving bar and a sung line, so the position must
-        // stay live with the shield up: setActive keeps the ticker and the
-        // precision loop running exactly as an open panel would.
+        // The card is interactive — its transport answers clicks and its bar
+        // scrubs — so the panel keeps taking events, but only inside the
+        // card: everything outside its rect stays click-through, and the
+        // password field keeps the rest of the screen.
+        panel?.ignoresMouseEvents = false
         viewModel?.isLockedPresentation = true
         viewModel?.media.setActive(true)
+        applyLockedActiveRect()
         lockPresence.apply(to: panel, locked: true)
+    }
+
+    /// Cuts the hit region to exactly the lock card's frame: centered, under
+    /// the notch by the same 24pt the SwiftUI layout uses.
+    private func applyLockedActiveRect() {
+        guard let vm = viewModel, let rootView else { return }
+        let size = LockScreenCard.size
+        let windowSize = vm.geometry.windowSize
+        let top = vm.geometry.notchSize.height + 24
+        let rect = CGRect(
+            x: (windowSize.width - size.width) / 2,
+            y: windowSize.height - top - size.height,
+            width: size.width,
+            height: size.height
+        )
+        rootView.activeRect = rect
     }
 
     /// Unconditional, unlike the lock side: the toggle may have been flipped
@@ -114,6 +132,9 @@ final class NotchController {
     private func screenUnlocked() {
         lockPresence.apply(to: panel, locked: false)
         viewModel?.isLockedPresentation = false
+        // Back to the collapsed strip's rect; the first pointer sample after
+        // unlock re-applies the normal hover machinery.
+        applyActiveRect(open: false)
         // The ticker belongs to an open panel, and the panel is folded after
         // unlock — setActive(false) puts the idle contract back.
         viewModel?.media.setActive(false)

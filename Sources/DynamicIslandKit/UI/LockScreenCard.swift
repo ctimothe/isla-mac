@@ -1,60 +1,90 @@
 import SwiftUI
 
-/// The media card shown while the Mac is locked.
+/// The media player shown while the Mac is locked.
 ///
-/// Bigger than the pill because the lock screen has room the notch does not:
-/// full artwork, title, artist and source, a live progress bar, and the line
-/// being sung. Display only — the lock screen takes media keys (pause from
-/// the keyboard works with the shield up) but its pointer belongs to the
-/// password field, and a clickable card would fight it for every event.
+/// Modelled on what the paid field ships on its lock screens — Alcove's
+/// frosted card under the clock is the reference grammar: artwork with its
+/// own shadow, title over dimmed artist, a thin seek bar flanked by elapsed
+/// and remaining, a real transport row — then pushed past it with the two
+/// things this app has that they do not: the word-synced karaoke line, and
+/// chrome tinted from the artwork itself so no two tracks light the card the
+/// same way.
 ///
-/// Styled from system materials and semantic styles rather than painted
-/// colors: `.regularMaterial`, vibrancy hierarchy, continuous corners. That
-/// is what makes it read as part of the OS on this macOS — and the same
-/// choice is the only honest form of future-proofing, because the system
-/// restyles its own materials on every release while a hand-painted imitation
-/// of today's look would rot.
+/// Interactive, deliberately: previous, play/pause, next and the seek bar all
+/// answer clicks, and the panel's hit region is cut to exactly this card, so
+/// the rest of the lock screen still belongs to the password field.
 struct LockScreenCard: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @State private var palette: ArtworkPalette?
+    @State private var scrubbing: Double?
+
+    static let size = CGSize(width: 480, height: 190)
+
+    private var accent: Color {
+        guard let palette, palette.isVivid else { return .white }
+        return Color(nsColor: palette.dominant)
+    }
 
     var body: some View {
         if let track = media.track {
-            HStack(spacing: 16) {
-                artwork
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(track.title)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Text(subtitle(for: track))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 14) {
+                    artwork
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(track.title)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text(track.artist)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        lyricLine
+                    }
+                    Spacer(minLength: 8)
+                    LockWaveform(accent: accent, animating: media.isPlaying && !reduceMotion)
+                }
 
-                    Spacer(minLength: 8)
-                    lyricLine
-                    Spacer(minLength: 8)
-                    progress
+                Spacer(minLength: 10)
+                seekBar
+                controls
+                    .padding(.top, 8)
+            }
+            .padding(16)
+            .frame(width: Self.size.width, height: Self.size.height)
+            .background {
+                ZStack {
+                    // The glass Alcove uses, with our ambience on top: the
+                    // artwork's own color breathing faintly through the frost.
+                    Rectangle().fill(.ultraThinMaterial)
+                    if let palette, palette.isVivid {
+                        Color(nsColor: palette.dominant).opacity(0.10)
+                    }
+                    LinearGradient(
+                        colors: [.black.opacity(0.15), .black.opacity(0.45)],
+                        startPoint: .top, endPoint: .bottom
+                    )
                 }
             }
-            .padding(18)
-            .frame(width: 480)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.35), radius: 28, y: 12)
+            .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
             .environment(\.colorScheme, .dark)
+            .task(id: media.artwork) {
+                palette = media.artwork.flatMap(ArtworkPalette.extract(from:))
+            }
             .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")") {
                 guard NotchViewModel.showLyricsEnabled else { return }
                 lyrics.load(
-                    title: track.title,
-                    artist: track.artist,
-                    album: track.album,
-                    duration: media.duration,
+                    title: track.title, artist: track.artist,
+                    album: track.album, duration: media.duration,
                     spotifyID: media.spotifyTrackID
                 )
             }
@@ -62,34 +92,39 @@ struct LockScreenCard: View {
         }
     }
 
-    private func subtitle(for track: MediaController.Track) -> String {
-        var parts = [track.artist]
-        if let source = media.sourceName, !source.isEmpty { parts.append(source) }
-        return parts.filter { !$0.isEmpty }.joined(separator: " — ")
-    }
+    // MARK: - Pieces
 
     private var artwork: some View {
-        ZStack {
-            if let image = media.artwork {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.quaternary)
-                    .overlay(
-                        Image(systemName: "music.note")
-                            .font(.system(size: 28, weight: .light))
-                            .foregroundStyle(.tertiary)
-                    )
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if let image = media.artwork {
+                    Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(.white.opacity(0.08))
+                        .overlay(
+                            Image(systemName: "music.note")
+                                .font(.system(size: 22, weight: .light))
+                                .foregroundStyle(.white.opacity(0.4))
+                        )
+                }
+            }
+            .frame(width: 84, height: 84)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .shadow(color: .black.opacity(0.45), radius: 10, y: 4)
+
+            // The source badge the field overlaps on the artwork corner —
+            // instant context, no text.
+            if let source = media.sourceName, !source.isEmpty {
+                Text(String(source.prefix(1)))
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 18, height: 18)
+                    .background(Circle().fill(.black.opacity(0.75)))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
+                    .offset(x: 5, y: 5)
             }
         }
-        .frame(width: 96, height: 96)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.white.opacity(0.1), lineWidth: 1)
-        )
     }
 
     @ViewBuilder
@@ -98,45 +133,121 @@ struct LockScreenCard: View {
             let at = media.position + 0.25
             let current = LyricsStore.current(in: lines, at: at)
             if let line = current.line {
-                Text(line.text)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .id(line.at)
-                    .transition(.opacity)
-                    .animation(Theme.contentAnimation, value: line.at)
+                let end = current.next?.at ?? line.at + 6
+                KaraokeLine(
+                    text: line.text,
+                    fraction: Self.sweepFraction(line: line, at: at, end: end),
+                    reduceMotion: reduceMotion,
+                    accent: accent
+                )
+                .id(line.at)
+                .transition(.opacity)
+                .animation(Theme.contentAnimation, value: line.at)
             }
         }
     }
 
-    private var progress: some View {
-        VStack(spacing: 4) {
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.quaternary)
-                    Capsule()
-                        .fill(.secondary)
-                        .frame(width: geo.size.width * fraction)
-                }
-            }
-            .frame(height: 4)
-            HStack {
-                Text(formatTime(media.position))
-                if !media.isPlaying {
-                    Spacer()
-                    Text(localized("Paused"))
-                }
-                Spacer()
-                Text(formatTime(media.duration))
-            }
-            .font(.system(size: 10, weight: .medium).monospacedDigit())
-            .foregroundStyle(.tertiary)
+    static func sweepFraction(line: LyricsStore.Line, at: TimeInterval, end: TimeInterval) -> Double {
+        guard line.words.isEmpty else {
+            return WordSyncedLyrics.wordFraction(words: line.words, at: at, lineEnd: end)
         }
+        let span = LyricsStore.sweepSpan(text: line.text, slot: end - line.at)
+        return min(max((at - line.at) / span, 0), 1)
     }
 
     private var fraction: Double {
+        if let scrubbing { return scrubbing }
         guard media.duration > 0 else { return 0 }
         return min(max(media.position / media.duration, 0), 1)
+    }
+
+    private var seekBar: some View {
+        HStack(spacing: 10) {
+            Text(formatTime(fraction * media.duration))
+                .frame(width: 34, alignment: .leading)
+            GeometryReader { geo in
+                let width = geo.size.width
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.18)).frame(height: 4)
+                    Capsule()
+                        .fill(accent.opacity(0.9))
+                        .frame(width: width * fraction, height: 4)
+                }
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            guard width > 0, media.duration > 0 else { return }
+                            scrubbing = min(max(value.location.x / width, 0), 1)
+                        }
+                        .onEnded { value in
+                            guard width > 0, media.duration > 0 else { return }
+                            let target = min(max(value.location.x / width, 0), 1)
+                            media.seek(to: media.duration * target)
+                            scrubbing = nil
+                        }
+                )
+            }
+            .frame(height: 14)
+            // Remaining, not total — the lock-screen convention every
+            // reference card follows.
+            Text("-" + formatTime(max(media.duration - fraction * media.duration, 0)))
+                .frame(width: 40, alignment: .trailing)
+        }
+        .font(.system(size: 10, weight: .medium).monospacedDigit())
+        .foregroundStyle(.white.opacity(0.55))
+    }
+
+    private var controls: some View {
+        HStack(spacing: 26) {
+            Spacer()
+            Button { media.previous() } label: { Image(systemName: "backward.fill") }
+                .buttonStyle(NotchButtonStyle(size: 32))
+                .disabled(!media.canSkip)
+                .opacity(media.canSkip ? 1 : 0.35)
+                .accessibilityLabel(localized("Previous Track"))
+            Button { media.togglePlayPause() } label: {
+                Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
+            }
+            .buttonStyle(NotchButtonStyle(size: 42, prominent: true))
+            .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
+            Button { media.next() } label: { Image(systemName: "forward.fill") }
+                .buttonStyle(NotchButtonStyle(size: 32))
+                .disabled(!media.canSkip)
+                .opacity(media.canSkip ? 1 : 0.35)
+                .accessibilityLabel(localized("Next Track"))
+            Spacer()
+        }
+    }
+}
+
+/// Five bars breathing with the music, tinted from the artwork — the
+/// heartbeat every reference player carries at its edge.
+private struct LockWaveform: View {
+    let accent: Color
+    let animating: Bool
+
+    var body: some View {
+        if animating {
+            TimelineView(.animation(minimumInterval: 1.0 / 12)) { timeline in
+                bars(at: timeline.date.timeIntervalSinceReferenceDate)
+            }
+        } else {
+            bars(at: 0)
+        }
+    }
+
+    private func bars(at time: TimeInterval) -> some View {
+        HStack(alignment: .center, spacing: 3) {
+            ForEach(0..<5, id: \.self) { index in
+                let phase = time == 0 ? 0.35
+                    : 0.5 + 0.5 * sin(time * (3.1 + Double(index) * 0.7) + Double(index) * 1.7)
+                Capsule()
+                    .fill(accent.opacity(0.85))
+                    .frame(width: 3, height: 6 + 14 * phase)
+            }
+        }
+        .frame(height: 22, alignment: .center)
     }
 }
