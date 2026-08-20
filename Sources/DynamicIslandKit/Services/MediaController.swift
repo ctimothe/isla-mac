@@ -461,8 +461,18 @@ final class MediaController: ObservableObject {
         anchor = (value, Date())
     }
 
-    /// Below this a forward correction is pipeline jitter, not movement.
-    private let forwardTolerance: TimeInterval = 0.75
+    /// Below this a forward correction is churn, not information.
+    ///
+    /// This was 0.75s, and that number quietly guaranteed the bar ran behind:
+    /// any reading ahead of us by less was ignored and the clock re-based, so
+    /// the position could sit up to three-quarters of a second late forever,
+    /// snapping forward only when the drift finally cleared the bar. Nobody
+    /// sees that on a progress bar — the whole gap is under two points of
+    /// travel — but a karaoke line keyed off the position sat visibly behind
+    /// the voice, catching up in lurches. Forward corrections are truth, not
+    /// jitter: readings never describe the future, so ahead-of-us means
+    /// behind-the-player. Take them all.
+    private let forwardTolerance: TimeInterval = 0.05
     /// A disagreement this large is an event — a seek made in the player
     /// itself, or a track change — not a discrepancy to be smoothed over.
     private let seekThreshold: TimeInterval = 2

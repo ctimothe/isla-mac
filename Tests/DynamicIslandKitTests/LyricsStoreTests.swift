@@ -91,4 +91,23 @@ final class LyricsStoreTests: XCTestCase {
         XCTAssertEqual(key, sameKey, "sub-second duration jitter must not defeat the cache")
         XCTAssertNotEqual(key, otherKey)
     }
+
+    // MARK: - Sweep pacing
+
+    func testSweepFinishesWithTheWordsNotTheSilence() {
+        // 30 characters ~ 2.4s of singing inside a 10s slot: the sweep must
+        // complete around the vocal, not crawl through the instrumental gap.
+        let span = LyricsStore.sweepSpan(text: String(repeating: "a", count: 30), slot: 10)
+        XCTAssertEqual(span, 2.4, accuracy: 0.01)
+    }
+
+    func testSweepNeverOutrunsTheSlot() {
+        // A long line in a tight slot cannot sweep past the next line's start.
+        let span = LyricsStore.sweepSpan(text: String(repeating: "a", count: 100), slot: 3)
+        XCTAssertEqual(span, 3, accuracy: 0.01)
+    }
+
+    func testAVeryShortLineStillGetsAReadableSweep() {
+        XCTAssertGreaterThanOrEqual(LyricsStore.sweepSpan(text: "Oh", slot: 8), 1.0)
+    }
 }
