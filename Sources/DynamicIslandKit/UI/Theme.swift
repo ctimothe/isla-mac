@@ -2,13 +2,17 @@ import SwiftUI
 
 enum Theme {
     static let openAnimation = Animation.spring(response: 0.27, dampingFraction: 0.82)
+    static let compactAnimation = Animation.spring(response: 0.24, dampingFraction: 0.86)
     static let contentAnimation = Animation.easeOut(duration: 0.16)
     /// Pane switching: the outgoing pane leaves faster than the incoming one
     /// arrives, so the two are never both half-visible for long.
     static let paneAnimation = Animation.easeOut(duration: 0.18)
     static let paneIn = Animation.easeOut(duration: 0.20).delay(0.04)
     static let paneOut = Animation.easeIn(duration: 0.12)
-    static let artworkAnimation = Animation.easeOut(duration: 0.28)
+    // A skip delivers its new title and cover in 68ms, so the crossfade is
+    // what the wait actually is. Short enough to read as immediate, long
+    // enough that the swap is still a fade rather than a cut.
+    static let artworkAnimation = Animation.easeOut(duration: 0.16)
 
     static let collapsedTopRadius: CGFloat = 6
     static let collapsedBottomRadius: CGFloat = 9
@@ -20,6 +24,8 @@ enum Theme {
     static let surface = Color.white.opacity(0.08)
     static let surfaceHover = Color.white.opacity(0.14)
     static let hairline = Color.white.opacity(0.10)
+    /// Only for an action that destroys something, and only once it is armed.
+    static let danger = Color(red: 1.0, green: 0.45, blue: 0.40)
 }
 
 /// Flat, focus-free button used for every control in the panel.

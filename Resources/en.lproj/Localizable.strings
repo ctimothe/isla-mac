@@ -85,3 +85,7 @@
 "Hide From Screen Recording" = "Hide From Screen Recording";
 "Translating…" = "Translating…";
 "notes.json cannot be read, so nothing is being saved." = "notes.json cannot be read, so nothing is being saved.";
+"Clear Everything?" = "Clear Everything?";
+"Delete These Files?" = "Delete These Files?";
+"Quit Dynamic Island?" = "Quit Dynamic Island?";
+"Asks for confirmation before acting." = "Asks for confirmation before acting.";

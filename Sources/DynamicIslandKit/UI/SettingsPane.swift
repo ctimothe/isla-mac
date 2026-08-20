@@ -35,9 +35,10 @@ struct SettingsPane: View {
                     actionRow(symbol: "folder", title: localized("Show Screenshots Folder")) {
                         screenshotVault.reveal()
                     }
-                    actionRow(
+                    confirmRow(
                         symbol: "trash",
                         title: clearTitle,
+                        armedTitle: localized("Delete These Files?"),
                         disabled: screenshotUsage.files == 0
                     ) {
                         screenshotVault.clear()
@@ -81,7 +82,11 @@ struct SettingsPane: View {
                     actionRow(symbol: "info.circle", title: localized("About %@", ProductIdentity.displayName)) {
                         NSApp.orderFrontStandardAboutPanel(nil)
                     }
-                    actionRow(symbol: "power", title: localized("Quit")) {
+                    confirmRow(
+                        symbol: "power",
+                        title: localized("Quit"),
+                        armedTitle: localized("Quit Dynamic Island?")
+                    ) {
                         NSApp.terminate(nil)
                     }
                 }
@@ -201,6 +206,24 @@ struct SettingsPane: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 26)
+    }
+
+    /// An action row that destroys something, so it asks first — same two-press
+    /// arming as the panes, for the same reason a dialog is unavailable here.
+    private func confirmRow(
+        symbol: String,
+        title: String,
+        armedTitle: String,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        ConfirmRow(
+            symbol: symbol,
+            title: title,
+            armedTitle: armedTitle,
+            disabled: disabled,
+            action: action
+        )
     }
 
     private func actionRow(
