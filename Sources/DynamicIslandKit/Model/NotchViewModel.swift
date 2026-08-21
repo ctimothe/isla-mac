@@ -255,6 +255,31 @@ final class NotchViewModel: ObservableObject {
         return defaults.bool(forKey: sneakPeekKey)
     }
 
+    /// How the lock card is finished.
+    ///
+    /// Glass is what the system's own surfaces do on this OS: the wallpaper
+    /// carries through, dimmed only as far as the type needs. Solid is for the
+    /// wallpapers glass cannot win against — a bright, busy photograph behind
+    /// small white text — and for anybody who simply wants the panel to be a
+    /// panel.
+    enum LockCardStyle: String, CaseIterable, Identifiable {
+        case glass, solid
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .glass: return localized("Glass")
+            case .solid: return localized("Solid")
+            }
+        }
+    }
+
+    static let lockCardStyleKey = "lockCardStyle"
+
+    static var lockCardStyle: LockCardStyle {
+        LockCardStyle(rawValue: UserDefaults.standard.string(forKey: lockCardStyleKey) ?? "") ?? .glass
+    }
+
     static let showOnLockScreenKey = "showOnLockScreen"
 
     /// Defaults to on: the pill over the lock screen is the closest this app
