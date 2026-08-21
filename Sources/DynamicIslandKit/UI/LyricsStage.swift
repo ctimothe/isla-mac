@@ -342,8 +342,9 @@ struct LyricsStage: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Capsule().fill(Color.black.opacity(0.55)))
-            .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 0.5))
+            // The same glass as every other floating surface here — it sits
+            // inside an opaque panel, so there is nothing behind it to sample.
+            .glassSurface(cornerRadius: 999, elevation: .pill, samplesBackdrop: false)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(localized("Back to the current line"))
