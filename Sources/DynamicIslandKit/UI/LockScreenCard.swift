@@ -1,3 +1,4 @@
+import CoreAudio
 import SwiftUI
 
 /// The media player shown while the Mac is locked.
@@ -21,6 +22,12 @@ struct LockScreenCard: View {
 
     @State private var palette: ArtworkPalette?
     @State private var scrubbing: Double?
+    /// The output picker, open over the card's own surface. A system menu
+    /// would have to draw outside the card, and outside the card is the
+    /// password field's — the panel takes no clicks there by design.
+    @State private var showingOutputs = false
+    @State private var outputs: [AudioOutputs.Output] = []
+    @State private var currentOutput: AudioDeviceID?
 
     static let size = CGSize(width: 500, height: 222)
 
@@ -137,6 +144,17 @@ struct LockScreenCard: View {
                     .blendMode(.plusLighter)
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                if showingOutputs {
+                    outputPicker
+                        .padding(.trailing, 16)
+                        .padding(.bottom, 58)
+                        .transition(Theme.scaleIn(0.94, reduceMotion: reduceMotion))
+                }
+            }
+            .animation(Theme.contentAnimation, value: showingOutputs)
+            // A track change is not a reason to keep a picker open.
+            .onChange(of: media.track?.key) { _, _ in showingOutputs = false }
             .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
             .overlay(
                 // An edge that catches light along the top and loses it toward
@@ -348,26 +366,93 @@ struct LockScreenCard: View {
     /// when the source has no such idea — a browser tab does not shuffle — so
     /// the row keeps its shape whatever is playing.
     private var shuffle: some View {
-        Button { media.toggleShuffle() } label: {
-            Image(systemName: "shuffle").font(.system(size: 17, weight: .semibold))
-        }
-        .buttonStyle(LockGlyphStyle())
+        ModeToggle(
+            symbol: "shuffle",
+            isOn: media.shuffleEnabled == true,
+            accent: accent,
+            size: 34,
+            glyphSize: 17
+        ) { media.toggleShuffle() }
         .disabled(media.shuffleEnabled == nil)
-        .opacity(media.shuffleEnabled == nil ? 0.3 : (media.shuffleEnabled == true ? 1 : 0.55))
-        .foregroundStyle(media.shuffleEnabled == true ? accent : .white)
+        .opacity(media.shuffleEnabled == nil ? 0.3 : 1)
         .accessibilityLabel(localized("Shuffle"))
+        .accessibilityValue(media.shuffleEnabled == true ? localized("On") : localized("Off"))
     }
 
-    /// Where the sound is coming out. An indicator, not a control: nothing on
-    /// this Mac can move another app's audio to another device, and a glyph
-    /// that looks like a button and answers nothing is worse than a label.
+    /// Where the sound comes out, and how to send it somewhere else.
+    ///
+    /// No app's audio can be moved individually from outside it, but every app
+    /// follows the system's default output — so "play it on the speakers
+    /// instead" is a real thing this button can do, and the glyph says which
+    /// kind of thing is playing now.
     private var output: some View {
-        Image(systemName: "laptopcomputer")
-            .font(.system(size: 18, weight: .medium))
-            .foregroundStyle(.white.opacity(0.75))
-            .frame(width: 34, height: 34)
-            .help(localized("Playing on this Mac"))
-            .accessibilityLabel(localized("Playing on this Mac"))
+        Button {
+            outputs = AudioOutputs.available()
+            currentOutput = AudioOutputs.current()
+            showingOutputs.toggle()
+        } label: {
+            Image(systemName: outputSymbol)
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 34, height: 34)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(LockGlyphStyle())
+        .help(localized("Sound Output"))
+        .accessibilityLabel(localized("Sound Output"))
+    }
+
+    private var outputSymbol: String {
+        guard let currentOutput,
+              let device = outputs.first(where: { $0.id == currentOutput }) else {
+            return "laptopcomputer"
+        }
+        return AudioOutputs.symbol(forTransport: device.transport)
+    }
+
+    /// The picker itself: the devices this Mac can play through, the current
+    /// one ticked. Sized to the card, because it lives inside it.
+    private var outputPicker: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(outputs) { device in
+                Button {
+                    AudioOutputs.select(device.id)
+                    currentOutput = device.id
+                    showingOutputs = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: AudioOutputs.symbol(forTransport: device.transport))
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(width: 16)
+                        Text(device.name)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        if device.id == currentOutput {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(accent)
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(width: 240, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.black.opacity(0.82))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Theme.hairline, lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(localized("Sound Output"))
     }
 
     /// Saved-to-Liked-Songs, through the user's own authorized account —

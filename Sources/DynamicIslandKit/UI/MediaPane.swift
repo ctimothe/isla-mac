@@ -312,13 +312,9 @@ struct MediaPane: View {
             // itself is absent for a browser tab, and a dim control implies a
             // state that merely is not available right now.
             if let shuffle = media.shuffleEnabled {
-                Button { media.toggleShuffle() } label: {
-                    Image(systemName: "shuffle")
-                        .foregroundStyle(shuffle ? Color.white : Theme.tertiary)
-                }
-                .buttonStyle(NotchButtonStyle(size: 24))
-                .accessibilityLabel(localized("Shuffle"))
-                .accessibilityValue(shuffle ? localized("On") : localized("Off"))
+                ModeToggle(symbol: "shuffle", isOn: shuffle) { media.toggleShuffle() }
+                    .accessibilityLabel(localized("Shuffle"))
+                    .accessibilityValue(shuffle ? localized("On") : localized("Off"))
             }
             Button { media.previous() } label: { Image(systemName: "backward.fill") }
                 .buttonStyle(NotchButtonStyle(size: 30))
@@ -336,13 +332,12 @@ struct MediaPane: View {
                 .opacity(media.canSkip ? 1 : 0.35)
                 .accessibilityLabel(localized("Next Track"))
             if let mode = media.repeatMode {
-                Button { media.cycleRepeat() } label: {
-                    Image(systemName: mode == .one ? "repeat.1" : "repeat")
-                        .foregroundStyle(mode == .off ? Theme.tertiary : Color.white)
-                }
-                .buttonStyle(NotchButtonStyle(size: 24))
-                .accessibilityLabel(localized("Repeat"))
-                .accessibilityValue(repeatValueLabel(mode))
+                ModeToggle(
+                    symbol: mode == .one ? "repeat.1" : "repeat",
+                    isOn: mode != .off
+                ) { media.cycleRepeat() }
+                    .accessibilityLabel(localized("Repeat"))
+                    .accessibilityValue(repeatValueLabel(mode))
             }
         }
         .frame(maxWidth: .infinity)
