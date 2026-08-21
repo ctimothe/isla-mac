@@ -40,11 +40,6 @@
 /* Shared row actions */
 "Delete" = "Delete";
 
-/* Notes */
-"Notes" = "Notes";
-"New Note" = "New Note";
-"Empty note" = "Empty note";
-"Jot something down…" = "Jot something down…";
 
 /* Translate */
 "Translation Languages…" = "Translation Languages…";
@@ -67,9 +62,6 @@
 "Hide" = "Hide";
 "All" = "All";
 
-"Teleprompter" = "Teleprompter";
-"Paste the script here" = "Paste the script here";
-"Ready" = "Ready";
 "Done" = "Done";
 "Playing" = "Playing";
 "Paused" = "Paused";

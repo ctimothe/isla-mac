@@ -284,7 +284,6 @@ struct SettingsPane: View {
     private func privacySymbol(for section: PrivacyMode.Section) -> String {
         switch section {
         case .clipboard: return "list.clipboard.fill"
-        case .notes: return "note.text"
         case .translate: return "translate"
         }
     }

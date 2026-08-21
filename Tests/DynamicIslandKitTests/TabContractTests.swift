@@ -3,36 +3,39 @@ import XCTest
 
 @MainActor
 final class TabContractTests: XCTestCase {
-    func testRailsExposeAllParityFeaturesInStableOrder() {
+    func testTheRailCarriesTheContentTabsThenSettings() {
         XCTAssertEqual(
-            NotchViewModel.Tab.leftRail,
+            NotchViewModel.Tab.contentTabs,
             [.media, .shelf, .clipboard, .translate]
         )
+        XCTAssertEqual(NotchViewModel.Tab.utilityTabs, [.settings])
+        // Settings last, and below a gap: it is not somewhere to land on the
+        // way to a track.
         XCTAssertEqual(
-            NotchViewModel.Tab.rightRail,
-            [.notes, .teleprompter, .settings]
+            NotchViewModel.Tab.leftRail,
+            [.media, .shelf, .clipboard, .translate, .settings]
         )
+        // One rail now. The second column existed to hold the overflow, and
+        // the overflow is gone.
+        XCTAssertTrue(NotchViewModel.Tab.rightRail.isEmpty)
         XCTAssertEqual(
             NotchViewModel.Tab.allCases.filter(\.needsKeyboard),
-            [.translate, .notes]
+            [.translate]
         )
     }
 
-    /// Snippets and Calendar were dropped from the product deliberately, not
-    /// hidden: no tab, no privacy section, and — the part with teeth — no
-    /// calendar entitlement to justify. A tab reappearing would be a
-    /// regression, so the absence is asserted rather than assumed.
+    /// Snippets, Calendar, Notes and the Teleprompter were dropped from the
+    /// product deliberately, not hidden: no tab, no privacy section, no store,
+    /// no strings. A tab reappearing would be a regression, so the absence is
+    /// asserted rather than assumed.
     func testDroppedFeaturesAreAbsentEntirely() {
         XCTAssertEqual(
             NotchViewModel.Tab.allCases.map(\.rawValue).sorted(),
-            ["clipboard", "media", "notes", "settings", "shelf", "teleprompter", "translate"]
+            ["clipboard", "media", "settings", "shelf", "translate"]
         )
-        // Translate joined the covers because ⌥⌘T puts the clipboard's
-        // contents into its field verbatim — covering the clipboard tab while
-        // that pane showed the same text in full was a hole in the promise.
         XCTAssertEqual(
             PrivacyMode.Section.allCases.map(\.rawValue).sorted(),
-            ["clipboard", "notes", "translate"]
+            ["clipboard", "translate"]
         )
     }
 }

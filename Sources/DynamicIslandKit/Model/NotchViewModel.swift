@@ -4,7 +4,7 @@ import Combine
 @MainActor
 final class NotchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case media, shelf, clipboard, translate, notes, teleprompter, settings
+        case media, shelf, clipboard, translate, settings
         var id: String { rawValue }
 
         var symbol: String {
@@ -13,8 +13,6 @@ final class NotchViewModel: ObservableObject {
             case .shelf: return "tray.full.fill"
             case .clipboard: return "list.clipboard.fill"
             case .translate: return "translate"
-            case .notes: return "note.text"
-            case .teleprompter: return "text.viewfinder"
             case .settings: return "gearshape.fill"
             }
         }
@@ -25,27 +23,23 @@ final class NotchViewModel: ObservableObject {
             case .shelf: return localized("Shelf")
             case .clipboard: return localized("Clipboard")
             case .translate: return localized("Translate")
-            case .notes: return localized("Notes")
-            case .teleprompter: return localized("Teleprompter")
             case .settings: return localized("Settings")
             }
         }
 
         /// Tabs with a field in them. Landing on one hands it the keyboard, so
         /// that arriving and typing is a single move.
-        var needsKeyboard: Bool { self == .translate || self == .notes }
+        var needsKeyboard: Bool { self == .translate }
 
-        /// Which rail the icon sits on. The left one carries the original six
-        /// and is full — icon height is a ceiling now, not a constant (#26,
-        /// #27), so a seventh icon would not overflow the panel, but it would
-        /// shrink every icon on the rail to make room, which is the same
-        /// objection in a quieter voice. Growth continues in a second column
-        /// on the right, which the scratch notes open. Settings joins that
-        /// column rather than the content rail: it is not something to hover
-        /// past on the way to a track or a calendar, so it sits last,
-        /// furthest from the tabs people actually rest on.
-        static let leftRail: [Tab] = [.media, .shelf, .clipboard, .translate]
-        static let rightRail: [Tab] = [.notes, .teleprompter, .settings]
+        /// One rail, in two groups. Four tabs is few enough that a second
+        /// column was only ever there to hold the overflow — and the overflow
+        /// is gone. Settings sits at the foot of the rail, below a gap: it is
+        /// not something to hover past on the way to a track, so it stays out
+        /// of the run people rest on.
+        static let contentTabs: [Tab] = [.media, .shelf, .clipboard, .translate]
+        static let utilityTabs: [Tab] = [.settings]
+        static let leftRail: [Tab] = contentTabs + utilityTabs
+        static let rightRail: [Tab] = []
     }
 
     @Published var isOpen = false
@@ -62,31 +56,17 @@ final class NotchViewModel: ObservableObject {
             // with the shelf on screen, rather than at launch with nothing to
             // explain it.
             if tab == .shelf { shelf.refreshFromDisk() }
-            // Leaving the notes sweeps out the blank ones — they cost one
-            // hover to recreate, and a trail of empty cards is the clutter a
-            // scratchpad exists to avoid.
-            if oldValue == .notes, tab != .notes { notes.leave() }
             // Leaving the tab that types gives the keyboard straight back.
             if !tab.needsKeyboard { wantsKeyboard = false }
-            // Leaving the teleprompter stops the scroll and drops the pin, so
-            // the panel goes back to obeying the pointer like everything else.
-            if oldValue == .teleprompter, tab != .teleprompter { teleprompter.suspend() }
         }
     }
 
     /// Whether the panel must stay open with no pointer on it.
     ///
-    /// This is the one exception to the rule stated at `NotchController.setOpen`
-    /// — the pointer decides, always — and it exists because the teleprompter
-    /// cannot work under that rule: the whole point is reading while looking at
-    /// the camera, hands nowhere near the trackpad. The exception is kept as
-    /// narrow as it can be. It applies to one tab, only while the script is
-    /// actually moving, and it ends four ways that need no explaining: the
-    /// script runs out, a click anywhere outside the panel, leaving the tab, or
-    /// anything that closes the panel outright — the space changing, the
-    /// display sleeping. (Escape is not among them: the panel only receives key
-    /// events on the tabs that take the keyboard, and this is not one of them.)
-    var holdsOpen: Bool { (tab == .teleprompter && teleprompter.isRunning) || isPinnedOpen }
+    /// The one exception to the rule stated at `NotchController.setOpen` — the
+    /// pointer decides, always — kept for the ⌥⌘I pin, which is a deliberate
+    /// request to keep the panel up while the hands are elsewhere.
+    var holdsOpen: Bool { isPinnedOpen }
 
     /// Raised when the panel was opened by a deliberate command rather than by
     /// the pointer — the ⌥⌘I hotkey or the menu item.
@@ -115,8 +95,6 @@ final class NotchViewModel: ObservableObject {
     let clipboard: ClipboardStore
     let screenshotVault: ScreenshotVault
     let translator: Translator
-    let notes: NoteStore
-    let teleprompter: TeleprompterStore
     let lyrics: LyricsStore
     /// Shared by every pane that shows something worth not showing.
     let privacy: PrivacyMode
@@ -133,8 +111,6 @@ final class NotchViewModel: ObservableObject {
         self.clipboard = stores.clipboard
         self.screenshotVault = stores.screenshotVault
         self.translator = stores.translator
-        self.notes = stores.notes
-        self.teleprompter = stores.teleprompter
         self.lyrics = stores.lyrics
         self.privacy = stores.privacy
 
@@ -204,9 +180,7 @@ final class NotchViewModel: ObservableObject {
     /// leaves room for two lines in the standard body, and two lines is not a
     /// teleprompter — it is a countdown. The extra height buys the paragraph
     /// the reader needs to see coming.
-    var openBodySize: CGSize {
-        tab == .teleprompter ? geometry.tallExpandedSize : geometry.expandedSize
-    }
+    var openBodySize: CGSize { geometry.expandedSize }
 
     /// Bumped each time the island is hovered while the Mac is locked.
     ///
@@ -336,9 +310,6 @@ final class NotchViewModel: ObservableObject {
         switch tab {
         case .translate where !translator.input.isEmpty:
             translator.reset()
-            return true
-        case .notes where wantsKeyboard:
-            wantsKeyboard = false
             return true
         default:
             return false

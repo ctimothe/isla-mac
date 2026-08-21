@@ -492,7 +492,6 @@ final class NotchController {
                     // sees clicks on its own panel here — so whatever was
                     // holding the panel open is over.
                     self.viewModel?.isPinnedOpen = false
-                    self.viewModel?.teleprompter.suspend()
                     self.setOpen(false)
                     self.pointer.setInside(false)
                     self.updatePinnedClickMonitor()
@@ -807,10 +806,9 @@ final class NotchController {
     /// stuck open on a screen nobody is looking at.
     private func setOpen(_ open: Bool) {
         guard let vm = viewModel, vm.isOpen != open else { return }
-        // Closing for any reason ends the take: the pin is a consequence of the
-        // script moving, so the script stops with the panel.
+        // Closing for any reason drops the pin: a panel that is shut is not
+        // being held open.
         if !open {
-            vm.teleprompter.suspend()
             vm.isPinnedOpen = false
             updatePinnedClickMonitor()
         }
