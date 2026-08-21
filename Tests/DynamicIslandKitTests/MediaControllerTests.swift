@@ -197,6 +197,116 @@ final class MediaControllerTests: XCTestCase {
         XCTAssertEqual(controller.position, 90, accuracy: 2, "a stampless paused zero must not reset the bar")
     }
 
+    /// The playing counterpart of the stampless zero, and a worse one.
+    ///
+    /// MediaRemote republishes the reading from the session's last state
+    /// change, and Spotify's is routinely a plain zero carrying a *fresh*
+    /// timestamp. Playing, that sails past the staleness guard: the reading
+    /// looks current, the jump backwards is larger than the seek threshold, so
+    /// it was taken whole and the clock landed at the start of the track while
+    /// the music kept playing a minute in. Everything keyed off the position
+    /// followed it — the lyrics stage then showed the song's opening lines, and
+    /// clicking one seeked the player back there, which is what the bug reads
+    /// as from the outside: every lyric click jumps the song backwards.
+    func testAPlayingZeroWithAFreshStampDoesNotResetTheClock() {
+        let controller = MediaController()
+        let start = Date()
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 60
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = start
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        var republishedZero = playing
+        republishedZero.elapsed = 0
+        republishedZero.takenAt = start.addingTimeInterval(1)
+        controller.apply(republishedZero)
+
+        XCTAssertEqual(
+            controller.position,
+            61,
+            accuracy: 2,
+            "a republished zero must not drag the bar back to the start of the track"
+        )
+    }
+
+    /// The other side of that rule: a rewind the player really made must still
+    /// land, or seeking inside Spotify would leave the island stuck ahead of
+    /// the music. Corroboration is what separates the two — a real jump is
+    /// still there on the next reading, a phantom is not.
+    func testARewindConfirmedByASecondReadingIsAdopted() {
+        let controller = MediaController()
+        let start = Date()
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 60
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = start
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        var rewound = playing
+        rewound.elapsed = 12
+        rewound.takenAt = start.addingTimeInterval(1)
+        controller.apply(rewound)
+
+        var confirming = playing
+        confirming.elapsed = 12.4
+        confirming.takenAt = start.addingTimeInterval(1.4)
+        controller.apply(confirming)
+
+        XCTAssertEqual(
+            controller.position,
+            12.4,
+            accuracy: 1.5,
+            "a rewind two readings agree on is real and must be taken"
+        )
+    }
+
+    /// A track change starts the new song at zero, and that must not wait for a
+    /// second reading — a skip has to move the bar in the same beat.
+    func testANewTrackStartsAtZeroImmediately() {
+        let controller = MediaController()
+        let start = Date()
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 200
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = start
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        var nextTrack = playing
+        nextTrack.title = "Another Track"
+        nextTrack.elapsed = 0
+        nextTrack.takenAt = start.addingTimeInterval(0.2)
+        controller.apply(nextTrack)
+
+        XCTAssertEqual(
+            controller.position,
+            0,
+            accuracy: 1,
+            "the next song must start at its own beginning, not the old one's position"
+        )
+    }
+
     // MARK: - Focus-follows displacement
 
     private func snapshot(

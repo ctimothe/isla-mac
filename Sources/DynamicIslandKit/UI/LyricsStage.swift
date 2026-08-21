@@ -229,6 +229,12 @@ struct LyricsStage: View {
         // How far from the voice this line stands, for the depth falloff.
         let distance = current.map { abs(index - $0) } ?? 2
         Button {
+            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                DebugTrail.note(String(
+                    format: "ROW CLICK index=%d at=%.2f current=%d pos=%.2f",
+                    index, line.at, current ?? -1, media.position
+                ))
+            }
             media.seek(to: Self.clickTarget(lineAt: line.at, lead: lead, duration: media.duration))
         } label: {
             Group {
