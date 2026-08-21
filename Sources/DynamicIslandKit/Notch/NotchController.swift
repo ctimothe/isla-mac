@@ -200,7 +200,13 @@ final class NotchController {
         // card: everything outside its rect stays click-through, and the
         // password field keeps the rest of the screen.
         panel?.ignoresMouseEvents = false
-        viewModel?.isLockedPresentation = true
+        // A cut, not a transition. The card and the island are different
+        // layouts in different windows sizes; anything that interpolates
+        // between them draws the card at some fraction of its size, sliding in
+        // from where the notch panel used to be. The view tree already refuses
+        // to animate this, but the change can be animated from outside it —
+        // so the write itself carries the refusal.
+        withTransaction(Self.cut) { viewModel?.isLockedPresentation = true }
         geometryTrace("locked")
         viewModel?.media.setActive(true)
         // Nobody can copy anything at a locked Mac, and Universal Clipboard
@@ -296,7 +302,7 @@ final class NotchController {
     private func screenUnlocked() {
         lockPresence.apply(to: panel, locked: false)
         geometryTrace("unlocked")
-        viewModel?.isLockedPresentation = false
+        withTransaction(Self.cut) { viewModel?.isLockedPresentation = false }
         // The notch frame first, then the collapsed strip's rect; the first
         // pointer sample after unlock re-applies the hover machinery.
         if let vm = viewModel { panel?.setFrame(vm.geometry.windowFrame, display: true) }
@@ -366,6 +372,13 @@ final class NotchController {
         }
     }
 
+    /// A transaction that refuses to animate whatever is written inside it.
+    private static var cut: Transaction {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        return transaction
+    }
+
     /// Verification-only geometry trail, behind DI_GEOM=1: the panel drifting
     /// out of place is a state, not an event, so the watchdog samples as well
     /// as narrating each notification that could have caused it.
@@ -387,8 +400,17 @@ final class NotchController {
 
     /// Samples where the panel actually is against where the geometry says it
     /// belongs. Armed only under DI_GEOM=1.
+    /// Watches where the panel actually is against where it belongs — and puts
+    /// it back when the two disagree.
+    ///
+    /// Not only a diagnostic. A panel can be moved or resized by things this
+    /// app never hears about, and the failure it produces — the island and the
+    /// card drawn small and off to one side — is invisible from the inside and
+    /// stands until some later notification happens to correct it. Two seconds
+    /// is far below noticing, and re-applying a frame that is already right
+    /// costs nothing because it is skipped.
     private func startGeometryWatchdog() {
-        guard ProcessInfo.processInfo.environment["DI_GEOM"] == "1", geometryWatchdog == nil else { return }
+        guard geometryWatchdog == nil else { return }
         let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, let panel = self.panel, let vm = self.viewModel else { return }
@@ -396,14 +418,22 @@ final class NotchController {
                 let have = panel.frame
                 let agrees = abs(want.origin.x - have.origin.x) < 1 && abs(want.origin.y - have.origin.y) < 1
                     && abs(want.width - have.width) < 1 && abs(want.height - have.height) < 1
-                DebugTrail.note(String(
-                    format: "GEOM watch panel=%.0fx%.0f@%.0f,%.0f want=%.0fx%.0f@%.0f,%.0f %@ locked=%d %@",
-                    have.width, have.height, have.origin.x, have.origin.y,
-                    want.width, want.height, want.origin.x, want.origin.y,
-                    agrees ? "ok" : "DRIFTED",
-                    vm.isLockedPresentation ? 1 : 0,
-                    Self.describe(vm.geometry)
-                ))
+                if ProcessInfo.processInfo.environment["DI_GEOM"] == "1" {
+                    DebugTrail.note(String(
+                        format: "GEOM watch panel=%.0fx%.0f@%.0f,%.0f want=%.0fx%.0f@%.0f,%.0f %@ locked=%d %@",
+                        have.width, have.height, have.origin.x, have.origin.y,
+                        want.width, want.height, want.origin.x, want.origin.y,
+                        agrees ? "ok" : "DRIFTED",
+                        vm.isLockedPresentation ? 1 : 0,
+                        Self.describe(vm.geometry)
+                    ))
+                }
+                guard !agrees else { return }
+                panel.setFrame(want, display: true)
+                // A frame the window server deferred leaves SwiftUI proposing
+                // the old size — which is the shrunken, off-centre card itself.
+                panel.contentView?.frame = CGRect(origin: .zero, size: want.size)
+                panel.contentView?.layoutSubtreeIfNeeded()
             }
         }
         timer.tolerance = 0.5
