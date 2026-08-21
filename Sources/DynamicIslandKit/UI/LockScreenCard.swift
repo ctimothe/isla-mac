@@ -106,7 +106,35 @@ struct LockScreenCard: View {
                     // the wallpaper still carries through, darkened, and
                     // anything written on it stays legible whatever is behind.
                     if style == .glass {
+                        // Two sources of light, because on the lock screen only
+                        // one of them can work.
+                        //
+                        // The vibrancy samples whatever is behind the window,
+                        // which over a desktop is the desktop — and over the
+                        // login shield is nothing at all. The shield is
+                        // protected content; no window above it is given a
+                        // backdrop to blur, so a card that relies on sampling
+                        // alone renders flat there however it is tuned. That is
+                        // a platform limit, not a setting.
                         VibrancyBackdrop(material: .hudWindow, appearance: .vibrantDark)
+
+                        // So the glass carries its own light: the cover blown
+                        // up past recognition and blurred to a wash, which is
+                        // what makes the pane read as lit from behind rather
+                        // than as a painted rectangle — and it changes with
+                        // every track, which no wallpaper sample would.
+                        if let artwork = media.artwork {
+                            Color.clear
+                                .overlay {
+                                    Image(nsImage: artwork)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .blur(radius: 44)
+                                        .saturation(1.15)
+                                        .opacity(0.55)
+                                }
+                                .transition(.opacity)
+                        }
                     } else {
                         Rectangle().fill(.ultraThinMaterial)
                             .environment(\.colorScheme, .dark)
@@ -124,7 +152,7 @@ struct LockScreenCard: View {
                     // against, keeps the real scrim.
                     LinearGradient(
                         colors: style == .glass
-                            ? [.black.opacity(0.16), .black.opacity(0.04)]
+                            ? [.black.opacity(0.34), .black.opacity(0.16)]
                             : [.black.opacity(0.46), .black.opacity(0.18)],
                         startPoint: .leading,
                         endPoint: .trailing
@@ -132,11 +160,11 @@ struct LockScreenCard: View {
 
                     // Ambience: the cover's colour, strongest where the artwork
                     // actually is, fading out across the card.
-                    if let palette, palette.isVivid {
+                    if let palette, palette.isVivid, style == .solid {
                         LinearGradient(
                             colors: [
-                                Color(nsColor: palette.dominant).opacity(style == .glass ? 0.16 : 0.34),
-                                Color(nsColor: palette.dominant).opacity(style == .glass ? 0.03 : 0.06),
+                                Color(nsColor: palette.dominant).opacity(0.34),
+                                Color(nsColor: palette.dominant).opacity(0.06),
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
