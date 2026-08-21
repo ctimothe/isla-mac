@@ -40,6 +40,24 @@ final class LyricsStore: ObservableObject {
 
     @Published private(set) var state: State = .idle
 
+    /// The listener's own correction to lyric timing, in seconds. Positive
+    /// makes lines arrive later, negative earlier.
+    ///
+    /// However good the clock, some catalogue entries are simply timed against
+    /// a different master of the song — a remaster shifted by half a second is
+    /// common — and no amount of position accuracy can fix data that is offset
+    /// at the source. Every serious karaoke surface ships this knob. Persisted
+    /// globally: a per-track table would be more precise and much harder to
+    /// discover, and the common case is "this whole catalogue runs a beat hot".
+    @Published var userOffset: TimeInterval = UserDefaults.standard.double(forKey: LyricsStore.offsetKey) {
+        didSet {
+            let clamped = min(max(userOffset, -3), 3)
+            if clamped != userOffset { userOffset = clamped; return }
+            UserDefaults.standard.set(userOffset, forKey: Self.offsetKey)
+        }
+    }
+    static let offsetKey = "lyrics.userOffset"
+
     private let session: URLSession
     private let cacheDirectory: URL
     private var loadedKey: String?
@@ -87,7 +105,9 @@ final class LyricsStore: ObservableObject {
             // every track change, in the frame the lyric crossfade was
             // animating.
             let url = self.cacheURL(key)
-            let cached = await Task.detached(priority: .userInitiated) {
+            let skipCache = self.bypassCacheOnce
+            self.bypassCacheOnce = false
+            let cached = skipCache ? nil : await Task.detached(priority: .userInitiated) {
                 Self.readCache(at: url)
             }.value
             guard !Task.isCancelled, self.loadedKey == identity else { return }
@@ -107,6 +127,29 @@ final class LyricsStore: ObservableObject {
         loadedKey = nil
         state = .idle
     }
+
+    /// Throws away what was cached for this track and asks the services again.
+    ///
+    /// The escape hatch for a bad match. The Kugou and LRCLIB tiers find
+    /// lyrics by *search*, and a search can land on a cover, a remix, or the
+    /// wrong song outright — after which the cache faithfully serves the wrong
+    /// answer on every replay forever, with nothing short of clearing the
+    /// whole cache to fix one track. This deletes exactly that entry and
+    /// re-runs the full three-tier fetch with the cache bypassed for one pass.
+    func research(title: String, artist: String, album: String, duration: TimeInterval, spotifyID: String? = nil) {
+        inFlight?.cancel()
+        let key = Self.cacheKey(title: title, artist: artist, album: album, duration: duration)
+        let url = cacheURL(key)
+        DispatchQueue.global(qos: .utility).async {
+            try? FileManager.default.removeItem(at: url)
+        }
+        loadedKey = nil
+        bypassCacheOnce = true
+        load(title: title, artist: artist, album: album, duration: duration, spotifyID: spotifyID)
+    }
+
+    /// One-shot cache bypass, consumed by the next `load`.
+    private var bypassCacheOnce = false
 
     /// The line being sung at `position`, and the one after it.
     ///
