@@ -197,16 +197,7 @@ final class NotchViewModel: ObservableObject {
         lockedHoverNudges += 1
     }
 
-    /// How far the notch sits from the middle of its display.
-    ///
-    /// Zero on every Mac whose cutout is centred, which is all of them — but
-    /// the locked window covers the whole screen, and a layout that centres the
-    /// pill in that window is quietly assuming the two are the same thing. This
-    /// measures it instead.
-    var lockedPillOffset: CGFloat {
-        guard isLockedPresentation else { return 0 }
-        return geometry.notchCenterX - geometry.screen.frame.midX
-    }
+
 
     var compactMediaActivity: CompactMediaActivity {
         CompactMediaActivity(hasTrack: media.track != nil, isPlaying: media.isPlaying)
