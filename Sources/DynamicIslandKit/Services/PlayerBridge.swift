@@ -115,6 +115,75 @@ enum PlayerBridge {
         }
     }
 
+    // MARK: - Shuffle & repeat
+
+    /// Repeat as the players model it. Spotify's scripting exposes only a
+    /// boolean, so `.one` is reachable there through the app itself but not
+    /// settable from outside; Music has the full three states.
+    enum RepeatMode: String {
+        case off, all, one
+    }
+
+    /// Both flags in one round trip, or nil when the player refuses to answer.
+    static func playbackModes(of app: PlayerApp, completion: @escaping @MainActor ((shuffle: Bool, repeatMode: RepeatMode)?) -> Void) {
+        guard app.isRunning else {
+            Task { @MainActor in completion(nil) }
+            return
+        }
+        let script: String
+        switch app {
+        case .music:
+            script = """
+            tell application id "\(app.bundleID)"
+                set s to shuffle enabled
+                set r to song repeat
+                return (s as text) & "|" & (r as text)
+            end tell
+            """
+        case .spotify:
+            script = """
+            tell application id "\(app.bundleID)"
+                set s to shuffling
+                set r to repeating
+                return (s as text) & "|" & (r as text)
+            end tell
+            """
+        }
+        runScript(script, priority: .pollable) { result in
+            MainActor.assumeIsolated {
+                guard let raw = result?.stringValue else { return completion(nil) }
+                let parts = raw.split(separator: "|").map(String.init)
+                guard parts.count == 2 else { return completion(nil) }
+                let shuffle = parts[0] == "true"
+                let mode: RepeatMode
+                switch parts[1] {
+                case "one": mode = .one
+                case "all", "true": mode = .all
+                default: mode = .off
+                }
+                completion((shuffle, mode))
+            }
+        }
+    }
+
+    static func setShuffle(_ app: PlayerApp, enabled: Bool) {
+        switch app {
+        case .music: command("set shuffle enabled to \(enabled)", on: app)
+        case .spotify: command("set shuffling to \(enabled)", on: app)
+        }
+    }
+
+    static func setRepeat(_ app: PlayerApp, mode: RepeatMode) {
+        switch app {
+        case .music:
+            command("set song repeat to \(mode.rawValue)", on: app)
+        case .spotify:
+            // Scripting has only the boolean; `.one` maps to on, matching how
+            // Spotify itself degrades the state over this interface.
+            command("set repeating to \(mode != .off)", on: app)
+        }
+    }
+
     // MARK: - Transport
 
     static func playPause(_ app: PlayerApp) { command("playpause", on: app) }

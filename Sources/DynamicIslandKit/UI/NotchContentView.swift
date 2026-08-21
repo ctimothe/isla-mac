@@ -174,10 +174,21 @@ struct NotchContentView: View {
             compactPlaybackState
                 .padding(.trailing, vm.isPeeking ? 12 : 0)
                 .frame(width: wingWidth, alignment: vm.isPeeking ? .trailing : .center)
+                // Direct transport on the pill: a click on the equalizer wing
+                // toggles playback without opening the panel — pausing should
+                // not cost a hover, a dwell and a second click. The gesture
+                // races the hover-open by design: with the default delay the
+                // panel opens first and the click lands in it harmlessly; with
+                // a longer configured delay the pill becomes a real button.
+                .contentShape(Rectangle())
+                .onTapGesture { vm.media.togglePlayPause() }
         }
         .frame(width: size.width, height: vm.geometry.notchSize.height)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(compactAccessibilityLabel)
+        .accessibilityAction(named: vm.media.isPlaying ? localized("Pause") : localized("Play")) {
+            vm.media.togglePlayPause()
+        }
     }
 
     /// The display can never reproduce the physical cutout's zero-light black
