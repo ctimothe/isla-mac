@@ -23,6 +23,7 @@ final class NotchController {
     /// True while the display is asleep — the sampler and every poll are
     /// stopped, and the wake handler puts back only what it stopped.
     private var screensAreAsleep = false
+    private var geometryWatchdog: Timer?
     /// Watches for a click in another app while the panel is pinned open.
     ///
     /// A pinned panel is deliberately deaf to the pointer, so the ordinary
@@ -68,6 +69,7 @@ final class NotchController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.screensAreAsleep = true
+                self.geometryTrace("screens asleep")
                 self.setOpen(false)
                 self.pointer.setInside(false)
                 self.pointer.stop()
@@ -82,6 +84,7 @@ final class NotchController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.screensAreAsleep = false
+                self.geometryTrace("screens awake locked=\(self.lockPresence.isLocked ? 1 : 0)")
                 // Only once it is clear the Mac is not still locked — the
                 // checks below decide that.
                 if !self.lockPresence.isLocked { self.stores.resumeFromIdleScreen() }
@@ -115,6 +118,8 @@ final class NotchController {
         lockPresence.onLock = { [weak self] in self?.screenLocked() }
         lockPresence.onUnlock = { [weak self] in self?.screenUnlocked() }
         lockPresence.start()
+        startGeometryWatchdog()
+        verifySyntheticNotch()
         // Verification hook, environment-gated like the panel's own: the lock
         // card is the one surface that cannot be screenshotted where it lives,
         // because the shield owns the screen while it is up. Launched with
@@ -134,6 +139,7 @@ final class NotchController {
     /// Collapsing also puts hover tracking back in step: nothing moved the
     /// mouse, so nothing else would have.
     private func activeSpaceChanged() {
+        geometryTrace("space changed")
         // Same repair as the wake handler: a space change with the shield
         // down while the panel still thinks it is locked means the unlock
         // transition was lost — recover rather than stay stranded.
@@ -195,6 +201,7 @@ final class NotchController {
         // password field keeps the rest of the screen.
         panel?.ignoresMouseEvents = false
         viewModel?.isLockedPresentation = true
+        geometryTrace("locked")
         viewModel?.media.setActive(true)
         // Nobody can copy anything at a locked Mac, and Universal Clipboard
         // arrivals from a phone are not something to record behind a shield.
@@ -288,6 +295,7 @@ final class NotchController {
     /// the display slept too — starting twice only reschedules the timer.
     private func screenUnlocked() {
         lockPresence.apply(to: panel, locked: false)
+        geometryTrace("unlocked")
         viewModel?.isLockedPresentation = false
         // The notch frame first, then the collapsed strip's rect; the first
         // pointer sample after unlock re-applies the hover machinery.
@@ -314,8 +322,13 @@ final class NotchController {
     private func screenParametersChanged() {
         // No screens at all, for the moment. Nothing to anchor to and nothing
         // to draw; the next notification arrives with the new arrangement.
-        guard let fresh = NotchGeometry.current() else { return }
+        guard let fresh = NotchGeometry.current() else {
+            geometryTrace("params: no screen")
+            return
+        }
+        geometryTrace("params: fresh \(Self.describe(fresh)) current \(viewModel.map { Self.describe($0.geometry) } ?? "nil")")
         guard let current = viewModel?.geometry, current.matches(fresh) else {
+            geometryTrace("params: rebuilding (locked=\(viewModel?.isLockedPresentation == true ? 1 : 0))")
             rebuild()
             return
         }
@@ -329,6 +342,73 @@ final class NotchController {
         // the card off-centre and unclickable until unlock.
         guard viewModel?.isLockedPresentation != true else { return }
         panel?.setFrame(fresh.windowFrame, display: false)
+    }
+
+    /// A synthetic notch found at launch is checked again shortly after.
+    ///
+    /// `NotchGeometry` remembers a display's cutout and refuses to forget it on
+    /// a glitched reading, but the memory is empty on the first read — and the
+    /// first read happens at login, which is exactly when a Mac is still
+    /// settling its displays. A launch that lands in that window would draw the
+    /// synthetic pill for the rest of the session, since nothing else asks
+    /// again. Two later looks cost nothing and end that.
+    private func verifySyntheticNotch() {
+        guard viewModel?.geometry.isPhysical == false else { return }
+        for delay in [1.5, 5.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.viewModel?.geometry.isPhysical == false else { return }
+                    guard let fresh = NotchGeometry.current(), fresh.isPhysical else { return }
+                    self.geometryTrace("late notch found, rebuilding")
+                    self.rebuild()
+                }
+            }
+        }
+    }
+
+    /// Verification-only geometry trail, behind DI_GEOM=1: the panel drifting
+    /// out of place is a state, not an event, so the watchdog samples as well
+    /// as narrating each notification that could have caused it.
+    private func geometryTrace(_ message: @autoclosure () -> String) {
+        guard ProcessInfo.processInfo.environment["DI_GEOM"] == "1" else { return }
+        DebugTrail.note("GEOM \(message())")
+    }
+
+    static func describe(_ geometry: NotchGeometry) -> String {
+        String(
+            format: "screen=%.0fx%.0f@%.0f,%.0f notch=%.0fx%.0f cx=%.0f physical=%d scale=%.1f",
+            geometry.screen.frame.width, geometry.screen.frame.height,
+            geometry.screen.frame.origin.x, geometry.screen.frame.origin.y,
+            geometry.notchSize.width, geometry.notchSize.height,
+            geometry.notchCenterX, geometry.isPhysical ? 1 : 0,
+            geometry.screen.backingScaleFactor
+        )
+    }
+
+    /// Samples where the panel actually is against where the geometry says it
+    /// belongs. Armed only under DI_GEOM=1.
+    private func startGeometryWatchdog() {
+        guard ProcessInfo.processInfo.environment["DI_GEOM"] == "1", geometryWatchdog == nil else { return }
+        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let panel = self.panel, let vm = self.viewModel else { return }
+                let want = vm.isLockedPresentation ? vm.geometry.screen.frame : vm.geometry.windowFrame
+                let have = panel.frame
+                let agrees = abs(want.origin.x - have.origin.x) < 1 && abs(want.origin.y - have.origin.y) < 1
+                    && abs(want.width - have.width) < 1 && abs(want.height - have.height) < 1
+                DebugTrail.note(String(
+                    format: "GEOM watch panel=%.0fx%.0f@%.0f,%.0f want=%.0fx%.0f@%.0f,%.0f %@ locked=%d %@",
+                    have.width, have.height, have.origin.x, have.origin.y,
+                    want.width, want.height, want.origin.x, want.origin.y,
+                    agrees ? "ok" : "DRIFTED",
+                    vm.isLockedPresentation ? 1 : 0,
+                    Self.describe(vm.geometry)
+                ))
+            }
+        }
+        timer.tolerance = 0.5
+        RunLoop.main.add(timer, forMode: .common)
+        geometryWatchdog = timer
     }
 
     func teardown() {
