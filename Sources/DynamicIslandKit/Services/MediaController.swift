@@ -135,6 +135,11 @@ final class MediaController: ObservableObject {
     /// chosen from it flashes wrong and then corrects. The lyric waits the
     /// ~150ms for a real fix instead.
     @Published private(set) var positionSettled = false
+    /// How long an active panel waits for an authoritative reading before it
+    /// settles for the position it has. Long enough for the ~150ms a real fix
+    /// takes, short enough that nobody reads it as missing lyrics.
+    static var settleGrace: TimeInterval = 1.2
+    private var settleWatchdog: Task<Void, Never>?
     /// Spotify's catalogue id for the displayed track, when Spotify is the
     /// displayed player and has answered. The word-synced lyrics database is
     /// keyed by it; everything else falls back to title/artist matching.
@@ -234,7 +239,25 @@ final class MediaController: ObservableObject {
     func setActive(_ active: Bool) {
         trace("setActive \(active ? 1 : 0)")
         isActive = active
-        if active { positionSettled = false }
+        // Only a playing track can have moved while the panel was shut. A
+        // paused one is exactly where it was left, so what is already known
+        // about it stays authoritative — and clearing the flag there stranded
+        // every lyric surface, because nothing can set it again while paused:
+        // MediaRemote republishes the reading it already gave, which is judged
+        // stale, and the precision loop runs only while playing. The lyric came
+        // back when the track was nudged, and not before.
+        if active, isPlaying { positionSettled = false }
+        settleWatchdog?.cancel()
+        if active, !positionSettled {
+            // And a player that answers nothing at all must not hold the lyrics
+            // hostage either: past the grace, the extrapolated position is what
+            // there is, and showing the line it points at beats showing none.
+            settleWatchdog = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(Self.settleGrace))
+                guard !Task.isCancelled, let self, self.isActive else { return }
+                if !self.positionSettled { self.positionSettled = true }
+            }
+        }
         updateTicker()
         updatePrecisionSync()
         guard active else { return }

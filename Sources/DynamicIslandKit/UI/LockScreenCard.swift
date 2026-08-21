@@ -240,10 +240,12 @@ struct LockScreenCard: View {
                 let end = current.next?.at ?? line.at + 6
                 KaraokeLine(
                     text: line.text,
-                    fraction: Self.sweepFraction(line: line, at: at, end: end),
+                    // Credits are shown, never swept — see the caption.
+                    fraction: line.isCredit ? 0 : Self.sweepFraction(line: line, at: at, end: end),
                     reduceMotion: reduceMotion,
                     accent: accent
                 )
+                .italic(line.isCredit)
                 .id(line.at)
                 .transition(.opacity)
                 .animation(Theme.contentAnimation, value: line.at)

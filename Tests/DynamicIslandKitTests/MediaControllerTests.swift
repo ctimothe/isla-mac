@@ -396,4 +396,73 @@ final class MediaControllerTests: XCTestCase {
 
         XCTAssertTrue(controller.positionSettled, "a real reading settles it")
     }
+
+    /// Opening the panel on a paused track must not hide the lyrics.
+    ///
+    /// `positionSettled` gates every lyric surface: it means "an authoritative
+    /// reading has landed", and it is cleared whenever the panel opens so a
+    /// stale extrapolation cannot flash the wrong line. But while paused
+    /// nothing can set it again — MediaRemote republishes the reading it
+    /// already gave, which is judged stale, and the precision loop runs only
+    /// while playing. So the panel opened on a paused song and the lyric never
+    /// appeared until the track was nudged, which is exactly how it presented:
+    /// "the lyrics come back if I pause and play".
+    func testOpeningOnAPausedTrackKeepsTheSettledPosition() {
+        let controller = MediaController()
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.duration = 200
+        playing.elapsed = 42
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 501
+        controller.apply(playing)
+        XCTAssertTrue(controller.positionSettled, "a live reading settles the clock")
+
+        var paused = playing
+        paused.isPlaying = false
+        paused.rate = 0
+        paused.takenAt = Date()
+        controller.apply(paused)
+
+        controller.setActive(false)
+        controller.setActive(true)
+        XCTAssertTrue(
+            controller.positionSettled,
+            "a paused track cannot have moved, so what we already know is still authoritative"
+        )
+    }
+
+    /// And a player that publishes nothing at all still gives up its lyrics.
+    ///
+    /// The reset is right while playing — the position really may have moved
+    /// since the panel last closed — but it cannot be allowed to wait forever
+    /// on a player that never answers.
+    func testAnUnansweredPlayingTrackSettlesOnItsOwn() async throws {
+        let controller = MediaController()
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.duration = 200
+        playing.elapsed = 42
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 501
+        controller.apply(playing)
+
+        MediaController.settleGrace = 0.15
+        defer { MediaController.settleGrace = 1.2 }
+        controller.setActive(false)
+        controller.setActive(true)
+        XCTAssertFalse(controller.positionSettled, "the reset itself still happens")
+
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertTrue(
+            controller.positionSettled,
+            "no player answered, and the extrapolated position is what there is"
+        )
+    }
 }
