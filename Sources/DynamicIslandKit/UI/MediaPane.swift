@@ -44,7 +44,12 @@ struct MediaPane: View {
             // player, and a stage left open for a track without lyrics would
             // open onto its own empty state.
             .onChange(of: track.key) { _, _ in showingLyrics = false }
-            .onAppear { media.refreshPlaybackModes() }
+            .onAppear {
+                media.refreshPlaybackModes()
+                if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                    DebugTrail.note("MediaPane track=\(track.title) showingLyrics=\(showingLyrics)")
+                }
+            }
             // Verification hook, environment-gated: launching the binary with
             // DI_OPEN_LYRICS=1 opens the stage without a pointer, which is how
             // an agent without Accessibility permission can screenshot it. An
@@ -70,6 +75,11 @@ struct MediaPane: View {
             }
         } else {
             emptyState
+                .onAppear {
+                    if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                        DebugTrail.note("MediaPane EMPTY (no track)")
+                    }
+                }
         }
     }
 
@@ -475,19 +485,26 @@ struct KaraokeLine: View {
     let fraction: Double
     let reduceMotion: Bool
     var accent: Color = Color.white.opacity(0.92)
+    /// The caption's size by default; the stage passes its own. A parameter
+    /// rather than a `.font()` from outside, because the internal `Text`s set
+    /// an explicit font and would silently ignore one.
+    var font: Font = .system(size: 11, weight: .medium)
+    var base: Color = Theme.tertiary
+    /// One line for the caption; the stage lets long lines wrap.
+    var lineLimit: Int = 1
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Theme.tertiary)
-            .lineLimit(1)
+            .font(font)
+            .foregroundStyle(base)
+            .lineLimit(lineLimit)
             .truncationMode(.tail)
             .overlay(alignment: .leading) {
                 if !reduceMotion {
                     Text(text)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(font)
                         .foregroundStyle(accent)
-                        .lineLimit(1)
+                        .lineLimit(lineLimit)
                         .truncationMode(.tail)
                         .mask(
                             GeometryReader { geo in
