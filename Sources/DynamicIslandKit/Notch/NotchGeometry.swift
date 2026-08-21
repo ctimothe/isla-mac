@@ -79,24 +79,93 @@ struct NotchGeometry {
     /// to be an index-out-of-range crash on a supported gesture. There is no
     /// geometry to invent without a display; callers wait for the next
     /// notification instead.
+    /// What a display says about its own cutout right now.
+    enum NotchReading: Equatable {
+        case physical(size: CGSize, centerX: CGFloat)
+        case none
+    }
+
+    /// What a display said about its cutout last time it was asked.
+    struct RememberedNotch: Equatable {
+        let frame: CGRect
+        let size: CGSize
+        let centerX: CGFloat
+    }
+
+    /// Whether to believe a display that has stopped reporting its notch.
+    ///
+    /// `safeAreaInsets` reads zero for a beat across reconfigurations — waking,
+    /// unlocking, a mode change, another display arriving — on Macs whose
+    /// cutout has not moved. Taken at face value, the panel rebuilds around a
+    /// synthetic notch: a smaller pill anchored to the middle of the screen
+    /// instead of to the hardware, which then stands until some later
+    /// notification happens to correct it. Locking and unlocking is the one
+    /// that reliably does, which is how the bug presented.
+    ///
+    /// So a zero reading only counts when something about the display actually
+    /// changed. Same frame as when the cutout was last seen means the hardware
+    /// is the same hardware, and the reading is the thing that is wrong. A
+    /// different frame is a real mode change — non-HiDPI modes genuinely stop
+    /// vending a safe area, and there a drawn notch is correct.
+    static func decide(
+        reading: NotchReading,
+        screenFrame: CGRect,
+        remembered: RememberedNotch?
+    ) -> NotchReading {
+        if case .physical = reading { return reading }
+        guard let remembered, remembered.frame == screenFrame else { return .none }
+        return .physical(size: remembered.size, centerX: remembered.centerX)
+    }
+
+    /// The last cutout each display admitted to, by display id.
+    @MainActor private static var rememberedNotches: [CGDirectDisplayID: RememberedNotch] = [:]
+
+    @MainActor private static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
+        screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+    }
+
+    @MainActor
     static func current() -> NotchGeometry? {
         // `NSScreen.main` tracks the key window, and this panel is a
         // non-activating one that never becomes key or main — so `.main` here
         // would be meaningless and nondeterministic rather than a real
-        // fallback. Go straight to the first screen instead.
+        // fallback. A display remembered as notched counts as notched even
+        // while it is briefly saying otherwise, or a glitched reading would
+        // also move the island to whichever screen happens to be first.
         guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 })
+            ?? NSScreen.screens.first(where: { screen in
+                displayID(of: screen).flatMap { rememberedNotches[$0] }?.frame == screen.frame
+            })
             ?? NSScreen.screens.first else { return nil }
 
+        let live: NotchReading
         if screen.safeAreaInsets.top > 0,
            let left = screen.auxiliaryTopLeftArea,
            let right = screen.auxiliaryTopRightArea {
             let width = screen.frame.width - left.width - right.width
+            live = .physical(
+                size: CGSize(width: width, height: screen.safeAreaInsets.top),
+                centerX: screen.frame.minX + left.width + width / 2
+            )
+        } else {
+            live = .none
+        }
+
+        let id = displayID(of: screen)
+        let remembered = id.flatMap { rememberedNotches[$0] }
+        switch decide(reading: live, screenFrame: screen.frame, remembered: remembered) {
+        case .physical(let size, let centerX):
+            if let id {
+                rememberedNotches[id] = RememberedNotch(frame: screen.frame, size: size, centerX: centerX)
+            }
             return NotchGeometry(
                 screen: screen,
-                notchSize: CGSize(width: width, height: screen.safeAreaInsets.top),
-                notchCenterX: screen.frame.minX + left.width + width / 2,
+                notchSize: size,
+                notchCenterX: centerX,
                 isPhysical: true
             )
+        case .none:
+            if let id { rememberedNotches[id] = nil }
         }
 
         // No notch: pretend there is one the size of a typical MacBook cutout so

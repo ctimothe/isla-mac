@@ -23,6 +23,7 @@ final class NotchMetricsTests: XCTestCase {
     /// that only matched `NotchMetrics.maximumWindow` because of an
     /// `assert()` — which vanishes in Release builds, so the contract held
     /// only in debug. It must return the constant unconditionally.
+    @MainActor
     func testWindowSizeAlwaysReturnsTheMaximumWindowContract() {
         // Optional since the geometry has no screen to describe while the
         // system reports none — a real window during display reconfiguration.
