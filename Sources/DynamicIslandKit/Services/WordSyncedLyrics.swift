@@ -13,6 +13,18 @@ enum WordSyncedLyrics {
         /// Seconds from the start of the track.
         let at: TimeInterval
         let text: String
+        /// When the word stops being sung, where the source knew. Nil falls
+        /// back to the next word's start — which is exactly what both formats
+        /// used to be flattened to, and why the sweep kept moving through
+        /// pauses: a line with a breath in the middle carried real end times
+        /// that were parsed and then thrown away.
+        var end: TimeInterval? = nil
+
+        init(at: TimeInterval, text: String, end: TimeInterval? = nil) {
+            self.at = at
+            self.text = text
+            self.end = end
+        }
     }
 
     struct Line: Equatable {
@@ -41,23 +53,24 @@ enum WordSyncedLyrics {
             // Walked with a cursor rather than mapped over the spans alone:
             // the whitespace between two spans belongs to the line's text, and
             // to the word before it — dropping it fused every pair of words.
-            for span in rangedMatches(of: #"<span\b[^>]*begin="([^"]+)"[^>]*>(.*?)</span>"#, in: inner) {
+            for span in rangedMatches(of: #"<span\b[^>]*begin="([^"]+)"(?:[^>]*?end="([^"]+)")?[^>]*>(.*?)</span>"#, in: inner) {
                 let gap = decodeEntities(strippingTags(String(inner[cursor..<span.range.lowerBound])))
                 if !gap.isEmpty {
                     text += gap
                     if !words.isEmpty {
                         let last = words.removeLast()
-                        words.append(Word(at: last.at, text: last.text + gap))
+                        words.append(Word(at: last.at, text: last.text + gap, end: last.end))
                     }
                 }
                 cursor = span.range.upperBound
                 guard let at = clock(span.group1) else { continue }
-                let word = decodeEntities(strippingTags(span.group2))
+                let end = span.group2.isEmpty ? nil : clock(span.group2)
+                let word = decodeEntities(strippingTags(span.group3))
                 guard !word.trimmingCharacters(in: .whitespaces).isEmpty else {
                     text += word
                     continue
                 }
-                words.append(Word(at: at, text: word))
+                words.append(Word(at: at, text: word, end: end))
                 text += word
             }
             if words.isEmpty {
@@ -128,7 +141,11 @@ enum WordSyncedLyrics {
                 guard let offsetMs = TimeInterval(token.1) else { continue }
                 let word = token.3
                 guard !word.isEmpty else { continue }
-                words.append(Word(at: lineStart + offsetMs / 1000, text: word))
+                let at = lineStart + offsetMs / 1000
+                // The format carries each word's duration; it used to be
+                // matched by this very regex and never read.
+                let end = TimeInterval(token.2).map { at + $0 / 1000 }
+                words.append(Word(at: at, text: word, end: end))
                 text += word
             }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -151,9 +168,17 @@ enum WordSyncedLyrics {
 
         var sung: Double = 0
         for (index, word) in words.enumerated() {
-            let wordEnd = index + 1 < words.count ? words[index + 1].at : lineEnd
+            let nextStart = index + 1 < words.count ? words[index + 1].at : lineEnd
+            // The word's own end where the source knew it, clamped to the next
+            // start so malformed data cannot run words backwards. Without this
+            // the sweep spread every word across the gap to the next one —
+            // through breaths, rests, and instrumental breaks mid-line — which
+            // is exactly what read as "wrong timeline" on long lines.
+            let wordEnd = min(word.end ?? nextStart, nextStart)
             if position >= wordEnd {
                 sung += counts[index]
+                // Holding through the pause: the next iteration's `at` check
+                // stops the sweep until that word actually begins.
             } else if position > word.at {
                 let span = max(wordEnd - word.at, 0.05)
                 sung += counts[index] * min((position - word.at) / span, 1)
@@ -184,6 +209,7 @@ enum WordSyncedLyrics {
         let range: Range<String.Index>
         let group1: String
         let group2: String
+        let group3: String
     }
 
     private static func rangedMatches(of pattern: String, in text: String) -> [RangedMatch] {
@@ -196,7 +222,7 @@ enum WordSyncedLyrics {
                       let r = Range(match.range(at: index), in: text) else { return "" }
                 return String(text[r])
             }
-            return RangedMatch(range: whole, group1: group(1), group2: group(2))
+            return RangedMatch(range: whole, group1: group(1), group2: group(2), group3: group(3))
         }
     }
 
