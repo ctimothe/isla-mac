@@ -9,6 +9,8 @@ final class NotchController {
     private var viewModel: NotchViewModel?
     private let pointer = PointerWatcher()
     private let lockPresence = LockScreenPresence()
+    /// The lock screen's player, in a window of its own — see `LockCardWindow`.
+    private let lockCard = LockCardWindow()
     /// Stores that belong to the session, not to the panel: a rebuild replaces
     /// the panel and its view model and leaves these untouched.
     private let stores = NotchStores()
@@ -199,16 +201,14 @@ final class NotchController {
         // scrubs — so the panel keeps taking events, but only inside the
         // card: everything outside its rect stays click-through, and the
         // password field keeps the rest of the screen.
+        // The notch panel keeps taking hovers so the pill can answer one with a
+        // nudge, and takes no clicks at all: the card is a window of its own
+        // now, and everywhere else on the shield belongs to the password field.
         panel?.ignoresMouseEvents = false
-        // A cut, not a transition. The card and the island are different
-        // layouts in different windows sizes; anything that interpolates
-        // between them draws the card at some fraction of its size, sliding in
-        // from where the notch panel used to be. The view tree already refuses
-        // to animate this, but the change can be animated from outside it —
-        // so the write itself carries the refusal.
+        // A cut, not a transition. Nothing interpolates between the island and
+        // the locked pill.
         withTransaction(Self.cut) { viewModel?.isLockedPresentation = true }
         geometryTrace("locked")
-        repaintAfterLock()
         viewModel?.media.setActive(true)
         // Nobody can copy anything at a locked Mac, and Universal Clipboard
         // arrivals from a phone are not something to record behind a shield.
@@ -216,107 +216,37 @@ final class NotchController {
         // off — which is not the default — so the pasteboard was polled twice a
         // second for the whole lock on an ordinary install.
         stores.suspendForIdleScreen()
-        // The card sits at the true center of the display, so the window has
-        // to cover the display: the panel grows to the full screen for the
-        // locked stretch and shrinks back to its notch frame on unlock.
-        // The notch's own screen, not `panel.screen` and not the primary one.
-        // `panel.screen` is nil while the window is momentarily off every
-        // display mid-reconfiguration, and the fallback used to be
-        // `screens.first` — so a lock landing in that window centred the card
-        // on the primary display while the pill it belongs to stayed on
-        // another.
-        if let panel, let screen = viewModel?.geometry.screen ?? panel.screen {
-            growToCoverDisplay(panel, screen: screen)
-        }
         applyLockedActiveRect()
         lockPresence.apply(to: panel, locked: true)
-        // Re-asserted after the lift, and checked rather than assumed.
-        //
-        // Everything about the card's placement rests on this one resize: the
-        // card is centred by SwiftUI inside the window, so a window that is
-        // still 700×444 puts it over the notch at a fraction of its size
-        // instead of at the middle of the display — which is exactly what a
-        // locked Mac showed. `setFrame` can be refused (AppKit constrains
-        // frames for some window configurations) and the SkyLight space move
-        // re-parents the window underneath us, so the size is verified once the
-        // move is done and re-applied if it did not stick.
-        if let panel, let screen = viewModel?.geometry.screen ?? panel.screen {
-            growToCoverDisplay(panel, screen: screen)
-            applyLockedActiveRect()
+        // And the card, in its own window, at the centre of the notch's own
+        // display — not `panel.screen`, which is nil while the window is
+        // momentarily off every display mid-reconfiguration, and not the
+        // primary one, which is a different display whenever the notch is not
+        // on it.
+        if let vm = viewModel, let screen = vm.geometry.screen as NSScreen? {
+            lockCard.present(media: vm.media, lyrics: vm.lyrics, on: screen, presence: lockPresence)
         }
     }
 
     /// Makes the panel cover the whole display, and says so when it cannot.
-    /// Draws the panel again, for real, shortly after the lock transition.
+    /// While locked the notch panel takes no clicks at all.
     ///
-    /// The window server snapshots windows across a lock, and a snapshot taken
-    /// while the panel was still the notch's 700×444 gets stretched into the
-    /// screen-sized frame that replaces it — the whole layout at some fraction
-    /// of its size, off to one side, with every frame in the app agreeing that
-    /// nothing is wrong. Nothing short of a real redisplay replaces it, so the
-    /// panel is asked for one twice: once after the transition should have
-    /// settled, once well after.
-    private func repaintAfterLock() {
-        for delay in [0.35, 1.5] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self, let panel = self.panel,
-                          self.viewModel?.isLockedPresentation == true,
-                          let screen = self.viewModel?.geometry.screen else { return }
-                    self.growToCoverDisplay(panel, screen: screen)
-                    panel.contentView?.needsDisplay = true
-                    panel.displayIfNeeded()
-                    panel.orderFrontRegardless()
-                    self.geometryTrace("repaint after lock")
-                }
-            }
-        }
-    }
-
-    private func growToCoverDisplay(_ panel: NotchPanel, screen: NSScreen) {
-        // The content re-layout below runs even when the window frame is
-        // already right, which is the whole point of calling this a second time
-        // after the SkyLight space move. Returning early on a matching frame
-        // made that second call do nothing at all: the window was resized by
-        // the first one, so by the time the space move had finished — the very
-        // moment worth re-checking — this bailed on its first line.
-        if panel.frame != screen.frame {
-            panel.setFrame(screen.frame, display: true)
-        }
-        // The content is laid out from the content view's bounds, and a resize
-        // that AppKit deferred leaves SwiftUI proposing the old size for a
-        // frame — long enough to be seen and photographed.
-        panel.contentView?.frame = CGRect(origin: .zero, size: screen.frame.size)
-        panel.contentView?.layoutSubtreeIfNeeded()
-        if panel.frame.size != screen.frame.size {
-            NSLog("Dynamic Island: lock frame refused — wanted \(screen.frame.size), got \(panel.frame.size)")
-        }
-    }
-
-    /// Cuts the hit region to exactly the lock card's frame — dead center of
-    /// the now screen-sized window. The pill at the top stays outside the
-    /// rect on purpose: visible, never hoverable, per the product call.
+    /// The card lives in its own window, which is its own hit region; the pill
+    /// answers a hover with a nudge and nothing else, per the product call.
+    /// Everywhere else on the shield belongs to the password field.
     private func applyLockedActiveRect() {
         guard let panel, let rootView, let vm = viewModel else { return }
-        let size = LockScreenCard.size
-        let window = panel.frame.size
-        let rect = CGRect(
-            x: (window.width - size.width) / 2,
-            y: (window.height - size.height) / 2,
-            width: size.width,
-            height: size.height
-        )
-        rootView.activeRect = rect
-        rootView.dropRect = rect
+        rootView.activeRect = .zero
+        rootView.dropRect = .zero
 
         // The pill's own region, which takes no clicks and opens nothing — it
         // exists so that hovering the island while locked can answer with a
-        // nudge rather than with silence. Cut from the notch's real position,
-        // in the screen-sized window's coordinates.
+        // nudge rather than with silence. The panel keeps its ordinary frame
+        // now, so the pill is simply the top strip of it.
         let pill = CGSize(width: vm.bodySize.width, height: vm.geometry.notchSize.height)
         rootView.lockedHoverRect = CGRect(
-            x: vm.geometry.notchCenterX - vm.geometry.screen.frame.minX - pill.width / 2,
-            y: window.height - pill.height,
+            x: (panel.frame.width - pill.width) / 2,
+            y: panel.frame.height - pill.height,
             width: pill.width,
             height: pill.height
         )
@@ -327,6 +257,7 @@ final class NotchController {
     /// costs nothing. `pointer.start()` doubles with the wake handler when
     /// the display slept too — starting twice only reschedules the timer.
     private func screenUnlocked() {
+        lockCard.dismiss(presence: lockPresence)
         lockPresence.apply(to: panel, locked: false)
         geometryTrace("unlocked")
         withTransaction(Self.cut) { viewModel?.isLockedPresentation = false }
@@ -373,7 +304,7 @@ final class NotchController {
         // locked display sleeping and rewaking is one — and re-applying the
         // notch frame to a locked panel shrank it back to 700×444, stranding
         // the card off-centre and unclickable until unlock.
-        guard viewModel?.isLockedPresentation != true else { return }
+        if let screen = viewModel?.geometry.screen { lockCard.reposition(on: screen) }
         panel?.setFrame(fresh.windowFrame, display: false)
     }
 
@@ -441,7 +372,9 @@ final class NotchController {
         let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, let panel = self.panel, let vm = self.viewModel else { return }
-                let want = vm.isLockedPresentation ? vm.geometry.screen.frame : vm.geometry.windowFrame
+                // One frame for the panel's whole life now: the card is a
+                // separate window, so nothing about a lock changes this one.
+                let want = vm.geometry.windowFrame
                 let have = panel.frame
                 let agrees = abs(want.origin.x - have.origin.x) < 1 && abs(want.origin.y - have.origin.y) < 1
                     && abs(want.width - have.width) < 1 && abs(want.height - have.height) < 1
@@ -460,7 +393,7 @@ final class NotchController {
                 } ?? true
                 if ProcessInfo.processInfo.environment["DI_GEOM"] == "1" {
                     DebugTrail.note(String(
-                        format: "GEOM watch panel=%.0fx%.0f@%.0f,%.0f want=%.0fx%.0f@%.0f,%.0f %@ content=%.0fx%.0f hosted=%.0fx%.0f%@%@ locked=%d pill=%.0f %@",
+                        format: "GEOM watch panel=%.0fx%.0f@%.0f,%.0f want=%.0fx%.0f@%.0f,%.0f %@ content=%.0fx%.0f hosted=%.0fx%.0f%@%@ locked=%d card=%d %@",
                         have.width, have.height, have.origin.x, have.origin.y,
                         want.width, want.height, want.origin.x, want.origin.y,
                         agrees ? "ok" : "DRIFTED",
@@ -469,7 +402,7 @@ final class NotchController {
                         contentFits ? "" : " CONTENT-MISMATCH",
                         hostedFits ? "" : " HOSTED-MISMATCH",
                         vm.isLockedPresentation ? 1 : 0,
-                        vm.lockedPillOffset,
+                        self.lockCard.isPresenting ? 1 : 0,
                         Self.describe(vm.geometry)
                     ))
                 }
