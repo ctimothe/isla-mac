@@ -364,6 +364,11 @@ final class NotchController {
         scheduleCollapseIfPointerAway(after: NotchMetrics.translateReadDelay)
     }
 
+    /// Settings changed something the pointer machinery holds a copy of.
+    func refreshPointerTuning() {
+        pointer.openDelay = NotchViewModel.hoverOpenDelay
+    }
+
     /// The hotkey and the menu item. Opens until something closes it — the
     /// same command again, Escape, or a click outside — rather than until the
     /// next pointer sample, which is what folded it a third of a second after
@@ -541,7 +546,7 @@ final class NotchController {
         // bar, and a pointer crossing the middle of it is usually on its way
         // somewhere else — unfolding the panel over what it was reaching for is
         // the whole complaint. Staying put is what asks for the panel.
-        pointer.openDelay = NotchMetrics.openDelay
+        pointer.openDelay = NotchViewModel.hoverOpenDelay
         // Both directions of a drag, not just the incoming one. A file being
         // dragged *out* of the shelf never touches this view's dragging
         // destination callbacks, so the panel counted the pointer as away,
