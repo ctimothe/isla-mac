@@ -17,15 +17,20 @@ import Foundation
 final class LyricsStore: ObservableObject {
     struct Line: Equatable {
         /// Seconds from the start of the track at which this line begins.
-        let at: TimeInterval
+        var at: TimeInterval
         let text: String
         /// Word starts within this line, when a word-synced source had them.
         var words: [WordSyncedLyrics.Word] = []
+        /// Who wrote, produced or mixed the track, rather than a word anybody
+        /// sings. Shown during the intro and never swept: a sweep says "this is
+        /// being sung right now", which of a producer credit is a lie.
+        var isCredit: Bool = false
 
-        init(at: TimeInterval, text: String, words: [WordSyncedLyrics.Word] = []) {
+        init(at: TimeInterval, text: String, words: [WordSyncedLyrics.Word] = [], isCredit: Bool = false) {
             self.at = at
             self.text = text
             self.words = words
+            self.isCredit = isCredit
         }
     }
 
@@ -159,20 +164,69 @@ final class LyricsStore: ObservableObject {
     /// metadata wearing a lyric's clothes, and displayed it reads as a bad
     /// match even when the match is right. Dropped when it echoes the track's
     /// identity; and a file that is nothing but credits is not lyrics at all.
+    /// Prefixes that announce a credit rather than a lyric, in the languages
+    /// the three catalogues actually ship.
+    private static let creditPrefixes = [
+        "作词", "作曲", "编曲", "制作", "混音", "母带",
+        "lyrics by", "composed by", "written by", "produced by", "producer",
+        "mixed by", "mastered by", "arranged by", "engineered by", "featuring",
+    ]
+
     static func cleaned(_ lines: [Line], title: String, artist: String) -> [Line] {
         let fold: (String) -> String = { $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).lowercased() }
         let t = fold(title), a = fold(artist)
         var result = lines
-        while let first = result.first {
-            let text = fold(first.text)
-            let isCredit = (!t.isEmpty && text.contains(t)) && (!a.isEmpty && text.contains(a))
-            let isCreditPrefix = text.hasPrefix("作词") || text.hasPrefix("作曲") || text.hasPrefix("编曲")
-                || text.hasPrefix("lyrics by") || text.hasPrefix("composed by")
-            guard isCredit || isCreditPrefix else { break }
-            result.removeFirst()
+        var index = 0
+        // Only the run at the top: the same words later in a song are somebody
+        // singing them.
+        while index < result.count {
+            let text = fold(result[index].text)
+            let echoesTheTrack = (!t.isEmpty && text.contains(t)) && (!a.isEmpty && text.contains(a))
+            let announcesACredit = creditPrefixes.contains { text.hasPrefix($0) }
+            guard echoesTheTrack || announcesACredit else { break }
+            result[index].isCredit = true
+            index += 1
         }
-        // One surviving line is a fragment, not a song.
-        return result.count >= 2 ? result : []
+        // A file that is nothing but credits is not lyrics, and one surviving
+        // sung line is a fragment rather than a song.
+        guard result.filter({ !$0.isCredit }).count >= 2 else { return [] }
+        return spacedCredits(result)
+    }
+
+    /// The shortest a credit may stay on screen and still be read.
+    static let minimumCreditSlot: TimeInterval = 1.4
+    /// And the longest it is worth holding one.
+    static let maximumCreditSlot: TimeInterval = 3.0
+
+    /// Gives each opening credit its own moment.
+    ///
+    /// Catalogues stamp the whole block at zero, which would put four names on
+    /// the same instant: the display shows the last of them and the rest never
+    /// existed. Spread across the intro instead — the room between the first
+    /// credit and the first sung line — each gets a slot long enough to read,
+    /// and none is ever pushed onto the singing. Where the intro is too short
+    /// for the whole block, only what fits is kept.
+    static func spacedCredits(_ lines: [Line]) -> [Line] {
+        let credits = lines.prefix { $0.isCredit }
+        guard credits.count > 1 || (credits.count == 1 && lines.count > 1) else { return lines }
+        guard let firstSung = lines.dropFirst(credits.count).first else { return lines }
+
+        let start = credits.first?.at ?? 0
+        let room = firstSung.at - start
+        guard room > minimumCreditSlot else {
+            // No intro to speak of: a credit shown for a blink is worse than
+            // none, so the block goes and the song starts on its first word.
+            return Array(lines.dropFirst(credits.count))
+        }
+        let affordable = min(credits.count, max(1, Int(room / minimumCreditSlot)))
+        let slot = min(maximumCreditSlot, room / Double(affordable))
+        var result = Array(lines.dropFirst(credits.count))
+        for (index, credit) in credits.prefix(affordable).enumerated().reversed() {
+            var moved = credit
+            moved.at = start + Double(index) * slot
+            result.insert(moved, at: 0)
+        }
+        return result
     }
 
     /// The line being sung at `position`, and the one after it.
@@ -455,7 +509,7 @@ final class LyricsStore: ObservableObject {
     private func cacheURL(_ key: String) -> URL {
         // v2: the payload gained word timing; v1 files decode without it and
         // would pin a track to line-level forever, so they are simply ignored.
-        cacheDirectory.appendingPathComponent("\(key).lrc2.json")
+        cacheDirectory.appendingPathComponent("\(key).lrc3.json")
     }
 
     private struct CachedLyrics: Codable {
@@ -467,6 +521,9 @@ final class LyricsStore: ObservableObject {
         /// so files written before ends were kept still decode; their words
         /// fall back to next-start exactly as they always did.
         var wordEnds: [[TimeInterval]]? = nil
+        /// Which lines are credits. Optional so files written before credits
+        /// were kept still decode — theirs simply had them dropped.
+        var credits: [Bool]? = nil
     }
 
     /// How many cached tracks to keep. The cache is one small file per track
@@ -489,7 +546,8 @@ final class LyricsStore: ObservableObject {
                     return WordSyncedLyrics.Word(at: pair.0, text: pair.1, end: end)
                 }
             }
-            return Line(at: cached.times[index], text: cached.texts[index], words: words)
+            let isCredit = cached.credits.map { index < $0.count && $0[index] } ?? false
+            return Line(at: cached.times[index], text: cached.texts[index], words: words, isCredit: isCredit)
         }
     }
 
@@ -504,7 +562,8 @@ final class LyricsStore: ObservableObject {
             texts: lines.map(\.text),
             wordTimes: lines.map { $0.words.map(\.at) },
             wordTexts: lines.map { $0.words.map(\.text) },
-            wordEnds: lines.map { $0.words.map { $0.end ?? -1 } }
+            wordEnds: lines.map { $0.words.map { $0.end ?? -1 } },
+            credits: lines.map(\.isCredit)
         )
         let url = cacheURL(key)
         let directory = cacheDirectory
@@ -528,10 +587,10 @@ final class LyricsStore: ObservableObject {
             includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles]
         ) else { return }
-        for url in urls where url.pathExtension == "json" && !url.lastPathComponent.hasSuffix(".lrc2.json") {
+        for url in urls where url.pathExtension == "json" && !url.lastPathComponent.hasSuffix(".lrc3.json") {
             try? fm.removeItem(at: url)
         }
-        let current = urls.filter { $0.lastPathComponent.hasSuffix(".lrc2.json") }
+        let current = urls.filter { $0.lastPathComponent.hasSuffix(".lrc3.json") }
         guard current.count > limit else { return }
         let dated = current.map { url -> (URL, Date) in
             let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?

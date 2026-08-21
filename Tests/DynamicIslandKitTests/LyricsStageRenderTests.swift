@@ -27,7 +27,7 @@ final class LyricsStageRenderTests: XCTestCase {
             "texts": ["First line", "Second line", "Third line", "Fourth line", "Fifth line"],
         ]
         try JSONSerialization.data(withJSONObject: cached)
-            .write(to: root.appendingPathComponent("\(key).lrc2.json"))
+            .write(to: root.appendingPathComponent("\(key).lrc3.json"))
         lyrics.load(title: "Test Song", artist: "Test Artist", album: "", duration: 180)
         for _ in 0..<50 {
             if case .synced = lyrics.state { break }
@@ -82,7 +82,7 @@ final class LyricsStageRenderTests: XCTestCase {
             "wordTexts": [["First line", " of the song"], ["Second", " line arrives"], ["The", " current", " line", " sweeping now"], ["A later line waiting"], ["The final line"]],
         ]
         let data = try JSONSerialization.data(withJSONObject: cached)
-        try data.write(to: root.appendingPathComponent("\(key).lrc2.json"))
+        try data.write(to: root.appendingPathComponent("\(key).lrc3.json"))
 
         lyrics.load(title: "Test Song", artist: "Test Artist", album: "", duration: 180)
         // The cache read hops off the main actor; give it a beat.
