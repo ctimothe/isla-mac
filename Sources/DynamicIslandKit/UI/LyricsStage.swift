@@ -51,6 +51,14 @@ struct LyricsStage: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var palette: ArtworkPalette?
+    /// False once the reader has scrolled away under their own hand: the stage
+    /// then stays where it was put, and the song moving on no longer drags the
+    /// page out from under the eye. The sync pill puts it back.
+    @State private var following = true
+    /// The line sitting at the reading centre, as the scroll view itself
+    /// reports it. Both the way the page is driven when it follows the song and
+    /// the way it is read when it does not.
+    @State private var reading: TimeInterval?
 
     private var accent: Color {
         guard let palette, palette.isVivid else { return .white }
@@ -77,12 +85,15 @@ struct LyricsStage: View {
         // Diagnostic readout, environment-gated like the open hook: says which
         // branch is live and why, in the corner, only when an agent launched
         // the binary with the variable set. Never present in a normal run.
-        .overlay(alignment: .bottomTrailing) {
+        .overlay(alignment: .bottomLeading) {
             if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
                 Text(debugStateDescription)
                     .font(.system(size: 9, weight: .medium).monospacedDigit())
                     .foregroundStyle(.yellow)
                     .padding(6)
+                    // A readout is not a control. Left hittable it sat over the
+                    // sync pill and swallowed every tap meant for it.
+                    .allowsHitTesting(false)
             }
         }
         .onAppear {
@@ -193,8 +204,16 @@ struct LyricsStage: View {
     /// (which additionally refuses to render at all inside this panel's
     /// hosting configuration) had nothing to offer but ways to disagree
     /// with the clock.
-    private static let slotHeight: CGFloat = 40
-    private static let slotSpacing: CGFloat = 8
+    static let slotHeight: CGFloat = 40
+    static let slotSpacing: CGFloat = 8
+
+    /// Padding above the first line and below the last, so both ends can reach
+    /// the reading centre. Half the viewport less half a slot; never negative,
+    /// because a viewport shorter than one line would otherwise pull the whole
+    /// column upward by the difference.
+    static func centeringAir(viewport: CGFloat) -> CGFloat {
+        max(0, viewport / 2 - slotHeight / 2)
+    }
 
     private func stage(lines: [LyricsStore.Line]) -> some View {
         let currentIndex = Self.index(in: lines, at: now)
@@ -205,40 +224,130 @@ struct LyricsStage: View {
         return VStack(spacing: 0) {
             header
             GeometryReader { geo in
-                let pitch = Self.slotHeight + Self.slotSpacing
-                VStack(alignment: .leading, spacing: Self.slotSpacing) {
-                    ForEach(Array(lines.enumerated()), id: \.element.at) { index, line in
-                        row(line: line, index: index, current: currentIndex, lines: lines)
-                            .frame(height: Self.slotHeight, alignment: .leading)
+                // Half a viewport of air above the first line and below the
+                // last, so either end can still reach the reading centre
+                // instead of stopping short against the scroll bounds.
+                let air = Self.centeringAir(viewport: geo.size.height)
+                let strayed = Self.linesStrayed(reading: reading, from: anchor, in: lines)
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: Self.slotSpacing) {
+                        ForEach(Array(lines.enumerated()), id: \.element.at) { index, line in
+                            row(line: line, index: index, current: currentIndex, lines: lines)
+                                .frame(height: Self.slotHeight, alignment: .leading)
+                                .id(line.at)
+                        }
                     }
+                    .scrollTargetLayout()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, air)
                 }
-                .offset(y: geo.size.height / 2 - (CGFloat(anchor) * pitch + Self.slotHeight / 2))
-                .animation(reduceMotion ? nil : Theme.contentAnimation, value: anchor)
+                .scrollPosition(id: $reading, anchor: .center)
+                    // Lines dissolve at the viewport's edges instead of being
+                    // guillotined mid-glyph by the clip.
+                    .mask(
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: .black, location: 0.18),
+                                .init(color: .black, location: 0.78),
+                                .init(color: .clear, location: 1),
+                            ],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    // The song moving on carries the page with it — but only
+                    // while nobody is reading ahead by hand.
                 .onChange(of: anchor) { from, to in
                     if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
                         DebugTrail.note(String(
-                            format: "STAGE anchor %d->%d current=%d now=%.2f pos=%.2f lines=%d viewport=%.0f",
-                            from, to, currentIndex ?? -1, now, media.position, lines.count, geo.size.height))
+                            format: "STAGE anchor %d->%d current=%d now=%.2f lines=%d viewport=%.0f follow=%d strayed=%d",
+                            from, to, currentIndex ?? -1, now,
+                            lines.count, geo.size.height, following ? 1 : 0, strayed))
+                    }
+                    guard following else { return }
+                    center(on: lines[to].at)
+                }
+                .onChange(of: following) { _, resumed in
+                    guard resumed else { return }
+                    center(on: lines[anchor].at)
+                }
+                .onAppear { reading = lines[anchor].at }
+                    // A scroll wheel or two fingers on the trackpad is the one
+                    // unambiguous statement of "I am reading, not watching":
+                    // taken straight from the event stream rather than inferred
+                    // from where the scroll view ended up, which cannot tell a
+                    // hand from our own animation.
+                .onScrollWheel {
+                    guard following else { return }
+                    following = false
+                    if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                        DebugTrail.note("STAGE reader took over")
                     }
                 }
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
-                .clipped()
-                // Lines dissolve at the viewport's edges instead of being
-                // guillotined mid-glyph by the clip.
-                .mask(
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .black, location: 0.18),
-                            .init(color: .black, location: 0.78),
-                            .init(color: .clear, location: 1),
-                        ],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
+                // Only once the sung line has actually left the stage. A pill
+                // that appears the instant the page moves is an alarm about
+                // nothing: a line or two of drift still has the voice on
+                // screen, and the way back is to keep reading.
+                .overlay(alignment: .bottomTrailing) {
+                    if !following, strayed >= Self.strayedEnoughToOfferSync {
+                        syncPill
+                            .padding(.trailing, 2)
+                            .padding(.bottom, 4)
+                            .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
+                    }
+                }
+                .animation(reduceMotion ? nil : Theme.contentAnimation, value: following)
+                .animation(reduceMotion ? nil : Theme.contentAnimation, value: strayed)
             }
             .padding(.horizontal, 22)
         }
+    }
+
+    /// Puts the sung line back at the reading centre.
+    private func center(on id: TimeInterval) {
+        guard !reduceMotion else {
+            reading = id
+            return
+        }
+        withAnimation(Theme.contentAnimation) { reading = id }
+    }
+
+    /// How far the page may drift before the way back is worth offering: the
+    /// stage shows about three lines, so one line either side of the sung one
+    /// is still in view and needs no rescuing.
+    static let strayedEnoughToOfferSync = 2
+
+    /// Lines between what is being read and what is being sung.
+    static func linesStrayed(reading: TimeInterval?, from anchor: Int, in lines: [LyricsStore.Line]) -> Int {
+        guard let reading, let index = index(in: lines, at: reading) else { return 0 }
+        return abs(index - anchor)
+    }
+
+    /// The way back to the song after reading ahead — Spotify's affordance, and
+    /// the only honest one: a page that yanks itself back on a timer takes the
+    /// line away mid-sentence.
+    private var syncPill: some View {
+        Button {
+            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                DebugTrail.note("SYNC tapped")
+            }
+            following = true
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "music.note")
+                    .font(.system(size: 9, weight: .bold))
+                Text(localized("Sync"))
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(Color.black.opacity(0.55)))
+            .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localized("Back to the current line"))
+        .help(localized("Back to the current line"))
     }
 
     @ViewBuilder
@@ -254,6 +363,10 @@ struct LyricsStage: View {
                 ))
             }
             media.seek(to: Self.clickTarget(lineAt: line.at, lead: lead, duration: media.duration))
+            // Choosing a line is choosing the song's place in it: the page
+            // follows again from there rather than stranding the reader one
+            // tap away from a stage that no longer moves.
+            following = true
         } label: {
             Group {
                 if isCurrent {
@@ -417,7 +530,7 @@ struct LyricsStage: View {
         return target
     }
 
-    private static func index(in lines: [LyricsStore.Line], at: TimeInterval) -> Int? {
+    static func index(in lines: [LyricsStore.Line], at: TimeInterval) -> Int? {
         var low = 0, high = lines.count - 1, found = -1
         while low <= high {
             let mid = (low + high) / 2
