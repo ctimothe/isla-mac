@@ -28,6 +28,13 @@ struct LockScreenCard: View {
     @State private var showingOutputs = false
     @State private var outputs: [AudioOutputs.Output] = []
     @State private var currentOutput: AudioDeviceID?
+    /// Read through `@AppStorage` so changing it in Settings redraws the card
+    /// while it is on screen, rather than at the next lock.
+    @AppStorage(NotchViewModel.lockCardStyleKey) private var styleRaw = NotchViewModel.LockCardStyle.glass.rawValue
+
+    private var style: NotchViewModel.LockCardStyle {
+        NotchViewModel.LockCardStyle(rawValue: styleRaw) ?? .glass
+    }
 
     static let size = CGSize(width: 500, height: 222)
 
@@ -77,14 +84,22 @@ struct LockScreenCard: View {
                     // panel it sits under. The order here is what real glass
                     // does: something dark to read against, the artwork's own
                     // colour bleeding through it, then light on the surface.
+                    // Glass takes the light vibrancy the system's own surfaces
+                    // use on this OS: the wallpaper carries through as silver
+                    // rather than being painted out, and the scrim below is
+                    // what the type reads against. Solid is the dark material,
+                    // for a bright busy photograph glass cannot win against —
+                    // and for anybody who wants a panel to be a panel.
                     Rectangle().fill(.ultraThinMaterial)
-                        .environment(\.colorScheme, .dark)
+                        .environment(\.colorScheme, style == .glass ? .light : .dark)
                     // Weighted where the words are, and light everywhere else.
                     // A flat scrim dark enough for white type over a bright
                     // wallpaper turns the whole pane into a slab; the type only
                     // needs it under itself, so the far side stays clear glass.
                     LinearGradient(
-                        colors: [.black.opacity(0.30), .black.opacity(0.10)],
+                        colors: style == .glass
+                            ? [.black.opacity(0.46), .black.opacity(0.18)]
+                            : [.black.opacity(0.30), .black.opacity(0.10)],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
