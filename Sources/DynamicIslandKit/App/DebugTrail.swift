@@ -1,11 +1,12 @@
 import Foundation
 
 /// Verification-only breadcrumb trail. Writes only when the launch carried
-/// DI_OPEN_LYRICS=1 — the same gate as every other hook — so a normal run
-/// never touches the disk.
+/// DI_OPEN_LYRICS=1 or DI_GEOM=1 — the same gates as every other hook — so a
+/// normal run never touches the disk.
 enum DebugTrail {
     static func note(_ message: String) {
-        guard ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" else { return }
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["DI_OPEN_LYRICS"] == "1" || environment["DI_GEOM"] == "1" else { return }
         let line = "\(Date()) \(message)\n"
         let url = URL(fileURLWithPath: "/tmp/di-debug.log")
         if let handle = try? FileHandle(forWritingTo: url) {
