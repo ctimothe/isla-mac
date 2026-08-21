@@ -24,7 +24,7 @@ final class PrivacyMode: ObservableObject {
         /// verbatim. Covering the clipboard tab while leaving the pane that
         /// displays the same text in full view was a hole in the promise the
         /// covers make.
-        case clipboard, notes, translate
+        case clipboard, translate
 
         var id: String { rawValue }
 
@@ -33,7 +33,6 @@ final class PrivacyMode: ObservableObject {
         var title: String {
             switch self {
             case .clipboard: return localized("Clipboard")
-            case .notes: return localized("Notes")
             case .translate: return localized("Translate")
             }
         }

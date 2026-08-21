@@ -32,3 +32,24 @@ struct ModeToggle: View {
         .animation(Theme.contentAnimation, value: isOn)
     }
 }
+
+
+/// A transport symbol: white, bare, pressed by dimming rather than by a well
+/// lighting up behind it.
+///
+/// Shared by the island and the lock card. They had two different answers —
+/// a filled disc under the island's play button, nothing under the card's —
+/// which is the sort of difference nobody can name but everybody feels.
+struct TransportGlyphStyle: ButtonStyle {
+    var size: CGFloat = 30
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.55 : 1)
+            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            .animation(Theme.contentAnimation, value: configuration.isPressed)
+    }
+}
