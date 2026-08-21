@@ -12,6 +12,7 @@ struct SettingsPane: View {
     @ObservedObject var privacy: PrivacyMode
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var hoverDelay = NotchViewModel.hoverOpenDelay
     @State private var saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
     @State private var hideFromCapture = NotchViewModel.hideFromCaptureEnabled
     @State private var sneakPeek = NotchViewModel.sneakPeekEnabled
@@ -32,6 +33,32 @@ struct SettingsPane: View {
                         title: localized("Launch at Login"),
                         isOn: launchAtLoginBinding
                     )
+                    // How long a pointer has to rest on the notch before the
+                    // panel opens. The default is nearly instant, which suits a
+                    // real notch — a hole nothing lives under — but anyone who
+                    // keeps windows near the top of the screen can slow it so a
+                    // drive-by never opens the panel. Longer delays also make
+                    // the pill's click-to-pause usable before the panel opens.
+                    HStack(spacing: 8) {
+                        Image(systemName: "cursorarrow.motionlines")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.secondary)
+                            .frame(width: 16)
+                        Text(localized("Hover Delay"))
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(.white)
+                        Slider(value: hoverDelayBinding, in: 0.05...1.0)
+                            .controlSize(.mini)
+                            .tint(Theme.secondary)
+                        Text(String(format: "%.2fs", hoverDelay))
+                            .font(.system(size: 10, weight: .medium).monospacedDigit())
+                            .foregroundStyle(Theme.tertiary)
+                            .frame(width: 38, alignment: .trailing)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(localized("Hover Delay"))
                 }
 
                 section(localized("Screenshots")) {
@@ -240,6 +267,18 @@ struct SettingsPane: View {
         case .file: return localized("Stored in an owner-only file, because this build is unsigned.")
         case .unavailable: return localized("Cannot be stored on this Mac.")
         }
+    }
+
+    private var hoverDelayBinding: Binding<Double> {
+        Binding(
+            get: { hoverDelay },
+            set: { value in
+                hoverDelay = value
+                UserDefaults.standard.set(value, forKey: NotchViewModel.hoverDelayKey)
+                // The live sampler, not just the next panel built.
+                (NSApp.delegate as? AppDelegate)?.refreshPointerTuning()
+            }
+        )
     }
 
     private func privacySymbol(for section: PrivacyMode.Section) -> String {

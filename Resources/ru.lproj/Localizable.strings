@@ -126,3 +126,13 @@
 "No lyrics for this track" = "Для этого трека нет текста";
 "Jumps the song to this line" = "Перематывает песню к этой строке";
 "Opens the full lyrics" = "Открывает полный текст";
+
+/* Table stakes: transport modes, hover delay, empty state */
+"Shuffle" = "Перемешать";
+"Repeat" = "Повтор";
+"On" = "Вкл";
+"Off" = "Выкл";
+"All Tracks" = "Все треки";
+"This Track" = "Этот трек";
+"Hover Delay" = "Задержка открытия";
+"Open %@" = "Открыть %@";

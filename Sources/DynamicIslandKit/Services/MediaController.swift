@@ -27,6 +27,15 @@ final class MediaController: ObservableObject {
     /// otherwise: the scripted fallback below drives Music and Spotify, and
     /// both skip fine.
     @Published private(set) var canSkip = true
+    /// Shuffle, when the displayed player can be asked. Nil hides the button
+    /// rather than dimming it: unlike skipping — which every session at least
+    /// conceptually has — shuffle simply does not exist for a browser tab.
+    @Published private(set) var shuffleEnabled: Bool?
+    /// Repeat, same contract.
+    @Published private(set) var repeatMode: PlayerBridge.RepeatMode?
+    /// Whether the displayed player has the full three repeat states.
+    /// Spotify's scripting has only the boolean.
+    @Published private(set) var supportsRepeatOne = false
 
     private let feed = NowPlayingFeed()
     private var feedAvailable = true
@@ -152,11 +161,62 @@ final class MediaController: ObservableObject {
         updateTicker()
         updatePrecisionSync()
         guard active else { return }
+        refreshPlaybackModes()
         tick()
         if feedAvailable {
             feed.refresh()
         } else {
             refreshFromPlayers()
+        }
+    }
+
+    // MARK: - Shuffle & repeat
+
+    /// Asks the displayed player where its switches stand. Cheap enough to
+    /// call on pane appearance and after every toggle; a no-op for sessions
+    /// that cannot answer.
+    func refreshPlaybackModes() {
+        guard let app = displayedPlayerApp else {
+            shuffleEnabled = nil
+            repeatMode = nil
+            return
+        }
+        supportsRepeatOne = app == .music
+        PlayerBridge.playbackModes(of: app) { [weak self] modes in
+            guard let self, self.displayedPlayerApp == app else { return }
+            self.shuffleEnabled = modes?.shuffle
+            self.repeatMode = modes?.repeatMode
+        }
+    }
+
+    func toggleShuffle() {
+        guard let app = displayedPlayerApp, let current = shuffleEnabled else { return }
+        // Optimistic, like play/pause: the switch answers the click now and
+        // the read-back a beat later corrects it if the player refused.
+        shuffleEnabled = !current
+        PlayerBridge.setShuffle(app, enabled: !current)
+        readBackModes()
+    }
+
+    /// Cycles off → all → one → off where the player has all three, and
+    /// off → all → off where it has two.
+    func cycleRepeat() {
+        guard let app = displayedPlayerApp, let current = repeatMode else { return }
+        let next: PlayerBridge.RepeatMode
+        switch (current, supportsRepeatOne) {
+        case (.off, _): next = .all
+        case (.all, true): next = .one
+        case (.all, false), (.one, _): next = .off
+        }
+        repeatMode = next
+        PlayerBridge.setRepeat(app, mode: next)
+        readBackModes()
+    }
+
+    /// The truth, shortly after the command has had time to land.
+    private func readBackModes() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            MainActor.assumeIsolated { self?.refreshPlaybackModes() }
         }
     }
 
@@ -173,8 +233,16 @@ final class MediaController: ObservableObject {
     /// first use raises macOS's one-time automation consent for it. Scoped to
     /// the open panel so a closed pill costs nothing and prompts for nothing.
     private var displayedPlayerIsSpotify: Bool {
-        guard let pid = displayedPlayerPID else { return false }
-        return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == PlayerApp.spotify.bundleID
+        displayedPlayerApp == .spotify
+    }
+
+    /// The scriptable player behind the displayed session, when it is one.
+    /// Browsers and everything else answer nil — the honest value, since
+    /// shuffle and repeat cannot even be asked about there.
+    private var displayedPlayerApp: PlayerApp? {
+        guard let pid = displayedPlayerPID,
+              let bundle = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier else { return nil }
+        return PlayerApp.allCases.first { $0.bundleID == bundle }
     }
 
     /// Asks Spotify which track this is, and asks again if it does not answer.
@@ -393,6 +461,9 @@ final class MediaController: ObservableObject {
         }
         if playerChanged {
             positionSettled = false
+            shuffleEnabled = nil
+            repeatMode = nil
+            if isActive { refreshPlaybackModes() }
             updatePrecisionSync()
             // Both readers carry state about the player that just went away:
             // the flag history that decides what a dropped flag means, and the
@@ -547,6 +618,8 @@ final class MediaController: ObservableObject {
         spotifyTrackID = nil
         canSkip = true
         playbackRate = 1
+        shuffleEnabled = nil
+        repeatMode = nil
         // The rest of the clock's state, which used to survive the session it
         // belonged to: a leftover `pendingSeek` gated the *next* session's
         // first snapshot through the seek-settle path, and the precision loop

@@ -127,3 +127,13 @@
 "No lyrics for this track" = "No lyrics for this track";
 "Jumps the song to this line" = "Jumps the song to this line";
 "Opens the full lyrics" = "Opens the full lyrics";
+
+/* Table stakes: transport modes, hover delay, empty state */
+"Shuffle" = "Shuffle";
+"Repeat" = "Repeat";
+"On" = "On";
+"Off" = "Off";
+"All Tracks" = "All Tracks";
+"This Track" = "This Track";
+"Hover Delay" = "Hover Delay";
+"Open %@" = "Open %@";
