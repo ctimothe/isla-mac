@@ -17,6 +17,7 @@ struct SettingsPane: View {
     @State private var hideFromCapture = NotchViewModel.hideFromCaptureEnabled
     @State private var sneakPeek = NotchViewModel.sneakPeekEnabled
     @State private var showOnLockScreen = NotchViewModel.showOnLockScreenEnabled
+    @State private var lockCardStyle = NotchViewModel.lockCardStyle
     @State private var showLyrics = NotchViewModel.showLyricsEnabled
     /// Observed, not snapshotted: the connect flow completes in the browser
     /// long after this pane rendered, and a one-shot copy of isConnected sat
@@ -120,6 +121,22 @@ struct SettingsPane: View {
                             }
                         )
                     )
+                    // Only worth offering while there is a card to finish.
+                    if showOnLockScreen {
+                        choiceRow(
+                            symbol: "square.on.square.dashed",
+                            title: localized("Card Style"),
+                            options: NotchViewModel.LockCardStyle.allCases,
+                            selection: Binding(
+                                get: { lockCardStyle },
+                                set: { style in
+                                    lockCardStyle = style
+                                    UserDefaults.standard.set(style.rawValue, forKey: NotchViewModel.lockCardStyleKey)
+                                }
+                            ),
+                            title: { $0.title }
+                        )
+                    }
                     // Looked-up lyrics are kept on disk so a replay costs no
                     // request. Offered here because a cache the user cannot
                     // see the end of is a cache they cannot empty.
@@ -342,6 +359,53 @@ struct SettingsPane: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .labelsHidden()
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 26)
+    }
+
+    /// A row that picks one of a short list. Segmented rather than a menu: two
+    /// or three options fit, and a menu on a panel that never becomes key is a
+    /// window opening over a window that cannot own it.
+    private func choiceRow<Option: Identifiable & Equatable>(
+        symbol: String,
+        title: String,
+        options: [Option],
+        selection: Binding<Option>,
+        title optionTitle: @escaping (Option) -> String
+    ) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.secondary)
+                .frame(width: 16)
+            Text(title)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.white)
+            Spacer(minLength: 8)
+            HStack(spacing: 2) {
+                ForEach(options) { option in
+                    let isSelected = option == selection.wrappedValue
+                    Button { selection.wrappedValue = option } label: {
+                        Text(optionTitle(option))
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(isSelected ? .white : Theme.tertiary)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 3)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(isSelected ? Theme.surfaceHover : .clear)
+                            )
+                            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                }
+            }
+            .padding(2)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface)
+            )
         }
         .padding(.horizontal, 8)
         .frame(height: 26)
