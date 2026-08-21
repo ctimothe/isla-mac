@@ -209,18 +209,15 @@ struct LyricsStage: View {
             Group {
                 if isCurrent {
                     let end = index + 1 < lines.count ? lines[index + 1].at : line.at + 6
-                    KaraokeLine(
+                    // Colored by character, not swept by a mask. A rectangle
+                    // mask is geometry: on a line wrapped to two rows it lit
+                    // the left half of *both* rows at once — the reading edge
+                    // in the wrong place on every long lyric. Splitting the
+                    // string itself at the sung boundary lets the highlight
+                    // flow with the wrap, top row first, exactly as read.
+                    wrappedKaraoke(
                         text: line.text,
-                        fraction: LockScreenCard.sweepFraction(line: line, at: now, end: end),
-                        reduceMotion: reduceMotion,
-                        accent: accent,
-                        font: .system(size: 15, weight: .bold),
-                        // Brighter than any neighbour even before the sweep
-                        // arrives: the first cut used a dimmer base than the
-                        // adjacent lines, so the line being sung was the
-                        // darkest thing on stage until half its words passed.
-                        base: .white.opacity(0.62),
-                        lineLimit: 2
+                        fraction: reduceMotion ? 1 : LockScreenCard.sweepFraction(line: line, at: now, end: end)
                     )
                     .frame(maxHeight: .infinity, alignment: .center)
                 } else {
@@ -244,6 +241,23 @@ struct LyricsStage: View {
         .id(line.at)
         .accessibilityLabel(line.text)
         .accessibilityHint(localized("Jumps the song to this line"))
+    }
+
+    /// The sung prefix in the accent, the rest dimmed-bright, as one wrapping
+    /// Text — so a two-row line fills in reading order.
+    private func wrappedKaraoke(text: String, fraction: Double) -> some View {
+        let characters = Array(text)
+        let boundary = min(Int((Double(characters.count) * fraction).rounded()), characters.count)
+        var sung = AttributedString(String(characters[0..<boundary]))
+        sung.foregroundColor = accent == .white ? Color.white : accent
+        var rest = AttributedString(String(characters[boundary...]))
+        // Brighter than any neighbour even before the sweep arrives — the
+        // line being sung must never be the darkest thing on stage.
+        rest.foregroundColor = .white.opacity(0.62)
+        return Text(sung + rest)
+            .font(.system(size: 15, weight: .bold))
+            .lineLimit(2)
+            .truncationMode(.tail)
     }
 
     // MARK: - Header
