@@ -463,6 +463,10 @@ final class LyricsStore: ObservableObject {
         let texts: [String]
         var wordTimes: [[TimeInterval]]? = nil
         var wordTexts: [[String]]? = nil
+        /// Word end times, -1 standing for "the source did not know". Optional
+        /// so files written before ends were kept still decode; their words
+        /// fall back to next-start exactly as they always did.
+        var wordEnds: [[TimeInterval]]? = nil
     }
 
     /// How many cached tracks to keep. The cache is one small file per track
@@ -479,7 +483,11 @@ final class LyricsStore: ObservableObject {
             var words: [WordSyncedLyrics.Word] = []
             if let wt = cached.wordTimes, let wx = cached.wordTexts,
                index < wt.count, index < wx.count, wt[index].count == wx[index].count {
-                words = zip(wt[index], wx[index]).map { WordSyncedLyrics.Word(at: $0, text: $1) }
+                let ends = cached.wordEnds.flatMap { index < $0.count ? $0[index] : nil }
+                words = zip(wt[index], wx[index]).enumerated().map { wordIndex, pair in
+                    let end = ends.flatMap { wordIndex < $0.count && $0[wordIndex] >= 0 ? $0[wordIndex] : nil }
+                    return WordSyncedLyrics.Word(at: pair.0, text: pair.1, end: end)
+                }
             }
             return Line(at: cached.times[index], text: cached.texts[index], words: words)
         }
@@ -495,7 +503,8 @@ final class LyricsStore: ObservableObject {
             times: lines.map(\.at),
             texts: lines.map(\.text),
             wordTimes: lines.map { $0.words.map(\.at) },
-            wordTexts: lines.map { $0.words.map(\.text) }
+            wordTexts: lines.map { $0.words.map(\.text) },
+            wordEnds: lines.map { $0.words.map { $0.end ?? -1 } }
         )
         let url = cacheURL(key)
         let directory = cacheDirectory

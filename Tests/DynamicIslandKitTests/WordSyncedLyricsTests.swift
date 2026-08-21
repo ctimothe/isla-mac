@@ -102,4 +102,44 @@ final class WordSyncedLyricsTests: XCTestCase {
         let f = WordSyncedLyrics.wordFraction(words: line.words, at: 12.875, lineEnd: 14)
         XCTAssertEqual(f, (12 + 5 * 0.25) / 17.0, accuracy: 0.01)
     }
+
+    /// The bug that read as "wrong timeline" on long lines: both formats carry
+    /// each word's real end, it was parsed and discarded, and every word was
+    /// stretched to the next word's start — so the sweep crawled through
+    /// breaths and rests instead of holding.
+    func testSweepHoldsThroughPausesBetweenWords() {
+        let words: [WordSyncedLyrics.Word] = [
+            .init(at: 10.0, text: "Hold", end: 10.5),
+            // A 2.5s gap before the next word — a breath, a rest, a riff.
+            .init(at: 13.0, text: "on", end: 13.4),
+        ]
+        // Mid-first-word: partway through its own span, not the gap's.
+        let mid = WordSyncedLyrics.wordFraction(words: words, at: 10.25, lineEnd: 14)
+        XCTAssertEqual(mid, 0.5 * (4.0 / 6.0), accuracy: 0.01)
+        // Deep in the pause: the first word is done, the second not begun —
+        // the edge must hold exactly there, not drift onward.
+        let pause1 = WordSyncedLyrics.wordFraction(words: words, at: 11.0, lineEnd: 14)
+        let pause2 = WordSyncedLyrics.wordFraction(words: words, at: 12.9, lineEnd: 14)
+        XCTAssertEqual(pause1, 4.0 / 6.0, accuracy: 0.001)
+        XCTAssertEqual(pause2, pause1, accuracy: 0.0001, "the sweep moved during a pause")
+    }
+
+    func testKRCKeepsWordDurations() {
+        let body = "[10000,4000]<0,500,0>Hold <3000,400,0>on"
+        let lines = WordSyncedLyrics.parseKRCBody(body)
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertEqual(lines[0].words.count, 2)
+        XCTAssertEqual(lines[0].words[0].end ?? -1, 10.5, accuracy: 0.001)
+        XCTAssertEqual(lines[0].words[1].end ?? -1, 13.4, accuracy: 0.001)
+    }
+
+    func testTTMLKeepsSpanEnds() {
+        let ttml = """
+        <p begin="10.0s" end="14.0s"><span begin="10.0s" end="10.5s">Hold</span> <span begin="13.0s" end="13.4s">on</span></p>
+        """
+        let lines = WordSyncedLyrics.parseTTML(Data(ttml.utf8))
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertEqual(lines[0].words.first?.end ?? -1, 10.5, accuracy: 0.001)
+        XCTAssertEqual(lines[0].words.last?.end ?? -1, 13.4, accuracy: 0.001)
+    }
 }
