@@ -396,9 +396,15 @@ struct MediaPane: View {
                     HStack(spacing: 5) {
                         KaraokeLine(
                             text: line.text,
-                            fraction: Self.sweepFraction(line: line, at: at, end: end),
+                            // A credit is not being sung, so it is not swept:
+                            // a filled sweep across "Produced by" says the
+                            // voice is there, which it is not.
+                            fraction: line.isCredit
+                                ? 0
+                                : Self.sweepFraction(line: line, at: at, end: end),
                             reduceMotion: reduceMotion
                         )
+                        .italic(line.isCredit)
                         // Keyed so a line change crossfades instead of morphing
                         // glyph-by-glyph in place.
                         .id(line.at)

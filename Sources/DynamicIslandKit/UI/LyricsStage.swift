@@ -369,7 +369,17 @@ struct LyricsStage: View {
             following = true
         } label: {
             Group {
-                if isCurrent {
+                if line.isCredit {
+                    // Never swept, never bold: a credit is on screen because
+                    // the song has not started, and dressing it as the current
+                    // lyric would claim somebody is singing "Produced by".
+                    Text(line.text)
+                        .font(.system(size: 12, weight: .medium))
+                        .italic()
+                        .foregroundStyle(.white.opacity(isCurrent ? 0.68 : 0.34))
+                        .lineLimit(2)
+                        .frame(maxHeight: .infinity, alignment: .center)
+                } else if isCurrent {
                     let end = index + 1 < lines.count ? lines[index + 1].at : line.at + 6
                     // Colored by character, not swept by a mask. A rectangle
                     // mask is geometry: on a line wrapped to two rows it lit
