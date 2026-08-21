@@ -21,10 +21,34 @@ Do not mark a manual gate complete without recording evidence in
 
 Snippets and Calendar were removed from the product on 2026-08-20 by
 owner decision. They are not deferred and not hidden — the tabs, stores,
-panes, privacy sections, localization, and tests are gone, and the
-calendar entitlement went with them, so the app now requests no
-user-grantable permission at all. Parity gates below no longer cover
-either feature, and the parity claim is explicitly partial as a result.
+panes, privacy sections, and tests are gone, and the calendar entitlement
+went with them. The app now claims exactly one entitlement,
+`com.apple.security.automation.apple-events`, which the hardened runtime
+requires before the scripting fallback can drive Music or Spotify at all;
+macOS asks for that consent at the moment the fallback is first used, and
+it is refusable. Nothing is requested at launch. Parity gates below no longer cover either feature, and the parity
+claim is explicitly partial as a result. (Two stale section *comments* in
+`Resources/en.lproj/Localizable.strings` outlived the removal and were
+retitled on 2026-08-21; the keys under them are shared ones that were
+always used elsewhere.)
+
+Three capabilities were added beyond Cyclop 0.6.5, all of them off or
+absent until the user asks. They are recorded here because the parity
+design's non-goals rule out "network services" and "accounts", and these
+are the exception the design did not anticipate:
+
+- **Lyrics** (Settings, default off) fetches words from `lrclib.net`,
+  `raw.githubusercontent.com` and `lyrics.kugou.com`, sending the current
+  track's metadata.
+- **Spotify account** (Settings) authorizes through Spotify's PKCE flow
+  for Liked Songs, the one feature with no local API. Tokens live in the
+  keychain.
+- **Lock-screen card** (Settings, default on) presents the player over
+  the shield.
+
+Privacy defaults were also corrected on 2026-08-21: the panel is now
+hidden from screen capture by default, and clipboard-screenshot saving
+is off by default with a 200-file cap once enabled.
 
 ## Manual parity gates
 
@@ -43,6 +67,8 @@ either feature, and the parity claim is explicitly partial as a result.
 ## Release verdict
 
 - [ ] All eleven release gates have evidence.
+- [ ] The 102-finding audit of 2026-08-21 is closed out: every fix is in
+  the tree, `swift test` passes, and every script gate runs green.
 - [ ] The release commit is clean and pushed.
 - [ ] Release notes exist at `docs/releases/<version>.md`.
 - [ ] `Scripts/release.sh` completes without bypassing a gate.
