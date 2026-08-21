@@ -58,11 +58,11 @@ struct LyricsStage: View {
     }
 
     /// Same leads as the caption, plus the listener's own correction.
-    private var now: TimeInterval {
-        media.position
-            + (media.precisionSync ? 0.25 : 0.45)
-            + lyrics.userOffset
+    private var lead: TimeInterval {
+        (media.precisionSync ? 0.25 : 0.45) + lyrics.userOffset
     }
+
+    private var now: TimeInterval { media.position + lead }
 
     var body: some View {
         ZStack {
@@ -88,6 +88,32 @@ struct LyricsStage: View {
         .onAppear {
             if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
                 DebugTrail.note("stage appeared: \(debugStateDescription)")
+            }
+        }
+        // Verification hook, environment-gated like the open hook: replays the
+        // row button's exact statement on the line after the current one, then
+        // samples the position for the backward yank this hook exists to catch.
+        // Never armed in a normal run.
+        .task {
+            guard ProcessInfo.processInfo.environment["DI_TEST_CLICK"] == "next" else { return }
+            do {
+                for round in 0..<5 {
+                    try await Task.sleep(nanoseconds: 6_000_000_000)
+                    guard case .synced(let lines) = lyrics.state,
+                          let current = Self.index(in: lines, at: now),
+                          current + 1 < lines.count else { continue }
+                    let line = lines[current + 1]
+                    DebugTrail.note("TEST[\(round)] click index=\(current + 1) at=\(line.at)")
+                    media.seek(to: Self.clickTarget(lineAt: line.at, lead: lead, duration: media.duration))
+                    for _ in 0..<10 {
+                        try await Task.sleep(nanoseconds: 250_000_000)
+                        DebugTrail.note(String(format: "TEST[%d] pos=%.2f", round, media.position))
+                    }
+                }
+                DebugTrail.note("TEST done")
+            } catch {
+                // Cancelled with the stage: a dismissed stage must not keep
+                // seeking the player from beyond the grave.
             }
         }
         .onChange(of: debugStateDescription) { _, new in
@@ -203,8 +229,7 @@ struct LyricsStage: View {
         // How far from the voice this line stands, for the depth falloff.
         let distance = current.map { abs(index - $0) } ?? 2
         Button {
-            // Slightly before the line, so its first word is sung, not missed.
-            media.seek(to: max(0, line.at - 0.15))
+            media.seek(to: Self.clickTarget(lineAt: line.at, lead: lead, duration: media.duration))
         } label: {
             Group {
                 if isCurrent {
@@ -352,6 +377,22 @@ struct LyricsStage: View {
 
     /// Index of the line being sung at `at`, by the same binary search the
     /// caption uses.
+    /// Where a click on a line sends the player, in player time, not lyric
+    /// time: `now` reads the position through the lead and the listener's
+    /// offset, so the jump subtracts them back out — or the line that lands
+    /// as current is not the one that was clicked whenever the offset
+    /// outweighs the line gap. The 0.02 nudge is for a paused player: seeking
+    /// to exactly `line.at - lead` leaves `now` one floating-point rounding
+    /// away from the line's own timestamp, and with no ticker running to
+    /// cross it the previous line could stay highlighted. And a strongly
+    /// negative offset near the end of the track must not clamp into the
+    /// final second — that is a skip, not a seek.
+    static func clickTarget(lineAt: TimeInterval, lead: TimeInterval, duration: TimeInterval) -> TimeInterval {
+        var target = max(0, lineAt - lead + 0.02)
+        if duration > 2 { target = min(target, duration - 1) }
+        return target
+    }
+
     private static func index(in lines: [LyricsStore.Line], at: TimeInterval) -> Int? {
         var low = 0, high = lines.count - 1, found = -1
         while low <= high {

@@ -81,4 +81,137 @@ final class NowPlayingLifecycleTests: XCTestCase {
         XCTAssertEqual(lines, [#"{"title":"next"}"#])
         wait(for: [reported], timeout: 1)
     }
+
+    // MARK: - Seek reading gate
+
+    /// The backwards-bounce on lyric clicks: a correction already in flight
+    /// when the seek was issued returns the pre-seek position, and the old
+    /// value-proximity rule let it settle the seek and yank the anchor back.
+    @MainActor
+    func testPreSeekReadingNeverSettlesTheSeek() {
+        let issued = Date()
+        let askedBefore = issued.addingTimeInterval(-0.1)
+        // Stale value 1.8s behind the target — inside the old 2.5s window.
+        let verdict = MediaController.judgeSeekReading(
+            reading: 100.2, target: 102.0,
+            issuedAt: issued, askedAt: askedBefore,
+            now: issued.addingTimeInterval(0.3),
+            origin: 100.1
+        )
+        XCTAssertEqual(verdict, .discard)
+    }
+
+    @MainActor
+    func testPostSeekReadingNearTargetSettles() {
+        let issued = Date()
+        let verdict = MediaController.judgeSeekReading(
+            reading: 102.3, target: 102.0,
+            issuedAt: issued, askedAt: issued.addingTimeInterval(0.2),
+            now: issued.addingTimeInterval(0.5),
+            origin: 90.0
+        )
+        XCTAssertEqual(verdict, .settleAdopt)
+    }
+
+    /// The query can outrun the player applying the jump: post-issue but far
+    /// from the target proves nothing yet.
+    @MainActor
+    func testPostSeekReadingFarFromTargetKeepsWaiting() {
+        let issued = Date()
+        let verdict = MediaController.judgeSeekReading(
+            reading: 100.1, target: 130.0,
+            issuedAt: issued, askedAt: issued.addingTimeInterval(0.1),
+            now: issued.addingTimeInterval(0.4),
+            origin: 100.0
+        )
+        XCTAssertEqual(verdict, .discard)
+    }
+
+    /// Expiry must clear the pending state — left set it disables corrections
+    /// for the rest of the track — but a stale reading still gets no say.
+    @MainActor
+    func testExpiryWithStaleReadingSettlesWithoutAdopting() {
+        let issued = Date()
+        let verdict = MediaController.judgeSeekReading(
+            reading: 100.0, target: 130.0,
+            issuedAt: issued, askedAt: issued.addingTimeInterval(-0.2),
+            now: issued.addingTimeInterval(2.0),
+            origin: 100.1
+        )
+        XCTAssertEqual(verdict, .settleIgnore)
+    }
+
+    @MainActor
+    func testExpiryWithPostSeekReadingAdopts() {
+        let issued = Date()
+        let verdict = MediaController.judgeSeekReading(
+            reading: 129.0, target: 130.0,
+            issuedAt: issued, askedAt: issued.addingTimeInterval(1.8),
+            now: issued.addingTimeInterval(2.0),
+            origin: 100.0
+        )
+        XCTAssertEqual(verdict, .settleAdopt)
+    }
+
+    /// The reviewer's walk-through: a short forward click, a slow-applying
+    /// player, and a post-issue query that reads the pre-seek position after
+    /// it has drifted into the target window. Near the target is not proof —
+    /// still on the old trajectory is disproof.
+    @MainActor
+    func testPreApplicationDriftIntoTargetWindowIsDiscarded() {
+        let issued = Date()
+        // Click +1.2s: origin 100.0, target 101.2. Queried 0.5s later, the
+        // un-applied player answers 100.5 — within 0.8 of the target, and
+        // exactly on the pre-seek trajectory.
+        let verdict = MediaController.judgeSeekReading(
+            reading: 100.5, target: 101.2,
+            issuedAt: issued, askedAt: issued.addingTimeInterval(0.5),
+            now: issued.addingTimeInterval(0.7),
+            origin: 100.0
+        )
+        XCTAssertEqual(verdict, .discard)
+    }
+
+    /// The same drift when the jump is real: reading near the target but far
+    /// off the old trajectory settles.
+    @MainActor
+    func testLandedJumpOffTheOldTrajectorySettles() {
+        let issued = Date()
+        let verdict = MediaController.judgeSeekReading(
+            reading: 130.4, target: 130.0,
+            issuedAt: issued, askedAt: issued.addingTimeInterval(0.5),
+            now: issued.addingTimeInterval(0.7),
+            origin: 100.0
+        )
+        XCTAssertEqual(verdict, .settleAdopt)
+    }
+
+    /// A refused seek: the player never left the old trajectory. After expiry
+    /// the reading is the truth and must be adopted, or the bar rides a
+    /// phantom position for the rest of the pending window.
+    @MainActor
+    func testRefusedSeekAdoptsTruthAtExpiry() {
+        let issued = Date()
+        let verdict = MediaController.judgeSeekReading(
+            reading: 101.8, target: 130.0,
+            issuedAt: issued, askedAt: issued.addingTimeInterval(1.7),
+            now: issued.addingTimeInterval(1.9),
+            origin: 100.0
+        )
+        XCTAssertEqual(verdict, .settleAdopt)
+    }
+
+    /// A paused player does not drift: rate 0 pins the phantom at the origin,
+    /// so a genuine landing right next to it still settles.
+    @MainActor
+    func testPausedSeekNearOriginStillSettlesWhenLanded() {
+        let issued = Date()
+        let verdict = MediaController.judgeSeekReading(
+            reading: 102.0, target: 102.0,
+            issuedAt: issued, askedAt: issued.addingTimeInterval(0.4),
+            now: issued.addingTimeInterval(0.6),
+            origin: 100.0, rate: 0
+        )
+        XCTAssertEqual(verdict, .settleAdopt)
+    }
 }
