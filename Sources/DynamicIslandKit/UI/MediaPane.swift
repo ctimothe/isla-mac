@@ -14,6 +14,10 @@ struct MediaPane: View {
     /// is evidently not coming. Some sources never publish a cover, and a
     /// shimmer that promises one forever reads as stuck, not loading.
     @State private var artworkWaitExpired = false
+    /// True while the pane shows the full lyrics stage instead of the player.
+    @State private var showingLyrics = false
+    /// Hover on the caption, which surfaces its chevron.
+    @State private var captionHover = false
 
     /// Artwork and the text column share this height, so their top and bottom
     /// edges line up instead of the column floating past them.
@@ -21,7 +25,55 @@ struct MediaPane: View {
 
     var body: some View {
         if let track = media.track {
-            HStack(spacing: 18) {
+            ZStack {
+                if showingLyrics {
+                    // The Liquid Glass entrance: blur, scale and opacity settle
+                    // together, so the stage materializes rather than pops. The
+                    // exit is faster than the entry, as every pane swap here is.
+                    LyricsStage(media: media, lyrics: lyrics) {
+                        showingLyrics = false
+                    }
+                    .transition(reduceMotion ? AnyTransition.opacity : .materialize)
+                } else {
+                    player(for: track)
+                        .transition(reduceMotion ? AnyTransition.opacity : .materialize)
+                }
+            }
+            .animation(Theme.paneAnimation, value: showingLyrics)
+            // Leaving the track folds the stage: the next song starts on the
+            // player, and a stage left open for a track without lyrics would
+            // open onto its own empty state.
+            .onChange(of: track.key) { _, _ in showingLyrics = false }
+            // Verification hook, environment-gated: launching the binary with
+            // DI_OPEN_LYRICS=1 opens the stage without a pointer, which is how
+            // an agent without Accessibility permission can screenshot it. An
+            // app launched normally never has the variable.
+            .onAppear {
+                if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" { showingLyrics = true }
+            }
+            // The Spotify id rides in the task identity: it arrives a beat
+            // after the metadata, and its arrival is what unlocks the
+            // word-synced database, so it must re-fire the load.
+            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")") {
+                guard NotchViewModel.showLyricsEnabled else {
+                    lyrics.clear()
+                    return
+                }
+                lyrics.load(
+                    title: track.title,
+                    artist: track.artist,
+                    album: track.album,
+                    duration: media.duration,
+                    spotifyID: media.spotifyTrackID
+                )
+            }
+        } else {
+            emptyState
+        }
+    }
+
+    private func player(for track: MediaController.Track) -> some View {
+        HStack(spacing: 18) {
                 artwork(for: track)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(track.title)
@@ -46,30 +98,11 @@ struct MediaPane: View {
                     lyricsLine
                 }
                 .frame(height: blockHeight)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // The Spotify id rides in the task identity: it arrives a beat
-            // after the metadata, and its arrival is what unlocks the
-            // word-synced database, so it must re-fire the load.
-            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")") {
-                guard NotchViewModel.showLyricsEnabled else {
-                    lyrics.clear()
-                    return
-                }
-                lyrics.load(
-                    title: track.title,
-                    artist: track.artist,
-                    album: track.album,
-                    duration: media.duration,
-                    spotifyID: media.spotifyTrackID
-                )
-            }
-            // Title and artist arrive together, so the whole column can cross-
-            // fade as one unit when the track changes.
-            .animation(Theme.artworkAnimation, value: track.key)
-        } else {
-            emptyState
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Title and artist arrive together, so the whole column can cross-
+        // fade as one unit when the track changes.
+        .animation(Theme.artworkAnimation, value: track.key)
     }
 
     /// The system often repeats the title as the album name; showing
@@ -309,20 +342,39 @@ struct MediaPane: View {
                 // mostly is. The end of the last line borrows a spoken-line
                 // length rather than running to the end of the track.
                 let end = current.next?.at ?? line.at + 6
-                KaraokeLine(
-                    text: line.text,
-                    fraction: Self.sweepFraction(line: line, at: at, end: end),
-                    reduceMotion: reduceMotion
-                )
+                // The caption is the door to the stage: click it and the pane
+                // becomes the full scrolling lyrics. A chevron surfaces on
+                // hover so the door reads as one — a bare line of text gives
+                // no hint that it goes anywhere.
+                Button { showingLyrics = true } label: {
+                    HStack(spacing: 5) {
+                        KaraokeLine(
+                            text: line.text,
+                            fraction: Self.sweepFraction(line: line, at: at, end: end),
+                            reduceMotion: reduceMotion
+                        )
+                        // Keyed so a line change crossfades instead of morphing
+                        // glyph-by-glyph in place.
+                        .id(line.at)
+                        .transition(.opacity)
+                        if captionHover {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(Theme.tertiary)
+                                .transition(.opacity)
+                        }
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 5)
-                    // Keyed so a line change crossfades instead of morphing
-                    // glyph-by-glyph in place.
-                    .id(line.at)
-                    .transition(.opacity)
-                    .animation(Theme.contentAnimation, value: line.at)
-                    .accessibilityLabel(localized("Lyrics"))
-                    .accessibilityValue(line.text)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { captionHover = $0 }
+                .padding(.top, 5)
+                .animation(Theme.contentAnimation, value: line.at)
+                .animation(Theme.contentAnimation, value: captionHover)
+                .accessibilityLabel(localized("Lyrics"))
+                .accessibilityValue(line.text)
+                .accessibilityHint(localized("Opens the full lyrics"))
             }
         }
     }

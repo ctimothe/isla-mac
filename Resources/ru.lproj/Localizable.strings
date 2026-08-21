@@ -115,3 +115,14 @@
 "Stored in your keychain." = "Хранится в связке ключей.";
 "Stored in an owner-only file, because this build is unsigned." = "Хранится в файле, доступном только владельцу: сборка не подписана.";
 "Cannot be stored on this Mac." = "Не удаётся сохранить на этом Mac.";
+
+/* Lyrics stage */
+"Back to Player" = "Назад к плееру";
+"Lyrics Earlier" = "Текст раньше";
+"Lyrics Later" = "Текст позже";
+"Lyric Timing" = "Тайминг текста";
+"Search Lyrics Again" = "Искать текст заново";
+"Wrong lyrics? Search again" = "Не тот текст? Искать заново";
+"No lyrics for this track" = "Для этого трека нет текста";
+"Jumps the song to this line" = "Перематывает песню к этой строке";
+"Opens the full lyrics" = "Открывает полный текст";
