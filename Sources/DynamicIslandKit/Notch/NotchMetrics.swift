@@ -26,6 +26,15 @@ enum NotchMetrics {
     /// to outlast a hand moving from the keyboard back to the trackpad.
     static let pointerAwayCollapseDelay: TimeInterval = 0.6
 
+    /// How long a translation summoned by ⌥⌘T stays up with nobody touching
+    /// the trackpad.
+    ///
+    /// The shortcut exists to be used from the keyboard, so the pointer is
+    /// wherever it was left and the ordinary collapse check calls it "away"
+    /// immediately. Long enough to read a sentence and reach for the mouse;
+    /// still short enough that a translation walked away from is gone.
+    static let translateReadDelay: TimeInterval = 6
+
     /// How long a new track shows itself before folding back. Long enough to
     /// read a title at a glance, short enough that it is over before it can
     /// become an interruption.

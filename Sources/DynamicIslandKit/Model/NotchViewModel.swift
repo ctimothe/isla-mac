@@ -81,9 +81,24 @@ final class NotchViewModel: ObservableObject {
     /// cannot work under that rule: the whole point is reading while looking at
     /// the camera, hands nowhere near the trackpad. The exception is kept as
     /// narrow as it can be. It applies to one tab, only while the script is
-    /// actually moving, and it ends three ways that need no explaining: the
-    /// script runs out, Escape, or a click anywhere outside the panel.
-    var holdsOpen: Bool { tab == .teleprompter && teleprompter.isRunning }
+    /// actually moving, and it ends four ways that need no explaining: the
+    /// script runs out, a click anywhere outside the panel, leaving the tab, or
+    /// anything that closes the panel outright — the space changing, the
+    /// display sleeping. (Escape is not among them: the panel only receives key
+    /// events on the tabs that take the keyboard, and this is not one of them.)
+    var holdsOpen: Bool { (tab == .teleprompter && teleprompter.isRunning) || isPinnedOpen }
+
+    /// Raised when the panel was opened by a deliberate command rather than by
+    /// the pointer — the ⌥⌘I hotkey or the menu item.
+    ///
+    /// Those routes exist so the panel can be reached without a mouse, and the
+    /// pointer rule cancels them outright: the cursor is wherever it was left,
+    /// the very next sample calls it "away", and the panel folds a third of a
+    /// second after opening. A command opens until a command closes — the same
+    /// hotkey again, Escape, or a click outside. Hovering onto the panel and
+    /// off again hands control back to the pointer, which is what somebody
+    /// reaching for it with the mouse means by leaving.
+    @Published var isPinnedOpen = false
 
     /// Whether the panel currently holds the keyboard.
     ///
@@ -104,20 +119,24 @@ final class NotchViewModel: ObservableObject {
     let teleprompter: TeleprompterStore
     let lyrics: LyricsStore
     /// Shared by every pane that shows something worth not showing.
-    let privacy = PrivacyMode()
+    let privacy: PrivacyMode
+    /// The session's stores, borrowed rather than owned — see `NotchStores`.
+    private let stores: NotchStores
 
     private var cancellables = Set<AnyCancellable>()
 
-    init(geometry: NotchGeometry) {
+    init(geometry: NotchGeometry, stores: NotchStores) {
         self.geometry = geometry
-        self.media = MediaController()
-        self.shelf = ShelfStore()
-        self.clipboard = ClipboardStore()
-        self.screenshotVault = ScreenshotVault()
-        self.translator = Translator()
-        self.notes = NoteStore()
-        self.teleprompter = TeleprompterStore()
-        self.lyrics = LyricsStore()
+        self.stores = stores
+        self.media = stores.media
+        self.shelf = stores.shelf
+        self.clipboard = stores.clipboard
+        self.screenshotVault = stores.screenshotVault
+        self.translator = stores.translator
+        self.notes = stores.notes
+        self.teleprompter = stores.teleprompter
+        self.lyrics = stores.lyrics
+        self.privacy = stores.privacy
 
         // The panel header reads through to the stores — counters, the source
         // name, the equalizer. Nested ObservableObjects do not propagate on
@@ -136,9 +155,27 @@ final class NotchViewModel: ObservableObject {
         // first letter typed is also the last one that lands. Their panes
         // observe them directly, and the header counter refreshes anyway,
         // because the list is only ever re-read on the way into the tab.
-        media.objectWillChange
-            .sink { [weak self] _ in self?.objectWillChange.send() }
-            .store(in: &cancellables)
+        // Named fields rather than `media.objectWillChange`, because that fires
+        // for every field the controller publishes and one of them moves four
+        // times a second. The shell renders exactly three things about the
+        // track — whether there is one and which, whether it is playing, and
+        // its artwork — and the panes that draw the rest observe the
+        // controller directly. Forwarding the lot meant the position ticker
+        // invalidated the whole view graph at 4 Hz on the notes tab, and the
+        // helper's idle heartbeat — an empty snapshot every two seconds
+        // forever — invalidated it at 0.5 Hz with nothing playing at all.
+        Publishers.MergeMany(
+            media.$track.map { $0?.key }.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
+            media.$isPlaying.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
+            media.$artwork.removeDuplicates { $0 === $1 }.map { _ in () }.eraseToAnyPublisher(),
+            // The open header names the app the audio belongs to, and that name
+            // can arrive a snapshot late — the pid→name lookup fails on the
+            // first poll after a player launches and succeeds on the next —
+            // without the track ever changing.
+            media.$sourceName.removeDuplicates().map { _ in () }.eraseToAnyPublisher()
+        )
+        .sink { [weak self] _ in self?.objectWillChange.send() }
+        .store(in: &cancellables)
 
         // The remaining stores have nothing to paint while collapsed.
         for child in [
@@ -171,6 +208,32 @@ final class NotchViewModel: ObservableObject {
         tab == .teleprompter ? geometry.tallExpandedSize : geometry.expandedSize
     }
 
+    /// Bumped each time the island is hovered while the Mac is locked.
+    ///
+    /// The island stays visible over the shield but must never open there, so a
+    /// hover has nothing to do — and doing nothing at all reads as a dead app
+    /// rather than as a deliberate limit. The pill answers with a short wobble
+    /// instead: the same "no, not that" gesture a login field gives a wrong
+    /// password, which needs no explaining and cannot be mistaken for the panel
+    /// starting to open.
+    @Published private(set) var lockedHoverNudges = 0
+
+    func nudgeLockedIsland() {
+        guard isLockedPresentation else { return }
+        lockedHoverNudges += 1
+    }
+
+    /// How far the notch sits from the middle of its display.
+    ///
+    /// Zero on every Mac whose cutout is centred, which is all of them — but
+    /// the locked window covers the whole screen, and a layout that centres the
+    /// pill in that window is quietly assuming the two are the same thing. This
+    /// measures it instead.
+    var lockedPillOffset: CGFloat {
+        guard isLockedPresentation else { return 0 }
+        return geometry.notchCenterX - geometry.screen.frame.midX
+    }
+
     var compactMediaActivity: CompactMediaActivity {
         CompactMediaActivity(hasTrack: media.track != nil, isPlaying: media.isPlaying)
     }
@@ -187,21 +250,25 @@ final class NotchViewModel: ObservableObject {
     /// Off switch for people who copy images all day and do not want them kept.
     static let saveClipboardImagesKey = "saveClipboardImages"
 
-    /// Defaults to on: the feature is the reason the folder exists.
+    /// Defaults to **off**. Turning it on writes a copy of every image that
+    /// touches the pasteboard to `~/Pictures/DynamicIsland`, and the pasteboard
+    /// carries things nobody meant to file: a screenshot of a recovery-code
+    /// sheet, a photo synced from a phone. Keeping copies of a user's
+    /// clipboard on disk is a decision for the user to make, not a default to
+    /// discover afterwards. `ScreenshotVault` caps what it keeps once on.
     static var saveClipboardImagesEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: saveClipboardImagesKey) != nil else { return true }
-        return defaults.bool(forKey: saveClipboardImagesKey)
+        UserDefaults.standard.bool(forKey: saveClipboardImagesKey)
     }
 
     static let showLyricsKey = "showLyrics"
 
-    /// Defaults to on. This is the app's only network use, so the switch is
-    /// the honest one: off means no request ever leaves.
+    /// Defaults to **off**. This is the app's only network use: turning it on
+    /// sends what is currently playing — title, artist, album, and for Spotify
+    /// the track id — to three third-party services. That is listening history
+    /// leaving the machine, so it is asked for rather than assumed. Off means
+    /// no request ever leaves.
     static var showLyricsEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: showLyricsKey) != nil else { return true }
-        return defaults.bool(forKey: showLyricsKey)
+        UserDefaults.standard.bool(forKey: showLyricsKey)
     }
 
     static let sneakPeekKey = "sneakPeek"
@@ -230,13 +297,15 @@ final class NotchViewModel: ObservableObject {
     /// Keeps the panel out of screenshots and screen recordings.
     static let hideFromCaptureKey = "hideFromCapture"
 
-    /// Defaults to off, despite the panel being able to hold a clipboard and
-    /// scratch notes. Excluding a window from capture also excludes it from the
-    /// user's own screenshots, and somebody photographing their island to show
-    /// somebody else is a likelier need than somebody screen-sharing it by
-    /// accident. Offered rather than assumed.
+    /// Defaults to **on**. The panel can be showing clipboard history or a
+    /// scratch note, and the cost of the two mistakes is not symmetric: a
+    /// hidden panel costs somebody a screenshot they can retake, while a
+    /// visible one costs a password read out to a meeting. Somebody who wants
+    /// to photograph their island turns it off and takes the picture.
     static var hideFromCaptureEnabled: Bool {
-        UserDefaults.standard.bool(forKey: hideFromCaptureKey)
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: hideFromCaptureKey) != nil else { return true }
+        return defaults.bool(forKey: hideFromCaptureKey)
     }
 
     /// Hover and click both land here. A tab that types takes the keyboard
@@ -248,45 +317,37 @@ final class NotchViewModel: ObservableObject {
         if tab.needsKeyboard { wantsKeyboard = true }
     }
 
-    func start() {
-        media.start()
-        shelf.load()
-
-        // Screenshots reach the shelf through here whether they were taken on
-        // this Mac or on a phone: a copy made on the phone arrives in the same
-        // pasteboard, carried over by Continuity.
-        //
-        // The switch is asked by the store before it touches image data, not
-        // here after the fact: turned off, a copied picture used to be encoded
-        // to PNG in full just to be dropped on this doorstep — pure heat on
-        // exactly the machines whose owners turned the feature off.
-        clipboard.wantsImages = { Self.saveClipboardImagesEnabled }
-        clipboard.onImage = { [weak self] png in
-            guard let self, let url = self.screenshotVault.save(png) else { return }
-            self.receivedScreenshot(at: url)
+    /// Whether a pane wants this Escape for itself. Consulted before the panel
+    /// folds, so that Escape means the nearest reversible thing first: clear
+    /// the translation being typed, hand the keyboard back from the notes.
+    /// Pressing it again, with nothing left to undo, closes the panel.
+    func consumeEscape() -> Bool {
+        switch tab {
+        case .translate where !translator.input.isEmpty:
+            translator.reset()
+            return true
+        case .notes where wantsKeyboard:
+            wantsKeyboard = false
+            return true
+        default:
+            return false
         }
-        clipboard.start()
-    }
-
-    func stop() {
-        media.stop()
-        clipboard.stop()
-        // Whatever was typed makes it to disk even when quitting mid-thought.
-        notes.flush()
-        teleprompter.flush()
     }
 
     /// A screenshot that arrived on its own — copied elsewhere, or synced
     /// from a phone by Continuity — rather than one the user handed to the
-    /// panel directly. It goes on the shelf either way, but only switches to
-    /// showing it when nobody is mid-sentence: the tab's own field would
-    /// slide out from under the caret, and losing the keyboard mid-word sends
-    /// the rest of the sentence to whatever is underneath. The shelf's
-    /// counter already shows the new picture, so nothing about it is lost by
-    /// waiting.
+    /// panel directly. It is already on the shelf by the time this is called;
+    /// this only decides whether to show it.
+    ///
+    /// Only switches tabs when the panel is actually open and nobody is
+    /// mid-sentence. Switching while collapsed changed nothing anybody could
+    /// see, and cost a full pass over the shelf — a `checkResourceIsReachable`
+    /// per card plus thumbnail requests — which is exactly how a background
+    /// copy from a phone used to raise a Desktop-or-Documents permission
+    /// prompt with no visible cause. The shelf's counter shows the new picture
+    /// the moment the panel is opened, so nothing is lost by waiting.
     func receivedScreenshot(at url: URL) {
-        shelf.add([url])
-        guard !wantsKeyboard else { return }
+        guard isOpen, !wantsKeyboard else { return }
         tab = .shelf
     }
 

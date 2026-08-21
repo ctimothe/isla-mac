@@ -27,10 +27,22 @@ struct SpoilerField: View {
     var seed: UInt64 = 0x9E3779B97F4A7C15
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The clock every field on screen shares, published by `SpoilerClock`.
+    ///
+    /// Each field used to own a private `TimelineView`, so a covered clipboard
+    /// list scheduled up to forty independent 20 Hz redraw streams — forty
+    /// separate wake-ups per frame for one texture. One timeline drives them
+    /// all now; the dust looks identical.
+    @Environment(\.spoilerTime) private var sharedTime
 
     @ViewBuilder
     var body: some View {
-        if reduceMotion {
+        if let sharedTime {
+            Canvas(opaque: false, rendersAsynchronously: false) { context, size in
+                draw(in: context, size: size, time: reduceMotion ? 0 : sharedTime)
+            }
+            .drawingGroup()
+        } else if reduceMotion {
             // One frame, drawn once. The dust is here to make text
             // unreadable and does that just as well standing still; the
             // drifting is the decorative half. It matters more here than

@@ -30,10 +30,29 @@ struct NotchContentView: View {
                         compactMediaHeader
                     }
                     .frame(maxWidth: .infinity, alignment: .top)
+                    // Anchored to the notch, not to the middle of the window.
+                    //
+                    // While locked the window is the whole display, so centring
+                    // the pill in it puts the pill at the centre of the screen —
+                    // which is the notch only for as long as the notch happens
+                    // to be centred. Measured against the real cutout instead,
+                    // the island stays exactly where the hardware is whatever
+                    // the display arrangement, and cannot drift sideways.
+                    .offset(x: vm.lockedPillOffset)
+                    .refusalShake(trigger: vm.lockedHoverNudges)
                 }
                 LockScreenCard(media: vm.media, lyrics: vm.lyrics)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
+            // Nothing here animates from the layout it had a moment ago. Locking
+            // while the panel was open leaves an open→closed animation in
+            // flight, and swapping the whole view tree under it made SwiftUI
+            // interpolate the card and the pill *from* the old 700×444 notch
+            // window — visibly sliding in from the left, at the wrong size, for
+            // the length of that animation. The lock screen is a cut, not a
+            // transition.
+            .animation(nil, value: vm.isLockedPresentation)
+            .transaction { $0.animation = nil }
         } else {
             shell
         }
@@ -328,7 +347,7 @@ struct NotchContentView: View {
         case .clipboard:
             ClipboardPane(clipboard: vm.clipboard, privacy: vm.privacy)
         case .translate:
-            TranslatePane(translator: vm.translator, wantsKeyboard: $vm.wantsKeyboard)
+            TranslatePane(translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
         case .notes:
             NotesPane(notes: vm.notes, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
         case .teleprompter:
@@ -337,6 +356,7 @@ struct NotchContentView: View {
             SettingsPane(
                 shelf: vm.shelf,
                 screenshotVault: vm.screenshotVault,
+                lyrics: vm.lyrics,
                 privacy: vm.privacy
             )
         }

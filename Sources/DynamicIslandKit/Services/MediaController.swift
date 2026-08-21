@@ -46,6 +46,11 @@ final class MediaController: ObservableObject {
     private var activeApp: PlayerApp?
     private var artworkKey: String?
     private var anchor: (position: TimeInterval, at: Date)?
+    /// How fast the player says the track is moving. Podcast and video apps
+    /// routinely play at 1.5× or 2×, and the ticker extrapolating at 1×
+    /// regardless meant the bar fell behind between polls and lurched forward
+    /// on each one; below 1× it ran ahead and was yanked back.
+    private var playbackRate: Double = 1
     /// Where we asked the player to jump, and when — see `apply`.
     private var pendingSeek: (target: TimeInterval, at: Date)?
     /// True while the position is being corrected against the player's own
@@ -100,11 +105,28 @@ final class MediaController: ObservableObject {
         guard displayedPlayerIsSpotify,
               let position = note.userInfo?["Playback Position"] as? Double else { return }
         guard pendingSeek == nil else { return }
+        // Sanity-checked before it is believed. This value arrives from another
+        // process's broadcast and is not validated anywhere else; a negative or
+        // past-the-end position would anchor the clock outside the track.
+        guard position.isFinite, position >= 0 else { return }
+        guard duration <= 0 || position <= duration + 1 else { return }
         setAnchor(position)
-        if !positionSettled { positionSettled = true }
+        // Deliberately not `positionSettled = true`. Delivery of these
+        // notifications is not guaranteed and they do not fire on seeks, which
+        // is exactly why the flag exists — it means "an authoritative reading
+        // has landed", and this is an anchor hint, not that reading.
     }
 
+    /// Returns the controller to the state `start()` expects.
+    ///
+    /// `feedAvailable` and `isActive` used to survive a stop, so a stop/start
+    /// that happened while the scripting fallback was in use came back with the
+    /// fallback flag still set — `switchToScriptingFallback` then early-returns,
+    /// the player observers this method removed are never re-registered, and
+    /// both routes are dead with nothing reporting an error.
     func stop() {
+        feedAvailable = true
+        isActive = false
         precisionTimer?.invalidate()
         precisionTimer = nil
         if let spotifyStateObserver {
@@ -155,8 +177,45 @@ final class MediaController: ObservableObject {
         return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == PlayerApp.spotify.bundleID
     }
 
+    /// Asks Spotify which track this is, and asks again if it does not answer.
+    ///
+    /// Everything Spotify-specific hangs off this id: the word-synced lyrics
+    /// database is keyed by it, and so is the heart, which is simply not drawn
+    /// while the id is nil. One attempt was not enough. The very first lookup
+    /// after launch routinely fails — it is the call that triggers macOS's
+    /// one-time automation consent, and it returns nothing while the dialog is
+    /// still on screen — and a script can also come back empty if Spotify is
+    /// mid-track-change. The id then stayed nil for the rest of that track, so
+    /// the heart never appeared for the song that happened to be playing at
+    /// launch, which is exactly when somebody would look for it.
+    private func requestSpotifyTrackID(for key: String, playerPID: pid_t?, attempt: Int) {
+        guard displayedPlayerIsSpotify else { return }
+        PlayerBridge.spotifyTrackID { [weak self] id in
+            guard let self,
+                  self.track?.key == key,
+                  self.displayedPlayerPID == playerPID else { return }
+            if let id {
+                self.spotifyTrackID = id
+                return
+            }
+            // Backing off, and giving up well before it could become a poll.
+            guard attempt < 4 else { return }
+            let delay = pow(2.0, Double(attempt))
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.requestSpotifyTrackID(for: key, playerPID: playerPID, attempt: attempt + 1)
+                }
+            }
+        }
+    }
+
     private func updatePrecisionSync() {
-        let wanted = isActive && displayedPlayerIsSpotify
+        // Playing, too. A paused track's position cannot move, so asking
+        // Spotify where it is every two seconds — a fresh AppleScript compile
+        // and an Apple event into another process each time — bought a number
+        // already known. Pausing and walking away used to leave that running
+        // indefinitely.
+        let wanted = isActive && isPlaying && displayedPlayerIsSpotify
         if precisionSync != wanted { precisionSync = wanted }
         guard wanted else {
             precisionTimer?.invalidate()
@@ -320,22 +379,21 @@ final class MediaController: ObservableObject {
         let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
         let trackChanged = track?.key != key
         if track != fresh { track = fresh }
-        if trackChanged {
-            spotifyTrackID = nil
-            if displayedPlayerIsSpotify {
-                let expected = key
-                PlayerBridge.spotifyTrackID { [weak self] id in
-                    guard let self, self.track?.key == expected else { return }
-                    self.spotifyTrackID = id
-                }
-            }
-        }
         let playerChanged = displayedPlayerPID != snapshot.playerPID
+        // Adopted *before* the Spotify id is asked for. Asking first tested the
+        // player the last snapshot came from: switching Music → Spotify skipped
+        // the lookup for the first Spotify track, so its word-synced lyrics
+        // silently degraded, and switching the other way asked Spotify what it
+        // was playing and then pinned that id to a Music track, keying its
+        // lyrics to the wrong song entirely.
         displayedPlayerPID = snapshot.playerPID
+        if trackChanged || playerChanged {
+            spotifyTrackID = nil
+            requestSpotifyTrackID(for: key, playerPID: snapshot.playerPID, attempt: 0)
+        }
         if playerChanged {
             positionSettled = false
             updatePrecisionSync()
-            spotifyTrackID = nil
             // Both readers carry state about the player that just went away:
             // the flag history that decides what a dropped flag means, and the
             // stamp that decides whether a reading is news. Carried across, a
@@ -384,6 +442,10 @@ final class MediaController: ObservableObject {
         // two seconds for the next correction.
         let precisionSteers = precisionSync && !playerChanged && !trackChanged
         let stale = describesAMomentAlreadyPast(snapshot, isPlaying: reportedPlaying)
+        // The rate the clock extrapolates at, from the player itself. Zero is
+        // what a paused session reports and says nothing about how fast it will
+        // resume, so the last positive rate is kept.
+        if snapshot.rate > 0 { playbackRate = snapshot.rate }
         if precisionSteers {
             // Position is the correction loop's job; everything else in the
             // snapshot — track, playing state, commands, artwork — landed
@@ -458,6 +520,14 @@ final class MediaController: ObservableObject {
     }
 
     private func clear() {
+        // The helper publishes an empty record every two seconds whether or not
+        // anything is playing, so this runs forever on an idle Mac. `@Published`
+        // does not compare before firing, so writing nil over nil still
+        // invalidated the whole panel graph twice a minute, all day — the same
+        // regression documented and fixed on the playing path above.
+        guard track != nil || isPlaying || position != 0 || sourceName != nil || activeApp != nil else {
+            return
+        }
         activeApp = nil
         track = nil
         blankArtwork?.cancel()
@@ -476,6 +546,15 @@ final class MediaController: ObservableObject {
         positionSettled = false
         spotifyTrackID = nil
         canSkip = true
+        playbackRate = 1
+        // The rest of the clock's state, which used to survive the session it
+        // belonged to: a leftover `pendingSeek` gated the *next* session's
+        // first snapshot through the seek-settle path, and the precision loop
+        // kept its two-second timer — and its published flag — alive with
+        // nothing playing at all.
+        anchor = nil
+        pendingSeek = nil
+        updatePrecisionSync()
         updateTicker()
     }
 
@@ -663,6 +742,10 @@ final class MediaController: ObservableObject {
     private func updateTicker() {
         ticker?.invalidate()
         ticker = nil
+        // The precision loop is gated on the same two facts, so it is
+        // re-evaluated wherever they change rather than at the handful of call
+        // sites that happened to remember.
+        updatePrecisionSync()
         guard isPlaying, isActive else { return }
         // Four times a second: the bar advances in sub-pixel steps, so it reads
         // as smooth without any animation smoothing the seek away with it.
@@ -676,7 +759,7 @@ final class MediaController: ObservableObject {
 
     private func tick() {
         guard let anchor, isPlaying else { return }
-        let value = anchor.position + Date().timeIntervalSince(anchor.at)
+        let value = anchor.position + Date().timeIntervalSince(anchor.at) * playbackRate
         position = duration > 0 ? min(value, duration) : value
     }
 }

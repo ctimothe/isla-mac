@@ -55,6 +55,7 @@ struct ShelfDragSource: NSViewRepresentable {
             let files = urls()
             guard !files.isEmpty else { return }
             dragging = true
+            ShelfDragSource.beginDragOut()
 
             let items = files.enumerated().map { index, url -> NSDraggingItem in
                 let item = NSDraggingItem(pasteboardWriter: url as NSURL)
@@ -74,6 +75,7 @@ struct ShelfDragSource: NSViewRepresentable {
             defer {
                 mouseDownPoint = nil
                 dragging = false
+                ShelfDragSource.endDragOut()
             }
             guard !dragging else { return }
             if event.clickCount >= 2 {
@@ -89,5 +91,45 @@ struct ShelfDragSource: NSViewRepresentable {
         ) -> NSDragOperation {
             context == .outsideApplication ? [.copy, .move, .link, .generic] : []
         }
+
+        func draggingSession(
+            _ session: NSDraggingSession,
+            endedAt screenPoint: NSPoint,
+            operation: NSDragOperation
+        ) {
+            dragging = false
+            ShelfDragSource.endDragOut()
+        }
+    }
+
+    /// True while a card is being dragged out of the shelf.
+    ///
+    /// The panel's own drag flag only tracks drags coming *in*, so an outgoing
+    /// one left the pointer watcher free to decide the cursor had wandered off
+    /// the panel — which folded the panel 0.32 s into the drag and tore down
+    /// the very view the session was running from.
+    @MainActor private(set) static var isDraggingOut = false
+
+    /// Fail-safe for the latch above.
+    ///
+    /// AppKit does not retain a dragging source, so a view torn down mid-session
+    /// never receives `draggingSession(_:endedAt:)` — and a latch stuck true
+    /// leaves an invisible, permanently click-eating rectangle at the top of the
+    /// screen and a panel that never auto-collapses. No drag outlives this.
+    @MainActor private static var dragOutExpiry: DispatchWorkItem?
+    @MainActor private static let maximumDragDuration: TimeInterval = 120
+
+    @MainActor static func beginDragOut() {
+        isDraggingOut = true
+        dragOutExpiry?.cancel()
+        let work = DispatchWorkItem { MainActor.assumeIsolated { endDragOut() } }
+        dragOutExpiry = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + maximumDragDuration, execute: work)
+    }
+
+    @MainActor static func endDragOut() {
+        isDraggingOut = false
+        dragOutExpiry?.cancel()
+        dragOutExpiry = nil
     }
 }

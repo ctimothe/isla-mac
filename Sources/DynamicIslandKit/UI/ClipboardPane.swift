@@ -13,9 +13,13 @@ struct ClipboardPane: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 3) {
-                        ForEach(clipboard.items) { item in
-                            ClipRow(item: item, clipboard: clipboard, privacy: privacy)
+                    // One clock for every covered row in the list — see
+                    // `SpoilerClock`.
+                    SpoilerClock {
+                        LazyVStack(spacing: 3) {
+                            ForEach(clipboard.items) { item in
+                                ClipRow(item: item, clipboard: clipboard, privacy: privacy)
+                            }
                         }
                     }
                     .padding(.vertical, 4)
@@ -54,7 +58,7 @@ private struct ClipRow: View {
                 .foregroundStyle(justCopied ? Color.green : Theme.tertiary)
                 .frame(width: 14)
             SpoilerText(
-                text: item.preview.replacingOccurrences(of: "\n", with: " "),
+                text: item.preview,
                 hidden: hidden,
                 seed: UInt64(bitPattern: Int64(item.id.uuidString.hashValue))
             )

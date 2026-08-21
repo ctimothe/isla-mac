@@ -6,12 +6,21 @@ import SwiftUI
 /// is something in it.
 struct TranslatePane: View {
     @ObservedObject var translator: Translator
+    /// ⌥⌘T fills the source field with whatever was on the clipboard, so this
+    /// pane can be displaying the same secret the clipboard tab covers.
+    @ObservedObject var privacy: PrivacyMode
     /// Whether the panel holds the keyboard. Drops to false when the user
     /// clicks into another app, and the field follows it — the caret has to
     /// stop blinking here when it has genuinely gone elsewhere.
     @Binding var wantsKeyboard: Bool
 
     @FocusState private var focused: Bool
+
+    /// Covered until deliberately revealed, like a clipboard row. The reveal is
+    /// per-session and keyed to the pane, not to any particular text.
+    private var covered: Bool {
+        privacy.hides(.translate, "translate.source") && !translator.input.isEmpty
+    }
     /// Measured once, off the layout path. See `body`.
     @State private var paneSize: CGSize = .zero
 
@@ -66,6 +75,17 @@ struct TranslatePane: View {
             // rectangle it is given and re-wraps inside it, so a new line
             // costs nothing outside its own bounds.
             TextEditor(text: $translator.input)
+                .opacity(covered ? 0 : 1)
+                .overlay {
+                    if covered {
+                        // Clicking the dust uncovers it, the same gesture the
+                        // clipboard rows use — the cover is against a passing
+                        // camera, not against the person at the keyboard.
+                        SpoilerField(seed: 0x5DEECE66D)
+                            .contentShape(Rectangle())
+                            .onTapGesture { privacy.reveal("translate.source") }
+                    }
+                }
                 .textEditorStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .scrollIndicators(.hidden)

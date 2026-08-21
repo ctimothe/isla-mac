@@ -24,6 +24,9 @@ final class NotchMetricsTests: XCTestCase {
     /// `assert()` — which vanishes in Release builds, so the contract held
     /// only in debug. It must return the constant unconditionally.
     func testWindowSizeAlwaysReturnsTheMaximumWindowContract() {
-        XCTAssertEqual(NotchGeometry.current().windowSize, NotchMetrics.maximumWindow)
+        // Optional since the geometry has no screen to describe while the
+        // system reports none — a real window during display reconfiguration.
+        // A test host always has one.
+        XCTAssertEqual(NotchGeometry.current()?.windowSize, NotchMetrics.maximumWindow)
     }
 }

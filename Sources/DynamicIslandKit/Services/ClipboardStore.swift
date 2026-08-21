@@ -4,20 +4,43 @@ struct ClipItem: Identifiable, Equatable {
     enum Payload: Equatable {
         case text(String)
         case file(URL)
+        /// Several files copied at once. A multi-file copy used to be recorded
+        /// as its first file alone, so pasting the entry back silently replaced
+        /// the user's selection of twelve with one.
+        case files([URL])
     }
 
     let id = UUID()
     let payload: Payload
     let date: Date
+    /// Computed once at capture. `preview` used to trim the whole string on
+    /// every render, for every row — twice, since the pane trimmed newlines out
+    /// of the result — and a row is only ever a line high.
+    let preview: String
 
-    var preview: String {
+    init(payload: Payload, date: Date) {
+        self.payload = payload
+        self.date = date
+        self.preview = Self.preview(for: payload)
+    }
+
+    private static func preview(for payload: Payload) -> String {
         switch payload {
         case .text(let string):
-            return string.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            let flattened = trimmed.replacingOccurrences(of: "\n", with: " ")
+            return String(flattened.prefix(previewLimit))
         case .file(let url):
             return url.lastPathComponent
+        case .files(let urls):
+            guard let first = urls.first else { return "" }
+            guard urls.count > 1 else { return first.lastPathComponent }
+            return "\(first.lastPathComponent) + \(urls.count - 1)"
         }
     }
+
+    /// A row shows one line; anything past this could never be read.
+    static let previewLimit = 512
 
     var symbol: String {
         switch payload {
@@ -26,6 +49,8 @@ struct ClipItem: Identifiable, Equatable {
             return "text.alignleft"
         case .file:
             return "doc"
+        case .files:
+            return "doc.on.doc"
         }
     }
 
@@ -69,6 +94,10 @@ final class ClipboardStore: ObservableObject {
 
     func start() {
         stop()
+        // Any copy made while the poll was stopped still counts: the counter is
+        // compared against where it stood when the store was built, not
+        // re-baselined here, so a pause for display sleep does not swallow the
+        // copy that happened just before it.
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.pollNow() }
         }
@@ -101,6 +130,8 @@ final class ClipboardStore: ObservableObject {
             pasteboard.setString(string, forType: .string)
         case .file(let url):
             pasteboard.writeObjects([url as NSURL])
+        case .files(let urls):
+            pasteboard.writeObjects(urls.map { $0 as NSURL })
         }
         lastChangeCount = pasteboard.changeCount
         // Freshly used entries bubble to the top.
@@ -122,74 +153,119 @@ final class ClipboardStore: ObservableObject {
         // A copied file arrives as a URL, not as image data, so URLs win first.
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
-           let url = urls.first {
-            record(ClipItem(payload: .file(url), date: Date()))
+           !urls.isEmpty {
+            // All of them, not just the first: a Finder copy of a selection is
+            // one copy, and pasting the history entry has to reproduce it.
+            let payload: ClipItem.Payload = urls.count == 1 ? .file(urls[0]) : .files(urls)
+            record(ClipItem(payload: payload, date: Date()))
             return
         }
 
         if wantsImages() {
-            if let png = pngFromPasteboard(pasteboard) {
-                onImage?(png)
+            if pasteboard.availableType(from: [.png, .tiff]) != nil {
+                encodeImage(at: pasteboard.changeCount)
                 return
             }
 
-            // A copy made on the phone arrives in two parts: macOS puts the
-            // type on the pasteboard the moment the phone announces it, and
-            // the picture itself is still coming over the air. So the counter
-            // can move while there are no bytes to read yet — and reading once
-            // would drop the screenshot for good, because the counter has
-            // already been marked as seen. Wait for it instead.
-            if pasteboard.availableType(from: [.png, .tiff]) != nil {
-                awaitImage(at: pasteboard.changeCount, attempt: 0)
-                return
-            }
         }
 
         guard let string = pasteboard.string(forType: .string),
               !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        record(ClipItem(payload: .text(string), date: Date()))
+        record(ClipItem(payload: .text(Self.capped(string)), date: Date()))
     }
 
-    /// Checks back until the promised picture has actually arrived.
+    /// Longest text kept per entry.
     ///
-    /// Gives up after a few seconds, and stops the moment the pasteboard moves
-    /// on: a copy made in the meantime is the newer intention, and finishing a
-    /// transfer the user has already replaced would put the wrong thing on the
-    /// shelf.
-    private func awaitImage(at changeCount: Int, attempt: Int) {
-        // Out of patience. Something declared a picture and never produced one,
-        // so fall back to what else was on the pasteboard — otherwise a copy
-        // that merely offered an image alongside its text would go unrecorded.
+    /// The history was bounded by count alone, so forty copies of a log file
+    /// pinned forty whole log files in memory for the rest of the session.
+    /// Anything past this cannot be read in a one-line row or pasted back
+    /// usefully from a scratch panel.
+    static let maximumTextBytes = 256 * 1024
+
+    private static func capped(_ string: String) -> String {
+        guard string.utf8.count > maximumTextBytes else { return string }
+        return String(decoding: Array(string.utf8.prefix(maximumTextBytes)), as: UTF8.self)
+    }
+
+    /// Reads the picture and, if it needs transcoding, does that off the main
+    /// thread.
+    ///
+    /// A TIFF from the pasteboard is uncompressed — tens of megabytes for a
+    /// Retina screen — and decoding it and re-encoding to PNG used to happen on
+    /// the main actor, freezing the panel, the pointer sampler and every
+    /// animation for as long as it took.
+    ///
+    /// A copy made on the phone arrives in two parts: macOS puts the type on
+    /// the pasteboard the moment the phone announces it, and the picture itself
+    /// is still coming over the air, so there may be nothing to read yet. That
+    /// case waits.
+    private func encodeImage(at changeCount: Int, attempt: Int = 0) {
+        if let png = pasteboard.data(forType: .png) {
+            deliverImage(png, at: changeCount)
+            return
+        }
+        if let tiff = pasteboard.data(forType: .tiff) {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let png else {
+                            // Undecodable image data. The copy may still have
+                            // carried text, and dropping it outright lost that
+                            // too — the change counter is already marked seen,
+                            // so nothing would re-poll it.
+                            self.recordTextFallback(at: changeCount)
+                            return
+                        }
+                        self.deliverImage(png, at: changeCount)
+                    }
+                }
+            }
+            return
+        }
+
+        // Nothing readable yet. Give up after a few seconds and fall back to
+        // whatever else the copy carried, so a copy that merely offered an
+        // image alongside its text is still recorded.
         guard attempt < 12 else {
-            guard pasteboard.changeCount == changeCount,
-                  let string = pasteboard.string(forType: .string),
-                  !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            record(ClipItem(payload: .text(string), date: Date()))
+            recordTextFallback(at: changeCount)
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                // Rechecked on every tick, not just when the wait began: image
-                // saving can be switched off while a picture is still in
-                // flight, and finishing the wait would save it anyway.
-                guard self.wantsImages() else { return }
                 guard self.pasteboard.changeCount == changeCount else { return }
-                if let png = self.pngFromPasteboard(self.pasteboard) {
-                    self.onImage?(png)
+                // Image saving can be switched off while a picture is still in
+                // flight. The copy is still worth recording — dropping it
+                // outright lost the text it came with too, and the change
+                // counter was already marked seen so nothing would re-poll it.
+                guard self.wantsImages() else {
+                    self.recordTextFallback(at: changeCount)
                     return
                 }
-                self.awaitImage(at: changeCount, attempt: attempt + 1)
+                self.encodeImage(at: changeCount, attempt: attempt + 1)
             }
         }
     }
 
-    /// Screenshots land as PNG; other apps often offer only TIFF.
-    private func pngFromPasteboard(_ pasteboard: NSPasteboard) -> Data? {
-        if let png = pasteboard.data(forType: .png) { return png }
-        guard let tiff = pasteboard.data(forType: .tiff),
-              let rep = NSBitmapImageRep(data: tiff) else { return nil }
-        return rep.representation(using: .png, properties: [:])
+    private func deliverImage(_ png: Data, at changeCount: Int) {
+        // The pasteboard may have moved on while the encode was running, and a
+        // newer copy is the newer intention.
+        guard pasteboard.changeCount == changeCount else { return }
+        guard wantsImages() else {
+            recordTextFallback(at: changeCount)
+            return
+        }
+        onImage?(png)
+    }
+
+    private func recordTextFallback(at changeCount: Int) {
+        guard pasteboard.changeCount == changeCount,
+              let string = pasteboard.string(forType: .string),
+              !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // Capped like every other text capture: this path used to be the one
+        // way an unbounded string still reached the history.
+        record(ClipItem(payload: .text(Self.capped(string)), date: Date()))
     }
 
     private func record(_ item: ClipItem) {

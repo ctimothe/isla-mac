@@ -16,6 +16,9 @@
 
 #import <Foundation/Foundation.h>
 #import <dlfcn.h>
+#import <stdatomic.h>
+#import <errno.h>
+#import <signal.h>
 
 typedef void (*MRGetInfoFn)(dispatch_queue_t, void (^)(CFDictionaryRef));
 typedef void (*MRGetBoolFn)(dispatch_queue_t, void (^)(Boolean));
@@ -33,6 +36,22 @@ static MRSendCommandToPlayerFn sSendCommandToPlayer;
 static MRGetCommandsForPlayerFn sGetCommandsForPlayer;
 static dispatch_queue_t sQueue;
 static NSString *sArtworkID;
+/// Raised once the feed thread has finished wiring itself up. The command
+/// reader starts at the same moment and reads globals this flag guards — a
+/// command arriving before `sQueue` existed used to be `dispatch_async` onto
+/// nil, which is undefined behaviour, and every read of the function pointers
+/// from that thread was a plain data race besides.
+static atomic_bool sFeedReady = ATOMIC_VAR_INIT(false);
+/// Last payload published, so an unchanged one is not sent again. The helper
+/// polls twice a second per two seconds whether or not anything has changed,
+/// and each identical line woke the app to decode a snapshot it already had.
+static NSData *sLastPayload;
+static NSTimeInterval sLastEmitAt;
+/// Even an unchanged payload is repeated this often, so the app can tell a
+/// quiet helper from a dead one. Comfortably under the app's silence timeout.
+static const NSTimeInterval kHeartbeatInterval = 5.0;
+/// Ceiling on the per-PID caches, which otherwise only ever grew.
+static const NSUInteger kMaxCachedPlayers = 32;
 /// Real player paths observed while publishing. macOS can change its global
 /// "active" player between drawing a track and clicking its controls; keeping
 /// the path by owner PID makes the click follow the track that was drawn.
@@ -57,13 +76,44 @@ typedef NS_ENUM(int, MRCommand) {
 
 static id activePlayerPath(void);
 
-static void emit(NSDictionary *payload) {
+/// Guards the dedupe state below. `emit` normally runs on `sQueue`, but the
+/// error paths are called straight from the timer thread, the notification
+/// threads and the constructor — so the shared `sLastPayload` needs a lock of
+/// its own rather than the queue's implicit serialization.
+static NSLock *sEmitLock;
+
+/// `forced` payloads bypass the dedupe: they answer a question the app asked,
+/// and "you already know this" is not an answer it can use. Carried as an
+/// argument rather than a shared flag — a global was consumable by whichever
+/// emit happened to run first, so the 2 s poll could swallow the echo that
+/// confirms a transport tap.
+static void emitPayload(NSDictionary *payload, BOOL forced) {
     NSData *json = [NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];
     if (!json) return;
+    [sEmitLock lock];
+    // An identical payload is not news. The poll runs every two seconds
+    // regardless of whether anything changed — deliberately, since the
+    // notifications cannot be relied on — and every repeat used to wake the
+    // app to parse a snapshot it already held. Repeated anyway on a slow
+    // heartbeat, so silence still means something is wrong.
+    NSTimeInterval now = NSDate.timeIntervalSinceReferenceDate;
+    // An explicit `get` is always answered: the app asks for one when the panel
+    // opens, precisely to re-sync, and "you already know this" is not an answer
+    // it can use.
+    if (!forced && sLastPayload && [sLastPayload isEqualToData:json] &&
+        now - sLastEmitAt < kHeartbeatInterval) {
+        [sEmitLock unlock];
+        return;
+    }
+    sLastPayload = json;
+    sLastEmitAt = now;
     fwrite(json.bytes, 1, json.length, stdout);
     fputc('\n', stdout);
     fflush(stdout);
+    [sEmitLock unlock];
 }
+
+static void emit(NSDictionary *payload) { emitPayload(payload, NO); }
 
 /// What the player says it accepts, refreshed alongside each publish and read
 /// from the last answer rather than waited for.
@@ -89,6 +139,30 @@ static void emit(NSDictionary *payload) {
 /// cached, not something borrowed from someone else.
 static NSMutableDictionary<NSNumber *, NSArray *> *sCommandsByPID;
 
+/// Drops cache entries whose process is gone.
+///
+/// Nothing used to remove them, which was two problems rather than one. The
+/// small one is unbounded growth in a helper that lives as long as the app. The
+/// real one is that macOS recycles pids: `sendCommandToPlayer` prefers the
+/// cached path for a pid, so once a pid was reused a transport command could be
+/// sent down the dead previous player's path, where it simply vanished.
+static void evictStaleCaches(void) {
+    NSMutableArray<NSNumber *> *dead = [NSMutableArray array];
+    for (NSNumber *pid in sPlayerPathsByPID.allKeys) {
+        if (kill(pid.intValue, 0) != 0 && errno == ESRCH) [dead addObject:pid];
+    }
+    for (NSNumber *pid in sCommandsByPID.allKeys) {
+        if (kill(pid.intValue, 0) != 0 && errno == ESRCH) [dead addObject:pid];
+    }
+    for (NSNumber *pid in dead) {
+        [sPlayerPathsByPID removeObjectForKey:pid];
+        [sCommandsByPID removeObjectForKey:pid];
+    }
+    // Backstop for a machine whose players outlive the check above.
+    if (sPlayerPathsByPID.count > kMaxCachedPlayers) [sPlayerPathsByPID removeAllObjects];
+    if (sCommandsByPID.count > kMaxCachedPlayers) [sCommandsByPID removeAllObjects];
+}
+
 static void refreshCommands(int ownerPID, id path) {
     if (!sGetCommandsForPlayer) return;
     if (!path) return;
@@ -106,6 +180,7 @@ static void refreshCommands(int ownerPID, id path) {
         }
         if (ownerPID > 0) {
             sCommandsByPID[@(ownerPID)] = codes;
+            evictStaleCaches();
         }
     });
 }
@@ -117,8 +192,12 @@ static void refreshCommands(int ownerPID, id path) {
 /// that field running: it is a reading from the last change of state, and a
 /// session that has been playing for three minutes still reports the second it
 /// started at. What advances is the clock beside it, so both have to travel.
-static void publishSnapshot(int ownerPID, id path) {
+static void publishSnapshot(int ownerPID, id path, BOOL forced) {
     refreshCommands(ownerPID, path);
+    // Here too, not only inside refreshCommands: that early-returns when the
+    // supported-commands symbol is missing, which would leave the caches — and
+    // their stale-pid hazard — unpruned for the whole session.
+    evictStaleCaches();
     sGetIsPlaying(sQueue, ^(Boolean playing) {
         sGetInfo(sQueue, ^(CFDictionaryRef raw) {
             NSDictionary *info = (__bridge NSDictionary *)raw;
@@ -170,20 +249,35 @@ static void publishSnapshot(int ownerPID, id path) {
             NSArray *commands = ownerPID > 0 ? sCommandsByPID[@(ownerPID)] : nil;
             if (commands) out[@"commands"] = commands;
 
-            emit(out);
+            emitPayload(out, forced);
         });
     });
 }
 
-static void publish(void) {
-    if (!sGetInfo || !sGetIsPlaying) return;
+static void publishForced(BOOL forced) {
+    if (!atomic_load(&sFeedReady)) return;
+    if (!sGetInfo || !sGetIsPlaying) {
+        // Say so, rather than going quiet. A helper that stays alive and
+        // silent is the one failure the app cannot see from the outside: the
+        // process never terminates, so nothing tells it to fall back, and the
+        // media tab stays blank forever. This is what a future macOS renaming
+        // one of these symbols looks like.
+        emitPayload(@{@"error": @"mediaremote-symbols-missing"}, forced);
+        return;
+    }
     id path = activePlayerPath();
     if (sGetPID) {
-        sGetPID(sQueue, ^(int pid) { publishSnapshot(pid, path); });
+        sGetPID(sQueue, ^(int pid) { publishSnapshot(pid, path, forced); });
     } else {
-        publishSnapshot(0, path);
+        // Onto the queue explicitly. Called straight through, this ran
+        // `publishSnapshot` — and the cache eviction inside it — on whichever
+        // thread happened to call `publish`, mutating dictionaries the queue
+        // otherwise owns.
+        dispatch_async(sQueue, ^{ publishSnapshot(0, path, forced); });
     }
 }
+
+static void publish(void) { publishForced(NO); }
 
 /// The service already tracks which player is "active" for the whole
 /// system — asking it directly gives an already-resolved, already-matched
@@ -207,8 +301,12 @@ static void sendCommandToPlayer(MRCommand command, NSDictionary *options, int pl
 }
 
 static void handleCommand(NSString *line) {
+    // The feed thread may not have finished wiring up yet: the app can write a
+    // command the instant the helper launches, and `fgets` returns as soon as
+    // there are bytes. Everything below reads globals that thread publishes.
+    if (!atomic_load(&sFeedReady)) return;
     if ([line isEqualToString:@"get"]) {
-        publish();
+        publishForced(YES);
     } else if ([line hasPrefix:@"cmd "]) {
         NSArray<NSString *> *parts = [line componentsSeparatedByString:@" "];
         MRCommand command = (MRCommand)(parts.count > 1 ? parts[1].intValue : -1);
@@ -221,7 +319,7 @@ static void handleCommand(NSString *line) {
             // in-flight command would otherwise wait for the 2s poll to
             // confirm. One echo after the player has settled confirms it fast.
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), sQueue, ^{
-                publish();
+                publishForced(YES);
             });
         });
     } else if ([line hasPrefix:@"seek "]) {
@@ -233,7 +331,7 @@ static void handleCommand(NSString *line) {
             publish();
             // Same echo as `cmd`: the player needs a moment to land the jump.
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), sQueue, ^{
-                publish();
+                publishForced(YES);
             });
         });
     }
@@ -241,10 +339,6 @@ static void handleCommand(NSString *line) {
 
 static void startFeed(void) {
     [NSThread detachNewThreadWithBlock:^{
-        sQueue = dispatch_queue_create("dev.dynamicisland.mediaremote", DISPATCH_QUEUE_SERIAL);
-        sPlayerPathsByPID = [NSMutableDictionary dictionary];
-        sCommandsByPID = [NSMutableDictionary dictionary];
-
         void *handle = dlopen(kMediaRemotePath.UTF8String, RTLD_NOW);
         if (!handle) {
             emit(@{@"error": @"mediaremote-unavailable"});
@@ -256,6 +350,10 @@ static void startFeed(void) {
         sGetClients = (MRGetClientsFn)dlsym(handle, "MRMediaRemoteGetNowPlayingClients");
         sSendCommandToPlayer = (MRSendCommandToPlayerFn)dlsym(handle, "MRMediaRemoteSendCommandToPlayer");
         sGetCommandsForPlayer = (MRGetCommandsForPlayerFn)dlsym(handle, "MRMediaRemoteGetSupportedCommandsForPlayer");
+
+        // Every global the command reader touches is written by now, so it may
+        // start using them.
+        atomic_store(&sFeedReady, true);
 
         MRRegisterFn registerNotifications =
             (MRRegisterFn)dlsym(handle, "MRMediaRemoteRegisterForNowPlayingNotifications");
@@ -276,7 +374,7 @@ static void startFeed(void) {
                                                            object:nil
                                                             queue:nil
                                                        usingBlock:^(NSNotification *note) {
-                publish();
+                @autoreleasepool { publish(); }
             }];
         }
 
@@ -286,11 +384,17 @@ static void startFeed(void) {
         // them would go stale silently. Cheap enough at this interval to run
         // unconditionally rather than gate it on whether anything is playing —
         // an idle session publishes the same empty record it already would.
+        //
+        // Each tick drains its own autorelease pool. This thread's run loop
+        // never exits, so the pool wrapped around the thread body never
+        // drains either: everything the poll autoreleased — the service client
+        // and player path fetched through `performSelector` on every publish —
+        // accumulated for the whole life of the helper.
         [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *timer) {
-            publish();
+            @autoreleasepool { publish(); }
         }];
 
-        publish();
+        @autoreleasepool { publish(); }
         [NSRunLoop.currentRunLoop addPort:[NSMachPort port] forMode:NSDefaultRunLoopMode];
         [NSRunLoop.currentRunLoop run];
     }];
@@ -313,6 +417,13 @@ static void startCommandReader(void) {
 
 __attribute__((constructor))
 static void dynamic_island_helper_init(void) {
+    // The queue and the caches are created here, on one thread, before either
+    // worker exists. Created inside the feed thread they raced the command
+    // reader, which starts in the same breath and reads them.
+    sEmitLock = [[NSLock alloc] init];
+    sQueue = dispatch_queue_create("dev.dynamicisland.mediaremote", DISPATCH_QUEUE_SERIAL);
+    sPlayerPathsByPID = [NSMutableDictionary dictionary];
+    sCommandsByPID = [NSMutableDictionary dictionary];
     startFeed();
     startCommandReader();
 }

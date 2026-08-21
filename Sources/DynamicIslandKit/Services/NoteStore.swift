@@ -31,12 +31,15 @@ final class NoteStore: ObservableObject {
     /// be in memory (#7).
     @Published private(set) var fileBroken = false
 
-    private let fileURL: URL
+    /// Nil when the support directory itself could not be created. Writing is
+    /// forbidden in that state for the same reason as `fileBroken`.
+    private let fileURL: URL?
 
     private let saves = DebouncedWrite()
 
-    init(fileURL: URL = AppPaths.live.supportFile("notes.json")) {
+    init(fileURL: URL? = AppPaths.live.supportFile("notes.json")) {
         self.fileURL = fileURL
+        if fileURL == nil { fileBroken = true }
         load()
     }
 
@@ -79,8 +82,29 @@ final class NoteStore: ObservableObject {
     // MARK: - Persistence
 
     private func load() {
-        // No file is an honest empty list — first launch — and not corruption.
-        guard let data = try? Data(contentsOf: fileURL) else { return }
+        guard let fileURL else { return }
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            // No file is an honest empty list — first launch. Anything else —
+            // no permission, an I/O error, a folder that vanished — is a file
+            // that exists and could not be read, and starting empty there
+            // would let the next keystroke persist an empty list over notes
+            // that are still on disk.
+            let code = (error as NSError).code
+            if (error as NSError).domain == NSCocoaErrorDomain,
+               code == NSFileReadNoSuchFileError || code == NSFileNoSuchFileError {
+                return
+            }
+            fileBroken = true
+            NSLog("Dynamic Island: notes.json is unreadable: \(error.localizedDescription)")
+            return
+        }
+        // An empty file reads as success and then fails to decode, which used
+        // to raise `fileBroken` and silently refuse every write for the rest of
+        // the session. Empty and absent mean the same thing here: no notes yet.
+        guard !data.isEmpty else { return }
         do {
             notes = try JSONDecoder().decode([Note].self, from: data)
             selected = notes.first?.id
@@ -102,7 +126,7 @@ final class NoteStore: ObservableObject {
     func flush() { saves.flush() }
 
     private func persist() {
-        guard !fileBroken else { return }
+        guard !fileBroken, let fileURL else { return }
         do {
             try JSONEncoder().encode(notes).write(to: fileURL, options: .atomic)
         } catch {

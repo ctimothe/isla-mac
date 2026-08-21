@@ -8,6 +8,7 @@ import ServiceManagement
 struct SettingsPane: View {
     @ObservedObject var shelf: ShelfStore
     let screenshotVault: ScreenshotVault
+    let lyrics: LyricsStore
     @ObservedObject var privacy: PrivacyMode
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -92,6 +93,17 @@ struct SettingsPane: View {
                             }
                         )
                     )
+                    // Looked-up lyrics are kept on disk so a replay costs no
+                    // request. Offered here because a cache the user cannot
+                    // see the end of is a cache they cannot empty.
+                    confirmRow(
+                        symbol: "trash",
+                        title: localized("Clear Lyrics Cache"),
+                        armedTitle: localized("Delete These Files?"),
+                        disabled: false
+                    ) {
+                        lyrics.clearCache()
+                    }
                 }
 
                 section(localized("Spotify")) {
@@ -103,6 +115,18 @@ struct SettingsPane: View {
                         actionRow(symbol: "heart", title: localized("Connect Spotify Account…")) {
                             connectSpotify()
                         }
+                    }
+                    // Offered only when there is actually something to bring
+                    // across. Finding that out asks the keychain for attributes
+                    // and never for contents, so the offer itself costs no
+                    // prompt — pressing it is what asks, once.
+                    if spotify.canImportLegacyAccount {
+                        actionRow(symbol: "key", title: localized("Import Account From Keychain…")) {
+                            SpotifyAccount.shared.importLegacyAccount()
+                        }
+                    }
+                    if spotify.isConnected {
+                        noteRow(storageNote)
                     }
                 }
 
@@ -207,10 +231,22 @@ struct SettingsPane: View {
 
     /// Matches the icon each section's own tab already uses (`NotchViewModel.Tab.symbol`),
     /// so the same feature reads as the same feature here.
+    /// Where the tokens are, in the user's words. Said out loud because the
+    /// answer depends on how the app was signed, and somebody running a build
+    /// they made themselves deserves to know it is not the keychain.
+    private var storageNote: String {
+        switch spotify.storage {
+        case .keychain: return localized("Stored in your keychain.")
+        case .file: return localized("Stored in an owner-only file, because this build is unsigned.")
+        case .unavailable: return localized("Cannot be stored on this Mac.")
+        }
+    }
+
     private func privacySymbol(for section: PrivacyMode.Section) -> String {
         switch section {
         case .clipboard: return "list.clipboard.fill"
         case .notes: return "note.text"
+        case .translate: return "translate"
         }
     }
 
@@ -289,6 +325,18 @@ struct SettingsPane: View {
             disabled: disabled,
             action: action
         )
+    }
+
+    /// A line of explanation under a section's controls. Not a control itself:
+    /// it states something the user would otherwise have to guess.
+    private func noteRow(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10.5))
+            .foregroundStyle(Theme.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 8)
+            .padding(.top, 1)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func actionRow(

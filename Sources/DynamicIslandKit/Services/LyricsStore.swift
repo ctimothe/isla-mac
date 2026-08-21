@@ -57,6 +57,7 @@ final class LyricsStore: ObservableObject {
             self.session = URLSession(configuration: configuration)
         }
         self.cacheDirectory = cacheDirectory ?? AppPaths.live.supportFile("lyrics")
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("DynamicIslandLyrics", isDirectory: true)
     }
 
     /// Called with the displayed track. Same track twice is free.
@@ -78,14 +79,23 @@ final class LyricsStore: ObservableObject {
             return
         }
 
-        if let cached = readCache(key) {
-            state = cached.isEmpty ? .none : .synced(cached)
-            return
-        }
-
         state = .loading
         inFlight = Task { [weak self] in
-            await self?.fetch(
+            guard let self else { return }
+            // The cache read is disk I/O and JSON decoding, so it happens off
+            // the main actor like the write does — it used to run inline on
+            // every track change, in the frame the lyric crossfade was
+            // animating.
+            let url = self.cacheURL(key)
+            let cached = await Task.detached(priority: .userInitiated) {
+                Self.readCache(at: url)
+            }.value
+            guard !Task.isCancelled, self.loadedKey == identity else { return }
+            if let cached {
+                self.state = cached.isEmpty ? .none : .synced(cached)
+                return
+            }
+            await self.fetch(
                 key: identity, cacheKey: key, spotifyID: spotifyID,
                 title: title, artist: artist, album: album, duration: duration
             )
@@ -250,10 +260,20 @@ final class LyricsStore: ObservableObject {
         }
 
         var lines: [Line] = []
+        // Whether the service actually answered "no lyrics", as opposed to
+        // failing to answer. Only a real answer is worth remembering.
+        var serviceAnswered = false
         do {
             let (data, response) = try await session.data(for: request)
             guard !Task.isCancelled, loadedKey == key else { return }
-            if (response as? HTTPURLResponse)?.statusCode == 200,
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            // 404 is an answer: this track is not in the catalogue. 429 and the
+            // 5xx family are the service being unable to answer, and caching
+            // those as "no lyrics" pinned every track played during an outage
+            // to silence, permanently and with no way back short of deleting
+            // cache files by hand.
+            serviceAnswered = status == 200 || status == 404
+            if status == 200,
                let payload = try? JSONDecoder().decode(Payload.self, from: data),
                let synced = payload.syncedLyrics {
                 lines = Self.parseLRC(synced)
@@ -288,8 +308,11 @@ final class LyricsStore: ObservableObject {
             }
 
             // A miss is an answer too, and caching it is what keeps a track
-            // with no lyrics from being asked about on every replay.
-            writeCache(cacheKey, lines: lines)
+            // with no lyrics from being asked about on every replay — but only
+            // when the service was in a position to answer.
+            if !lines.isEmpty || serviceAnswered {
+                writeCache(cacheKey, lines: lines)
+            }
         } catch {
             guard !Task.isCancelled, loadedKey == key else { return }
             // Offline or refused: say nothing rather than something wrong,
@@ -368,8 +391,14 @@ final class LyricsStore: ObservableObject {
         var wordTexts: [[String]]? = nil
     }
 
-    private func readCache(_ key: String) -> [Line]? {
-        guard let data = try? Data(contentsOf: cacheURL(key)),
+    /// How many cached tracks to keep. The cache is one small file per track
+    /// ever played, misses included, and nothing used to remove any of it: a
+    /// heavy listener accumulated files forever with no setting, no expiry,
+    /// and no way to clear them short of finding the folder.
+    static let cacheLimit = 500
+
+    private nonisolated static func readCache(at url: URL) -> [Line]? {
+        guard let data = try? Data(contentsOf: url),
               let cached = try? JSONDecoder().decode(CachedLyrics.self, from: data),
               cached.times.count == cached.texts.count else { return nil }
         return cached.times.indices.map { index in
@@ -382,15 +411,66 @@ final class LyricsStore: ObservableObject {
         }
     }
 
+    /// Encodes and writes off the main thread.
+    ///
+    /// A word-synced track carries a timing per word, and encoding plus an
+    /// atomic write of that used to happen on the main actor during the exact
+    /// frame the lyric crossfade was animating.
     private func writeCache(_ key: String, lines: [Line]) {
-        try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         let cached = CachedLyrics(
             times: lines.map(\.at),
             texts: lines.map(\.text),
             wordTimes: lines.map { $0.words.map(\.at) },
             wordTexts: lines.map { $0.words.map(\.text) }
         )
-        guard let data = try? JSONEncoder().encode(cached) else { return }
-        try? data.write(to: cacheURL(key), options: .atomic)
+        let url = cacheURL(key)
+        let directory = cacheDirectory
+        let limit = Self.cacheLimit
+        DispatchQueue.global(qos: .utility).async {
+            let fm = FileManager.default
+            try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
+            guard let data = try? JSONEncoder().encode(cached) else { return }
+            try? data.write(to: url, options: .atomic)
+            Self.pruneCache(directory: directory, limit: limit)
+        }
+    }
+
+    /// Drops the least recently used entries once the cache exceeds its limit,
+    /// and clears out abandoned v1 files while it is there — the format bump
+    /// left those unreadable but on disk forever.
+    private nonisolated static func pruneCache(directory: URL, limit: Int) {
+        let fm = FileManager.default
+        guard let urls = try? fm.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        for url in urls where url.pathExtension == "json" && !url.lastPathComponent.hasSuffix(".lrc2.json") {
+            try? fm.removeItem(at: url)
+        }
+        let current = urls.filter { $0.lastPathComponent.hasSuffix(".lrc2.json") }
+        guard current.count > limit else { return }
+        let dated = current.map { url -> (URL, Date) in
+            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? .distantPast
+            return (url, date)
+        }
+        .sorted { $0.1 < $1.1 }
+        for (url, _) in dated.prefix(current.count - limit) {
+            try? fm.removeItem(at: url)
+        }
+    }
+
+    /// Everything the lyric cache has put on disk. Offered in Settings, so the
+    /// cache is something the user can see the size of and empty.
+    func clearCache() {
+        let directory = cacheDirectory
+        DispatchQueue.global(qos: .utility).async {
+            let fm = FileManager.default
+            guard let urls = try? fm.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            ) else { return }
+            for url in urls { try? fm.removeItem(at: url) }
+        }
     }
 }
