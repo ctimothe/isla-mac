@@ -30,19 +30,8 @@ struct NotchContentView: View {
                         compactMediaHeader
                     }
                     .frame(maxWidth: .infinity, alignment: .top)
-                    // Anchored to the notch, not to the middle of the window.
-                    //
-                    // While locked the window is the whole display, so centring
-                    // the pill in it puts the pill at the centre of the screen —
-                    // which is the notch only for as long as the notch happens
-                    // to be centred. Measured against the real cutout instead,
-                    // the island stays exactly where the hardware is whatever
-                    // the display arrangement, and cannot drift sideways.
-                    .offset(x: vm.lockedPillOffset)
                     .refusalShake(trigger: vm.lockedHoverNudges)
                 }
-                LockScreenCard(media: vm.media, lyrics: vm.lyrics)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
             // Nothing here animates from the layout it had a moment ago. Locking
             // while the panel was open leaves an open→closed animation in
