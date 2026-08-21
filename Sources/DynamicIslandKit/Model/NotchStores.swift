@@ -19,8 +19,6 @@ final class NotchStores {
     let clipboard = ClipboardStore()
     let screenshotVault = ScreenshotVault()
     let translator = Translator()
-    let notes = NoteStore()
-    let teleprompter = TeleprompterStore()
     let lyrics = LyricsStore()
     /// Shared by every pane that shows something worth not showing.
     let privacy = PrivacyMode()
@@ -65,10 +63,7 @@ final class NotchStores {
         started = false
         media.stop()
         clipboard.stop()
-        teleprompter.suspend()
         // Whatever was typed makes it to disk even when quitting mid-thought.
-        notes.flush()
-        teleprompter.flush()
     }
 
     /// Paused while nobody can see or reach the panel — the display asleep, or
