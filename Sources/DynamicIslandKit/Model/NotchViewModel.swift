@@ -294,6 +294,17 @@ final class NotchViewModel: ObservableObject {
         return defaults.bool(forKey: showOnLockScreenKey)
     }
 
+    /// How long a pointer rests on the notch before the panel opens.
+    static let hoverDelayKey = "hoverOpenDelay"
+
+    /// Clamped to what makes sense: below 50ms the panel opens on drive-bys,
+    /// above a second it reads as broken.
+    static var hoverOpenDelay: TimeInterval {
+        let stored = UserDefaults.standard.double(forKey: hoverDelayKey)
+        guard stored > 0 else { return NotchMetrics.openDelay }
+        return min(max(stored, 0.05), 1.0)
+    }
+
     /// Keeps the panel out of screenshots and screen recordings.
     static let hideFromCaptureKey = "hideFromCapture"
 

@@ -44,6 +44,7 @@ struct MediaPane: View {
             // player, and a stage left open for a track without lyrics would
             // open onto its own empty state.
             .onChange(of: track.key) { _, _ in showingLyrics = false }
+            .onAppear { media.refreshPlaybackModes() }
             // Verification hook, environment-gated: launching the binary with
             // DI_OPEN_LYRICS=1 opens the stage without a pointer, which is how
             // an agent without Accessibility permission can screenshot it. An
@@ -293,6 +294,19 @@ struct MediaPane: View {
     /// widget dims the same two arrows on the same session.
     private var controls: some View {
         HStack(spacing: 20) {
+            // Shuffle and repeat exist only for players that can be asked —
+            // hidden, not dimmed, elsewhere: unlike skipping, the concept
+            // itself is absent for a browser tab, and a dim control implies a
+            // state that merely is not available right now.
+            if let shuffle = media.shuffleEnabled {
+                Button { media.toggleShuffle() } label: {
+                    Image(systemName: "shuffle")
+                        .foregroundStyle(shuffle ? Color.white : Theme.tertiary)
+                }
+                .buttonStyle(NotchButtonStyle(size: 24))
+                .accessibilityLabel(localized("Shuffle"))
+                .accessibilityValue(shuffle ? localized("On") : localized("Off"))
+            }
             Button { media.previous() } label: { Image(systemName: "backward.fill") }
                 .buttonStyle(NotchButtonStyle(size: 30))
                 .disabled(!media.canSkip)
@@ -308,9 +322,28 @@ struct MediaPane: View {
                 .disabled(!media.canSkip)
                 .opacity(media.canSkip ? 1 : 0.35)
                 .accessibilityLabel(localized("Next Track"))
+            if let mode = media.repeatMode {
+                Button { media.cycleRepeat() } label: {
+                    Image(systemName: mode == .one ? "repeat.1" : "repeat")
+                        .foregroundStyle(mode == .off ? Theme.tertiary : Color.white)
+                }
+                .buttonStyle(NotchButtonStyle(size: 24))
+                .accessibilityLabel(localized("Repeat"))
+                .accessibilityValue(repeatValueLabel(mode))
+            }
         }
         .frame(maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.15), value: media.canSkip)
+        .animation(Theme.contentAnimation, value: media.shuffleEnabled == nil)
+        .animation(Theme.contentAnimation, value: media.repeatMode == nil)
+    }
+
+    private func repeatValueLabel(_ mode: PlayerBridge.RepeatMode) -> String {
+        switch mode {
+        case .off: return localized("Off")
+        case .all: return localized("All Tracks")
+        case .one: return localized("This Track")
+        }
     }
 
     /// How far ahead of the clock the lyric runs.
@@ -390,17 +423,43 @@ struct MediaPane: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             Image(systemName: "music.note.list")
                 .font(.system(size: 22, weight: .light))
                 .foregroundStyle(Theme.tertiary)
             // Status, not instruction: an empty pane on its own would not say
             // whether nothing is playing or nothing could be read.
-            Text("Nothing is playing")
+            Text(localized("Nothing is playing"))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Theme.secondary)
+            // And an affordance, because a dead end teaches people not to
+            // open the tab. One button per player that is actually installed.
+            HStack(spacing: 8) {
+                ForEach(PlayerApp.allCases.filter(Self.isInstalled), id: \.rawValue) { app in
+                    Button {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: Self.applicationPath(for: app) ?? ""))
+                    } label: {
+                        Text(localized("Open %@", app.displayName))
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Theme.surface, in: Capsule())
+                            .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private static func isInstalled(_ app: PlayerApp) -> Bool {
+        applicationPath(for: app) != nil
+    }
+
+    private static func applicationPath(for app: PlayerApp) -> String? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleID)?.path
     }
 }
 
