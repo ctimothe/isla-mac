@@ -129,12 +129,28 @@ struct LockScreenCard: View {
                                     Image(nsImage: artwork)
                                         .resizable()
                                         .aspectRatio(contentMode: .fill)
-                                        .blur(radius: 44)
-                                        .saturation(1.15)
-                                        .opacity(0.55)
+                                        .blur(radius: 52)
+                                        // A tint, not a stained window. At full
+                                        // strength the cover turns the pane into
+                                        // a coloured slab — the exact thing this
+                                        // is meant to stop being. Held back and
+                                        // desaturated, it reads as light behind
+                                        // grey glass, which is what the surface
+                                        // is pretending to be.
+                                        .saturation(0.72)
+                                        .opacity(0.28)
                                 }
                                 .transition(.opacity)
                         }
+
+                        // And the glass itself: neutral, faintly lit, so the
+                        // pane has a colour of its own rather than only the
+                        // cover's.
+                        LinearGradient(
+                            colors: [.white.opacity(0.10), .white.opacity(0.03)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     } else {
                         Rectangle().fill(.ultraThinMaterial)
                             .environment(\.colorScheme, .dark)
@@ -233,9 +249,9 @@ struct LockScreenCard: View {
                     .strokeBorder(
                         LinearGradient(
                             colors: [
-                                .white.opacity(0.55),
-                                .white.opacity(0.14),
-                                .white.opacity(0.06),
+                                .white.opacity(0.72),
+                                .white.opacity(0.20),
+                                .white.opacity(0.08),
                             ],
                             startPoint: .top,
                             endPoint: .bottom
