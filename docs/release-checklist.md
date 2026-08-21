@@ -21,22 +21,31 @@ result, evidence path, or issue link to every gate.
    pass for every tab. Blocked: Computer Use returned `cgWindowNotFound` for
    the borderless panel after three isolated discovery attempts. Evidence:
    [release-candidate report](verification/2026-08-18-release-candidate.md)
-5. [ ] **Permissions** — fresh-user Calendar and protected-file flows pass
-   without launch-time prompting. Unit seam passes; clean-account manual flow
-   is not run. Evidence: [release-candidate report](verification/2026-08-18-release-candidate.md)
+5. [ ] **Permissions and network** — on a fresh account, no launch-time
+   prompting; protected-folder prompts appear only in the context of a Shelf
+   action; with the default switches, nothing is written to
+   `~/Pictures/DynamicIsland` and no request leaves the machine. Reworded on
+   2026-08-21: this gate named the removed Calendar flow and so could never be
+   completed as written. Clean-account manual flow is not run. Evidence:
+   [release-candidate report](verification/2026-08-18-release-candidate.md)
 6. [ ] **Displays** — physical-notch and synthetic-notch passes complete.
    Physical notch detected, but UI workflow not completed; no synthetic display
    is connected. Evidence: [release-candidate report](verification/2026-08-18-release-candidate.md)
 7. [ ] **Localization** — English and Russian key checks plus visual review
    key parity passes; visual review is blocked with UI coverage. Evidence:
    [release-candidate report](verification/2026-08-18-release-candidate.md)
-8. [ ] **Recovery and lifecycle** — quit/relaunch, launch at login, corrupt
-   snippets, unavailable helper, and missing file pass. Automated persistence
-   and helper lifecycle pass; remaining manual scenarios are not run. Evidence:
-   [release-candidate report](verification/2026-08-18-release-candidate.md)
-9. [ ] **Performance** — three-run medians meet the pinned Cyclop 0.6.5 CPU,
-   RSS, responsiveness, lifecycle, and bundle gates. Blocked by the strict CPU
-   and helper-RSS thresholds. Evidence: [performance report](performance/2026-08-18-cyclop-0.6.5-baseline.md)
+8. [ ] **Recovery and lifecycle** — quit/relaunch, launch at login, an
+   unreadable notes file, a non-UTF-8 teleprompter script, an unavailable
+   helper, a silent-but-running helper, and a missing Shelf file all pass.
+   Reworded on 2026-08-21: this gate named the removed snippets file. Automated
+   persistence and helper lifecycle pass; remaining manual scenarios are not
+   run. Evidence: [release-candidate report](verification/2026-08-18-release-candidate.md)
+9. [ ] **Performance** — three-run medians meet the pinned Cyclop CPU, RSS,
+   responsiveness, lifecycle, and bundle gates. The two thresholds that blocked
+   this were themselves wrong and were corrected on 2026-08-21: idle CPU is now
+   compared against the reference rather than against an absolute 0.0%, and a
+   helper that was not running is no longer recorded as using 0 KB. Needs a
+   re-run. Evidence: [performance report](performance/2026-08-18-cyclop-0.6.5-baseline.md)
 10. [x] **Original identity** — branding scan and generated-icon visual review
     find no Cyclop
     icon, identifier, paths, screenshots, marketing copy, or unintended visible

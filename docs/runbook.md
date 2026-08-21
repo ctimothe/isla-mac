@@ -60,13 +60,11 @@ not visible.
 | --- | --- | --- |
 | Music | Play media, seek, pause, skip | Metadata and progress update; supported controls act on the active player |
 | Shelf | Drop files, multi-select, drag out, copy, reveal, remove | Files remain references; previews load only while Shelf is visible |
-| Clipboard | Copy 41 text values, a file, and a concealed item | Latest 40 remain; file is captured; concealed item is absent |
-| Snippets | Add, search, copy, externally edit JSON, reopen | Search is case-insensitive; external changes reload; malformed JSON is never overwritten |
-| Calendar | Open tab, press Allow, join a known provider | No launch prompt; explicit prompt works; only HTTPS known-provider links show Join |
-| Translate | Enter English and Cyrillic text | Route reverses by script; installed packs translate offline; missing packs explain the remedy |
+| Clipboard | Copy 41 text values, a multi-file selection, and a concealed item | Latest 40 remain; the selection returns all of its files when pasted back; concealed item is absent |
+| Translate | Enter English and Cyrillic text; press ⌥⌘T with text on the clipboard | Route reverses by script; the pane takes the keyboard; covered when Translate privacy is on |
 | Notes | Add two notes, edit, copy, delete, leave a blank | First line is the title; blank note disappears on leaving |
 | Teleprompter | Paste script, change speed/type, start, leave tab | Smooth scroll; panel holds open only while running; leaving suspends it |
-| Settings | Toggle screenshot saving and launch at login; open support files | Values persist and actions open Dynamic Island-owned paths |
+| Settings | Toggle screenshot saving, lyrics, capture hiding and launch at login; open support files | Values persist and actions open Dynamic Island-owned paths; screenshot saving and lyrics start off |
 
 Collapse the panel after privacy-covered rows are temporarily revealed. Reopen
 it and confirm every reveal reset.
@@ -89,38 +87,68 @@ On a notched MacBook display:
 ### Synthetic notch
 
 Make a non-notch or external display primary, relaunch, and repeat the pass. The
-collapsed target must be centered at the menu-bar top and all nine tabs must
+collapsed target must be centered at the menu-bar top and all seven tabs must
 remain available.
 
-## 5. Permission passes on a clean account
+### Display changes and the lock screen
 
-Create a temporary macOS user or reset only this bundle's consent state before
-the test:
+1. With the panel open on the teleprompter tab, plug in or unplug an external
+   display. The panel is rebuilt on the notch display, keeps the tab, and keeps
+   the clipboard history and any half-typed translation.
+2. Lock the Mac with the panel expanded. The lock card appears centered, its
+   transport answers clicks, and the pill stays at the notch.
+3. Let the display sleep while locked, then wake it. The card still works and
+   the panel never opens under the shield.
+4. Let a track change while locked. The card stays clickable and no phantom
+   region elsewhere on the shield eats clicks.
+5. Unlock. The panel returns to its notch frame, collapsed.
+6. With the lock-screen card switched off in Settings, repeat step 2: nothing
+   is drawn over the shield and pointer movement over the notch opens nothing.
 
-```bash
-tccutil reset Calendar dev.dynamicisland.app
-```
+## 5. Permission and network passes on a clean account
 
-1. Launch and visit every tab except Calendar. No app permission prompt should
-   appear.
-2. Open Calendar. Reading the explanatory state must still not prompt.
-3. Press **Allow**. Exactly one Calendar prompt should appear.
-4. Deny once and confirm only Calendar is disabled; the shell and other tabs
-   continue working.
-5. Drag a file from Downloads to Shelf. Any protected-folder prompt must appear
+Create a temporary macOS user for the test.
+
+1. Launch and visit every tab. No app permission prompt should appear at
+   launch or while browsing: the one entitlement the app claims
+   (`com.apple.security.automation.apple-events`) is only exercised when the
+   scripting fallback first drives a player.
+2. Drag a file from Downloads to Shelf. Any protected-folder prompt must appear
    in the context of that Shelf action, never at launch.
+3. Copy a screenshot with **Save clipboard screenshots** off (the default) and
+   confirm nothing is written to `~/Pictures/DynamicIsland`.
+4. Play a track with **Lyrics** off (the default) and confirm, with Little
+   Snitch or `nettop`, that no request leaves the machine.
+5. Turn Lyrics on and confirm requests go only to `lrclib.net`,
+   `raw.githubusercontent.com` and `lyrics.kugou.com`.
+6. Connect a Spotify account, confirm the browser round trip returns and the
+   heart works, then Disconnect and confirm the keychain items are gone.
 
-The app must not request Accessibility, Screen Recording, contacts, network
-accounts, or permission to read Cyclop data.
+The app must not request Accessibility, Screen Recording, contacts, or
+permission to read Cyclop data. Apple Events consent is raised by macOS only
+when the scripting fallback first drives Music or Spotify.
+
+7. Force the fallback (remove the bundled helper) on a *signed* build and
+   confirm the Apple Events prompt appears and transport works after Allow.
+   This is the check that would have caught a hardened-runtime build shipping
+   without that entitlement, where the fallback fails with -1743 and logs
+   nothing a user would see.
 
 ## 6. Failure and persistence passes
 
 - Quit while editing a note and teleprompter script; relaunch and confirm both
   flushed.
-- Put invalid JSON in `~/Library/Application Support/DynamicIsland/snippets.json`;
-  confirm the warning appears and adding a snippet does not overwrite the file.
+- Make `~/Library/Application Support/DynamicIsland/notes.json` unreadable
+  (`chmod 000`); relaunch, type in a note, restore permissions, and confirm the
+  file still holds the original notes.
+- Save the teleprompter script as UTF-16 from an external editor; relaunch,
+  type a character, and confirm the script on disk is not replaced.
 - Temporarily remove the bundled media helper; confirm Music falls back after
-  three failures without crashing the shell.
+  three failures without crashing the shell, and that the restart delay grows
+  rather than repeating every two seconds.
+- Suspend the helper process (`kill -STOP`) so it stays alive but silent;
+  confirm the app notices within about fifteen seconds and falls back rather
+  than showing an empty media tab indefinitely.
 - Delete a referenced Shelf file; open Shelf and confirm only the missing card is
   removed. Denied access must keep the card.
 - Enable launch at login, log out/in, confirm a single instance launches, then
@@ -164,10 +192,13 @@ then explicitly publish:
 bash Scripts/release.sh
 ```
 
-The script reruns all local gates before tagging, Developer ID-signs the app and
-DMG, submits the DMG to Apple notary service, staples and validates the ticket,
-pushes `v0.6.5`, and uploads the checksum-bearing GitHub release. It never
-publishes from an uncommitted tree or without release notes and credentials.
+The script runs every gate in §2 — including `test-identity.sh` and
+`test-lifecycle.sh` — then Developer ID-signs, notarizes and staples the app,
+builds the disk image around that stapled app without rebuilding it, notarizes
+and staples the image, and only then tags `v0.6.5` and uploads the
+checksum-bearing GitHub release. A failure while publishing removes the tag it
+pushed, so a retry is not blocked by it. It never publishes from an uncommitted
+tree or without release notes and credentials.
 
 ## 9. Evidence
 
