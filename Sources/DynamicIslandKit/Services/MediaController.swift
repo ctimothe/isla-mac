@@ -194,6 +194,7 @@ final class MediaController: ObservableObject {
         // past-the-end position would anchor the clock outside the track.
         guard position.isFinite, position >= 0 else { return }
         guard duration <= 0 || position <= duration + 1 else { return }
+        trace(String(format: "bc pos=%.2f old=%.2f", position, self.position))
         setAnchor(position)
         // Deliberately not `positionSettled = true`. Delivery of these
         // notifications is not guaranteed and they do not fire on seeks, which
@@ -231,6 +232,7 @@ final class MediaController: ObservableObject {
     /// computes it from there instantly, and the feed's fresh answer corrects
     /// whatever drifted a beat later.
     func setActive(_ active: Bool) {
+        trace("setActive \(active ? 1 : 0)")
         isActive = active
         if active { positionSettled = false }
         updateTicker()
@@ -415,6 +417,7 @@ final class MediaController: ObservableObject {
             let latency = Date().timeIntervalSince(asked)
             let corrected = self.isPlaying ? value + latency / 2 : value
             let delta = corrected - self.position
+            self.trace(String(format: "pc val=%.2f lat=%.2f delta=%.2f pos=%.2f", value, latency, delta, self.position))
 
             // Monotonic while playing: time does not go backwards, so a small
             // backward disagreement is sampling noise and only re-bases the
@@ -441,10 +444,12 @@ final class MediaController: ObservableObject {
     }
 
     func next() {
+        trace("cmd next")
         dispatch(feed: .next, script: { PlayerBridge.next($0) }, key: .next)
     }
 
     func previous() {
+        trace("cmd previous")
         dispatch(feed: .previous, script: { PlayerBridge.previous($0) }, key: .previous)
     }
 
@@ -452,6 +457,11 @@ final class MediaController: ObservableObject {
         guard duration > 0 else { return }
         let clamped = min(max(0, seconds), duration)
         let origin = anchor.map { $0.position } ?? position
+        trace(String(format: "seek to=%.2f origin=%.2f", clamped, origin))
+        // Our own jump is not a reading to be corroborated, and a candidate
+        // left over from before it would judge the next reading against a
+        // trajectory the track has already left.
+        rewindCandidate = nil
         setAnchor(clamped)
         pendingSeek = (clamped, Date(), origin)
         lastSeek = (clamped, Date(), origin)
@@ -599,6 +609,15 @@ final class MediaController: ObservableObject {
         // two seconds for the next correction.
         let precisionSteers = precisionSync && !playerChanged && !trackChanged
         let stale = describesAMomentAlreadyPast(snapshot, isPlaying: reportedPlaying)
+        trace(String(
+            format: "apply el=%.2f age=%@ rate=%.2f play=%d stale=%d steer=%d rep=%.2f pos=%.2f pend=%d",
+            snapshot.elapsed,
+            snapshot.takenAt.map { String(format: "%.2f", Date().timeIntervalSince($0)) } ?? "nil",
+            snapshot.rate, reportedPlaying ? 1 : 0, stale ? 1 : 0,
+            precisionSync && !playerChanged && !trackChanged ? 1 : 0,
+            reportedPosition(from: snapshot, isPlaying: reportedPlaying),
+            position, pendingSeek == nil ? 0 : 1
+        ))
         // The rate the clock extrapolates at, from the player itself. Zero is
         // what a paused session reports and says nothing about how fast it will
         // resume, so the last positive rate is kept.
@@ -630,10 +649,10 @@ final class MediaController: ObservableObject {
                 // playback resumes, and adopting a superseded one threw the
                 // bar back to where the track was before the drag — the
                 // exact yank this whole path exists to avoid.
-                if !stale { adopt(reported) }
+                if !stale { adopt(reported, mayRewindAtOnce: trackChanged || playerChanged) }
             }
         } else if !stale {
-            adopt(reported)
+            adopt(reported, mayRewindAtOnce: trackChanged || playerChanged)
         }
         if !stale, let takenAt = snapshot.takenAt { lastReadingAt = takenAt }
         updateTicker()
@@ -726,6 +745,7 @@ final class MediaController: ObservableObject {
         // nothing playing at all.
         anchor = nil
         pendingSeek = nil
+        rewindCandidate = nil
         updatePrecisionSync()
         updateTicker()
     }
@@ -868,6 +888,14 @@ final class MediaController: ObservableObject {
         anchor = (value, Date())
     }
 
+    /// Verification-only: one-line breadcrumbs through the position pipeline,
+    /// behind the same env gate as every other hook. Compiled in, inert in a
+    /// normal run.
+    private func trace(_ message: @autoclosure () -> String) {
+        guard ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" else { return }
+        DebugTrail.note(message())
+    }
+
     /// Below this a forward correction is churn, not information.
     ///
     /// This was 0.75s, and that number quietly guaranteed the bar ran behind:
@@ -884,6 +912,38 @@ final class MediaController: ObservableObject {
     /// itself, or a track change — not a discrepancy to be smoothed over.
     private let seekThreshold: TimeInterval = 2
 
+    /// A large step backwards, waiting for a second reading to agree with it.
+    private var rewindCandidate: (value: TimeInterval, at: Date)?
+
+    /// What a big jump backwards on the same track is worth.
+    ///
+    /// MediaRemote does not keep `elapsed` running: it republishes the reading
+    /// from the session's last state change, and Spotify's is routinely a plain
+    /// zero — carrying a *fresh* timestamp, so the staleness guard, which only
+    /// judges age, waves it through. Taken literally the clock landed at the
+    /// start of the track while the music played on a minute in, and everything
+    /// downstream followed: the lyrics stage showed the song's opening lines,
+    /// and clicking one seeked the player back to them. From the outside that
+    /// reads as "every lyric click sends the song backwards".
+    ///
+    /// Value alone cannot separate that from a rewind the listener really made
+    /// in the player — both are simply a smaller number. Persistence can: a
+    /// real jump is still there on the next reading, aged forward by the time
+    /// between them, while a phantom is contradicted the moment the session
+    /// publishes anything real. So one lone step backwards is held, and the
+    /// reading after it decides.
+    static func corroboratesRewind(
+        reading: TimeInterval,
+        candidate: (value: TimeInterval, at: Date)?,
+        now: Date,
+        rate: Double
+    ) -> Bool {
+        guard let candidate else { return false }
+        let elapsed = max(0, now.timeIntervalSince(candidate.at))
+        let expected = candidate.value + elapsed * max(rate, 0)
+        return abs(reading - expected) <= 1.5
+    }
+
     /// Takes a position reported by the player, without letting the report undo
     /// what has already been shown.
     ///
@@ -895,11 +955,38 @@ final class MediaController: ObservableObject {
     /// backwards only for something big enough to be a real event, forwards for
     /// anything past the jitter. Left alone, the bar keeps its own count, which
     /// runs at exactly the speed the music does.
-    private func adopt(_ reported: TimeInterval) {
+    /// - Parameter mayRewindAtOnce: true where a jump backwards needs no
+    ///   corroboration because its cause is already known — a new track starts
+    ///   at its own beginning, and waiting a reading for that would leave the
+    ///   bar showing the old song's position through the start of the new one.
+    private func adopt(_ reported: TimeInterval, mayRewindAtOnce: Bool = false) {
         if !positionSettled { positionSettled = true }
         var value = max(0, reported)
         if duration > 0 { value = min(value, duration) }
         let delta = value - position
+        let now = Date()
+
+        if delta <= -seekThreshold, !mayRewindAtOnce, isPlaying {
+            let confirmed = Self.corroboratesRewind(
+                reading: value, candidate: rewindCandidate, now: now,
+                rate: playbackRate
+            )
+            rewindCandidate = confirmed ? nil : (value, now)
+            trace(String(format: "adopt rep=%.2f delta=%.2f %@", reported, delta,
+                         confirmed ? "REWIND-CONFIRMED" : "REWIND-HELD"))
+            guard confirmed else {
+                // Keep the clock running under the held reading, so the ignored
+                // difference cannot accumulate into the next comparison.
+                anchor = (position, now)
+                return
+            }
+            position = value
+            anchor = (value, now)
+            return
+        }
+        rewindCandidate = nil
+        trace(String(format: "adopt rep=%.2f delta=%.2f %@", reported, delta,
+                     delta >= forwardTolerance || delta <= -seekThreshold ? "TAKE" : "rebase"))
 
         if delta >= forwardTolerance || delta <= -seekThreshold {
             position = value
@@ -914,6 +1001,7 @@ final class MediaController: ObservableObject {
     private func updateTicker() {
         ticker?.invalidate()
         ticker = nil
+        trace("ticker active=\(isActive ? 1 : 0) playing=\(isPlaying ? 1 : 0) spotify=\(displayedPlayerIsSpotify ? 1 : 0)")
         // The precision loop is gated on the same two facts, so it is
         // re-evaluated wherever they change rather than at the handful of call
         // sites that happened to remember.

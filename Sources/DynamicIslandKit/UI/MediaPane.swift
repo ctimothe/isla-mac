@@ -227,6 +227,9 @@ struct MediaPane: View {
                             // Seek first: clearing `scrubbing` beforehand would
                             // drop the bar back to the old position for a frame
                             // before the new one lands.
+                            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                                DebugTrail.note(String(format: "SCRUB to=%.2f", media.duration * target))
+                            }
                             media.seek(to: media.duration * target)
                             scrubbing = nil
                         }
