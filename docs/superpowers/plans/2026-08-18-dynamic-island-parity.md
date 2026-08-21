@@ -1,5 +1,17 @@
 # Dynamic Island Parity Implementation Plan
 
+> **Amended 2026-08-21.** This plan was written before Snippets and Calendar
+> were withdrawn (2026-08-20) and before the lyrics, Spotify-account and
+> lock-screen capabilities were added. Task 8 below — `CalendarStore`,
+> `CalendarAuthorizationClient`, `MeetingLinkTests` — is **withdrawn**: those
+> files do not exist and must not be created. Its Global Constraint about
+> Calendar access no longer binds. The plan's step checkboxes were never
+> ticked as work landed; treat
+> `.worktrees/dynamic-island-parity/checklist.md` and
+> `docs/release-checklist.md` as the delivery record, and this document as
+> historical intent.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Deliver a production-ready Dynamic Island macOS application with Cyclop 0.6.5 feature and performance parity, original identity, preserved MIT attribution, and reproducible release evidence.
