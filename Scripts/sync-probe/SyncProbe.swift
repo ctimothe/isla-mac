@@ -68,9 +68,19 @@ final class Probe {
             try? await Task.sleep(for: .milliseconds(200))
         }
 
-        try? out.joined(separator: "\n").write(
-            toFile: "/tmp/sync-probe.csv", atomically: true, encoding: .utf8)
-        print("done: \(out.count - 1) samples -> /tmp/sync-probe.csv")
+        // Where the harness told us to write, not a fixed world-writable path
+        // two runs (or two users) would share.
+        let path = ProcessInfo.processInfo.environment["SYNC_PROBE_CSV"] ?? "/tmp/sync-probe.csv"
+        do {
+            try out.joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
+        } catch {
+            // Loudly, and with a failing status. Swallowed, this left the
+            // harness analysing whatever CSV happened to be lying there and
+            // reporting those numbers as the current run's.
+            FileHandle.standardError.write(Data("sync-probe: cannot write \(path): \(error)\n".utf8))
+            exit(1)
+        }
+        print("done: \(out.count - 1) samples -> \(path)")
         exit(0)
     }
 

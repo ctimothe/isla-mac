@@ -6,13 +6,28 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/build/Dynamic Island.app"
-VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" 2>/dev/null || echo 0.1.0)"
+VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" 2>/dev/null || true)"
+# Пустая версия проходила все проверки ниже: sed на файле без строки VERSION=
+# завершается успешно и печатает пустоту, так что запасной вариант не срабатывал
+# и наружу выходил DynamicIsland-.dmg без версии внутри.
+if [ -z "$VERSION" ]; then
+    echo "!!! в Scripts/version нет строки VERSION=" >&2
+    exit 1
+fi
 DMG="$ROOT/build/DynamicIsland-$VERSION.dmg"
 
 # Всегда, а не только когда приложения нет. Иначе образ уносит то, что лежало в
 # build с прошлого раза: номер на образе новый, приложение внутри старое, и
 # заметить это можно лишь запустив его.
-"$ROOT/Scripts/bundle.sh" release
+#
+# SKIP_BUNDLE=1 — для release.sh, который уже собрал бандл и прогнал по нему все
+# проверки: пересборка здесь давала образ со второй, непроверенной сборкой.
+if [ "${SKIP_BUNDLE:-0}" != "1" ]; then
+    "$ROOT/Scripts/bundle.sh" release
+elif [ ! -d "$APP" ]; then
+    echo "!!! SKIP_BUNDLE=1, но собранного приложения нет: $APP" >&2
+    exit 1
+fi
 
 # Verify before producing the image, so a version mismatch cannot leave behind
 # a DMG whose filename advertises content it does not contain.

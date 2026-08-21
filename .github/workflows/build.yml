@@ -17,5 +17,7 @@ jobs:
           bash Scripts/test-localizations.sh
           bash Scripts/bundle.sh release
           bash Scripts/test-helper.sh
+          bash Scripts/test-identity.sh
           bash Scripts/test-package.sh
-          bash Scripts/dmg.sh
+          bash Scripts/test-lifecycle.sh
+          SKIP_BUNDLE=1 bash Scripts/dmg.sh
