@@ -115,6 +115,17 @@ final class NotchController {
         lockPresence.onLock = { [weak self] in self?.screenLocked() }
         lockPresence.onUnlock = { [weak self] in self?.screenUnlocked() }
         lockPresence.start()
+        // Verification hook, environment-gated like the panel's own: the lock
+        // card is the one surface that cannot be screenshotted where it lives,
+        // because the shield owns the screen while it is up. Launched with
+        // DI_LOCK_PREVIEW=1 the app presents the card as though locked, over
+        // the ordinary desktop, so its glass can be seen against a real
+        // wallpaper. An app launched normally never has the variable.
+        if ProcessInfo.processInfo.environment["DI_LOCK_PREVIEW"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                MainActor.assumeIsolated { self?.screenLocked() }
+            }
+        }
     }
 
     /// The panel belongs to the desktop it was opened on. ⌘-Tab to another one
