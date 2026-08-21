@@ -83,6 +83,21 @@ final class GlobalHotKey {
         Self.live[id] = self
     }
 
+    /// Gives the shortcut up.
+    ///
+    /// Explicit, because `deinit` can never run on its own: the instance is
+    /// held by the static `live` table so the Carbon callback can find it, so
+    /// its reference count never reaches zero and the unregistration below was
+    /// unreachable code. Rebinding a shortcut without this would leave the old
+    /// registration alive and still firing.
+    func unregister() {
+        if let reference {
+            UnregisterEventHotKey(reference)
+            self.reference = nil
+        }
+        Self.live.removeValue(forKey: id)
+    }
+
     deinit {
         if let reference { UnregisterEventHotKey(reference) }
     }

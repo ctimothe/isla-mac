@@ -72,12 +72,20 @@ struct NotchGeometry {
     /// Slack around the panel so the concave shoulders and shadow are not clipped.
     let windowPadding = NSEdgeInsets(top: 0, left: 40, bottom: 44, right: 40)
 
-    static func current() -> NotchGeometry {
+    /// Nil while the system reports no screens at all. That window is real:
+    /// `NSScreen.screens` is momentarily empty during display renegotiation —
+    /// unplugging the only display of a clamshell Mac — and
+    /// `didChangeScreenParametersNotification` fires exactly then, so this used
+    /// to be an index-out-of-range crash on a supported gesture. There is no
+    /// geometry to invent without a display; callers wait for the next
+    /// notification instead.
+    static func current() -> NotchGeometry? {
         // `NSScreen.main` tracks the key window, and this panel is a
         // non-activating one that never becomes key or main — so `.main` here
         // would be meaningless and nondeterministic rather than a real
         // fallback. Go straight to the first screen instead.
-        let screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.screens[0]
+        guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 })
+            ?? NSScreen.screens.first else { return nil }
 
         if screen.safeAreaInsets.top > 0,
            let left = screen.auxiliaryTopLeftArea,
@@ -149,9 +157,27 @@ struct NotchGeometry {
     /// exactly `screen.frame.maxY` whenever it is thrown at the top of the
     /// display — which is precisely how one reaches the notch. Every rect that
     /// touches the top edge is grown past it so that position counts as inside.
+    ///
+    /// Only where the top edge is really an edge. With a second display arranged
+    /// directly above, the two points past `maxY` are inside *that* display, and
+    /// a pointer working along its bottom edge would open — and hold open — the
+    /// panel on the screen below it.
     private func includingTopEdge(_ rect: CGRect) -> CGRect {
-        guard rect.maxY >= screen.frame.maxY else { return rect }
+        guard rect.maxY >= screen.frame.maxY, !hasScreenAbove(spanning: rect) else { return rect }
         return CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height + 2)
+    }
+
+    /// Whether another display covers any part of the strip this rect would
+    /// grow into.
+    ///
+    /// Asked about the rect's own horizontal span, not the notch's. The rects
+    /// that go through here differ by hundreds of points — the warm zone is the
+    /// full width of the screen — so a probe fixed to the notch's ~200 pt said
+    /// "nothing above" for a display offset sideways, and the wider rects were
+    /// grown into it anyway.
+    private func hasScreenAbove(spanning rect: CGRect) -> Bool {
+        let strip = CGRect(x: rect.minX, y: screen.frame.maxY, width: max(rect.width, 1), height: 2)
+        return NSScreen.screens.contains { $0.frame != screen.frame && $0.frame.intersects(strip) }
     }
 
     /// Rect the content occupies inside the window, in screen coordinates.
@@ -212,6 +238,24 @@ struct NotchGeometry {
             width: screen.frame.width,
             height: NotchMetrics.warmZoneHeight
         ))
+    }
+
+    /// The warm band plus its hysteresis margin — what a already-warm pointer
+    /// has to leave before sampling drops back to the idle rate.
+    ///
+    /// A full rect rather than the band's lower bound alone. Testing the y
+    /// coordinate by itself ignores both the width and which display the
+    /// pointer is on, so a pointer that warmed up here and then moved to a
+    /// display arranged above kept the 60 Hz timer running while working
+    /// somewhere this panel does not exist.
+    var coolZone: CGRect {
+        let zone = warmZone
+        return CGRect(
+            x: zone.minX,
+            y: zone.minY - NotchMetrics.coolMargin,
+            width: zone.width,
+            height: zone.height + NotchMetrics.coolMargin
+        )
     }
 
     /// Area that keeps the panel open while expanded, in global screen coordinates.

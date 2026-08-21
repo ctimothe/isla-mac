@@ -34,8 +34,11 @@ final class PointerWatcher {
     /// The pointer has to cross it to reach the notch, so the fast rate is
     /// always already running by the time hovering matters.
     var warmZone: CGRect = .zero
-    /// Hysteresis: how far below the band the pointer must fall to cool down.
-    var coolMargin = NotchMetrics.coolMargin
+    /// The same band grown downward by the hysteresis margin. A warm pointer
+    /// stays warm while inside this; leaving it cools sampling back down.
+    /// Bounded on every side, so warmth cannot survive a move to another
+    /// display that merely sits at a similar height.
+    var coolZone: CGRect = .zero
     /// How long the pointer may stand still before sampling drops to the idle
     /// rate wherever it stands. Movement re-warms on the next idle tick.
     var restThreshold = NotchMetrics.restThreshold
@@ -69,6 +72,7 @@ final class PointerWatcher {
         timer?.invalidate()
         timer = nil
         awaitingSince = nil
+        graceUntil = nil
         // The last sent interactivity dies with the panel it was sent to. The
         // watcher outlives a rebuild, and a fresh panel starts click-through;
         // holding on to the old "already interactive" would swallow the first
@@ -115,7 +119,7 @@ final class PointerWatcher {
         if isInside {
             near = true
         } else if isWarm {
-            near = point.y >= warmZone.minY - coolMargin
+            near = coolZone.contains(point)
         } else {
             near = warmZone.contains(point)
         }
@@ -125,9 +129,36 @@ final class PointerWatcher {
     }
 
     /// Force the state, e.g. when the panel is toggled from the menu bar.
-    func setInside(_ value: Bool) {
+    ///
+    /// `grace` holds off every automatic close for that long. Something opened
+    /// the panel without the pointer — a hotkey, the menu bar, a translation —
+    /// and the pointer is wherever it already was, which is usually nowhere
+    /// near the notch. Without the grace the very next tick reads "outside",
+    /// waits `closeDelay`, and folds the panel roughly a third of a second
+    /// after it appeared: the keyboard route to the panel existed but could not
+    /// be used.
+    func setInside(_ value: Bool, grace: TimeInterval = 0) {
         awaitingSince = nil
         isInside = value
+        graceUntil = grace > 0 ? Date().addingTimeInterval(grace) : nil
+    }
+
+    /// Ends the grace early — the pointer arriving on the panel is a better
+    /// signal than any timer, and a deliberate close must not have to wait.
+    func endGrace() {
+        graceUntil = nil
+    }
+
+    private var graceUntil: Date?
+
+    /// True while an automatic close is still held off.
+    private var withinGrace: Bool {
+        guard let graceUntil else { return false }
+        guard Date() < graceUntil else {
+            self.graceUntil = nil
+            return false
+        }
+        return true
     }
 
     private func tick() {
@@ -152,7 +183,12 @@ final class PointerWatcher {
         // the pointer is the authority, so say so again.
         // A drag is the one time the panel is meant to stand open with the
         // pointer off it: it was opened to be dropped onto.
+        // The pointer arriving is the real signal; once it is on the panel the
+        // grace has done its job and normal hover rules resume.
+        if inside { graceUntil = nil }
+
         if !inside, !isInside, !isDragging(), isPanelOpen() {
+            guard !withinGrace else { return }
             guard let start = awaitingSince else {
                 awaitingSince = Date()
                 return
@@ -167,6 +203,10 @@ final class PointerWatcher {
             awaitingSince = nil
             return
         }
+        // Same hold-off for the ordinary inside→outside transition: a
+        // programmatic open sets `isInside` true with the pointer elsewhere,
+        // and that disagreement resolves here one tick later.
+        if !inside, withinGrace { return }
         guard let start = awaitingSince else {
             awaitingSince = Date()
             return

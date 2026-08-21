@@ -27,9 +27,12 @@ final class TabContractTests: XCTestCase {
             NotchViewModel.Tab.allCases.map(\.rawValue).sorted(),
             ["clipboard", "media", "notes", "settings", "shelf", "teleprompter", "translate"]
         )
+        // Translate joined the covers because ⌥⌘T puts the clipboard's
+        // contents into its field verbatim — covering the clipboard tab while
+        // that pane showed the same text in full was a hole in the promise.
         XCTAssertEqual(
             PrivacyMode.Section.allCases.map(\.rawValue).sorted(),
-            ["clipboard", "notes"]
+            ["clipboard", "notes", "translate"]
         )
     }
 }

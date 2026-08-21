@@ -64,6 +64,10 @@ final class Translator: ObservableObject {
     @Published private(set) var needsSettings = false
     @Published private(set) var isTranslating = false
 
+    /// Bumped per request, so a late-finishing cancelled run can tell that it
+    /// is no longer the one on screen.
+    private var generation = 0
+
     private var attempt = 0
 
     var request: Request { Request(text: input, attempt: attempt) }
@@ -129,8 +133,17 @@ final class Translator: ObservableObject {
 
         guard #available(macOS 26.0, *) else { return }
 
+        // Stamped, so a cancelled run cannot clear the flag its successor
+        // raised. The pane cancels the previous task on every keystroke, but
+        // cancellation of an in-flight model response is cooperative: the old
+        // task returns whenever the model gets round to it, and its unguarded
+        // `defer` used to switch off the "Translating…" indicator for the
+        // newer request that was still running — indistinguishable, on screen,
+        // from a translation that came back empty.
+        generation += 1
+        let generation = generation
         isTranslating = true
-        defer { isTranslating = false }
+        defer { if self.generation == generation { isTranslating = false } }
 
         let route = Self.route(for: text)
         let target = Self.name(route.target)

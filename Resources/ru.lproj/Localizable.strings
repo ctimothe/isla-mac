@@ -58,8 +58,6 @@
 
 /* Сохранённые снимки. Ключ — сам формат даты, чтобы язык мог переставить части
    в своём порядке. */
-"Screenshot" = "Снимок";
-"yyyy-MM-dd 'at' HH.mm.ss" = "yyyy-MM-dd 'в' HH.mm.ss";
 
 /* Режим приватности: панель закрывает содержимое полем из точек. */
 "Hide Contents" = "Скрывать содержимое";
@@ -101,6 +99,7 @@
 "Show Lyrics" = "Показывать текст песни";
 "Lyrics" = "Текст песни";
 "Show on Lock Screen" = "Показывать на экране блокировки";
+"Clear Lyrics Cache" = "Очистить кэш текстов";
 "Add to Liked Songs" = "Добавить в любимые треки";
 "Remove from Liked Songs" = "Убрать из любимых треков";
 "Connect Spotify Account…" = "Подключить аккаунт Spotify…";
@@ -110,3 +109,9 @@
 "Continue" = "Продолжить";
 "Cancel" = "Отмена";
 "Spotify" = "Spotify";
+
+/* Spotify credential storage */
+"Import Account From Keychain…" = "Импортировать аккаунт из связки ключей…";
+"Stored in your keychain." = "Хранится в связке ключей.";
+"Stored in an owner-only file, because this build is unsigned." = "Хранится в файле, доступном только владельцу: сборка не подписана.";
+"Cannot be stored on this Mac." = "Не удаётся сохранить на этом Mac.";

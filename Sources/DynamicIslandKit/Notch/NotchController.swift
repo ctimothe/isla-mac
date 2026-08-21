@@ -9,61 +9,105 @@ final class NotchController {
     private var viewModel: NotchViewModel?
     private let pointer = PointerWatcher()
     private let lockPresence = LockScreenPresence()
+    /// Stores that belong to the session, not to the panel: a rebuild replaces
+    /// the panel and its view model and leaves these untouched.
+    private let stores = NotchStores()
     private var closeActiveRectWork: DispatchWorkItem?
+    private var collapseCheckWork: DispatchWorkItem?
     private var peekWork: DispatchWorkItem?
     private var cancellables = Set<AnyCancellable>()
+    /// Held so `teardown` can actually undo `install`. Discarding the tokens
+    /// left the registrations permanent by construction, which was harmless
+    /// only for as long as `install` was called exactly once.
+    private var observerTokens: [NSObjectProtocol] = []
+    /// True while the display is asleep — the sampler and every poll are
+    /// stopped, and the wake handler puts back only what it stopped.
+    private var screensAreAsleep = false
+    /// Watches for a click in another app while the panel is pinned open.
+    ///
+    /// A pinned panel is deliberately deaf to the pointer, so the ordinary
+    /// hover rule cannot close it, and it only receives key events on the two
+    /// tabs that take the keyboard — which left a panel opened by ⌥⌘I on the
+    /// media tab with no way out but the hotkey itself. A global monitor sees
+    /// clicks the app never receives, which is exactly the signal needed.
+    private var pinnedClickMonitor: Any?
     /// Monotonic stamp for the deferred half of closing: any newer open or
     /// close outdates the one still in flight.
     private var openGeneration = 0
 
     func install() {
+        stores.onScreenshot = { [weak self] url in
+            self?.viewModel?.receivedScreenshot(at: url)
+        }
+        stores.start()
         build()
-        NotificationCenter.default.addObserver(
+        observerTokens.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.screenParametersChanged() }
-        }
-        NSWorkspace.shared.notificationCenter.addObserver(
+        })
+        observerTokens.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.activeSpaceChanged() }
-        }
-        // A dark display has no hover to watch, so the one timer that never
-        // otherwise stops — the pointer sampler — stops with it. The panel
-        // closes too, so waking always starts from the same, folded state.
-        NSWorkspace.shared.notificationCenter.addObserver(
+        })
+        // A dark display has no hover to watch and no clipboard anybody can
+        // change, so every poll stops with it — the pointer sampler, the
+        // pasteboard timer, and the media ticker alike. Left running, a locked
+        // laptop with the lid shut kept asking Spotify where it was, twice a
+        // minute, all night.
+        observerTokens.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.screensDidSleepNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                self.screensAreAsleep = true
                 self.setOpen(false)
                 self.pointer.setInside(false)
                 self.pointer.stop()
+                self.stores.suspendForIdleScreen()
             }
-        }
-        NSWorkspace.shared.notificationCenter.addObserver(
+        })
+        observerTokens.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.screensDidWakeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.pointer.start()
+                self.screensAreAsleep = false
+                // Only once it is clear the Mac is not still locked — the
+                // checks below decide that.
+                if !self.lockPresence.isLocked { self.stores.resumeFromIdleScreen() }
                 // Repair path: if the unlock notification was ever missed —
                 // it once queued behind a main-thread block and the card
                 // stayed stranded on the desktop — waking with the shield
                 // down puts the panel back to normal.
                 if !self.lockPresence.isLocked, self.viewModel?.isLockedPresentation == true {
                     self.screenUnlocked()
+                    return
                 }
+                if self.lockPresence.isLocked {
+                    // Still locked: the sampler must stay stopped. Restarting
+                    // it here — the display sleeping and rewaking mid-lock is
+                    // the ordinary way the password field is summoned — put it
+                    // to work against rects cut before the lock, which killed
+                    // the card's transport and could unfold the panel under
+                    // the shield. Only the card comes back.
+                    if self.viewModel?.isLockedPresentation == true {
+                        self.viewModel?.media.setActive(true)
+                    }
+                    return
+                }
+                self.pointer.start()
             }
-        }
+        })
         // Locking replaces the desktop with the shield, and the pill stays on
         // it — see `LockScreenPresence` for the mechanism. Wired here because
         // the two sides of the transition are this controller's verbs: fold,
@@ -105,8 +149,28 @@ final class NotchController {
     /// none of this happens and the panel sinks under the shield as any
     /// ordinary window does.
     private func screenLocked() {
-        guard NotchViewModel.showOnLockScreenEnabled else { return }
+        guard NotchViewModel.showOnLockScreenEnabled else {
+            // The card is switched off, but the rest of the lock contract still
+            // holds: fold, and stop the sampler. Returning outright left it
+            // sampling all through the lock, so a cursor pass over the notch
+            // opened an invisible panel beneath the shield.
+            setOpen(false)
+            collapseNow()
+            pointer.setInside(false)
+            pointer.stop()
+            stores.suspendForIdleScreen()
+            return
+        }
         setOpen(false)
+        // Synchronously, not on the next run-loop pass. `setOpen`'s close path
+        // defers the visual half, and that deferred half used to land *after*
+        // everything below: it called `media.setActive(false)`, silencing the
+        // card this method just brought to life, and scheduled a rect for the
+        // 700×444 notch window that replaced the card's own — on a window now
+        // the size of the whole display, which put the only clickable region
+        // near the bottom-left corner and left the transport dead for the
+        // entire lock.
+        collapseNow()
         pointer.setInside(false)
         // The cursor still moves on the lock screen — that is how the
         // password field is summoned — so a running sampler would count a
@@ -121,22 +185,68 @@ final class NotchController {
         panel?.ignoresMouseEvents = false
         viewModel?.isLockedPresentation = true
         viewModel?.media.setActive(true)
+        // Nobody can copy anything at a locked Mac, and Universal Clipboard
+        // arrivals from a phone are not something to record behind a shield.
+        // This used to happen only on the branch where the card is switched
+        // off — which is not the default — so the pasteboard was polled twice a
+        // second for the whole lock on an ordinary install.
+        stores.suspendForIdleScreen()
         // The card sits at the true center of the display, so the window has
         // to cover the display: the panel grows to the full screen for the
         // locked stretch and shrinks back to its notch frame on unlock.
-        if let panel {
-            let screen = panel.screen ?? NSScreen.screens.first
-            if let screen { panel.setFrame(screen.frame, display: true) }
+        // The notch's own screen, not `panel.screen` and not the primary one.
+        // `panel.screen` is nil while the window is momentarily off every
+        // display mid-reconfiguration, and the fallback used to be
+        // `screens.first` — so a lock landing in that window centred the card
+        // on the primary display while the pill it belongs to stayed on
+        // another.
+        if let panel, let screen = viewModel?.geometry.screen ?? panel.screen {
+            growToCoverDisplay(panel, screen: screen)
         }
         applyLockedActiveRect()
         lockPresence.apply(to: panel, locked: true)
+        // Re-asserted after the lift, and checked rather than assumed.
+        //
+        // Everything about the card's placement rests on this one resize: the
+        // card is centred by SwiftUI inside the window, so a window that is
+        // still 700×444 puts it over the notch at a fraction of its size
+        // instead of at the middle of the display — which is exactly what a
+        // locked Mac showed. `setFrame` can be refused (AppKit constrains
+        // frames for some window configurations) and the SkyLight space move
+        // re-parents the window underneath us, so the size is verified once the
+        // move is done and re-applied if it did not stick.
+        if let panel, let screen = viewModel?.geometry.screen ?? panel.screen {
+            growToCoverDisplay(panel, screen: screen)
+            applyLockedActiveRect()
+        }
+    }
+
+    /// Makes the panel cover the whole display, and says so when it cannot.
+    private func growToCoverDisplay(_ panel: NotchPanel, screen: NSScreen) {
+        // The content re-layout below runs even when the window frame is
+        // already right, which is the whole point of calling this a second time
+        // after the SkyLight space move. Returning early on a matching frame
+        // made that second call do nothing at all: the window was resized by
+        // the first one, so by the time the space move had finished — the very
+        // moment worth re-checking — this bailed on its first line.
+        if panel.frame != screen.frame {
+            panel.setFrame(screen.frame, display: true)
+        }
+        // The content is laid out from the content view's bounds, and a resize
+        // that AppKit deferred leaves SwiftUI proposing the old size for a
+        // frame — long enough to be seen and photographed.
+        panel.contentView?.frame = CGRect(origin: .zero, size: screen.frame.size)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        if panel.frame.size != screen.frame.size {
+            NSLog("Dynamic Island: lock frame refused — wanted \(screen.frame.size), got \(panel.frame.size)")
+        }
     }
 
     /// Cuts the hit region to exactly the lock card's frame — dead center of
     /// the now screen-sized window. The pill at the top stays outside the
     /// rect on purpose: visible, never hoverable, per the product call.
     private func applyLockedActiveRect() {
-        guard let panel, let rootView else { return }
+        guard let panel, let rootView, let vm = viewModel else { return }
         let size = LockScreenCard.size
         let window = panel.frame.size
         let rect = CGRect(
@@ -146,6 +256,19 @@ final class NotchController {
             height: size.height
         )
         rootView.activeRect = rect
+        rootView.dropRect = rect
+
+        // The pill's own region, which takes no clicks and opens nothing — it
+        // exists so that hovering the island while locked can answer with a
+        // nudge rather than with silence. Cut from the notch's real position,
+        // in the screen-sized window's coordinates.
+        let pill = CGSize(width: vm.bodySize.width, height: vm.geometry.notchSize.height)
+        rootView.lockedHoverRect = CGRect(
+            x: vm.geometry.notchCenterX - vm.geometry.screen.frame.minX - pill.width / 2,
+            y: window.height - pill.height,
+            width: pill.width,
+            height: pill.height
+        )
     }
 
     /// Unconditional, unlike the lock side: the toggle may have been flipped
@@ -158,27 +281,59 @@ final class NotchController {
         // The notch frame first, then the collapsed strip's rect; the first
         // pointer sample after unlock re-applies the hover machinery.
         if let vm = viewModel { panel?.setFrame(vm.geometry.windowFrame, display: true) }
+        // The nudge region belongs to the lock screen only; unlocked, the
+        // ordinary hover rules apply again and this must not linger.
+        rootView?.lockedHoverRect = .zero
         applyActiveRect(open: false)
         // The ticker belongs to an open panel, and the panel is folded after
         // unlock — setActive(false) puts the idle contract back.
         viewModel?.media.setActive(false)
-        pointer.start()
+        // Unless the display is still dark: unlocking a Mac whose screen has
+        // not woken yet must not restart the sampler the sleep handler stopped.
+        if !screensAreAsleep {
+            pointer.start()
+            // The lock path suspends the pasteboard poll, and only the display
+            // wake handler used to resume it — so locking and unlocking without
+            // the display ever sleeping left clipboard capture dead for the
+            // rest of the session.
+            stores.resumeFromIdleScreen()
+        }
     }
 
     private func screenParametersChanged() {
-        let fresh = NotchGeometry.current()
+        // No screens at all, for the moment. Nothing to anchor to and nothing
+        // to draw; the next notification arrives with the new arrangement.
+        guard let fresh = NotchGeometry.current() else { return }
         guard let current = viewModel?.geometry, current.matches(fresh) else {
             rebuild()
             return
         }
         // Same display, same notch: keep the panel and everything on it.
+        //
+        // Except while the shield is up, where the panel is deliberately the
+        // size of the whole screen so the card can sit at its centre. These
+        // notifications fire for plenty of reasons that change nothing — the
+        // locked display sleeping and rewaking is one — and re-applying the
+        // notch frame to a locked panel shrank it back to 700×444, stranding
+        // the card off-centre and unclickable until unlock.
+        guard viewModel?.isLockedPresentation != true else { return }
         panel?.setFrame(fresh.windowFrame, display: false)
     }
 
     func teardown() {
         lockPresence.stop()
         pointer.stop()
-        viewModel?.stop()
+        if let pinnedClickMonitor {
+            NSEvent.removeMonitor(pinnedClickMonitor)
+            self.pinnedClickMonitor = nil
+        }
+        stores.stop()
+        for token in observerTokens {
+            NotificationCenter.default.removeObserver(token)
+            NSWorkspace.shared.notificationCenter.removeObserver(token)
+        }
+        observerTokens.removeAll()
+        cancellables.removeAll()
         panel?.acceptsKeyboard = false
         panel?.orderOut(nil)
     }
@@ -191,14 +346,28 @@ final class NotchController {
         peekWork?.cancel()
         vm.isPeeking = false
         vm.translator.input = trimmed
-        vm.tab = .translate
+        // Through `select`, so the field that appears can be typed into. Set
+        // directly, the tab changed without ever raising `wantsKeyboard`, and
+        // the panel showed a text field whose keystrokes went to the app
+        // underneath — the one thing `select` adds, and the invariant
+        // `NotchViewModel.wantsKeyboard` documents.
+        vm.select(.translate)
         setOpen(true)
-        pointer.setInside(true)
+        // The pointer is wherever the user left it, which is not on the notch,
+        // so both halves of the close rule are held off for the same span: the
+        // sampler's own tick and the deferred collapse check below. Granting
+        // the grace and then scheduling a 0.6 s collapse meant the translation
+        // still vanished before it could be read — just slightly later.
+        pointer.setInside(true, grace: NotchMetrics.translateReadDelay)
         // Held open by the pointer rule like any other tab, so it folds when
         // the user moves away — a translation they walked away from is done.
-        scheduleCollapseIfPointerAway()
+        scheduleCollapseIfPointerAway(after: NotchMetrics.translateReadDelay)
     }
 
+    /// The hotkey and the menu item. Opens until something closes it — the
+    /// same command again, Escape, or a click outside — rather than until the
+    /// next pointer sample, which is what folded it a third of a second after
+    /// it appeared and made the keyboard route to the panel unusable.
     func toggle() {
         guard let viewModel else { return }
         // `setOpen`'s close path defers the `isOpen` mutation to the next run
@@ -206,17 +375,55 @@ final class NotchController {
         // read the stale, pre-close value. Capture the intended target state
         // once, up front, and use that for both calls.
         let opening = !viewModel.isOpen
+        viewModel.isPinnedOpen = opening
         setOpen(opening)
         pointer.setInside(opening)
+        updatePinnedClickMonitor()
+    }
+
+    /// Keeps the outside-click watch alive exactly while the panel is holding
+    /// itself open — the ⌥⌘I pin *or* a running teleprompter. Both are states
+    /// the pointer cannot end, and both promise a click outside will end them.
+    private func updatePinnedClickMonitor() {
+        let wanted = viewModel?.holdsOpen == true
+        if wanted, pinnedClickMonitor == nil {
+            pinnedClickMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown]
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.viewModel?.holdsOpen == true else { return }
+                    // The click landed in another application — this app never
+                    // sees clicks on its own panel here — so whatever was
+                    // holding the panel open is over.
+                    self.viewModel?.isPinnedOpen = false
+                    self.viewModel?.teleprompter.suspend()
+                    self.setOpen(false)
+                    self.pointer.setInside(false)
+                    self.updatePinnedClickMonitor()
+                }
+            }
+        } else if !wanted, let monitor = pinnedClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            pinnedClickMonitor = nil
+        }
     }
 
     // MARK: - Construction
 
     private func rebuild() {
+        // Carried across, because a display change is not a decision to throw
+        // away what the panel was showing. The stores themselves already
+        // survive — they belong to the session, not the panel — so this is
+        // only the panel's own state.
         let previousTab = viewModel?.tab
+        let wasOpen = viewModel?.isOpen ?? false
+        // The pin belongs to the panel being torn down; the monitor watching
+        // for its exit has to go with it, or it outlives every rebuild.
+        viewModel?.isPinnedOpen = false
+        updatePinnedClickMonitor()
         peekWork?.cancel()
+        collapseCheckWork?.cancel()
         pointer.stop()
-        viewModel?.stop()
         closeActiveRectWork?.cancel()
         cancellables.removeAll()
         panel?.acceptsKeyboard = false
@@ -225,13 +432,18 @@ final class NotchController {
         panel = nil
         rootView = nil
         viewModel = nil
-        build()
-        if let previousTab { viewModel?.tab = previousTab }
+        build(restoring: previousTab, wasOpen: wasOpen)
     }
 
-    private func build() {
-        let geometry = NotchGeometry.current()
-        let vm = NotchViewModel(geometry: geometry)
+    private func build(restoring restoredTab: NotchViewModel.Tab? = nil, wasOpen: Bool = false) {
+        guard let geometry = NotchGeometry.current() else { return }
+        let vm = NotchViewModel(geometry: geometry, stores: stores)
+        // Before any rect is cut. The tab decides how far down the panel
+        // reaches, and restoring it afterwards left every rect cut for the
+        // default media body — so a restored teleprompter opened to its full
+        // 400 pt with a close rect drawn for 208, and folded under a pointer
+        // resting in the lower half of the pane.
+        if let restoredTab { vm.tab = restoredTab }
         viewModel = vm
 
         let panel = NotchPanel(contentRect: geometry.windowFrame)
@@ -246,6 +458,9 @@ final class NotchController {
         }
         root.addSubview(hosting)
 
+        root.onLockedHover = { [weak self] in
+            self?.viewModel?.nudgeLockedIsland()
+        }
         root.onDragEntered = { [weak self] in
             guard let self, let vm = self.viewModel else { return }
             vm.tab = .shelf
@@ -279,10 +494,28 @@ final class NotchController {
             self.pointer.setInside(false)
         }
 
+        // Escape reaches the panes first, and only folds the panel if none of
+        // them wanted it. Swallowing every Escape here made the two panes'
+        // own handlers — the translator's "clear the field", the notes' "hand
+        // the keyboard back" — unreachable code, and closed the whole panel
+        // when Escape was pressed to cancel an input-method composition.
+        panel.escapeHandled = { [weak self] in
+            guard let vm = self?.viewModel else { return false }
+            return vm.consumeEscape()
+        }
+
         // Clicking away drops the keyboard but leaves the tab where it was, so
         // a click back into the panel has to be able to ask for it again.
         panel.onPress = { [weak self] in
             guard let vm = self?.viewModel, vm.tab.needsKeyboard else { return }
+            // Never while the shield is up. The lock card takes clicks — that
+            // is how its transport works — and with the last-used tab on
+            // translate or notes, one of those clicks used to raise
+            // `wantsKeyboard`, which opens the panel and makes it key: a
+            // window the lock presentation has deliberately lifted *above* the
+            // shield, now holding the keyboard, in front of the password
+            // field. Typing on the lock screen belongs to the lock screen.
+            guard !vm.isLockedPresentation else { return }
             vm.wantsKeyboard = true
         }
 
@@ -298,6 +531,7 @@ final class NotchController {
 
         pointer.openRect = geometry.collapsedHoverRect(for: vm.bodySize.width)
         pointer.warmZone = geometry.warmZone
+        pointer.coolZone = geometry.coolZone
         // Cut for the tab that will be showing, not for the standard body: a
         // rebuild restores the previous tab, and the teleprompter reaches
         // twice as far down as the rest.
@@ -308,10 +542,33 @@ final class NotchController {
         // somewhere else — unfolding the panel over what it was reaching for is
         // the whole complaint. Staying put is what asks for the panel.
         pointer.openDelay = NotchMetrics.openDelay
-        pointer.isDragging = { [weak root] in root?.isReceivingDrag ?? false }
+        // Both directions of a drag, not just the incoming one. A file being
+        // dragged *out* of the shelf never touches this view's dragging
+        // destination callbacks, so the panel counted the pointer as away,
+        // folded 0.32 s in, and tore down the very view the drag session was
+        // still running from.
+        pointer.isDragging = { [weak root] in
+            (root?.isReceivingDrag ?? false) || ShelfDragSource.isDraggingOut
+        }
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
         pointer.onChange = { [weak self] inside in
             guard let self else { return }
+            // The pointer arriving takes the panel back from whatever opened
+            // it without one; from here on the ordinary rule applies again.
+            if inside {
+                self.viewModel?.isPinnedOpen = false
+                self.updatePinnedClickMonitor()
+                // A hover always lands on Music.
+                //
+                // This is what the island is for: the other tabs are somewhere
+                // to go once it is open, not somewhere to arrive. Leaving the
+                // last-used tab selected meant that opening it to glance at a
+                // track showed whatever had been left behind — the shelf, or
+                // settings — and cost a second move to get to the thing the
+                // panel exists for. Deliberate routes still choose their own
+                // tab: ⌥⌘T lands on Translate, a drag lands on the Shelf.
+                self.viewModel?.select(.media)
+            }
             // The one place the pointer does not decide — see `holdsOpen`.
             // Guarded here rather than inside `setOpen` so that the reasons
             // that are not the pointer, like the screen going to sleep, still
@@ -400,11 +657,17 @@ final class NotchController {
             }
             .store(in: &cancellables)
 
-        vm.start()
-
-        // A rebuilt panel starts closed. If the pointer is already sitting on
-        // it, reopen at once instead of waiting for a trip back to the notch.
-        if geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation) {
+        // A rebuilt panel starts closed. Reopen it only if it was open before
+        // the rebuild, or if the pointer is on the *collapsed* target — the
+        // one that means "open me". Testing the expanded body's hover rect
+        // instead popped the panel open on any display change that happened to
+        // find the cursor in the top-centre 644×220 of the screen, which is
+        // where a document's own toolbar lives.
+        let pointerOnTarget = geometry
+            .collapsedHoverRect(for: vm.bodySize.width)
+            .contains(NSEvent.mouseLocation)
+        let pointerOnBody = geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation)
+        if pointerOnTarget || (wasOpen && pointerOnBody) {
             pointer.setInside(true)
             setOpen(true)
         }
@@ -450,7 +713,11 @@ final class NotchController {
         guard let vm = viewModel, vm.isOpen != open else { return }
         // Closing for any reason ends the take: the pin is a consequence of the
         // script moving, so the script stops with the panel.
-        if !open { vm.teleprompter.suspend() }
+        if !open {
+            vm.teleprompter.suspend()
+            vm.isPinnedOpen = false
+            updatePinnedClickMonitor()
+        }
         openGeneration += 1
         closeActiveRectWork?.cancel()
 
@@ -483,15 +750,48 @@ final class NotchController {
     /// method per section would be four methods that only forward.
     var privacy: PrivacyMode? { viewModel?.privacy }
 
+    /// Runs the deferred half of closing right now, and cancels the one still
+    /// in flight so it cannot land later on a panel that has moved on.
+    ///
+    /// For the transitions that reconfigure the panel in the same breath as
+    /// closing it — locking is the only one — where a collapse arriving a pass
+    /// late would undo the configuration it was supposed to precede.
+    private func collapseNow() {
+        openGeneration += 1
+        closeActiveRectWork?.cancel()
+        closeActiveRectWork = nil
+        guard viewModel?.isOpen == true else { return }
+        collapse(deferRectShrink: false)
+    }
+
     /// The visual half of closing, one pass after the keyboard was let go.
-    private func collapse() {
+    private func collapse(deferRectShrink: Bool = true) {
         guard let vm = viewModel, vm.isOpen else { return }
         // Whatever was uncovered by hand goes back under cover with the panel.
         // The next hover is the one nobody planned, and it must not open onto
         // a row somebody revealed ten minutes ago.
         vm.privacy.coverEverything()
-        withAnimation(Theme.openAnimation) { vm.isOpen = false }
+        // Animated when the user is watching it fold, and not when they are
+        // not. `deferRectShrink == false` is the lock path, where the panel is
+        // about to be resized to the whole display and its content replaced by
+        // the lock card: an open→closed animation still in flight across that
+        // swap is what made the card and the pill slide in from the notch's
+        // old position, at the old size, instead of simply being there.
+        if deferRectShrink {
+            withAnimation(Theme.openAnimation) { vm.isOpen = false }
+        } else {
+            var instant = Transaction()
+            instant.disablesAnimations = true
+            withTransaction(instant) { vm.isOpen = false }
+        }
         vm.media.setActive(false)
+        // The caller is reconfiguring the panel immediately after this — the
+        // lock screen resizing it to the whole display and cutting its own
+        // rect. A delayed shrink would land on top of that.
+        guard deferRectShrink else {
+            applyActiveRect(open: false)
+            return
+        }
         // Shrink only once the panel has finished collapsing. Doing it
         // while it is still visibly there would leave a window in which
         // clicks land on whatever is behind the panel.
@@ -500,9 +800,15 @@ final class NotchController {
         DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.collapseRectShrinkDelay, execute: work)
     }
 
-    private func scheduleCollapseIfPointerAway() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.pointerAwayCollapseDelay) { [weak self] in
+    private func scheduleCollapseIfPointerAway(after delay: TimeInterval = NotchMetrics.pointerAwayCollapseDelay) {
+        // Stamped like every other deferred step in this file. A bare
+        // `asyncAfter` from an earlier open stayed armed, so pressing ⌥⌘T twice
+        // a few seconds apart let the first timer fold the translation the
+        // second one had just put on screen.
+        collapseCheckWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
             guard let self, let vm = self.viewModel else { return }
+            self.collapseCheckWork = nil
             // Resync either way. A pointer that is still on the panel has to be
             // recorded as inside, or hover tracking stays convinced it left and
             // the panel hangs open until the notch is touched again.
@@ -510,6 +816,8 @@ final class NotchController {
             self.pointer.setInside(!away)
             if away, !vm.holdsOpen { self.setOpen(false) }
         }
+        collapseCheckWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     /// Re-cuts both rects for the body currently on screen.
@@ -528,6 +836,13 @@ final class NotchController {
     private func sneakPeek() {
         guard NotchViewModel.sneakPeekEnabled else { return }
         guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted else { return }
+        // Nothing peeks at a locked screen. The peek re-cuts the collapsed
+        // rects, and while the shield is up those rects belong to the lock
+        // card — a track changing on a locked Mac used to hand the card's hit
+        // region to a strip computed for the notch-sized window, killing its
+        // transport and leaving a phantom click-eating rectangle elsewhere on
+        // the shield.
+        guard !vm.isLockedPresentation else { return }
         guard !pointer.isInside else { return }
 
         peekWork?.cancel()
@@ -549,6 +864,13 @@ final class NotchController {
 
     private func refreshCollapsedRects() {
         guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted else { return }
+        // The locked panel's rect is the card's, and it is cut against a
+        // screen-sized window — see `sneakPeek`. Re-cut it for the card, not
+        // for the collapsed shell.
+        guard !vm.isLockedPresentation else {
+            applyLockedActiveRect()
+            return
+        }
         applyActiveRect(open: false)
     }
 
@@ -564,6 +886,11 @@ final class NotchController {
         let size: CGSize
         if open {
             size = vm.openBodySize
+            // The way back in. `openRect` was only ever cut for the collapsed
+            // strip, so once the pointer had been counted as away from an open
+            // panel, moving back onto its 620×208 body registered as nothing
+            // and only a trip to the notch could reopen it.
+            pointer.openRect = vm.geometry.hoverRect(for: vm.openBodySize)
         } else {
             // A synthetic notch still claims only the top strip so menu-bar
             // items underneath remain clickable, but the strip spans the full
@@ -579,6 +906,11 @@ final class NotchController {
             rect = rect.insetBy(dx: -Theme.openTopRadius, dy: 0)
         }
         rootView.activeRect = rect
+        // Drags are aimed by hand and land wide, so the target is the visible
+        // island generously grown — but nothing like the whole 700×444 window,
+        // which is what used to accept a drag merely crossing the top of the
+        // screen and switch the panel to the shelf for it.
+        rootView.dropRect = rect.insetBy(dx: -24, dy: -24)
         pointer.interactiveRect = vm.geometry
             .contentScreenRect(for: size)
             .insetBy(dx: open ? -Theme.openTopRadius : 0, dy: 0)

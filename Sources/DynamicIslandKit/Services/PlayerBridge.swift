@@ -88,7 +88,7 @@ enum PlayerBridge {
             end if
         end tell
         """
-        runScript(script) { result in
+        runScript(script, priority: .pollable) { result in
             MainActor.assumeIsolated {
                 completion(result?.stringValue.flatMap { TimeInterval($0.replacingOccurrences(of: ",", with: ".")) })
             }
@@ -136,7 +136,7 @@ enum PlayerBridge {
         tell application id "\(app.bundleID)"
             \(body)
         end tell
-        """) { _ in }
+        """, priority: .transport) { _ in }
     }
 
     /// System-wide media key, used when no scriptable player is running.
@@ -251,15 +251,91 @@ enum PlayerBridge {
         )
     }
 
-    /// Shared AppleScript runner: one serial queue for every script the app sends.
-    static func runScript(_ source: String, completion: @escaping (NSAppleEventDescriptor?) -> Void) {
+    /// Compiled scripts, keyed by source.
+    ///
+    /// The sources are constants — the position query is the same string on
+    /// every one of the thirty ticks a minute the precision loop makes — and
+    /// `NSAppleScript(source:)` recompiles from scratch each time it is built.
+    /// Two queues reach this, so it carries its own lock.
+    nonisolated(unsafe) private static var compiled: [String: NSAppleScript] = [:]
+    private static let compiledLock = NSLock()
+
+    /// Compiled scripts are cached only when the same text will be run again.
+    ///
+    /// Transport scripts carry their argument in the source — `set player
+    /// position to 137` — so every distinct seek second is a distinct key.
+    /// Caching those grew the table for the life of the process and never got a
+    /// hit; the polls, which are the reason the cache exists, are constant.
+    private static func script(for source: String, cacheable: Bool) -> NSAppleScript? {
+        guard cacheable else { return NSAppleScript(source: source) }
+        compiledLock.lock()
+        defer { compiledLock.unlock() }
+        if let cached = compiled[source] { return cached }
+        let built = NSAppleScript(source: source)
+        if let built { compiled[source] = built }
+        return built
+    }
+
+    /// Transport taps waiting behind a poll, counted.
+    ///
+    /// One queue, deliberately: `NSAppleScript` is not documented as
+    /// thread-safe, so running two of them at once to keep taps responsive
+    /// would trade a stall for a crash. Instead the queue stays serial and
+    /// *polling* work yields — a position query that was enqueued before a tap
+    /// arrived returns without executing, so the tap waits only for whatever
+    /// was already running rather than for everything queued in front of it.
+    nonisolated(unsafe) private static var pendingTransport = 0
+    private static let pendingLock = NSLock()
+
+    private static func changePendingTransport(_ delta: Int) {
+        pendingLock.lock()
+        pendingTransport += delta
+        pendingLock.unlock()
+    }
+
+    private static var transportIsWaiting: Bool {
+        pendingLock.lock()
+        defer { pendingLock.unlock() }
+        return pendingTransport > 0
+    }
+
+    static func runScript(
+        _ source: String,
+        priority: Priority = .background,
+        completion: @escaping (NSAppleEventDescriptor?) -> Void
+    ) {
+        if priority == .transport { changePendingTransport(1) }
         queue.async {
+            if priority == .transport {
+                changePendingTransport(-1)
+            } else if priority == .pollable, transportIsWaiting {
+                // Something the user pressed is behind this, and this is a poll
+                // the next tick repeats — so skip it rather than make a button
+                // wait on an answer nobody is missing.
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
             var error: NSDictionary?
-            let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
+            let result = script(for: source, cacheable: priority != .transport)?
+                .executeAndReturnError(&error)
             if let error, let code = error[NSAppleScript.errorNumber] as? Int, code != 0 {
                 NSLog("Dynamic Island: AppleScript error \(code): \(error[NSAppleScript.errorMessage] ?? "")")
             }
             DispatchQueue.main.async { completion(result) }
         }
+    }
+
+    enum Priority {
+        /// A lookup whose answer is asked for once and cannot be re-asked
+        /// cheaply — the Spotify track id, Music artwork, the state that
+        /// decides whether anything is playing at all. These always run: a
+        /// dropped answer costs the track its lyrics or its cover for the rest
+        /// of its duration, or blanks the island outright.
+        case background
+        /// A poll the next tick repeats anyway, so skipping one costs nothing
+        /// and keeps a queued tap from waiting on it.
+        case pollable
+        /// Something the user just pressed.
+        case transport
     }
 }

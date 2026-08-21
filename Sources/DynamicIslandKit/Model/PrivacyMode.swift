@@ -20,7 +20,11 @@ import Combine
 @MainActor
 final class PrivacyMode: ObservableObject {
     enum Section: String, CaseIterable, Identifiable {
-        case clipboard, notes
+        /// Translate is here because ⌥⌘T puts the clipboard's contents into it
+        /// verbatim. Covering the clipboard tab while leaving the pane that
+        /// displays the same text in full view was a hole in the promise the
+        /// covers make.
+        case clipboard, notes, translate
 
         var id: String { rawValue }
 
@@ -30,6 +34,7 @@ final class PrivacyMode: ObservableObject {
             switch self {
             case .clipboard: return localized("Clipboard")
             case .notes: return localized("Notes")
+            case .translate: return localized("Translate")
             }
         }
     }
@@ -50,15 +55,31 @@ final class PrivacyMode: ObservableObject {
 
     private let defaults: UserDefaults
 
+    /// Sections that existed when the stored list was last written. A section
+    /// added later cannot be absent from an older list on purpose — nobody was
+    /// ever offered it — so "everything that existed then" upgrades to
+    /// "everything that exists now" rather than quietly leaving the new one
+    /// uncovered. Adding `.translate` without this un-covered every user who
+    /// had chosen to cover everything.
+    private static let knownSectionsKey = "privacyKnownSections"
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let stored = defaults.array(forKey: Self.key) as? [String] {
-            sections = Set(stored.compactMap(Section.init(rawValue:)))
+            var restored = Set(stored.compactMap(Section.init(rawValue:)))
+            let known = Set(defaults.array(forKey: Self.knownSectionsKey) as? [String] ?? [])
+            let existed = Set(Section.allCases.map(\.rawValue)).intersection(known.isEmpty ? Set(stored) : known)
+            // Covered everything that was on offer at the time: keep it that way.
+            if !restored.isEmpty, restored.count == existed.count {
+                restored = Set(Section.allCases)
+            }
+            sections = restored
         } else if defaults.bool(forKey: Self.legacyKey) {
             sections = Set(Section.allCases)
         } else {
             sections = []
         }
+        defaults.set(Section.allCases.map(\.rawValue).sorted(), forKey: Self.knownSectionsKey)
     }
 
     // MARK: - Sections

@@ -22,6 +22,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controller = NotchController()
         controller?.install()
         installStatusItem()
+        // Built here rather than wherever a view first mentions it.
+        //
+        // Creating it reads the keychain, and that read can put up the system's
+        // password prompt. Left lazy, the first thing to mention `shared` was
+        // the lock-screen card — so the prompt arrived *on the lock screen*,
+        // over the password field, which is both the worst moment to ask and
+        // the moment somebody is least able to make sense of the question. At
+        // launch it is at least attached to the user having just started the
+        // app. Costs nothing when no account is connected: the initializer
+        // returns without touching the keychain in that case.
+        _ = SpotifyAccount.shared
         // The panel never activates, so without this it cannot be opened from
         // the keyboard at all — and anything that cannot be opened from the
         // keyboard cannot be reached by assistive tech either.
@@ -63,6 +74,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         controller?.teardown()
+        // Explicitly, because a hot key cannot release itself: the Carbon
+        // callback needs a lookup table to find the instance, that table holds
+        // the only strong reference, and so `deinit` never runs. Nothing here
+        // is load-bearing at quit — the process is going away — but it is the
+        // one call site that keeps the teardown path real instead of dead code
+        // waiting for the first rebinding to expose it.
+        hotKey?.unregister()
+        translateHotKey?.unregister()
+        hotKey = nil
+        translateHotKey = nil
     }
 
     // MARK: - Menu bar item

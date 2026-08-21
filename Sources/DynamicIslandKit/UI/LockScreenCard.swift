@@ -59,27 +59,86 @@ struct LockScreenCard: View {
             .frame(width: Self.size.width, height: Self.size.height)
             .background {
                 ZStack {
-                    // The glass Alcove uses, with our ambience on top: the
-                    // artwork's own color breathing faintly through the frost.
-                    Rectangle().fill(.ultraThinMaterial)
+                    // Glass, not frosted plastic.
+                    //
+                    // `.ultraThinMaterial` alone is the problem this replaces:
+                    // it is a *light* material, and the lock screen behind it is
+                    // a bright photograph, so the card came out pale grey with
+                    // white text on it — washed out, and nothing like the glossy
+                    // panel it sits under. The order here is what real glass
+                    // does: something dark to read against, the artwork's own
+                    // colour bleeding through it, then light on the surface.
+                    Rectangle().fill(.regularMaterial)
+                        .environment(\.colorScheme, .dark)
+                    Color.black.opacity(0.34)
+
+                    // Ambience: the cover's colour, strongest where the artwork
+                    // actually is, fading out across the card.
                     if let palette, palette.isVivid {
-                        Color(nsColor: palette.dominant).opacity(0.10)
+                        LinearGradient(
+                            colors: [
+                                Color(nsColor: palette.dominant).opacity(0.34),
+                                Color(nsColor: palette.dominant).opacity(0.06),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     }
+
+                    // The gloss itself — a specular sheen across the top third,
+                    // which is what makes a surface read as glass rather than as
+                    // a tinted rectangle. Kept subtle: it has to survive being
+                    // seen every day.
                     LinearGradient(
-                        colors: [.black.opacity(0.15), .black.opacity(0.45)],
-                        startPoint: .top, endPoint: .bottom
+                        stops: [
+                            .init(color: .white.opacity(0.20), location: 0),
+                            .init(color: .white.opacity(0.05), location: 0.28),
+                            .init(color: .clear, location: 0.55),
+                            .init(color: .black.opacity(0.16), location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             .overlay(
+                // An edge that catches light along the top and loses it toward
+                // the bottom, the way a lit pane of glass does — a single flat
+                // stroke reads as a drawn border instead.
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                .white.opacity(0.45),
+                                .white.opacity(0.12),
+                                .white.opacity(0.06),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
             )
-            .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+            // Two shadows: a tight contact shadow that seats the card on the
+            // wallpaper, and a wide soft one for depth. One shadow doing both
+            // jobs always looks like neither.
+            .shadow(color: .black.opacity(0.28), radius: 4, y: 2)
+            .shadow(color: .black.opacity(0.38), radius: 30, y: 14)
             .environment(\.colorScheme, .dark)
             .task(id: media.artwork) {
-                palette = media.artwork.flatMap(ArtworkPalette.extract(from:))
+                // Off the main actor. Extraction downsamples the cover through
+                // CoreImage, and doing that inline on every track change spent
+                // tens of milliseconds of main-thread time in the same frame
+                // the card was animating — the very cost this codebase already
+                // moved artwork decoding off the main thread to avoid.
+                guard let artwork = media.artwork else {
+                    palette = nil
+                    return
+                }
+                palette = await Task.detached(priority: .userInitiated) {
+                    ArtworkPalette.extract(from: artwork)
+                }.value
             }
             .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")") {
                 guard NotchViewModel.showLyricsEnabled else { return }
@@ -231,12 +290,21 @@ struct LockScreenCard: View {
     /// than no heart.
     @ViewBuilder
     private var heart: some View {
-        if spotify.isConnected, !spotify.apiBlocked, let id = media.spotifyTrackID {
-            let isSaved = spotify.saved[id] ?? false
+        if spotify.isConnected, !spotify.apiBlocked, !spotify.tokenUnavailable,
+           let id = media.spotifyTrackID {
+            // Filled means the song is in Liked Songs, hollow means it is not —
+            // and until the library has actually answered, hollow-but-dimmed
+            // means "asking". Drawing a plain hollow heart while the answer was
+            // still in flight stated, every time, that a liked song was not
+            // liked.
+            let known = spotify.saved[id]
+            let isSaved = known ?? false
             Button { spotify.toggleSaved(trackID: id) } label: {
                 Image(systemName: isSaved ? "heart.fill" : "heart")
                     .foregroundStyle(isSaved ? accent : .white)
+                    .opacity(known == nil ? 0.45 : 1)
             }
+            .disabled(known == nil)
             .buttonStyle(NotchButtonStyle(size: 32))
             .accessibilityLabel(isSaved ? localized("Remove from Liked Songs") : localized("Add to Liked Songs"))
             .task(id: id) { spotify.refreshSavedState(trackID: id) }

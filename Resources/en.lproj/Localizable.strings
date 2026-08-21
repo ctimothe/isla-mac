@@ -37,7 +37,7 @@
 /* Media */
 "Nothing is playing" = "Nothing is playing";
 
-/* Snippets */
+/* Shared row actions */
 "Delete" = "Delete";
 
 /* Notes */
@@ -50,7 +50,7 @@
 "Translation Languages…" = "Translation Languages…";
 "Retry" = "Retry";
 
-/* Calendar */
+/* Shared confirmations */
 "Done" = "Done";
 
 /* Countdown, lower-case: the capital is added where the label is built.
@@ -59,8 +59,6 @@
 
 /* Saved screenshots. The key is the date format itself, so a language can put
    the parts in its own order. */
-"Screenshot" = "Screenshot";
-"yyyy-MM-dd 'at' HH.mm.ss" = "yyyy-MM-dd 'at' HH.mm.ss";
 
 /* Privacy mode: the panel covers what it holds with a field of dots. */
 "Hide Contents" = "Hide Contents";
@@ -102,6 +100,7 @@
 "Show Lyrics" = "Show Lyrics";
 "Lyrics" = "Lyrics";
 "Show on Lock Screen" = "Show on Lock Screen";
+"Clear Lyrics Cache" = "Clear Lyrics Cache";
 "Add to Liked Songs" = "Add to Liked Songs";
 "Remove from Liked Songs" = "Remove from Liked Songs";
 "Connect Spotify Account…" = "Connect Spotify Account…";
@@ -111,3 +110,9 @@
 "Continue" = "Continue";
 "Cancel" = "Cancel";
 "Spotify" = "Spotify";
+
+/* Spotify credential storage */
+"Import Account From Keychain…" = "Import Account From Keychain…";
+"Stored in your keychain." = "Stored in your keychain.";
+"Stored in an owner-only file, because this build is unsigned." = "Stored in an owner-only file, because this build is unsigned.";
+"Cannot be stored on this Mac." = "Cannot be stored on this Mac.";

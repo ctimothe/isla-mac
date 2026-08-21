@@ -73,8 +73,23 @@ final class NotchPanel: NSPanel {
     /// individual panes meant it worked on two of them and nowhere else.
     var onEscape: (() -> Void)?
 
+    /// Asked before `onEscape`. Returning true means a pane wanted this
+    /// Escape — clearing a field, handing the keyboard back — and the panel
+    /// stays open.
+    var escapeHandled: (() -> Bool)?
+
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, event.keyCode == Key.escape {
+            // An input method that is mid-composition owns Escape: it cancels
+            // the composition, and the panel must not close underneath
+            // somebody typing Cyrillic phonetically or any CJK layout.
+            // Swallowing every Escape here also made the panes' own handlers
+            // dead code, since nothing ever reached the responder chain.
+            if let responder = firstResponder as? NSTextView, responder.hasMarkedText() {
+                super.sendEvent(event)
+                return
+            }
+            if escapeHandled?() == true { return }
             onEscape?()
             return
         }
@@ -146,6 +161,9 @@ final class NotchPanel: NSPanel {
     /// included — and this one can be showing clipboard history or a scratch
     /// note. `.none` hides it from capture without hiding it from the screen.
     func applyCaptureExclusion() {
-        sharingType = NotchViewModel.hideFromCaptureEnabled ? .none : .readWrite
+        // `.readOnly`, not the deprecated `.readWrite`: nothing may write into
+        // this window, and `.readWrite` warns at the package's own macOS 15
+        // minimum.
+        sharingType = NotchViewModel.hideFromCaptureEnabled ? .none : .readOnly
     }
 }

@@ -1,8 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<!-- Deliberately empty. Calendar was the only permission the app ever asked
-     for, and dropping that feature drops the entitlement with it: Dynamic
-     Island now requests no user-grantable permission at all. -->
-<dict/>
+<!-- One entitlement, and it is not a permission the app asks the user for
+     up front: Apple Events consent is requested by macOS at the moment the
+     scripting fallback first drives Music or Spotify, and is refusable.
+
+     It is required rather than optional. The app is signed with the hardened
+     runtime, which denies in-process Apple Events outright without this key —
+     so without it `PlayerBridge`'s AppleScript route fails with -1743 in every
+     signed build, which is precisely the route `MediaController` falls back to
+     when the MediaRemote helper is unavailable. Every branch of the media
+     failure chain would end somewhere that cannot work.
+
+     `NSAppleEventsUsageDescription` in the Info.plist is the sentence shown in
+     that prompt; it is not a substitute for this. Calendar's entitlement was
+     dropped with the Calendar feature and is not coming back. -->
+<dict>
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!-- A keychain access group is added here at build time, but only for
+         Developer ID builds — see `Scripts/bundle.sh`. It is what moves the
+         Spotify tokens into the data-protection keychain, where they are
+         scoped to the team identity rather than to the exact binary that
+         wrote them, so macOS stops asking for the login password every time
+         the app is re-signed. The group must carry the team prefix to be
+         valid, and an ad-hoc signature has no team: claiming one anyway makes
+         launchd refuse to start the app at all (spawn error 163). Ad-hoc
+         builds therefore use the legacy keychain, where the developer answers
+         one prompt per rebuild. See `KeychainStore`. -->
+</dict>
 </plist>

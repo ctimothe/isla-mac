@@ -60,6 +60,27 @@ final class NowPlayingFeed {
     private var buffer = NDJSONBuffer()
     private var failurePolicy = NowPlayingFailurePolicy()
     private var stopped = false
+    private var terminationToken: NSObjectProtocol?
+    /// Fires when the helper has gone quiet for too long.
+    private var watchdog: Timer?
+    private var lastLineAt = Date()
+    /// Identifies the helper generation a chunk belongs to.
+    ///
+    /// The readability handler runs on a dispatch thread and hops to the main
+    /// actor, so a chunk read from a dying helper can arrive after its
+    /// replacement has started — and land in the fresh buffer, corrupting the
+    /// new helper's first line. Each launch stamps its own epoch and chunks
+    /// from any other are dropped.
+    private var epoch = 0
+    /// Commands written while the helper was down, replayed once it is back.
+    /// Only the most recent one: transport is a statement about now, and
+    /// replaying a queue of stale taps would fight the user.
+    private var pendingCommand: String?
+
+    /// The helper publishes at least every two seconds, idle or not, so silence
+    /// for several times that means it is not going to speak again. Generous,
+    /// because a machine under heavy load can stall a poll.
+    private static let silenceTimeout: TimeInterval = 12
 
     private var helperPath: String? {
         Bundle.main.path(forResource: ProductIdentity.helperResourceName, ofType: "dylib")
@@ -69,29 +90,94 @@ final class NowPlayingFeed {
 
     func start() {
         stopped = false
+        epoch += 1
         buffer = NDJSONBuffer()
+        buffer.onOversizedRecord = { [weak self] in
+            // The record that could not be assembled is gone for good — the
+            // helper considers its artwork delivered. Ask for a fresh one.
+            self?.refresh()
+        }
         failurePolicy.recordSuccess()
         // A pid is recycled by the system, so a cached name has to die with
-        // the process that earned it.
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didTerminateApplicationNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            MainActor.assumeIsolated { self?.appNames.removeValue(forKey: app.processIdentifier) }
+        // the process that earned it. The token is kept so `stop` can actually
+        // remove the registration: discarded, it left one live block per feed
+        // for the life of the app.
+        if terminationToken == nil {
+            terminationToken = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didTerminateApplicationNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+                MainActor.assumeIsolated { self?.appNames.removeValue(forKey: app.processIdentifier) }
+            }
         }
         launch()
     }
 
     func stop() {
         stopped = true
+        epoch += 1
+        stopWatchdog()
+        if let terminationToken {
+            NSWorkspace.shared.notificationCenter.removeObserver(terminationToken)
+            self.terminationToken = nil
+        }
         output?.readabilityHandler = nil
         output = nil
         try? input?.close()
         input = nil
+        pendingCommand = nil
         process?.terminate()
         process = nil
+    }
+
+    // MARK: - Watchdog
+
+    /// A helper that is running but saying nothing is the failure mode no
+    /// process-level check can see: `terminationHandler` never fires, so the
+    /// failure policy is never consulted and the panel shows an empty media
+    /// tab forever with no fallback. It has happened before — a nested
+    /// MediaRemote call that silenced the feed while the process stayed up —
+    /// and it can happen again the first time a macOS release renames a symbol
+    /// the helper looks up.
+    private func startWatchdog() {
+        stopWatchdog()
+        lastLineAt = Date()
+        let timer = Timer(timeInterval: Self.silenceTimeout / 3, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            MainActor.assumeIsolated { self.checkForSilence() }
+        }
+        timer.tolerance = 1
+        RunLoop.main.add(timer, forMode: .common)
+        watchdog = timer
+    }
+
+    private func stopWatchdog() {
+        watchdog?.invalidate()
+        watchdog = nil
+    }
+
+    private func checkForSilence() {
+        guard !stopped, process != nil else { return }
+        guard Date().timeIntervalSince(lastLineAt) > Self.silenceTimeout else { return }
+        NSLog("Dynamic Island: helper went silent; restarting")
+        // Treated exactly like a crash, so the same budget and backoff apply
+        // and a helper that is reliably mute eventually hands over to scripting.
+        //
+        // The termination handler is cleared *before* terminating, or the
+        // process's own exit would call `handleTermination` a second time: two
+        // failures recorded for one event, two `launch()` calls two seconds
+        // apart, and the first perl process left running and still feeding the
+        // shared line buffer.
+        let task = process
+        task?.terminationHandler = nil
+        process = nil
+        task?.terminate()
+        handleTermination()
     }
 
     private func launch() {
@@ -115,11 +201,20 @@ final class NowPlayingFeed {
         task.standardInput = commands
         task.standardError = FileHandle.nullDevice
 
+        let epoch = epoch
         let outputHandle = output.fileHandleForReading
         outputHandle.readabilityHandler = { [weak self] handle in
             let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            Task { @MainActor in self?.consume(chunk) }
+            guard !chunk.isEmpty else {
+                // Empty means end of file, and the readability source keeps
+                // firing on a closed pipe: without clearing the handler here
+                // the dispatch thread spun at full tilt from the moment the
+                // helper died until the main actor got around to the deferred
+                // cleanup — unbounded, if the main actor was busy.
+                handle.readabilityHandler = nil
+                return
+            }
+            Task { @MainActor in self?.consume(chunk, epoch: epoch) }
         }
 
         task.terminationHandler = { [weak self] _ in
@@ -137,10 +232,34 @@ final class NowPlayingFeed {
         process = task
         input = commands.fileHandleForWriting
         self.output = outputHandle
+        startWatchdog()
+
+        // A tap made while the helper was restarting is honoured now rather
+        // than dropped in silence — the panel had already flipped its icon to
+        // match, and letting the command evaporate meant the icon flipped back
+        // a second and a half later for no reason the user could see.
+        if let pendingCommand {
+            self.pendingCommand = nil
+            write(pendingCommand)
+        }
     }
 
     private func handleTermination() {
         guard !stopped else { return }
+        // Once per death. The process's own termination handler and the
+        // watchdog can both reach here for the same event, and two failures
+        // recorded for one death spends the restart budget twice and launches
+        // two helpers.
+        guard process != nil || output != nil || input != nil else { return }
+        stopWatchdog()
+        // A fresh helper must not inherit half a line from the dead one — and
+        // the epoch is bumped with the buffer, not only at launch. Bumped only
+        // there, a chunk read from the dying helper could still drain onto the
+        // main actor during the restart delay, match the unchanged epoch, and
+        // append a fragment to the buffer the next helper was about to use.
+        epoch += 1
+        buffer = NDJSONBuffer()
+        buffer.onOversizedRecord = { [weak self] in self?.refresh() }
         output?.readabilityHandler = nil
         output = nil
         process = nil
@@ -174,19 +293,35 @@ final class NowPlayingFeed {
     }
 
     private func write(_ line: String) {
-        guard let input, let data = (line + "\n").data(using: .utf8) else { return }
+        guard let input, let data = (line + "\n").data(using: .utf8) else {
+            // The helper is between lives. Hold the command — a transport tap
+            // has an optimistic icon change riding on it — and replay it when
+            // the replacement is up. A `get` is not worth holding: the fresh
+            // helper publishes on its own the moment it starts.
+            if !stopped, !line.hasPrefix("get") { pendingCommand = line }
+            return
+        }
         // The helper can die between our check and the write; a broken pipe
         // would raise SIGPIPE-flavoured NSException from FileHandle.
         do {
             try input.write(contentsOf: data)
         } catch {
             NSLog("Dynamic Island: helper write failed: \(error.localizedDescription)")
+            // The pipe broke mid-write, which is the same situation as writing
+            // with no pipe at all: hold the command for the replacement.
+            if !stopped, !line.hasPrefix("get") { pendingCommand = line }
         }
     }
 
     // MARK: - Parsing
 
-    private func consume(_ chunk: Data) {
+    private func consume(_ chunk: Data, epoch: Int) {
+        // From the helper that is actually running, not from one that has since
+        // been replaced.
+        guard epoch == self.epoch else { return }
+        // Any byte from the helper counts as a sign of life, whether or not it
+        // completes a line.
+        lastLineAt = Date()
         for line in buffer.append(chunk) {
             handle(line: line)
         }

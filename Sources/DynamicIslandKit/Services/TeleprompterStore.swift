@@ -32,7 +32,11 @@ final class TeleprompterStore: ObservableObject {
             // Enforced here, not just at today's call sites (init's defaults
             // read, the Slider, the increment buttons): the model is the one
             // place every caller passes through.
-            let clamped = min(max(speed, 0.3), 3.0)
+            // `isFinite` first: `min`/`max` propagate NaN, so `clamped != speed`
+            // was true for NaN (nothing equals NaN), the assignment re-entered
+            // this observer with the same value, and the stack overflowed. A
+            // NaN can reach here from a corrupt or hand-edited defaults plist.
+            let clamped = speed.isFinite ? min(max(speed, 0.3), 3.0) : 1.0
             if clamped != speed {
                 speed = clamped
                 return
@@ -47,7 +51,7 @@ final class TeleprompterStore: ObservableObject {
     /// the attention available while talking to a camera.
     @Published var fontSize: Double = 30 {
         didSet {
-            let clamped = min(max(fontSize, 18), 64)
+            let clamped = fontSize.isFinite ? min(max(fontSize, 18), 64) : 30
             if clamped != fontSize {
                 fontSize = clamped
                 return
@@ -71,25 +75,53 @@ final class TeleprompterStore: ObservableObject {
     private static let speedKey = "teleprompter.speed"
     private static let fontKey = "teleprompter.fontSize"
     private let defaults: UserDefaults
-    private let fileURL: URL
+    private let fileURL: URL?
+
+    /// True when the file exists but could not be read — wrong encoding, no
+    /// permission, an I/O error. Writing is forbidden in that state.
+    ///
+    /// The script file is documented as one anybody can open in any editor,
+    /// which means it can come back saved as UTF-16, or read-only, or on a
+    /// volume that went away. Every one of those used to arrive as an empty
+    /// string, and the first keystroke afterwards atomically replaced a script
+    /// that was still perfectly intact on disk.
+    @Published private(set) var fileBroken = false
 
     private var timer: Timer?
     private let saves = DebouncedWrite()
 
     init(
-        fileURL: URL = AppPaths.live.supportFile("teleprompter.txt"),
+        fileURL: URL? = AppPaths.live.supportFile("teleprompter.txt"),
         defaults: UserDefaults = .standard
     ) {
         self.fileURL = fileURL
         self.defaults = defaults
-        script = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
-        // Reading the file above went through `script`'s observer and armed a
-        // save of what was just loaded. Harmless, but worth not doing.
+        if let fileURL {
+            do {
+                script = try String(contentsOf: fileURL, encoding: .utf8)
+            } catch {
+                let nsError = error as NSError
+                let missing = nsError.domain == NSCocoaErrorDomain
+                    && (nsError.code == NSFileReadNoSuchFileError || nsError.code == NSFileNoSuchFileError)
+                if !missing {
+                    fileBroken = true
+                    NSLog("Dynamic Island: teleprompter.txt is unreadable: \(error.localizedDescription)")
+                }
+            }
+        } else {
+            fileBroken = true
+        }
+        // Not because the read above armed a save — Swift does not run property
+        // observers for assignments inside the defining type's own `init`, so
+        // `script`'s `didSet` never fired here. Cancelling is belt and braces
+        // for a store built while a previous one's write was still pending.
         saves.cancel()
-        if let stored = defaults.object(forKey: Self.speedKey) as? Double {
+        // Clamped inline, because — as above — the observers do not run for
+        // these assignments either.
+        if let stored = defaults.object(forKey: Self.speedKey) as? Double, stored.isFinite {
             speed = min(max(stored, 0.3), 3.0)
         }
-        if let stored = defaults.object(forKey: Self.fontKey) as? Double {
+        if let stored = defaults.object(forKey: Self.fontKey) as? Double, stored.isFinite {
             fontSize = min(max(stored, 18), 64)
         }
     }
@@ -111,8 +143,16 @@ final class TeleprompterStore: ObservableObject {
         isRunning = true
         // 60 Hz rather than a per-line jump: text that steps line by line is
         // read in lurches, and the eye loses the line it was on at every step.
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+        // The timer invalidates itself once the store is gone. A weak capture
+        // alone only makes the tick a no-op: the run loop keeps the timer and
+        // keeps firing it sixty times a second, with nothing left anywhere
+        // holding a reference to invalidate it.
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            MainActor.assumeIsolated { self.tick() }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
@@ -157,6 +197,7 @@ final class TeleprompterStore: ObservableObject {
     func flush() { saves.flush() }
 
     private func persist() {
+        guard !fileBroken, let fileURL else { return }
         do {
             try script.write(to: fileURL, atomically: true, encoding: .utf8)
         } catch {
@@ -165,6 +206,7 @@ final class TeleprompterStore: ObservableObject {
     }
 
     func reveal() {
+        guard let fileURL else { return }
         if !FileManager.default.fileExists(atPath: fileURL.path) {
             try? "".write(to: fileURL, atomically: true, encoding: .utf8)
         }

@@ -135,7 +135,18 @@ struct NotesPane: View {
                                 notes.remove(note.id)
                                 // The tab's invariant: there is always a note
                                 // under the caret.
-                                if notes.notes.isEmpty { notes.add() }
+                                if notes.notes.isEmpty {
+                                    notes.add()
+                                    // Uncovered, like every other note this app
+                                    // creates. Without this the replacement was
+                                    // born under the privacy cover, which
+                                    // disables its editor — a blank note that
+                                    // cannot be typed into until the eye button
+                                    // is found.
+                                    if let id = notes.selected {
+                                        privacy.reveal("note.\(id)")
+                                    }
+                                }
                             }
                         )
                     }
