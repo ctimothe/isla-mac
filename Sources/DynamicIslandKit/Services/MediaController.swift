@@ -60,8 +60,70 @@ final class MediaController: ObservableObject {
     /// regardless meant the bar fell behind between polls and lurched forward
     /// on each one; below 1× it ran ahead and was yanked back.
     private var playbackRate: Double = 1
-    /// Where we asked the player to jump, and when — see `apply`.
-    private var pendingSeek: (target: TimeInterval, at: Date)?
+    /// Where we asked the player to jump, when — and from where, because the
+    /// pre-seek trajectory is the only thing that can unmask a reading taken
+    /// after the seek was issued but before the player applied it.
+    private var pendingSeek: (target: TimeInterval, at: Date, origin: TimeInterval)?
+    /// The last seek, kept past the pending window: Spotify's own broadcast
+    /// can deliver a pre-seek position after the pending guard has cleared,
+    /// and anchoring on it replays the jump backwards on screen. The origin
+    /// travels along so only broadcasts shaped like the pre-seek trajectory
+    /// are dropped — a genuine pause or track change right after a click
+    /// still carries the millisecond-exact position and is kept.
+    private var lastSeek: (target: TimeInterval, at: Date, origin: TimeInterval)?
+
+    /// What a position reading is worth while a seek is in flight.
+    ///
+    /// The old rule settled the seek whenever a reading landed within 2.5s of
+    /// the target — but a correction already in flight when the user clicked
+    /// returns the *pre-seek* position, and clicking a nearby lyric line put
+    /// that stale value inside the window. It settled the seek, the monotonic
+    /// rule read it as a real rewind, and the anchor was yanked back to where
+    /// the track was before the click: every tap on a nearby line visibly
+    /// bounced backwards. Time is the discriminator a value can never be —
+    /// a reading whose round-trip began before the seek was issued describes
+    /// the pre-seek world, whatever its value.
+    enum SeekReadingVerdict: Equatable {
+        /// Keep waiting: drop the reading, leave the seek pending.
+        case discard
+        /// The wait is over but the reading predates the seek: clear the
+        /// pending state, use nothing from the reading.
+        case settleIgnore
+        /// The jump landed: clear the pending state, the reading is truth.
+        case settleAdopt
+    }
+
+    static func judgeSeekReading(
+        reading: TimeInterval,
+        target: TimeInterval,
+        issuedAt: Date,
+        askedAt: Date,
+        now: Date,
+        origin: TimeInterval,
+        rate: Double = 1
+    ) -> SeekReadingVerdict {
+        let expired = now.timeIntervalSince(issuedAt) > 1.5
+        let postIssue = askedAt > issuedAt
+        // Past the window the pending state must clear either way — left set
+        // it disables corrections for the rest of the track — but a stale
+        // reading still earns no say in where the anchor sits. (A reading that
+        // still tracks the pre-seek trajectory after 1.5s means the player
+        // refused or lost the jump, and then it is the truth — adopt it.)
+        if expired { return postIssue ? .settleAdopt : .settleIgnore }
+        guard postIssue else { return .discard }
+        // Post-issue is necessary, not sufficient: the seek and the query
+        // travel independent channels, so the query can reach the player
+        // before the jump does. Being near the target proves nothing by
+        // itself either — the pre-seek position keeps playing while the jump
+        // is in flight, and on a short jump it drifts into the target window
+        // looking exactly like a landing. What a pre-application reading
+        // cannot fake is *leaving the old trajectory*: only a reading near
+        // the target AND away from where the un-jumped track would be by now
+        // proves the player moved.
+        let phantom = origin + max(0, askedAt.timeIntervalSince(issuedAt)) * max(rate, 0)
+        if abs(reading - phantom) < 0.6 { return .discard }
+        return abs(reading - target) < 0.8 ? .settleAdopt : .discard
+    }
     /// True while the position is being corrected against the player's own
     /// clock rather than MediaRemote's. The lyric lead reads this: with a
     /// precise position most of the compensation is unnecessary.
@@ -114,6 +176,19 @@ final class MediaController: ObservableObject {
         guard displayedPlayerIsSpotify,
               let position = note.userInfo?["Playback Position"] as? Double else { return }
         guard pendingSeek == nil else { return }
+        // Delivery is unordered with the seek's own application: a broadcast
+        // describing the pre-seek moment can arrive after the pending guard
+        // has cleared, and anchoring on it replays the jump backwards. Only
+        // that shape is dropped — one hugging the pre-seek trajectory while
+        // disagreeing with the anchor — so a genuine pause or track-change
+        // broadcast right after a click still lands.
+        if let lastSeek {
+            let elapsed = Date().timeIntervalSince(lastSeek.at)
+            if elapsed < 1.2 {
+                let phantom = lastSeek.origin + elapsed * (isPlaying ? max(playbackRate, 0) : 0)
+                if abs(position - phantom) < 0.6, abs(position - self.position) > 0.5 { return }
+            }
+        }
         // Sanity-checked before it is believed. This value arrives from another
         // process's broadcast and is not validated anywhere else; a negative or
         // past-the-end position would anchor the clock outside the track.
@@ -316,10 +391,19 @@ final class MediaController: ObservableObject {
             // clock free-running on a dead anchor, and everything downstream
             // of the position drifting for the rest of the track.
             if let pending = self.pendingSeek {
-                let settled = abs(value - pending.target) < 2.5
-                let expired = Date().timeIntervalSince(pending.at) > 1.5
-                guard settled || expired else { return }
-                self.pendingSeek = nil
+                switch Self.judgeSeekReading(
+                    reading: value,
+                    target: pending.target,
+                    issuedAt: pending.at,
+                    askedAt: asked,
+                    now: Date(),
+                    origin: pending.origin,
+                    rate: self.isPlaying ? self.playbackRate : 0
+                ) {
+                case .discard: return
+                case .settleIgnore: self.pendingSeek = nil; return
+                case .settleAdopt: self.pendingSeek = nil
+                }
             }
 
             // The script's answer is already old by the time it arrives —
@@ -367,8 +451,10 @@ final class MediaController: ObservableObject {
     func seek(to seconds: TimeInterval) {
         guard duration > 0 else { return }
         let clamped = min(max(0, seconds), duration)
+        let origin = anchor.map { $0.position } ?? position
         setAnchor(clamped)
-        pendingSeek = (clamped, Date())
+        pendingSeek = (clamped, Date(), origin)
+        lastSeek = (clamped, Date(), origin)
         if feedAvailable {
             feed.seek(to: clamped, playerPID: displayedPlayerPID)
         } else if let activeApp {
@@ -522,14 +608,27 @@ final class MediaController: ObservableObject {
             // snapshot — track, playing state, commands, artwork — landed
             // above as usual.
         } else if let pending = pendingSeek {
-            let settled = abs(reported - pending.target) < 2.5
-            let expired = Date().timeIntervalSince(pending.at) > 1.5
-            if settled || expired {
+            switch Self.judgeSeekReading(
+                reading: reported,
+                target: pending.target,
+                issuedAt: pending.at,
+                // A snapshot without a capture time cannot prove it is
+                // post-seek; distantPast makes the gate treat it as stale.
+                askedAt: snapshot.takenAt ?? .distantPast,
+                now: Date(),
+                origin: pending.origin,
+                rate: isPlaying ? playbackRate : 0
+            ) {
+            case .discard:
+                break
+            case .settleIgnore:
                 pendingSeek = nil
-                // Even on expiry the reading has to be worth having. A seek
-                // made while paused often gets no fresh reading at all until
-                // playback resumes, and adopting the pre-seek one then threw
-                // the bar back to where the track was before the drag — the
+            case .settleAdopt:
+                pendingSeek = nil
+                // Even here the reading has to be worth having. A seek made
+                // while paused often gets no fresh reading at all until
+                // playback resumes, and adopting a superseded one threw the
+                // bar back to where the track was before the drag — the
                 // exact yank this whole path exists to avoid.
                 if !stale { adopt(reported) }
             }
