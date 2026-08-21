@@ -8,8 +8,19 @@ struct MediaPane: View {
     @State private var scrubHover = false
     /// Set while dragging, so the bar follows the finger instead of the clock.
     @State private var scrubbing: Double?
-    /// Cursor x inside the bar while hovering, for the floating time preview.
+    /// Cursor x inside the bar while hovering, and the bar's own width, so the
+    /// elapsed label can read the time under the pointer.
     @State private var hoverX: CGFloat?
+    @State private var scrubWidth: CGFloat = 0
+
+    /// Where the pointer (or the finger mid-drag) sits along the bar, 0...1.
+    /// Nil when neither is on it, which is when the label goes back to saying
+    /// where the song actually is.
+    private var previewFraction: Double? {
+        if let scrubbing { return scrubbing }
+        guard scrubHover, let hoverX else { return nil }
+        return ScrubPreview.fraction(x: hoverX, width: scrubWidth, duration: media.duration)
+    }
     /// Set once the current track has waited long enough for artwork that it
     /// is evidently not coming. Some sources never publish a cover, and a
     /// shimmer that promises one forever reads as stuck, not loading.
@@ -97,8 +108,13 @@ struct MediaPane: View {
                         .lineLimit(1)
                         .padding(.top, 3)
 
-                    Spacer(minLength: 6)
-                    controls
+                    // The same order the lock card reads in: who is playing,
+                    // what is being sung, where the song is, and the transport
+                    // last. Two surfaces showing the same track in a different
+                    // sequence is the kind of difference nobody can name and
+                    // everybody feels.
+                    lyricsLine
+                        .padding(.top, 4)
                     Spacer(minLength: 6)
                     // A live stream has no duration, and a scrubber with no
                     // length is a control that reads 0:00 / 0:00, refuses to
@@ -106,7 +122,8 @@ struct MediaPane: View {
                     if media.duration > 0 {
                         scrubber
                     }
-                    lyricsLine
+                    Spacer(minLength: 4)
+                    controls
                 }
                 .frame(height: blockHeight)
         }
@@ -182,7 +199,12 @@ struct MediaPane: View {
 
     private var scrubber: some View {
         HStack(spacing: 10) {
-            Text(formatTime(progress * media.duration))
+            // While the pointer is on the bar this reads the time *under the
+            // pointer*, not the time playing — the same trick every scrubber
+            // worth using does, and it replaces the floating bubble that used
+            // to cover the lyric line above the bar.
+            Text(formatTime((previewFraction ?? progress) * media.duration))
+                .foregroundStyle(previewFraction == nil ? Theme.tertiary : Color.white.opacity(0.9))
                 .frame(width: 32, alignment: .leading)
 
             GeometryReader { geo in
@@ -210,6 +232,7 @@ struct MediaPane: View {
                 .contentShape(Rectangle())
                 .onHover { scrubHover = $0 }
                 .onContinuousHover { phase in
+                    scrubWidth = width
                     switch phase {
                     case .active(let location): hoverX = location.x
                     case .ended: hoverX = nil
@@ -235,9 +258,6 @@ struct MediaPane: View {
                         }
                 )
                 .animation(Theme.contentAnimation, value: scrubHover)
-                .overlay(alignment: .topLeading) {
-                    previewBubble(width: width, filled: filled)
-                }
             }
             .frame(height: 14)
             // A capsule with a drag gesture is nothing at all to assistive
@@ -272,73 +292,60 @@ struct MediaPane: View {
     /// Bubble width is fixed rather than measured: formatTime yields "m:ss"
     /// through "mm:ss" in the 10 pt monospaced ramp, which all fit in 44 pt,
     /// and a constant keeps ScrubPreview's clamping deterministic.
-    private static let bubbleWidth: CGFloat = 44
 
     /// Floating time preview above the bar. Drag wins over hover: while a
     /// drag is in flight the bubble follows the thumb, not the cursor.
     @ViewBuilder
-    private func previewBubble(width: CGFloat, filled: CGFloat) -> some View {
-        let anchorX: CGFloat? = scrubbing != nil ? filled : hoverX
-        if let anchorX,
-           scrubbing != nil || scrubHover,
-           let fraction = ScrubPreview.fraction(x: anchorX, width: width, duration: media.duration) {
-            Text(formatTime(fraction * media.duration))
-                .font(.system(size: 10, weight: .medium).monospacedDigit())
-                .foregroundStyle(Color.white.opacity(0.9))
-                .frame(width: Self.bubbleWidth, height: 18)
-                .background(Theme.surface, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
-                .position(
-                    x: ScrubPreview.bubbleCenterX(x: anchorX, width: width, bubbleWidth: Self.bubbleWidth),
-                    y: -17
-                )
-                .allowsHitTesting(false)
-                .transition(.opacity)
-                .animation(Theme.contentAnimation, value: scrubHover)
-        }
-    }
-
-    // MARK: - Transport
-
-    /// Skipping is dimmed, not hidden, when the player does not offer it — a
-    /// video in a browser tab has nothing to skip to, so the command would
-    /// leave and nothing would happen. Dim says "not here"; a button that
-    /// looks live and does nothing says "broken". The system's own Now Playing
-    /// widget dims the same two arrows on the same session.
     private var controls: some View {
-        HStack(spacing: 20) {
-            // Shuffle and repeat exist only for players that can be asked —
-            // hidden, not dimmed, elsewhere: unlike skipping, the concept
-            // itself is absent for a browser tab, and a dim control implies a
-            // state that merely is not available right now.
-            if let shuffle = media.shuffleEnabled {
-                ModeToggle(symbol: "shuffle", isOn: shuffle) { media.toggleShuffle() }
-                    .accessibilityLabel(localized("Shuffle"))
-                    .accessibilityValue(shuffle ? localized("On") : localized("Off"))
+        // Spread edge to edge, the same five-slot grammar the lock card uses:
+        // the modes anchor the ends, the transport takes the middle, and the
+        // row keeps its shape whatever the player can be asked. A track with
+        // no shuffle to offer holds the space rather than letting everything
+        // else slide sideways when the next one does.
+        HStack(spacing: 0) {
+            Group {
+                if let shuffle = media.shuffleEnabled {
+                    ModeToggle(symbol: "shuffle", isOn: shuffle) { media.toggleShuffle() }
+                        .accessibilityLabel(localized("Shuffle"))
+                        .accessibilityValue(shuffle ? localized("On") : localized("Off"))
+                }
             }
-            Button { media.previous() } label: { Image(systemName: "backward.fill") }
-                .buttonStyle(NotchButtonStyle(size: 30))
-                .disabled(!media.canSkip)
-                .opacity(media.canSkip ? 1 : 0.35)
-                .accessibilityLabel(localized("Previous Track"))
+            .frame(width: 26)
+            Spacer(minLength: 0)
+            Button { media.previous() } label: {
+                Image(systemName: "backward.fill").font(.system(size: 16, weight: .medium))
+            }
+            .buttonStyle(TransportGlyphStyle(size: 30))
+            .disabled(!media.canSkip)
+            .opacity(media.canSkip ? 1 : 0.35)
+            .accessibilityLabel(localized("Previous Track"))
+            Spacer(minLength: 0)
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 22, weight: .medium))
             }
-            .buttonStyle(NotchButtonStyle(size: 40, prominent: true))
+            .buttonStyle(TransportGlyphStyle(size: 34))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
-            Button { media.next() } label: { Image(systemName: "forward.fill") }
-                .buttonStyle(NotchButtonStyle(size: 30))
-                .disabled(!media.canSkip)
-                .opacity(media.canSkip ? 1 : 0.35)
-                .accessibilityLabel(localized("Next Track"))
-            if let mode = media.repeatMode {
-                ModeToggle(
-                    symbol: mode == .one ? "repeat.1" : "repeat",
-                    isOn: mode != .off
-                ) { media.cycleRepeat() }
-                    .accessibilityLabel(localized("Repeat"))
-                    .accessibilityValue(repeatValueLabel(mode))
+            Spacer(minLength: 0)
+            Button { media.next() } label: {
+                Image(systemName: "forward.fill").font(.system(size: 16, weight: .medium))
             }
+            .buttonStyle(TransportGlyphStyle(size: 30))
+            .disabled(!media.canSkip)
+            .opacity(media.canSkip ? 1 : 0.35)
+            .accessibilityLabel(localized("Next Track"))
+            Spacer(minLength: 0)
+            Group {
+                if let mode = media.repeatMode {
+                    ModeToggle(
+                        symbol: mode == .one ? "repeat.1" : "repeat",
+                        isOn: mode != .off
+                    ) { media.cycleRepeat() }
+                        .accessibilityLabel(localized("Repeat"))
+                        .accessibilityValue(repeatValueLabel(mode))
+                }
+            }
+            .frame(width: 26)
         }
         .frame(maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.15), value: media.canSkip)

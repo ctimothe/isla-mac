@@ -10,12 +10,12 @@ final class PrivacyModeTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let privacy = PrivacyMode(defaults: defaults)
 
-        privacy.setCovering(.notes, true)
-        privacy.reveal("note-1")
-        XCTAssertFalse(privacy.hides(.notes, "note-1"))
+        privacy.setCovering(.clipboard, true)
+        privacy.reveal("clip-1")
+        XCTAssertFalse(privacy.hides(.clipboard, "clip-1"))
 
         privacy.coverEverything()
-        XCTAssertTrue(privacy.hides(.notes, "note-1"))
-        XCTAssertTrue(PrivacyMode(defaults: defaults).covers(.notes))
+        XCTAssertTrue(privacy.hides(.clipboard, "clip-1"))
+        XCTAssertTrue(PrivacyMode(defaults: defaults).covers(.clipboard))
     }
 }

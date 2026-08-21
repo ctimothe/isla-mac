@@ -337,7 +337,7 @@ struct LockScreenCard: View {
             Button { media.previous() } label: {
                 Image(systemName: "backward.fill").font(.system(size: 22, weight: .medium))
             }
-            .buttonStyle(LockGlyphStyle())
+            .buttonStyle(TransportGlyphStyle(size: 34))
             .disabled(!media.canSkip)
             .opacity(media.canSkip ? 1 : 0.35)
             .accessibilityLabel(localized("Previous Track"))
@@ -346,13 +346,13 @@ struct LockScreenCard: View {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 30, weight: .medium))
             }
-            .buttonStyle(LockGlyphStyle())
+            .buttonStyle(TransportGlyphStyle(size: 34))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Spacer(minLength: 0)
             Button { media.next() } label: {
                 Image(systemName: "forward.fill").font(.system(size: 22, weight: .medium))
             }
-            .buttonStyle(LockGlyphStyle())
+            .buttonStyle(TransportGlyphStyle(size: 34))
             .disabled(!media.canSkip)
             .opacity(media.canSkip ? 1 : 0.35)
             .accessibilityLabel(localized("Next Track"))
@@ -396,7 +396,7 @@ struct LockScreenCard: View {
                 .frame(width: 34, height: 34)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(LockGlyphStyle())
+        .buttonStyle(TransportGlyphStyle(size: 34))
         .help(localized("Sound Output"))
         .accessibilityLabel(localized("Sound Output"))
     }
@@ -487,21 +487,6 @@ struct LockScreenCard: View {
         }
     }
 }
-
-/// Transport glyph on the lock card: white, bare, and pressed by dimming
-/// rather than by a well lighting up behind it.
-private struct LockGlyphStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(.white)
-            .frame(width: 34, height: 34)
-            .contentShape(Rectangle())
-            .opacity(configuration.isPressed ? 0.55 : 1)
-            .scaleEffect(configuration.isPressed ? 0.92 : 1)
-            .animation(Theme.contentAnimation, value: configuration.isPressed)
-    }
-}
-
 /// Five bars breathing with the music, tinted from the artwork — the
 /// heartbeat every reference player carries at its edge.
 private struct LockWaveform: View {

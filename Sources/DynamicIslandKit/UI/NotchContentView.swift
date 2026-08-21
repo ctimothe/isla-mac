@@ -296,10 +296,6 @@ struct NotchContentView: View {
             // Nothing: the columns name both languages already, and the strip
             // is the one part of the panel worth not spending on a repeat.
             EmptyView()
-        case .notes:
-            NotesCounter(notes: vm.notes)
-        case .teleprompter:
-            EmptyView()
         case .settings:
             EmptyView()
         }
@@ -318,9 +314,8 @@ struct NotchContentView: View {
 
     private var content: some View {
         HStack(spacing: 14) {
-            Rail(vm: vm, tabs: NotchViewModel.Tab.leftRail)
+            Rail(vm: vm, tabs: NotchViewModel.Tab.contentTabs, footer: NotchViewModel.Tab.utilityTabs)
             panes
-            Rail(vm: vm, tabs: NotchViewModel.Tab.rightRail)
         }
         .padding(.horizontal, 14)
         // The body's height is measured from this same number, so the two
@@ -359,10 +354,6 @@ struct NotchContentView: View {
             ClipboardPane(clipboard: vm.clipboard, privacy: vm.privacy)
         case .translate:
             TranslatePane(translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
-        case .notes:
-            NotesPane(notes: vm.notes, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
-        case .teleprompter:
-            TeleprompterPane(prompter: vm.teleprompter, wantsKeyboard: $vm.wantsKeyboard)
         case .settings:
             SettingsPane(
                 shelf: vm.shelf,
@@ -391,22 +382,6 @@ private struct CompactWingSurface: View {
     }
 }
 
-/// Watches the note store itself rather than reading through the view model:
-/// notes are born and deleted inside the pane while this counter is on
-/// screen, and the view model deliberately does not forward keystroke-driven
-/// stores.
-private struct NotesCounter: View {
-    @ObservedObject var notes: NoteStore
-
-    var body: some View {
-        if !notes.notes.isEmpty {
-            Text("\(notes.notes.count)")
-                .font(.system(size: 10, weight: .medium).monospacedDigit())
-                .foregroundStyle(Theme.tertiary)
-        }
-    }
-}
-
 /// Tab switcher.
 ///
 /// Hovering switches tabs, but only after the pointer has stopped: a pointer
@@ -416,8 +391,11 @@ private struct NotesCounter: View {
 /// screen" from "the mouse came to the notch" in `PointerWatcher`.
 private struct Rail: View {
     @ObservedObject var vm: NotchViewModel
-    /// Which icons this rail carries — there are two rails now, one per side.
+    /// The run of content tabs people move between.
     let tabs: [NotchViewModel.Tab]
+    /// Held to the bottom of the rail, below the gap: settings, which nobody
+    /// should have to hover past on the way to a track.
+    var footer: [NotchViewModel.Tab] = []
 
     @State private var hovered: NotchViewModel.Tab?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -428,42 +406,15 @@ private struct Rail: View {
 
     var body: some View {
         VStack(spacing: NotchGeometry.railSpacing) {
-            ForEach(tabs) { tab in
-                Button {
-                    vm.select(tab)
-                } label: {
-                    Image(systemName: tab.symbol)
-                        .font(.system(size: 12, weight: .medium))
-                        .frame(width: 30, height: vm.geometry.railIconHeight)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(fill(for: tab))
-                        )
-                        .foregroundStyle(vm.tab == tab ? Color.white : Theme.tertiary)
-                        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        // A render-time transform. Growing the frame instead
-                        // would re-lay out the rail on every hover, and layout
-                        // that runs on pointer movement is exactly the kind
-                        // that shows up as a stutter.
-                        .scaleEffect(reduceMotion ? 1 : (hovered == tab ? 1.15 : 1))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(tab.title)
-                .accessibilityAddTraits(vm.tab == tab ? [.isButton, .isSelected] : .isButton)
-                .onHover { inside in
-                    if inside {
-                        hovered = tab
-                    } else if hovered == tab {
-                        hovered = nil
-                    }
-                }
+            ForEach(tabs) { icon(for: $0) }
+            if !footer.isEmpty {
+                Spacer(minLength: 10)
+                ForEach(footer) { icon(for: $0) }
             }
         }
         .frame(width: 30)
-        // Centred in the height an ordinary tab has, then that block pinned to
-        // the top of whatever height this tab actually got. On the eight normal
-        // tabs the two are the same and nothing moves; on the teleprompter the
-        // extra 192 pt goes to the script below, and the icons stay put.
+        // The rail owns the body's full content height: the run of tabs at the
+        // top, settings held to the bottom by the gap between them.
         .frame(height: vm.geometry.standardContentHeight, alignment: .center)
         .frame(maxHeight: .infinity, alignment: .top)
         .animation(Theme.contentAnimation, value: hovered)
@@ -474,6 +425,38 @@ private struct Rail: View {
             try? await Task.sleep(for: dwell)
             guard !Task.isCancelled else { return }
             vm.select(hovered)
+        }
+    }
+
+    @ViewBuilder
+    private func icon(for tab: NotchViewModel.Tab) -> some View {
+        Button {
+            vm.select(tab)
+        } label: {
+            Image(systemName: tab.symbol)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 30, height: vm.geometry.railIconHeight)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(fill(for: tab))
+                )
+                .foregroundStyle(vm.tab == tab ? Color.white : Theme.tertiary)
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                // A render-time transform. Growing the frame instead would
+                // re-lay out the rail on every hover, and layout that runs on
+                // pointer movement is exactly the kind that shows up as a
+                // stutter.
+                .scaleEffect(reduceMotion ? 1 : (hovered == tab ? 1.15 : 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(vm.tab == tab ? [.isButton, .isSelected] : .isButton)
+        .onHover { inside in
+            if inside {
+                hovered = tab
+            } else if hovered == tab {
+                hovered = nil
+            }
         }
     }
 
