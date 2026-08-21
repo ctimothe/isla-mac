@@ -112,7 +112,8 @@ final class LyricsStore: ObservableObject {
             }.value
             guard !Task.isCancelled, self.loadedKey == identity else { return }
             if let cached {
-                self.state = cached.isEmpty ? .none : .synced(cached)
+                let usable = Self.cleaned(cached, title: title, artist: artist)
+                self.state = usable.isEmpty ? .none : .synced(usable)
                 return
             }
             await self.fetch(
@@ -150,6 +151,29 @@ final class LyricsStore: ObservableObject {
 
     /// One-shot cache bypass, consumed by the next `load`.
     private var bypassCacheOnce = false
+
+    /// Catalogue hygiene, applied to every source in one place.
+    ///
+    /// LRC files routinely open with a credit line — the song's own
+    /// "Title - Artist", sometimes a lyricist credit — stamped at t≈0. It is
+    /// metadata wearing a lyric's clothes, and displayed it reads as a bad
+    /// match even when the match is right. Dropped when it echoes the track's
+    /// identity; and a file that is nothing but credits is not lyrics at all.
+    static func cleaned(_ lines: [Line], title: String, artist: String) -> [Line] {
+        let fold: (String) -> String = { $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).lowercased() }
+        let t = fold(title), a = fold(artist)
+        var result = lines
+        while let first = result.first {
+            let text = fold(first.text)
+            let isCredit = (!t.isEmpty && text.contains(t)) && (!a.isEmpty && text.contains(a))
+            let isCreditPrefix = text.hasPrefix("作词") || text.hasPrefix("作曲") || text.hasPrefix("编曲")
+                || text.hasPrefix("lyrics by") || text.hasPrefix("composed by")
+            guard isCredit || isCreditPrefix else { break }
+            result.removeFirst()
+        }
+        // One surviving line is a fragment, not a song.
+        return result.count >= 2 ? result : []
+    }
 
     /// The line being sung at `position`, and the one after it.
     ///
@@ -203,15 +227,21 @@ final class LyricsStore: ObservableObject {
         // search; LRCLIB's LRC is line-level and the floor.
         if let spotifyID, let words = await fetchAmll(spotifyID: spotifyID) {
             guard !Task.isCancelled, loadedKey == key else { return }
-            writeCache(cacheKey, lines: words)
-            state = .synced(words)
-            return
+            let usable = Self.cleaned(words, title: title, artist: artist)
+            if !usable.isEmpty {
+                writeCache(cacheKey, lines: usable)
+                state = .synced(usable)
+                return
+            }
         }
         if let words = await fetchKugou(title: title, artist: artist, duration: duration) {
             guard !Task.isCancelled, loadedKey == key else { return }
-            writeCache(cacheKey, lines: words)
-            state = .synced(words)
-            return
+            let usable = Self.cleaned(words, title: title, artist: artist)
+            if !usable.isEmpty {
+                writeCache(cacheKey, lines: usable)
+                state = .synced(usable)
+                return
+            }
         }
         await fetchLRCLIB(key: key, cacheKey: cacheKey, title: title, artist: artist, album: album, duration: duration)
     }
@@ -353,6 +383,7 @@ final class LyricsStore: ObservableObject {
             // A miss is an answer too, and caching it is what keeps a track
             // with no lyrics from being asked about on every replay — but only
             // when the service was in a position to answer.
+            lines = Self.cleaned(lines, title: title, artist: artist)
             if !lines.isEmpty || serviceAnswered {
                 writeCache(cacheKey, lines: lines)
             }

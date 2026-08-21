@@ -74,6 +74,27 @@ struct LyricsStage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Diagnostic readout, environment-gated like the open hook: says which
+        // branch is live and why, in the corner, only when an agent launched
+        // the binary with the variable set. Never present in a normal run.
+        .overlay(alignment: .bottomTrailing) {
+            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                Text(debugStateDescription)
+                    .font(.system(size: 9, weight: .medium).monospacedDigit())
+                    .foregroundStyle(.yellow)
+                    .padding(6)
+            }
+        }
+        .onAppear {
+            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                DebugTrail.note("stage appeared: \(debugStateDescription)")
+            }
+        }
+        .onChange(of: debugStateDescription) { _, new in
+            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                DebugTrail.note(new)
+            }
+        }
         .task(id: media.artwork) {
             guard let artwork = media.artwork else {
                 palette = nil
@@ -83,6 +104,17 @@ struct LyricsStage: View {
                 ArtworkPalette.extract(from: artwork)
             }.value
         }
+    }
+
+    private var debugStateDescription: String {
+        let state: String
+        switch lyrics.state {
+        case .idle: state = "idle"
+        case .loading: state = "loading"
+        case .none: state = "none"
+        case .synced(let lines): state = "synced(\(lines.count))"
+        }
+        return "\(state) pos=\(Int(media.position)) settled=\(media.positionSettled ? 1 : 0)"
     }
 
     // MARK: - Ambience
@@ -117,36 +149,51 @@ struct LyricsStage: View {
 
     // MARK: - Stage
 
+    /// Every row occupies the same fixed slot, which is what makes the motion
+    /// exact: the whole column's offset is plain arithmetic on the current
+    /// index, animated as one value. No scroll view — the song is the only
+    /// thing that moves this surface, and a scroll view's own machinery
+    /// (which additionally refuses to render at all inside this panel's
+    /// hosting configuration) had nothing to offer but ways to disagree
+    /// with the clock.
+    private static let slotHeight: CGFloat = 40
+    private static let slotSpacing: CGFloat = 8
+
     private func stage(lines: [LyricsStore.Line]) -> some View {
         let currentIndex = Self.index(in: lines, at: now)
+        // Before the first line — an intro — the first line is the anchor:
+        // waiting at the reading centre, dimmed, taking the sweep the moment
+        // the voice arrives. Anchoring on nothing left the stage vacant.
+        let anchor = currentIndex ?? 0
         return VStack(spacing: 0) {
             header
             GeometryReader { geo in
-                ScrollViewReader { proxy in
-                    ScrollView(showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ForEach(Array(lines.enumerated()), id: \.element.at) { index, line in
-                                row(line: line, index: index, current: currentIndex, lines: lines)
-                            }
-                        }
-                        .padding(.horizontal, 22)
-                        // Half a viewport of slack each side, so the first and
-                        // last lines can still be centred.
-                        .padding(.vertical, geo.size.height / 2)
-                    }
-                    .onChange(of: currentIndex) { _, index in
-                        guard let index, lines.indices.contains(index) else { return }
-                        withAnimation(reduceMotion ? nil : Theme.contentAnimation) {
-                            proxy.scrollTo(lines[index].at, anchor: .center)
-                        }
-                    }
-                    .onAppear {
-                        if let index = currentIndex, lines.indices.contains(index) {
-                            proxy.scrollTo(lines[index].at, anchor: .center)
-                        }
+                let pitch = Self.slotHeight + Self.slotSpacing
+                VStack(alignment: .leading, spacing: Self.slotSpacing) {
+                    ForEach(Array(lines.enumerated()), id: \.element.at) { index, line in
+                        row(line: line, index: index, current: currentIndex, lines: lines)
+                            .frame(height: Self.slotHeight, alignment: .leading)
                     }
                 }
+                .offset(y: geo.size.height / 2 - (CGFloat(anchor) * pitch + Self.slotHeight / 2))
+                .animation(reduceMotion ? nil : Theme.contentAnimation, value: anchor)
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .clipped()
+                // Lines dissolve at the viewport's edges instead of being
+                // guillotined mid-glyph by the clip.
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .black, location: 0.18),
+                            .init(color: .black, location: 0.78),
+                            .init(color: .clear, location: 1),
+                        ],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
             }
+            .padding(.horizontal, 22)
         }
     }
 
@@ -166,24 +213,33 @@ struct LyricsStage: View {
                         text: line.text,
                         fraction: LockScreenCard.sweepFraction(line: line, at: now, end: end),
                         reduceMotion: reduceMotion,
-                        accent: accent
+                        accent: accent,
+                        font: .system(size: 15, weight: .bold),
+                        // Brighter than any neighbour even before the sweep
+                        // arrives: the first cut used a dimmer base than the
+                        // adjacent lines, so the line being sung was the
+                        // darkest thing on stage until half its words passed.
+                        base: .white.opacity(0.62),
+                        lineLimit: 2
                     )
-                    .font(.system(size: 14, weight: .semibold))
+                    .frame(maxHeight: .infinity, alignment: .center)
                 } else {
+                    // Depth through opacity alone. The first cut blurred and
+                    // fractionally scaled these — which on 12pt text is not
+                    // depth, it is smeared type: subpixel scaling rasterizes
+                    // every glyph soft, and a two-point blur at reading size
+                    // just looks like a rendering bug.
                     Text(line.text)
-                        .font(.system(size: 12.5, weight: .medium))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
-                        // Depth, not a list: the further from the voice, the
-                        // further into the room the line recedes.
-                        .opacity(distance == 1 ? 0.45 : 0.22)
-                        .blur(radius: reduceMotion ? 0 : min(CGFloat(max(distance - 1, 0)) * 0.6, 1.8))
+                        .opacity(distance == 1 ? 0.42 : 0.22)
+                        .lineLimit(2)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .scaleEffect(isCurrent && !reduceMotion ? 1.0 : 0.98, anchor: .leading)
         .animation(reduceMotion ? nil : Theme.contentAnimation, value: isCurrent)
         .id(line.at)
         .accessibilityLabel(line.text)

@@ -59,6 +59,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.controller?.translate(text)
         }
         NSApp.servicesProvider = self
+
+        // Verification hook, environment-gated: DI_OPEN_LYRICS=1 pins the
+        // panel open shortly after launch, so an agent without Accessibility
+        // permission — unable to click or reliably synthesize a hover — can
+        // still photograph the real, running panel. Normal launches never
+        // carry the variable.
+        if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+            DebugTrail.note("launch hook armed")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                DebugTrail.note("pinning panel open")
+                self?.togglePanel()
+            }
+        }
     }
 
     /// Entry point for the "Translate in Dynamic Island" service, named in the
