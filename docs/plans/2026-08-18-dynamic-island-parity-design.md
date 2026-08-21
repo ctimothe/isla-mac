@@ -96,6 +96,25 @@ and Notes explicitly request keyboard focus when active.
 
 ## Feature parity contract
 
+> **Amended 2026-08-20.** The Snippets and Calendar sections below are
+> **withdrawn**: both features were removed from the product by owner
+> decision. Their requirements no longer bind, the calendar entitlement
+> and its usage strings are gone, and `snippets.json` is no longer read
+> or written. The rails, privacy covers, and Settings contract stated
+> elsewhere in this document are superseded accordingly. Everything else
+> stands.
+>
+> **Amended 2026-08-21.** Three capabilities were added that this
+> document's non-goals did not anticipate, each off or absent until the
+> user asks for it: an opt-in **lyrics** lookup against `lrclib.net`,
+> `raw.githubusercontent.com` and `lyrics.kugou.com`; an optional
+> **Spotify account** connected through Spotify's own PKCE flow, for
+> Liked Songs, which has no local API; and a **lock-screen card**. The
+> non-goal "no cloud sync, accounts, analytics, network services, or new
+> permissions" is amended to permit exactly these three, on the condition
+> that each stays user-controlled and off by default where it sends
+> anything off the machine. No new macOS permission is requested.
+
 ### Music
 
 - Show artwork, title, artist, elapsed time, duration, and progress.
@@ -237,11 +256,12 @@ median of three equivalent runs to reduce operating-system noise.
 | Helper RSS | Equal to or lower than the Cyclop helper median |
 | Interaction responsiveness | Open, close, tab switching, media commands, and scrolling no slower than the reference |
 | Lifecycle stability | No orphan helper, growing timer population, or sustained RSS growth after 100 open/close cycles |
-| Bundle payload | Target the reference's approximately 2.1 MB; document only unavoidable original-asset variance |
+| Bundle payload | No larger than the measured reference bundle, plus unavoidable original-asset variance |
 
 Inactive tabs must not retain high-frequency work. Pointer monitoring drops to its
-idle rate after three seconds; polling, translation work, calendar refreshes,
-previews, and animations run only when their state requires them.
+idle rate after three seconds; polling, translation work, previews, and
+animations run only when their state requires them. Polling stops entirely
+while the display sleeps.
 
 ## Verification and release gates
 

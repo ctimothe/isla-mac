@@ -1,154 +1,100 @@
-# Dynamic Island — Requirements & Decisions Checklist
+# Dynamic Island — shell-music-mvp Prototype Status
 
-This file is the persistent source of truth for this project across sessions — update it as decisions lock in; do not let plans, chats, or code comments diverge from it.
+Last verified: 2026-08-18
 
-## Locked decisions
+> **Superseded for the shipping product.** Everything below tracks the
+> historical `shell-music-mvp` prototype. The active implementation is the
+> `dynamic-island-parity` branch, governed by the approved
+> [parity design](docs/plans/2026-08-18-dynamic-island-parity-design.md) and
+> tracked in `.worktrees/dynamic-island-parity/checklist.md`. Where the two
+> disagree — D7's "never draw a simulated fallback island", and the deferral of
+> lock-screen presentation and internationalization, all three of which the
+> parity product does — the parity design wins.
 
-- [x] **Distribution**: direct-download, notarized DMG/installer, outside the Mac App Store — required to keep the Music module's use of the private MediaRemote framework.
-- [x] **Hardware scope**: notch-only. Target MacBook Pro 14"/16" (2021+, M1 Pro/Max+) with a physical camera notch. Non-notch Macs refuse to launch / show an unsupported message — no fallback UI.
-- [x] **MVP scope**: build the shell (notch panel) first as foundation, paired with exactly ONE feature module — Music — for the first shippable spec. Clipboard, Calendar, Translate, Shelf are each their own future spec.
-- [x] **Architecture**: "Modular hybrid" — AppKit NSPanel host + SwiftUI content. Each feature conforms to `IslandModule` (compactView, expandedView, isActive, priority); a `ModuleRegistry` picks the highest-priority active module and hands it to `IslandShellView` for collapsed/compact/expanded rendering.
+This file tracks delivery status only. Binding behavior belongs in the
+[`Shell + Music MVP specification`](docs/specs/shell-music-mvp.md), exact
+commands belong in the [`runbook`](docs/runbook.md), and supporting evidence
+belongs in the [`research archive`](docs/research/technical-feasibility.md).
 
-## Verified technical facts
+## Binding MVP decisions
 
-### Shell (notch panel)
+These identifiers are stable because implementation comments refer to them.
 
-- `NSScreen.safeAreaInsets` requires macOS 12.0+; defines insets where content isn't obscured by the camera housing. — [Apple docs](https://developer.apple.com/documentation/appkit/nsscreen/safeareainsets)
-- `auxiliaryTopLeftArea` / `auxiliaryTopRightArea` also require macOS 12.0+; `nil` in Swift when the top of the screen is unobscured. Apple recommends pairing these with `safeAreaInsets` to compute notch left/right bounds. — [Apple docs](https://developer.apple.com/documentation/AppKit/NSScreen/auxiliaryTopLeftArea-uglc)
-- Reference apps detect "has a notch" empirically via `safeAreaInsets.top > 0` or auxiliary areas non-nil, not by device model — boring.notch's `deviceHasNotch()` (guarded `#available(macOS 12.0, *)`), DynamicNotchKit's `hasNotch`. Not an Apple-documented guarantee, just observed production behavior. — github.com/TheBoredTeam/boring.notch (`boringNotchApp.swift`); github.com/MrKai77/DynamicNotchKit (`NSScreen+Extensions.swift`)
-- `NSPrefersDisplaySafeAreaCompatibilityMode` Info.plist Boolean key (macOS 12.0+) is the system-level notch-compatibility switch; without it, Finder exposes a user-facing "Scale to fit below built-in camera" checkbox doing the same thing. — [Apple docs](https://developer.apple.com/documentation/BundleResources/Information-Property-List/NSPrefersDisplaySafeAreaCompatibilityMode)
-- No documented change to `safeAreaInsets`/`auxiliaryTop*Area` semantics between macOS 12–15 was found (absence of evidence, not a confirmed guarantee).
-- boring.notch's window: `NSPanel`, styleMask `[.borderless, .nonactivatingPanel, .utilityWindow, .hudWindow]`, `isFloatingPanel = true`, `level = .mainMenu + 3`, `collectionBehavior = [.fullScreenAuxiliary, .stationary, .canJoinAllSpaces, .ignoresCycle]`, `hasShadow = false`, `canBecomeKey`/`canBecomeMain` overridden `false`. — github.com/TheBoredTeam/boring.notch (`BoringNotchWindow.swift`, `boringNotchApp.swift`)
-- boring.notch additionally drives a private CoreGraphics Services (SkyLight) API: `CGSSpace(level: 2147483647)` for space-pinning, plus `dlopen`'d `SLSRemoveWindowsFromSpaces` (from `/System/Library/PrivateFrameworks/SkyLight.framework`) to control lock-screen visibility — outside the public NSPanel contract. — github.com/TheBoredTeam/boring.notch (`NotchSpaceManager.swift`, `BoringNotchSkyLightWindow.swift`)
-- DynamicNotchKit's panel instead uses `level = .screenSaver`, `collectionBehavior = [.canJoinAllSpaces, .stationary]`, and allows `canBecomeKey = true` — a materially different config from boring.notch. — github.com/MrKai77/DynamicNotchKit (`DynamicNotchPanel.swift`)
-- None of the inspected reference apps set `NSWindow.ignoresMouseEvents = true` on the base panel; boring.notch instead gates interactivity in SwiftUI via `.allowsHitTesting(vm.notchState == .open)`. navtoj/NotchBar has this technique commented out/abandoned. — github.com/TheBoredTeam/boring.notch (`ContentView.swift`); github.com/navtoj/NotchBar (`AppWindow.swift`); [Apple docs](https://developer.apple.com/documentation/appkit/nswindow/ignoresmouseevents)
-- Apple's documented Stage-Manager-aware collection behavior for overlay windows is `.canJoinAllApplications` (macOS 13.0+, "Use this collection behavior for floating windows and system overlays"); none of the inspected OSS apps use it — all use the older `.canJoinAllSpaces`/`.stationary`/`.fullScreenAuxiliary` combo. — [Apple docs: canJoinAllApplications](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallapplications), [fullScreenAuxiliary](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/fullscreenauxiliary)
-- Documented real conflicts between a notch-hugging overlay (boring.notch) and third-party menu-bar-hiding utilities Ice/iBar: unclickable settings icon, hidden-bar interference, Ice crashes, menu-bar icons unclickable directly under the notch on macOS 26.2. — github.com/TheBoredTeam/boring.notch issues #40, #194, #926
-- macOS 27 "Golden Gate" (beta as of Aug 2026, public release expected ~Sept 2026) rearchitected the menu bar so every status item is now one consolidated window instead of separate per-item windows — broke Bartender, Barbee, Ice, Thaw, Sane Bar, Glow, and BTT's own menu-bar features. Community fixes are unofficial/beta-only and could be blocked by Apple at any time. — [BetterTouchTool forum post](https://community.folivora.ai/t/macos-27-golden-gate-menu-bar-management-broken-solutions-ice-thaw-bartender-barbee-etc/47232); [TechRadar](https://www.techradar.com/computing/mac-os/macos-27-golden-gate-announced-at-wwdc-2026-heres-everything-you-need-to-know)
-- boring.notch sizes its window using `safeAreaInsets` + auxiliary areas + a hardcoded 185pt width fallback + user-configurable sizing modes (including falling back to menu-bar height via `visibleFrame`) — not `safeAreaInsets` alone. — github.com/TheBoredTeam/boring.notch (`sizing/matters.swift`, `getClosedNotchSize()`)
-- navtoj/NotchBar uses a plain `NSWindow` (not `NSPanel`), raw `CGWindowLevelForKey`-derived level, and `.fullScreenNone` — deliberately opts out of fullscreen coverage; README documents a user-workaround for menu-bar layering conflicts. Requires macOS 14.5+. — github.com/navtoj/NotchBar (`AppWindow.swift`, README)
-- Multiple unrelated projects share the name "TopNotch" (ukuw/TopNotch blacks out the menu bar; navtoj/NotchBar was originally named TopNotch by a different author; topnotch.app is a third, closed-source product) — name collision risk when researching further. — github.com/ukuw/TopNotch; github.com/navtoj/NotchBar; topnotch.app
-- NKR00711/DynamicIsland_Mac (name matches this project's working title) is a verbatim rebrand/fork of boring.notch, not an independent implementation — line-for-line identical window class. — github.com/NKR00711/DynamicIsland_Mac vs. github.com/TheBoredTeam/boring.notch
-- NotchNook is commercial/closed-source ($25 one-time or $3/mo) — not usable as an OSS reference implementation; its internals are undocumented. — alternativeto.net, notchy.dev coverage
+- [x] **D1 — Panel:** use public `NSPanel` APIs with the proven
+  `.mainMenu + 3` window level and
+  `.fullScreenAuxiliary`/`.stationary`/`.canJoinAllSpaces`/`.ignoresCycle`
+  behaviors. Do not use private SkyLight APIs in the MVP.
+- [x] **D2 — Geometry:** detect the active built-in notch with
+  `safeAreaInsets.top`, prefer the auxiliary top areas for exact bounds, and
+  fall back to a centered 185 × 32 point rectangle.
+- [x] **D3 — Activity:** Music is active when a current track has a title or
+  artist, whether it is playing or paused.
+- [x] **D4 — Failure mode:** if now-playing observation becomes unavailable,
+  deactivate Music and collapse the island without crashing or presenting a
+  false permission prompt.
+- [x] **D5 — MediaRemote integration:** vendor one pinned copy of
+  `ungive/mediaremote-adapter`; use its Perl bridge for observation and its
+  command mode for play, pause, next, and previous.
+- [x] **D6 — Distribution:** ship outside the Mac App Store as a signed,
+  notarized direct download because the Music implementation depends on a
+  private framework.
+- [x] **D7 — Hardware:** support only Macs with an active built-in camera
+  notch. Never draw a simulated fallback island on an unnotched display.
+- [x] **D8 — Architecture:** host SwiftUI content in AppKit and route feature
+  modules through `IslandModule` and `ModuleRegistry`. The MVP contains exactly
+  one feature module: Music.
 
-### Music (MediaRemote)
+## Completed implementation
 
-- MediaRemote has no public header. Since macOS 15.4 (released March 31, 2025), the `mediaremoted` XPC daemon added entitlement verification: unentitled callers of `MRMediaRemoteGetNowPlayingInfo`/`MRMediaRemoteRegisterForNowPlayingNotifications` get `Error Domain=kMRMediaRemoteFrameworkErrorDomain Code=3 "Operation not permitted"` instead of data. This restriction is confirmed still in force through macOS 26 Tahoe and the macOS 27 beta as of Aug 2026. The **command** functions (`MRMediaRemoteSendCommand`, `SetElapsedTime`, `SetShuffleMode`, `SetRepeatMode`) remain callable in-process with **no** entitlement needed — only read/observe is gated. — [LyricFever issue #94](https://github.com/aviwad/LyricFever/issues/94); [ios-reversed-headers](https://github.com/davidmurray/ios-reversed-headers/blob/master/MediaRemote/MediaRemote.h); [ungive/mediaremote-adapter](https://github.com/ungive/mediaremote-adapter); [MacRumors](https://www.macrumors.com/2025/03/31/apple-releases-macos-sequoia-15-4/)
-- The literal entitlement string `mediaremoted` checks for is **not confirmed** by any primary source (no strings/codesign dump located); community explanation points to a bundle-ID/code-signature check (`com.apple.*` prefix) rather than a discrete grantable entitlement. — github.com/ungive/mediaremote-adapter, Mx-Iris/MediaRemoteWizard, nohackjustnoobb/media-remote READMEs
-- The current working technique: shell out to `/usr/bin/perl` (Apple-signed, implicitly trusted) running a bundled `mediaremote-adapter.pl` script + `MediaRemoteAdapter.framework`, invoked as `perl mediaremote-adapter.pl <framework> stream`, emitting newline-delimited JSON (`bundleIdentifier`, `title`, `artist`, `album`, `artworkData`/`artworkMimeType`, `elapsedTime`, `timestamp`, `playing`, `shuffleMode`, `repeatMode`). — [ungive/mediaremote-adapter](https://github.com/ungive/mediaremote-adapter); Swift-package wrapper at github.com/ejbills/mediaremote-adapter
-- boring.notch's live source (pushed 2026-08-08) confirms this exact mechanism today: bundles its own copy of the adapter, `dlopen`s MediaRemote directly for in-process command-sending, but spawns `Process()` running the perl adapter and parses JSON-lines stdout for reading now-playing state. — github.com/TheBoredTeam/boring.notch (`mediaremote-adapter/`, `NowPlayingController.swift`)
-- No public Apple replacement exists for **observing** another app's now-playing state. The newest public API (WWDC 2026 session 312, `NowPlaying` framework, macOS 27) is publish-only — same role as `MPNowPlayingInfoCenter`, just modernized/cross-platform; neither the session nor its docs mention reading another app's state, nor reference MediaRemote. — [WWDC26 session 312](https://developer.apple.com/videos/play/wwdc2026/312/); [Apple docs](https://developer.apple.com/documentation/NowPlaying/publishing-media-sessions)
-- App Store Review Guideline 2.5.1 ("Apps may only use public APIs") is the governing rule; App Store Connect performs automated non-public-symbol scanning (well-documented for unrelated ITMS-90338 rejections). No specific, named MediaRemote rejection precedent was found — inferred/strongly-implied policy, not confirmed case. — [Apple guidelines](https://developer.apple.com/app-store/review/guidelines/); [forum thread](https://developer.apple.com/forums/thread/733379)
-- Every now-playing-reading app found in research (LyricFever, boring.notch, mediaremote-adapter, media-control) ships exclusively outside the Mac App Store — consistent with MediaRemote use being non-approvable there. — respective GitHub repos
-- **No TCC/permission prompt exists at all** for reading MediaRemote now-playing info — access is architecturally denied at the daemon level, unconditionally, with no System Settings toggle a user can grant. (Separately, the AppleScript/JXA `tell application "Music"` fallback DOES trigger the standard Automation/Apple Events TCC prompt — but that's a different, per-app code path.) — ungive/mediaremote-adapter README (explicit appeal to Apple for a grantable entitlement)
-- A more invasive workaround (Mx-Iris/MediaRemoteWizard) patches `mediaremoted` itself to bypass the check, but requires disabling SIP and enabling `arm64e_preview_abi` — not viable for a normal distributed app. — [MediaRemoteWizard](https://github.com/Mx-Iris/MediaRemoteWizard)
-- `kirtan-shah/nowplaying-cli` broke on macOS 15.4 (issue opened April 1, 2025) alongside boring.notch, Bartender, BTT/Keyboard Maestro; restored April 2026 by adopting the mediaremote-adapter technique. — [issue #28](https://github.com/kirtan-shah/nowplaying-cli/issues/28)
+- [x] Create the `IslandCore` Swift package with notch geometry, module
+  selection, now-playing decoding, NDJSON buffering, and adapter process
+  wrappers.
+- [x] Cover the core package with 18 passing tests across six suites.
+- [x] Create the macOS 14+ `LSUIElement` application and status-menu exit path.
+- [x] Create collapsed, compact, and expanded shell states with hover and click
+  transitions.
+- [x] Add compact and expanded Music views with play/pause, next, and previous
+  controls.
+- [x] Vendor `mediaremote-adapter` at commit
+  `3ac3d4bdf862c7b5399b4fba4df5689f5c38609a` with its BSD-3-Clause license.
+- [x] Build the adapter as a native framework and stage the framework, Perl
+  bridge, and license in the app bundle.
+- [x] Decode a real adapter payload, including its ISO 8601 timestamp and
+  duration field.
+- [x] Verify `swift test` and an unsigned Debug `xcodebuild` on 2026-08-18.
 
-### Clipboard (future spec — NSPasteboard polling)
+## Required before MVP release
 
-- No push/notification API for pasteboard changes exists; `changeCount` polling via a repeating `Timer` is the standard and only pattern — confirmed across multiple libraries/apps and an Apple DTS engineer forum response. — [Maccy source](https://github.com/p0deje/Maccy/blob/master/Maccy/Clipboard.swift); [Apple DTS forum](https://developer.apple.com/forums/thread/772649)
-- Maccy (MIT, source-verified): default poll interval 0.5s (500ms), user-configurable via `defaults write`. — [Maccy source](https://github.com/p0deje/Maccy/blob/master/Maccy/Clipboard.swift)
-- Paste and CleanClip are closed-source; poll intervals/implementation unverifiable against source.
-- `org.nspasteboard.*` UTI conventions (canonical: nspasteboard.org): `TransientType` (momentary content, don't record), `ConcealedType` (confidential, obfuscate/don't store unencrypted), `AutoGeneratedType` (app-generated, generally don't record), `source` (UTF-8 bundle ID of writing app). — [nspasteboard.org](https://nspasteboard.org/); [GitHub mirror](https://github.com/NSPasteboard/NSPasteboard.org/blob/main/index.md)
-- Exposed as first-class AppKit API: `NSPasteboard.PasteboardType.concealed/.transient/.autoGenerated`. Maccy filters on all three plus `dyn.*`/`com.microsoft.ole.source.*` prefixes and a user ignore list. — [Apple docs](https://developer.apple.com/documentation/appkit/nspasteboard/pasteboardtype); Maccy source
-- No App Sandbox entitlement required for general-pasteboard read/write (confirmed by Apple DTS engineer) — moot anyway since this project is non-sandboxed. — [Apple DTS forum](https://developer.apple.com/forums/thread/772649)
-- Apple's in-progress "Pasteboard Privacy Protection" (dev-preview flag since macOS 15.4, `NSPasteboard.accessBehavior`) targets unprompted programmatic pasteboard reads exactly like a polling loop performs; **not active by default** as of macOS 26.4 (~April 2026) — live forward-looking risk, not a current blocker. — [mjtsai.com](https://mjtsai.com/blog/2025/05/12/pasteboard-privacy-preview-in-macos-15-4/); [9to5mac](https://9to5mac.com/2025/05/12/macos-16-clipboard-privacy-protection/)
+- [ ] Make compact and expanded panel content resize without clipping while
+  remaining centered on the physical notch.
+- [ ] Show a clear unsupported-display state without drawing an island, and
+  recover when a supported built-in display becomes active.
+- [ ] Complete the manual notch-hardware matrix in the runbook: hover, pin,
+  auto-collapse, Spaces, fullscreen, display changes, and menu-bar utilities.
+- [ ] Complete the Music matrix in the runbook with Apple Music plus at least
+  one third-party player, including paused and unavailable-adapter cases.
+- [ ] Confirm the app bundle contains the pinned adapter framework, Perl script,
+  and BSD-3-Clause license in both Debug and Archive products.
+- [ ] Eliminate or explicitly accept the two dependency-analysis warnings from
+  the Xcode run-script phases.
+- [ ] Configure Developer ID signing and Hardened Runtime for the app and its
+  bundled adapter framework.
+- [ ] Produce a notarized, stapled DMG and verify it on a clean user account.
+- [ ] Re-run the complete automated and manual release gates and record the
+  tested Mac model and macOS versions in this file.
 
-### Calendar (future spec — EventKit)
+## Deferred beyond the MVP
 
-- macOS 14.0 introduced `EKAuthorizationStatus.fullAccess`/`.writeOnly`. — [Apple docs](https://developer.apple.com/documentation/eventkit/ekauthorizationstatus/fullaccess)
-- `requestFullAccessToEvents(completion:)` / `requestWriteOnlyAccessToEvents(completion:)` ship macOS 14.0+; require `NSCalendarsFullAccessUsageDescription`. — [Apple docs](https://developer.apple.com/documentation/eventkit/ekeventstore/requestfullaccesstoevents(completion:))
-- Old unified `requestAccess(to:completion:)` is formally **deprecated** as of macOS 14.0 (introduced macOS 10.0), not merely superseded. — Apple docs (eventkit/ekeventstore/1507547-requestaccess)
-- Per Apple TN3153: apps linked against an SDK older than macOS 14 that still call the deprecated API get a prompt but are now granted **write-only** access (completion handler still reports success) — silent downgrade. — [TN3153](https://developer.apple.com/documentation/technotes/tn3153-adopting-api-changes-for-eventkit-in-ios-macos-and-watchos)
-- `NSCalendarsUsageDescription` is deprecated as of macOS 14.0 (introduced 10.14), replaced by `NSCalendarsFullAccessUsageDescription` / `NSCalendarsWriteOnlyAccessUsageDescription`. — Apple docs (bundleresources/nscalendarsusagedescription)
-- Old key still works as a fallback string if the new keys are absent (per TN3153).
-- TCC calendar consent prompt is **not gated by App Sandbox** — applies to non-sandboxed, direct-download apps too. — [Eclectic Light Co.](https://eclecticlight.co/2025/03/24/what-are-app-entitlements-and-what-do-they-do/); corroborated by [openai/codex#21228](https://github.com/openai/codex/issues/21228)
-- `com.apple.security.personal-information.calendars` entitlement is documented as addable via **either** App Sandbox **or** Hardened Runtime Xcode capability — not exclusively a sandbox/App Store entitlement. — [Apple docs](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.personal-information.calendars)
-- Hardened Runtime is required for notarization, and notarization is effectively required for a direct-download app to pass Gatekeeper — so "non-sandboxed direct-download" in practice means "non-sandboxed + Hardened Runtime + notarized," not "no runtime hardening." — Apple Gatekeeper/Hardened Runtime docs
-- Eclectic Light Co. (independent macOS-internals source): privacy/personal-information entitlements (the family containing `.calendars`) "are used by any third-party app, whether supplied through the App Store or not."
-- Real-world corroboration: OpenAI Codex Desktop (non-sandboxed, missing the entitlement/usage strings) never surfaces a TCC prompt for EventKit access at all. — [openai/codex#21228](https://github.com/openai/codex/issues/21228)
+- Clipboard history, Calendar, Translate, and Shelf modules.
+- Private SkyLight/CGSSpace integration and lock-screen presentation.
+- App Store distribution.
+- Artwork, seeking, shuffle, repeat, preferences, auto-update, and analytics.
+- Internationalization and non-notch fallback UI.
 
-### Translate (future spec — Translation.framework)
+## Risks to re-check before every release
 
-- The Translation framework module (basic system-sheet API only) ships iOS 17.4 / macOS 14.4. — Apple docs data (translation.json)
-- `TranslationSession` (needed for custom UI / programmatic translation, via `.translationTask`) requires **macOS 15.0** (Sequoia) — a full OS cycle after the framework's iOS 17.4 debut. Mac Catalyst support lagged to version 26.0. — Apple docs data (translationsession.json)
-- `LanguageAvailability` matches the same floor: iOS 18.0 / macOS 15.0 / Catalyst 26.0.
-- `translationTask(source:target:action:)` / `translationTask(_:action:)` SwiftUI modifiers: iOS 18 / macOS 15. — [mjtsai.com](https://mjtsai.com/blog/2024/07/04/translation-api-in-ios-17-and-macos-sequoia/)
-- WWDC24: Translation APIs supported on iOS/iPadOS/macOS only — not watchOS/tvOS/visionOS — and **do not function in the Simulator** (device-only testing). — [WWDC24 session 10117](https://developer.apple.com/videos/play/wwdc2024/10117/)
-- Until iOS/macOS 26, a `TranslationSession` could **only** be obtained by attaching `.translationTask` to a live SwiftUI view; Apple explicitly warns against persisting/reusing it beyond that view's lifetime — rules out a headless background utility below OS 26.
-- As of iOS/iPadOS/macOS/Catalyst **26** (~Sept 2025), `TranslationSession.init(installedSource:target:)` creates a session without any SwiftUI view. — Apple docs data
-- That initializer only works for language pairs **already installed** on-device — throws otherwise — and provides **no path** to trigger the download/consent UI outside SwiftUI; new pairs still require surfacing a view. — Apple docs data
-- Download/consent UX: only prompts if models aren't installed; framework shows its own progress UI; download continues in background even if the sheet is dismissed or the app is closed; `session.prepareTranslation()` can pre-empt approval. — [WWDC24 session 10117](https://developer.apple.com/videos/play/wwdc2024/10117/)
-- Translation happens fully on-device; Apple states it may collect usage/performance metrics (bundle ID, source/target language) but not translated content.
-- The base Translation framework is **not** gated behind Apple Intelligence hardware eligibility (A17 Pro/M1+, 7GB free) — that gate applies specifically to the newer, separate "Live Translation" system feature (Messages/FaceTime/Phone, WWDC 2025, iOS 26), which Apple explicitly describes as "powered by Apple Intelligence." — [idownloadblog.com](https://www.idownloadblog.com/2025/10/07/apple-intelligence-compatibility/)
-
-### Shelf (future spec — drag-and-drop)
-
-- `NSItemProvider` is a general-purpose, cross-process "data promise" for one item with multiple lazy representations; Foundation-level; usable in AppKit since macOS 10.13 via `NSPasteboardReading`/`NSPasteboardWriting` conformance. — [humancode.us reference](https://humancode.us/2023/07/08/all-about-nsitemprovider); [WWDC17 session 227](https://asciiwwdc.com/2017/sessions/227)
-- `NSFilePromiseProvider` is macOS/AppKit-specific (macOS 10.12+), for dragging a file whose bytes don't exist yet at drag-start; must be wrapped in an `NSDraggingItem`/proper drag session — writing it directly to the general pasteboard outside a session doesn't work. — [buckleyisms.com](https://buckleyisms.com/blog/how-to-actually-implement-file-dragging-from-your-app-on-mac/)
-- Two real OSS macOS shelf apps (daigo38/DropShelf, iamsumanp/Dropshit — a functional Dropover clone) use `NSPasteboard` + `NSDraggingInfo` directly for receiving; **neither calls `NSItemProvider` anywhere**. — github.com/daigo38/DropShelf; github.com/iamsumanp/Dropshit
-- The receiving-side counterpart for promised/lazy file drags in real code is `NSFilePromiseReceiver` (read via `pasteboard.readObjects(forClasses:[NSFilePromiseReceiver.self])`, then `receivePromisedFiles(atDestination:options:operationQueue:)`) — a distinct class from `NSItemProvider`. — Dropshit source; [Apple docs](https://developer.apple.com/documentation/appkit/nsfilepromisereceiver/receivepromisedfiles(atdestination:options:operationqueue:reader:))
-- Real drag-out code pairs `NSFilePromiseProvider` with a manually-added `public.file-url` write, because browsers/most web drop zones ignore file promises and only read a literal file URL. — Dropshit source (`ShelfDragSource.swift`)
-- SwiftUI's `.onDrop` always negotiates the drag as `.copy` (green + badge) and cannot suppress it — Dropshit's own code comment explains dropping to raw AppKit `NSView` drag-destination overrides specifically to avoid this. — Dropshit source (`ShelfDropTarget.swift`)
-- Yoink (commercial reference) detects drags via standard `NSPasteboard` monitoring, not `NSItemProvider`; its developer documents a blind spot — cannot detect drags from the Dock's Stacks or apps using non-standard/uniquely-named pasteboards (iTunes, Adobe Bridge) unless Yoink's window is already visible. — [Eternal Storms blog](https://blog.eternalstorms.at/2011/11/29/yoink-the-docks-stacks-and-itunes-files/)
-- Dropzone exposes a documented plugin/action API for third-party destinations, but its core drag-capture implementation is closed-source/undocumented. Unclutter's Files panel likewise has no public technical writeup.
-- No app named "HoverBar" matching this category was found in any search — treat as a possibly misremembered name pending clarification.
-- `NSItemProvider.loadFileRepresentation(forTypeIdentifier:completionHandler:)` hands you a URL to a **temporary** file deleted as soon as the completion handler returns — must copy elsewhere if needed longer. — [Apple docs](https://developer.apple.com/documentation/foundation/nsitemprovider/loadfilerepresentation(fortypeidentifier:completionhandler:))
-- `loadInPlaceFileRepresentation` avoids a copy only under a strict `NSFileCoordinator`/`NSFilePresenter` contract; not all files are eligible (macOS is permissive vs. iOS's iCloud Drive/File Provider restriction); ineligible requests silently fall back to a copy. — [humancode.us reference](https://humancode.us/2023/07/08/all-about-nsitemprovider)
-- Plain Finder file drags don't need copying at all in either reviewed app — both store only a reference (a URL, or a security-scoped bookmark for durability), never duplicate bytes.
-- Data with **no** pre-existing stable file backing (file promises, pasted text, raw pasteboard image bytes) **is** eagerly materialized to disk synchronously at drop time in Dropshit's real implementation (3 branches: plain file URL → reference only; `NSFilePromiseReceiver` → write bytes immediately; bare `NSImage` → TIFF/PNG written to a content-hash-named temp file immediately).
-- "Temp dir + manifest of paths" alone is an incomplete persistence design — `NSTemporaryDirectory()` contents aren't guaranteed to survive relaunch/reboot. Dropshit's manifest (`~/Library/Application Support/<App>/shelf.json`) instead stores security-scoped bookmarks (for real files) or the raw text content itself (for synthesized snippets), regenerating a fresh temp file each launch.
-- A macOS 15 regression makes `NSItemProvider.loadObject`'s completion handler fire only after the drag's `dropExited` callback rather than promptly — one concrete example of async-loading being less reliable than a synchronous `NSPasteboard` read during `performDragOperation`. — [Apple forums thread 767237](https://developer.apple.com/forums/thread/767237)
-
-## Open questions
-
-### Shell
-
-- [ ] No Apple release notes/WWDC session confirming `safeAreaInsets`/auxiliary-area semantics are stable macOS 12→15 — worth checking macOS 12/13/14/15 AppKit release notes directly if this matters for a compatibility matrix.
-- [ ] Does the system Control Center panel (dropdown, not just menu-bar status items) visually or input-wise collide with a custom overlay panel at `.screenSaver`/`.mainMenu+3` level? Not documented anywhere found.
-- [ ] Does macOS 27 Golden Gate's menu-bar rearchitecture affect notch-hugging overlay panels themselves (as opposed to menu-bar-icon managers like Ice/Bartender)? No boring.notch/DynamicNotchKit issue about macOS 27 found yet as of Aug 2026.
-- [ ] Exact WWDC session (year/number) that introduced `safeAreaInsets`/auxiliary areas for the 2021 notched MacBook Pro could not be pinned down — press coverage confirms macOS Monterey timing but not a session number.
-- [ ] Which window-level/collectionBehavior combo to actually adopt: boring.notch's `.mainMenu+3` + `.fullScreenAuxiliary`/`.canJoinAllSpaces`/`.stationary` (proven, but predates Stage Manager) vs. Apple's newer documented `.canJoinAllApplications` (macOS 13+, Stage-Manager-aware, but zero production precedent found)? This is a load-bearing architectural choice for the shell and has no clear answer in current evidence.
-- [ ] Does the shell need the private CGSSpace/SkyLight technique (lock-screen visibility, custom space level) that boring.notch uses, or is public NSPanel API sufficient for this project's scope? Reaching into SkyLight.framework carries its own notarization/App-Review-adjacent risk even outside the Mac App Store question.
-- [ ] Should the shell budget engineering time for anticipated conflicts with third-party menu-bar managers (Ice, iBar, Bartender) given the documented issue history, or treat that as out-of-scope for v1?
-
-### Music (MVP)
-
-- [ ] The literal private entitlement string `mediaremoted` checks for is unconfirmed — does this matter for the implementation, or is the perl-adapter workaround sufficient regardless of the exact gating mechanism?
-- [ ] No named, citable Mac App Store rejection case for MediaRemote usage — moot given the distribution decision (direct-download), but worth reconfirming that decision's rationale is still airtight.
-- [ ] Is Apple's trust of `/usr/bin/perl`'s bundle identifier (`com.apple.perl`/`com.apple.perl5`) an intentional carve-out or an overlooked gap Apple could close at any time? This is the single largest technical risk to the Music module and, by extension, the whole MVP.
-- [ ] Whether TCC/prompt behavior differs across macOS 15.4 / 26 Tahoe / 27 Golden Gate beta was not independently hands-on-tested — only inferred from absence of reports.
-- [ ] Whether the WWDC 2026 public `NowPlaying` framework has any angle for a helper app that is not itself the active player (e.g., mirroring another app's session) was not explored — confirm it's genuinely publish-only-for-self before ruling it out entirely.
-- [ ] Need to decide and document the app's actual fallback behavior if Apple closes the perl-adapter path in a future macOS release (graceful degradation vs. hard failure of the Music module) — currently undecided.
-- [ ] Need to confirm bundling requirements/legal terms for shipping `MediaRemoteAdapter.framework` + `mediaremote-adapter.pl` (license, attribution) inside this app's own bundle.
-
-## Mismatches vs. original plan
-
-- [ ] **Shell** — "NSPanel borderless alone" is not what any reference implementation ships: all three (boring.notch, DynamicNotchKit, NotchBar) additionally require `isFloatingPanel = true` (or equivalent), an explicit above-menu-bar `NSWindow.Level`, and a specific `collectionBehavior` set — borderless styleMask alone doesn't survive Space switches or avoid stealing focus. Spec must call out the full window config, not just "NSPanel borderless."
-- [ ] **Shell** — "NSScreen.safeAreaInsets alone is sufficient" is contradicted by every reference implementation: all combine it with `auxiliaryTopLeftArea`/`auxiliaryTopRightArea`, hardcoded fallback constants, and multiple sizing modes. Plan for a fallback/compat layer, not a single-API read.
-- [ ] **Shell** — Going beyond the public NSPanel API is common in practice (boring.notch's private SkyLight/CGSSpace use for lock-screen visibility) — "NSPanel + safeAreaInsets" alone is not full feature parity with the most popular reference app; decide whether this project needs that parity or can ship without it.
-- [ ] **Shell** — Apple's newer, documented `.canJoinAllApplications` (macOS 13+, Stage-Manager-aware) is unused by every OSS reference app — real-world Stage Manager compatibility is unresolved; don't assume either the old or new collectionBehavior approach is definitively more robust without further testing.
-- [ ] **Shell** — The technique is not static: macOS 27 Golden Gate just broke the menu-bar architecture third-party utilities depended on, with only unofficial/beta-only community workarounds — treat "NSPanel + safeAreaInsets" as a moving target requiring ongoing maintenance, not a solved-forever technique.
-- [ ] **Shell** — Collisions with third-party menu-bar utilities (Ice, iBar) are empirically real and unpredictable by any window-config choice — no negotiation protocol exists between independently-authored overlay windows; budget for user bug reports in this category.
-- [ ] **Music** — MediaRemote is not one uniform API anymore: since macOS 15.4, "send command" functions remain unentitled-callable in-process, but "read/observe" functions are blocked for unentitled processes. A plan assuming "dlopen the framework, get both read and write" is half wrong on every currently shipping macOS.
-- [ ] **Music** — There is no symmetrical "read now-playing" system API the way a "MediaRemote/NowPlaying" line item implies — Apple has only ever shipped publish-side APIs (`MPNowPlayingInfoCenter`, and now the WWDC26 `NowPlaying` framework), never an observe-other-apps API, public or otherwise.
-- [ ] **Music** — The classic "dlopen/dlsym MRMediaRemoteGetNowPlayingInfo from your own process" approach (most blog posts/StackOverflow answers) is non-functional for reading data on every currently shipping macOS (15.4+) — the actually-working approach requires spawning a separate Apple-trusted process (`/usr/bin/perl`) and parsing its stdout, a materially more fragile architecture. Spec must specify the perl-adapter architecture explicitly, not "dlopen MediaRemote."
-- [ ] **Music** — There is no TCC prompt to design permission UX around for the direct/perl-adapter read path — access is unconditionally denied with no user-facing consent mechanism at all (contrast with the AppleScript/Apple-Events fallback, which does prompt). Any spec assuming a "grant Music access" dialog for MediaRemote itself is wrong.
-- [ ] **Clipboard** — "NSPasteboard polling" alone is an incomplete statement of the approach: without also checking `org.nspasteboard.TransientType`/`ConcealedType`/`AutoGeneratedType` (and ideally `org.nspasteboard.source`), a naive changeCount-poll-and-capture loop will record and persist passwords and other sensitive/transient/machine-generated content. This filtering must be a required part of the capture logic in the eventual Clipboard spec, not an optional add-on.
-- [ ] **Clipboard** — "No push API, changeCount polling is standard" is accurate today but not guaranteed permanent: Apple's in-progress Pasteboard Privacy Protection directly targets unprompted programmatic reads like a polling loop. Currently inactive by default, but the eventual spec should not treat unconditional plain-polling access as a permanent guarantee.
-- [ ] **Clipboard** — Only Maccy's poll interval (500ms) could be verified from source; Paste and CleanClip (both named in the original framing) are closed-source and unverifiable — don't cite their specific intervals as fact in the eventual spec.
-- [ ] **Calendar** — "Just call the classic `requestAccess(to:completion:)`" is stale for macOS 14+: it's deprecated, and per TN3153 it now silently downgrades old-SDK callers to write-only access even though the completion handler reports success.
-- [ ] **Calendar** — "`NSCalendarsUsageDescription` is the key you need" is incomplete for current macOS: that key is deprecated as of macOS 14.0. The current key is `NSCalendarsFullAccessUsageDescription` (or `...WriteOnlyAccessUsageDescription`); the old key survives only as an undocumented-in-practice fallback.
-- [ ] **Calendar** — Biggest mismatch: "non-sandboxed direct-download app needs no calendars entitlement" is not well-supported — Apple's own entitlement docs say it's addable via App Sandbox **or** Hardened Runtime, and Hardened Runtime is a practical prerequisite (via notarization) for any legitimate direct-download app today. This project's non-sandboxed + notarized config most likely still needs `com.apple.security.personal-information.calendars` declared. (TCC prompting itself is correctly independent of sandboxing — that part of the original assumption holds.)
-- [ ] **Translate** — If treated as available uniformly on iOS/macOS from the same starting point, that's only true for the minimal system-sheet API (iOS 17.4/macOS 14.4); the useful programmatic API (`TranslationSession`) needs macOS 15.0 — a full OS generation later, not day-one/co-launched.
-- [ ] **Translate** — A background utility cannot call `TranslationSession` like an ordinary API at any deployment target below macOS 26: pre-26, a session can only be obtained via `.translationTask` on a live SwiftUI view and must not be persisted/reused after that view disappears. A "headless clipboard/selection translator" is unsupported below macOS 26.
-- [ ] **Translate** — Even on macOS 26+, the background-utility case is only partially unblocked: the new view-free initializer works only for already-installed language pairs and still has no way to trigger the download-consent UI without a SwiftUI view.
-- [ ] **Translate** — If Mac Catalyst is in scope, `TranslationSession`/`LanguageAvailability` weren't available to Catalyst apps until version 26.0, three OS generations after native macOS.
-- [ ] **Translate** — The framework's on-device models should not be conflated with "Apple Intelligence" hardware eligibility — only the separate "Live Translation" system feature (iOS 26) is Apple-Intelligence-gated, not the general Translation.framework API this project would use.
-- [ ] **Shelf** — Neither real, source-available macOS shelf app reviewed (Dropshit, DropShelf) calls `NSItemProvider` anywhere; both use `NSPasteboard`/`NSDraggingInfo` directly — contradicts treating "NSItemProvider drag-and-drop" as the full approach for a native AppKit shelf.
-- [ ] **Shelf** — The receiving-side API actually used for promised/lazy files in production is `NSFilePromiseReceiver`, a distinct class from `NSItemProvider` and the direct counterpart to `NSFilePromiseProvider` — a design built purely around `NSItemProvider` omits this pairing entirely.
-- [ ] **Shelf** — `NSFilePromiseProvider` alone is insufficient for drag-out: real code also writes plain `public.file-url` data because browsers/most web drop zones ignore file promises.
-- [ ] **Shelf** — SwiftUI's native `NSItemProvider`-backed `.onDrop`/`dropDestination(for:)` — the most idiomatic macOS entry point for `NSItemProvider` — is actively unsuitable for a polished shelf UI (forces the copy-cursor badge); production code drops to raw AppKit instead.
-- [ ] **Shelf** — No app named "HoverBar" exists in this category under that name; the well-attested reference apps are Yoink, Dropzone, Unclutter, Dropover — flag for correction against whoever supplied the original feature-table name.
-- [ ] **Shelf** — Eager copying is not a blanket requirement as the "NSItemProvider" framing implies — it applies only to data without a pre-existing stable file identity; plain Finder file drags are kept by reference (URL/security-scoped bookmark) with zero byte-copying in both reviewed implementations.
-- [ ] **Shelf** — "Temp directory + manifest" persistence is incomplete/risky as commonly imagined: the system temp directory is wiped between sessions; the verified working design stores security-scoped bookmarks or raw payload content in the manifest instead, regenerating temp files at load time.
+- Apple can change or close the `/usr/bin/perl` MediaRemote bridge at any time.
+- Private MediaRemote behavior can change in any macOS update.
+- Window ordering can conflict with menu-bar managers and new macOS windowing
+  behavior.
+- A successful build does not replace validation on physical notch hardware.
