@@ -152,11 +152,22 @@ struct LyricsStage: View {
     private var ambience: some View {
         ZStack {
             if let artwork = media.artwork {
-                Image(nsImage: artwork)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .blur(radius: 60)
-                    .opacity(0.35)
+                // Drawn through a `Color.clear` overlay, never as a sibling of
+                // the gradient. A cover filled to the stage's width is as tall
+                // as it is wide — 504 pt against a 162 pt body — and a ZStack
+                // takes its tallest child however hard the result is clipped.
+                // The stage then centred the sung line in 504 pt and drew it
+                // below the island's edge: every line still visible was one the
+                // song had passed, so clicking any of them seeked backwards.
+                // An overlay cannot resize what it covers.
+                Color.clear
+                    .overlay {
+                        Image(nsImage: artwork)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .blur(radius: 60)
+                            .opacity(0.35)
+                    }
                     .transition(.opacity)
             }
             LinearGradient(
@@ -203,6 +214,13 @@ struct LyricsStage: View {
                 }
                 .offset(y: geo.size.height / 2 - (CGFloat(anchor) * pitch + Self.slotHeight / 2))
                 .animation(reduceMotion ? nil : Theme.contentAnimation, value: anchor)
+                .onChange(of: anchor) { from, to in
+                    if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                        DebugTrail.note(String(
+                            format: "STAGE anchor %d->%d current=%d now=%.2f pos=%.2f lines=%d viewport=%.0f",
+                            from, to, currentIndex ?? -1, now, media.position, lines.count, geo.size.height))
+                    }
+                }
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                 .clipped()
                 // Lines dissolve at the viewport's edges instead of being
