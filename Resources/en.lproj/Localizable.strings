@@ -116,3 +116,14 @@
 "Stored in your keychain." = "Stored in your keychain.";
 "Stored in an owner-only file, because this build is unsigned." = "Stored in an owner-only file, because this build is unsigned.";
 "Cannot be stored on this Mac." = "Cannot be stored on this Mac.";
+
+/* Lyrics stage */
+"Back to Player" = "Back to Player";
+"Lyrics Earlier" = "Lyrics Earlier";
+"Lyrics Later" = "Lyrics Later";
+"Lyric Timing" = "Lyric Timing";
+"Search Lyrics Again" = "Search Lyrics Again";
+"Wrong lyrics? Search again" = "Wrong lyrics? Search again";
+"No lyrics for this track" = "No lyrics for this track";
+"Jumps the song to this line" = "Jumps the song to this line";
+"Opens the full lyrics" = "Opens the full lyrics";
