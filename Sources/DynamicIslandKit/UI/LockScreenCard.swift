@@ -79,186 +79,28 @@ struct LockScreenCard: View {
             // anything.
             .shadow(color: .black.opacity(style == .glass ? 0.55 : 0), radius: 4, y: 1)
             .frame(width: Self.size.width, height: Self.size.height)
-            .background {
-                ZStack {
-                    // Glass, not frosted plastic.
-                    //
-                    // `.ultraThinMaterial` alone is the problem this replaces:
-                    // it is a *light* material, and the lock screen behind it is
-                    // a bright photograph, so the card came out pale grey with
-                    // white text on it — washed out, and nothing like the glossy
-                    // panel it sits under. The order here is what real glass
-                    // does: something dark to read against, the artwork's own
-                    // colour bleeding through it, then light on the surface.
-                    // Glass takes the light vibrancy the system's own surfaces
-                    // use on this OS: the wallpaper carries through as silver
-                    // rather than being painted out, and the scrim below is
-                    // what the type reads against. Solid is the dark material,
-                    // for a bright busy photograph glass cannot win against —
-                    // and for anybody who wants a panel to be a panel.
-                    // Dark vibrancy for both, and a *light* scrim on glass.
-                    //
-                    // Light vibrancy does let more of the wallpaper through,
-                    // but it lets it through as near-white — and white type on
-                    // near-white is unreadable, which is a worse failure than
-                    // an opaque card. Dark vibrancy is what the system's own
-                    // lock-screen widgets use and what the reference cards do:
-                    // the wallpaper still carries through, darkened, and
-                    // anything written on it stays legible whatever is behind.
-                    if style == .glass {
-                        // Two sources of light, because on the lock screen only
-                        // one of them can work.
-                        //
-                        // The vibrancy samples whatever is behind the window,
-                        // which over a desktop is the desktop — and over the
-                        // login shield is nothing at all. The shield is
-                        // protected content; no window above it is given a
-                        // backdrop to blur, so a card that relies on sampling
-                        // alone renders flat there however it is tuned. That is
-                        // a platform limit, not a setting.
-                        VibrancyBackdrop(material: .hudWindow, appearance: .vibrantDark)
-
-                        // So the glass carries its own light: the cover blown
-                        // up past recognition and blurred to a wash, which is
-                        // what makes the pane read as lit from behind rather
-                        // than as a painted rectangle — and it changes with
-                        // every track, which no wallpaper sample would.
-                        if let artwork = media.artwork {
-                            Color.clear
-                                .overlay {
-                                    Image(nsImage: artwork)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .blur(radius: 52)
-                                        // A tint, not a stained window. At full
-                                        // strength the cover turns the pane into
-                                        // a coloured slab — the exact thing this
-                                        // is meant to stop being. Held back and
-                                        // desaturated, it reads as light behind
-                                        // grey glass, which is what the surface
-                                        // is pretending to be.
-                                        .saturation(0.72)
-                                        .opacity(0.28)
-                                }
-                                .transition(.opacity)
-                        }
-
-                        // And the glass itself: neutral, faintly lit, so the
-                        // pane has a colour of its own rather than only the
-                        // cover's.
-                        LinearGradient(
-                            colors: [.white.opacity(0.10), .white.opacity(0.03)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    } else {
-                        Rectangle().fill(.ultraThinMaterial)
-                            .environment(\.colorScheme, .dark)
-                    }
-                    // Weighted where the words are, and light everywhere else.
-                    // A flat scrim dark enough for white type over a bright
-                    // wallpaper turns the whole pane into a slab; the type only
-                    // needs it under itself, so the far side stays clear glass.
-                    // Glass keeps barely a breath of this. A scrim heavy
-                    // enough to carry white type on its own paints the
-                    // wallpaper out — which is the whole thing being asked
-                    // for — so on glass the type carries its own shadow
-                    // instead and the pane stays a pane of glass. Solid, which
-                    // exists precisely for the wallpapers glass cannot win
-                    // against, keeps the real scrim.
-                    LinearGradient(
-                        colors: style == .glass
-                            ? [.black.opacity(0.34), .black.opacity(0.16)]
-                            : [.black.opacity(0.46), .black.opacity(0.18)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-
-                    // Ambience: the cover's colour, strongest where the artwork
-                    // actually is, fading out across the card.
-                    if let palette, palette.isVivid, style == .solid {
-                        LinearGradient(
-                            colors: [
-                                Color(nsColor: palette.dominant).opacity(0.34),
-                                Color(nsColor: palette.dominant).opacity(0.06),
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    }
-
-                    // The gloss itself — a specular sheen across the top third,
-                    // which is what makes a surface read as glass rather than as
-                    // a tinted rectangle. Kept subtle: it has to survive being
-                    // seen every day.
-                    LinearGradient(
-                        stops: [
-                            .init(color: .white.opacity(style == .glass ? 0.16 : 0.22), location: 0),
-                            .init(color: .white.opacity(0.04), location: 0.18),
-                            .init(color: .clear, location: 0.40),
-                            .init(color: .black.opacity(style == .glass ? 0.08 : 0.20), location: 1),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-
-                    // The light source itself, off the top-left shoulder. A
-                    // sheen alone reads as a printed gradient; a pane of glass
-                    // has somewhere the light is coming *from*.
-                    RadialGradient(
-                        colors: [.white.opacity(0.24), .clear],
-                        center: .topLeading,
-                        startRadius: 0,
-                        endRadius: 210
-                    )
-
-                    // And the streak that light leaves as it crosses the pane:
-                    // a narrow bright band raked across the top-left shoulder.
-                    // This is the single mark that separates glass from a dark
-                    // rounded rectangle, and the reference cards all carry it.
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: 0.00),
-                            .init(color: .white.opacity(0.16), location: 0.16),
-                            .init(color: .white.opacity(0.02), location: 0.30),
-                            .init(color: .clear, location: 0.42),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .blendMode(.plusLighter)
-                }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if showingOutputs {
-                    outputPicker
-                        .padding(.trailing, 16)
-                        .padding(.bottom, 58)
-                        .transition(Theme.scaleIn(0.94, reduceMotion: reduceMotion))
-                }
-            }
-            .animation(Theme.contentAnimation, value: showingOutputs)
-            // A track change is not a reason to keep a picker open.
-            .onChange(of: media.track?.key) { _, _ in showingOutputs = false }
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .overlay(
-                // An edge that catches light along the top and loses it toward
-                // the bottom, the way a lit pane of glass does — a single flat
-                // stroke reads as a drawn border instead.
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                .white.opacity(0.72),
-                                .white.opacity(0.20),
-                                .white.opacity(0.08),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
+            .glassSurface(
+                cornerRadius: 30,
+                elevation: .card,
+                // The cover's colour, carried weakly, and its light behind the
+                // pane — but only on glass. Solid is meant to be a panel.
+                tint: style == .glass ? (palette?.isVivid == true ? Color(nsColor: palette!.dominant) : nil) : nil,
+                light: style == .glass ? media.artwork : nil,
+                samplesBackdrop: style == .glass
             )
+            .background {
+                // Solid keeps its own opaque ground beneath the glass recipe,
+                // for the bright, busy wallpapers glass cannot win against.
+                if style == .solid {
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                                .fill(.black.opacity(0.45))
+                        }
+                }
+            }
             // Two shadows: a tight contact shadow that seats the card on the
             // wallpaper, and a wide soft one for depth. One shadow doing both
             // jobs always looks like neither.
@@ -527,14 +369,7 @@ struct LockScreenCard: View {
             }
         }
         .frame(width: 240, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.black.opacity(0.82))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Theme.hairline, lineWidth: 0.5)
-        )
+        .glassSurface(cornerRadius: 14, elevation: .popover, samplesBackdrop: false)
         .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(localized("Sound Output"))
