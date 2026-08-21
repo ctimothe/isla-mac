@@ -72,6 +72,12 @@ struct LockScreenCard: View {
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 20)
+            // Every mark on the card carries its own shadow on glass. That is
+            // how white type survives a bright wallpaper without a scrim
+            // painting the wallpaper out — the system does the same on its own
+            // lock screen, and it is why the clock there is readable over
+            // anything.
+            .shadow(color: .black.opacity(style == .glass ? 0.55 : 0), radius: 4, y: 1)
             .frame(width: Self.size.width, height: Self.size.height)
             .background {
                 ZStack {
@@ -90,16 +96,36 @@ struct LockScreenCard: View {
                     // what the type reads against. Solid is the dark material,
                     // for a bright busy photograph glass cannot win against —
                     // and for anybody who wants a panel to be a panel.
-                    Rectangle().fill(.ultraThinMaterial)
-                        .environment(\.colorScheme, style == .glass ? .light : .dark)
+                    // Dark vibrancy for both, and a *light* scrim on glass.
+                    //
+                    // Light vibrancy does let more of the wallpaper through,
+                    // but it lets it through as near-white — and white type on
+                    // near-white is unreadable, which is a worse failure than
+                    // an opaque card. Dark vibrancy is what the system's own
+                    // lock-screen widgets use and what the reference cards do:
+                    // the wallpaper still carries through, darkened, and
+                    // anything written on it stays legible whatever is behind.
+                    if style == .glass {
+                        VibrancyBackdrop(material: .hudWindow, appearance: .vibrantDark)
+                    } else {
+                        Rectangle().fill(.ultraThinMaterial)
+                            .environment(\.colorScheme, .dark)
+                    }
                     // Weighted where the words are, and light everywhere else.
                     // A flat scrim dark enough for white type over a bright
                     // wallpaper turns the whole pane into a slab; the type only
                     // needs it under itself, so the far side stays clear glass.
+                    // Glass keeps barely a breath of this. A scrim heavy
+                    // enough to carry white type on its own paints the
+                    // wallpaper out — which is the whole thing being asked
+                    // for — so on glass the type carries its own shadow
+                    // instead and the pane stays a pane of glass. Solid, which
+                    // exists precisely for the wallpapers glass cannot win
+                    // against, keeps the real scrim.
                     LinearGradient(
                         colors: style == .glass
-                            ? [.black.opacity(0.46), .black.opacity(0.18)]
-                            : [.black.opacity(0.30), .black.opacity(0.10)],
+                            ? [.black.opacity(0.16), .black.opacity(0.04)]
+                            : [.black.opacity(0.46), .black.opacity(0.18)],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
@@ -109,8 +135,8 @@ struct LockScreenCard: View {
                     if let palette, palette.isVivid {
                         LinearGradient(
                             colors: [
-                                Color(nsColor: palette.dominant).opacity(0.34),
-                                Color(nsColor: palette.dominant).opacity(0.06),
+                                Color(nsColor: palette.dominant).opacity(style == .glass ? 0.16 : 0.34),
+                                Color(nsColor: palette.dominant).opacity(style == .glass ? 0.03 : 0.06),
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
@@ -123,10 +149,10 @@ struct LockScreenCard: View {
                     // seen every day.
                     LinearGradient(
                         stops: [
-                            .init(color: .white.opacity(0.22), location: 0),
-                            .init(color: .white.opacity(0.05), location: 0.18),
+                            .init(color: .white.opacity(style == .glass ? 0.16 : 0.22), location: 0),
+                            .init(color: .white.opacity(0.04), location: 0.18),
                             .init(color: .clear, location: 0.40),
-                            .init(color: .black.opacity(0.20), location: 1),
+                            .init(color: .black.opacity(style == .glass ? 0.08 : 0.20), location: 1),
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
