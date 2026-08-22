@@ -74,7 +74,6 @@ The shell contract is:
 | Property | Value |
 | --- | --- |
 | Standard content size | `620 × 208 pt` |
-| Teleprompter content size | `620 × 400 pt` |
 | Fixed maximum window | `700 × 444 pt` |
 | Open delay | `50 ms` |
 | Close delay | `320 ms` |
@@ -87,12 +86,13 @@ The shell contract is:
 
 The collapsed panel is click-through. The outer window stays at its maximum frame
 while internal content changes size, preventing window-level jumps during tab
-transitions. The teleprompter is the only tall panel and keeps the panel open
-while scrolling.
+transitions.
 
-The left rail contains Music, Shelf, Clipboard, Snippets, Calendar, and Translate.
-The right rail contains Notes, Teleprompter, and Settings. Translate, Snippets,
-and Notes explicitly request keyboard focus when active.
+> **Amended 2026-08-22.** Every tab now uses the standard body; the tall
+> panel went with the teleprompter. One rail carries Music, Shelf,
+> Clipboard and Translate, with Settings held at its foot below a gap —
+> the second column existed to hold an overflow that no longer exists.
+> Translate is the only tab that requests keyboard focus.
 
 ## Feature parity contract
 
@@ -164,21 +164,12 @@ and Notes explicitly request keyboard focus when active.
 - Infer direction from the presence of Cyrillic text.
 - Explain when a required language pack is missing rather than failing silently.
 
-### Notes
+### Notes and Teleprompter
 
-- Provide a scratch-note list and editor with add, copy, and delete actions.
-- Move keyboard focus into the editor when the tab is opened.
-- Use the first line as the note's list title.
-- Debounce persistence and remove blank notes when leaving the tab.
-
-### Teleprompter
-
-- Persist a plain-text script.
-- Scroll smoothly at a configurable speed from `0.3×` through `3×`.
-- Support a font size from `18 pt` through `64 pt`.
-- Keep the panel open while the script is running.
-- Stop scrolling and release the hold-open state when the user leaves the tab or
-  the panel is otherwise closed.
+> **Withdrawn 2026-08-22.** Both features were removed from the product by
+> owner decision — tabs, panes, stores, privacy sections, strings and
+> tests. They are not deferred and not hidden. The parity claim is
+> partial in the same way it already was for Snippets and Calendar.
 
 ### Settings and app menu
 
@@ -190,7 +181,8 @@ and Notes explicitly request keyboard focus when active.
 
 ### Privacy mode
 
-Privacy covers apply independently to Clipboard, Snippets, Calendar, and Notes.
+Privacy covers apply independently to Clipboard and Translate (Snippets,
+Calendar and Notes withdrew with their features).
 Rows may be revealed individually, and all temporary reveals reset whenever the
 panel collapses. Logs must never contain the concealed user content.
 
