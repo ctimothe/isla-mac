@@ -32,7 +32,14 @@ claim is explicitly partial as a result. (Two stale section *comments* in
 retitled on 2026-08-21; the keys under them are shared ones that were
 always used elsewhere.)
 
-Three capabilities were added beyond Cyclop 0.6.5, all of them off or
+Notes and the Teleprompter were removed on 2026-08-22 by owner decision,
+on the same terms: the tabs, panes, stores, privacy sections, strings and
+tests are gone, the tall panel body went with the teleprompter, and the
+second rail went with the overflow it existed to hold. Five tabs remain —
+Music, Shelf, Clipboard, Translate, and Settings at the foot of the one
+rail.
+
+Four capabilities were added beyond Cyclop 0.6.5, all of them off or
 absent until the user asks. They are recorded here because the parity
 design's non-goals rule out "network services" and "accounts", and these
 are the exception the design did not anticipate:
@@ -44,7 +51,13 @@ are the exception the design did not anticipate:
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain.
 - **Lock-screen card** (Settings, default on) presents the player over
-  the shield.
+  the shield, in a window of its own, finished as Glass or Solid. The
+  shield is protected content and no window above it is given a backdrop
+  to blur, so the glass is a drawn recipe rather than a sample — the
+  system's own lock-screen widgets work the same way.
+- **Sound output** (lock card, no setting) lists the Mac's output devices
+  and switches the system default. It changes a system-wide setting, so
+  it is recorded here even though it needs no permission and no network.
 
 Privacy defaults were also corrected on 2026-08-21: the panel is now
 hidden from screen capture by default, and clipboard-screenshot saving
@@ -53,6 +66,10 @@ is off by default with a 200-file cap once enabled.
 ## Manual parity gates
 
 - [ ] Every tab passes its workflow on a clean macOS account.
+- [ ] The lyrics page scrolls both ways, holds where it is left, and the
+  sync pill returns it to the sung line.
+- [ ] The lock card appears centred at its own size across repeated
+  lock/unlock cycles, including after display sleep.
 - [ ] Protected Shelf files prompt only when the Shelf is opened or used.
 - [ ] Physical-notch behavior passes on a supported MacBook.
 - [ ] Synthetic-notch behavior passes on an external/non-notch display.
