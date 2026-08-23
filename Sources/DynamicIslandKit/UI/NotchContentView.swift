@@ -33,6 +33,13 @@ struct NotchContentView: View {
                     .refusalShake(trigger: vm.lockedHoverNudges)
                 }
             }
+            // Held to the whole panel, top-aligned. The panel is anchored to
+            // the notch, so the top of this window *is* the cutout — and a
+            // stack left to hug a 32 pt pill gets centred in 444 pt instead,
+            // which floats the island two hundred points down the lock screen,
+            // over the clock. The card used to force this fill; it has a window
+            // of its own now, so the fill has to be stated.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             // Nothing here animates from the layout it had a moment ago. Locking
             // while the panel was open leaves an open→closed animation in
             // flight, and swapping the whole view tree under it made SwiftUI
