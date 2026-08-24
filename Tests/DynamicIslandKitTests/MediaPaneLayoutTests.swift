@@ -21,17 +21,17 @@ final class MediaPaneLayoutTests: XCTestCase {
             LyricsStore.Line(at: 30, text: "In his head a brittle bone"),
         ]
 
-        let early = try XCTUnwrap(MediaPane.displayed(lines: lines, at: 0.4))
+        let early = try XCTUnwrap(LyricSweep.displayed(lines: lines, at: 0.4))
         XCTAssertEqual(early.line.text, "Don't get hung on petty things")
         XCTAssertFalse(early.swept, "nobody has sung it yet, so it must not be swept")
         XCTAssertEqual(early.end, 18.2, accuracy: 0.001, "the end is the next line's start")
 
-        let during = try XCTUnwrap(MediaPane.displayed(lines: lines, at: 20))
+        let during = try XCTUnwrap(LyricSweep.displayed(lines: lines, at: 20))
         XCTAssertEqual(during.line.text, "String the sinner by his wings")
         XCTAssertTrue(during.swept)
         XCTAssertEqual(during.end, 30, accuracy: 0.001)
 
-        let last = try XCTUnwrap(MediaPane.displayed(lines: lines, at: 40))
+        let last = try XCTUnwrap(LyricSweep.displayed(lines: lines, at: 40))
         XCTAssertEqual(last.line.text, "In his head a brittle bone")
         XCTAssertTrue(last.swept)
         XCTAssertEqual(last.end, 36, accuracy: 0.001, "the last line borrows a spoken length")
@@ -40,13 +40,13 @@ final class MediaPaneLayoutTests: XCTestCase {
     /// A single-line lyric has no next line to borrow an end from.
     func testASingleLineBorrowsASpokenLengthBeforeItIsReached() throws {
         let lines = [LyricsStore.Line(at: 5, text: "only line")]
-        let early = try XCTUnwrap(MediaPane.displayed(lines: lines, at: 0))
+        let early = try XCTUnwrap(LyricSweep.displayed(lines: lines, at: 0))
         XCTAssertFalse(early.swept)
         XCTAssertEqual(early.end, 11, accuracy: 0.001)
     }
 
     func testNoLinesShowsNothing() {
-        XCTAssertNil(MediaPane.displayed(lines: [], at: 10))
+        XCTAssertNil(LyricSweep.displayed(lines: [], at: 10))
     }
 
     // MARK: - Where the transport sits
