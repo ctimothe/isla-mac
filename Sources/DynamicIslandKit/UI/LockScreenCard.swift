@@ -179,14 +179,24 @@ struct LockScreenCard: View {
     @ViewBuilder
     private var lyricLine: some View {
         if media.positionSettled, case .synced(let lines) = lyrics.state {
-            let at = media.position + 0.25
-            let current = LyricsStore.current(in: lines, at: at)
-            if let line = current.line {
-                let end = current.next?.at ?? line.at + 6
-                KaraokeLine(
+            // The same clock as the caption and the stage. This used to be a
+            // hardcoded `+ 0.25`, which consulted neither the precision flag nor
+            // the listener's own correction — so the card sat on a third clock,
+            // and Sync moved everything except it.
+            let at = LyricSweep.position(
+                media.position,
+                precisionSync: media.precisionSync,
+                userOffset: lyrics.userOffset
+            )
+            if let shown = LyricSweep.displayed(lines: lines, at: at) {
+                let line = shown.line
+                let end = shown.end
+                KaraokeText(
                     text: line.text,
                     // Credits are shown, never swept — see the caption.
-                    fraction: line.isCredit ? 0 : Self.sweepFraction(line: line, at: at, end: end),
+                    fraction: line.isCredit || !shown.swept
+                        ? 0
+                        : LyricSweep.fraction(line: line, at: at, end: end),
                     reduceMotion: reduceMotion,
                     accent: accent
                 )
@@ -196,14 +206,6 @@ struct LockScreenCard: View {
                 .animation(Theme.contentAnimation, value: line.at)
             }
         }
-    }
-
-    static func sweepFraction(line: LyricsStore.Line, at: TimeInterval, end: TimeInterval) -> Double {
-        guard line.words.isEmpty else {
-            return WordSyncedLyrics.wordFraction(words: line.words, at: at, lineEnd: end)
-        }
-        let span = LyricsStore.sweepSpan(text: line.text, slot: end - line.at)
-        return min(max((at - line.at) / span, 0), 1)
     }
 
     private var fraction: Double {
