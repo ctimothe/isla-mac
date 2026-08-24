@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The full lyrics view: every line, scrolling with the voice.
 ///
-/// This is the caption grown into a stage. The single `KaraokeLine` under the
+/// This is the caption grown into a stage. The single `KaraokeText` under the
 /// scrubber says *what is being sung now*; this says *where the song is* — the
 /// sung lines above, the current line sweeping word by word, the next ones
 /// waiting below, all riding the same position clock that keeps the caption
@@ -65,9 +65,9 @@ struct LyricsStage: View {
         return Color(nsColor: palette.dominant)
     }
 
-    /// Same leads as the caption, plus the listener's own correction.
+    /// The one lead, shared with the caption and the lock card.
     private var lead: TimeInterval {
-        (media.precisionSync ? 0.25 : 0.45) + lyrics.userOffset
+        LyricSweep.lead(precisionSync: media.precisionSync, userOffset: lyrics.userOffset)
     }
 
     private var now: TimeInterval { media.position + lead }
@@ -382,15 +382,22 @@ struct LyricsStage: View {
                         .frame(maxHeight: .infinity, alignment: .center)
                 } else if isCurrent {
                     let end = index + 1 < lines.count ? lines[index + 1].at : line.at + 6
-                    // Colored by character, not swept by a mask. A rectangle
-                    // mask is geometry: on a line wrapped to two rows it lit
-                    // the left half of *both* rows at once — the reading edge
-                    // in the wrong place on every long lyric. Splitting the
-                    // string itself at the sung boundary lets the highlight
-                    // flow with the wrap, top row first, exactly as read.
-                    wrappedKaraoke(
+                    // The same renderer the caption and the lock card use. It
+                    // clips each laid-out row on its own, so a line wrapped to
+                    // two rows fills top row first, in reading order — which a
+                    // single rectangle mask could never do — and it interpolates
+                    // between position ticks instead of stepping with them.
+                    KaraokeText(
                         text: line.text,
-                        fraction: reduceMotion ? 1 : LockScreenCard.sweepFraction(line: line, at: now, end: end)
+                        fraction: LyricSweep.fraction(line: line, at: now, end: end),
+                        reduceMotion: reduceMotion,
+                        accent: accent == .white ? .white : accent,
+                        font: .system(size: 15, weight: .bold),
+                        // Brighter than any neighbour even before the sweep
+                        // arrives — the line being sung must never be the
+                        // darkest thing on stage.
+                        base: .white.opacity(0.62),
+                        lineLimit: 2
                     )
                     .frame(maxHeight: .infinity, alignment: .center)
                 } else {
@@ -418,21 +425,6 @@ struct LyricsStage: View {
 
     /// The sung prefix in the accent, the rest dimmed-bright, as one wrapping
     /// Text — so a two-row line fills in reading order.
-    private func wrappedKaraoke(text: String, fraction: Double) -> some View {
-        let characters = Array(text)
-        let boundary = min(Int((Double(characters.count) * fraction).rounded()), characters.count)
-        var sung = AttributedString(String(characters[0..<boundary]))
-        sung.foregroundColor = accent == .white ? Color.white : accent
-        var rest = AttributedString(String(characters[boundary...]))
-        // Brighter than any neighbour even before the sweep arrives — the
-        // line being sung must never be the darkest thing on stage.
-        rest.foregroundColor = .white.opacity(0.62)
-        return Text(sung + rest)
-            .font(.system(size: 15, weight: .bold))
-            .lineLimit(2)
-            .truncationMode(.tail)
-    }
-
     // MARK: - Header
 
     private var header: some View {
