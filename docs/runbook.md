@@ -62,8 +62,6 @@ not visible.
 | Shelf | Drop files, multi-select, drag out, copy, reveal, remove | Files remain references; previews load only while Shelf is visible |
 | Clipboard | Copy 41 text values, a multi-file selection, and a concealed item | Latest 40 remain; the selection returns all of its files when pasted back; concealed item is absent |
 | Translate | Enter English and Cyrillic text; press ⌥⌘T with text on the clipboard | Route reverses by script; the pane takes the keyboard; covered when Translate privacy is on |
-| Notes | Add two notes, edit, copy, delete, leave a blank | First line is the title; blank note disappears on leaving |
-| Teleprompter | Paste script, change speed/type, start, leave tab | Smooth scroll; panel holds open only while running; leaving suspends it |
 | Settings | Toggle screenshot saving, lyrics, capture hiding and launch at login; open support files | Values persist and actions open Dynamic Island-owned paths; screenshot saving and lyrics start off |
 
 Collapse the panel after privacy-covered rows are temporarily revealed. Reopen
@@ -78,23 +76,24 @@ On a notched MacBook display:
 1. Move the pointer into the camera-housing region.
 2. Confirm the panel opens after the 50 ms delay without shifting the outer
    window.
-3. Move through both rails and confirm the 150 ms tab dwell prevents accidental
+3. Move down the rail and confirm the 150 ms tab dwell prevents accidental
    switching.
 4. Leave the cool zone and confirm collapse after 320 ms.
-5. Run the teleprompter, move the pointer away, and confirm it stays open until
-   paused, completed, escaped, or clicked away.
+5. Press ⌥⌘I, move the pointer well away, and confirm the panel stays open
+   until Escape, ⌥⌘I again, or a click in another application closes it.
 
 ### Synthetic notch
 
 Make a non-notch or external display primary, relaunch, and repeat the pass. The
-collapsed target must be centered at the menu-bar top and all seven tabs must
+collapsed target must be centered at the menu-bar top and all five tabs must
 remain available.
 
 ### Display changes and the lock screen
 
-1. With the panel open on the teleprompter tab, plug in or unplug an external
-   display. The panel is rebuilt on the notch display, keeps the tab, and keeps
-   the clipboard history and any half-typed translation.
+1. With the panel open on the Translate tab and a phrase half-typed in it, plug
+   in or unplug an external display. The panel is rebuilt on the notch display,
+   keeps the tab, and keeps the clipboard history and the half-typed
+   translation.
 2. Lock the Mac with the panel expanded. The lock card appears centered, its
    transport answers clicks, and the pill stays at the notch.
 3. Let the display sleep while locked, then wake it. The card still works and
@@ -136,13 +135,15 @@ when the scripting fallback first drives Music or Spotify.
 
 ## 6. Failure and persistence passes
 
-- Quit while editing a note and teleprompter script; relaunch and confirm both
-  flushed.
-- Make `~/Library/Application Support/DynamicIsland/notes.json` unreadable
-  (`chmod 000`); relaunch, type in a note, restore permissions, and confirm the
-  file still holds the original notes.
-- Save the teleprompter script as UTF-16 from an external editor; relaunch,
-  type a character, and confirm the script on disk is not replaced.
+- Drop several files on the Shelf, one of them from a protected folder; quit,
+  relaunch, and confirm every card returns and still opens its file.
+- Make the lyrics cache directory
+  `~/Library/Application Support/DynamicIsland/lyrics` unreadable
+  (`chmod 000`); play a track with Lyrics on, restore permissions, and confirm
+  the track kept playing and the cached words are intact.
+- On an unsigned local build with a Spotify account connected, confirm
+  `spotify-credentials.json` is mode `0600`, then make it unreadable: the cost
+  is the account showing as disconnected, never a failed launch.
 - Temporarily remove the bundled media helper; confirm Music falls back after
   three failures without crashing the shell, and that the restart delay grows
   rather than repeating every two seconds.

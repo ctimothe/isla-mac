@@ -35,11 +35,12 @@ result, evidence path, or issue link to every gate.
    key parity passes; visual review is blocked with UI coverage. Evidence:
    [release-candidate report](verification/2026-08-18-release-candidate.md)
 8. [ ] **Recovery and lifecycle** — quit/relaunch, launch at login, an
-   unreadable notes file, a non-UTF-8 teleprompter script, an unavailable
+   unreadable lyrics cache, an unreadable credentials file, an unavailable
    helper, a silent-but-running helper, and a missing Shelf file all pass.
-   Reworded on 2026-08-21: this gate named the removed snippets file. Automated
-   persistence and helper lifecycle pass; remaining manual scenarios are not
-   run. Evidence: [release-candidate report](verification/2026-08-18-release-candidate.md)
+   Reworded on 2026-08-21: this gate named the removed snippets file, and again
+   on 2026-08-24, when the notes file and the teleprompter script went with
+   their features. Automated persistence and helper lifecycle pass; remaining
+   manual scenarios are not run. Evidence: [release-candidate report](verification/2026-08-18-release-candidate.md)
 9. [ ] **Performance** — three-run medians meet the pinned Cyclop CPU, RSS,
    responsiveness, lifecycle, and bundle gates. The two thresholds that blocked
    this were themselves wrong and were corrected on 2026-08-21: idle CPU is now
