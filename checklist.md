@@ -59,6 +59,14 @@ are the exception the design did not anticipate:
   and switches the system default. It changes a system-wide setting, so
   it is recorded here even though it needs no permission and no network.
 
+The status-item menu was replaced by an app window on 2026-08-25, by
+owner decision. The dropdown is gone; the icon is a button that opens a
+window carrying the version, Open Panel and the privacy switches, and
+Quit moved to a real app menu. The app becomes `.regular` — Dock icon
+and menu bar — only while that window is open, and returns to
+`.accessory` when it closes. This is beyond the parity design's shape,
+which describes a menu-bar-only accessory, so it is recorded here.
+
 The panel's width became a setting on 2026-08-25, `480…620 pt` with a
 default of `560`. The parity design fixed it at `620`; it is recorded here
 because a person can now change a number the design stated. The window it

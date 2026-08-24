@@ -24,6 +24,11 @@ another Mac must use Developer ID signing and notarization as described in
 - Hover at the physical notch, or the centered synthetic notch on a display
   without one, to open the panel. ⌥⌘I opens it from the keyboard and keeps it
   open until a command closes it; ⌥⌘T translates the clipboard.
+- Click the menu-bar icon to open the app's window. It has no dropdown: the
+  window holds what the menu used to. A Dock icon appears with that window and
+  leaves when it closes — the app is an accessory the rest of the time.
+- Settings sets how wide the panel opens, between 480 and 620 pt. The window
+  behind it never changes size; only how much of it the island draws in.
 - One rail carries Music, Shelf, Clipboard, and Translate, with Settings at its
   foot below a gap.
 - Clipboard entries marked concealed, transient, or auto-generated are ignored.
