@@ -2,7 +2,25 @@ import CoreGraphics
 import Foundation
 
 enum NotchMetrics {
-    static let standardBody = CGSize(width: 620, height: 208)
+    /// The body's width is the one panel dimension a person can set, because it
+    /// is the one whose right answer is taste rather than fit. The bounds are
+    /// what the content can hold: under 480 the rail and the artwork block start
+    /// fighting for the same points, over 620 the panel sprawls far enough past
+    /// the notch to read as a window rather than an island.
+    static let minimumBodyWidth: CGFloat = 480
+    static let maximumBodyWidth: CGFloat = 620
+    static let defaultBodyWidth: CGFloat = 560
+    static let standardBodyHeight: CGFloat = 208
+
+    static func body(width: CGFloat) -> CGSize {
+        CGSize(width: width, height: standardBodyHeight)
+    }
+
+    /// The *widest* body, which is what the window is cut for and what the
+    /// window arithmetic is written against. The window is never resized — it is
+    /// transparent outside the panel, and what is clickable is decided by the
+    /// active rect — so a narrower body simply leaves more of it transparent.
+    static let standardBody = CGSize(width: maximumBodyWidth, height: standardBodyHeight)
     static let teleprompterBody = CGSize(width: 620, height: 400)
     static let maximumWindow = CGSize(width: 700, height: 444)
     /// Extra room split equally between the two sides of a collapsed notch:
