@@ -94,6 +94,14 @@ transitions.
 > the second column existed to hold an overflow that no longer exists.
 > Translate is the only tab that requests keyboard focus.
 
+> **Amended 2026-08-25.** The standard content size is now `480…620 × 208 pt`,
+> defaulting to `560`, chosen from Settings. The fixed maximum window is
+> unchanged at `700 × 444 pt` and is cut for the widest body: a narrower
+> setting leaves more of the window transparent and resizes nothing. That
+> property is deliberate — resizing the panel window across a lock is what
+> stretched its window-server snapshot, and is why the lock card was given a
+> window of its own.
+
 ## Feature parity contract
 
 > **Amended 2026-08-20.** The Snippets and Calendar sections below are

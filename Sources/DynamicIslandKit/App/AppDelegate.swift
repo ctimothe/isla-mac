@@ -174,6 +174,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controller?.refreshPointerTuning()
     }
 
+    /// Settings changed the panel's width, which is geometry.
+    func refreshGeometry() {
+        controller?.refreshGeometry()
+    }
+
     /// Not `private`: the Settings tab's own "Open Panel" row calls this
     /// same method through `NSApp.delegate`, rather than reaching for
     /// `NotchController` itself and reinventing what the menu already does.

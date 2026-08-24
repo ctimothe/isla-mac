@@ -25,13 +25,20 @@ enum CompactMediaActivity: Equatable {
     /// - Parameter peeking: whether a new track is showing itself. The pill
     ///   widens for that moment so the title has somewhere to go, then returns
     ///   to the width the artwork and equalizer need on their own.
-    func bodySize(notchSize: CGSize, peeking: Bool = false) -> CGSize {
+    /// - Parameter bodyWidth: the expanded body's width, which the pill may
+    ///   never outgrow. Passed rather than read, so the arithmetic stays pure and
+    ///   the tests can state a width instead of writing a default.
+    func bodySize(
+        notchSize: CGSize,
+        peeking: Bool = false,
+        bodyWidth: CGFloat = NotchMetrics.defaultBodyWidth
+    ) -> CGSize {
         guard isVisible else { return notchSize }
         let extension_ = peeking
             ? NotchMetrics.sneakPeekExtension
             : NotchMetrics.compactMediaExtension
         return CGSize(
-            width: min(notchSize.width + extension_, NotchMetrics.standardBody.width),
+            width: min(notchSize.width + extension_, bodyWidth),
             height: notchSize.height
         )
     }

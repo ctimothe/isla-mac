@@ -128,6 +128,7 @@
 "All Tracks" = "Все треки";
 "This Track" = "Этот трек";
 "Hover Delay" = "Задержка открытия";
+"Panel Width" = "Ширина панели";
 "Open %@" = "Открыть %@";
 "Sync" = "К строке";
 "Back to the current line" = "Вернуться к текущей строке";

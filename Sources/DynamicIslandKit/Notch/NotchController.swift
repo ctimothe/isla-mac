@@ -466,6 +466,16 @@ final class NotchController {
     }
 
     /// Settings changed something the pointer machinery holds a copy of.
+    /// Settings changed the body width.
+    ///
+    /// The geometry is read once when the panel is built, so the panel is rebuilt
+    /// rather than nudged — the same path a display change takes, and the only
+    /// one known to leave the window, the active rect and the hover rects all
+    /// agreeing with each other afterwards.
+    func refreshGeometry() {
+        rebuild()
+    }
+
     func refreshPointerTuning() {
         pointer.openDelay = NotchViewModel.hoverOpenDelay
     }
