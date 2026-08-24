@@ -59,6 +59,12 @@ are the exception the design did not anticipate:
   and switches the system default. It changes a system-wide setting, so
   it is recorded here even though it needs no permission and no network.
 
+The panel's width became a setting on 2026-08-25, `480…620 pt` with a
+default of `560`. The parity design fixed it at `620`; it is recorded here
+because a person can now change a number the design stated. The window it
+is drawn in is untouched at `700 × 444 pt` — the body narrows inside a
+frame that never resizes.
+
 Privacy defaults were also corrected on 2026-08-21: the panel is now
 hidden from screen capture by default, and clipboard-screenshot saving
 is off by default with a 200-file cap once enabled.

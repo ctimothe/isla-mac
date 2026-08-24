@@ -13,6 +13,7 @@ struct SettingsPane: View {
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hoverDelay = NotchViewModel.hoverOpenDelay
+    @State private var bodyWidth = NotchViewModel.bodyWidth
     @State private var saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
     @State private var hideFromCapture = NotchViewModel.hideFromCaptureEnabled
     @State private var sneakPeek = NotchViewModel.sneakPeekEnabled
@@ -60,6 +61,33 @@ struct SettingsPane: View {
                     .frame(height: 26)
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(localized("Hover Delay"))
+
+                    // How wide the panel opens. The window behind it never
+                    // changes size — only how much of it the island draws in —
+                    // so this is free to move.
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.left.and.right")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.secondary)
+                            .frame(width: 16)
+                        Text(localized("Panel Width"))
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(.white)
+                        Slider(
+                            value: bodyWidthBinding,
+                            in: Double(NotchMetrics.minimumBodyWidth)...Double(NotchMetrics.maximumBodyWidth)
+                        )
+                        .controlSize(.mini)
+                        .tint(Theme.secondary)
+                        Text("\(Int(bodyWidth)) pt")
+                            .font(.system(size: 10, weight: .medium).monospacedDigit())
+                            .foregroundStyle(Theme.tertiary)
+                            .frame(width: 38, alignment: .trailing)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(localized("Panel Width"))
                 }
 
                 section(localized("Screenshots")) {
@@ -284,6 +312,22 @@ struct SettingsPane: View {
         case .file: return localized("Stored in an owner-only file, because this build is unsigned.")
         case .unavailable: return localized("Cannot be stored on this Mac.")
         }
+    }
+
+    private var bodyWidthBinding: Binding<Double> {
+        Binding(
+            get: { Double(bodyWidth) },
+            set: { value in
+                let width = CGFloat(value.rounded())
+                guard width != bodyWidth else { return }
+                bodyWidth = width
+                UserDefaults.standard.set(Double(width), forKey: NotchViewModel.bodyWidthKey)
+                // Rebuilt, not nudged: the geometry is computed once when the
+                // panel is built, and rebuilding is the path a display change
+                // already takes.
+                (NSApp.delegate as? AppDelegate)?.refreshGeometry()
+            }
+        )
     }
 
     private var hoverDelayBinding: Binding<Double> {

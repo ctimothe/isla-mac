@@ -208,7 +208,10 @@ final class NotchViewModel: ObservableObject {
         if isOpen || isDropTargeted { return openBodySize }
         return compactMediaActivity.bodySize(
             notchSize: geometry.notchSize,
-            peeking: isPeeking
+            peeking: isPeeking,
+            // The body the panel would open to, so the pill can never be wider
+            // than the panel it turns into.
+            bodyWidth: geometry.expandedSize.width
         )
     }
 
@@ -294,6 +297,25 @@ final class NotchViewModel: ObservableObject {
         guard stored > 0 else { return NotchMetrics.openDelay }
         return min(max(stored, 0.05), 1.0)
     }
+
+    /// How wide the panel's body is drawn.
+    nonisolated static let bodyWidthKey = "bodyWidth"
+
+    /// Clamped on read rather than on write: the value can also arrive from
+    /// `defaults write` on the command line, and a body wider than the window it
+    /// is drawn in is a body with its rail off the edge.
+    nonisolated static func bodyWidth(in defaults: UserDefaults = .standard) -> CGFloat {
+        let stored = defaults.double(forKey: bodyWidthKey)
+        guard stored > 0 else { return NotchMetrics.defaultBodyWidth }
+        return min(
+            max(CGFloat(stored), NotchMetrics.minimumBodyWidth),
+            NotchMetrics.maximumBodyWidth
+        )
+    }
+
+    /// `nonisolated` because the geometry is a plain struct built off the main
+    /// actor as well as on it, and reading a default is thread-safe.
+    nonisolated static var bodyWidth: CGFloat { bodyWidth(in: .standard) }
 
     /// Keeps the panel out of screenshots and screen recordings.
     static let hideFromCaptureKey = "hideFromCapture"

@@ -24,7 +24,10 @@ struct NotchGeometry {
     /// spread from one slider (#27). What differs between Macs lives in
     /// `railIconHeight` instead, which is the one thing in the body actually
     /// free to give.
-    let expandedSize = NotchMetrics.standardBody
+    /// Read once, when the geometry is built. Settings rebuilds the panel rather
+    /// than nudging it, which is the same path a display change takes and the
+    /// only one known to leave every rect consistent.
+    let expandedSize = NotchMetrics.body(width: NotchViewModel.bodyWidth)
 
     /// Body for the teleprompter, the one tab that asks for more.
     ///
@@ -201,8 +204,11 @@ struct NotchGeometry {
     // MARK: - Derived frames
 
     var windowSize: CGSize {
+        // The *widest* body, not this one. The window is cut once for the
+        // largest the body can ever be and never resized: a narrower setting
+        // leaves more of it transparent, and nothing moves.
         let size = CGSize(
-            width: expandedSize.width + windowPadding.left + windowPadding.right,
+            width: NotchMetrics.maximumBodyWidth + windowPadding.left + windowPadding.right,
             height: maxBodyHeight + windowPadding.bottom
         )
         // The assert is a debug-only consistency check that the padding math
