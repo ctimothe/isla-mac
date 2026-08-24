@@ -379,19 +379,6 @@ struct MediaPane: View {
         }
     }
 
-    /// How far ahead of the clock the lyric runs.
-    ///
-    /// Three real delays stack between the singer and the screen: the position
-    /// ticks four times a second, so a line lands up to 250ms after its
-    /// timestamp; the crossfade spends another 160ms arriving; and the
-    /// pipeline's own readings run slightly behind the audio. Leading by
-    /// roughly their sum is what karaoke has always done — the line appears as
-    /// the voice does, not noticeably after it.
-    private static let lyricsLead: TimeInterval = 0.45
-    /// With the position corrected against the player's own clock the
-    /// pipeline's share of the lag is gone; what remains is display cost.
-    private static let precisionLyricsLead: TimeInterval = 0.25
-
     /// One line, sung now, where the eye already is — with the sung part of it
     /// brightening as the voice moves through. No scrolling wall of text: the
     /// pane is 122pt of album art and transport, and the lyric is a caption to
@@ -399,8 +386,12 @@ struct MediaPane: View {
     @ViewBuilder
     private var lyricsLine: some View {
         if media.positionSettled, case .synced(let lines) = lyrics.state {
-            let at = media.position + (media.precisionSync ? Self.precisionLyricsLead : Self.lyricsLead)
-            if let shown = Self.displayed(lines: lines, at: at) {
+            let at = LyricSweep.position(
+                media.position,
+                precisionSync: media.precisionSync,
+                userOffset: lyrics.userOffset
+            )
+            if let shown = LyricSweep.displayed(lines: lines, at: at) {
                 let line = shown.line
                 // Where the voice stands inside this line, 0...1. The catalogue
                 // carries line timestamps, not word ones, so within a line the
@@ -414,14 +405,14 @@ struct MediaPane: View {
                 // no hint that it goes anywhere.
                 Button { showingLyrics = true } label: {
                     HStack(spacing: 5) {
-                        KaraokeLine(
+                        KaraokeText(
                             text: line.text,
                             // A credit is not being sung, so it is not swept:
                             // a filled sweep across "Produced by" says the
                             // voice is there, which it is not.
                             fraction: line.isCredit || !shown.swept
                                 ? 0
-                                : Self.sweepFraction(line: line, at: at, end: end),
+                                : LyricSweep.fraction(line: line, at: at, end: end),
                             reduceMotion: reduceMotion
                         )
                         .italic(line.isCredit)
@@ -448,41 +439,6 @@ struct MediaPane: View {
                 .accessibilityHint(localized("Opens the full lyrics"))
             }
         }
-    }
-
-    /// The line to show right now, which is not always the line being sung.
-    ///
-    /// A paused track's position is frozen — the ticker stops with playback, and
-    /// the readings that keep arriving are rejected as describing a moment already
-    /// past — so a track paused before its first timestamp left `current` empty and
-    /// the caption blank until somebody pressed play. That is what "pause it and the
-    /// words go" was. The opening line, unswept, is the honest thing to show
-    /// instead: the words are there, the voice has not reached them.
-    ///
-    /// `swept` is what tells the caller that. A filled sweep across a line nobody
-    /// has sung yet claims the voice is there, which is the same lie a swept credit
-    /// tells.
-    static func displayed(
-        lines: [LyricsStore.Line], at: TimeInterval
-    ) -> (line: LyricsStore.Line, end: TimeInterval, swept: Bool)? {
-        guard let first = lines.first else { return nil }
-        let current = LyricsStore.current(in: lines, at: at)
-        guard let line = current.line else {
-            // The end matters even here: it is what the sweep would span once the
-            // voice arrives, and the caller reads it before that happens.
-            return (first, lines.count > 1 ? lines[1].at : first.at + 6, false)
-        }
-        return (line, current.next?.at ?? line.at + 6, true)
-    }
-
-    /// Real word timing when a source had it; the singing-speed estimate only
-    /// for lines that never got any.
-    private static func sweepFraction(line: LyricsStore.Line, at: TimeInterval, end: TimeInterval) -> Double {
-        guard line.words.isEmpty else {
-            return WordSyncedLyrics.wordFraction(words: line.words, at: at, lineEnd: end)
-        }
-        let span = LyricsStore.sweepSpan(text: line.text, slot: end - line.at)
-        return min(max((at - line.at) / span, 0), 1)
     }
 
     private var emptyState: some View {
@@ -523,50 +479,5 @@ struct MediaPane: View {
 
     private static func applicationPath(for app: PlayerApp) -> String? {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleID)?.path
-    }
-}
-
-/// A line of lyric whose sung part is bright and whose unsung part is dim,
-/// the boundary sweeping with the voice.
-///
-/// A mask over a second copy of the same text, not per-word styling: the
-/// brief asked for rhythm, not typography — no underline, no boxes, just the
-/// reading edge moving. The linear animation between position ticks is what
-/// turns four updates a second into one continuous sweep.
-struct KaraokeLine: View {
-    let text: String
-    let fraction: Double
-    let reduceMotion: Bool
-    var accent: Color = Color.white.opacity(0.92)
-    /// The caption's size by default; the stage passes its own. A parameter
-    /// rather than a `.font()` from outside, because the internal `Text`s set
-    /// an explicit font and would silently ignore one.
-    var font: Font = .system(size: 11, weight: .medium)
-    var base: Color = Theme.tertiary
-    /// One line for the caption; the stage lets long lines wrap.
-    var lineLimit: Int = 1
-
-    var body: some View {
-        Text(text)
-            .font(font)
-            .foregroundStyle(base)
-            .lineLimit(lineLimit)
-            .truncationMode(.tail)
-            .overlay(alignment: .leading) {
-                if !reduceMotion {
-                    Text(text)
-                        .font(font)
-                        .foregroundStyle(accent)
-                        .lineLimit(lineLimit)
-                        .truncationMode(.tail)
-                        .mask(
-                            GeometryReader { geo in
-                                Rectangle()
-                                    .frame(width: geo.size.width * fraction)
-                                    .animation(.linear(duration: 0.25), value: fraction)
-                            }
-                        )
-                }
-            }
     }
 }
