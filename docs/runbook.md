@@ -62,10 +62,33 @@ not visible.
 | Shelf | Drop files, multi-select, drag out, copy, reveal, remove | Files remain references; previews load only while Shelf is visible |
 | Clipboard | Copy 41 text values, a multi-file selection, and a concealed item | Latest 40 remain; the selection returns all of its files when pasted back; concealed item is absent |
 | Translate | Enter English and Cyrillic text; press ⌥⌘T with text on the clipboard | Route reverses by script; the pane takes the keyboard; covered when Translate privacy is on |
-| Settings | Toggle screenshot saving, lyrics, capture hiding and launch at login; open support files | Values persist and actions open Dynamic Island-owned paths; screenshot saving and lyrics start off |
+| Settings | Toggle screenshot saving, lyrics, capture hiding and launch at login; drag the panel-width slider; open support files | Values persist, the panel rebuilds at the new width, and actions open Dynamic Island-owned paths; screenshot saving and lyrics start off |
 
 Collapse the panel after privacy-covered rows are temporarily revealed. Reopen
 it and confirm every reveal reset.
+
+## 3a. The window and the menu bar
+
+The status item has no dropdown. Everything the menu carried has to be reachable
+without it.
+
+1. Click the menu-bar icon. The window opens, and a Dock icon appears with it.
+2. Close the window. The Dock icon goes; the island still opens on hover.
+3. Click the icon again. The same window returns — a second one is a bug.
+4. In the window, press **Open Panel** and confirm the island opens.
+5. Toggle **Hide Contents → All**, then a single section, and confirm the panel
+   covers exactly those tabs.
+6. With the window focused, press ⌘Q. The app quits. (An accessory app has no
+   menu bar of its own; this works only because the window makes it `.regular`.)
+7. Read the version on the **About** page and confirm it matches the build.
+
+## 3b. Panel width
+
+1. Drag **Settings → Panel Width** to its minimum. The panel rebuilds narrower,
+   the rail keeps all five icons, and nothing is clipped.
+2. Drag it to its maximum and confirm the panel is the full 620 pt again.
+3. At every setting the outer window is unchanged: hover just outside the drawn
+   panel and confirm the click goes to whatever is behind it, not to the island.
 
 ## 4. Display passes
 
@@ -101,6 +124,9 @@ remain available.
 4. Let a track change while locked. The card stays clickable and no phantom
    region elsewhere on the shield eats clicks.
 5. Unlock. The panel returns to its notch frame, collapsed.
+5a. Repeat the lock with the panel width set to its minimum. The card and the
+   pill are placed the same way — the window never resized, so nothing about the
+   lock path depends on the width.
 6. With the lock-screen card switched off in Settings, repeat step 2: nothing
    is drawn over the shield and pointer movement over the notch opens nothing.
 
@@ -152,6 +178,12 @@ when the scripting fallback first drives Music or Spotify.
   than showing an empty media tab indefinitely.
 - Delete a referenced Shelf file; open Shelf and confirm only the missing card is
   removed. Denied access must keep the card.
+- Pause a track before its first lyric line, then open the panel. The caption
+  shows the opening line, unswept — never nothing — and the transport sits at
+  exactly the height it does for a track with words.
+- Play a track whose lyrics carry word timing, open the full stage, and confirm
+  the caption behind it and the stage agree on the current line. Nudge Sync and
+  confirm both move together.
 - Enable launch at login, log out/in, confirm a single instance launches, then
   disable the setting.
 - Quit from the menu and run `pgrep -fl libdynamicislandmedia`; it must return no
