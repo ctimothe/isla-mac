@@ -34,6 +34,15 @@ struct MediaPane: View {
     /// edges line up instead of the column floating past them.
     private let blockHeight: CGFloat = 122
 
+    /// The caption's slot, kept whether or not there is a word to put in it.
+    ///
+    /// The line used to be a conditional view, so a track with no lyrics — or one
+    /// whose words had not arrived yet — laid its scrubber out somewhere else
+    /// entirely, and every arrival and departure of a lyric moved the controls
+    /// under a pointer already travelling towards them. An empty slot costs 17 pt
+    /// of nothing; a moving target costs the click.
+    static let captionHeight: CGFloat = 17
+
     var body: some View {
         if let track = media.track {
             ZStack {
@@ -113,8 +122,17 @@ struct MediaPane: View {
                     // last. Two surfaces showing the same track in a different
                     // sequence is the kind of difference nobody can name and
                     // everybody feels.
-                    lyricsLine
-                        .padding(.top, 4)
+                    // `Color.clear` underneath, not a frame on the caption
+                    // alone. A `@ViewBuilder` whose `if` fails produces no view
+                    // at all, and a fixed frame on nothing reserves nothing —
+                    // measured: the scrubber still moved 10 px. Something has
+                    // to be in the slot for the slot to exist.
+                    ZStack(alignment: .leading) {
+                        Color.clear
+                        lyricsLine
+                    }
+                    .frame(height: Self.captionHeight)
+                    .padding(.top, 4)
                     Spacer(minLength: 6)
                     // A live stream has no duration, and a scrubber with no
                     // length is a control that reads 0:00 / 0:00, refuses to
@@ -382,14 +400,14 @@ struct MediaPane: View {
     private var lyricsLine: some View {
         if media.positionSettled, case .synced(let lines) = lyrics.state {
             let at = media.position + (media.precisionSync ? Self.precisionLyricsLead : Self.lyricsLead)
-            let current = LyricsStore.current(in: lines, at: at)
-            if let line = current.line {
+            if let shown = Self.displayed(lines: lines, at: at) {
+                let line = shown.line
                 // Where the voice stands inside this line, 0...1. The catalogue
                 // carries line timestamps, not word ones, so within a line the
                 // sweep is linear time — even pacing, which is what singing
                 // mostly is. The end of the last line borrows a spoken-line
                 // length rather than running to the end of the track.
-                let end = current.next?.at ?? line.at + 6
+                let end = shown.end
                 // The caption is the door to the stage: click it and the pane
                 // becomes the full scrolling lyrics. A chevron surfaces on
                 // hover so the door reads as one — a bare line of text gives
@@ -401,7 +419,7 @@ struct MediaPane: View {
                             // A credit is not being sung, so it is not swept:
                             // a filled sweep across "Produced by" says the
                             // voice is there, which it is not.
-                            fraction: line.isCredit
+                            fraction: line.isCredit || !shown.swept
                                 ? 0
                                 : Self.sweepFraction(line: line, at: at, end: end),
                             reduceMotion: reduceMotion
@@ -423,7 +441,6 @@ struct MediaPane: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { captionHover = $0 }
-                .padding(.top, 5)
                 .animation(Theme.contentAnimation, value: line.at)
                 .animation(Theme.contentAnimation, value: captionHover)
                 .accessibilityLabel(localized("Lyrics"))
@@ -431,6 +448,31 @@ struct MediaPane: View {
                 .accessibilityHint(localized("Opens the full lyrics"))
             }
         }
+    }
+
+    /// The line to show right now, which is not always the line being sung.
+    ///
+    /// A paused track's position is frozen — the ticker stops with playback, and
+    /// the readings that keep arriving are rejected as describing a moment already
+    /// past — so a track paused before its first timestamp left `current` empty and
+    /// the caption blank until somebody pressed play. That is what "pause it and the
+    /// words go" was. The opening line, unswept, is the honest thing to show
+    /// instead: the words are there, the voice has not reached them.
+    ///
+    /// `swept` is what tells the caller that. A filled sweep across a line nobody
+    /// has sung yet claims the voice is there, which is the same lie a swept credit
+    /// tells.
+    static func displayed(
+        lines: [LyricsStore.Line], at: TimeInterval
+    ) -> (line: LyricsStore.Line, end: TimeInterval, swept: Bool)? {
+        guard let first = lines.first else { return nil }
+        let current = LyricsStore.current(in: lines, at: at)
+        guard let line = current.line else {
+            // The end matters even here: it is what the sweep would span once the
+            // voice arrives, and the caller reads it before that happens.
+            return (first, lines.count > 1 ? lines[1].at : first.at + 6, false)
+        }
+        return (line, current.next?.at ?? line.at + 6, true)
     }
 
     /// Real word timing when a source had it; the singing-speed estimate only
