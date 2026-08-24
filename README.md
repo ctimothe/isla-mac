@@ -1,7 +1,7 @@
 # Dynamic Island
 
 Dynamic Island is a macOS 15+ utility that expands from the camera notch into
-Music, Shelf, Clipboard, Translate, Notes, Teleprompter, and Settings tools.
+Music, Shelf, Clipboard, Translate, and Settings tools.
 
 ## Build, test, launch
 
@@ -24,13 +24,14 @@ another Mac must use Developer ID signing and notarization as described in
 - Hover at the physical notch, or the centered synthetic notch on a display
   without one, to open the panel. ⌥⌘I opens it from the keyboard and keeps it
   open until a command closes it; ⌥⌘T translates the clipboard.
-- Use the left rail for Music, Shelf, Clipboard, and Translate.
-- Use the right rail for Notes, Teleprompter, and Settings.
+- One rail carries Music, Shelf, Clipboard, and Translate, with Settings at its
+  foot below a gap.
 - Clipboard entries marked concealed, transient, or auto-generated are ignored.
 - The panel is excluded from screen recordings by default; Settings turns that
   off for anyone who wants to photograph their own island.
-- Notes and the teleprompter script live under
-  `~/Library/Application Support/DynamicIsland`.
+- Cached lyrics live under `~/Library/Application Support/DynamicIsland`,
+  beside copies of anything dropped on the Shelf by an app that hands over
+  content rather than a path. Files dragged in from Finder stay where they are.
 
 ### What leaves the machine, and when
 
