@@ -137,3 +137,20 @@
 "Glass" = "Стекло";
 "Solid" = "Плотный";
 "Card Style" = "Стиль карточки";
+
+/* The window */
+"Island" = "Остров";
+"About" = "О программе";
+"The panel at the notch, and what it is allowed to show." = "Панель у выреза и то, что ей позволено показывать.";
+"Covers what the panel is showing, for a screen somebody else is watching." = "Закрывает содержимое панели — для экрана, который видит кто-то ещё.";
+"Available once the island has started." = "Доступно после запуска острова.";
+"Version %@" = "Версия %@";
+"A notch-anchored companion for what is playing, what you copied, and what you are reading." = "Спутник у выреза: что играет, что скопировано и что вы читаете.";
+"Licenses" = "Лицензии";
+"This app carries third-party notices in its bundle, under Contents/Resources/Licenses." = "Уведомления сторонних компонентов лежат в пакете приложения, в Contents/Resources/Licenses.";
+"Edit" = "Правка";
+"Undo" = "Отменить";
+"Redo" = "Повторить";
+"Cut" = "Вырезать";
+"Paste" = "Вставить";
+"Select All" = "Выбрать все";

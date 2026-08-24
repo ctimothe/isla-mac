@@ -137,3 +137,20 @@
 "Glass" = "Glass";
 "Solid" = "Solid";
 "Card Style" = "Card Style";
+
+/* The window */
+"Island" = "Island";
+"About" = "About";
+"The panel at the notch, and what it is allowed to show." = "The panel at the notch, and what it is allowed to show.";
+"Covers what the panel is showing, for a screen somebody else is watching." = "Covers what the panel is showing, for a screen somebody else is watching.";
+"Available once the island has started." = "Available once the island has started.";
+"Version %@" = "Version %@";
+"A notch-anchored companion for what is playing, what you copied, and what you are reading." = "A notch-anchored companion for what is playing, what you copied, and what you are reading.";
+"Licenses" = "Licenses";
+"This app carries third-party notices in its bundle, under Contents/Resources/Licenses." = "This app carries third-party notices in its bundle, under Contents/Resources/Licenses.";
+"Edit" = "Edit";
+"Undo" = "Undo";
+"Redo" = "Redo";
+"Cut" = "Cut";
+"Paste" = "Paste";
+"Select All" = "Select All";
