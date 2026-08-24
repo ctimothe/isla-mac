@@ -1,14 +1,12 @@
 import AppKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: NotchController?
     private var hotKey: GlobalHotKey?
     private var translateHotKey: GlobalHotKey?
     private var statusItem: NSStatusItem?
-    private var privacyItem: NSMenuItem?
-    private var privacyAllItem: NSMenuItem?
-    private var privacySectionItems: [PrivacyMode.Section: NSMenuItem] = [:]
+    private let mainWindow = MainWindowController()
 
     /// The browser returns from Spotify's consent page through the app's URL
     /// scheme; the account object finishes the token exchange.
@@ -21,7 +19,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         controller = NotchController()
         controller?.install()
+        mainWindow.actions = MainWindowController.Actions(
+            togglePanel: { [weak self] in self?.togglePanel() },
+            privacy: { [weak self] in self?.controller?.privacy }
+        )
         installStatusItem()
+        installMainMenu()
         // Built here rather than wherever a view first mentions it.
         //
         // Creating it reads the keychain, and that read can put up the system's
@@ -101,6 +104,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Menu bar item
 
+    /// A button, not a menu.
+    ///
+    /// The dropdown held four things — a version line, Open Panel, the privacy
+    /// switches and Quit — and every one of them is somewhere better now: the
+    /// first three in the window this opens, and Quit in the app menu, which
+    /// exists because the app becomes `.regular` while that window is up. A menu
+    /// that has to be kept in sync with state nobody is looking at was the worst
+    /// place for any of them.
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(
@@ -108,65 +119,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             accessibilityDescription: ProductIdentity.displayName
         )
         item.button?.image?.isTemplate = true
+        item.button?.target = self
+        item.button?.action = #selector(openWindow)
+        item.button?.toolTip = ProductIdentity.displayName
+        statusItem = item
+    }
 
-        let menu = NSMenu()
-        menu.delegate = self
-        menu.addItem(
+    /// An accessory app has no menu bar, which is why the panel dispatches ⌘C and
+    /// friends itself. With a window it can be activated, and an activated app
+    /// with no main menu shows an empty menu bar and answers no ⌘Q at all — so
+    /// one is installed. It stays invisible until something activates the app,
+    /// which nothing but the window does.
+    private func installMainMenu() {
+        let main = NSMenu()
+
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(
             withTitle: "\(ProductIdentity.displayName) \(Bundle.main.shortVersion)",
             action: nil,
             keyEquivalent: ""
         )
-        menu.addItem(.separator())
-
-        let toggle = NSMenuItem(
-            title: localized("Open Panel"),
-            action: #selector(togglePanel),
-            keyEquivalent: ""
+        appMenu.addItem(.separator())
+        let open = NSMenuItem(
+            title: localized("Open Panel"), action: #selector(togglePanel), keyEquivalent: ""
         )
-        toggle.target = self
-        menu.addItem(toggle)
+        open.target = self
+        appMenu.addItem(open)
+        appMenu.addItem(.separator())
+        appMenu.addItem(
+            withTitle: localized("Hide"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"
+        )
+        let quitItem = NSMenuItem(title: localized("Quit"), action: #selector(quit), keyEquivalent: "q")
+        quitItem.target = self
+        appMenu.addItem(quitItem)
+        appItem.submenu = appMenu
+        main.addItem(appItem)
 
-        // Sits next to the panel switch rather than in the Settings tab: it
-        // changes what the panel shows, and it is the one people look for in a
-        // hurry, with the camera already running.
-        //
-        // A submenu rather than a plain switch, because the tabs hold different
-        // things and not everyone wants all of them covered. "All" comes first
-        // and is what most people will ever touch; the sections below it are
-        // for the case where that is too much.
-        let privacy = NSMenuItem(title: localized("Hide Contents"), action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
+        // Editing lives here too, so a text field in the window behaves like a
+        // text field. The panel keeps dispatching its own, because it takes the
+        // keyboard while the app is inactive and never sees this menu.
+        let editItem = NSMenuItem()
+        let edit = NSMenu(title: localized("Edit"))
+        edit.addItem(withTitle: localized("Undo"), action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: localized("Redo"), action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: localized("Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: localized("Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: localized("Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(
+            withTitle: localized("Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"
+        )
+        editItem.submenu = edit
+        main.addItem(editItem)
 
-        let all = NSMenuItem(title: localized("All"), action: #selector(togglePrivacyAll), keyEquivalent: "")
-        all.target = self
-        submenu.addItem(all)
-        privacyAllItem = all
-        submenu.addItem(.separator())
+        NSApp.mainMenu = main
+    }
 
-        for section in PrivacyMode.Section.allCases {
-            let item = NSMenuItem(
-                title: section.title,
-                action: #selector(togglePrivacySection(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = section.rawValue
-            submenu.addItem(item)
-            privacySectionItems[section] = item
-        }
-
-        privacy.submenu = submenu
-        menu.addItem(privacy)
-        privacyItem = privacy
-
-        menu.addItem(.separator())
-        let quit = NSMenuItem(title: localized("Quit"), action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-
-        item.menu = menu
-        statusItem = item
+    @objc private func openWindow() {
+        mainWindow.present()
     }
 
     /// Settings changed something the pointer machinery holds a copy of.
@@ -186,43 +197,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controller?.toggle()
     }
 
-    /// Everything shown is re-read when the menu opens, not kept fresh in
-    /// between: a menu nobody is looking at deserves no bookkeeping.
-    func menuWillOpen(_ menu: NSMenu) {
-        refreshPrivacyItems()
-    }
-
     @objc private func quit() {
         NSApp.terminate(nil)
-    }
-
-    @objc private func togglePrivacyAll(_ sender: NSMenuItem) {
-        guard let privacy = controller?.privacy else { return }
-        // Anything short of everything means "turn the rest on too"; only a
-        // full house turns them all off. One press, and no state where the
-        // item says All while half the sections are open.
-        privacy.setCoveringAll(!privacy.coversAll)
-        refreshPrivacyItems()
-    }
-
-    @objc private func togglePrivacySection(_ sender: NSMenuItem) {
-        guard let privacy = controller?.privacy,
-              let raw = sender.representedObject as? String,
-              let section = PrivacyMode.Section(rawValue: raw) else { return }
-        privacy.setCovering(section, !privacy.covers(section))
-        refreshPrivacyItems()
-    }
-
-    /// The parent item carries the summary: a tick when every section is
-    /// covered, a dash when some are. Without it the state is a submenu away,
-    /// and this is the one switch worth reading at a glance.
-    private func refreshPrivacyItems() {
-        guard let privacy = controller?.privacy else { return }
-        privacyItem?.state = privacy.coversAll ? .on : (privacy.coversAny ? .mixed : .off)
-        privacyAllItem?.state = privacy.coversAll ? .on : .off
-        for (section, item) in privacySectionItems {
-            item.state = privacy.covers(section) ? .on : .off
-        }
     }
 }
 
