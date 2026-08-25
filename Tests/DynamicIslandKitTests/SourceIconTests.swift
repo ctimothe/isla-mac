@@ -37,7 +37,12 @@ final class SourceIconTests: XCTestCase {
         let media = MediaController()
         media.apply(snapshot(pid: me, source: "Test Player"))
         XCTAssertEqual(media.sourceName, "Test Player")
-        XCTAssertEqual(media.sourceIcon, expected, "the badge should carry the player's own icon")
+        // Not `XCTAssertEqual` against the icon itself: `NSImage` compares by
+        // identity, and `NSRunningApplication` hands back a fresh instance each
+        // time it is asked — so equality here fails for two images of the same
+        // icon, which says nothing about the badge.
+        XCTAssertNotNil(media.sourceIcon, "the badge should carry the player's own icon")
+        XCTAssertEqual(media.sourceIcon?.size, expected?.size)
     }
 
     /// A pid nothing is running under has no icon, and the card falls back to

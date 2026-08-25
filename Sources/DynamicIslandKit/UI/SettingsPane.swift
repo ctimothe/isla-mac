@@ -14,6 +14,7 @@ struct SettingsPane: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hoverDelay = NotchViewModel.hoverOpenDelay
     @State private var bodyWidth = NotchViewModel.bodyWidth
+    @State private var opensOnHover = NotchViewModel.opensOnHoverEnabled
     @State private var saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
     @State private var hideFromCapture = NotchViewModel.hideFromCaptureEnabled
     @State private var sneakPeek = NotchViewModel.sneakPeekEnabled
@@ -35,12 +36,24 @@ struct SettingsPane: View {
                         title: localized("Launch at Login"),
                         isOn: launchAtLoginBinding
                     )
+                    toggleRow(
+                        symbol: SettingsIcon.openOnHover,
+                        title: localized("Open on Hover"),
+                        isOn: Binding(
+                            get: { opensOnHover },
+                            set: { wants in
+                                opensOnHover = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.opensOnHoverKey)
+                            }
+                        )
+                    )
                     // How long a pointer has to rest on the notch before the
-                    // panel opens. The default is nearly instant, which suits a
+                    // panel opens. Only reachable when a hover is what opens it. The default is nearly instant, which suits a
                     // real notch — a hole nothing lives under — but anyone who
                     // keeps windows near the top of the screen can slow it so a
                     // drive-by never opens the panel. Longer delays also make
                     // the pill's click-to-pause usable before the panel opens.
+                    if opensOnHover {
                     HStack(spacing: 8) {
                         Image(systemName: SettingsIcon.hoverDelay)
                             .font(.system(size: 11, weight: .medium))
@@ -61,6 +74,7 @@ struct SettingsPane: View {
                     .frame(height: 26)
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(localized("Hover Delay"))
+                    }
 
                     // How wide the panel opens. The window behind it never
                     // changes size — only how much of it the island draws in —
