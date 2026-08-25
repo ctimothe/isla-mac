@@ -26,18 +26,18 @@ final class LockCardWindow {
     /// than anchored to the notch, because a locked Mac is looked at from
     /// wherever the person is standing, and the middle of the display is where
     /// the eye goes — the clock above it is centred for the same reason.
-    /// Room around the card for its own shadow.
+    /// A little room around the card, so nothing the material draws at its own
+    /// edge is clipped.
     ///
-    /// The window used to be cut to exactly the card, which meant the card's
-    /// drop shadows had nowhere outside to fall. They were drawn *inside* the
-    /// window instead and clipped square at its edge — measured: the drawn
-    /// footprint stayed a constant 459pt wide from top to bottom, and the
-    /// bottom corners inset 5pt where the 30pt radius wanted 19. That dark
-    /// square-cornered smear behind a rounded card is what it looked like.
+    /// This was 48pt, to hold two drop shadows. Those are gone — the system's
+    /// lock player has no drop shadow and neither does this one now. What
+    /// remains is a small allowance: a window cut to exactly the card clips
+    /// square at its edge, and the antialiased boundary of a rounded pane is
+    /// the last thing worth risking to save twelve points.
     ///
-    /// 48pt covers the wider shadow: 30pt of blur plus its 14pt downward
-    /// offset, with a little to spare.
-    static let shadowMargin: CGFloat = 48
+    /// It stays a margin rather than dropping to zero because the failure it
+    /// prevents is invisible in a screenshot and obvious on a real screen.
+    static let shadowMargin: CGFloat = 12
 
     /// The window is the card plus that margin. The margin is transparent and
     /// takes no clicks — see `LockCardRootView`.
