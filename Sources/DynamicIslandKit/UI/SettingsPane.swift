@@ -31,7 +31,7 @@ struct SettingsPane: View {
             VStack(alignment: .leading, spacing: 14) {
                 section(localized("General")) {
                     toggleRow(
-                        symbol: "arrow.forward.to.line",
+                        symbol: SettingsIcon.launchAtLogin,
                         title: localized("Launch at Login"),
                         isOn: launchAtLoginBinding
                     )
@@ -42,7 +42,7 @@ struct SettingsPane: View {
                     // drive-by never opens the panel. Longer delays also make
                     // the pill's click-to-pause usable before the panel opens.
                     HStack(spacing: 8) {
-                        Image(systemName: "cursorarrow.motionlines")
+                        Image(systemName: SettingsIcon.hoverDelay)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Theme.secondary)
                             .frame(width: 16)
@@ -66,7 +66,7 @@ struct SettingsPane: View {
                     // changes size — only how much of it the island draws in —
                     // so this is free to move.
                     HStack(spacing: 8) {
-                        Image(systemName: "arrow.left.and.right")
+                        Image(systemName: SettingsIcon.panelWidth)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Theme.secondary)
                             .frame(width: 16)
@@ -92,15 +92,15 @@ struct SettingsPane: View {
 
                 section(localized("Screenshots")) {
                     toggleRow(
-                        symbol: "photo.on.rectangle",
+                        symbol: SettingsIcon.saveScreenshots,
                         title: localized("Save Clipboard Screenshots"),
                         isOn: saveClipboardImagesBinding
                     )
-                    actionRow(symbol: "folder", title: localized("Show Screenshots Folder")) {
+                    actionRow(symbol: SettingsIcon.showFolder, title: localized("Show Screenshots Folder")) {
                         screenshotVault.reveal()
                     }
                     confirmRow(
-                        symbol: "trash",
+                        symbol: SettingsIcon.clear,
                         title: clearTitle,
                         armedTitle: localized("Delete These Files?"),
                         disabled: screenshotUsage.files == 0
@@ -117,7 +117,7 @@ struct SettingsPane: View {
 
                 section(localized("Music")) {
                     toggleRow(
-                        symbol: "quote.bubble",
+                        symbol: SettingsIcon.lyrics,
                         title: localized("Show Lyrics"),
                         isOn: Binding(
                             get: { showLyrics },
@@ -128,7 +128,7 @@ struct SettingsPane: View {
                         )
                     )
                     toggleRow(
-                        symbol: "sparkles",
+                        symbol: SettingsIcon.peek,
                         title: localized("Peek at New Tracks"),
                         isOn: Binding(
                             get: { sneakPeek },
@@ -139,7 +139,7 @@ struct SettingsPane: View {
                         )
                     )
                     toggleRow(
-                        symbol: "lock",
+                        symbol: SettingsIcon.lockScreen,
                         title: localized("Show on Lock Screen"),
                         isOn: Binding(
                             get: { showOnLockScreen },
@@ -152,7 +152,7 @@ struct SettingsPane: View {
                     // Only worth offering while there is a card to finish.
                     if showOnLockScreen {
                         choiceRow(
-                            symbol: "square.on.square.dashed",
+                            symbol: SettingsIcon.cardStyle,
                             title: localized("Card Style"),
                             options: NotchViewModel.LockCardStyle.allCases,
                             selection: Binding(
@@ -169,7 +169,7 @@ struct SettingsPane: View {
                     // request. Offered here because a cache the user cannot
                     // see the end of is a cache they cannot empty.
                     confirmRow(
-                        symbol: "trash",
+                        symbol: SettingsIcon.clear,
                         title: localized("Clear Lyrics Cache"),
                         armedTitle: localized("Delete These Files?"),
                         disabled: false
@@ -180,11 +180,11 @@ struct SettingsPane: View {
 
                 section(localized("Spotify")) {
                     if spotify.isConnected {
-                        actionRow(symbol: "heart.fill", title: localized("Disconnect Spotify Account")) {
+                        actionRow(symbol: SettingsIcon.disconnectAccount, title: localized("Disconnect Spotify Account")) {
                             SpotifyAccount.shared.disconnect()
                         }
                     } else {
-                        actionRow(symbol: "heart", title: localized("Connect Spotify Account…")) {
+                        actionRow(symbol: SettingsIcon.connectAccount, title: localized("Connect Spotify Account…")) {
                             connectSpotify()
                         }
                     }
@@ -193,7 +193,7 @@ struct SettingsPane: View {
                     // and never for contents, so the offer itself costs no
                     // prompt — pressing it is what asks, once.
                     if spotify.canImportLegacyAccount {
-                        actionRow(symbol: "key", title: localized("Import Account From Keychain…")) {
+                        actionRow(symbol: SettingsIcon.importFromKeychain, title: localized("Import Account From Keychain…")) {
                             SpotifyAccount.shared.importLegacyAccount()
                         }
                     }
@@ -211,7 +211,7 @@ struct SettingsPane: View {
                         )
                     }
                     toggleRow(
-                        symbol: "eye.slash",
+                        symbol: SettingsIcon.hideFromRecording,
                         title: localized("Hide From Screen Recording"),
                         isOn: Binding(
                             get: { hideFromCapture },
@@ -227,14 +227,11 @@ struct SettingsPane: View {
                 }
 
                 section(localized("Application")) {
-                    actionRow(symbol: "macwindow", title: localized("Open Panel")) {
-                        (NSApp.delegate as? AppDelegate)?.togglePanel()
-                    }
-                    actionRow(symbol: "info.circle", title: localized("About %@", ProductIdentity.displayName)) {
+                    actionRow(symbol: SettingsIcon.about, title: localized("About %@", ProductIdentity.displayName)) {
                         NSApp.orderFrontStandardAboutPanel(nil)
                     }
                     confirmRow(
-                        symbol: "power",
+                        symbol: SettingsIcon.quit,
                         title: localized("Quit"),
                         armedTitle: localized("Quit Dynamic Island?")
                     ) {
@@ -344,8 +341,8 @@ struct SettingsPane: View {
 
     private func privacySymbol(for section: PrivacyMode.Section) -> String {
         switch section {
-        case .clipboard: return "list.clipboard.fill"
-        case .translate: return "translate"
+        case .clipboard: return SettingsIcon.clipboard
+        case .translate: return SettingsIcon.translate
         }
     }
 
