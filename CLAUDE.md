@@ -152,11 +152,36 @@ MediaRemote permission. Music deactivates, the island collapses, and
 `NowPlayingFailurePolicy` backs the restart delay off rather than retrying every
 two seconds.
 
-**UI.** `NotchContentView` switches panes by tab; every translucent surface goes
-through `GlassSurface` (elevation `card`/`popover`/`pill`, deterministic grain)
-— do not hand-mix another gradient. Animation curves and the collapsed/open
-corner radii live in `Theme`, including Reduce Motion variants. `PrivacyMode`
-covers per-section content (clipboard, translate) behind drifting dots.
+**UI.** `NotchContentView` switches panes by tab. Every translucent surface goes
+through `glassSurface(...)` — do not hand-mix another gradient. It picks one of
+two implementations: Apple's own material via `glassEffect` on macOS 26 where
+there is a backdrop to sample, and `GlassSurface`'s hand-drawn recipe otherwise
+(elevation `card`/`popover`/`pill`, deterministic grain). The two are never
+stacked; a drawn scrim under real glass is just a scrim. `SystemAppearance`
+watches Reduce Transparency and Increase Contrast and both are honored live —
+an app built on a material owes them an answer. `defaults write
+dev.dynamicisland.app drawnGlass -bool true` forces the recipe everywhere.
+
+Animation curves and the collapsed/open corner radii live in `Theme`, including
+Reduce Motion variants and `tracking(forSize:)` — SwiftUI applies Apple's
+tracking table to semantic text styles and not to `.system(size:)`, which fixed
+panels have to use. Springs are critically damped: overshoot is for gestures
+that carried momentum, and nothing here is thrown.
+
+**Interaction.** A click opens the panel; a hover only brightens the island's
+surface. Every point of the compact island opens it, and the compact island has
+no controls — that hit region is cut from `bodySize.width` plus the corner
+radius, so it follows the width setting. Hover-to-open survives as **Open on
+Hover** in Settings, off by default. Over the lock screen nothing opens: a hover
+brightens, a click shakes (`RefusalShake`). `PrivacyMode` covers per-section
+content (clipboard, translate) behind drifting dots.
+
+**Lyrics.** One timeline and one renderer for every surface. `LyricSweep` owns
+the clock — `index`, `centreIndex`, `end`, `lead`, `position`, `fraction`,
+`displayed` — and `LyricRow`/`KaraokeText` own what a line looks like. The
+island's stage and the lock card each keep only their own container. They had
+three copies of the binary search once and disagreed about the line before the
+first timestamp; do not add a fourth.
 
 ## Hard constraints
 
@@ -169,11 +194,16 @@ covers per-section content (clipboard, translate) behind drifting dots.
   `Resources/ru.lproj`; keys *are* the English text, and `test-localizations.sh`
   enforces key parity. Use `localized(_:)` for strings needed before they reach
   a `Text`.
-- Four capabilities exceed the parity design's non-goals and are recorded in
-  the worktree `checklist.md`: Lyrics (network, default off), Spotify PKCE
-  account (keychain), the lock-screen card, and system audio-output switching.
-  Anything new that leaves the machine, touches an account, or changes a
+- Capabilities that exceed the parity design's non-goals are recorded in the
+  worktree `checklist.md`: Lyrics (network, default off), Spotify PKCE account
+  (keychain), the lock-screen card, system audio-output switching, and output
+  volume. Anything new that leaves the machine, touches an account, or changes a
   system-wide setting must be added there and default to off.
+- The design doc is amended in place, dated, never rewritten. The panel width
+  (`480…620`, default `560`), the click-to-open model, and the removals all
+  carry amendments; the status item, its menu and a short-lived main window were
+  all withdrawn on 2026-08-25 — the app has no Dock icon, no menu-bar item and
+  no window, and `.accessory` is not changed at runtime.
 - The app claims exactly one entitlement,
   `com.apple.security.automation.apple-events`, for the scripting fallback.
   Adding an entitlement is a product decision, not an implementation detail.
