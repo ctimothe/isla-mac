@@ -96,12 +96,6 @@ struct NotchContentView: View {
                 y: isOpen ? 8 : 2
             )
             .overlay { hoverEdge }
-            // Hover read from the drawn shape, not from the pointer watcher.
-            // The watcher's rect is deliberately 12pt wider and taller than the
-            // island — generous is right for *opening*, where a near miss
-            // should still work, and wrong for an edge, which lit up while the
-            // cursor was visibly beside the island rather than on it.
-            .onHover { if !isOpen { vm.isHovering = $0 } }
 
             if !isOpen, compactActivity.isVisible {
                 compactWingSurface

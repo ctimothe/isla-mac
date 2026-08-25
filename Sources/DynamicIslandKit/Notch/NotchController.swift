@@ -697,6 +697,8 @@ final class NotchController {
         applyActiveRect(open: false)
 
         pointer.openRect = geometry.collapsedHoverRect(for: vm.bodySize.width)
+        // The drawn shape, not the padded target: what lights is what you are on.
+        pointer.hoverRect = geometry.collapsedIslandRect(for: vm.bodySize.width)
         pointer.warmZone = geometry.warmZone
         pointer.coolZone = geometry.coolZone
         // Cut for the tab that will be showing, not for the standard body: a
@@ -755,6 +757,12 @@ final class NotchController {
         // a `nil` from hitTest only discards the event, it does not forward it.
         pointer.onInteractiveChange = { [weak self] interactive in
             self?.panel?.ignoresMouseEvents = !interactive
+        }
+        pointer.onHoverChange = { [weak self] hovering in
+            guard let vm = self?.viewModel else { return }
+            // Only while it is shut. An open panel has already answered the
+            // pointer, and lifting its whole surface would be answering twice.
+            vm.isHovering = hovering && !vm.isOpen
         }
         pointer.start()
 
@@ -1072,6 +1080,10 @@ final class NotchController {
             size = CGSize(width: vm.bodySize.width, height: vm.geometry.collapsedDepth)
             pointer.openRect = vm.geometry.collapsedHoverRect(for: vm.bodySize.width)
         }
+        // Follows the pill, which changes width with what is playing and widens
+        // again for a peek. Left at the width it was built with, the lift would
+        // stop short of the artwork the moment a track started.
+        pointer.hoverRect = vm.geometry.collapsedIslandRect(for: vm.bodySize.width)
         var rect = vm.geometry.contentRect(for: size)
         if open {
             // Slack so the concave shoulders stay grabbable. Never while
