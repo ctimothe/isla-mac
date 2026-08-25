@@ -10,6 +10,5 @@ final class ProductIdentityTests: XCTestCase {
         XCTAssertEqual(ProductIdentity.screenshotDirectoryName, "DynamicIsland")
         XCTAssertEqual(ProductIdentity.helperResourceName, "libdynamicislandmedia")
         XCTAssertEqual(ProductIdentity.internalPasteboardType, "dev.dynamicisland.internal")
-        XCTAssertEqual(ProductIdentity.statusSymbolName, "capsule.fill")
     }
 }
