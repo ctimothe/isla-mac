@@ -74,6 +74,30 @@ item and no window at any time, and its activation policy is
 that needs no pointer. This is narrower than the parity design's shape,
 which assumes a menu-bar item, so it is recorded here.
 
+The panel opens on a click rather than a hover, from 2026-08-26. The
+parity design specifies a hover-opened panel and the delays that govern
+it; those delays now govern the hover route only, which survives as
+**Open on Hover** in Settings and is off by default. The compact island
+also lost its one control — the equalizer wing toggled playback, which
+gave a single surface two meanings once a click began opening the panel.
+Recorded here because it narrows a behaviour the design states.
+
+Translucency became the system's own material on 2026-08-25, through
+`glassEffect` where macOS has it, with the hand-drawn recipe standing in
+below macOS 26 and anywhere there is no backdrop to sample. With it, the
+app now answers **Reduce Transparency** — surfaces go opaque — and
+**Increase Contrast** — the lit rim becomes a defined border. Neither is
+a divergence so much as a debt paid: an app built on a translucent
+material owes those settings an answer. `defaults write
+dev.dynamicisland.app drawnGlass -bool true` forces the drawn recipe
+everywhere, for the one surface whose backdrop cannot be checked from a
+build machine.
+
+Haptic feedback was added on 2026-08-25, at two moments only: an output
+device chosen, and a click on a lyric landing the song on that line. It
+needs no permission, leaves nothing, and is silent on Macs without a
+Force Touch trackpad.
+
 The panel's width became a setting on 2026-08-25, `480…620 pt` with a
 default of `560`. The parity design fixed it at `620`; it is recorded here
 because a person can now change a number the design stated. The window it
