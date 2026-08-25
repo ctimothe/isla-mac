@@ -35,10 +35,16 @@ enum Haptics {
     private static func perform(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
         NSHapticFeedbackManager.defaultPerformer.perform(
             pattern,
-            // `.now`, not `.drawCompleted`: the visual change here is a SwiftUI
-            // animation that has not started when this is called, so waiting for
-            // a draw would land the tap after the thing it is describing.
-            performanceTime: .now
+            // `.drawCompleted`, not `.now`.
+            //
+            // Harmony is the rule: the touch and the picture have to arrive on
+            // the same frame, and a gap between them is what breaks the
+            // illusion that one caused the other. `.now` fires the moment the
+            // handler runs — before SwiftUI has drawn anything — so the tap
+            // landed slightly *ahead* of the change it was describing. This
+            // hands the timing to the window server, which fires it with the
+            // frame that shows the result.
+            performanceTime: .drawCompleted
         )
     }
 }
