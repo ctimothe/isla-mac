@@ -30,26 +30,9 @@ struct NotchContentView: View {
                         compactMediaHeader
                     }
                     .frame(maxWidth: .infinity, alignment: .top)
-                    .overlay {
-                        if vm.isHovering {
-                            NotchShape(
-                                topRadius: Theme.collapsedTopRadius,
-                                bottomRadius: Theme.collapsedBottomRadius
-                            )
-                            .fill(
-                                LinearGradient(
-                                    colors: [.white.opacity(0.015), .white.opacity(0.075)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .frame(
-                                width: size.width + 2 * Theme.collapsedTopRadius,
-                                height: vm.geometry.notchSize.height
-                            )
-                            .transition(.opacity)
-                        }
-                    }
+                    // The same lift as unlocked, and the same exclusion: the
+                    // cutout is a hole and nothing may be drawn in it.
+                    .overlay { hoverLift }
                     .animation(Theme.open(reduceMotion: reduceMotion), value: vm.isHovering)
                     // The edge says the island is there; the shake says it is
                     // not opening here. Two different answers to two different
@@ -95,12 +78,17 @@ struct NotchContentView: View {
                 radius: isOpen ? 18 : 5,
                 y: isOpen ? 8 : 2
             )
-            .overlay { hoverEdge }
 
             if !isOpen, compactActivity.isVisible {
                 compactWingSurface
                     .transition(.opacity)
             }
+
+            // Above the wings, never beneath them. Underneath, the only place
+            // it showed was the one place it must never show: the wing surface
+            // is opaque and leaves the cutout clear, so the lift appeared as a
+            // lighter square inside the physical notch and nowhere else.
+            if !isOpen { hoverLift }
 
             VStack(spacing: 0) {
                 header
@@ -229,40 +217,67 @@ struct NotchContentView: View {
         }
     }
 
-    /// The answer to a hover: an edge, not an opening.
+    /// The island brightening under the pointer.
     ///
-    /// Drawn only while collapsed, because an open panel has already answered.
-    /// It is the whole affordance for click-to-open — without it the island
-    /// looks inert, and nobody clicks something that has never reacted to them.
-    /// Over the shield it is the *only* answer: the island stays lit there and
-    /// stays shut, and the edge says the first half of that before a click says
-    /// the second.
+    /// Built the same way as the wing surface, and for the same reason: on a
+    /// Mac with a real notch the middle of this shape is a hole in the display.
+    /// Nothing may be drawn there. Lightening it does not lighten the island —
+    /// it puts a pale rectangle inside the camera housing, which is the one
+    /// place the whole design is trying to make disappear.
+    ///
+    /// So the lift lands on the wings, which are pixels, and stops at the
+    /// cutout, which is not. On a display with no notch there is no hole and
+    /// the middle lifts with everything else.
     @ViewBuilder
-    private var hoverEdge: some View {
-        if vm.isHovering, !isOpen {
-            NotchShape(
-                topRadius: topRadius,
-                bottomRadius: isOpen ? Theme.openBottomRadius : Theme.collapsedBottomRadius
-            )
-            // A lift, not an outline.
-            //
-            // Two outlines were tried and neither was right, because an outline
-            // is the wrong vocabulary: it draws a boundary, and the island's
-            // whole shape exists to hide the boundary between itself and the
-            // bezel. What macOS actually does when the pointer finds something
-            // it can press — a menu bar item, a toolbar button — is lighten the
-            // surface. So the island brightens very slightly, weighted to the
-            // bottom where it is furthest from the hardware, and that is all.
-            .fill(
-                LinearGradient(
-                    colors: [.white.opacity(0.015), .white.opacity(0.075)],
-                    startPoint: .top,
-                    endPoint: .bottom
+    private var hoverLift: some View {
+        if vm.isHovering {
+            let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2 + topRadius)
+            HStack(spacing: 0) {
+                // Each wing fades out toward the cutout, the way the wing
+                // surface underneath already fades into the hardware edge.
+                // Without it the two wings lit as hard-edged blocks either side
+                // of the notch — two rectangles switching on, rather than light
+                // falling across the island.
+                Self.liftFill
+                    .frame(width: wingWidth)
+                    .mask(Self.falloff(towards: .trailing))
+                if vm.geometry.isPhysical {
+                    Color.clear.frame(width: vm.geometry.notchSize.width)
+                } else {
+                    Self.liftFill.frame(width: vm.geometry.notchSize.width)
+                }
+                Self.liftFill
+                    .frame(width: wingWidth)
+                    .mask(Self.falloff(towards: .leading))
+            }
+            .frame(width: size.width + 2 * topRadius, height: size.height)
+            .clipShape(
+                NotchShape(
+                    topRadius: Theme.collapsedTopRadius,
+                    bottomRadius: Theme.collapsedBottomRadius
                 )
             )
+            .allowsHitTesting(false)
             .transition(.opacity)
         }
     }
+
+    /// What macOS does when the pointer finds something pressable: lighten the
+    /// surface. Weighted to the bottom, furthest from the hardware.
+    /// Full strength at the outer edge, gone by the cutout.
+    static func falloff(towards edge: UnitPoint) -> LinearGradient {
+        LinearGradient(
+            colors: [.white, .white.opacity(0.35), .clear],
+            startPoint: edge == .trailing ? .leading : .trailing,
+            endPoint: edge
+        )
+    }
+
+    static let liftFill = LinearGradient(
+        colors: [.white.opacity(0.015), .white.opacity(0.075)],
+        startPoint: .top,
+        endPoint: .bottom
+    )
 
     /// The display can never reproduce the physical cutout's zero-light black
     /// at every brightness. The software-only wings therefore fade from an
