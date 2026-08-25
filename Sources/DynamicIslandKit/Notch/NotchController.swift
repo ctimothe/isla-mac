@@ -1084,21 +1084,32 @@ final class NotchController {
         // again for a peek. Left at the width it was built with, the lift would
         // stop short of the artwork the moment a track started.
         pointer.hoverRect = vm.geometry.collapsedIslandRect(for: vm.bodySize.width)
-        var rect = vm.geometry.contentRect(for: size)
-        if open {
-            // Slack so the concave shoulders stay grabbable. Never while
-            // collapsed: that would swallow clicks on menu bar items next to
-            // the notch.
-            rect = rect.insetBy(dx: -Theme.openTopRadius, dy: 0)
-        }
+        // The shape is drawn `topRadius` wider than the body on each side —
+        // that slack is where the concave shoulders live — so the clickable
+        // rect is grown to match it. Every point of the compact island opens
+        // the panel: the artwork side, the cutout between, the equalizer side,
+        // and the shoulders at either end.
+        //
+        // It follows `bodySize.width`, so it is correct at any width the panel
+        // is set to and re-cut whenever that changes.
+        //
+        // The cost, stated: a status item sitting within `topRadius` of the
+        // notch loses that sliver of itself to the panel. Collapsed, this used
+        // to stay flush with the body to protect exactly that — but a compact
+        // island with dead ends is the worse trade, because the dead ends are
+        // invisible and the menu bar's are not.
+        let slack = open ? Theme.openTopRadius : Theme.collapsedTopRadius
+        let rect = vm.geometry.contentRect(for: size).insetBy(dx: -slack, dy: 0)
         rootView.activeRect = rect
         // Drags are aimed by hand and land wide, so the target is the visible
         // island generously grown — but nothing like the whole 700×444 window,
         // which is what used to accept a drag merely crossing the top of the
         // screen and switch the panel to the shelf for it.
         rootView.dropRect = rect.insetBy(dx: -24, dy: -24)
+        // Widened to match, or the window would ignore mouse events over the
+        // very shoulders the rect above just made clickable.
         pointer.interactiveRect = vm.geometry
             .contentScreenRect(for: size)
-            .insetBy(dx: open ? -Theme.openTopRadius : 0, dy: 0)
+            .insetBy(dx: -slack, dy: 0)
     }
 }
