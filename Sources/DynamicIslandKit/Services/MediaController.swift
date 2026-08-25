@@ -20,6 +20,13 @@ final class MediaController: ObservableObject {
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var position: TimeInterval = 0
     @Published private(set) var sourceName: String?
+    /// The icon of the app the sound is coming from.
+    ///
+    /// Taken from the running process rather than matched against a list of
+    /// bundle identifiers we happen to know, so a browser tab, a podcast app or
+    /// something nobody here has heard of all get their own icon for free — and
+    /// none of them needs this app updated to be recognised.
+    @Published private(set) var sourceIcon: NSImage?
     /// Whether the player accepts skipping at all. A browser tab playing one
     /// video registers no handler for it — the command leaves and nothing
     /// happens — so the buttons go dim rather than dead, the way the system's
@@ -54,6 +61,8 @@ final class MediaController: ObservableObject {
 
     private var activeApp: PlayerApp?
     private var artworkKey: String?
+    /// The pid `sourceIcon` was resolved for.
+    private var sourceIconPID: pid_t?
     /// Tracks the app has already asked the helper to resend a cover for.
     ///
     /// Once per track, because a session with genuinely no artwork — a browser
@@ -619,6 +628,7 @@ final class MediaController: ObservableObject {
         if isPlaying != playbackIntent.desired { isPlaying = playbackIntent.desired }
         if duration != snapshot.duration { duration = snapshot.duration }
         if sourceName != snapshot.source { sourceName = snapshot.source }
+        refreshSourceIcon(for: snapshot.playerPID)
         // Both directions travel together: no player has ever offered one
         // without the other, and two separately dimmed arrows would read as
         // a glitch rather than a limit.
@@ -750,6 +760,19 @@ final class MediaController: ObservableObject {
         return !alreadyAsked
     }
 
+    /// The icon belonging to a pid, cached because the answer only changes when
+    /// the player does — and `NSRunningApplication` is a lookup, not a free read.
+    private func refreshSourceIcon(for pid: pid_t?) {
+        guard let pid, pid > 0 else {
+            if sourceIcon != nil { sourceIcon = nil }
+            return
+        }
+        guard pid != sourceIconPID else { return }
+        sourceIconPID = pid
+        let icon = NSRunningApplication(processIdentifier: pid)?.icon
+        if sourceIcon !== icon { sourceIcon = icon }
+    }
+
     /// JPEG decoding on the main thread is what makes a track change stutter,
     /// so it happens off it and the finished image is handed back.
     private func decodeArtwork(_ data: Data, for key: String) {
@@ -799,6 +822,8 @@ final class MediaController: ObservableObject {
         duration = 0
         position = 0
         sourceName = nil
+        sourceIcon = nil
+        sourceIconPID = nil
         displayedPlayerPID = nil
         playbackIntent = PlaybackIntent(reported: false)
         reportedPlayback = ReportedPlayback()
