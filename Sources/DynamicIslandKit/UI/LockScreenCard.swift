@@ -235,7 +235,7 @@ struct LockScreenCard: View {
                     precisionSync: media.precisionSync,
                     userOffset: lyrics.userOffset
                 )
-                let centre = Self.centreIndex(lines: lines, at: at)
+                let centre = LyricSweep.centreIndex(in: lines, at: at)
                 let window = Self.window(around: centre, count: lines.count, size: Self.visibleLyricLines)
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(window, id: \.self) { index in
@@ -260,45 +260,29 @@ struct LockScreenCard: View {
         }
     }
 
-    @ViewBuilder
     private func lyricRow(
         lines: [LyricsStore.Line], index: Int, centre: Int, at: TimeInterval
     ) -> some View {
-        let line = lines[index]
-        let isCurrent = index == centre
-        let distance = abs(index - centre)
-        Button {
-            media.seek(to: max(0, line.at - LyricSweep.lead(
-                precisionSync: media.precisionSync, userOffset: lyrics.userOffset
-            ) + 0.02))
-        } label: {
-            Group {
-                if isCurrent {
-                    let end = index + 1 < lines.count ? lines[index + 1].at : line.at + 6
-                    KaraokeText(
-                        text: line.text,
-                        fraction: line.isCredit ? 0 : LyricSweep.fraction(line: line, at: at, end: end),
-                        reduceMotion: reduceMotion,
-                        accent: accent,
-                        font: .system(size: 16, weight: .bold),
-                        base: .white.opacity(0.5),
-                        lineLimit: 1
-                    )
-                } else {
-                    Text(line.text)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white.opacity(distance == 1 ? 0.34 : 0.18))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+        LyricRow(
+            line: lines[index],
+            isCurrent: index == centre,
+            distance: abs(index - centre),
+            at: at,
+            end: LyricSweep.end(of: index, in: lines),
+            font: .system(size: 16, weight: .bold),
+            lineLimit: 1,
+            accent: accent,
+            reduceMotion: reduceMotion,
+            seek: {
+                media.seek(to: LyricsStage.clickTarget(
+                    lineAt: lines[index].at,
+                    lead: LyricSweep.lead(
+                        precisionSync: media.precisionSync, userOffset: lyrics.userOffset
+                    ),
+                    duration: media.duration
+                ))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .italic(line.isCredit)
-        .accessibilityLabel(line.text)
-        .accessibilityHint(localized("Jumps the song to this line"))
+        )
     }
 
     /// Where the sound goes. Every app follows the system default, so this is a
@@ -593,13 +577,6 @@ struct LockScreenCard: View {
     }
 
     // MARK: - Pure layout arithmetic
-
-    /// The line being sung, or the first one when the voice has not reached it.
-    static func centreIndex(lines: [LyricsStore.Line], at: TimeInterval) -> Int {
-        guard !lines.isEmpty else { return 0 }
-        guard let shown = LyricSweep.displayed(lines: lines, at: at) else { return 0 }
-        return lines.firstIndex(where: { $0.at == shown.line.at }) ?? 0
-    }
 
     /// A window of `size` indices centred on `centre`, slid inside the song
     /// rather than clipped at its ends — so the first and last lines still show

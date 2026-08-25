@@ -33,18 +33,18 @@ final class LockCardPaneTests: XCTestCase {
         XCTAssertEqual(LockScreenCard.window(around: 0, count: 0, size: 5), [])
     }
 
-    /// The centre follows the same rule every other lyric surface follows,
-    /// including the fallback that keeps a paused track before its first
-    /// timestamp from showing nothing.
+    /// The centre follows the one rule every lyric surface follows — the same
+    /// function the stage calls — including the fallback that keeps a paused
+    /// track before its first timestamp from showing nothing.
     func testTheCentreIsTheLineBeingSungOrTheFirstOne() {
         let lines = [
             LyricsStore.Line(at: 1.58, text: "first"),
             LyricsStore.Line(at: 18.2, text: "second"),
             LyricsStore.Line(at: 30, text: "third"),
         ]
-        XCTAssertEqual(LockScreenCard.centreIndex(lines: lines, at: 0), 0, "before the first line")
-        XCTAssertEqual(LockScreenCard.centreIndex(lines: lines, at: 20), 1)
-        XCTAssertEqual(LockScreenCard.centreIndex(lines: lines, at: 999), 2)
-        XCTAssertEqual(LockScreenCard.centreIndex(lines: [], at: 5), 0)
+        XCTAssertEqual(LyricSweep.centreIndex(in: lines, at: 0), 0, "before the first line")
+        XCTAssertEqual(LyricSweep.centreIndex(in: lines, at: 20), 1)
+        XCTAssertEqual(LyricSweep.centreIndex(in: lines, at: 999), 2)
+        XCTAssertEqual(LyricSweep.centreIndex(in: [], at: 5), 0)
     }
 }
