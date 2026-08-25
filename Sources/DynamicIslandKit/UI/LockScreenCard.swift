@@ -182,19 +182,44 @@ struct LockScreenCard: View {
             .shadow(color: .black.opacity(0.45), radius: 10, y: 4)
             .overlay(alignment: .topTrailing) { heart.padding(3) }
 
-            // The source badge the field overlaps on the artwork corner —
-            // instant context, no text.
-            if let source = media.sourceName, !source.isEmpty {
-                Text(String(source.prefix(1)))
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 17, height: 17)
-                    .background(Circle().fill(.black.opacity(0.75)))
-                    .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
-                    .offset(x: 4, y: 4)
-            }
+            // The source badge on the artwork corner — instant context, no text.
+            //
+            // The app's own icon rather than the first letter of its name. "S"
+            // told you nothing that "Spotify" would not have, and told you
+            // nothing at all for the two players whose names start the same
+            // way. The icon is read before it is parsed, which is the whole job
+            // of a badge this size. Falls back to the letter for a source with
+            // no icon to give — a helper process, or an app that has quit
+            // between the snapshot and the draw.
+            sourceBadge
+                .offset(x: 4, y: 4)
         }
         .animation(reduceMotion ? nil : Theme.contentAnimation, value: pane)
+    }
+
+    @ViewBuilder
+    private var sourceBadge: some View {
+        if let icon = media.sourceIcon {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 17, height: 17)
+                .clipShape(Circle())
+                // A hairline so a light icon still has an edge against a light
+                // cover, and a shadow so it reads as sitting on the artwork
+                // rather than punched out of it.
+                .overlay(Circle().strokeBorder(.black.opacity(0.35), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
+                .accessibilityLabel(media.sourceName ?? localized("Sound Output"))
+        } else if let source = media.sourceName, !source.isEmpty {
+            Text(String(source.prefix(1)))
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 17, height: 17)
+                .background(Circle().fill(.black.opacity(0.75)))
+                .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
+                .accessibilityLabel(source)
+        }
     }
 
     // MARK: - The three middles
