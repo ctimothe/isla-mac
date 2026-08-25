@@ -215,7 +215,10 @@ final class NotchController {
         // This used to happen only on the branch where the card is switched
         // off — which is not the default — so the pasteboard was polled twice a
         // second for the whole lock on an ordinary install.
-        stores.suspendForIdleScreen()
+        //
+        // The media clock stays running: the card is about to be presented, and
+        // it draws a scrubber and a moving lyric that both depend on it.
+        stores.suspendForIdleScreen(keepingMediaRunning: true)
         applyLockedActiveRect()
         lockPresence.apply(to: panel, locked: true)
         // And the card, in its own window, at the centre of the notch's own

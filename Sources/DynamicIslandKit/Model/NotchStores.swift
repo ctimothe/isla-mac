@@ -69,9 +69,19 @@ final class NotchStores {
     /// Paused while nobody can see or reach the panel — the display asleep, or
     /// the Mac locked with the lock-screen card switched off. Everything here
     /// polls something, and none of it can change while the screen is dark.
-    func suspendForIdleScreen() {
+    /// Quietens what a dark or shielded screen has no use for.
+    ///
+    /// - Parameter keepingMediaRunning: true while the lock card is on screen.
+    ///   The card shows a scrubber and a moving lyric, and both are driven by
+    ///   the position ticker that `setActive(false)` stops. `screenLocked()`
+    ///   activated media and then called this five lines later, which switched
+    ///   it straight back off: the clock froze the moment the Mac locked, the
+    ///   bar stopped, and the lyric stood still on whichever line it had
+    ///   reached. Passed rather than inferred from call order, because order is
+    ///   exactly what went wrong.
+    func suspendForIdleScreen(keepingMediaRunning: Bool = false) {
         clipboard.stop()
-        media.setActive(false)
+        if !keepingMediaRunning { media.setActive(false) }
     }
 
     func resumeFromIdleScreen() {
