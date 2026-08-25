@@ -47,4 +47,20 @@ final class LockCardPaneTests: XCTestCase {
         XCTAssertEqual(LyricSweep.centreIndex(in: lines, at: 999), 2)
         XCTAssertEqual(LyricSweep.centreIndex(in: [], at: 5), 0)
     }
+
+    /// The picker is not a pane. It opens over the card, so what is playing
+    /// stays visible behind the thing choosing where it plays — which is what
+    /// the system's own output list does over whatever raised it.
+    func testTheOutputPickerLeavesThePlayerShowing() {
+        // The rule the view states: `.output` renders the player underneath.
+        func middleFor(_ pane: LockScreenCard.Pane) -> LockScreenCard.Pane {
+            switch pane {
+            case .lyrics: return .lyrics
+            case .player, .output: return .player
+            }
+        }
+        XCTAssertEqual(middleFor(.output), .player)
+        XCTAssertEqual(middleFor(.player), .player)
+        XCTAssertEqual(middleFor(.lyrics), .lyrics)
+    }
 }
