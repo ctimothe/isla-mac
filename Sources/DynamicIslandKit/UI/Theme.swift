@@ -1,8 +1,23 @@
 import SwiftUI
 
 enum Theme {
-    static let openAnimation = Animation.spring(response: 0.27, dampingFraction: 0.82)
-    static let compactAnimation = Animation.spring(response: 0.24, dampingFraction: 0.86)
+    /// Critically damped, on purpose.
+    ///
+    /// Apple's own rule, from *Designing Fluid Interfaces*: start at a damping
+    /// ratio of 1.0, and add overshoot **only when the gesture itself carried
+    /// momentum** — a flick, a throw, a drag release. Bounce on something a
+    /// flick threw feels right; bounce on something a click opened feels like
+    /// the interface wobbling at you.
+    ///
+    /// The island opens from a click. There is no momentum to inherit and there
+    /// was nothing for the overshoot to express, so 0.82 spent it on a wobble
+    /// at the end of every open. Response is the time to reach the target, not
+    /// a duration — Apple ships 0.4 for a move and 0.3 for a sheet, and this
+    /// sits between them.
+    static let openAnimation = Animation.spring(response: 0.34, dampingFraction: 1.0)
+    /// The pill resizing around a track that just started. Also nothing anybody
+    /// threw, so also critically damped.
+    static let compactAnimation = Animation.spring(response: 0.28, dampingFraction: 1.0)
     static let contentAnimation = Animation.easeOut(duration: 0.16)
     /// Pane switching: the outgoing pane leaves faster than the incoming one
     /// arrives, so the two are never both half-visible for long.
