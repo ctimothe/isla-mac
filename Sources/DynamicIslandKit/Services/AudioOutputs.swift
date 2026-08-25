@@ -15,6 +15,11 @@ enum AudioOutputs {
         let name: String
         /// Transport as CoreAudio reports it, for choosing a glyph.
         let transport: UInt32
+        /// What the device says it *is*, where it says so. Nil for everything
+        /// that publishes no data source, which is most things on a wire.
+        var dataSource: UInt32?
+
+        var symbol: String { AudioOutputs.symbol(forTransport: transport, dataSource: dataSource) }
     }
 
     /// Every device that can actually play something.
@@ -37,7 +42,7 @@ enum AudioOutputs {
 
         return ids.compactMap { id in
             guard hasOutputStreams(id), let name = name(of: id) else { return nil }
-            return Output(id: id, name: name, transport: transport(of: id))
+            return Output(id: id, name: name, transport: transport(of: id), dataSource: dataSource(of: id))
         }
     }
 
@@ -73,19 +78,62 @@ enum AudioOutputs {
 
     /// The symbol that says what kind of thing is playing the music. Pure, so
     /// the mapping is testable without a sound card.
-    static func symbol(forTransport transport: UInt32) -> String {
+    /// Data-source codes CoreAudio publishes for the built-in device. Four
+    /// characters, the same shape as a transport type.
+    enum DataSource {
+        static let internalSpeaker: UInt32 = 0x69737063  // 'ispk'
+        static let headphones: UInt32 = 0x6864706E       // 'hdpn'
+        static let externalSpeaker: UInt32 = 0x65737063  // 'espk'
+    }
+
+    /// The glyph for a device, preferring what it says it *is* over what it is
+    /// plugged into.
+    ///
+    /// Transport alone gets the built-in Mac wrong the moment something is in
+    /// the headphone jack: the transport is still `bltn`, and the card would
+    /// keep drawing a laptop while the sound went to headphones. The data
+    /// source is the field that knows, so it is asked first.
+    static func symbol(forTransport transport: UInt32, dataSource: UInt32? = nil) -> String {
+        switch dataSource {
+        case DataSource.headphones: return "headphones"
+        case DataSource.internalSpeaker: return "laptopcomputer"
+        case DataSource.externalSpeaker: return "hifispeaker"
+        default: break
+        }
         switch transport {
         case kAudioDeviceTransportTypeBuiltIn: return "laptopcomputer"
         case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: return "headphones"
         case kAudioDeviceTransportTypeAirPlay: return "airplayaudio"
         case kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypeDisplayPort: return "tv"
-        case kAudioDeviceTransportTypeUSB, kAudioDeviceTransportTypeFireWire: return "hifispeaker"
+        // Neutral on purpose. USB is a wire, not a kind of thing: USB-C EarPods
+        // and a pair of studio monitors arrive identically, publish no data
+        // source, and nothing else in CoreAudio distinguishes them. This used
+        // to draw a floor-standing speaker, which is confidently wrong for the
+        // commonest case of the two. A generic output glyph is merely vague.
+        case kAudioDeviceTransportTypeUSB, kAudioDeviceTransportTypeFireWire: return "speaker.wave.2"
         case kAudioDeviceTransportTypeVirtual, kAudioDeviceTransportTypeAggregate: return "waveform"
         default: return "speaker.wave.2"
         }
     }
 
     // MARK: - One device
+
+    /// What the device says it is, when it says so. Absent on most things that
+    /// arrive over a wire, which is why it is optional rather than a default.
+    private static func dataSource(of id: AudioDeviceID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDataSource,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectHasProperty(id, &address) else { return nil }
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr else {
+            return nil
+        }
+        return value
+    }
 
     private static func hasOutputStreams(_ id: AudioDeviceID) -> Bool {
         var address = AudioObjectPropertyAddress(
