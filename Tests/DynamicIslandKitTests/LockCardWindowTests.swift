@@ -38,14 +38,15 @@ final class LockCardWindowTests: XCTestCase {
         XCTAssertEqual(frame.origin.y, frame.origin.y.rounded())
     }
 
-    /// The window is bigger than the card, on purpose.
+    /// The window is a little bigger than the card, so its edge is never the
+    /// thing that clips a rounded corner.
     ///
-    /// Cut to exactly the card, the two drop shadows had nowhere outside to
-    /// fall: they were drawn inside and clipped square at the window's edge.
-    /// Measured off the running app before the fix — the drawn footprint held a
-    /// constant 459pt width from top to bottom, and the bottom corners inset
-    /// 5pt where a 30pt radius wants about 19. A dark square behind a rounded
-    /// card.
+    /// It was 48pt when the card carried two drop shadows. Cut to exactly the
+    /// card, those shadows had nowhere outside to fall and were clipped square
+    /// — measured on the running app, the drawn footprint held a constant
+    /// 459pt width top to bottom, bottom corners inset 5pt where a 30pt radius
+    /// wants about 19. The shadows are gone now, because the system's own lock
+    /// player has none; the margin stays small and the corners stay round.
     func testTheWindowLeavesRoomForTheCardsShadow() {
         XCTAssertEqual(
             LockCardWindow.windowSize,
@@ -54,8 +55,13 @@ final class LockCardWindowTests: XCTestCase {
                 height: LockScreenCard.size.height + LockCardWindow.shadowMargin * 2
             )
         )
-        // Enough for the wider shadow: 30pt of blur plus a 14pt drop.
-        XCTAssertGreaterThanOrEqual(LockCardWindow.shadowMargin, 44)
+        // Small, but never zero: a window flush with the card clips its own
+        // rounded edge.
+        XCTAssertGreaterThan(LockCardWindow.shadowMargin, 0)
+        XCTAssertLessThanOrEqual(
+            LockCardWindow.shadowMargin, 16,
+            "the drop shadows are gone; this should not creep back up"
+        )
     }
 
     /// And every point of that margin belongs to whatever is underneath, which

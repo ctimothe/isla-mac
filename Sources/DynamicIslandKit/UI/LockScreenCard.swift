@@ -112,8 +112,13 @@ struct LockScreenCard: View {
                         }
                 }
             }
-            .shadow(color: .black.opacity(0.28), radius: 4, y: 2)
-            .shadow(color: .black.opacity(0.38), radius: 30, y: 14)
+            // No drop shadow. The system's own lock player has none — the
+            // material defines its own edge, and a card floating on a drawn
+            // shadow reads as a sticker laid on the wallpaper rather than a
+            // pane set into it. These were a contact shadow and a wide soft
+            // one; clipped square by a window with no margin they were the
+            // dark rectangle behind the corners, and given room to fall they
+            // were simply a halo Apple does not draw.
             .environment(\.colorScheme, .dark)
             // A new song puts the card back on the player. Words and a device
             // list both belong to the track that was showing when they were
