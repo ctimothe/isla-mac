@@ -3,31 +3,52 @@ import SwiftUI
 
 /// The media player shown while the Mac is locked.
 ///
-/// Modelled on what the paid field ships on its lock screens — Alcove's
-/// frosted card under the clock is the reference grammar: artwork with its
-/// own shadow, title over dimmed artist, a thin seek bar flanked by elapsed
-/// and remaining, a real transport row — then pushed past it with the two
-/// things this app has that they do not: the word-synced karaoke line, and
-/// chrome tinted from the artwork itself so no two tracks light the card the
-/// same way.
+/// Laid out the way the system's own lock-screen player is: the track across
+/// the top, one changing middle, the transport under it, and a rail of
+/// secondary actions at the foot. Three middles — the scrubber, the words, the
+/// output devices — and the two glyphs in the foot rail are what swap between
+/// them.
 ///
-/// Interactive, deliberately: previous, play/pause, next and the seek bar all
-/// answer clicks, and the panel's hit region is cut to exactly this card, so
-/// the rest of the lock screen still belongs to the password field.
+/// **The card is one fixed size in every state.** It has its own window above
+/// the login shield, and that window is never resized: the window server
+/// snapshots windows across a lock transition, and a snapshot taken at one size
+/// stretched into another is precisely the half-scale off-centre card this
+/// window was created to end. So the states change what is drawn, never how
+/// much room it takes.
+///
+/// Interactive, deliberately: the transport, the scrubber, each lyric line and
+/// each output row answer clicks, and the window's hit region is exactly this
+/// card — the rest of the lock screen still belongs to the password field.
 struct LockScreenCard: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
     @ObservedObject private var spotify = SpotifyAccount.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Which middle is showing. One value rather than a pair of bools, so two
+    /// panes can never be open at once — which is what a `showingOutputs` and a
+    /// `showingLyrics` flag will eventually do to each other.
+    enum Pane: String, CaseIterable {
+        case player, lyrics, output
+    }
+
+    @State private var pane: Pane
+
+    /// Which pane the card opens on. Always `.player` in the app; the parameter
+    /// exists so a render can photograph the other two without a click.
+    init(media: MediaController, lyrics: LyricsStore, initialPane: Pane = .player) {
+        self.media = media
+        self.lyrics = lyrics
+        _pane = State(initialValue: initialPane)
+    }
+
     @State private var palette: ArtworkPalette?
     @State private var scrubbing: Double?
-    /// The output picker, open over the card's own surface. A system menu
-    /// would have to draw outside the card, and outside the card is the
-    /// password field's — the panel takes no clicks there by design.
-    @State private var showingOutputs = false
     @State private var outputs: [AudioOutputs.Output] = []
     @State private var currentOutput: AudioDeviceID?
+    @State private var volume: Float?
+    @State private var draggingVolume: Float?
+
     /// Read through `@AppStorage` so changing it in Settings redraws the card
     /// while it is on screen, rather than at the next lock.
     @AppStorage(NotchViewModel.lockCardStyleKey) private var styleRaw = NotchViewModel.LockCardStyle.glass.rawValue
@@ -36,7 +57,11 @@ struct LockScreenCard: View {
         NotchViewModel.LockCardStyle(rawValue: styleRaw) ?? .glass
     }
 
-    static let size = CGSize(width: 500, height: 222)
+    static let size = CGSize(width: 460, height: 300)
+
+    /// How many lyric lines the middle shows. Odd, so the line being sung sits
+    /// in the centre with the same amount of song either side of it.
+    static let visibleLyricLines = 5
 
     private var accent: Color {
         guard let palette, palette.isVivid else { return .white }
@@ -45,30 +70,15 @@ struct LockScreenCard: View {
 
     var body: some View {
         if let track = media.track {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .center, spacing: 16) {
-                    artwork
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(track.title)
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        Text(track.artist)
-                            .font(.system(size: 14))
-                            .foregroundStyle(.white.opacity(0.62))
-                            .lineLimit(1)
-                        lyricLine
-                            .padding(.top, 2)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Spacer(minLength: 10)
-                    LockWaveform(accent: accent, animating: media.isPlaying && !reduceMotion)
-                }
-
+            VStack(spacing: 0) {
+                header(track)
                 Spacer(minLength: 12)
-                seekBar
-                controls
-                    .padding(.top, 14)
+                middle
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Spacer(minLength: 12)
+                transport
+                footer
+                    .padding(.top, 10)
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 20)
@@ -82,15 +92,11 @@ struct LockScreenCard: View {
             .glassSurface(
                 cornerRadius: 30,
                 elevation: .card,
-                // The cover's colour, carried weakly, and its light behind the
-                // pane — but only on glass. Solid is meant to be a panel.
                 tint: style == .glass ? (palette?.isVivid == true ? Color(nsColor: palette!.dominant) : nil) : nil,
                 light: style == .glass ? media.artwork : nil,
                 samplesBackdrop: style == .glass
             )
             .background {
-                // Solid keeps its own opaque ground beneath the glass recipe,
-                // for the bright, busy wallpapers glass cannot win against.
                 if style == .solid {
                     RoundedRectangle(cornerRadius: 30, style: .continuous)
                         .fill(.ultraThinMaterial)
@@ -101,18 +107,17 @@ struct LockScreenCard: View {
                         }
                 }
             }
-            // Two shadows: a tight contact shadow that seats the card on the
-            // wallpaper, and a wide soft one for depth. One shadow doing both
-            // jobs always looks like neither.
             .shadow(color: .black.opacity(0.28), radius: 4, y: 2)
             .shadow(color: .black.opacity(0.38), radius: 30, y: 14)
             .environment(\.colorScheme, .dark)
+            // A new song puts the card back on the player. Words and a device
+            // list both belong to the track that was showing when they were
+            // opened, and leaving either up across a change shows one song's
+            // pane over another song's title.
+            .onChange(of: track.key) { _, _ in pane = .player }
+            .onAppear { readAudio() }
+            .onChange(of: pane) { _, _ in readAudio() }
             .task(id: media.artwork) {
-                // Off the main actor. Extraction downsamples the cover through
-                // CoreImage, and doing that inline on every track change spent
-                // tens of milliseconds of main-thread time in the same frame
-                // the card was animating — the very cost this codebase already
-                // moved artwork decoding off the main thread to avoid.
                 guard let artwork = media.artwork else {
                     palette = nil
                     return
@@ -133,10 +138,30 @@ struct LockScreenCard: View {
         }
     }
 
-    // MARK: - Pieces
+    // MARK: - Header
 
+    private func header(_ track: MediaController.Track) -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            artwork
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                    .font(.system(size: pane == .player ? 18 : 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(track.artist)
+                    .font(.system(size: pane == .player ? 14 : 12.5))
+                    .foregroundStyle(.white.opacity(0.62))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .animation(reduceMotion ? nil : Theme.contentAnimation, value: pane)
+    }
+
+    /// The cover shrinks when a pane needs the room, and the card does not.
     private var artwork: some View {
-        ZStack(alignment: .bottomTrailing) {
+        let side: CGFloat = pane == .player ? 62 : 42
+        return ZStack(alignment: .bottomTrailing) {
             Group {
                 if let image = media.artwork {
                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
@@ -145,22 +170,15 @@ struct LockScreenCard: View {
                         .fill(.white.opacity(0.08))
                         .overlay(
                             Image(systemName: "music.note")
-                                .font(.system(size: 22, weight: .light))
+                                .font(.system(size: side / 3, weight: .light))
                                 .foregroundStyle(.white.opacity(0.4))
                         )
                 }
             }
-            .frame(width: 92, height: 92)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(color: .black.opacity(0.45), radius: 12, y: 5)
-
-            // The heart rides the cover's top corner now that the transport
-            // row belongs to the five glyphs the reference card carries. It
-            // belongs to the track either way, and the track is what the cover
-            // is.
-            .overlay(alignment: .topTrailing) {
-                heart.padding(4)
-            }
+            .frame(width: side, height: side)
+            .clipShape(RoundedRectangle(cornerRadius: side / 5.5, style: .continuous))
+            .shadow(color: .black.opacity(0.45), radius: 10, y: 4)
+            .overlay(alignment: .topTrailing) { heart.padding(3) }
 
             // The source badge the field overlaps on the artwork corner —
             // instant context, no text.
@@ -168,45 +186,203 @@ struct LockScreenCard: View {
                 Text(String(source.prefix(1)))
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 18, height: 18)
+                    .frame(width: 17, height: 17)
                     .background(Circle().fill(.black.opacity(0.75)))
                     .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
-                    .offset(x: 5, y: 5)
+                    .offset(x: 4, y: 4)
+            }
+        }
+        .animation(reduceMotion ? nil : Theme.contentAnimation, value: pane)
+    }
+
+    // MARK: - The three middles
+
+    @ViewBuilder
+    private var middle: some View {
+        ZStack {
+            switch pane {
+            case .player: playerPane
+            case .lyrics: lyricsPane
+            case .output: outputPane
+            }
+        }
+        .animation(reduceMotion ? nil : Theme.paneAnimation, value: pane)
+        .transition(.opacity)
+    }
+
+    private var playerPane: some View {
+        VStack(spacing: 14) {
+            Spacer(minLength: 0)
+            seekBar
+            if volume != nil { volumeBar }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// The words, centred on the line being sung.
+    ///
+    /// A fixed window of lines rather than a scroll view: the card cannot grow,
+    /// and a scroller inside a surface that answers clicks above the login
+    /// shield is one more thing to get wrong there. Clicking a line seeks to it,
+    /// exactly as it does on the full stage.
+    private var lyricsPane: some View {
+        Group {
+            if case .synced(let lines) = lyrics.state, !lines.isEmpty {
+                let at = LyricSweep.position(
+                    media.position,
+                    precisionSync: media.precisionSync,
+                    userOffset: lyrics.userOffset
+                )
+                let centre = Self.centreIndex(lines: lines, at: at)
+                let window = Self.window(around: centre, count: lines.count, size: Self.visibleLyricLines)
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(window, id: \.self) { index in
+                        lyricRow(lines: lines, index: index, centre: centre, at: at)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(lyricsStatus)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
-    @ViewBuilder
-    private var lyricLine: some View {
-        if media.positionSettled, case .synced(let lines) = lyrics.state {
-            // The same clock as the caption and the stage. This used to be a
-            // hardcoded `+ 0.25`, which consulted neither the precision flag nor
-            // the listener's own correction — so the card sat on a third clock,
-            // and Sync moved everything except it.
-            let at = LyricSweep.position(
-                media.position,
-                precisionSync: media.precisionSync,
-                userOffset: lyrics.userOffset
-            )
-            if let shown = LyricSweep.displayed(lines: lines, at: at) {
-                let line = shown.line
-                let end = shown.end
-                KaraokeText(
-                    text: line.text,
-                    // Credits are shown, never swept — see the caption.
-                    fraction: line.isCredit || !shown.swept
-                        ? 0
-                        : LyricSweep.fraction(line: line, at: at, end: end),
-                    reduceMotion: reduceMotion,
-                    accent: accent
-                )
-                .italic(line.isCredit)
-                .id(line.at)
-                .transition(.opacity)
-                .animation(Theme.contentAnimation, value: line.at)
-            }
+    private var lyricsStatus: String {
+        guard NotchViewModel.showLyricsEnabled else { return localized("Lyrics are switched off in Settings.") }
+        switch lyrics.state {
+        case .loading: return localized("Looking for the words…")
+        default: return localized("No words for this track.")
         }
     }
+
+    @ViewBuilder
+    private func lyricRow(
+        lines: [LyricsStore.Line], index: Int, centre: Int, at: TimeInterval
+    ) -> some View {
+        let line = lines[index]
+        let isCurrent = index == centre
+        let distance = abs(index - centre)
+        Button {
+            media.seek(to: max(0, line.at - LyricSweep.lead(
+                precisionSync: media.precisionSync, userOffset: lyrics.userOffset
+            ) + 0.02))
+        } label: {
+            Group {
+                if isCurrent {
+                    let end = index + 1 < lines.count ? lines[index + 1].at : line.at + 6
+                    KaraokeText(
+                        text: line.text,
+                        fraction: line.isCredit ? 0 : LyricSweep.fraction(line: line, at: at, end: end),
+                        reduceMotion: reduceMotion,
+                        accent: accent == .white ? .white : accent,
+                        font: .system(size: 16, weight: .bold),
+                        base: .white.opacity(0.5),
+                        lineLimit: 1
+                    )
+                } else {
+                    Text(line.text)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white.opacity(distance == 1 ? 0.34 : 0.18))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .italic(line.isCredit)
+        .accessibilityLabel(line.text)
+        .accessibilityHint(localized("Jumps the song to this line"))
+    }
+
+    /// Where the sound goes. Every app follows the system default, so this is a
+    /// real thing the card can change.
+    private var outputPane: some View {
+        VStack(spacing: 5) {
+            if outputs.isEmpty {
+                Text(localized("No output devices."))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ForEach(outputs.prefix(4)) { device in
+                    outputRow(device)
+                }
+                if outputs.count > 4 {
+                    Text(localized("+%d more in Sound Settings", outputs.count - 4))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 12)
+                }
+            }
+        }
+        // Read here as well as on the button, so the list is right however the
+        // pane came to be showing — and so a device plugged in while it is open
+        // appears rather than waiting for the pane to be closed and reopened.
+    }
+
+    /// Reads the audio world: which devices exist, which one is chosen, and how
+    /// loud it is.
+    ///
+    /// Called when the card appears rather than only when the output button is
+    /// pressed. The foot rail draws the *current device's* glyph, so a card that
+    /// had never opened the pane showed a generic AirPlay symbol for a Mac
+    /// playing through its own speakers; and the volume rail cannot decide
+    /// whether it exists until something has asked.
+    private func readAudio() {
+        outputs = AudioOutputs.available()
+        currentOutput = AudioOutputs.current()
+        volume = SystemVolume.current()
+    }
+
+    private func outputRow(_ device: AudioOutputs.Output) -> some View {
+        let selected = device.id == currentOutput
+        return Button {
+            guard AudioOutputs.select(device.id) else { return }
+            currentOutput = AudioOutputs.current()
+            volume = SystemVolume.current()
+        } label: {
+            HStack(spacing: 11) {
+                Image(systemName: device.symbol)
+                    .font(.system(size: 14))
+                    .frame(width: 20)
+                    .foregroundStyle(selected ? .white : .white.opacity(0.7))
+                Text(device.name)
+                    .font(.system(size: 13.5, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? .white : .white.opacity(0.78))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(accent == .white ? .white : accent)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            // Three cues, not one: on glass a tint change alone is easy to
+            // miss, so the chosen row is lifted, outlined and ticked.
+            .background(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(.white.opacity(selected ? 0.16 : 0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(.white.opacity(selected ? 0.22 : 0), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(device.name)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+
+    // MARK: - Rails
 
     private var fraction: Double {
         if let scrubbing { return scrubbing }
@@ -215,16 +391,12 @@ struct LockScreenCard: View {
     }
 
     private var seekBar: some View {
-        HStack(spacing: 12) {
-            Text(formatTime(fraction * media.duration))
-                .frame(width: 38, alignment: .leading)
+        VStack(spacing: 5) {
             GeometryReader { geo in
                 let width = geo.size.width
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.22)).frame(height: 5)
-                    Capsule()
-                        .fill(accent.opacity(0.95))
-                        .frame(width: width * fraction, height: 5)
+                    Capsule().fill(accent.opacity(0.95)).frame(width: width * fraction, height: 5)
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -236,35 +408,64 @@ struct LockScreenCard: View {
                         }
                         .onEnded { value in
                             guard width > 0, media.duration > 0 else { return }
-                            let target = min(max(value.location.x / width, 0), 1)
-                            media.seek(to: media.duration * target)
+                            media.seek(to: media.duration * min(max(value.location.x / width, 0), 1))
                             scrubbing = nil
                         }
                 )
             }
-            .frame(height: 16)
-            // The track's length, not what is left of it. A card this size is
-            // read at a glance from across a room, and "7:03" answers *how long
-            // is this* — the question a countdown cannot.
-            Text(formatTime(media.duration))
-                .frame(width: 38, alignment: .trailing)
+            .frame(height: 14)
+            HStack {
+                Text(formatTime(fraction * media.duration))
+                Spacer()
+                // What is left, which is the question a lock screen gets asked:
+                // how long until this is over.
+                Text("-" + formatTime(max(0, media.duration - fraction * media.duration)))
+            }
+            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+            .foregroundStyle(.white.opacity(0.55))
         }
-        .font(.system(size: 13, weight: .medium).monospacedDigit())
-        .foregroundStyle(.white.opacity(0.7))
     }
 
-    /// Five glyphs spread from edge to edge, drawn bare.
-    ///
-    /// No circular wells behind them: on a surface this glossy a filled disc
-    /// reads as a button glued onto the glass, where the reference cards float
-    /// the symbols directly on it. Shuffle anchors the left, the output device
-    /// the right, and the transport takes the middle.
-    private var controls: some View {
+    /// The system's output volume. Absent entirely for a device that has none
+    /// to give, rather than a slider that moves and changes nothing.
+    private var volumeBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "speaker.fill").font(.system(size: 10))
+            GeometryReader { geo in
+                let width = geo.size.width
+                let level = Double(draggingVolume ?? volume ?? 0)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.22)).frame(height: 5)
+                    Capsule().fill(.white.opacity(0.85)).frame(width: width * level, height: 5)
+                }
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            guard width > 0 else { return }
+                            let next = Float(min(max(value.location.x / width, 0), 1))
+                            draggingVolume = next
+                            SystemVolume.set(next)
+                        }
+                        .onEnded { _ in
+                            volume = SystemVolume.current() ?? draggingVolume
+                            draggingVolume = nil
+                        }
+                )
+            }
+            .frame(height: 14)
+            Image(systemName: "speaker.wave.3.fill").font(.system(size: 10))
+        }
+        .foregroundStyle(.white.opacity(0.6))
+    }
+
+    private var transport: some View {
         HStack(spacing: 0) {
             shuffle
             Spacer(minLength: 0)
             Button { media.previous() } label: {
-                Image(systemName: "backward.fill").font(.system(size: 22, weight: .medium))
+                Image(systemName: "backward.fill").font(.system(size: 21, weight: .medium))
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .disabled(!media.canSkip)
@@ -273,34 +474,33 @@ struct LockScreenCard: View {
             Spacer(minLength: 0)
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 30, weight: .medium))
+                    .font(.system(size: 28, weight: .medium))
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Spacer(minLength: 0)
             Button { media.next() } label: {
-                Image(systemName: "forward.fill").font(.system(size: 22, weight: .medium))
+                Image(systemName: "forward.fill").font(.system(size: 21, weight: .medium))
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .disabled(!media.canSkip)
             .opacity(media.canSkip ? 1 : 0.35)
             .accessibilityLabel(localized("Next Track"))
             Spacer(minLength: 0)
-            output
+            repeatToggle
         }
         .frame(height: 34)
     }
 
-    /// Shuffle, where the player has it to give. Dimmed rather than missing
-    /// when the source has no such idea — a browser tab does not shuffle — so
-    /// the row keeps its shape whatever is playing.
+    /// Shuffle and repeat keep their places whether or not the source has the
+    /// idea, so the row does not change shape between one player and the next.
     private var shuffle: some View {
         ModeToggle(
             symbol: "shuffle",
             isOn: media.shuffleEnabled == true,
             accent: accent,
-            size: 34,
-            glyphSize: 17
+            size: 32,
+            glyphSize: 15
         ) { media.toggleShuffle() }
         .disabled(media.shuffleEnabled == nil)
         .opacity(media.shuffleEnabled == nil ? 0.3 : 1)
@@ -308,133 +508,105 @@ struct LockScreenCard: View {
         .accessibilityValue(media.shuffleEnabled == true ? localized("On") : localized("Off"))
     }
 
-    /// Where the sound comes out, and how to send it somewhere else.
-    ///
-    /// No app's audio can be moved individually from outside it, but every app
-    /// follows the system's default output — so "play it on the speakers
-    /// instead" is a real thing this button can do, and the glyph says which
-    /// kind of thing is playing now.
-    private var output: some View {
-        Button {
-            outputs = AudioOutputs.available()
-            currentOutput = AudioOutputs.current()
-            showingOutputs.toggle()
+    private var repeatToggle: some View {
+        ModeToggle(
+            symbol: media.repeatMode == .one ? "repeat.1" : "repeat",
+            isOn: media.repeatMode != nil && media.repeatMode != .off,
+            accent: accent,
+            size: 32,
+            glyphSize: 15
+        ) { media.cycleRepeat() }
+        .disabled(media.repeatMode == nil)
+        .opacity(media.repeatMode == nil ? 0.3 : 1)
+        .accessibilityLabel(localized("Repeat"))
+    }
+
+    /// The two doors, and the way back out of either.
+    private var footer: some View {
+        HStack {
+            paneButton(.lyrics, symbol: "quote.bubble", label: localized("Lyrics"))
+            Spacer()
+            paneButton(.output, symbol: outputSymbol, label: localized("Sound Output"))
+        }
+        .frame(height: 22)
+    }
+
+    private func paneButton(_ target: Pane, symbol: String, label: String) -> some View {
+        let open = pane == target
+        return Button {
+            pane = open ? .player : target
         } label: {
-            Image(systemName: outputSymbol)
-                .font(.system(size: 18, weight: .medium))
-                .frame(width: 34, height: 34)
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(open ? .white : .white.opacity(0.62))
+                .frame(width: 26, height: 22)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(TransportGlyphStyle(size: 34))
-        .help(localized("Sound Output"))
-        .accessibilityLabel(localized("Sound Output"))
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(open ? [.isSelected] : [])
     }
 
     private var outputSymbol: String {
         guard let currentOutput,
               let device = outputs.first(where: { $0.id == currentOutput }) else {
-            return "laptopcomputer"
+            return "airplayaudio"
         }
-        return AudioOutputs.symbol(forTransport: device.transport)
+        return device.symbol
     }
 
-    /// The picker itself: the devices this Mac can play through, the current
-    /// one ticked. Sized to the card, because it lives inside it.
-    private var outputPicker: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(outputs) { device in
-                Button {
-                    AudioOutputs.select(device.id)
-                    currentOutput = device.id
-                    showingOutputs = false
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: AudioOutputs.symbol(forTransport: device.transport))
-                            .font(.system(size: 11, weight: .medium))
-                            .frame(width: 16)
-                        Text(device.name)
-                            .font(.system(size: 12, weight: .medium))
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        if device.id == currentOutput {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(accent)
-                        }
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .frame(width: 240, alignment: .leading)
-        .glassSurface(cornerRadius: 14, elevation: .popover, samplesBackdrop: false)
-        .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(localized("Sound Output"))
-    }
-
-    /// Saved-to-Liked-Songs, through the user's own authorized account —
-    /// the one Spotify feature with no local API at all. Hidden rather than
-    /// disabled when it cannot work: a heart that never answers is worse
-    /// than no heart.
-    @ViewBuilder
     private var heart: some View {
-        if spotify.isConnected, !spotify.apiBlocked, !spotify.tokenUnavailable,
-           let id = media.spotifyTrackID {
-            // Filled means the song is in Liked Songs, hollow means it is not —
-            // and until the library has actually answered, hollow-but-dimmed
-            // means "asking". Drawing a plain hollow heart while the answer was
-            // still in flight stated, every time, that a liked song was not
-            // liked.
-            let known = spotify.saved[id]
-            let isSaved = known ?? false
-            Button { spotify.toggleSaved(trackID: id) } label: {
-                Image(systemName: isSaved ? "heart.fill" : "heart")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(isSaved ? accent : .white)
-                    .opacity(known == nil ? 0.45 : 1)
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(.black.opacity(0.45)))
+        Group {
+            if spotify.isConnected, !spotify.apiBlocked, !spotify.tokenUnavailable,
+               let id = media.spotifyTrackID {
+                // Filled means the song is in Liked Songs, hollow means it is
+                // not — and until the library has answered, hollow-but-dimmed
+                // means "asking". A plain hollow heart while the answer was in
+                // flight stated, every time, that a liked song was not liked.
+                let known = spotify.saved[id]
+                let isSaved = known ?? false
+                Button { spotify.toggleSaved(trackID: id) } label: {
+                    Image(systemName: isSaved ? "heart.fill" : "heart")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isSaved ? accent : .white)
+                        .opacity(known == nil ? 0.45 : 1)
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(.black.opacity(0.45)))
+                }
+                .disabled(known == nil)
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    isSaved ? localized("Remove from Liked Songs") : localized("Add to Liked Songs")
+                )
+                .task(id: id) { spotify.refreshSavedState(trackID: id) }
             }
-            .disabled(known == nil)
-            .buttonStyle(.plain)
-            .accessibilityLabel(isSaved ? localized("Remove from Liked Songs") : localized("Add to Liked Songs"))
-            .task(id: id) { spotify.refreshSavedState(trackID: id) }
-        } else {
-            EmptyView()
-        }
-    }
-}
-/// Five bars breathing with the music, tinted from the artwork — the
-/// heartbeat every reference player carries at its edge.
-private struct LockWaveform: View {
-    let accent: Color
-    let animating: Bool
-
-    var body: some View {
-        if animating {
-            TimelineView(.animation(minimumInterval: 1.0 / 12)) { timeline in
-                bars(at: timeline.date.timeIntervalSinceReferenceDate)
-            }
-        } else {
-            bars(at: 0)
         }
     }
 
-    private func bars(at time: TimeInterval) -> some View {
-        HStack(alignment: .center, spacing: 3) {
-            ForEach(0..<5, id: \.self) { index in
-                let phase = time == 0 ? 0.35
-                    : 0.5 + 0.5 * sin(time * (3.1 + Double(index) * 0.7) + Double(index) * 1.7)
-                Capsule()
-                    .fill(accent.opacity(0.85))
-                    .frame(width: 3, height: 6 + 14 * phase)
-            }
-        }
-        .frame(height: 22, alignment: .center)
+    private func formatTime(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    // MARK: - Pure layout arithmetic
+
+    /// The line being sung, or the first one when the voice has not reached it.
+    static func centreIndex(lines: [LyricsStore.Line], at: TimeInterval) -> Int {
+        guard !lines.isEmpty else { return 0 }
+        guard let shown = LyricSweep.displayed(lines: lines, at: at) else { return 0 }
+        return lines.firstIndex(where: { $0.at == shown.line.at }) ?? 0
+    }
+
+    /// A window of `size` indices centred on `centre`, slid inside the song
+    /// rather than clipped at its ends — so the first and last lines still show
+    /// a full card of words instead of a half-empty one.
+    static func window(around centre: Int, count: Int, size: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        guard count > size else { return Array(0..<count) }
+        let half = size / 2
+        let start = min(max(centre - half, 0), count - size)
+        return Array(start..<(start + size))
     }
 }

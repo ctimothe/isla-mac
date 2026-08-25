@@ -136,3 +136,10 @@
 "Glass" = "Стекло";
 "Solid" = "Плотный";
 "Card Style" = "Стиль карточки";
+
+/* Lock card panes */
+"Lyrics are switched off in Settings." = "Тексты выключены в настройках.";
+"Looking for the words…" = "Ищем слова…";
+"No words for this track." = "Для этого трека нет слов.";
+"No output devices." = "Нет устройств вывода.";
+"+%d more in Sound Settings" = "Ещё %d в настройках звука";
