@@ -144,3 +144,4 @@
 "No output devices." = "Нет устройств вывода.";
 "+%d more in Sound Settings" = "Ещё %d в настройках звука";
 "Open on Hover" = "Открывать при наведении";
+"Output" = "Вывод";
