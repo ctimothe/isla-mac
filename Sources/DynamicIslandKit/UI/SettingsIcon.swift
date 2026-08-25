@@ -14,6 +14,8 @@ import Foundation
 enum SettingsIcon {
     // General
     static let launchAtLogin = "arrow.up.forward.app"
+    /// A pointer resting on something, which is what the switch is about.
+    static let openOnHover = "cursorarrow.rays"
     static let hoverDelay = "cursorarrow.motionlines"
     static let panelWidth = "arrow.left.and.right"
 
@@ -48,7 +50,7 @@ enum SettingsIcon {
     static let quit = "power"
 
     static let all: [String] = [
-        launchAtLogin, hoverDelay, panelWidth,
+        launchAtLogin, openOnHover, hoverDelay, panelWidth,
         saveScreenshots, showFolder, clear,
         lyrics, peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
