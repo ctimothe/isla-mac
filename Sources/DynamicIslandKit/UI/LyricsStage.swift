@@ -109,7 +109,7 @@ struct LyricsStage: View {
                 for round in 0..<5 {
                     try await Task.sleep(nanoseconds: 6_000_000_000)
                     guard case .synced(let lines) = lyrics.state,
-                          let current = Self.index(in: lines, at: now),
+                          let current = LyricSweep.index(in: lines, at: now),
                           current + 1 < lines.count else { continue }
                     let line = lines[current + 1]
                     DebugTrail.note("TEST[\(round)] click index=\(current + 1) at=\(line.at)")
@@ -205,7 +205,7 @@ struct LyricsStage: View {
     }
 
     private func stage(lines: [LyricsStore.Line]) -> some View {
-        let currentIndex = Self.index(in: lines, at: now)
+        let currentIndex = LyricSweep.index(in: lines, at: now)
         // Before the first line — an intro — the first line is the anchor:
         // waiting at the reading centre, dimmed, taking the sweep the moment
         // the voice arrives. Anchoring on nothing left the stage vacant.
@@ -308,7 +308,7 @@ struct LyricsStage: View {
 
     /// Lines between what is being read and what is being sung.
     static func linesStrayed(reading: TimeInterval?, from anchor: Int, in lines: [LyricsStore.Line]) -> Int {
-        guard let reading, let index = index(in: lines, at: reading) else { return 0 }
+        guard let reading, let index = LyricSweep.index(in: lines, at: reading) else { return 0 }
         return abs(index - anchor)
     }
 
@@ -345,70 +345,36 @@ struct LyricsStage: View {
         let isCurrent = index == current
         // How far from the voice this line stands, for the depth falloff.
         let distance = current.map { abs(index - $0) } ?? 2
-        Button {
-            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
-                DebugTrail.note(String(
-                    format: "ROW CLICK index=%d at=%.2f current=%d pos=%.2f",
-                    index, line.at, current ?? -1, media.position
-                ))
-            }
-            media.seek(to: Self.clickTarget(lineAt: line.at, lead: lead, duration: media.duration))
-            // Choosing a line is choosing the song's place in it: the page
-            // follows again from there rather than stranding the reader one
-            // tap away from a stage that no longer moves.
-            following = true
-        } label: {
-            Group {
-                if line.isCredit {
-                    // Never swept, never bold: a credit is on screen because
-                    // the song has not started, and dressing it as the current
-                    // lyric would claim somebody is singing "Produced by".
-                    Text(line.text)
-                        .font(.system(size: 12, weight: .medium))
-                        .italic()
-                        .foregroundStyle(.white.opacity(isCurrent ? 0.68 : 0.34))
-                        .lineLimit(2)
-                        .frame(maxHeight: .infinity, alignment: .center)
-                } else if isCurrent {
-                    let end = index + 1 < lines.count ? lines[index + 1].at : line.at + 6
-                    // The same renderer the caption and the lock card use. It
-                    // clips each laid-out row on its own, so a line wrapped to
-                    // two rows fills top row first, in reading order — which a
-                    // single rectangle mask could never do — and it interpolates
-                    // between position ticks instead of stepping with them.
-                    KaraokeText(
-                        text: line.text,
-                        fraction: LyricSweep.fraction(line: line, at: now, end: end),
-                        reduceMotion: reduceMotion,
-                        accent: accent,
-                        font: .system(size: 15, weight: .bold),
-                        // Brighter than any neighbour even before the sweep
-                        // arrives — the line being sung must never be the
-                        // darkest thing on stage.
-                        base: .white.opacity(0.62),
-                        lineLimit: 2
-                    )
-                    .frame(maxHeight: .infinity, alignment: .center)
-                } else {
-                    // Depth through opacity alone. The first cut blurred and
-                    // fractionally scaled these — which on 12pt text is not
-                    // depth, it is smeared type: subpixel scaling rasterizes
-                    // every glyph soft, and a two-point blur at reading size
-                    // just looks like a rendering bug.
-                    Text(line.text)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .opacity(distance == 1 ? 0.42 : 0.22)
-                        .lineLimit(2)
+        return LyricRow(
+            line: line,
+            isCurrent: isCurrent,
+            distance: distance,
+            at: now,
+            end: LyricSweep.end(of: index, in: lines),
+            // The stage reads at arm's length and lets a long line wrap; the
+            // card holds one line at a glance. Size and wrapping are the only
+            // things either surface still decides for itself.
+            font: .system(size: 15, weight: .bold),
+            lineLimit: 2,
+            accent: accent,
+            reduceMotion: reduceMotion,
+            seek: {
+                if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                    DebugTrail.note(String(
+                        format: "ROW CLICK index=%d at=%.2f current=%d pos=%.2f",
+                        index, line.at, current ?? -1, media.position
+                    ))
                 }
+                media.seek(to: Self.clickTarget(lineAt: line.at, lead: lead, duration: media.duration))
+                // Choosing a line is choosing the song's place in it: the page
+                // follows again from there rather than stranding the reader one
+                // tap away from a stage that no longer moves.
+                following = true
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        )
+        .frame(maxHeight: .infinity, alignment: .center)
         .animation(reduceMotion ? nil : Theme.contentAnimation, value: isCurrent)
         .id(line.at)
-        .accessibilityLabel(line.text)
         .accessibilityHint(localized("Jumps the song to this line"))
     }
 
@@ -522,12 +488,4 @@ struct LyricsStage: View {
         return target
     }
 
-    static func index(in lines: [LyricsStore.Line], at: TimeInterval) -> Int? {
-        var low = 0, high = lines.count - 1, found = -1
-        while low <= high {
-            let mid = (low + high) / 2
-            if lines[mid].at <= at { found = mid; low = mid + 1 } else { high = mid - 1 }
-        }
-        return found >= 0 ? found : nil
-    }
 }

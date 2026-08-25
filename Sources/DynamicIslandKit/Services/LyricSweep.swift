@@ -62,6 +62,40 @@ enum LyricSweep {
         return (line, current.next?.at ?? line.at + 6, true)
     }
 
+    /// The index of the line covering `at`, or nil before the song's first
+    /// timestamp.
+    ///
+    /// One binary search. There were three — `LyricsStore.current`, this, and a
+    /// private copy inside the lyrics stage — and the copies had drifted apart
+    /// on the case that matters most: before the first line the stage answered
+    /// nil and highlighted nothing, while the card answered the opening line.
+    /// Two surfaces showing the same song disagreeing about which line is
+    /// current is the whole reason this type exists.
+    static func index(in lines: [LyricsStore.Line], at: TimeInterval) -> Int? {
+        guard !lines.isEmpty else { return nil }
+        var low = 0, high = lines.count - 1, found = -1
+        while low <= high {
+            let mid = (low + high) / 2
+            if lines[mid].at <= at { found = mid; low = mid + 1 } else { high = mid - 1 }
+        }
+        return found >= 0 ? found : nil
+    }
+
+    /// The index to centre a view on: the line being sung, or the first one
+    /// when the voice has not reached it yet. Never nil for a song that has
+    /// words, which is what keeps a paused track from showing an empty page.
+    static func centreIndex(in lines: [LyricsStore.Line], at: TimeInterval) -> Int {
+        index(in: lines, at: at) ?? 0
+    }
+
+    /// When a line stops being sung: the next line's start, or a spoken length
+    /// borrowed for the last one.
+    static func end(of index: Int, in lines: [LyricsStore.Line]) -> TimeInterval {
+        guard lines.indices.contains(index) else { return 0 }
+        if index + 1 < lines.count { return lines[index + 1].at }
+        return lines[index].at + 6
+    }
+
     /// Real word timing when a source had it; the singing-speed estimate only for
     /// lines that never got any.
     static func fraction(line: LyricsStore.Line, at: TimeInterval, end: TimeInterval) -> Double {
