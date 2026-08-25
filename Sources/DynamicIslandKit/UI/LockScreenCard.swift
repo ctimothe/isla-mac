@@ -94,6 +94,7 @@ struct LockScreenCard: View {
             // anything.
             .shadow(color: .black.opacity(style == .glass ? 0.55 : 0), radius: 4, y: 1)
             .frame(width: Self.size.width, height: Self.size.height)
+            .overlay { outputPicker }
             .glassSurface(
                 cornerRadius: 30,
                 elevation: .card,
@@ -228,9 +229,12 @@ struct LockScreenCard: View {
     private var middle: some View {
         ZStack {
             switch pane {
-            case .player: playerPane
             case .lyrics: lyricsPane
-            case .output: outputPane
+            // The picker is not a pane. It opens *over* the card, the way the
+            // system's own output list opens over whatever raised it, so what
+            // is playing stays visible behind the thing choosing where it
+            // plays.
+            case .player, .output: playerPane
             }
         }
         .animation(reduceMotion ? nil : Theme.paneAnimation, value: pane)
@@ -310,45 +314,54 @@ struct LockScreenCard: View {
         )
     }
 
-    /// Where the sound goes. Every app follows the system default, so this is a
-    /// real thing the card can change.
-    private var outputPane: some View {
-        VStack(spacing: 5) {
-            if outputs.isEmpty {
-                Text(localized("No output devices."))
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.45))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ForEach(outputs.prefix(4)) { device in
-                    outputRow(device)
-                }
-                if outputs.count > 4 {
-                    Text(localized("+%d more in Sound Settings", outputs.count - 4))
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.white.opacity(0.4))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, 12)
-                }
-            }
-        }
-        // Read here as well as on the button, so the list is right however the
-        // pane came to be showing — and so a device plugged in while it is open
-        // appears rather than waiting for the pane to be closed and reopened.
-    }
-
-    /// Reads the audio world: which devices exist, which one is chosen, and how
-    /// loud it is.
+    /// Where the sound goes, presented the way macOS presents it.
     ///
-    /// Called when the card appears rather than only when the output button is
-    /// pressed. The foot rail draws the *current device's* glyph, so a card that
-    /// had never opened the pane showed a generic AirPlay symbol for a Mac
-    /// playing through its own speakers; and the volume rail cannot decide
-    /// whether it exists until something has asked.
-    private func readAudio() {
-        outputs = AudioOutputs.available()
-        currentOutput = AudioOutputs.current()
-        volume = SystemVolume.current()
+    /// Control Center's output list is the reference, down to the grammar of a
+    /// selected row: the device's icon sits in a filled circle in the user's own
+    /// accent colour, and the name goes semibold. No tick — the tinted well *is*
+    /// the tick there, and adding one states the same thing twice.
+    ///
+    /// The accent is `controlAccentColor`, which is whatever the person chose in
+    /// System Settings. That is not the artwork tint this card used to carry: it
+    /// does not move with the music, and matching it is most of what makes a
+    /// control feel like it belongs to the system rather than to an app.
+    @ViewBuilder
+    private var outputPicker: some View {
+        if pane == .output {
+            ZStack {
+                // Tapping anywhere off the panel closes it, which is what every
+                // popover on this platform does.
+                Color.black.opacity(0.001)
+                    .contentShape(Rectangle())
+                    .onTapGesture { pane = .player }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(localized("Output"))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 4)
+
+                    if outputs.isEmpty {
+                        Text(localized("No output devices."))
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white.opacity(0.45))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                    } else {
+                        ForEach(outputs.prefix(5)) { device in
+                            outputRow(device)
+                        }
+                    }
+                }
+                .padding(.vertical, 10)
+                .frame(width: 268)
+                .glassSurface(cornerRadius: 20, elevation: .popover)
+                .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+                .transition(.scale(scale: 0.94).combined(with: .opacity))
+            }
+            .animation(reduceMotion ? nil : Theme.paneAnimation, value: pane)
+        }
     }
 
     private func outputRow(_ device: AudioOutputs.Output) -> some View {
@@ -357,40 +370,46 @@ struct LockScreenCard: View {
             guard AudioOutputs.select(device.id) else { return }
             currentOutput = AudioOutputs.current()
             volume = SystemVolume.current()
+            pane = .player
         } label: {
-            HStack(spacing: 11) {
-                Image(systemName: device.symbol)
-                    .font(.system(size: 14))
-                    .frame(width: 20)
-                    .foregroundStyle(selected ? .white : .white.opacity(0.7))
+            HStack(spacing: 10) {
+                // The filled well, in the system accent. This is the whole
+                // selected-state vocabulary in Control Center.
+                ZStack {
+                    Circle()
+                        .fill(selected ? Color(nsColor: .controlAccentColor) : Color.white.opacity(0.12))
+                        .frame(width: 26, height: 26)
+                    Image(systemName: device.symbol)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white)
+                }
                 Text(device.name)
                     .font(.system(size: 13.5, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? .white : .white.opacity(0.78))
+                    .foregroundStyle(.white)
                     .lineLimit(1)
-                Spacer(minLength: 8)
-                if selected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(accent)
-                }
+                Spacer(minLength: 6)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            // Three cues, not one: on glass a tint change alone is easy to
-            // miss, so the chosen row is lifted, outlined and ticked.
-            .background(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(.white.opacity(selected ? 0.16 : 0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .strokeBorder(.white.opacity(selected ? 0.22 : 0), lineWidth: 1)
-            )
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(OutputRowStyle())
         .accessibilityLabel(device.name)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+
+    /// Reads the audio world: which devices exist, which one is chosen, and how
+    /// loud it is.
+    ///
+    /// Called when the card appears rather than only when the output button is
+    /// pressed. The foot rail draws the *current device's* glyph, so a card that
+    /// had never opened the picker showed a generic AirPlay symbol for a Mac
+    /// playing through its own speakers; and the volume rail cannot decide
+    /// whether it exists until something has asked.
+    private func readAudio() {
+        outputs = AudioOutputs.available()
+        currentOutput = AudioOutputs.current()
+        volume = SystemVolume.current()
     }
 
     // MARK: - Rails

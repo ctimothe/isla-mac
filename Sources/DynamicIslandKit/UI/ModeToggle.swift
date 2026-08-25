@@ -53,3 +53,25 @@ struct TransportGlyphStyle: ButtonStyle {
             .animation(Theme.contentAnimation, value: configuration.isPressed)
     }
 }
+
+/// A row in the output picker: no fill until the pointer is on it, then the
+/// faint one macOS uses for a highlighted menu row.
+///
+/// Not `.plain`, which gives no hover at all, and not a permanent background,
+/// which turns a list into a stack of buttons. The list should read as text
+/// until it is being pointed at.
+struct OutputRowStyle: ButtonStyle {
+    @State private var hovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(.white.opacity(configuration.isPressed ? 0.16 : (hovering ? 0.10 : 0)))
+            )
+            .padding(.horizontal, 8)
+            .onHover { hovering = $0 }
+            .animation(Theme.contentAnimation, value: hovering)
+            .animation(Theme.contentAnimation, value: configuration.isPressed)
+    }
+}
