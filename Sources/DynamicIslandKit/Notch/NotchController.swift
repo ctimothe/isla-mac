@@ -242,17 +242,23 @@ final class NotchController {
         rootView.activeRect = .zero
         rootView.dropRect = .zero
 
-        // The pill's own region, which takes no clicks and opens nothing — it
-        // exists so that hovering the island while locked can answer with a
-        // nudge rather than with silence. The panel keeps its ordinary frame
-        // now, so the pill is simply the top strip of it.
+        // The pill's own region. It opens nothing — the island stays shut over
+        // the shield, by design — but it answers: a hover draws the edge, and a
+        // click shakes it off. Silence reads as a dead app rather than as a
+        // limit, which is the whole reason this rect exists.
+        //
+        // It takes clicks now, where before it took only hovers. The area is
+        // the notch itself, at the top centre of the screen; the password field
+        // is in the middle, and nothing else up there belongs to loginwindow.
         let pill = CGSize(width: vm.bodySize.width, height: vm.geometry.notchSize.height)
-        rootView.lockedHoverRect = CGRect(
+        let rect = CGRect(
             x: (panel.frame.width - pill.width) / 2,
             y: panel.frame.height - pill.height,
             width: pill.width,
             height: pill.height
         )
+        rootView.lockedHoverRect = rect
+        rootView.activeRect = rect
     }
 
     /// Unconditional, unlike the lock side: the toggle may have been flipped
@@ -479,6 +485,27 @@ final class NotchController {
         rebuild()
     }
 
+    /// The collapsed island was clicked.
+    ///
+    /// Open, normally. Refused with a shake while the Mac is locked: the island
+    /// stays visible over the shield on purpose, and a click there has to say
+    /// *not here* rather than either opening over the password field or doing
+    /// nothing at all, which reads as a dead app rather than a decision.
+    private func islandClicked() {
+        guard let vm = viewModel else { return }
+        if vm.isLockedPresentation {
+            vm.nudgeLockedIsland()
+            return
+        }
+        guard !vm.isOpen else { return }
+        // Pinned, like the hotkey: a panel opened deliberately should not close
+        // because the pointer was never technically inside the hover rect.
+        vm.isPinnedOpen = true
+        setOpen(true)
+        pointer.setInside(true)
+        updatePinnedClickMonitor()
+    }
+
     func refreshPointerTuning() {
         pointer.openDelay = NotchViewModel.hoverOpenDelay
     }
@@ -562,6 +589,7 @@ final class NotchController {
         // 400 pt with a close rect drawn for 208, and folded under a pointer
         // resting in the lower half of the pane.
         if let restoredTab { vm.tab = restoredTab }
+        vm.onIslandClick = { [weak self] in self?.islandClicked() }
         viewModel = vm
 
         let panel = NotchPanel(contentRect: geometry.windowFrame)
@@ -576,8 +604,12 @@ final class NotchController {
         }
         root.addSubview(hosting)
 
-        root.onLockedHover = { [weak self] in
-            self?.viewModel?.nudgeLockedIsland()
+        // Entering draws the edge, leaving takes it away. The shake used to
+        // fire here, which spent the refusal on a gesture that had not asked
+        // for anything yet — a pointer crossing the top of a locked screen is
+        // not a request to open the island.
+        root.onLockedHover = { [weak self] entered in
+            self?.viewModel?.isHovering = entered
         }
         root.onDragEntered = { [weak self] in
             guard let self, let vm = self.viewModel else { return }
@@ -671,6 +703,13 @@ final class NotchController {
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
         pointer.onChange = { [weak self] inside in
             guard let self else { return }
+            // The edge, whatever the open rule is: a hover always says the
+            // island is there and reachable.
+            self.viewModel?.isHovering = inside
+            // And unless hover-to-open is switched on, that is all it says.
+            // Leaving still closes — a panel opened by a click is still left by
+            // walking away from it, which is the gesture everyone already has.
+            if inside, !NotchViewModel.opensOnHoverEnabled { return }
             // The pointer arriving takes the panel back from whatever opened
             // it without one; from here on the ordinary rule applies again.
             if inside {

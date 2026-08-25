@@ -29,7 +29,8 @@ final class NotchRootView: NSView {
         }
     }
     /// Raised when the pointer enters that region.
-    var onLockedHover: (() -> Void)?
+    /// True on entering the region, false on leaving.
+    var onLockedHover: ((Bool) -> Void)?
     private var lockedHoverArea: NSTrackingArea?
 
     private func refreshLockedHoverArea() {
@@ -128,10 +129,18 @@ final class NotchRootView: NSView {
     /// then the first notification we get, and no cursor update precedes it.
     override func mouseEntered(with event: NSEvent) {
         if event.trackingArea?.userInfo?["locked"] != nil {
-            onLockedHover?()
+            onLockedHover?(true)
             return
         }
         NSCursor.arrow.set()
+    }
+
+    /// Leaving takes the edge away again. Without this the island kept a lit
+    /// outline for the rest of the lock after one pass of the cursor.
+    override func mouseExited(with event: NSEvent) {
+        if event.trackingArea?.userInfo?["locked"] != nil {
+            onLockedHover?(false)
+        }
     }
 
     // MARK: - Drag destination

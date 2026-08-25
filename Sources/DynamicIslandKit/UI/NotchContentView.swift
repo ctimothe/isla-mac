@@ -30,6 +30,26 @@ struct NotchContentView: View {
                         compactMediaHeader
                     }
                     .frame(maxWidth: .infinity, alignment: .top)
+                    .overlay {
+                        if vm.isHovering {
+                            NotchShape(
+                                topRadius: Theme.collapsedTopRadius,
+                                bottomRadius: Theme.collapsedBottomRadius
+                            )
+                            .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                            .frame(
+                                width: size.width + 2 * Theme.collapsedTopRadius,
+                                height: vm.geometry.notchSize.height
+                            )
+                            .transition(.opacity)
+                        }
+                    }
+                    .animation(Theme.contentAnimation, value: vm.isHovering)
+                    // The edge says the island is there; the shake says it is
+                    // not opening here. Two different answers to two different
+                    // gestures, rather than one shake for both.
+                    .contentShape(Rectangle())
+                    .onTapGesture { vm.onIslandClick?() }
                     .refusalShake(trigger: vm.lockedHoverNudges)
                 }
             }
@@ -69,6 +89,7 @@ struct NotchContentView: View {
                 radius: isOpen ? 18 : 5,
                 y: isOpen ? 8 : 2
             )
+            .overlay { hoverEdge }
 
             if !isOpen, compactActivity.isVisible {
                 compactWingSurface
@@ -87,7 +108,13 @@ struct NotchContentView: View {
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // A click anywhere on the collapsed island opens it. The equalizer
+        // wing keeps its own tap for play/pause — a child gesture wins, so
+        // pausing still costs one click and does not open anything.
+        .contentShape(Rectangle())
+        .onTapGesture { if !isOpen { vm.onIslandClick?() } }
         .animation(Theme.open(reduceMotion: reduceMotion), value: isOpen)
+        .animation(Theme.contentAnimation, value: vm.isHovering)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: compactActivity)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.paneAnimation, value: vm.tab)
@@ -184,6 +211,26 @@ struct NotchContentView: View {
         .accessibilityLabel(compactAccessibilityLabel)
         .accessibilityAction(named: vm.media.isPlaying ? localized("Pause") : localized("Play")) {
             vm.media.togglePlayPause()
+        }
+    }
+
+    /// The answer to a hover: an edge, not an opening.
+    ///
+    /// Drawn only while collapsed, because an open panel has already answered.
+    /// It is the whole affordance for click-to-open — without it the island
+    /// looks inert, and nobody clicks something that has never reacted to them.
+    /// Over the shield it is the *only* answer: the island stays lit there and
+    /// stays shut, and the edge says the first half of that before a click says
+    /// the second.
+    @ViewBuilder
+    private var hoverEdge: some View {
+        if vm.isHovering, !isOpen {
+            NotchShape(
+                topRadius: topRadius,
+                bottomRadius: isOpen ? Theme.openBottomRadius : Theme.collapsedBottomRadius
+            )
+            .stroke(Color.white.opacity(0.9), lineWidth: 1)
+            .transition(.opacity)
         }
     }
 
