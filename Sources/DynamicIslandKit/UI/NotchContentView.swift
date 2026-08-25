@@ -36,7 +36,14 @@ struct NotchContentView: View {
                                 topRadius: Theme.collapsedTopRadius,
                                 bottomRadius: Theme.collapsedBottomRadius
                             )
-                            .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                            .stroke(
+                                LinearGradient(
+                                    colors: [.clear, .white.opacity(0.10), .white.opacity(0.34)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                ),
+                                lineWidth: 1
+                            )
                             .frame(
                                 width: size.width + 2 * Theme.collapsedTopRadius,
                                 height: vm.geometry.notchSize.height
@@ -90,6 +97,12 @@ struct NotchContentView: View {
                 y: isOpen ? 8 : 2
             )
             .overlay { hoverEdge }
+            // Hover read from the drawn shape, not from the pointer watcher.
+            // The watcher's rect is deliberately 12pt wider and taller than the
+            // island — generous is right for *opening*, where a near miss
+            // should still work, and wrong for an edge, which lit up while the
+            // cursor was visibly beside the island rather than on it.
+            .onHover { if !isOpen { vm.isHovering = $0 } }
 
             if !isOpen, compactActivity.isVisible {
                 compactWingSurface
@@ -229,7 +242,22 @@ struct NotchContentView: View {
                 topRadius: topRadius,
                 bottomRadius: isOpen ? Theme.openBottomRadius : Theme.collapsedBottomRadius
             )
-            .stroke(Color.white.opacity(0.9), lineWidth: 1)
+            // Nothing along the top. That edge lies against the bezel, where
+            // the island is meant to be continuous with the hardware — a line
+            // there draws the boundary the whole shape exists to hide. The
+            // gradient starts clear and arrives at the bottom, so the light
+            // appears to come from below and the sides fade into it.
+            //
+            // And faint. At full white it read as a hard outline, which states
+            // a border; this states a surface catching a little light.
+            .stroke(
+                LinearGradient(
+                    colors: [.clear, .white.opacity(0.10), .white.opacity(0.34)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 1
+            )
             .transition(.opacity)
         }
     }

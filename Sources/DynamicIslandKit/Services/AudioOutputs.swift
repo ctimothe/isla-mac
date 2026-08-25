@@ -19,7 +19,9 @@ enum AudioOutputs {
         /// that publishes no data source, which is most things on a wire.
         var dataSource: UInt32?
 
-        var symbol: String { AudioOutputs.symbol(forTransport: transport, dataSource: dataSource) }
+        var symbol: String {
+            AudioOutputs.symbol(forTransport: transport, dataSource: dataSource, name: name)
+        }
     }
 
     /// Every device that can actually play something.
@@ -93,7 +95,34 @@ enum AudioOutputs {
     /// the headphone jack: the transport is still `bltn`, and the card would
     /// keep drawing a laptop while the sound went to headphones. The data
     /// source is the field that knows, so it is asked first.
-    static func symbol(forTransport transport: UInt32, dataSource: UInt32? = nil) -> String {
+    static func symbol(
+        forTransport transport: UInt32, dataSource: UInt32? = nil, name: String? = nil
+    ) -> String {
+        // The device's own name first, because it is the only thing that tells
+        // AirPods Pro from AirPods Max: both arrive over Bluetooth, both publish
+        // no data source, and CoreAudio has no notion of a product family. The
+        // system's own output menu draws the same distinction, and these are the
+        // symbols Apple ships for it — not lookalikes.
+        //
+        // Matching on a product name is a heuristic, and it is used only to pick
+        // a *better* glyph: anything unrecognised falls through to the transport
+        // below and is merely generic, never wrong. Product names are the same
+        // in every language, which is what makes this survive a localised Mac.
+        if let name = name?.lowercased() {
+            if name.contains("airpods max") { return "airpods.max" }
+            if name.contains("airpods pro") { return "airpods.pro" }
+            if name.contains("airpods") { return "airpods" }
+            if name.contains("beats") || name.contains("powerbeats") { return "beats.headphones" }
+            if name.contains("homepod") { return "homepod" }
+            if name.contains("apple tv") { return "appletv" }
+            if name.contains("studio display") || name.contains("pro display") { return "display" }
+            // Wired Apple headphones, and the generic word every third-party
+            // headset puts in its name.
+            if name.contains("earpods") || name.contains("headphone")
+                || name.contains("headset") || name.contains("earbud") {
+                return "headphones"
+            }
+        }
         switch dataSource {
         case DataSource.headphones: return "headphones"
         case DataSource.internalSpeaker: return "laptopcomputer"
