@@ -26,6 +26,28 @@ final class LockCardWindow {
     /// than anchored to the notch, because a locked Mac is looked at from
     /// wherever the person is standing, and the middle of the display is where
     /// the eye goes — the clock above it is centred for the same reason.
+    /// Room around the card for its own shadow.
+    ///
+    /// The window used to be cut to exactly the card, which meant the card's
+    /// drop shadows had nowhere outside to fall. They were drawn *inside* the
+    /// window instead and clipped square at its edge — measured: the drawn
+    /// footprint stayed a constant 459pt wide from top to bottom, and the
+    /// bottom corners inset 5pt where the 30pt radius wanted 19. That dark
+    /// square-cornered smear behind a rounded card is what it looked like.
+    ///
+    /// 48pt covers the wider shadow: 30pt of blur plus its 14pt downward
+    /// offset, with a little to spare.
+    static let shadowMargin: CGFloat = 48
+
+    /// The window is the card plus that margin. The margin is transparent and
+    /// takes no clicks — see `LockCardRootView`.
+    static var windowSize: CGSize {
+        CGSize(
+            width: LockScreenCard.size.width + shadowMargin * 2,
+            height: LockScreenCard.size.height + shadowMargin * 2
+        )
+    }
+
     static func frame(on screen: CGRect, size: CGSize) -> CGRect {
         CGRect(
             x: screen.minX + ((screen.width - size.width) / 2).rounded(),
@@ -39,7 +61,7 @@ final class LockCardWindow {
 
     /// Puts the card on screen above the shield.
     func present(media: MediaController, lyrics: LyricsStore, on screen: NSScreen, presence: LockScreenPresence) {
-        let frame = Self.frame(on: screen.frame, size: LockScreenCard.size)
+        let frame = Self.frame(on: screen.frame, size: Self.windowSize)
         if let panel {
             // Already up — a second lock notification, or a display that
             // changed shape underneath us.
@@ -54,12 +76,20 @@ final class LockCardWindow {
         // non-activating style already guarantees.
         panel.ignoresMouseEvents = false
         let hosting = NSHostingView(rootView: LockScreenCard(media: media, lyrics: lyrics))
-        hosting.frame = CGRect(origin: .zero, size: frame.size)
-        hosting.autoresizingMask = [.width, .height]
+        // The card sits inset inside the window, so its shadow has somewhere to
+        // go. Not autoresizing: the card is one fixed size and the window is
+        // only ever set to one size, so a stretched card could only ever be a
+        // bug arriving quietly.
+        let cardRect = CGRect(
+            x: Self.shadowMargin, y: Self.shadowMargin,
+            width: LockScreenCard.size.width, height: LockScreenCard.size.height
+        )
+        hosting.frame = cardRect
         if #available(macOS 14.0, *) {
             hosting.sizingOptions = []
         }
-        let root = NSView(frame: CGRect(origin: .zero, size: frame.size))
+        let root = LockCardRootView(frame: CGRect(origin: .zero, size: frame.size))
+        root.cardRect = cardRect
         root.autoresizingMask = [.width, .height]
         root.addSubview(hosting)
         panel.contentView = root
@@ -83,6 +113,22 @@ final class LockCardWindow {
     /// Re-centres on the display it belongs to, after a screen change.
     func reposition(on screen: NSScreen) {
         guard let panel else { return }
-        panel.setFrame(Self.frame(on: screen.frame, size: LockScreenCard.size), display: true)
+        panel.setFrame(Self.frame(on: screen.frame, size: Self.windowSize), display: true)
+    }
+}
+
+/// The card's window is larger than the card, so that its shadow can fall
+/// outside it. Every point in that margin has to belong to whatever is
+/// underneath — which, while the Mac is locked, is the password field.
+///
+/// The panel takes mouse events because the transport and the scrubber need
+/// them; without this the transparent margin would swallow clicks aimed at the
+/// login window and there would be nothing on screen to explain why.
+final class LockCardRootView: NSView {
+    var cardRect: CGRect = .zero
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard cardRect.contains(point) else { return nil }
+        return super.hitTest(point)
     }
 }
