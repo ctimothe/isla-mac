@@ -294,6 +294,17 @@ struct NotchGeometry {
     /// The live media activity grows sideways beyond the physical notch. Its
     /// full visible width must remain a hover target or the new wings would
     /// look interactive while only the camera cutout actually responded.
+    /// The island exactly as it is drawn, for anything about appearance rather
+    /// than about opening. No padding: see `PointerWatcher.hoverRect`.
+    func collapsedIslandRect(for width: CGFloat) -> CGRect {
+        CGRect(
+            x: notchCenterX - width / 2,
+            y: screen.frame.maxY - collapsedDepth,
+            width: width,
+            height: collapsedDepth
+        )
+    }
+
     func collapsedHoverRect(for width: CGFloat) -> CGRect {
         includingTopEdge(CGRect(
             x: notchCenterX - width / 2 - 6,

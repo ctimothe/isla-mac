@@ -17,6 +17,14 @@ final class PointerWatcher {
     /// Where the panel takes clicks. Everywhere else the window must let them
     /// through, so this doubles as the `ignoresMouseEvents` trigger.
     var interactiveRect: CGRect = .zero
+
+    /// Exactly the island as it is drawn, with none of `openRect`'s padding.
+    ///
+    /// The open rect is deliberately 12pt larger so a near miss still opens the
+    /// panel — forgiving is right for an action. It is wrong for a *look*: an
+    /// appearance driven from it lit up while the pointer was visibly beside
+    /// the island. This one is the shape, so what lights is what you are on.
+    var hoverRect: CGRect = .zero
     /// Keeps the panel interactive while a drag is being tracked, even if the
     /// pointer wanders outside `interactiveRect` mid-session.
     var isDragging: () -> Bool = { false }
@@ -48,11 +56,14 @@ final class PointerWatcher {
 
     var onChange: ((Bool) -> Void)?
     var onInteractiveChange: ((Bool) -> Void)?
+    /// The pointer entered or left `hoverRect`.
+    var onHoverChange: ((Bool) -> Void)?
 
     private(set) var isInside = false
     private var timer: Timer?
     private var awaitingSince: Date?
     private var wasInteractive: Bool?
+    private var wasHovering: Bool?
     private var isWarm = false
     private var lastPoint = CGPoint(x: -1, y: -1)
     private var lastMovedAt = Date.distantPast
@@ -79,6 +90,10 @@ final class PointerWatcher {
         // callback and leave the new panel deaf to clicks until the pointer
         // wandered out and back (#6).
         wasInteractive = nil
+        // Nothing is hovered once the sampler stops, and the island must not be
+        // left lit for the whole of a lock or a sleep.
+        if wasHovering == true { onHoverChange?(false) }
+        wasHovering = nil
     }
 
     private func schedule(warm: Bool) {
@@ -169,6 +184,19 @@ final class PointerWatcher {
         if wasInteractive != interactive {
             wasInteractive = interactive
             onInteractiveChange?(interactive)
+        }
+
+        // Reported from the sampler rather than from a SwiftUI `.onHover`.
+        // The panel ignores mouse events until this same tick decides it is
+        // interactive, so a SwiftUI hover never arrives for the frame that
+        // matters — and when the pointer is already inside as tracking begins,
+        // no entered event is sent at all. The sampler has the pointer either
+        // way, and this is the only reading that does not depend on the window
+        // already having agreed to listen.
+        let hovering = hoverRect.contains(point)
+        if wasHovering != hovering {
+            wasHovering = hovering
+            onHoverChange?(hovering)
         }
 
         let inside = (isInside ? closeRect : openRect).contains(point)
