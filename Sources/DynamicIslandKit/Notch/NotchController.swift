@@ -703,10 +703,11 @@ final class NotchController {
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
         pointer.onChange = { [weak self] inside in
             guard let self else { return }
-            // The edge, whatever the open rule is: a hover always says the
-            // island is there and reachable.
-            self.viewModel?.isHovering = inside
-            // And unless hover-to-open is switched on, that is all it says.
+            // The edge is drawn from the shape's own `.onHover`, not from
+            // here: this rect is padded for a forgiving open, and an edge lit
+            // from it appears while the cursor is beside the island.
+            //
+            // Unless hover-to-open is switched on, a hover does nothing here.
             // Leaving still closes — a panel opened by a click is still left by
             // walking away from it, which is the gesture everyone already has.
             if inside, !NotchViewModel.opensOnHoverEnabled { return }

@@ -10,7 +10,10 @@ import SwiftUI
 struct RefusalShake: ViewModifier {
     /// Increment to play it again.
     var trigger: Int
-    var amplitude: CGFloat = 7
+    /// Sideways travel at the first swing. Was 7, which on a 32pt pill at the
+    /// top of a locked screen was too small to register as a refusal — it read
+    /// as a rendering wobble, if it read at all.
+    var amplitude: CGFloat = 11
     /// Full swings. Three reads as a shake; more reads as a wobble toy.
     var shakes: CGFloat = 3
 
@@ -26,7 +29,7 @@ struct RefusalShake: ViewModifier {
                 // be a different statement. It simply does not play.
                 guard !reduceMotion else { return }
                 progress = 0
-                withAnimation(.easeOut(duration: 0.42)) { progress = 1 }
+                withAnimation(.easeOut(duration: 0.50)) { progress = 1 }
             }
     }
 }
