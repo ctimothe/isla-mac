@@ -6,6 +6,7 @@ struct NotchContentView: View {
 
     private var isOpen: Bool { vm.isOpen || vm.isDropTargeted }
     private var size: CGSize { vm.bodySize }
+    @State private var isPressed = false
     private var compactActivity: CompactMediaActivity { vm.compactMediaActivity }
     private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : Theme.collapsedTopRadius }
 
@@ -106,7 +107,26 @@ struct NotchContentView: View {
         // wing keeps its own tap for play/pause — a child gesture wins, so
         // pausing still costs one click and does not open anything.
         .contentShape(Rectangle())
-        .onTapGesture { if !isOpen { vm.onIslandClick?() } }
+        // Highlight on press, commit on release — the order Apple states for a
+        // tap. Waiting for the click to show anything makes the island feel
+        // dead for the length of the press, which is the one moment the user is
+        // asking it a question.
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in if !isOpen { isPressed = true } }
+                .onEnded { value in
+                    isPressed = false
+                    guard !isOpen else { return }
+                    // Only if the pointer is still on the island. Dragging away
+                    // and letting go cancels, which is what every button on the
+                    // platform does.
+                    let bounds = CGRect(
+                        origin: .zero,
+                        size: CGSize(width: size.width + 2 * topRadius, height: size.height)
+                    )
+                    if bounds.contains(value.location) { vm.onIslandClick?() }
+                }
+        )
         .animation(Theme.open(reduceMotion: reduceMotion), value: isOpen)
         .animation(Theme.open(reduceMotion: reduceMotion), value: vm.isHovering)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: compactActivity)
@@ -230,7 +250,7 @@ struct NotchContentView: View {
     /// the middle lifts with everything else.
     @ViewBuilder
     private var hoverLift: some View {
-        if vm.isHovering {
+        if vm.isHovering || isPressed {
             let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2 + topRadius)
             HStack(spacing: 0) {
                 // Each wing fades out toward the cutout, the way the wing
@@ -258,6 +278,11 @@ struct NotchContentView: View {
                 )
             )
             .allowsHitTesting(false)
+            // Pressing deepens the same light rather than introducing a second
+            // idea. One vocabulary: the surface catches more of it the harder
+            // you are asking.
+            .opacity(isPressed ? 2.2 : 1)
+            .animation(Theme.contentAnimation, value: isPressed)
             .transition(.opacity)
         }
     }
