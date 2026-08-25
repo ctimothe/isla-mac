@@ -45,6 +45,34 @@ enum Theme {
         reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: scale))
     }
 
+    // MARK: - Type
+
+    /// Letter-spacing for a given size, following the shape of SF's own
+    /// tracking table.
+    ///
+    /// Tracking is size-specific and a single value is wrong somewhere: as type
+    /// grows, the same spacing reads as letters drifting apart, so large text
+    /// wants *negative* tracking; small text wants slightly positive to stay
+    /// legible. Apple ships a table for this and applies it automatically to the
+    /// semantic text styles — `.headline`, `.body` — but **not** to
+    /// `.system(size:)`, which is what a fixed-size panel has to use. So it is
+    /// applied here by hand.
+    ///
+    /// Why not the semantic styles: they scale with the user's text size, and
+    /// both surfaces this app draws are windows that cannot resize. The lock
+    /// card is a fixed 460×300 whose window is deliberately never resized, and
+    /// larger type would simply be cut off. Honest tracking on a fixed size is
+    /// worth more than a Dynamic Type that overflows.
+    static func tracking(forSize size: CGFloat) -> CGFloat {
+        switch size {
+        case ..<12: return 0.07      // small labels open up a little
+        case ..<15: return 0         // body sits at the neutral point
+        case ..<18: return -0.2
+        case ..<23: return -0.35
+        default: return -0.5         // display sizes tighten most
+        }
+    }
+
     static let collapsedTopRadius: CGFloat = 6
     static let collapsedBottomRadius: CGFloat = 9
     static let openTopRadius: CGFloat = 12
@@ -94,4 +122,16 @@ func formatTime(_ seconds: TimeInterval) -> String {
     guard seconds.isFinite, seconds >= 0 else { return "--:--" }
     let total = Int(seconds.rounded())
     return String(format: "%d:%02d", total / 60, total % 60)
+}
+
+extension View {
+    /// The system font at a size, with the tracking that size actually wants.
+    ///
+    /// Everything drawn here used `.system(size:weight:)` bare, which takes
+    /// Apple's font and leaves its tracking table behind — the one thing that
+    /// keeps type looking deliberate as it changes size.
+    func islandFont(_ size: CGFloat, weight: Font.Weight = .regular) -> some View {
+        font(.system(size: size, weight: weight))
+            .tracking(Theme.tracking(forSize: size))
+    }
 }

@@ -155,11 +155,11 @@ struct LockScreenCard: View {
             artwork
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title)
-                    .font(.system(size: pane == .player ? 18 : 15, weight: .semibold))
+                    .islandFont(pane == .player ? 18 : 15, weight: .semibold)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(track.artist)
-                    .font(.system(size: pane == .player ? 14 : 12.5))
+                    .islandFont(pane == .player ? 14 : 12.5)
                     .foregroundStyle(.white.opacity(0.62))
                     .lineLimit(1)
             }
@@ -305,7 +305,8 @@ struct LockScreenCard: View {
             distance: abs(index - centre),
             at: at,
             end: LyricSweep.end(of: index, in: lines),
-            font: .system(size: 16, weight: .bold),
+            fontSize: 16,
+            weight: .bold,
             lineLimit: 1,
             accent: accent,
             reduceMotion: reduceMotion,
@@ -338,15 +339,27 @@ struct LockScreenCard: View {
     private var outputPicker: some View {
         if pane == .output {
             ZStack {
-                // Tapping anywhere off the panel closes it, which is what every
-                // popover on this platform does.
-                Color.black.opacity(0.001)
+                // A real scrim, not an invisible click-catcher.
+                //
+                // Two reasons, and they are the same reason. Apple's rule for a
+                // modal task is to pair the surface with a dimming scrim and
+                // push the background back, so attention lands on the thing
+                // being chosen. And its rule for materials is never to stack a
+                // light translucent surface on another, because legibility
+                // collapses — which is exactly what glass-on-glass was doing
+                // here, the picker's pane sampling the card's pane.
+                //
+                // The scrim separates the two layers so each is read against
+                // something solid enough, and it is what makes the picker a
+                // layer above the card rather than a smudge on it.
+                Color.black.opacity(0.28)
                     .contentShape(Rectangle())
                     .onTapGesture { pane = .player }
+                    .transition(.opacity)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(localized("Output"))
-                        .font(.system(size: 11, weight: .semibold))
+                        .islandFont(11, weight: .semibold)
                         .foregroundStyle(.white.opacity(0.5))
                         .padding(.horizontal, 12)
                         .padding(.bottom, 4)
@@ -370,9 +383,13 @@ struct LockScreenCard: View {
                 // Grown from the corner it belongs to, not from the middle of
                 // the card. The anchor is what makes it read as *this button's*
                 // list rather than as a dialog that happened to appear.
-                .transition(
-                    .scale(scale: 0.92, anchor: .bottomTrailing).combined(with: .opacity)
-                )
+                //
+                // And it materialises rather than fading: blur eases out as the
+                // scale settles, so the surface reads as glass arriving —
+                // coming into focus — instead of a picture of glass turning
+                // opaque. A plain opacity fade is the tell that a material is
+                // painted on rather than real.
+                .transition(.materialize(anchor: .bottomTrailing))
                 // Anchored to the control that opened it, which is the rule
                 // Apple states outright: a popover points as directly as it can
                 // at the element that revealed it, and avoids covering that
@@ -414,7 +431,7 @@ struct LockScreenCard: View {
                         .foregroundStyle(.white)
                 }
                 Text(device.name)
-                    .font(.system(size: 13.5, weight: selected ? .semibold : .regular))
+                    .islandFont(13.5, weight: selected ? .semibold : .regular)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 6)
@@ -482,6 +499,7 @@ struct LockScreenCard: View {
                 Text("-" + formatTime(max(0, media.duration - fraction * media.duration)))
             }
             .font(.system(size: 11, weight: .semibold).monospacedDigit())
+            .tracking(Theme.tracking(forSize: 11))
             .foregroundStyle(.white.opacity(0.55))
         }
     }

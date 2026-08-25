@@ -314,3 +314,32 @@ struct GlassSurfaceStyle: ViewModifier {
             }
     }
 }
+
+/// A glass surface arriving, rather than a picture of one fading in.
+///
+/// Blur and scale ease out together: the pane comes into focus as it settles,
+/// which is how a real material behaves and how the system presents its own.
+/// An opacity fade alone is the tell that the surface is painted rather than
+/// made of anything — it is the difference between a window appearing and a
+/// photograph of a window being turned up.
+struct MaterializeTransition: ViewModifier {
+    /// 1 while absent, 0 once arrived.
+    let progress: Double
+    let anchor: UnitPoint
+
+    func body(content: Content) -> some View {
+        content
+            .blur(radius: progress * 14)
+            .scaleEffect(1 - progress * 0.08, anchor: anchor)
+            .opacity(1 - progress)
+    }
+}
+
+extension AnyTransition {
+    static func materialize(anchor: UnitPoint = .center) -> AnyTransition {
+        .modifier(
+            active: MaterializeTransition(progress: 1, anchor: anchor),
+            identity: MaterializeTransition(progress: 0, anchor: anchor)
+        )
+    }
+}
