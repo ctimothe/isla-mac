@@ -176,34 +176,99 @@ struct GlassSurface: View {
 
 extension View {
     /// Puts this content on a pane of glass, clipped and edged to match.
+    ///
+    /// Two implementations of the same idea, chosen by what the OS has.
+    ///
+    /// On macOS 26 the glass is Apple's own — `glassEffect`, the material the
+    /// system draws its own controls with. It samples, refracts and specularly
+    /// lights whatever is behind it, follows the user's Clear/Tinted preference
+    /// in System Settings, and will follow Apple's future tuning of all three
+    /// without this app being touched. Everything the recipe below does by hand
+    /// it does properly, so on that path the hand work is switched off entirely
+    /// rather than layered on top: a drawn scrim under real glass is just a
+    /// scrim, and stacking the two is what made the surface read muddy.
+    ///
+    /// Below 26, and anywhere there is no backdrop to sample, the drawn recipe
+    /// stands in. It is a good imitation and it is the only thing that works
+    /// where nothing can be sampled.
     func glassSurface(
         cornerRadius: CGFloat,
         elevation: GlassSurface.Elevation = .card,
         tint: Color? = nil,
         light: NSImage? = nil,
-        samplesBackdrop: Bool = true
+        samplesBackdrop: Bool = true,
+        // Force the drawn recipe even where the real material exists. For the
+        // one surface that cannot sample anything: above the login shield.
+        preferDrawn: Bool = false
     ) -> some View {
+        modifier(GlassSurfaceStyle(
+            cornerRadius: cornerRadius,
+            elevation: elevation,
+            tint: tint,
+            light: light,
+            samplesBackdrop: samplesBackdrop,
+            preferDrawn: preferDrawn
+        ))
+    }
+}
+
+struct GlassSurfaceStyle: ViewModifier {
+    let cornerRadius: CGFloat
+    let elevation: GlassSurface.Elevation
+    let tint: Color?
+    let light: NSImage?
+    let samplesBackdrop: Bool
+    let preferDrawn: Bool
+
+    /// Whether Apple's material is both available and able to do its job.
+    var usesSystemGlass: Bool {
+        guard !preferDrawn, !NotchViewModel.forcesDrawnGlass, samplesBackdrop else { return false }
+        if #available(macOS 26.0, *) { return true }
+        return false
+    }
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *), usesSystemGlass {
+            content.glassEffect(glass, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            drawn(content)
+        }
+    }
+
+    @available(macOS 26.0, *)
+    private var glass: Glass {
+        // Carried weak, as it always was: at full strength a cover turns the
+        // pane into a stained window, which is a coloured slab by another name.
+        guard let tint else { return .regular }
+        return Glass.regular.tint(tint.opacity(0.22))
+    }
+
+    private func drawn(_ content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        return background {
-            GlassSurface(elevation: elevation, tint: tint, light: light, samplesBackdrop: samplesBackdrop)
-        }
-        .clipShape(shape)
-        .overlay {
-            // An edge that catches light along the top and loses it toward the
-            // bottom, the way a lit pane does. A single flat stroke reads as a
-            // drawn border instead.
-            shape.strokeBorder(
-                LinearGradient(
-                    colors: [
-                        .white.opacity(elevation.rimOpacity.top),
-                        .white.opacity(elevation.rimOpacity.middle),
-                        .white.opacity(elevation.rimOpacity.bottom),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                lineWidth: 1
-            )
-        }
+        return content
+            .background {
+                GlassSurface(
+                    elevation: elevation, tint: tint, light: light,
+                    samplesBackdrop: samplesBackdrop
+                )
+            }
+            .clipShape(shape)
+            .overlay {
+                // An edge that catches light along the top and loses it toward
+                // the bottom, the way a lit pane does. A single flat stroke
+                // reads as a drawn border instead.
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(elevation.rimOpacity.top),
+                            .white.opacity(elevation.rimOpacity.middle),
+                            .white.opacity(elevation.rimOpacity.bottom),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+            }
     }
 }
