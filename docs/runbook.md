@@ -51,8 +51,8 @@ Launch the verified bundle:
 open "build/Dynamic Island.app"
 ```
 
-The app is an accessory application, so use its menu-bar capsule if the panel is
-not visible.
+The app has no Dock icon, no menu-bar item and no window. If the panel is not
+visible, press ⌥⌘I — that shortcut is the only route in that needs no pointer.
 
 ## 3. Every-tab smoke pass
 
@@ -67,20 +67,21 @@ not visible.
 Collapse the panel after privacy-covered rows are temporarily revealed. Reopen
 it and confirm every reveal reset.
 
-## 3a. The window and the menu bar
+## 3a. Nothing but the island
 
-The status item has no dropdown. Everything the menu carried has to be reachable
-without it.
+The app must show no surface other than the panel itself.
 
-1. Click the menu-bar icon. The window opens, and a Dock icon appears with it.
-2. Close the window. The Dock icon goes; the island still opens on hover.
-3. Click the icon again. The same window returns — a second one is a bug.
-4. In the window, press **Open Panel** and confirm the island opens.
-5. Toggle **Hide Contents → All**, then a single section, and confirm the panel
-   covers exactly those tabs.
-6. With the window focused, press ⌘Q. The app quits. (An accessory app has no
-   menu bar of its own; this works only because the window makes it `.regular`.)
-7. Read the version on the **About** page and confirm it matches the build.
+1. Launch and confirm there is **no** Dock icon, **no** menu-bar item, and no
+   window — before, during and after opening the panel.
+2. Press ⌥⌘I with the pointer nowhere near the notch. The panel opens.
+3. In Settings, press **Open Panel** and confirm it closes again.
+4. In Settings, press **About** and confirm the standard about panel names the
+   build's version.
+5. In Settings, toggle **Hide Contents** for a section and confirm the panel
+   covers exactly that tab.
+6. In Settings, press **Quit**, confirm the second press is required, and
+   confirm the app exits. This is the only quit route; if it fails, the app can
+   only be stopped from Activity Monitor.
 
 ## 3b. Panel width
 
