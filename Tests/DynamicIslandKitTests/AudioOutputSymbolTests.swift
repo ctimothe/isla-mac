@@ -69,4 +69,49 @@ final class AudioOutputSymbolTests: XCTestCase {
             }
         }
     }
+
+    /// The Apple families, told apart by name because nothing else can.
+    ///
+    /// AirPods Pro and AirPods Max both arrive over Bluetooth publishing no data
+    /// source; CoreAudio has no idea they are different products. The system's
+    /// own output menu draws the distinction, so this one does too, with Apple's
+    /// own symbols rather than lookalikes.
+    func testAppleDevicesGetTheirOwnGlyph() {
+        func symbol(_ name: String, _ transport: UInt32 = kAudioDeviceTransportTypeBluetooth) -> String {
+            AudioOutputs.symbol(forTransport: transport, dataSource: nil, name: name)
+        }
+        XCTAssertEqual(symbol("Elshod's AirPods Max"), "airpods.max")
+        XCTAssertEqual(symbol("AirPods Pro"), "airpods.pro")
+        XCTAssertEqual(symbol("Elshod's AirPods"), "airpods")
+        XCTAssertEqual(symbol("Beats Studio Pro"), "beats.headphones")
+        XCTAssertEqual(symbol("Living Room HomePod"), "homepod")
+        XCTAssertEqual(symbol("Apple TV"), "appletv")
+        XCTAssertEqual(symbol("Studio Display", kAudioDeviceTransportTypeDisplayPort), "display")
+    }
+
+    /// Wired headphones, which is what a USB-C EarPods is — and the case that
+    /// used to draw a floor-standing speaker.
+    func testWiredHeadphonesReadAsHeadphones() {
+        XCTAssertEqual(
+            AudioOutputs.symbol(forTransport: kAudioDeviceTransportTypeUSB, dataSource: nil, name: "EarPods"),
+            "headphones"
+        )
+        XCTAssertEqual(
+            AudioOutputs.symbol(forTransport: kAudioDeviceTransportTypeUSB, dataSource: nil, name: "Some USB Headset"),
+            "headphones"
+        )
+    }
+
+    /// An unrecognised name changes nothing: it falls through to the transport
+    /// and is generic rather than wrong.
+    func testAnUnknownNameFallsThroughToTheTransport() {
+        XCTAssertEqual(
+            AudioOutputs.symbol(forTransport: kAudioDeviceTransportTypeUSB, dataSource: nil, name: "Scarlett 2i2"),
+            "speaker.wave.2"
+        )
+        XCTAssertEqual(
+            AudioOutputs.symbol(forTransport: kAudioDeviceTransportTypeBuiltIn, dataSource: nil, name: "MacBook Pro Speakers"),
+            "laptopcomputer"
+        )
+    }
 }
