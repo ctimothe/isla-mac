@@ -62,6 +62,13 @@ struct LockScreenCard: View {
     /// in the centre with the same amount of song either side of it.
     static let visibleLyricLines = 5
 
+    /// How far above the card's foot the output list stops.
+    ///
+    /// The rail it belongs to is 22pt tall inside 20pt of padding; clearing both
+    /// leaves the glyph that opened the list visible underneath it, which is the
+    /// half of the rule people actually notice when it is broken.
+    static let footerClearance: CGFloat = 20 + 22 + 8
+
     /// White, always.
     ///
     /// The card used to pull an accent out of the cover and paint the sung
@@ -358,7 +365,26 @@ struct LockScreenCard: View {
                 .frame(width: 268)
                 .glassSurface(cornerRadius: 20, elevation: .popover)
                 .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
-                .transition(.scale(scale: 0.94).combined(with: .opacity))
+                // Grown from the corner it belongs to, not from the middle of
+                // the card. The anchor is what makes it read as *this button's*
+                // list rather than as a dialog that happened to appear.
+                .transition(
+                    .scale(scale: 0.92, anchor: .bottomTrailing).combined(with: .opacity)
+                )
+                // Anchored to the control that opened it, which is the rule
+                // Apple states outright: a popover points as directly as it can
+                // at the element that revealed it, and avoids covering that
+                // element. The output glyph sits at the foot of the card on the
+                // trailing side, so the list hangs above it and stops short —
+                // there is no room below, and growing down would put it over
+                // the button and off the card at once.
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: .bottomTrailing
+                )
+                .padding(.trailing, 14)
+                .padding(.bottom, Self.footerClearance)
             }
             .animation(reduceMotion ? nil : Theme.paneAnimation, value: pane)
         }
