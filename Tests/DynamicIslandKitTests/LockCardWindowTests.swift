@@ -37,4 +37,47 @@ final class LockCardWindowTests: XCTestCase {
         XCTAssertEqual(frame.origin.x, frame.origin.x.rounded())
         XCTAssertEqual(frame.origin.y, frame.origin.y.rounded())
     }
+
+    /// The window is bigger than the card, on purpose.
+    ///
+    /// Cut to exactly the card, the two drop shadows had nowhere outside to
+    /// fall: they were drawn inside and clipped square at the window's edge.
+    /// Measured off the running app before the fix — the drawn footprint held a
+    /// constant 459pt width from top to bottom, and the bottom corners inset
+    /// 5pt where a 30pt radius wants about 19. A dark square behind a rounded
+    /// card.
+    func testTheWindowLeavesRoomForTheCardsShadow() {
+        XCTAssertEqual(
+            LockCardWindow.windowSize,
+            CGSize(
+                width: LockScreenCard.size.width + LockCardWindow.shadowMargin * 2,
+                height: LockScreenCard.size.height + LockCardWindow.shadowMargin * 2
+            )
+        )
+        // Enough for the wider shadow: 30pt of blur plus a 14pt drop.
+        XCTAssertGreaterThanOrEqual(LockCardWindow.shadowMargin, 44)
+    }
+
+    /// And every point of that margin belongs to whatever is underneath, which
+    /// while locked is the password field.
+    func testTheTransparentMarginTakesNoClicks() {
+        let card = CGRect(
+            x: LockCardWindow.shadowMargin, y: LockCardWindow.shadowMargin,
+            width: LockScreenCard.size.width, height: LockScreenCard.size.height
+        )
+        let root = LockCardRootView(
+            frame: CGRect(origin: .zero, size: LockCardWindow.windowSize)
+        )
+        root.cardRect = card
+
+        XCTAssertNil(root.hitTest(NSPoint(x: 4, y: 4)), "the corner of the margin")
+        XCTAssertNil(
+            root.hitTest(NSPoint(x: card.midX, y: 8)),
+            "directly below the card, where the shadow is drawn"
+        )
+        XCTAssertNotNil(
+            root.hitTest(NSPoint(x: card.midX, y: card.midY)),
+            "the card itself still answers"
+        )
+    }
 }
