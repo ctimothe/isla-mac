@@ -498,11 +498,28 @@ final class NotchController {
             return
         }
         guard !vm.isOpen else { return }
+
+        // Everything the hover route used to do, in the same order, so a click
+        // opens the panel the way a hover did rather than by a second path that
+        // merely ends up open too.
+        //
+        // The tab first. A hover always landed on Music — the island is for
+        // glancing at a track, and the other tabs are somewhere to go once it is
+        // open, not somewhere to arrive. Skipping it meant a click opened
+        // whatever had been left behind and then swapped panes *during* the
+        // expansion, which is most of what read as an unsmooth open.
+        vm.select(.media)
+        // The hover lift goes out with the same animation that opens the panel,
+        // rather than snapping off the instant `isOpen` flips.
+        vm.isHovering = false
         // Pinned, like the hotkey: a panel opened deliberately should not close
         // because the pointer was never technically inside the hover rect.
         vm.isPinnedOpen = true
-        setOpen(true)
+        // Before `setOpen`, not after. Telling the watcher afterwards let it
+        // re-enter `onChange` mid-expansion and re-run the open path against a
+        // panel that was already opening.
         pointer.setInside(true)
+        setOpen(true)
         updatePinnedClickMonitor()
     }
 
