@@ -310,6 +310,8 @@ struct LockScreenCard: View {
             accent: accent,
             reduceMotion: reduceMotion,
             seek: {
+                // The song landing on a line somebody pointed at.
+                Haptics.alignment()
                 media.seek(to: LyricsStage.clickTarget(
                     lineAt: lines[index].at,
                     lead: LyricSweep.lead(
@@ -394,6 +396,8 @@ struct LockScreenCard: View {
         let selected = device.id == currentOutput
         return Button {
             guard AudioOutputs.select(device.id) else { return }
+            // A discrete value committed, which is what this pattern is for.
+            Haptics.levelChange()
             currentOutput = AudioOutputs.current()
             volume = SystemVolume.current()
             pane = .player
