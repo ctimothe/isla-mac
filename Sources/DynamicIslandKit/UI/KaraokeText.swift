@@ -75,12 +75,17 @@ struct KaraokeText: View {
     var reduceMotion: Bool = false
     var accent: Color = Color.white.opacity(0.92)
     var font: Font = .system(size: 11, weight: .medium)
+    /// Matched to the neighbouring lines. A swept line tracked differently from
+    /// the ones above and below it shifts sideways as the song moves through it,
+    /// which reads as the text twitching rather than as the voice arriving.
+    var tracking: CGFloat = 0
     var base: Color = Theme.tertiary
     var lineLimit: Int = 1
 
     var body: some View {
         Text(text)
             .font(font)
+            .tracking(tracking)
             // White on purpose, and never seen: the renderer multiplies it to the
             // colour each half of the line should be. Multiplying a colour that is
             // already dim would give a third, darker colour instead of the one
