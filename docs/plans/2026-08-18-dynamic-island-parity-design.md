@@ -94,6 +94,20 @@ transitions.
 > the second column existed to hold an overflow that no longer exists.
 > Translate is the only tab that requests keyboard focus.
 
+> **Amended 2026-08-26.** The panel opens on a **click**, not on a hover.
+> Every point of the compact island opens it and the compact island carries no
+> controls; the delays in the table above still govern the hover route, which
+> survives as **Open on Hover** in Settings, off by default. The pointer
+> machinery, the warm and cool zones and the dwell are unchanged — what changed
+> is which gesture commits. A hover now brightens the island's surface and does
+> nothing more. Over the lock screen neither gesture opens anything: a hover
+> brightens, a click refuses with a shake.
+>
+> The reason is the one the design's own hardware section implies. The cursor
+> crosses the top of the screen constantly — the menu bar, the traffic lights, a
+> tab — and a panel that unfolded at each pass interrupts whatever is beneath
+> it. A click is a decision; a hover is traffic.
+
 > **Amended 2026-08-25.** The standard content size is now `480…620 × 208 pt`,
 > defaulting to `560`, chosen from Settings. The fixed maximum window is
 > unchanged at `700 × 444 pt` and is cut for the widest body: a narrower

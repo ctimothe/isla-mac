@@ -21,9 +21,19 @@ another Mac must use Developer ID signing and notarization as described in
 
 ## Product behavior
 
-- Hover at the physical notch, or the centered synthetic notch on a display
-  without one, to open the panel. ⌥⌘I opens it from the keyboard and keeps it
-  open until a command closes it; ⌥⌘T translates the clipboard.
+- Click the island — at the physical notch, or the centered synthetic notch on
+  a display without one — to open the panel. Anywhere on it: the artwork side,
+  the cutout between, the equalizer side, both shoulders. The compact island
+  carries no controls at all; opening is the only thing it does.
+- Hovering does not open it. The surface brightens slightly under the pointer
+  and nothing else, because the cursor crosses the top of the screen constantly
+  and an island that unfolded every time would interrupt what is under it.
+  **Open on Hover** in Settings restores the old behavior, off by default, and
+  the hover-delay slider appears only when it is on.
+- ⌥⌘I opens it from the keyboard and keeps it open until a command closes it;
+  ⌥⌘T translates the clipboard.
+- Over the lock screen the island shows what is playing and answers nothing:
+  hovering brightens it, clicking shakes it off. It never opens there.
 - The island is the whole app. There is no Dock icon, no menu-bar item and no
   window — Settings inside the panel carries Open Panel, About and Quit.
 - Settings sets how wide the panel opens, between 480 and 620 pt. The window
@@ -33,6 +43,12 @@ another Mac must use Developer ID signing and notarization as described in
 - Clipboard entries marked concealed, transient, or auto-generated are ignored.
 - The panel is excluded from screen recordings by default; Settings turns that
   off for anyone who wants to photograph their own island.
+- Translucent surfaces use the system's own material where macOS has it, and a
+  hand-drawn recipe below macOS 26 or anywhere there is nothing to sample.
+  **Reduce Transparency** replaces them with opaque panels and **Increase
+  Contrast** gives them a defined border, both followed live.
+- The trackpad taps twice and only twice: when an output device is chosen, and
+  when a click on a lyric lands the song on that line.
 - Cached lyrics live under `~/Library/Application Support/DynamicIsland`,
   beside copies of anything dropped on the Shelf by an app that hands over
   content rather than a path. Files dragged in from Finder stay where they are.
