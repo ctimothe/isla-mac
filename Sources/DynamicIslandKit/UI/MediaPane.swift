@@ -108,7 +108,7 @@ struct MediaPane: View {
                 artwork(for: track)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(track.title)
-                        .font(.system(size: 16, weight: .semibold))
+                        .islandFont(16, weight: .semibold)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Text(subtitle(for: track))
@@ -413,7 +413,10 @@ struct MediaPane: View {
                             fraction: line.isCredit || !shown.swept
                                 ? 0
                                 : LyricSweep.fraction(line: line, at: at, end: end),
-                            reduceMotion: reduceMotion
+                            reduceMotion: reduceMotion,
+                            // The caption sits at 11pt, where SF opens tracking
+                            // up slightly rather than tightening it.
+                            tracking: Theme.tracking(forSize: 11)
                         )
                         .italic(line.isCredit)
                         // Keyed so a line change crossfades instead of morphing

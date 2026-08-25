@@ -23,7 +23,10 @@ struct LyricRow: View {
     /// When this line gives way to the next.
     let end: TimeInterval
 
-    var font: Font = .system(size: 16, weight: .bold)
+    /// A size rather than a `Font`, so the row can apply the tracking that size
+    /// wants — SF ships a table for it and `.system(size:)` leaves it behind.
+    var fontSize: CGFloat = 16
+    var weight: Font.Weight = .bold
     var lineLimit: Int = 1
     var accent: Color = .white
     var reduceMotion: Bool = false
@@ -49,7 +52,7 @@ struct LyricRow: View {
             // has not started, and dressing it as the current lyric would claim
             // somebody is singing "Produced by".
             Text(line.text)
-                .font(font)
+                .islandFont(fontSize, weight: weight)
                 .italic()
                 .foregroundStyle(.white.opacity(isCurrent ? 0.68 : 0.34))
                 .lineLimit(lineLimit)
@@ -59,7 +62,8 @@ struct LyricRow: View {
                 fraction: LyricSweep.fraction(line: line, at: at, end: end),
                 reduceMotion: reduceMotion,
                 accent: accent,
-                font: font,
+                font: .system(size: fontSize, weight: weight),
+                tracking: Theme.tracking(forSize: fontSize),
                 // Brighter than any neighbour even before the sweep arrives:
                 // the line being sung must never be the darkest thing on screen.
                 base: .white.opacity(0.5),
@@ -70,7 +74,7 @@ struct LyricRow: View {
             // scaled these, which at reading size is not depth — it is smeared
             // type, because subpixel scaling rasterises every glyph soft.
             Text(line.text)
-                .font(font)
+                .islandFont(fontSize, weight: weight)
                 .foregroundStyle(.white.opacity(distance == 1 ? 0.34 : 0.18))
                 .lineLimit(lineLimit)
                 .truncationMode(.tail)

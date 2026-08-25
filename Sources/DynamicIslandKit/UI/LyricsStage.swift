@@ -354,7 +354,8 @@ struct LyricsStage: View {
             // The stage reads at arm's length and lets a long line wrap; the
             // card holds one line at a glance. Size and wrapping are the only
             // things either surface still decides for itself.
-            font: .system(size: 15, weight: .bold),
+            fontSize: 15,
+            weight: .bold,
             lineLimit: 2,
             accent: accent,
             reduceMotion: reduceMotion,
