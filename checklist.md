@@ -58,6 +58,11 @@ are the exception the design did not anticipate:
 - **Sound output** (lock card, no setting) lists the Mac's output devices
   and switches the system default. It changes a system-wide setting, so
   it is recorded here even though it needs no permission and no network.
+- **Output volume** (lock card, no setting) reads and sets the default
+  output device's volume, added 2026-08-25 with the card's rebuild. Another
+  system-wide setting, recorded on the same terms. Absent entirely for a
+  device that publishes no volume control rather than shown as a slider
+  that moves and changes nothing.
 
 The status-item menu, and then the whole status item, were removed on
 2026-08-25 by owner decision. A window was built first and withdrawn the
