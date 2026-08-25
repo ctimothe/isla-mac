@@ -106,10 +106,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller?.refreshGeometry()
     }
 
-    /// Not `private`: the Settings tab's own "Open Panel" row calls this
-    /// through `NSApp.delegate` rather than reaching for `NotchController`
-    /// itself. It is the only route left — there is no menu and no window.
-    @objc func togglePanel() {
+    /// Private again, and no longer `@objc`: the only callers left are the ⌥⌘I
+    /// hotkey and the verification hook above. Settings used to reach it through
+    /// `NSApp.delegate` for an "Open Panel" row, but that row sat inside the
+    /// panel it offered to open, so it could only ever close what you were
+    /// reading it in.
+    private func togglePanel() {
         controller?.toggle()
     }
 
