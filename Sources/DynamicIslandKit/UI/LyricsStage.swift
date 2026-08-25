@@ -50,7 +50,6 @@ struct LyricsStage: View {
     var dismiss: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var palette: ArtworkPalette?
     /// False once the reader has scrolled away under their own hand: the stage
     /// then stays where it was put, and the song moving on no longer drags the
     /// page out from under the eye. The sync pill puts it back.
@@ -60,10 +59,9 @@ struct LyricsStage: View {
     /// the way it is read when it does not.
     @State private var reading: TimeInterval?
 
-    private var accent: Color {
-        guard let palette, palette.isVivid else { return .white }
-        return Color(nsColor: palette.dominant)
-    }
+    /// White, always — the same rule the lock card follows. A sung line
+    /// coloured from the cover is unreadable the moment the cover is pale.
+    private let accent: Color = .white
 
     /// The one lead, shared with the caption and the lock card.
     private var lead: TimeInterval {
@@ -131,15 +129,6 @@ struct LyricsStage: View {
             if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
                 DebugTrail.note(new)
             }
-        }
-        .task(id: media.artwork) {
-            guard let artwork = media.artwork else {
-                palette = nil
-                return
-            }
-            palette = await Task.detached(priority: .userInitiated) {
-                ArtworkPalette.extract(from: artwork)
-            }.value
         }
     }
 
@@ -391,7 +380,7 @@ struct LyricsStage: View {
                         text: line.text,
                         fraction: LyricSweep.fraction(line: line, at: now, end: end),
                         reduceMotion: reduceMotion,
-                        accent: accent == .white ? .white : accent,
+                        accent: accent,
                         font: .system(size: 15, weight: .bold),
                         // Brighter than any neighbour even before the sweep
                         // arrives — the line being sung must never be the

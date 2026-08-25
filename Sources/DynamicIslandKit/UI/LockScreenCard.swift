@@ -42,7 +42,6 @@ struct LockScreenCard: View {
         _pane = State(initialValue: initialPane)
     }
 
-    @State private var palette: ArtworkPalette?
     @State private var scrubbing: Double?
     @State private var outputs: [AudioOutputs.Output] = []
     @State private var currentOutput: AudioDeviceID?
@@ -63,10 +62,16 @@ struct LockScreenCard: View {
     /// in the centre with the same amount of song either side of it.
     static let visibleLyricLines = 5
 
-    private var accent: Color {
-        guard let palette, palette.isVivid else { return .white }
-        return Color(nsColor: palette.dominant)
-    }
+    /// White, always.
+    ///
+    /// The card used to pull an accent out of the cover and paint the sung
+    /// lyric, the scrubber, shuffle, repeat, the tick and the heart with it, so
+    /// the whole interface changed colour with the track. Apple's own player
+    /// does not do this, and there is a reason beyond taste: an accent taken
+    /// from an image lands wherever the image happens to be, which on a pale or
+    /// muddy cover is unreadable type on glass. Controls are chrome. They stay
+    /// the one colour that works over everything.
+    private let accent: Color = .white
 
     var body: some View {
         if let track = media.track {
@@ -92,13 +97,9 @@ struct LockScreenCard: View {
             .glassSurface(
                 cornerRadius: 30,
                 elevation: .card,
-                // The cover's colour, carried weakly. The pane used also to be
-                // *lit* from behind by the blurred cover at 0.28 — which is
-                // what turned a warm album into a mustard slab and washed every
-                // other colour on the card. Apple's glass picks its character
-                // up from the wallpaper it is actually over; it does not need
-                // the artwork painted into it.
-                tint: style == .glass ? (palette?.isVivid == true ? Color(nsColor: palette!.dominant) : nil) : nil,
+                // No tint from the cover either. The glass takes its character
+                // from the wallpaper it is actually over, which is the point of
+                // it being glass.
                 samplesBackdrop: style == .glass
             )
             .background {
@@ -127,15 +128,6 @@ struct LockScreenCard: View {
             .onChange(of: track.key) { _, _ in pane = .player }
             .onAppear { readAudio() }
             .onChange(of: pane) { _, _ in readAudio() }
-            .task(id: media.artwork) {
-                guard let artwork = media.artwork else {
-                    palette = nil
-                    return
-                }
-                palette = await Task.detached(priority: .userInitiated) {
-                    ArtworkPalette.extract(from: artwork)
-                }.value
-            }
             .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")") {
                 guard NotchViewModel.showLyricsEnabled else { return }
                 lyrics.load(
@@ -287,7 +279,7 @@ struct LockScreenCard: View {
                         text: line.text,
                         fraction: line.isCredit ? 0 : LyricSweep.fraction(line: line, at: at, end: end),
                         reduceMotion: reduceMotion,
-                        accent: accent == .white ? .white : accent,
+                        accent: accent,
                         font: .system(size: 16, weight: .bold),
                         base: .white.opacity(0.5),
                         lineLimit: 1
@@ -370,7 +362,7 @@ struct LockScreenCard: View {
                 if selected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(accent == .white ? .white : accent)
+                        .foregroundStyle(accent)
                 }
             }
             .padding(.horizontal, 12)
@@ -579,7 +571,7 @@ struct LockScreenCard: View {
                 Button { spotify.toggleSaved(trackID: id) } label: {
                     Image(systemName: isSaved ? "heart.fill" : "heart")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(isSaved ? accent : .white)
+                        .foregroundStyle(.white)
                         .opacity(known == nil ? 0.45 : 1)
                         .frame(width: 20, height: 20)
                         .background(Circle().fill(.black.opacity(0.45)))
