@@ -36,13 +36,12 @@ struct NotchContentView: View {
                                 topRadius: Theme.collapsedTopRadius,
                                 bottomRadius: Theme.collapsedBottomRadius
                             )
-                            .stroke(
+                            .fill(
                                 LinearGradient(
-                                    colors: [.clear, .white.opacity(0.10), .white.opacity(0.34)],
+                                    colors: [.white.opacity(0.015), .white.opacity(0.075)],
                                     startPoint: .top,
                                     endPoint: .bottom
-                                ),
-                                lineWidth: 1
+                                )
                             )
                             .frame(
                                 width: size.width + 2 * Theme.collapsedTopRadius,
@@ -51,7 +50,7 @@ struct NotchContentView: View {
                             .transition(.opacity)
                         }
                     }
-                    .animation(Theme.contentAnimation, value: vm.isHovering)
+                    .animation(Theme.open(reduceMotion: reduceMotion), value: vm.isHovering)
                     // The edge says the island is there; the shake says it is
                     // not opening here. Two different answers to two different
                     // gestures, rather than one shake for both.
@@ -127,7 +126,7 @@ struct NotchContentView: View {
         .contentShape(Rectangle())
         .onTapGesture { if !isOpen { vm.onIslandClick?() } }
         .animation(Theme.open(reduceMotion: reduceMotion), value: isOpen)
-        .animation(Theme.contentAnimation, value: vm.isHovering)
+        .animation(Theme.open(reduceMotion: reduceMotion), value: vm.isHovering)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: compactActivity)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.paneAnimation, value: vm.tab)
@@ -212,17 +211,26 @@ struct NotchContentView: View {
                 .frame(width: wingWidth, alignment: vm.isPeeking ? .trailing : .center)
                 // Direct transport on the pill: a click on the equalizer wing
                 // toggles playback without opening the panel — pausing should
-                // not cost a hover, a dwell and a second click. The gesture
-                // races the hover-open by design: with the default delay the
-                // panel opens first and the click lands in it harmlessly; with
-                // a longer configured delay the pill becomes a real button.
+                // not cost a click on the island and a second one inside it.
+                //
+                // Never while locked. Over the shield the island is a picture:
+                // it shows what is playing and answers nothing, and a wing that
+                // quietly paused the music was the one place that promise broke.
+                // The whole pill refuses as one there, which is the point.
                 .contentShape(Rectangle())
-                .onTapGesture { vm.media.togglePlayPause() }
+                .onTapGesture {
+                    guard !vm.isLockedPresentation else {
+                        vm.onIslandClick?()
+                        return
+                    }
+                    vm.media.togglePlayPause()
+                }
         }
         .frame(width: size.width, height: vm.geometry.notchSize.height)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(compactAccessibilityLabel)
         .accessibilityAction(named: vm.media.isPlaying ? localized("Pause") : localized("Play")) {
+            guard !vm.isLockedPresentation else { return }
             vm.media.togglePlayPause()
         }
     }
@@ -242,21 +250,21 @@ struct NotchContentView: View {
                 topRadius: topRadius,
                 bottomRadius: isOpen ? Theme.openBottomRadius : Theme.collapsedBottomRadius
             )
-            // Nothing along the top. That edge lies against the bezel, where
-            // the island is meant to be continuous with the hardware — a line
-            // there draws the boundary the whole shape exists to hide. The
-            // gradient starts clear and arrives at the bottom, so the light
-            // appears to come from below and the sides fade into it.
+            // A lift, not an outline.
             //
-            // And faint. At full white it read as a hard outline, which states
-            // a border; this states a surface catching a little light.
-            .stroke(
+            // Two outlines were tried and neither was right, because an outline
+            // is the wrong vocabulary: it draws a boundary, and the island's
+            // whole shape exists to hide the boundary between itself and the
+            // bezel. What macOS actually does when the pointer finds something
+            // it can press — a menu bar item, a toolbar button — is lighten the
+            // surface. So the island brightens very slightly, weighted to the
+            // bottom where it is furthest from the hardware, and that is all.
+            .fill(
                 LinearGradient(
-                    colors: [.clear, .white.opacity(0.10), .white.opacity(0.34)],
+                    colors: [.white.opacity(0.015), .white.opacity(0.075)],
                     startPoint: .top,
                     endPoint: .bottom
-                ),
-                lineWidth: 1
+                )
             )
             .transition(.opacity)
         }
