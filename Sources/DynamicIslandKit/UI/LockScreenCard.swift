@@ -92,8 +92,13 @@ struct LockScreenCard: View {
             .glassSurface(
                 cornerRadius: 30,
                 elevation: .card,
+                // The cover's colour, carried weakly. The pane used also to be
+                // *lit* from behind by the blurred cover at 0.28 — which is
+                // what turned a warm album into a mustard slab and washed every
+                // other colour on the card. Apple's glass picks its character
+                // up from the wallpaper it is actually over; it does not need
+                // the artwork painted into it.
                 tint: style == .glass ? (palette?.isVivid == true ? Color(nsColor: palette!.dominant) : nil) : nil,
-                light: style == .glass ? media.artwork : nil,
                 samplesBackdrop: style == .glass
             )
             .background {

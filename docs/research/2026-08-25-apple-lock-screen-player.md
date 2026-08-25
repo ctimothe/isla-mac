@@ -64,6 +64,24 @@ degrade exactly as vibrancy did. So the split is:
 - **Above the shield** (the lock card): keep the drawn recipe until measured
   otherwise. Test it; do not assume either way.
 
+## Adopted 2026-08-25
+
+`GlassSurface` now routes through `glassEffect` wherever the OS has it and the
+surface has a backdrop to sample; the drawn recipe stands in below macOS 26 and
+anywhere sampling is pointless. The two are alternatives, never stacked — a
+drawn scrim under real glass is just a scrim, and stacking them is what made the
+lock card read muddy.
+
+The blurred-cover "light" layer went with it. Washing the pane in the album's
+colours at 0.28 is what turned a warm cover into a mustard slab; the real
+material takes its character from the wallpaper it is actually over.
+
+**Still unsettled: whether the real material can sample above the login
+shield.** It cannot be checked from a build machine — the panel excludes itself
+from screen capture, and `screencapture` was refused outright on the attempt.
+So it ships on, with `defaults write dev.dynamicisland.app drawnGlass -bool true`
+as a no-rebuild way back to the recipe if a locked Mac shows it reading flat.
+
 ## Recommendation
 
 1. Do not hunt further for a clone. None is close, and the one that is closest
