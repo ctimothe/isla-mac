@@ -45,6 +45,14 @@ final class LyricsStore: ObservableObject {
 
     @Published private(set) var state: State = .idle
 
+    /// The cache key the current `state` describes — the track without the
+    /// Spotify id, so a second lookup for the same song can be told apart from a
+    /// different one.
+    private var loadedCacheKey: String?
+    /// Words held across a same-track reload, so the caption never empties while
+    /// a better source is being asked.
+    private var retained: [Line]?
+
     /// The listener's own correction to lyric timing, in seconds. Positive
     /// makes lines arrive later, negative earlier.
     ///
@@ -98,11 +106,28 @@ final class LyricsStore: ObservableObject {
         inFlight?.cancel()
 
         guard !title.isEmpty, duration > 0 else {
+            retained = nil
+            loadedCacheKey = nil
             state = .none
             return
         }
 
-        state = .loading
+        // The words already on screen stay there while the same track is looked
+        // up again.
+        //
+        // A Spotify track resolves twice: once on its metadata, and again a beat
+        // later when the catalogue id arrives and unlocks the word-synced source.
+        // Blanking on that second pass emptied the caption mid-song for as long as
+        // a network round trip takes — the song kept playing and the words went
+        // away. They are the same track's words either way, so they are held until
+        // something better answers.
+        if case .synced(let showing) = state, loadedCacheKey == key {
+            retained = showing
+        } else {
+            retained = nil
+            state = .loading
+        }
+        loadedCacheKey = key
         inFlight = Task { [weak self] in
             guard let self else { return }
             // The cache read is disk I/O and JSON decoding, so it happens off
@@ -117,8 +142,7 @@ final class LyricsStore: ObservableObject {
             }.value
             guard !Task.isCancelled, self.loadedKey == identity else { return }
             if let cached {
-                let usable = Self.cleaned(cached, title: title, artist: artist)
-                self.state = usable.isEmpty ? .none : .synced(usable)
+                self.settle(Self.cleaned(cached, title: title, artist: artist))
                 return
             }
             await self.fetch(
@@ -128,9 +152,26 @@ final class LyricsStore: ObservableObject {
         }
     }
 
+    /// Publishes a result without throwing a better one away.
+    ///
+    /// An empty answer for a track whose words are already on screen means this
+    /// source knew less than the last, not that the song has no lyrics. Taking it
+    /// at face value is how a word-synced lookup that missed took the line-level
+    /// lyrics down with it.
+    private func settle(_ lines: [Line]) {
+        if lines.isEmpty, let retained, !retained.isEmpty {
+            state = .synced(retained)
+            return
+        }
+        retained = nil
+        state = lines.isEmpty ? .none : .synced(lines)
+    }
+
     func clear() {
         inFlight?.cancel()
         loadedKey = nil
+        loadedCacheKey = nil
+        retained = nil
         state = .idle
     }
 
@@ -443,12 +484,14 @@ final class LyricsStore: ObservableObject {
             }
         } catch {
             guard !Task.isCancelled, loadedKey == key else { return }
-            // Offline or refused: say nothing rather than something wrong,
-            // and leave the cache alone so the next launch can try again.
-            state = .none
+            // Offline or refused: say nothing rather than something wrong, and
+            // leave the cache alone so the next launch can try again. Words
+            // already on screen for this track survive — a failed lookup knows
+            // less than the one that succeeded, not more.
+            settle([])
             return
         }
-        state = lines.isEmpty ? .none : .synced(lines)
+        settle(lines)
     }
 
     // MARK: - LRC
