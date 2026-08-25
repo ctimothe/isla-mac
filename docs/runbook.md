@@ -97,14 +97,22 @@ The app must show no surface other than the panel itself.
 
 On a notched MacBook display:
 
-1. Move the pointer into the camera-housing region.
-2. Confirm the panel opens after the 50 ms delay without shifting the outer
-   window.
-3. Move down the rail and confirm the 150 ms tab dwell prevents accidental
+1. Move the pointer into the camera-housing region. The island brightens
+   under the pointer and does **not** open.
+2. Click anywhere on it — artwork side, the cutout, equalizer side, and each
+   outer shoulder — and confirm every one of them opens the panel without
+   shifting the outer window. Nothing on the compact island is a control:
+   confirm no click on it starts or stops playback.
+3. Turn on **Settings → Open on Hover**, confirm the hover-delay slider appears
+   and a hover opens the panel after the 50 ms delay, then turn it off again.
+4. Move down the rail and confirm the 150 ms tab dwell prevents accidental
    switching.
-4. Leave the cool zone and confirm collapse after 320 ms.
-5. Press ⌥⌘I, move the pointer well away, and confirm the panel stays open
+5. Leave the cool zone and confirm collapse after 320 ms.
+6. Press ⌥⌘I, move the pointer well away, and confirm the panel stays open
    until Escape, ⌥⌘I again, or a click in another application closes it.
+7. Set the panel width to its minimum and maximum in turn, and repeat step 2 at
+   each: the clickable area is cut from the width, so a dead edge would only
+   appear at one of them.
 
 ### Synthetic notch
 
@@ -119,7 +127,12 @@ remain available.
    keeps the tab, and keeps the clipboard history and the half-typed
    translation.
 2. Lock the Mac with the panel expanded. The lock card appears centered, its
-   transport answers clicks, and the pill stays at the notch.
+   transport answers clicks, and the pill stays at the notch. Hover the pill:
+   it brightens. Click it: it shakes and nothing opens, and the music keeps
+   playing — the compact island has no transport over the shield either.
+2a. Watch the card for a minute while a track plays. The scrubber advances and
+   the lyric moves with it; a frozen clock here means media was deactivated by
+   the lock path.
 3. Let the display sleep while locked, then wake it. The card still works and
    the panel never opens under the shield.
 4. Let a track change while locked. The card stays clickable and no phantom
@@ -185,6 +198,12 @@ when the scripting fallback first drives Music or Spotify.
 - Play a track whose lyrics carry word timing, open the full stage, and confirm
   the caption behind it and the stage agree on the current line. Nudge Sync and
   confirm both move together.
+- Turn on **Reduce Transparency** in System Settings → Accessibility → Display.
+  Every translucent surface becomes an opaque panel while the panel is open,
+  without relaunching. Turn on **Increase Contrast** and confirm the lit rim
+  becomes a defined border. Turn both off again.
+- Open the lock card's output list and choose a device: the trackpad taps once,
+  the list closes, and the foot rail's glyph becomes that device's.
 - Enable launch at login, log out/in, confirm a single instance launches, then
   disable the setting.
 - Quit from the menu and run `pgrep -fl libdynamicislandmedia`; it must return no
