@@ -298,6 +298,21 @@ final class NotchViewModel: ObservableObject {
         return min(max(stored, 0.05), 1.0)
     }
 
+    /// Forces the hand-drawn glass recipe even where Apple's own material
+    /// exists.
+    ///
+    /// The escape hatch for the one surface whose backdrop cannot be checked
+    /// from here: the lock card draws above the login shield, which is
+    /// protected content, and whether `glassEffect` finds anything to sample
+    /// there can only be settled by looking at a locked Mac. If it reads wrong,
+    /// `defaults write dev.dynamicisland.app drawnGlass -bool true` puts the
+    /// recipe back with no rebuild.
+    nonisolated static let drawnGlassKey = "drawnGlass"
+
+    nonisolated static var forcesDrawnGlass: Bool {
+        UserDefaults.standard.bool(forKey: drawnGlassKey)
+    }
+
     /// How wide the panel's body is drawn.
     nonisolated static let bodyWidthKey = "bodyWidth"
 
