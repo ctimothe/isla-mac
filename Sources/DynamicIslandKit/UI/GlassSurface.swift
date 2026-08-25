@@ -213,6 +213,8 @@ extension View {
 }
 
 struct GlassSurfaceStyle: ViewModifier {
+    @ObservedObject private var appearance = SystemAppearance.shared
+
     let cornerRadius: CGFloat
     let elevation: GlassSurface.Elevation
     let tint: Color?
@@ -221,18 +223,51 @@ struct GlassSurfaceStyle: ViewModifier {
     let preferDrawn: Bool
 
     /// Whether Apple's material is both available and able to do its job.
+    ///
+    /// Reduce Transparency ends the argument before it starts. The system's own
+    /// surfaces go opaque when it is on, and a translucent panel that stayed
+    /// translucent would be the only frosted thing left on the screen — which is
+    /// the opposite of belonging to the platform, and the setting exists because
+    /// for some people translucency is unreadable rather than merely fancy.
     var usesSystemGlass: Bool {
         guard !preferDrawn, !NotchViewModel.forcesDrawnGlass, samplesBackdrop else { return false }
+        guard !appearance.reduceTransparency else { return false }
         if #available(macOS 26.0, *) { return true }
         return false
     }
 
+    /// Whether to draw glass at all, as opposed to an opaque panel.
+    var isOpaque: Bool { appearance.reduceTransparency }
+
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *), usesSystemGlass {
             content.glassEffect(glass, in: .rect(cornerRadius: cornerRadius))
+        } else if isOpaque {
+            solid(content)
         } else {
             drawn(content)
         }
+    }
+
+    /// What Reduce Transparency asks for: a panel, not a pane.
+    ///
+    /// Near-solid rather than fully black, because the surface still has to read
+    /// as a layer sitting above the desktop — the setting removes translucency,
+    /// not depth. Increase Contrast adds the defined border the system draws
+    /// round its own controls when a material is no longer doing that job.
+    private func solid(_ content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background {
+                shape.fill(Color(white: 0.11))
+            }
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(
+                    .white.opacity(appearance.increaseContrast ? 0.85 : 0.18),
+                    lineWidth: appearance.increaseContrast ? 1.5 : 1
+                )
+            }
     }
 
     @available(macOS 26.0, *)
@@ -257,18 +292,25 @@ struct GlassSurfaceStyle: ViewModifier {
                 // An edge that catches light along the top and loses it toward
                 // the bottom, the way a lit pane does. A single flat stroke
                 // reads as a drawn border instead.
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(elevation.rimOpacity.top),
-                            .white.opacity(elevation.rimOpacity.middle),
-                            .white.opacity(elevation.rimOpacity.bottom),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
+                // Increase Contrast replaces the lit rim with a defined edge.
+                // A gradient that fades to nothing along the bottom is exactly
+                // what that setting exists to stop relying on.
+                if appearance.increaseContrast {
+                    shape.strokeBorder(.white.opacity(0.85), lineWidth: 1.5)
+                } else {
+                    shape.strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                .white.opacity(elevation.rimOpacity.top),
+                                .white.opacity(elevation.rimOpacity.middle),
+                                .white.opacity(elevation.rimOpacity.bottom),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+                }
             }
     }
 }

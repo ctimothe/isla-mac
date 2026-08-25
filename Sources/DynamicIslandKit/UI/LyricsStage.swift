@@ -365,6 +365,7 @@ struct LyricsStage: View {
                         index, line.at, current ?? -1, media.position
                     ))
                 }
+                Haptics.alignment()
                 media.seek(to: Self.clickTarget(lineAt: line.at, lead: lead, duration: media.duration))
                 // Choosing a line is choosing the song's place in it: the page
                 // follows again from there rather than stranding the reader one
