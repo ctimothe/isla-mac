@@ -80,6 +80,18 @@ final class NotchViewModel: ObservableObject {
     /// reaching for it with the mouse means by leaving.
     @Published var isPinnedOpen = false
 
+    /// The pointer is on the island. Drawn as an outline, not as an opening.
+    ///
+    /// Hovering used to open the panel outright, which meant the island
+    /// unfolded at every pass of the cursor across the top of the screen. It
+    /// answers a hover with an edge now: *there is something here, and it opens
+    /// when you click it.*
+    @Published var isHovering = false
+
+    /// Raised when the collapsed island is clicked. The controller owns what
+    /// that means — open, or refuse while locked — because only it knows.
+    var onIslandClick: (() -> Void)?
+
     /// Whether the panel currently holds the keyboard.
     ///
     /// Tracked apart from `tab` because the two come apart in one direction:
@@ -285,6 +297,18 @@ final class NotchViewModel: ObservableObject {
         let defaults = UserDefaults.standard
         guard defaults.object(forKey: showOnLockScreenKey) != nil else { return true }
         return defaults.bool(forKey: showOnLockScreenKey)
+    }
+
+    /// Whether a hover opens the panel on its own.
+    ///
+    /// Off by default. An island that unfolds whenever the cursor crosses the
+    /// top of the screen interrupts what is underneath it, and the cursor
+    /// crosses the top of the screen constantly — reaching the menu bar, the
+    /// traffic lights, a tab. A click is a decision; a hover is traffic.
+    nonisolated static let opensOnHoverKey = "opensOnHover"
+
+    nonisolated static var opensOnHoverEnabled: Bool {
+        UserDefaults.standard.bool(forKey: opensOnHoverKey)
     }
 
     /// How long a pointer rests on the notch before the panel opens.
