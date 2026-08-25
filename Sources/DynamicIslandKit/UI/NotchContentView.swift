@@ -211,29 +211,29 @@ struct NotchContentView: View {
             compactPlaybackState
                 .padding(.trailing, vm.isPeeking ? 12 : 0)
                 .frame(width: wingWidth, alignment: vm.isPeeking ? .trailing : .center)
-                // Direct transport on the pill: a click on the equalizer wing
-                // toggles playback without opening the panel — pausing should
-                // not cost a click on the island and a second one inside it.
+                // No gesture here, deliberately.
                 //
-                // Never while locked. Over the shield the island is a picture:
-                // it shows what is playing and answers nothing, and a wing that
-                // quietly paused the music was the one place that promise broke.
-                // The whole pill refuses as one there, which is the point.
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    guard !vm.isLockedPresentation else {
-                        vm.onIslandClick?()
-                        return
-                    }
-                    vm.media.togglePlayPause()
-                }
+                // The equalizer wing used to toggle playback, from when a hover
+                // opened the panel and a click had no other meaning. Now that a
+                // click *is* how the island opens, a wing that did something
+                // else gave the compact island two behaviours with nothing
+                // visible marking the boundary — press one half and it opens,
+                // press the other and the music stops.
+                //
+                // The compact island has no controls at all. It shows what is
+                // playing, and clicking anywhere on it opens the panel, where
+                // the controls actually are.
         }
         .frame(width: size.width, height: vm.geometry.notchSize.height)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(compactAccessibilityLabel)
-        .accessibilityAction(named: vm.media.isPlaying ? localized("Pause") : localized("Play")) {
+        // The same single purpose assistive tech gets: opening. A Pause action
+        // here would be a button the compact island does not have, reachable
+        // only by people who cannot see that it has none.
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
             guard !vm.isLockedPresentation else { return }
-            vm.media.togglePlayPause()
+            vm.onIslandClick?()
         }
     }
 
