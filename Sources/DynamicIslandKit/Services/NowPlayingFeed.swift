@@ -277,6 +277,18 @@ final class NowPlayingFeed {
     // MARK: - Commands
 
     func refresh() { write("get") }
+
+    /// Asks the helper to send the current track's cover again.
+    ///
+    /// Artwork rides only the update where it changed, so once the app has lost
+    /// its copy — the session going empty while another player takes the
+    /// display is enough — nothing will resend it for the rest of the track.
+    /// Not folded into `refresh()`: that is asked on every panel open, and
+    /// answering all of those with a cover nobody needed is the cost the
+    /// helper's dedupe exists to avoid.
+    static let artworkRequestLine = "art"
+
+    func requestArtwork() { write(Self.artworkRequestLine) }
     func send(_ command: Command, playerPID: pid_t?) {
         write(command.wireLine(playerPID: playerPID))
     }

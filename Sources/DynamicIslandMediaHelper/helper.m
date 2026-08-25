@@ -307,6 +307,27 @@ static void handleCommand(NSString *line) {
     if (!atomic_load(&sFeedReady)) return;
     if ([line isEqualToString:@"get"]) {
         publishForced(YES);
+    } else if ([line isEqualToString:@"art"]) {
+        // "I no longer have the cover for what you are describing."
+        //
+        // Artwork rides only the update where it changed, because it is the bulk
+        // of the payload and a track keeps the same cover for its whole length.
+        // But the app can lose what it was sent — the session going empty while
+        // another player takes over clears its copy — and the helper, still
+        // holding the same artwork id, would never send that cover again for the
+        // rest of the track. The album art simply stayed missing until the song
+        // did. Forgetting the id is what lets the next publish carry it.
+        //
+        // A separate verb rather than folding this into "get": `get` is asked on
+        // every panel open, and answering all of those with ~100KB of base64
+        // nobody needed is exactly the idle cost this dedupe exists to avoid.
+        // On `sQueue`, which is where every read and write of `sArtworkID`
+        // already happens — `sEmitLock` guards the payload dedupe, not this, and
+        // clearing it from the command thread would be a plain data race.
+        dispatch_async(sQueue, ^{
+            sArtworkID = nil;
+            publishForced(YES);
+        });
     } else if ([line hasPrefix:@"cmd "]) {
         NSArray<NSString *> *parts = [line componentsSeparatedByString:@" "];
         MRCommand command = (MRCommand)(parts.count > 1 ? parts[1].intValue : -1);

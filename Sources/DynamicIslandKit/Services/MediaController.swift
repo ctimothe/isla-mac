@@ -54,6 +54,12 @@ final class MediaController: ObservableObject {
 
     private var activeApp: PlayerApp?
     private var artworkKey: String?
+    /// Tracks the app has already asked the helper to resend a cover for.
+    ///
+    /// Once per track, because a session with genuinely no artwork — a browser
+    /// tab, most podcasts — would otherwise be asked again on every snapshot,
+    /// twice a second, forever.
+    private var artworkRequestedFor: Set<String> = []
     private var anchor: (position: TimeInterval, at: Date)?
     /// How fast the player says the track is moving. Podcast and video apps
     /// routinely play at 1.5× or 2×, and the ticker extrapolating at 1×
@@ -685,9 +691,22 @@ final class MediaController: ObservableObject {
             blankArtwork?.cancel()
             blankArtwork = nil
             artworkKey = key
+            artworkRequestedFor.insert(key)
             decodeArtwork(data, for: key)
+        } else if Self.shouldAskForArtwork(
+            showing: artwork != nil,
+            describesDisplayedTrack: artworkKey == key,
+            feedAvailable: feedAvailable,
+            alreadyAsked: artworkRequestedFor.contains(key)
+        ) {
+            artworkRequestedFor.insert(key)
+            feed.requestArtwork()
         } else if artworkKey != key {
             artworkKey = key
+            // A different track: it has not been asked about, and the set is
+            // reset rather than added to, so it holds one key rather than every
+            // song of the session.
+            artworkRequestedFor = []
             // Measured: on a skip the new title arrives at +51ms and its
             // artwork at +68ms, in the very next line. Blanking the moment the
             // title changes therefore buys nothing and costs two crossfades —
@@ -703,6 +722,32 @@ final class MediaController: ObservableObject {
                 self?.artwork = nil
             }
         }
+    }
+
+    /// Whether to ask the helper to send this track's cover again.
+    ///
+    /// Artwork rides only the update where it changed, because it is the bulk of
+    /// the payload and a track keeps one cover for its whole length. So a copy
+    /// lost after that update is lost for the rest of the song: the helper still
+    /// holds the same artwork id and will never send it again. Losing it is
+    /// ordinary — the session going empty while another player takes the display
+    /// clears it — and the symptom is an album cover that stays a grey note until
+    /// the track changes.
+    ///
+    /// Asked once per track. A session that genuinely has no cover — a browser
+    /// tab, most podcasts — would otherwise be asked twice a second for as long
+    /// as it played. And never while the scripted fallback is driving: there is
+    /// no helper listening to answer.
+    static func shouldAskForArtwork(
+        showing: Bool,
+        describesDisplayedTrack: Bool,
+        feedAvailable: Bool,
+        alreadyAsked: Bool
+    ) -> Bool {
+        guard !showing else { return false }
+        guard describesDisplayedTrack else { return false }
+        guard feedAvailable else { return false }
+        return !alreadyAsked
     }
 
     /// JPEG decoding on the main thread is what makes a track change stutter,
@@ -746,6 +791,10 @@ final class MediaController: ObservableObject {
         blankArtwork = nil
         artwork = nil
         artworkKey = nil
+        // The session is gone, so the next one has earned a fresh ask — this is
+        // exactly the path that loses the cover, and remembering that we already
+        // asked would make the loss permanent.
+        artworkRequestedFor = []
         isPlaying = false
         duration = 0
         position = 0
