@@ -136,3 +136,10 @@
 "Glass" = "Glass";
 "Solid" = "Solid";
 "Card Style" = "Card Style";
+
+/* Lock card panes */
+"Lyrics are switched off in Settings." = "Lyrics are switched off in Settings.";
+"Looking for the words…" = "Looking for the words…";
+"No words for this track." = "No words for this track.";
+"No output devices." = "No output devices.";
+"+%d more in Sound Settings" = "+%d more in Sound Settings";

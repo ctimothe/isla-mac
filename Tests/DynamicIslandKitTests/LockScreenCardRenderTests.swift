@@ -46,7 +46,11 @@ final class LockScreenCardRenderTests: XCTestCase {
         let renderer = ImageRenderer(content: card)
         renderer.scale = 2
         let image = try XCTUnwrap(renderer.nsImage, "the lock card must render")
-        XCTAssertEqual(LockScreenCard.size.height, 222, "the hit rect is cut from this size")
+        // The window is cut to exactly this, so the number is a contract and
+        // not a detail. It grew from 222 when the card took the system's
+        // layout: a header, a changing middle, transport and a foot rail.
+        XCTAssertEqual(LockScreenCard.size, CGSize(width: 460, height: 300),
+                       "the lock window's frame is cut from this size")
 
         // Artifact for eyes, not assertions.
         if let tiff = image.tiffRepresentation,
