@@ -96,6 +96,29 @@ never touches disk for them:
 - `DI_OPEN_LYRICS=1` — open the lyrics stage without a pointer; also writes the trail.
 - `DI_TEST_CLICK=next` — drive a lyric click from a test.
 
+## After each change
+
+Close the loop on every successful change — never leave the working tree or the
+running app behind the code:
+
+1. **Commit it**, on the change's own `feat/…`/`fix/…` branch (never `main` or
+   `staging`; merge back with an explicit merge commit), subject describing the
+   user-visible result. Only once the change's checks are green — `swift test`
+   for code, the full gate order above before a release. A red build is not a
+   change to commit.
+2. **Rebuild the app** so the running binary matches what was just committed:
+   ```bash
+   bash Scripts/bundle.sh release
+   ```
+3. **Relaunch it**, replacing the stale instance:
+   ```bash
+   pkill -x DynamicIsland; open "build/Dynamic Island.app"
+   ```
+
+Steps 2–3 exist for code in the parity worktree; a docs-only change on `main`
+has nothing to rebuild or relaunch and stops at the commit. The point is that
+the dev app is never left running against superseded code.
+
 ## Architecture
 
 **Shell.** A borderless, non-activating `NSPanel` (`NotchPanel`) hosts SwiftUI
