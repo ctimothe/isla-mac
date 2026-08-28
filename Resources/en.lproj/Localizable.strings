@@ -1,4 +1,4 @@
-/* Dynamic Island — English. The keys are the English text itself, so this table is a
+/* Isla — English. The keys are the English text itself, so this table is a
    formality: it exists so the bundle declares English as a localisation, and so
    a phrase can be reworded here without touching the code. */
 
@@ -76,7 +76,7 @@
 "notes.json cannot be read, so nothing is being saved." = "notes.json cannot be read, so nothing is being saved.";
 "Clear Everything?" = "Clear Everything?";
 "Delete These Files?" = "Delete These Files?";
-"Quit Dynamic Island?" = "Quit Dynamic Island?";
+"Quit Isla?" = "Quit Isla?";
 "Asks for confirmation before acting." = "Asks for confirmation before acting.";
 "Previous Track" = "Previous Track";
 "Next Track" = "Next Track";
@@ -97,7 +97,7 @@
 "Connect Spotify Account…" = "Connect Spotify Account…";
 "Disconnect Spotify Account" = "Disconnect Spotify Account";
 "Connect Spotify" = "Connect Spotify";
-"Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI dynamicisland://spotify-callback)." = "Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI dynamicisland://spotify-callback).";
+"Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI isla://spotify-callback)." = "Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI isla://spotify-callback).";
 "Continue" = "Continue";
 "Cancel" = "Cancel";
 "Spotify" = "Spotify";

@@ -5,16 +5,16 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="$ROOT/build/Dynamic Island.app"
+APP="$ROOT/build/Isla.app"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" 2>/dev/null || true)"
 # Пустая версия проходила все проверки ниже: sed на файле без строки VERSION=
 # завершается успешно и печатает пустоту, так что запасной вариант не срабатывал
-# и наружу выходил DynamicIsland-.dmg без версии внутри.
+# и наружу выходил Isla-.dmg без версии внутри.
 if [ -z "$VERSION" ]; then
     echo "!!! в Scripts/version нет строки VERSION=" >&2
     exit 1
 fi
-DMG="$ROOT/build/DynamicIsland-$VERSION.dmg"
+DMG="$ROOT/build/Isla-$VERSION.dmg"
 
 # Всегда, а не только когда приложения нет. Иначе образ уносит то, что лежало в
 # build с прошлого раза: номер на образе новый, приложение внутри старое, и
@@ -41,13 +41,13 @@ fi
 echo "==> раскладка образа"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
-cp -R "$APP" "$STAGE/Dynamic Island.app"
+cp -R "$APP" "$STAGE/Isla.app"
 ln -s /Applications "$STAGE/Applications"
 
 echo "==> сборка $DMG"
 rm -f "$DMG"
 hdiutil create \
-    -volname "Dynamic Island $VERSION" \
+    -volname "Isla $VERSION" \
     -srcfolder "$STAGE" \
     -fs HFS+ \
     -format UDZO \
