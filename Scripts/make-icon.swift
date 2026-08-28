@@ -4,7 +4,7 @@ import Darwin
 
 let output = CommandLine.arguments.dropFirst().first ?? "Resources/AppIcon.icns"
 let iconset = FileManager.default.temporaryDirectory
-    .appendingPathComponent("DynamicIsland-\(UUID().uuidString).iconset")
+    .appendingPathComponent("Isla-\(UUID().uuidString).iconset")
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: iconset) }
 
@@ -58,7 +58,7 @@ func bitmap(size: Int) -> NSBitmapImageRep {
     context.addPath(capsule(CGRect(x: 347, y: 838, width: 330, height: 86)))
     context.fillPath()
 
-    // Concentric signal capsules carry Dynamic Island's own cyan/violet mark.
+    // Concentric signal capsules carry Isla's own cyan/violet mark.
     let outer = CGRect(x: 282, y: 380, width: 460, height: 180)
     context.saveGState()
     context.addPath(capsule(outer))

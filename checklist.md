@@ -1,4 +1,4 @@
-# Dynamic Island parity checklist
+# Isla parity checklist
 
 This is the live completion view for the approved
 [Cyclop 0.6.5 parity design](docs/plans/2026-08-18-dynamic-island-parity-design.md).
@@ -9,13 +9,13 @@ Do not mark a manual gate complete without recording evidence in
 
 - [x] Swift unit and service tests pass.
 - [x] Pinned-source provenance and MIT attribution pass.
-- [x] Dynamic Island branding and path audits pass.
+- [x] Isla branding and path audits pass.
 - [x] English and Russian localization tables validate with matching keys.
 - [x] Release bundle builds with executable, helper, icon, localizations,
   licenses, and a valid signature.
 - [x] The live media helper returns NDJSON and exits after its input closes.
-- [x] Versioned `DynamicIsland-0.6.5.dmg` builds from the verified package.
-- [x] Lifecycle test leaves no Dynamic Island media helper after quit.
+- [x] Versioned `Isla-0.6.5.dmg` builds from the verified package.
+- [x] Lifecycle test leaves no Isla media helper after quit.
 
 ## Scope divergence from Cyclop 0.6.5
 
@@ -89,7 +89,7 @@ app now answers **Reduce Transparency** — surfaces go opaque — and
 **Increase Contrast** — the lit rim becomes a defined border. Neither is
 a divergence so much as a debt paid: an app built on a translucent
 material owes those settings an answer. `defaults write
-dev.dynamicisland.app drawnGlass -bool true` forces the drawn recipe
+com.ctimothe.isla drawnGlass -bool true` forces the drawn recipe
 everywhere, for the one surface whose backdrop cannot be checked from a
 build machine.
 

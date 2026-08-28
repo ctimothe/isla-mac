@@ -1,4 +1,4 @@
-/* Dynamic Island — русский. Ключи — английский текст, поэтому строка без перевода
+/* Isla — русский. Ключи — английский текст, поэтому строка без перевода
    просто останется английской, а не превратится в идентификатор. */
 
 /* Вкладки */
@@ -76,7 +76,7 @@
 "notes.json cannot be read, so nothing is being saved." = "notes.json не читается, ничего не сохраняется.";
 "Clear Everything?" = "Очистить всё?";
 "Delete These Files?" = "Удалить эти файлы?";
-"Quit Dynamic Island?" = "Выйти из Dynamic Island?";
+"Quit Isla?" = "Выйти из Isla?";
 "Asks for confirmation before acting." = "Запрашивает подтверждение перед действием.";
 "Previous Track" = "Предыдущий трек";
 "Next Track" = "Следующий трек";
@@ -97,7 +97,7 @@
 "Connect Spotify Account…" = "Подключить аккаунт Spotify…";
 "Disconnect Spotify Account" = "Отключить аккаунт Spotify";
 "Connect Spotify" = "Подключение Spotify";
-"Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI dynamicisland://spotify-callback)." = "Вставьте Client ID вашего приложения Spotify (developer.spotify.com/dashboard, redirect URI dynamicisland://spotify-callback).";
+"Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI isla://spotify-callback)." = "Вставьте Client ID вашего приложения Spotify (developer.spotify.com/dashboard, redirect URI isla://spotify-callback).";
 "Continue" = "Продолжить";
 "Cancel" = "Отмена";
 "Spotify" = "Spotify";
