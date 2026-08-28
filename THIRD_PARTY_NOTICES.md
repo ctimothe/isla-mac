@@ -2,7 +2,7 @@
 
 ## Cyclop 0.6.5
 
-Dynamic Island includes software derived from Cyclop 0.6.5, pinned at commit
+Isla includes software derived from Cyclop 0.6.5, pinned at commit
 `7ab60c8198681ea6c895fa55458448efb6e4c36e` from
 <https://github.com/akalikbergenov/cyclop>.
 

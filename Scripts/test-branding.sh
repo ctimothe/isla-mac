@@ -43,8 +43,29 @@ case "$status" in
         ;;
 esac
 
-grep -q 'dev.dynamicisland.app' "$ROOT/Scripts/bundle.sh"
-grep -q 'Dynamic Island.app' "$ROOT/Scripts/bundle.sh"
-grep -q 'libdynamicislandmedia.dylib' "$ROOT/Scripts/bundle.sh"
+# The previous product name (Dynamic Island — Apple's trademark) is banned the
+# same way cyclop is, so the rename to Isla can never silently regress. The
+# descriptive tagline "Dynamic Island–style" is nominative use and lives only in
+# README/docs, which are not among the targets scanned here.
+set +e
+legacy="$(scan 'dynamicisland|dev\.dynamicisland|libdynamicislandmedia|Dynamic Island' "${targets[@]}")"
+lstatus=$?
+set -e
+case "$lstatus" in
+    0)
+        echo "$legacy"
+        echo "forbidden previous product identity (Dynamic Island) remains" >&2
+        exit 1
+        ;;
+    1) ;;
+    *)
+        echo "scan failed while checking for previous identity (exit $lstatus)" >&2
+        exit 1
+        ;;
+esac
+
+grep -q 'com.ctimothe.isla' "$ROOT/Scripts/bundle.sh"
+grep -q 'Isla.app' "$ROOT/Scripts/bundle.sh"
+grep -q 'libislamedia.dylib' "$ROOT/Scripts/bundle.sh"
 
 echo "  ✓ product identity is original throughout"

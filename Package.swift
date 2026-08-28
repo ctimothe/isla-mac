@@ -2,27 +2,27 @@
 import PackageDescription
 
 let package = Package(
-    name: "DynamicIsland",
+    name: "Isla",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "DynamicIsland", targets: ["DynamicIsland"]),
+        .executable(name: "Isla", targets: ["Isla"]),
     ],
     targets: [
         .target(
-            name: "DynamicIslandKit",
-            path: "Sources/DynamicIslandKit",
+            name: "IslaKit",
+            path: "Sources/IslaKit",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
-            name: "DynamicIsland",
-            dependencies: ["DynamicIslandKit"],
-            path: "Sources/DynamicIsland",
+            name: "Isla",
+            dependencies: ["IslaKit"],
+            path: "Sources/Isla",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
-            name: "DynamicIslandKitTests",
-            dependencies: ["DynamicIslandKit"],
-            path: "Tests/DynamicIslandKitTests"
+            name: "IslaKitTests",
+            dependencies: ["IslaKit"],
+            path: "Tests/IslaKitTests"
         ),
     ]
 )

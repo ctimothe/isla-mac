@@ -1,4 +1,4 @@
-# Dynamic Island release checklist
+# Isla release checklist
 
 - Release candidate: `0.6.5 local RC`
 - Measured implementation commit: `2a454aa154ae505e603073f65244427fcb711a88`
@@ -24,7 +24,7 @@ result, evidence path, or issue link to every gate.
 5. [ ] **Permissions and network** — on a fresh account, no launch-time
    prompting; protected-folder prompts appear only in the context of a Shelf
    action; with the default switches, nothing is written to
-   `~/Pictures/DynamicIsland` and no request leaves the machine. Reworded on
+   `~/Pictures/Isla` and no request leaves the machine. Reworded on
    2026-08-21: this gate named the removed Calendar flow and so could never be
    completed as written. Clean-account manual flow is not run. Evidence:
    [release-candidate report](verification/2026-08-18-release-candidate.md)

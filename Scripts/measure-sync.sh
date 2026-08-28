@@ -31,9 +31,9 @@ swift build --package-path "$ROOT" >/dev/null
 # Mac and under Rosetta.
 BUILD="$(swift build --package-path "$ROOT" --show-bin-path)"
 swiftc -parse-as-library "$ROOT/Scripts/sync-probe/SyncProbe.swift" \
-  -I "$BUILD/Modules" "$BUILD"/DynamicIslandKit.build/*.o \
+  -I "$BUILD/Modules" "$BUILD"/IslaKit.build/*.o \
   -framework Carbon -o "$OUT/sync-probe"
-cp "$ROOT/build/Dynamic Island.app/Contents/Resources/libdynamicislandmedia.dylib" "$OUT/" 2>/dev/null \
+cp "$ROOT/build/Isla.app/Contents/Resources/libislamedia.dylib" "$OUT/" 2>/dev/null \
   || { echo "run Scripts/bundle.sh first (needs the helper dylib)"; exit 1; }
 
 osascript -e 'tell application "Spotify" to play' >/dev/null

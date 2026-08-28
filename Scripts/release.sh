@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" || true)"
 [ -n "$VERSION" ] || { echo "!!! Scripts/version has no VERSION= line" >&2; exit 1; }
 TAG="v$VERSION"
-DMG="$ROOT/build/DynamicIsland-$VERSION.dmg"
+DMG="$ROOT/build/Isla-$VERSION.dmg"
 NOTES="$ROOT/docs/releases/$VERSION.md"
 
 cd "$ROOT"
@@ -56,7 +56,7 @@ bash Scripts/test-package.sh
 # regression test-lifecycle exists to catch could ship in a release that had
 # just run every scripted gate green.
 bash Scripts/test-lifecycle.sh
-APP="$ROOT/build/Dynamic Island.app"
+APP="$ROOT/build/Isla.app"
 [ -d "$APP" ] || fail "bundle was not built: $APP"
 
 echo "==> notarize the app"
@@ -64,7 +64,7 @@ echo "==> notarize the app"
 # only the DMG left the copy the user drags to /Applications with no ticket of
 # its own, so its first launch had to reach Apple — and failed offline or behind
 # a firewall.
-APP_ZIP="$ROOT/build/DynamicIsland-$VERSION-app.zip"
+APP_ZIP="$ROOT/build/Isla-$VERSION-app.zip"
 rm -f "$APP_ZIP"
 ditto -c -k --keepParent "$APP" "$APP_ZIP"
 xcrun notarytool submit "$APP_ZIP" \
@@ -99,7 +99,7 @@ echo "==> tag $TAG"
 # failure in between stranded a tag on the remote — and the rerun then died on
 # "tag already exists; increment Scripts/version", advice that would ship a
 # version bump for a release that never happened.
-git tag -a "$TAG" -m "Dynamic Island $VERSION"
+git tag -a "$TAG" -m "Isla $VERSION"
 git push --quiet origin "$TAG"
 
 # If anything fails from here on, the tag goes back where it was rather than
@@ -137,12 +137,12 @@ BODY="$(mktemp)"
 trap 'rm -f "$BODY"' EXIT
 cp "$NOTES" "$BODY"
 SUM="$(shasum -a 256 "$DMG" | cut -d' ' -f1)"
-printf '\n\n**SHA-256** `%s`\n\nVerify with `shasum -a 256 DynamicIsland-%s.dmg`.\n' \
+printf '\n\n**SHA-256** `%s`\n\nVerify with `shasum -a 256 Isla-%s.dmg`.\n' \
     "$SUM" "$VERSION" >> "$BODY"
 [ -n "$GENERATED" ] && printf '\n\n---\n\n%s\n' "$GENERATED" >> "$BODY"
 
 gh release create "$TAG" "$DMG" \
-    --title "Dynamic Island $VERSION" \
+    --title "Isla $VERSION" \
     --notes-file "$BODY" \
     --latest
 published=1
