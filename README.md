@@ -1,103 +1,107 @@
-# Dynamic Island
+# Isla
 
-Dynamic Island is a macOS 15+ utility that expands from the camera notch into
-Music, Shelf, Clipboard, Translate, and Settings tools.
+**A Dynamic Island–style companion for the Mac notch.** Isla expands from your
+MacBook's camera notch into music, a drop shelf, clipboard history, and
+translation — free and open source.
 
-## Build, test, launch
+> "Dynamic Island" is Apple's term, used here only to describe what Isla is like.
+> Isla is an independent project, not affiliated with or endorsed by Apple.
 
-Install Xcode Command Line Tools, then run from the repository root:
+- **macOS 15+** (Sequoia), Apple Silicon or Intel.
+- Free and **MIT-licensed** — every feature you see is open source.
+- Site: `islamac.app` *(coming soon)*
 
-```bash
-bash Scripts/bundle.sh release
-swift test
-bash Scripts/test-package.sh
-open "build/Dynamic Island.app"
-```
+## Install
 
-The local bundle is ad-hoc signed, with the hardened runtime enabled so local
-testing exercises what ships. It runs on the development Mac, but a build for
-another Mac must use Developer ID signing and notarization as described in
-[the runbook](docs/runbook.md).
+Isla is distributed directly — **no App Store**.
 
-## Product behavior
+1. Download `Isla.dmg` from the
+   [latest release](https://github.com/ctimothe/isla-mac/releases/latest).
+2. Open the DMG and drag **Isla** into your Applications folder.
+3. The build is **not yet notarized by Apple**, so macOS quarantines it on first
+   download. Clear that once (Isla is open source — you can read or build every
+   line in this repo):
 
-- Click the island — at the physical notch, or the centered synthetic notch on
-  a display without one — to open the panel. Anywhere on it: the artwork side,
-  the cutout between, the equalizer side, both shoulders. The compact island
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Isla.app
+   ```
+
+   Then open **Isla** from Applications. That's it.
+
+*(A notarized, one-click-to-open build may come later. Until then the command
+above, or right-click → Open, is the way in.)*
+
+Prefer to compile it yourself? See [Build from source](#build-from-source).
+
+## What Isla does
+
+- **Click the island** — at the physical notch, or the centered synthetic notch
+  on a display without one — to open the panel. Anywhere on it works: the artwork
+  side, the cutout between, the equalizer side, both shoulders. The compact island
   carries no controls at all; opening is the only thing it does.
-- Hovering does not open it. The surface brightens slightly under the pointer
+- **Hovering does not open it.** The surface brightens slightly under the pointer
   and nothing else, because the cursor crosses the top of the screen constantly
   and an island that unfolded every time would interrupt what is under it.
-  **Open on Hover** in Settings restores the old behavior, off by default, and
-  the hover-delay slider appears only when it is on.
-- ⌥⌘I opens it from the keyboard and keeps it open until a command closes it;
-  ⌥⌘T translates the clipboard.
-- Over the lock screen the island shows what is playing and answers nothing:
+  **Open on Hover** in Settings restores the old behavior, off by default.
+- **⌥⌘I** opens it from the keyboard and keeps it open until a command closes it;
+  **⌥⌘T** translates the clipboard.
+- Over the **lock screen** the island shows what is playing and answers nothing:
   hovering brightens it, clicking shakes it off. It never opens there.
-- The island is the whole app. There is no Dock icon, no menu-bar item and no
-  window — Settings inside the panel carries Open Panel, About and Quit.
-- Settings sets how wide the panel opens, between 480 and 620 pt. The window
-  behind it never changes size; only how much of it the island draws in.
-- One rail carries Music, Shelf, Clipboard, and Translate, with Settings at its
-  foot below a gap.
-- Clipboard entries marked concealed, transient, or auto-generated are ignored.
-- The panel is excluded from screen recordings by default; Settings turns that
-  off for anyone who wants to photograph their own island.
+- The island **is** the whole app — no Dock icon, no menu-bar item, no window.
+  Settings inside the panel carries Open Panel, About and Quit.
+- One rail carries **Music, Shelf, Clipboard, and Translate**, with **Settings**
+  at its foot. Settings sets how wide the panel opens (480–620 pt).
 - Translucent surfaces use the system's own material where macOS has it, and a
-  hand-drawn recipe below macOS 26 or anywhere there is nothing to sample.
-  **Reduce Transparency** replaces them with opaque panels and **Increase
-  Contrast** gives them a defined border, both followed live.
-- The trackpad taps twice and only twice: when an output device is chosen, and
-  when a click on a lyric lands the song on that line.
-- Cached lyrics live under `~/Library/Application Support/DynamicIsland`,
-  beside copies of anything dropped on the Shelf by an app that hands over
-  content rather than a path. Files dragged in from Finder stay where they are.
+  hand-drawn recipe otherwise. **Reduce Transparency** replaces them with opaque
+  panels and **Increase Contrast** gives them a border, both followed live.
 
-### What leaves the machine, and when
+## Privacy — what leaves the machine, and when
 
-Nothing, until a switch in Settings is turned on. Both are **off by default**,
-because both send something the user owns somewhere they cannot see.
+Nothing, until a switch in Settings is turned on. Each is **off by default**,
+because each sends something you own somewhere you cannot see.
 
 - **Save clipboard screenshots** writes a copy of every image that reaches the
-  pasteboard to `~/Pictures/DynamicIsland`. Kept to the most recent 200; the
-  folder is otherwise the user's, and clearing goes to the Trash.
-- **Lyrics** sends the current title, artist, album and — for Spotify — the
-  track id to `lrclib.net`, `raw.githubusercontent.com` and `lyrics.kugou.com`
-  to look words up. That is listening history leaving the Mac, so it is asked
-  for rather than assumed. Results are cached on disk, capped at 500 tracks.
-- **Connecting a Spotify account** (Settings → Spotify) authorizes this app
-  through Spotify's own PKCE flow in the browser, for one feature the local
-  APIs do not expose: Liked Songs. There is no client secret; tokens live in
-  the keychain, `WhenUnlockedThisDeviceOnly`, and Disconnect deletes them.
-  Translation itself is on-device and never uses the network.
+  pasteboard to `~/Pictures/Isla` (most recent 200; clearing goes to the Trash).
+- **Lyrics** sends the current title, artist, album and — for Spotify — the track
+  id to `lrclib.net`, `raw.githubusercontent.com` and `lyrics.kugou.com` to look
+  words up. That is listening history leaving the Mac, so it is asked for rather
+  than assumed. Results are cached on disk, capped at 500 tracks.
+- **Connecting a Spotify account** (Settings → Spotify) authorizes Isla through
+  Spotify's own PKCE flow in the browser, for one feature the local APIs do not
+  expose: Liked Songs. There is **no client secret**; tokens live in the keychain
+  (`WhenUnlockedThisDeviceOnly`), and Disconnect deletes them. Translation itself
+  is on-device and never uses the network.
 
-The app claims one entitlement, `com.apple.security.automation.apple-events`.
-It is what lets the scripting fallback drive Music or Spotify when the
-MediaRemote helper is unavailable; macOS asks for that consent the first time
-it is used, and refusing it costs only that fallback.
+Isla claims exactly one entitlement,
+`com.apple.security.automation.apple-events` — what lets the scripting fallback
+drive Music or Spotify when the MediaRemote helper is unavailable. macOS asks for
+that consent the first time it is used; refusing it costs only that fallback.
 
-### Where the Spotify tokens are kept
+Isla never asks for your login password, in any build. Spotify tokens go to the
+data-protection keychain in a **signed & notarized** build (scoped to the team
+identity) and to a `0600` file under `~/Library/Application Support/Isla` in an
+**unsigned** build (including today's direct-download releases), because an
+ad-hoc signature has no stable identity a keychain ACL could trust. Settings
+states which is in use. See
+[`Sources/IslaKit/Services/TokenStore.swift`](Sources/IslaKit/Services/TokenStore.swift).
 
-Nothing here ever asks for your login password, in any build. That is a
-deliberate property, and it is why the storage differs by signature:
+## Build from source
 
-| Build | Store | Why |
-| --- | --- | --- |
-| Developer ID (every release) | data-protection keychain | Scoped to the team identity in the entitlements, so the app can read what it wrote across updates and nothing else can. |
-| Unsigned local build | `spotify-credentials.json`, mode `0600`, in Application Support | An ad-hoc signature has no stable identity, so the login keychain's per-binary ACL can never be satisfied twice — it would ask for your password on every rebuild while protecting the token from nothing. |
+Install the Xcode Command Line Tools, then from the repository root:
 
-The login keychain is read in exactly one situation: you press **Import Account
-From Keychain…** in Settings, which appears only when an older build left an
-account there. Detecting that asks the keychain for attributes and never for
-contents, so the offer itself costs no prompt; pressing it is what asks, once,
-after which the account is stored where this build can read it silently.
+```bash
+swift test                    # unit tests
+bash Scripts/bundle.sh release  # assemble + ad-hoc-sign build/Isla.app
+open "build/Isla.app"
+```
 
-Settings states which of the two is in use rather than leaving you to guess.
-See `Sources/DynamicIslandKit/Services/TokenStore.swift`.
+The local bundle is ad-hoc signed with the hardened runtime, so local testing
+exercises what ships. It runs on the machine that built it; a build for another
+Mac needs Developer ID signing and notarization, described in
+[the runbook](docs/runbook.md).
 
-## Verification
-
-Run all repository gates:
+There is no Xcode project — SwiftPM builds the binary and `Scripts/bundle.sh`
+assembles the `.app` around it. The full release-gate order:
 
 ```bash
 swift test
@@ -112,28 +116,22 @@ bash Scripts/test-lifecycle.sh
 bash Scripts/dmg.sh
 ```
 
-`Scripts/release.sh` runs exactly this list before it tags anything.
+`Scripts/release.sh` runs exactly this list before it tags anything. Manual and
+performance checks are tracked in [checklist.md](checklist.md) and
+[docs/release-checklist.md](docs/release-checklist.md).
 
-Two measurement harnesses are run by hand rather than as gates, because each
-needs something the machine cannot be assumed to have:
+## Why direct download, not the App Store
 
-- `Scripts/measure-performance.sh` compares idle CPU, memory and bundle size
-  against a Cyclop build produced by `Scripts/build-reference.sh`.
-- `Scripts/measure-sync.sh` measures position-sync accuracy against a live
-  Spotify, using the probe in `Scripts/sync-probe/`. It pauses and seeks the
-  music, and it fails when any phase drifts outside its stated bounds.
+Isla reads Now Playing through a small helper loaded into a platform binary,
+because MediaRemote's read path is closed to ordinary apps since macOS 15.4 and
+its entitlement is restricted. That approach is incompatible with the App Store,
+so Isla is distributed as a direct download instead. The MediaRemote framework is
+never linked into the app itself.
 
-Manual and performance checks are tracked in [checklist.md](checklist.md) and
-[docs/release-checklist.md](docs/release-checklist.md). The binding behavior and
-performance contract is the approved
-[Cyclop 0.6.5 parity design](docs/plans/2026-08-18-dynamic-island-parity-design.md).
+## License and attribution
 
-## Reference and license
-
-The parity foundation is derived from MIT-licensed Cyclop 0.6.5 at the commit
-pinned in [UPSTREAM_CYCLOP_VERSION](UPSTREAM_CYCLOP_VERSION). Dynamic Island
-keeps the required attribution in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) while using its own name,
+Isla is **MIT-licensed** — see [LICENSE](LICENSE). Its foundation derives from
+MIT-licensed **Cyclop 0.6.5** at the commit pinned in
+[UPSTREAM_CYCLOP_VERSION](UPSTREAM_CYCLOP_VERSION); the required attribution is
+kept in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Isla uses its own name,
 bundle identity, filesystem paths, interface copy, and app icon.
-
-See [LICENSE](LICENSE) for the project license.
