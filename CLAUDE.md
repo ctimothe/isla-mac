@@ -96,6 +96,29 @@ never touches disk for them:
 - `DI_OPEN_LYRICS=1` — open the lyrics stage without a pointer; also writes the trail.
 - `DI_TEST_CLICK=next` — drive a lyric click from a test.
 
+## After each change
+
+Close the loop on every successful change — never leave the working tree or the
+running app behind the code:
+
+1. **Commit it**, on the change's own `feat/…`/`fix/…` branch (never `main` or
+   `staging`; merge back with an explicit merge commit), subject describing the
+   user-visible result. Only once the change's checks are green — `swift test`
+   for code, the full gate order above before a release. A red build is not a
+   change to commit.
+2. **Rebuild the app** so the running binary matches what was just committed:
+   ```bash
+   bash Scripts/bundle.sh release
+   ```
+3. **Relaunch it**, replacing the stale instance:
+   ```bash
+   pkill -x DynamicIsland; open "build/Dynamic Island.app"
+   ```
+
+Steps 2–3 exist for code in the parity worktree; a docs-only change on `main`
+has nothing to rebuild or relaunch and stops at the commit. The point is that
+the dev app is never left running against superseded code.
+
 ## Architecture
 
 **Shell.** A borderless, non-activating `NSPanel` (`NotchPanel`) hosts SwiftUI
@@ -106,10 +129,15 @@ collection behavior `.canJoinAllSpaces`/`.stationary`/`.fullScreenAuxiliary`/`.i
 asks for the keyboard. Because the panel never activates, `NSScreen.main` is
 meaningless here — never use it to pick the target display, and recompute
 geometry on `NSApplication.didChangeScreenParametersNotification`. The app is
-`.accessory` (no Dock icon); About/Quit/privacy live in a status item.
-`NotchController` (~1000 lines) owns panel lifecycle, geometry, open/close
-timing, and the lock transition; `AppDelegate` owns the status item and the two
-global hot keys (⌥⌘I open, ⌥⌘T translate clipboard).
+`.accessory` — no Dock icon, no menu-bar item, no window — and the policy is set
+once in `DynamicIslandApplication.run()` and never changed at runtime. There is
+no status item: Open Panel, About, Quit and the privacy toggles all live in the
+**Settings** tab (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
+directly). `NotchController` (~1100 lines) owns panel lifecycle, geometry,
+open/close timing, and the lock transition; `AppDelegate` owns the two global hot
+keys (⌥⌘I open, ⌥⌘T translate clipboard), the "Translate in Dynamic Island"
+service (`NSApp.servicesProvider`, no Accessibility permission), and the Spotify
+URL-scheme callback.
 
 **Window sizing.** The window is cut once to the tallest body any tab can ask
 for and then never resized — it is transparent outside the visible panel, and
@@ -174,7 +202,10 @@ no controls — that hit region is cut from `bodySize.width` plus the corner
 radius, so it follows the width setting. Hover-to-open survives as **Open on
 Hover** in Settings, off by default. Over the lock screen nothing opens: a hover
 brightens, a click shakes (`RefusalShake`). `PrivacyMode` covers per-section
-content (clipboard, translate) behind drifting dots.
+content (clipboard, translate) behind drifting dots. Haptics are sparing:
+`Haptics` fires `NSHapticFeedbackManager`'s `.alignment` when a lyric click lands
+on its line and `.levelChange` when an audio output is picked on the lock card —
+on the drawn frame, never ahead of the animation.
 
 **Lyrics.** One timeline and one renderer for every surface. `LyricSweep` owns
 the clock — `index`, `centreIndex`, `end`, `lead`, `position`, `fraction`,
