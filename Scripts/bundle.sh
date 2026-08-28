@@ -16,14 +16,13 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-echo "==> generating original app icon"
-# Into the build directory, never over the tracked Resources/AppIcon.icns.
-# Regenerating a tracked file mid-build dirtied the tree after release.sh had
-# already checked it was clean, so the tag could name bytes that were not the
-# ones shipped.
-ICON="$ROOT/build/AppIcon.icns"
+# The app icon is a tracked asset (Resources/AppIcon.icns), copied verbatim into
+# the bundle. This script used to generate a placeholder icon into build/ so a
+# mid-build write could never dirty the tracked tree after release.sh had checked
+# it was clean; with a real, committed icon that indirection is gone. The build
+# dir is still created here because the per-build entitlements below live in it.
 mkdir -p "$ROOT/build"
-swift "$ROOT/Scripts/make-icon.swift" "$ICON"
+ICON="$ROOT/Resources/AppIcon.icns"
 
 echo "==> swift build -c $CONFIG"
 swift build -c "$CONFIG" --package-path "$ROOT"
@@ -75,11 +74,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-if [ -f "$ICON" ]; then
-    cp "$ICON" "$APP/Contents/Resources/AppIcon.icns"
-elif [ -f "$ROOT/Resources/AppIcon.icns" ]; then
-    cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+if [ ! -f "$ICON" ]; then
+    echo "missing app icon: $ICON" >&2
+    exit 1
 fi
+cp "$ICON" "$APP/Contents/Resources/AppIcon.icns"
 
 echo "==> licenses and notices"
 mkdir -p "$APP/Contents/Resources/Licenses"
