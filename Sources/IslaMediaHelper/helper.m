@@ -1,0 +1,450 @@
+// Now Playing feed, loaded into /usr/bin/perl.
+//
+// Since macOS 15.4 the mediaremoted daemon answers only clients it trusts, so
+// an ordinary app gets an empty dictionary no matter what it asks. Claiming the
+// `com.apple.mediaremote.external-access` entitlement does not help either: it
+// is restricted, and a process that claims it without Apple's authorization is
+// killed at launch.
+//
+// /usr/bin/perl, however, is a platform binary (Platform identifier=16) that
+// the daemon does trust, and it is signed without library validation — so it
+// can load this dylib. Running the MediaRemote calls from inside that process
+// yields the full record: title, artist, album, duration, position, artwork.
+//
+// The helper prints one JSON object per line on stdout and takes commands on
+// stdin. It exits as soon as stdin closes, so it can never outlive Isla.
+
+#import <Foundation/Foundation.h>
+#import <dlfcn.h>
+#import <stdatomic.h>
+#import <errno.h>
+#import <signal.h>
+
+typedef void (*MRGetInfoFn)(dispatch_queue_t, void (^)(CFDictionaryRef));
+typedef void (*MRGetBoolFn)(dispatch_queue_t, void (^)(Boolean));
+typedef void (*MRRegisterFn)(dispatch_queue_t);
+typedef void (*MRGetPIDFn)(dispatch_queue_t, void (^)(int));
+typedef void (*MRGetClientsFn)(dispatch_queue_t, void (^)(NSArray *));
+typedef void (*MRSendCommandToPlayerFn)(int, CFDictionaryRef, id, id, id, void (^)(id));
+typedef void (*MRGetCommandsForPlayerFn)(id, dispatch_queue_t, void (^)(NSArray *));
+
+static MRGetInfoFn sGetInfo;
+static MRGetBoolFn sGetIsPlaying;
+static MRGetPIDFn sGetPID;
+static MRGetClientsFn sGetClients;
+static MRSendCommandToPlayerFn sSendCommandToPlayer;
+static MRGetCommandsForPlayerFn sGetCommandsForPlayer;
+static dispatch_queue_t sQueue;
+static NSString *sArtworkID;
+/// Raised once the feed thread has finished wiring itself up. The command
+/// reader starts at the same moment and reads globals this flag guards — a
+/// command arriving before `sQueue` existed used to be `dispatch_async` onto
+/// nil, which is undefined behaviour, and every read of the function pointers
+/// from that thread was a plain data race besides.
+static atomic_bool sFeedReady = ATOMIC_VAR_INIT(false);
+/// Last payload published, so an unchanged one is not sent again. The helper
+/// polls twice a second per two seconds whether or not anything has changed,
+/// and each identical line woke the app to decode a snapshot it already had.
+static NSData *sLastPayload;
+static NSTimeInterval sLastEmitAt;
+/// Even an unchanged payload is repeated this often, so the app can tell a
+/// quiet helper from a dead one. Comfortably under the app's silence timeout.
+static const NSTimeInterval kHeartbeatInterval = 5.0;
+/// Ceiling on the per-PID caches, which otherwise only ever grew.
+static const NSUInteger kMaxCachedPlayers = 32;
+/// Real player paths observed while publishing. macOS can change its global
+/// "active" player between drawing a track and clicking its controls; keeping
+/// the path by owner PID makes the click follow the track that was drawn.
+static NSMutableDictionary<NSNumber *, id> *sPlayerPathsByPID;
+
+static NSString *const kMediaRemotePath =
+    @"/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote";
+
+/// Codes read live off a real session's `GetSupportedCommandsForPlayer` —
+/// not the old `MRMediaRemoteCommand` enum, which is not always the same
+/// numbering. Play/Pause/NextTrack/PreviousTrack happened to match it
+/// (0/1/4/5); SeekToPlaybackPosition did not (24, not the 11 the old enum
+/// would suggest). There is no separate toggle code in the per-client set —
+/// the caller sends Play or Pause explicitly, by its own known state.
+typedef NS_ENUM(int, MRCommand) {
+    MRCommandPlay = 0,
+    MRCommandPause = 1,
+    MRCommandNextTrack = 4,
+    MRCommandPreviousTrack = 5,
+    MRCommandSeekToPlaybackPosition = 24,
+};
+
+static id activePlayerPath(void);
+
+/// Guards the dedupe state below. `emit` normally runs on `sQueue`, but the
+/// error paths are called straight from the timer thread, the notification
+/// threads and the constructor — so the shared `sLastPayload` needs a lock of
+/// its own rather than the queue's implicit serialization.
+static NSLock *sEmitLock;
+
+/// `forced` payloads bypass the dedupe: they answer a question the app asked,
+/// and "you already know this" is not an answer it can use. Carried as an
+/// argument rather than a shared flag — a global was consumable by whichever
+/// emit happened to run first, so the 2 s poll could swallow the echo that
+/// confirms a transport tap.
+static void emitPayload(NSDictionary *payload, BOOL forced) {
+    NSData *json = [NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];
+    if (!json) return;
+    [sEmitLock lock];
+    // An identical payload is not news. The poll runs every two seconds
+    // regardless of whether anything changed — deliberately, since the
+    // notifications cannot be relied on — and every repeat used to wake the
+    // app to parse a snapshot it already held. Repeated anyway on a slow
+    // heartbeat, so silence still means something is wrong.
+    NSTimeInterval now = NSDate.timeIntervalSinceReferenceDate;
+    // An explicit `get` is always answered: the app asks for one when the panel
+    // opens, precisely to re-sync, and "you already know this" is not an answer
+    // it can use.
+    if (!forced && sLastPayload && [sLastPayload isEqualToData:json] &&
+        now - sLastEmitAt < kHeartbeatInterval) {
+        [sEmitLock unlock];
+        return;
+    }
+    sLastPayload = json;
+    sLastEmitAt = now;
+    fwrite(json.bytes, 1, json.length, stdout);
+    fputc('\n', stdout);
+    fflush(stdout);
+    [sEmitLock unlock];
+}
+
+static void emit(NSDictionary *payload) { emitPayload(payload, NO); }
+
+/// What the player says it accepts, refreshed alongside each publish and read
+/// from the last answer rather than waited for.
+///
+/// It is cached for the same reason the owning pid is, and then for one more.
+/// The reason shared with the pid: it only labels the payload, so a cycle of
+/// staleness costs nothing. The reason of its own: asked from inside the
+/// `GetNowPlayingInfo` callback — a block already running on `sQueue` — the
+/// answer never arrives at all. Nesting it there silenced the feed outright,
+/// because the payload waiting on that answer was never sent. Kept flat, both
+/// calls return.
+///
+/// A browser tab playing one video registers no next/previous handler — there
+/// is nothing to skip to — so those codes are absent and anything sent for
+/// them is dropped without a word. macOS greys its own skip buttons out on
+/// exactly these sessions.
+///
+/// Keyed by owner pid rather than a single flat cache: right after macOS
+/// switches its active Now Playing session, a global cache still reads back
+/// whatever the *previous* player answered — one publish cycle where the new
+/// player's buttons reflect the old player's capabilities. Per-pid caching
+/// means a player the current publish has not heard from yet reports nothing
+/// cached, not something borrowed from someone else.
+static NSMutableDictionary<NSNumber *, NSArray *> *sCommandsByPID;
+
+/// Drops cache entries whose process is gone.
+///
+/// Nothing used to remove them, which was two problems rather than one. The
+/// small one is unbounded growth in a helper that lives as long as the app. The
+/// real one is that macOS recycles pids: `sendCommandToPlayer` prefers the
+/// cached path for a pid, so once a pid was reused a transport command could be
+/// sent down the dead previous player's path, where it simply vanished.
+static void evictStaleCaches(void) {
+    NSMutableArray<NSNumber *> *dead = [NSMutableArray array];
+    for (NSNumber *pid in sPlayerPathsByPID.allKeys) {
+        if (kill(pid.intValue, 0) != 0 && errno == ESRCH) [dead addObject:pid];
+    }
+    for (NSNumber *pid in sCommandsByPID.allKeys) {
+        if (kill(pid.intValue, 0) != 0 && errno == ESRCH) [dead addObject:pid];
+    }
+    for (NSNumber *pid in dead) {
+        [sPlayerPathsByPID removeObjectForKey:pid];
+        [sCommandsByPID removeObjectForKey:pid];
+    }
+    // Backstop for a machine whose players outlive the check above.
+    if (sPlayerPathsByPID.count > kMaxCachedPlayers) [sPlayerPathsByPID removeAllObjects];
+    if (sCommandsByPID.count > kMaxCachedPlayers) [sCommandsByPID removeAllObjects];
+}
+
+static void refreshCommands(int ownerPID, id path) {
+    if (!sGetCommandsForPlayer) return;
+    if (!path) return;
+    sGetCommandsForPlayer(path, sQueue, ^(NSArray *infos) {
+        NSMutableArray *codes = [NSMutableArray array];
+        for (id info in infos) {
+            id code = [info valueForKey:@"command"];
+            id enabled = [info valueForKey:@"enabled"];
+            // A command can be listed and still be off right now. Only what is
+            // both listed and enabled counts as offered.
+            if ([code isKindOfClass:NSNumber.class] &&
+                (enabled == nil || [enabled boolValue])) {
+                [codes addObject:code];
+            }
+        }
+        if (ownerPID > 0) {
+            sCommandsByPID[@(ownerPID)] = codes;
+            evictStaleCaches();
+        }
+    });
+}
+
+/// Reads the current record and prints it. Artwork is only included when the
+/// track changed — it is the bulk of the payload and never changes mid-track.
+///
+/// `elapsed` goes out with the moment it was taken. The daemon does not keep
+/// that field running: it is a reading from the last change of state, and a
+/// session that has been playing for three minutes still reports the second it
+/// started at. What advances is the clock beside it, so both have to travel.
+static void publishSnapshot(int ownerPID, id path, BOOL forced) {
+    refreshCommands(ownerPID, path);
+    // Here too, not only inside refreshCommands: that early-returns when the
+    // supported-commands symbol is missing, which would leave the caches — and
+    // their stale-pid hazard — unpruned for the whole session.
+    evictStaleCaches();
+    sGetIsPlaying(sQueue, ^(Boolean playing) {
+        sGetInfo(sQueue, ^(CFDictionaryRef raw) {
+            NSDictionary *info = (__bridge NSDictionary *)raw;
+            NSString *title = info[@"kMRMediaRemoteNowPlayingInfoTitle"] ?: @"";
+
+            if (ownerPID > 0 && path) {
+                sPlayerPathsByPID[@(ownerPID)] = path;
+            }
+
+            NSMutableDictionary *out = [NSMutableDictionary dictionary];
+            // `playing ? @YES : @NO`, not `@(playing ? YES : NO)`: in C the
+            // ternary promotes both branches to `int`, so the boxed number came
+            // out an integer and the field serialised as 1 rather than true.
+            // Swift read it correctly either way, but the wire format was
+            // describing a flag as a count.
+            out[@"playing"] = playing ? @YES : @NO;
+            out[@"title"] = title;
+            out[@"artist"] = info[@"kMRMediaRemoteNowPlayingInfoArtist"] ?: @"";
+            out[@"album"] = info[@"kMRMediaRemoteNowPlayingInfoAlbum"] ?: @"";
+            out[@"duration"] = info[@"kMRMediaRemoteNowPlayingInfoDuration"] ?: @0;
+            out[@"elapsed"] = info[@"kMRMediaRemoteNowPlayingInfoElapsedTime"] ?: @0;
+            out[@"rate"] = info[@"kMRMediaRemoteNowPlayingInfoPlaybackRate"] ?: @0;
+            out[@"pid"] = @(ownerPID);
+
+            id stamp = info[@"kMRMediaRemoteNowPlayingInfoTimestamp"];
+            out[@"timestamp"] = [stamp isKindOfClass:NSDate.class]
+                ? @([(NSDate *)stamp timeIntervalSince1970])
+                : @0;
+
+            // The owner pid rides along with the identifier: two different
+            // players can report the same title|artist|album (or the same
+            // opaque artwork identifier), and without the pid a switch
+            // between them would look like no change at all — the new
+            // player's artwork would never publish because it matched the
+            // previous player's cached identity.
+            NSString *rawArtworkID = info[@"kMRMediaRemoteNowPlayingInfoArtworkIdentifier"] ?: title;
+            NSString *artworkID = [NSString stringWithFormat:@"%d|%@", ownerPID, rawArtworkID];
+            NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
+            if (artwork.length > 0 && ![artworkID isEqualToString:sArtworkID]) {
+                out[@"artwork"] = [artwork base64EncodedStringWithOptions:0];
+                sArtworkID = artworkID;
+            }
+            if (title.length == 0) sArtworkID = nil;
+
+            // Left out entirely until an answer has arrived for this player:
+            // absent is not the same as empty, and "unknown" must not read as
+            // "accepts nothing" and dim every button — nor should it borrow
+            // the previous player's answer.
+            NSArray *commands = ownerPID > 0 ? sCommandsByPID[@(ownerPID)] : nil;
+            if (commands) out[@"commands"] = commands;
+
+            emitPayload(out, forced);
+        });
+    });
+}
+
+static void publishForced(BOOL forced) {
+    if (!atomic_load(&sFeedReady)) return;
+    if (!sGetInfo || !sGetIsPlaying) {
+        // Say so, rather than going quiet. A helper that stays alive and
+        // silent is the one failure the app cannot see from the outside: the
+        // process never terminates, so nothing tells it to fall back, and the
+        // media tab stays blank forever. This is what a future macOS renaming
+        // one of these symbols looks like.
+        emitPayload(@{@"error": @"mediaremote-symbols-missing"}, forced);
+        return;
+    }
+    id path = activePlayerPath();
+    if (sGetPID) {
+        sGetPID(sQueue, ^(int pid) { publishSnapshot(pid, path, forced); });
+    } else {
+        // Onto the queue explicitly. Called straight through, this ran
+        // `publishSnapshot` — and the cache eviction inside it — on whichever
+        // thread happened to call `publish`, mutating dictionaries the queue
+        // otherwise owns.
+        dispatch_async(sQueue, ^{ publishSnapshot(0, path, forced); });
+    }
+}
+
+static void publish(void) { publishForced(NO); }
+
+/// The service already tracks which player is "active" for the whole
+/// system — asking it directly gives an already-resolved, already-matched
+/// path. Building one by hand from a bundle id resolves too, but the
+/// per-client API then reports it supports nothing and silently drops every
+/// command sent to it; this is the only form that has ever worked.
+/// `activePlayerPath` also answers nil until `MRMediaRemoteGetNowPlayingClients`
+/// has been called at least once in this process — `startFeed` does that once,
+/// at launch.
+static id activePlayerPath(void) {
+    id serviceClient = [NSClassFromString(@"MRMediaRemoteServiceClient") performSelector:@selector(sharedServiceClient)];
+    return [serviceClient performSelector:@selector(activePlayerPath)];
+}
+
+static void sendCommandToPlayer(MRCommand command, NSDictionary *options, int playerPID) {
+    if (!sSendCommandToPlayer) return;
+    id path = playerPID > 0 ? sPlayerPathsByPID[@(playerPID)] : nil;
+    if (!path) path = activePlayerPath();
+    if (!path) return;
+    sSendCommandToPlayer(command, (__bridge CFDictionaryRef)options, nil, path, nil, ^(id result){});
+}
+
+static void handleCommand(NSString *line) {
+    // The feed thread may not have finished wiring up yet: the app can write a
+    // command the instant the helper launches, and `fgets` returns as soon as
+    // there are bytes. Everything below reads globals that thread publishes.
+    if (!atomic_load(&sFeedReady)) return;
+    if ([line isEqualToString:@"get"]) {
+        publishForced(YES);
+    } else if ([line isEqualToString:@"art"]) {
+        // "I no longer have the cover for what you are describing."
+        //
+        // Artwork rides only the update where it changed, because it is the bulk
+        // of the payload and a track keeps the same cover for its whole length.
+        // But the app can lose what it was sent — the session going empty while
+        // another player takes over clears its copy — and the helper, still
+        // holding the same artwork id, would never send that cover again for the
+        // rest of the track. The album art simply stayed missing until the song
+        // did. Forgetting the id is what lets the next publish carry it.
+        //
+        // A separate verb rather than folding this into "get": `get` is asked on
+        // every panel open, and answering all of those with ~100KB of base64
+        // nobody needed is exactly the idle cost this dedupe exists to avoid.
+        // On `sQueue`, which is where every read and write of `sArtworkID`
+        // already happens — `sEmitLock` guards the payload dedupe, not this, and
+        // clearing it from the command thread would be a plain data race.
+        dispatch_async(sQueue, ^{
+            sArtworkID = nil;
+            publishForced(YES);
+        });
+    } else if ([line hasPrefix:@"cmd "]) {
+        NSArray<NSString *> *parts = [line componentsSeparatedByString:@" "];
+        MRCommand command = (MRCommand)(parts.count > 1 ? parts[1].intValue : -1);
+        int playerPID = parts.count > 2 ? parts[2].intValue : 0;
+        dispatch_async(sQueue, ^{
+            sendCommandToPlayer(command, nil, playerPID);
+            publish();
+            // The publish above races the player: it reads state before the
+            // command has taken effect (~150ms), so a tap coalesced behind an
+            // in-flight command would otherwise wait for the 2s poll to
+            // confirm. One echo after the player has settled confirms it fast.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), sQueue, ^{
+                publishForced(YES);
+            });
+        });
+    } else if ([line hasPrefix:@"seek "]) {
+        NSArray<NSString *> *parts = [line componentsSeparatedByString:@" "];
+        double seconds = parts.count > 1 ? parts[1].doubleValue : 0;
+        int playerPID = parts.count > 2 ? parts[2].intValue : 0;
+        dispatch_async(sQueue, ^{
+            sendCommandToPlayer(MRCommandSeekToPlaybackPosition, @{@"kMRMediaRemoteOptionPlaybackPosition": @(seconds)}, playerPID);
+            publish();
+            // Same echo as `cmd`: the player needs a moment to land the jump.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), sQueue, ^{
+                publishForced(YES);
+            });
+        });
+    }
+}
+
+static void startFeed(void) {
+    [NSThread detachNewThreadWithBlock:^{
+        void *handle = dlopen(kMediaRemotePath.UTF8String, RTLD_NOW);
+        if (!handle) {
+            emit(@{@"error": @"mediaremote-unavailable"});
+            return;
+        }
+        sGetInfo = (MRGetInfoFn)dlsym(handle, "MRMediaRemoteGetNowPlayingInfo");
+        sGetIsPlaying = (MRGetBoolFn)dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationIsPlaying");
+        sGetPID = (MRGetPIDFn)dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationPID");
+        sGetClients = (MRGetClientsFn)dlsym(handle, "MRMediaRemoteGetNowPlayingClients");
+        sSendCommandToPlayer = (MRSendCommandToPlayerFn)dlsym(handle, "MRMediaRemoteSendCommandToPlayer");
+        sGetCommandsForPlayer = (MRGetCommandsForPlayerFn)dlsym(handle, "MRMediaRemoteGetSupportedCommandsForPlayer");
+
+        // Every global the command reader touches is written by now, so it may
+        // start using them.
+        atomic_store(&sFeedReady, true);
+
+        MRRegisterFn registerNotifications =
+            (MRRegisterFn)dlsym(handle, "MRMediaRemoteRegisterForNowPlayingNotifications");
+        if (registerNotifications) registerNotifications(sQueue);
+
+        // activePlayerPath answers nil until the per-client subscription has
+        // been primed at least once in this process — call order matters,
+        // not just symbol presence.
+        if (sGetClients) sGetClients(sQueue, ^(NSArray *clients) {});
+
+        NSArray *names = @[
+            @"kMRMediaRemoteNowPlayingInfoDidChangeNotification",
+            @"kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification",
+            @"kMRMediaRemoteNowPlayingApplicationDidChangeNotification",
+        ];
+        for (NSString *name in names) {
+            [NSNotificationCenter.defaultCenter addObserverForName:name
+                                                           object:nil
+                                                            queue:nil
+                                                       usingBlock:^(NSNotification *note) {
+                @autoreleasepool { publish(); }
+            }];
+        }
+
+        // A poll, not just a subscription: on macOS 26 the notifications above
+        // were measured arriving zero times across 30-second windows that
+        // included real track changes (#23), so a client that only reacted to
+        // them would go stale silently. Cheap enough at this interval to run
+        // unconditionally rather than gate it on whether anything is playing —
+        // an idle session publishes the same empty record it already would.
+        //
+        // Each tick drains its own autorelease pool. This thread's run loop
+        // never exits, so the pool wrapped around the thread body never
+        // drains either: everything the poll autoreleased — the service client
+        // and player path fetched through `performSelector` on every publish —
+        // accumulated for the whole life of the helper.
+        [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *timer) {
+            @autoreleasepool { publish(); }
+        }];
+
+        @autoreleasepool { publish(); }
+        [NSRunLoop.currentRunLoop addPort:[NSMachPort port] forMode:NSDefaultRunLoopMode];
+        [NSRunLoop.currentRunLoop run];
+    }];
+}
+
+static void startCommandReader(void) {
+    [NSThread detachNewThreadWithBlock:^{
+        char buffer[512];
+        while (fgets(buffer, sizeof buffer, stdin)) {
+            @autoreleasepool {
+                NSString *line = [@(buffer) stringByTrimmingCharactersInSet:
+                                  NSCharacterSet.whitespaceAndNewlineCharacterSet];
+                if (line.length) handleCommand(line);
+            }
+        }
+        // Isla closed the pipe or went away.
+        exit(0);
+    }];
+}
+
+__attribute__((constructor))
+static void dynamic_island_helper_init(void) {
+    // The queue and the caches are created here, on one thread, before either
+    // worker exists. Created inside the feed thread they raced the command
+    // reader, which starts in the same breath and reads them.
+    sEmitLock = [[NSLock alloc] init];
+    sQueue = dispatch_queue_create("com.ctimothe.isla.mediaremote", DISPATCH_QUEUE_SERIAL);
+    sPlayerPathsByPID = [NSMutableDictionary dictionary];
+    sCommandsByPID = [NSMutableDictionary dictionary];
+    startFeed();
+    startCommandReader();
+}

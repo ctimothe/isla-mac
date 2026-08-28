@@ -1,5 +1,5 @@
 import AppKit
-@testable import DynamicIslandKit
+@testable import IslaKit
 
 /// Ground-truth sync harness.
 ///

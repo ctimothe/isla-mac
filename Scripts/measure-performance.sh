@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -ne 3 ]; then
-    echo "usage: $0 <Cyclop.app> <Dynamic Island.app> <report.md>" >&2
+    echo "usage: $0 <Cyclop.app> <Isla.app> <report.md>" >&2
     exit 2
 fi
 
@@ -151,10 +151,10 @@ checks = {
     # 0.1% sample — one Spotlight poke, one coalesced timer — used to fail the
     # entire run, while the reference's own CPU was collected and never
     # actually compared to anything.
-    "Dynamic Island peak idle CPU is no worse than Cyclop": max(product_cpu) <= max(max(ref_cpu), 0.1),
-    "Dynamic Island application RSS is no greater than Cyclop": product_rss <= ref_rss,
+    "Isla peak idle CPU is no worse than Cyclop": max(product_cpu) <= max(max(ref_cpu), 0.1),
+    "Isla application RSS is no greater than Cyclop": product_rss <= ref_rss,
     "Both helpers ran for most of the sampling window": ref_helper_ok and product_helper_ok,
-    "Dynamic Island helper RSS is no greater than Cyclop": product_helper <= ref_helper,
+    "Isla helper RSS is no greater than Cyclop": product_helper <= ref_helper,
     "Bundle difference is limited to original icon variance": product_bundle <= bundle_limit,
 }
 
@@ -173,16 +173,16 @@ pin = dict(
 upstream_version = pin.get("UPSTREAM_VERSION", "?")
 upstream_commit = pin.get("UPSTREAM_COMMIT", "?")
 lines = [
-    f"# Cyclop {upstream_version} / Dynamic Island performance comparison",
+    f"# Cyclop {upstream_version} / Isla performance comparison",
     "",
     f"- Machine: `{model}`",
     f"- macOS: `{platform.mac_ver()[0]}`",
     f"- Cyclop {upstream_version}: `{upstream_commit}`",
-    f"- Dynamic Island commit: `{commit}`",
+    f"- Isla commit: `{commit}`",
     "- Samples: 3 runs × 60 one-second samples after 3 seconds warm-up",
     f"- Command: `bash Scripts/measure-performance.sh \"{reference_app}\" \"{product_app}\" \"{report}\"`",
     "",
-    f"| Metric | Cyclop {upstream_version} | Dynamic Island |",
+    f"| Metric | Cyclop {upstream_version} | Isla |",
     "| --- | ---: | ---: |",
     f"| Peak idle CPU | {max(ref_cpu):.1f}% | {max(product_cpu):.1f}% |",
     f"| Median app RSS | {ref_rss / 1024:.2f} MiB | {product_rss / 1024:.2f} MiB |",

@@ -1,4 +1,4 @@
-# Dynamic Island verification runbook
+# Isla verification runbook
 
 Use this runbook from a clean checkout of the intended release commit. The
 approved parity design is the behavior contract; this document is the execution
@@ -41,14 +41,14 @@ bash Scripts/test-lifecycle.sh
 Expected artifacts:
 
 ```text
-build/Dynamic Island.app
-build/DynamicIsland-0.6.5.dmg
+build/Isla.app
+build/Isla-0.6.5.dmg
 ```
 
 Launch the verified bundle:
 
 ```bash
-open "build/Dynamic Island.app"
+open "build/Isla.app"
 ```
 
 The app has no Dock icon, no menu-bar item and no window. If the panel is not
@@ -62,7 +62,7 @@ visible, press ⌥⌘I — that shortcut is the only route in that needs no poin
 | Shelf | Drop files, multi-select, drag out, copy, reveal, remove | Files remain references; previews load only while Shelf is visible |
 | Clipboard | Copy 41 text values, a multi-file selection, and a concealed item | Latest 40 remain; the selection returns all of its files when pasted back; concealed item is absent |
 | Translate | Enter English and Cyrillic text; press ⌥⌘T with text on the clipboard | Route reverses by script; the pane takes the keyboard; covered when Translate privacy is on |
-| Settings | Toggle screenshot saving, lyrics, capture hiding and launch at login; drag the panel-width slider; open support files | Values persist, the panel rebuilds at the new width, and actions open Dynamic Island-owned paths; screenshot saving and lyrics start off |
+| Settings | Toggle screenshot saving, lyrics, capture hiding and launch at login; drag the panel-width slider; open support files | Values persist, the panel rebuilds at the new width, and actions open Isla-owned paths; screenshot saving and lyrics start off |
 
 Collapse the panel after privacy-covered rows are temporarily revealed. Reopen
 it and confirm every reveal reset.
@@ -155,7 +155,7 @@ Create a temporary macOS user for the test.
 2. Drag a file from Downloads to Shelf. Any protected-folder prompt must appear
    in the context of that Shelf action, never at launch.
 3. Copy a screenshot with **Save clipboard screenshots** off (the default) and
-   confirm nothing is written to `~/Pictures/DynamicIsland`.
+   confirm nothing is written to `~/Pictures/Isla`.
 4. Play a track with **Lyrics** off (the default) and confirm, with Little
    Snitch or `nettop`, that no request leaves the machine.
 5. Turn Lyrics on and confirm requests go only to `lrclib.net`,
@@ -178,7 +178,7 @@ when the scripting fallback first drives Music or Spotify.
 - Drop several files on the Shelf, one of them from a protected folder; quit,
   relaunch, and confirm every card returns and still opens its file.
 - Make the lyrics cache directory
-  `~/Library/Application Support/DynamicIsland/lyrics` unreadable
+  `~/Library/Application Support/Isla/lyrics` unreadable
   (`chmod 000`); play a track with Lyrics on, restore permissions, and confirm
   the track kept playing and the cached words are intact.
 - On an unsigned local build with a Spotify account connected, confirm
@@ -206,8 +206,8 @@ when the scripting fallback first drives Music or Spotify.
   the list closes, and the foot rail's glyph becomes that device's.
 - Enable launch at login, log out/in, confirm a single instance launches, then
   disable the setting.
-- Quit from the menu and run `pgrep -fl libdynamicislandmedia`; it must return no
-  Dynamic Island helper.
+- Quit from the menu and run `pgrep -fl libislamedia`; it must return no
+  Isla helper.
 
 ## 7. Performance comparison
 
@@ -217,7 +217,7 @@ Build the pinned reference and product, then run:
 bash Scripts/build-reference.sh
 bash Scripts/measure-performance.sh \
   "build/reference/Cyclop.app" \
-  "build/Dynamic Island.app" \
+  "build/Isla.app" \
   "docs/performance/2026-08-18-cyclop-0.6.5-baseline.md"
 ```
 

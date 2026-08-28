@@ -63,6 +63,19 @@ Cyclop's name may remain only where required for attribution, historical notes,
 or a clearly identified test reference. Dynamic Island will use an original app
 icon, screenshots, interface copy, website content, and release presentation.
 
+> **Amendment 2026-08-28 — renamed to Isla.** "Dynamic Island" is Apple's
+> trademark, and moving to an open-core model with a paid tier raises that
+> exposure, so the product is renamed **Isla**. The identity table above is
+> superseded: product name `Isla`, executable `Isla`, bundle identifier
+> `com.ctimothe.isla`, Application Support `~/Library/Application Support/Isla`,
+> saved screenshots `~/Pictures/Isla`, URL scheme `isla`, internal pasteboard
+> `com.ctimothe.isla.internal`, helper dylib `libislamedia.dylib`; the SwiftPM
+> modules became `Isla`/`IslaKit`/`IslaMediaHelper`. "Dynamic Island" survives
+> only as a descriptive tagline ("a Dynamic Island–style companion for the Mac
+> notch"), never as product identity — `Scripts/test-branding.sh` now bans the
+> old identity the way it bans Cyclop's. Rationale and full migration in
+> `docs/plans/2026-08-28-isla-open-core-migration.md`.
+
 ## Shell and interaction contract
 
 Dynamic Island uses a borderless, always-on-top panel attached to the physical

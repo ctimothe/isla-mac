@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="$ROOT/build/Dynamic Island.app"
-BINARY="$APP/Contents/MacOS/DynamicIsland"
-HELPER="$APP/Contents/Resources/libdynamicislandmedia.dylib"
+APP="$ROOT/build/Isla.app"
+BINARY="$APP/Contents/MacOS/Isla"
+HELPER="$APP/Contents/Resources/libislamedia.dylib"
 
 test -x "$BINARY"
 test -f "$HELPER"
@@ -53,7 +53,7 @@ for _ in $(seq 1 50); do
     sleep 0.1
 done
 if kill -0 "$APP_PID" 2>/dev/null; then
-    echo "Dynamic Island did not terminate within 5 seconds" >&2
+    echo "Isla did not terminate within 5 seconds" >&2
     exit 1
 fi
 APP_PID=""
@@ -71,7 +71,7 @@ for _ in $(seq 1 50); do
     sleep 0.1
 done
 if still_running; then
-    echo "orphan Dynamic Island media helper" >&2
+    echo "orphan Isla media helper" >&2
     exit 1
 fi
 
