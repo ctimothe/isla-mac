@@ -7,6 +7,17 @@
 > summaries here as step-complete; they define scope, deliverable, edge cases,
 > and definition-of-done for the per-phase plan that follows.
 
+> **SUPERSEDED IN PART — 2026-08-28.** The product decision changed: **every
+> feature that exists today is free (MIT), including the lock screen.** A paid
+> tier is reserved for *future* add-ons that do not exist yet (widgets, upgrades).
+> So the open-core split below — the commercial `Paid/` folder, the lock-screen
+> seam (Phase 3), and the entitlement/gating runtime (Phase 4) — is **deferred**
+> until such a paid add-on is actually built; none of it is needed for the current
+> all-free release. What still stands: the rename (Phase 2, done), and the publish
+> work — plain **MIT** license, README, public repo, release (Phases 0/1/5).
+> Revisit the monorepo-commercial-folder model only when the first paid add-on
+> exists.
+
 **Goal:** Rename the product from "Dynamic Island" to **Isla**, and restructure
 into an enterprise-grade **open-core** public repository — an MIT free core plus
 a commercially-licensed paid folder holding the **lock-screen card** as the first
