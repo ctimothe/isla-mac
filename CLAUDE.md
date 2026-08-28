@@ -106,10 +106,15 @@ collection behavior `.canJoinAllSpaces`/`.stationary`/`.fullScreenAuxiliary`/`.i
 asks for the keyboard. Because the panel never activates, `NSScreen.main` is
 meaningless here — never use it to pick the target display, and recompute
 geometry on `NSApplication.didChangeScreenParametersNotification`. The app is
-`.accessory` (no Dock icon); About/Quit/privacy live in a status item.
-`NotchController` (~1000 lines) owns panel lifecycle, geometry, open/close
-timing, and the lock transition; `AppDelegate` owns the status item and the two
-global hot keys (⌥⌘I open, ⌥⌘T translate clipboard).
+`.accessory` — no Dock icon, no menu-bar item, no window — and the policy is set
+once in `DynamicIslandApplication.run()` and never changed at runtime. There is
+no status item: Open Panel, About, Quit and the privacy toggles all live in the
+**Settings** tab (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
+directly). `NotchController` (~1100 lines) owns panel lifecycle, geometry,
+open/close timing, and the lock transition; `AppDelegate` owns the two global hot
+keys (⌥⌘I open, ⌥⌘T translate clipboard), the "Translate in Dynamic Island"
+service (`NSApp.servicesProvider`, no Accessibility permission), and the Spotify
+URL-scheme callback.
 
 **Window sizing.** The window is cut once to the tallest body any tab can ask
 for and then never resized — it is transparent outside the visible panel, and
@@ -174,7 +179,10 @@ no controls — that hit region is cut from `bodySize.width` plus the corner
 radius, so it follows the width setting. Hover-to-open survives as **Open on
 Hover** in Settings, off by default. Over the lock screen nothing opens: a hover
 brightens, a click shakes (`RefusalShake`). `PrivacyMode` covers per-section
-content (clipboard, translate) behind drifting dots.
+content (clipboard, translate) behind drifting dots. Haptics are sparing:
+`Haptics` fires `NSHapticFeedbackManager`'s `.alignment` when a lyric click lands
+on its line and `.levelChange` when an audio output is picked on the lock card —
+on the drawn frame, never ahead of the animation.
 
 **Lyrics.** One timeline and one renderer for every surface. `LyricSweep` owns
 the clock — `index`, `centreIndex`, `end`, `lead`, `position`, `fraction`,
