@@ -175,8 +175,15 @@ final class NotchViewModel: ObservableObject {
     ///
     /// Not a `Tab`: `TabContractTests` asserts exactly five, and a sixth that
     /// exists for one launch is not somewhere to navigate to. The rail keeps its
-    /// place beneath it — the copy points at the foot of the rail, so hiding the
-    /// rail would leave that sentence pointing at nothing.
+    /// place beside it — the copy sends the reader to the bottom left, which is
+    /// where the rail's Settings icon is, so hiding the rail would leave that
+    /// sentence pointing at nothing.
+    ///
+    /// Lowered by anything that ends the panel it opened, and set by exactly two
+    /// things — Get Started and a tab picked out of the rail. Everything else
+    /// that takes it off screen leaves `hasCompletedFirstRun` alone, so the
+    /// welcome is shown once per account *until it is answered*, not once per
+    /// account full stop.
     @Published var isShowingWelcome = false
 
     /// The welcome has been read. Sets the flag that keeps it from ever coming
@@ -548,8 +555,15 @@ final class NotchViewModel: ObservableObject {
     /// copy from a phone used to raise a Desktop-or-Documents permission
     /// prompt with no visible cause. The shelf's counter shows the new picture
     /// the moment the panel is opened, so nothing is lost by waiting.
+    ///
+    /// Nor while the welcome is up, for the same reason it waits on a keyboard:
+    /// the welcome is drawn over the pane switch, so the shelf would not appear
+    /// anyway, and moving the tab underneath it would only light Shelf in the
+    /// rail beside a body showing something else. Unlike a drag, a picture that
+    /// arrived by itself is nobody asking for anything, so it does not get to
+    /// take the welcome down — see `showShelfForDrag()`.
     func receivedScreenshot(at url: URL) {
-        guard isOpen, !wantsKeyboard else { return }
+        guard isOpen, !wantsKeyboard, !isShowingWelcome else { return }
         tab = .shelf
     }
 
@@ -557,7 +571,28 @@ final class NotchViewModel: ObservableObject {
     /// is the point, not a side effect to guard against.
     func accept(urls: [URL]) -> Bool {
         shelf.add(urls)
-        tab = .shelf
+        showShelfForDrag()
         return true
+    }
+
+    /// A drag has arrived over the island, or a file has just landed on it.
+    /// Puts the body on the shelf and takes the welcome down with it.
+    ///
+    /// The welcome is drawn *over* the pane switch, so leaving it up made a drop
+    /// during the first launch completely invisible: no drop highlight, no card,
+    /// no counter — and the `setOpen(true)` that follows a drag early-returns on
+    /// the panel the welcome had already opened, so nothing on screen moved at
+    /// all and the file looked like it had gone nowhere.
+    ///
+    /// Deliberately does **not** set `hasCompletedFirstRun`. A drop is a real
+    /// interaction with the app, but it is not the user answering the welcome:
+    /// their attention was on the file, the pane went away underneath it, and the
+    /// thing the welcome exists to say — that Quit lives in Settings, because an
+    /// `LSUIElement` app is not in Force Quit — is exactly what somebody who has
+    /// only ever dropped a file on the island still does not know. Unanswered,
+    /// the next launch asks again, on the same terms as `setOpen(false)`.
+    func showShelfForDrag() {
+        isShowingWelcome = false
+        tab = .shelf
     }
 }

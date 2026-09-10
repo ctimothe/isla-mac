@@ -166,12 +166,16 @@ Closed from the 2026-09-03 audit (`docs/audits/2026-09-03-synthesis.md`):
   Developer Program membership. Everything else in this list is worth less
   than it looks until this lands: an unsigned build loses the MediaRemote
   path on the user's machine.
-- [x] First-run pane shown once on a clean account. The panel opens itself
-  about 0.8 s after a launch that finds `hasCompletedFirstRun` unset, and the
-  body shows `WelcomePane` instead of a tab: that the app is running, that it
-  lives at the notch and opens on a click, both hotkeys, and where Quit is.
-  Pressing Get Started — or picking any tab out of the rail — sets the flag and
-  lands on Music. Not a window, not a tab, not a status item: the 2026-08-25
+- [x] First-run pane shown once per account, until it is answered. The panel
+  opens itself about 0.8 s after a launch that finds `hasCompletedFirstRun`
+  unset, and the body shows `WelcomePane` instead of a tab: that the app is
+  running, that it lives at the notch and opens on a click, both hotkeys, and
+  where Quit is. Pressing Get Started — or picking any tab out of the rail —
+  sets the flag and lands on Music. Only those two set it: closing the panel,
+  locking, sleeping, or dropping a file on the island all take the pane off
+  screen with the flag unset, and the next launch offers it again. A display
+  change carries it across the rebuild instead, the same way the selected tab is
+  carried. Not a window, not a tab, not a status item: the 2026-08-25
   withdrawal stands (`FirstRunTests`, `TabContractTests`). Still owed: the
   manual pass on a clean account, which needs the default deleted and the app
   rebuilt.

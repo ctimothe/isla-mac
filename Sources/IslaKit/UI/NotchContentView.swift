@@ -488,7 +488,7 @@ struct NotchContentView: View {
             // dismissing it is not travel between two tabs: one thing ends and
             // the panel it was in carries on.
             if vm.isShowingWelcome {
-                WelcomePane(vm: vm)
+                WelcomePane(onDismiss: { vm.dismissWelcome() })
                     .transition(.opacity)
             } else {
                 pane

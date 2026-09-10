@@ -93,13 +93,66 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
-    /// Every string the welcome shows must exist in both tables, or the pane
-    /// silently degrades to its own keys in Russian.
+    /// A file dropped on the island while the welcome is up must land where the
+    /// user can see it.
+    ///
+    /// The welcome is drawn over the pane switch, so with it still showing the
+    /// drop had no highlight, no card and no counter — and the `setOpen(true)`
+    /// the controller follows a drag with early-returns on the panel the welcome
+    /// had already opened, so nothing on screen moved and the file appeared to
+    /// have gone nowhere.
+    ///
+    /// The flag stays unset on purpose: a drop is a real interaction, but it is
+    /// not the user answering the welcome, and somebody who has only ever dropped
+    /// a file on the island has not been told where Quit is.
+    func testAFileDroppedOnTheWelcomeShowsTheShelf() {
+        withCleanFirstRun {
+            guard let vm = Self.viewModel() else {
+                return XCTFail("a test host always has a screen")
+            }
+            vm.isShowingWelcome = true
+
+            vm.showShelfForDrag()
+
+            XCTAssertFalse(vm.isShowingWelcome, "the drop landed behind the welcome")
+            XCTAssertEqual(vm.tab, .shelf)
+            XCTAssertFalse(
+                NotchViewModel.hasCompletedFirstRun,
+                "a drop is not an answer to the welcome — the next launch still owes it"
+            )
+        }
+    }
+
+    /// And the same for the drop itself, not only the drag crossing the island:
+    /// `accept(urls:)` is the other place that used to set the tab straight.
+    func testAcceptingFilesTakesTheWelcomeDown() {
+        withCleanFirstRun {
+            guard let vm = Self.viewModel() else {
+                return XCTFail("a test host always has a screen")
+            }
+            vm.isShowingWelcome = true
+
+            XCTAssertTrue(vm.accept(urls: []))
+
+            XCTAssertFalse(vm.isShowingWelcome)
+            XCTAssertEqual(vm.tab, .shelf)
+            XCTAssertFalse(NotchViewModel.hasCompletedFirstRun)
+        }
+    }
+
+    /// Every string the welcome shows must exist in both tables, and the Russian
+    /// one must actually be Russian.
     ///
     /// Reads the tables off disk rather than through `NSLocalizedString`:
     /// under `swift test` there is no bundle carrying the `.lproj` folders, so
     /// a lookup would fall back to the key and any assertion on it would pass
     /// for a string nobody ever translated.
+    ///
+    /// Presence alone was not enough: because the keys *are* the English text,
+    /// `ru.lproj` could carry all six keys with all six English values and both
+    /// this test and `Scripts/test-localizations.sh` — which compares key sets —
+    /// would pass on a pane that shows English to a Russian user. So each Russian
+    /// value has to differ from its own key.
     func testEveryWelcomeStringIsInBothTables() throws {
         XCTAssertFalse(WelcomePane.localizedKeys.isEmpty)
 
@@ -110,7 +163,33 @@ final class FirstRunTests: XCTestCase {
                     table.contains("\"\(key)\" = "),
                     "\(language).lproj is missing the welcome key \(key)"
                 )
+                guard language == "ru" else { continue }
+                XCTAssertNotEqual(
+                    Self.value(for: key, in: table), key,
+                    "ru.lproj leaves the welcome key \(key) untranslated"
+                )
             }
+        }
+    }
+
+    /// The two keycaps have to be the same size, or the two labels beside them
+    /// start at different x and a two-row list visibly fails to line up.
+    ///
+    /// The system font is proportional and these glyphs are not digits, so they
+    /// measure four points apart on their own. `WelcomePane.keycapGlyphWidth` is
+    /// the `minWidth` that equalises them, and it only does so while it is at
+    /// least as wide as the wider of the two — which is what this measures, so
+    /// that a font metrics change fails here instead of quietly ragging the
+    /// column again.
+    func testTheTwoKeycapsAreTheSameWidth() {
+        let font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        for keys in ["⌥⌘I", "⌥⌘T"] {
+            let natural = (keys as NSString).size(withAttributes: [.font: font]).width
+            XCTAssertLessThanOrEqual(
+                natural, WelcomePane.keycapGlyphWidth,
+                "\(keys) needs \(natural) pt and the keycap only guarantees "
+                    + "\(WelcomePane.keycapGlyphWidth)"
+            )
         }
     }
 
@@ -125,20 +204,27 @@ final class FirstRunTests: XCTestCase {
     /// shipped `ru.lproj` table off disk, because `Text` cannot look it up here
     /// — see `testEveryWelcomeStringIsInBothTables`.
     func testTheWelcomeFitsTheBodyInBothLanguages() throws {
-        guard let geometry = NotchGeometry.current() else {
-            throw XCTSkip("a display is needed to know how tall the body's content is")
+        // The shallowest body any supported Mac can hand the pane, tightened
+        // further by the machine actually running this if it has a screen at
+        // all. The constant is the one that matters and the local geometry is
+        // only ever a second, stricter opinion: the body is a fixed 208 pt
+        // whatever the notch takes out of it, and display scaling makes the same
+        // physical notch 38 pt on one setting and 32 on another (#27), so a
+        // build machine with a shallow notch is the most forgiving case rather
+        // than a representative one.
+        //
+        // This used to `XCTSkip` without a screen, which meant the only guard
+        // against shipping a pane with its button cut off skipped itself on
+        // every headless CI machine — and it needed the screen only to build a
+        // `NotchViewModel` for the pane to talk to. `WelcomePane` takes an
+        // `onDismiss` closure now, so it renders with no model, no geometry and
+        // no display.
+        var available = NotchMetrics.standardBodyHeight
+            - Self.deepestNotch
+            - NotchGeometry.bodyBottomPadding
+        if let geometry = NotchGeometry.current() {
+            available = min(available, geometry.standardContentHeight)
         }
-        // The tighter of the machine actually running this and the shallowest
-        // body any supported Mac can hand the pane. Measuring only the local
-        // geometry would let the pane pass here and clip on the next Mac: the
-        // body is a fixed 208 pt whatever the notch takes out of it, and display
-        // scaling makes the same physical notch 38 pt on one setting and 32 on
-        // another (#27), so a build machine with a shallow notch is the most
-        // forgiving case rather than a representative one.
-        let available = min(
-            geometry.standardContentHeight,
-            NotchMetrics.standardBodyHeight - Self.deepestNotch - NotchGeometry.bodyBottomPadding
-        )
 
         for language in ["en", "ru"] {
             let table = try Self.table(language)
@@ -163,7 +249,7 @@ final class FirstRunTests: XCTestCase {
                 )
             }
             let asked = try Self.naturalHeight(
-                of: WelcomePane(vm: XCTUnwrap(Self.viewModel()), copy: copy),
+                of: WelcomePane(onDismiss: {}, copy: copy),
                 width: Self.paneWidth
             )
             XCTAssertLessThanOrEqual(

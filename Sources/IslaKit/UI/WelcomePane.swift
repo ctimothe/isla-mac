@@ -14,7 +14,15 @@ import SwiftUI
 /// it. The last one is not a courtesy — an `LSUIElement` app does not appear in
 /// Force Quit, so a user who cannot find the panel has no way to quit it.
 struct WelcomePane: View {
-    @ObservedObject var vm: NotchViewModel
+    /// What Get Started does. A closure rather than the whole `NotchViewModel`,
+    /// because the one thing this pane asks of the app is "the welcome has been
+    /// read" — and taking the model for it made the pane unrenderable without a
+    /// screen, since a `NotchViewModel` needs a `NotchGeometry` and there is no
+    /// geometry without a display. That made the fit check below — the only
+    /// guard against shipping a pane with its button cut off — skip itself on
+    /// every headless CI machine, which is exactly where a layout regression
+    /// would otherwise be caught before a human ever saw it.
+    var onDismiss: () -> Void
 
     /// The six strings, resolved through the app's own tables by default.
     ///
@@ -41,7 +49,7 @@ struct WelcomePane: View {
             whereItLives: "It lives at the notch. Click it to open.",
             openPanel: "Open the panel",
             translateClipboard: "Translate the clipboard",
-            settingsFootnote: "Quit and everything else lives in Settings, at the foot of the rail.",
+            settingsFootnote: "Quit and everything else lives in Settings, at the bottom left.",
             action: "Get Started"
         )
 
@@ -106,7 +114,7 @@ struct WelcomePane: View {
             // like every other pane. A `Spacer` holding this button to the floor
             // of the body is what pushed the pane past the height it has — see
             // the note at the top.
-            Button { vm.dismissWelcome() } label: {
+            Button(action: onDismiss) {
                 Text(copy.action)
                     .islandFont(11, weight: .medium)
                     .foregroundStyle(.white)
@@ -128,6 +136,19 @@ struct WelcomePane: View {
         .padding(.trailing, 4)
     }
 
+    /// Room for the widest of the shortcut glyphs, so that the two keycaps are
+    /// the same size and the two labels start at the same x.
+    ///
+    /// The system font is proportional and these are not digits, so `⌥⌘T`
+    /// measures 28.3 pt against `⌥⌘I`'s 24.3 — the two caps came out four points
+    /// apart, and two rows of a two-row list not lining up is the one flaw in
+    /// this pane a reader cannot help seeing. `.monospacedDigit()`, which the
+    /// first draft used for this, does nothing here: it fixes the width of
+    /// figures, and there are none. `FirstRunTests` measures both strings
+    /// against this number, so a font change that outgrew it fails a test
+    /// instead of quietly ragging the column again.
+    static let keycapGlyphWidth: CGFloat = 30
+
     /// The glyph and what it does. The keycap is the rail icon's own well —
     /// `Theme.surface` — so a shortcut reads as a key rather than as a link.
     ///
@@ -140,6 +161,9 @@ struct WelcomePane: View {
             Text(keys)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.white)
+                // Inside the padding, so the well grows with the glyphs rather
+                // than the glyphs sliding around inside a fixed well.
+                .frame(minWidth: Self.keycapGlyphWidth)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
