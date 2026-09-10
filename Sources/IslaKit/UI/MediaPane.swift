@@ -375,6 +375,11 @@ struct MediaPane: View {
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 22, weight: .medium))
+                    // The glyph is replaced, not swapped. A hard cut on the one
+                    // control the eye is already resting on is the most visible
+                    // non-native moment in the app; `.replace` is what every
+                    // Apple transport control does.
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
@@ -391,7 +396,8 @@ struct MediaPane: View {
                 if let mode = media.repeatMode {
                     ModeToggle(
                         symbol: mode == .one ? "repeat.1" : "repeat",
-                        isOn: mode != .off
+                        isOn: mode != .off,
+                        reduceMotion: reduceMotion
                     ) { media.cycleRepeat() }
                         .accessibilityLabel(localized("Repeat"))
                         .accessibilityValue(repeatValueLabel(mode))
