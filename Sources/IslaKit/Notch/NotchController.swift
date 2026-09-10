@@ -505,10 +505,18 @@ final class NotchController {
         // closed by clicking it, which reads as the app having stopped
         // listening. Walking away closes it too; see `clickOpened`.
         if vm.isOpen {
-            vm.isPinnedOpen = false
+            // `setOpen(false)` drops the pin and retires the click monitor with
+            // it, and it cannot early-return here — `vm.isOpen` was just read as
+            // true. Writing either again would be a third copy of an invariant
+            // that only needs two.
             setOpen(false)
-            pointer.setInside(false)
-            updatePinnedClickMonitor()
+            // Not a plain `setInside(false)`. `openRect` is still cut for the
+            // open body until `collapse()` shrinks it a moment later, so the
+            // pointer that just clicked sits inside it: with Open on Hover on,
+            // the next sample read an arrival, waited `openDelay`, and reopened
+            // the panel ~50 ms after this click shut it — click to close did
+            // nothing but make the island fold and unfold.
+            pointer.closedByHand()
             return
         }
 
@@ -545,11 +553,14 @@ final class NotchController {
         pointer.openDelay = NotchViewModel.hoverOpenDelay
     }
 
-    /// The ⌥⌘I hotkey, and the Translate service. Opens until something closes
-    /// it — the
-    /// same command again, Escape, or a click outside — rather than until the
-    /// next pointer sample, which is what folded it a third of a second after
-    /// it appeared and made the keyboard route to the panel unusable.
+    /// The ⌥⌘I hotkey, `presentWelcome()` on a fresh account, and the
+    /// `DI_OPEN_LYRICS` verification hook. (The Translate service opens through
+    /// `translate(_:)`, which sets its own tab and its own grace, not here.)
+    ///
+    /// Opens until something closes it — the same command again, Escape, or a
+    /// click outside — rather than until the next pointer sample, which is what
+    /// folded it a third of a second after it appeared and made the keyboard
+    /// route to the panel unusable.
     func toggle() {
         guard let viewModel else { return }
         // `setOpen`'s close path defers the `isOpen` mutation to the next run
@@ -559,7 +570,15 @@ final class NotchController {
         let opening = !viewModel.isOpen
         viewModel.isPinnedOpen = opening
         setOpen(opening)
-        pointer.setInside(opening)
+        if opening {
+            pointer.setInside(true)
+        } else {
+            // The same hazard as the second click on the island: ⌥⌘I can be
+            // pressed with the pointer standing on the panel, and the rect an
+            // arrival is measured against is still the open body's while the
+            // panel folds. See `PointerWatcher.closedByHand()`.
+            pointer.closedByHand()
+        }
         updatePinnedClickMonitor()
     }
 
@@ -607,7 +626,11 @@ final class NotchController {
                     // holding the panel open is over.
                     self.viewModel?.isPinnedOpen = false
                     self.setOpen(false)
-                    self.pointer.setInside(false)
+                    // Deliberate, like the other two closes: the click landed in
+                    // another app, but `openRect` reaches past the region this
+                    // panel takes clicks in, so the pointer that made it can be
+                    // inside the rect an arrival is measured against.
+                    self.pointer.closedByHand()
                     self.updatePinnedClickMonitor()
                 }
             }
