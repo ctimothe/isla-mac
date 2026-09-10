@@ -98,8 +98,21 @@ enum Theme {
     /// from 6 pt to 4, and put all three surfaces that show an album — pill,
     /// panel, lock card — on one silhouette.
     static func artworkMetrics(isOpen: Bool) -> (side: CGFloat, cornerRadius: CGFloat) {
-        let side: CGFloat = isOpen ? 118 : 22
-        return (side, side / 5.5)
+        // Both ends of the travel, described once. They used to be two hardcoded
+        // pairs in two files — 22/6 in the compact header and 118/14 in the
+        // media pane — which is the same mistake as two views of one cover, one
+        // level down.
+        //
+        // The radius does not scale with the side, and that is deliberate. An
+        // earlier version held the ratio constant on the reasoning that one
+        // object keeps its proportions while it travels; it took the open cover
+        // to 21.45pt, which reads as a chip the size of a postcard. Apple's
+        // small artwork is proportionally rounder than its large artwork —
+        // a thumbnail is a chip, a cover is a picture — so the two ends carry
+        // the values each size actually wants and let the morph interpolate
+        // between them. `side / 5.5` on the lock card is right for the 42–62pt
+        // cover it was set on, and wrong here.
+        isOpen ? (118, 14) : (22, 6)
     }
 
     static let secondary = Color.white.opacity(0.55)

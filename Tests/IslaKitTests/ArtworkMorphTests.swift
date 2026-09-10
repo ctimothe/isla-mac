@@ -25,25 +25,38 @@ final class ArtworkMorphTests: XCTestCase {
         XCTAssertLessThan(compact.side, open.side, "the pill's cover is the smaller end")
         XCTAssertLessThan(compact.cornerRadius, open.cornerRadius)
 
-        // The corner stays proportional across the travel, so the silhouette is
-        // the same shape at both ends rather than two different roundnesses
-        // that happen to meet.
+        // The corner grows with the cover, but more slowly than the cover does.
+        //
+        // This started out asserting a *constant* ratio, on the reasoning that
+        // one object should keep its proportions while it travels. That is
+        // wrong, and it is wrong in the direction that shows: a thumbnail wants
+        // to read as a rounded chip and a large cover wants to read as a
+        // picture, so Apple's small artwork is proportionally far rounder than
+        // its large artwork, never the same. Holding the ratio constant took
+        // the open cover from radius 14 to 21.45 on a 118pt side — 18% — which
+        // is a chip the size of a postcard.
         let compactRatio = compact.cornerRadius / compact.side
         let openRatio = open.cornerRadius / open.side
-        XCTAssertEqual(compactRatio, openRatio, accuracy: 0.02,
-                       "the cover keeps its proportions while it travels")
+        XCTAssertGreaterThan(compactRatio, openRatio,
+                             "the small end is the proportionally rounder one")
+        XCTAssertGreaterThan(open.cornerRadius, compact.cornerRadius,
+                             "and it still grows in absolute terms, or the travel would shrink it")
     }
 
-    /// The proportion is the one the lock card already draws its cover at
-    /// (`side / 5.5`), so the same album is the same shape on all three
-    /// surfaces. Stated as a value and not just as a ratio between the two ends,
-    /// because two ends can agree with each other and still disagree with the
-    /// card.
-    func testTheProportionIsTheOneTheLockCardAlreadyUses() {
-        for isOpen in [false, true] {
-            let metrics = Theme.artworkMetrics(isOpen: isOpen)
-            XCTAssertEqual(metrics.cornerRadius, metrics.side / 5.5, accuracy: 0.001)
-        }
+    /// The lock card draws its own cover at `side / 5.5`, and this deliberately
+    /// does not follow it.
+    ///
+    /// That ratio was set on a 42–62pt cover, where 18% reads as a rounded
+    /// thumbnail. The panel's cover is 118pt, and the same 18% there is 21.45pt
+    /// — visibly a chip rather than a picture. The rule the card and the panel
+    /// actually share is the shape (`.continuous`) and the direction, not the
+    /// number.
+    func testTheOpenCoverIsNotAsRoundAsTheLockCardsThumbnail() {
+        let open = Theme.artworkMetrics(isOpen: true)
+        XCTAssertLessThan(open.cornerRadius, open.side / 5.5,
+                          "the largest cover in the app is a picture, not a chip")
+        XCTAssertGreaterThanOrEqual(open.cornerRadius, 12)
+        XCTAssertLessThanOrEqual(open.cornerRadius, 16)
     }
 
     /// Reduce Motion must not leave the cover mid-flight: with travel switched
