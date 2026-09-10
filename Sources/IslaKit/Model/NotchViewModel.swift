@@ -171,6 +171,41 @@ final class NotchViewModel: ObservableObject {
     /// reaching for it with the mouse means by leaving.
     @Published var isPinnedOpen = false
 
+    /// Whether the body is showing the welcome instead of the selected tab.
+    ///
+    /// Not a `Tab`: `TabContractTests` asserts exactly five, and a sixth that
+    /// exists for one launch is not somewhere to navigate to. The rail keeps its
+    /// place beneath it — the copy points at the foot of the rail, so hiding the
+    /// rail would leave that sentence pointing at nothing.
+    @Published var isShowingWelcome = false
+
+    /// The welcome has been read. Sets the flag that keeps it from ever coming
+    /// back, and lands on Music: the island is for glancing at a track, and the
+    /// welcome replaced whatever pane would have been there.
+    func dismissWelcome() {
+        isShowingWelcome = false
+        Self.completeFirstRun()
+        select(.media)
+    }
+
+    /// A tab the user picked out of the rail.
+    ///
+    /// Distinct from `select` because `select` is also how the *machinery* moves
+    /// the panel to a tab — the pointer arriving, a file being dragged on, a
+    /// translation arriving by hotkey — and none of those is an answer to
+    /// anything. `pointerArrived()` in particular selects Music, and the pointer
+    /// arrives by definition on the way to the Get Started button, so dismissing
+    /// the welcome from `select` would have wiped it out from under the cursor
+    /// reaching for it. Reaching for a tab is a decision; the pointer crossing
+    /// the panel is not.
+    func chooseTab(_ tab: Tab) {
+        if isShowingWelcome {
+            isShowingWelcome = false
+            Self.completeFirstRun()
+        }
+        select(tab)
+    }
+
     /// The pointer is on the island. Drawn as an outline, not as an opening.
     ///
     /// Hovering used to open the panel outright, which meant the island
@@ -318,6 +353,21 @@ final class NotchViewModel: ObservableObject {
             // than the panel it turns into.
             bodyWidth: geometry.expandedSize.width
         )
+    }
+
+    static let hasCompletedFirstRunKey = "hasCompletedFirstRun"
+
+    /// False exactly once per account. The app has no Dock icon, no menu-bar
+    /// item and no window, so a fresh install produces no visible change at
+    /// all — and `LSUIElement` keeps it out of Force Quit, so someone who
+    /// cannot find the panel cannot quit it either. The welcome is the one
+    /// moment that says the app is running and how to reach it.
+    static var hasCompletedFirstRun: Bool {
+        UserDefaults.standard.bool(forKey: hasCompletedFirstRunKey)
+    }
+
+    static func completeFirstRun() {
+        UserDefaults.standard.set(true, forKey: hasCompletedFirstRunKey)
     }
 
     /// Off switch for people who copy images all day and do not want them kept.
