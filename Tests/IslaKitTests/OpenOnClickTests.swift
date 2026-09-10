@@ -107,16 +107,17 @@ final class OpenOnClickTests: XCTestCase {
     /// a click that closes the panel out from under the control.
     ///
     /// What this can check: that the strip a click has to hit is a fraction of
-    /// the open body, and that the callback the strip's tap target raises is the
-    /// one the collapsed pill raises. What it cannot: that the tap target is
-    /// where it is drawn. That needs a hosted view and a synthesised click, and
-    /// nothing in this suite hosts a view for events — so the hit region itself
-    /// is checked by hand on the device, not here.
+    /// the open body. What it cannot: that the tap target is where it is drawn,
+    /// or that the strip raises the same callback the pill does. Both need a
+    /// hosted view and a synthesised click, and nothing in this suite hosts a
+    /// view for events — so the hit region itself is checked by hand on the
+    /// device, not here.
+    ///
+    /// It used to close by assigning `vm.onIslandClick`, calling it, and
+    /// asserting the count went up, which only says a closure this test wrote is
+    /// callable: nothing about either surface, and no way for it to fail.
     func testTheCloseTargetIsTheIslandAndNotTheWholeBody() throws {
         let vm = try XCTUnwrap(makeViewModel())
-
-        var clicks = 0
-        vm.onIslandClick = { clicks += 1 }
         vm.isOpen = true
 
         let island = vm.geometry.collapsedIslandRect(for: vm.geometry.notchSize.width)
@@ -125,9 +126,6 @@ final class OpenOnClickTests: XCTestCase {
             island.height, body.height,
             "the close target must be the island strip, never the open body"
         )
-        XCTAssertEqual(clicks, 0, "nothing has been clicked yet")
-        vm.onIslandClick?()
-        XCTAssertEqual(clicks, 1, "the strip raises the same click the pill does")
     }
 
     /// The whole sequence, in the order a hand performs it: the pointer reaches
