@@ -210,11 +210,16 @@ transitions.
 > same way, from the pill's right wing to the open header's right end, instead of
 > switching off on one side of the notch and on again on the other.
 >
-> Two consequences worth stating because they are visible. The corner is now
-> proportional — `side / 5.5`, the proportion `LockScreenCard` has always drawn
-> its cover at — which moved the open cover's radius from 14 pt to 21.5 and the
-> pill's from 6 pt to 4, and puts all three surfaces that show an album on one
-> silhouette. And the motion is unchanged: the travel rides
+> One consequence worth stating because it was tried and withdrawn the same
+> day. The corner was briefly made proportional — `side / 5.5`, the proportion
+> `LockScreenCard` draws its own cover at — which would have moved the open
+> cover's radius from 14 pt to 21.5 and the pill's from 6 pt to 4. That
+> proportion is right for the 42–62 pt thumbnail it was set on and wrong at
+> 118 pt, where 18 per cent reads as a chip rather than a picture; Apple's small
+> artwork is proportionally rounder than its large artwork, never the same. Both
+> ends keep the radius their own size wants — 6 pt and 14 pt, as they shipped —
+> and the morph interpolates the frame between them. The motion is unchanged:
+> the travel rides
 > `Theme.open(reduceMotion:)`, critically damped, because a click carries no
 > momentum to spend on an overshoot; Reduce Motion shortens the travel to a
 > 0.12 s ease rather than leaving the cover stranded mid-flight.

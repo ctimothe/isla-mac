@@ -521,9 +521,15 @@ struct NotchContentView: View {
                 if vm.media.track != nil {
                     // The far end of the equalizer's travel — the same bars that
                     // were in the pill's right wing a moment ago, not a second
-                    // set switched on in their place. Mounted under exactly the
-                    // condition the compact end is (`track != nil`), so the pair
-                    // is never half-present.
+                    // set switched on in their place.
+                    //
+                    // The compact end is mounted on `track != nil`; this end
+                    // additionally needs the Media tab and no welcome pane, so
+                    // the pair can be half-present — open the panel on Shelf and
+                    // only the pill's bars exist. That is safe rather than
+                    // accidental: both ends are sources, so a lone member plays
+                    // its own transition instead of collapsing onto a frame that
+                    // is not there.
                     EqualizerBars(isAnimating: vm.media.isPlaying)
                         .morph(MorphID.equalizer, in: morph)
                 }

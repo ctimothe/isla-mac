@@ -89,14 +89,18 @@ enum Theme {
     /// A `matchedGeometryEffect` interpolates the frame; what it cannot do is
     /// notice that the two ends disagree about what shape they are.
     ///
-    /// The corner is proportional rather than absolute, and the proportion is
-    /// the one `LockScreenCard` has always drawn its own cover at — `side / 5.5`,
-    /// close to the ratio Apple's own app icons use. Hardcoded, the two ends
-    /// were 0.27 and 0.12 of their side: the silhouette changed shape halfway
-    /// through the travel, which is exactly the tell that says *two objects*.
-    /// Squaring them moved the open corner from 14 pt to 21.5 and the pill's
-    /// from 6 pt to 4, and put all three surfaces that show an album — pill,
-    /// panel, lock card — on one silhouette.
+    /// The corner is absolute at each end, not a proportion of the side.
+    ///
+    /// It was briefly proportional, at the `side / 5.5` `LockScreenCard` draws
+    /// its own cover at, on the reasoning that one object should keep its shape
+    /// while it travels. That is the wrong reasoning and it shows: a thumbnail
+    /// wants to read as a rounded chip and a large cover wants to read as a
+    /// picture, which is why Apple's small artwork is proportionally rounder
+    /// than its large artwork rather than the same. Holding the ratio put the
+    /// 118 pt cover at 21.5 pt — 18 per cent — a chip the size of a postcard.
+    /// `side / 5.5` is right for the 42–62 pt thumbnail it was set on and wrong
+    /// at this size, so each end keeps the value it actually wants and the
+    /// morph interpolates the frame between them.
     static func artworkMetrics(isOpen: Bool) -> (side: CGFloat, cornerRadius: CGFloat) {
         // Both ends of the travel, described once. They used to be two hardcoded
         // pairs in two files — 22/6 in the compact header and 118/14 in the
