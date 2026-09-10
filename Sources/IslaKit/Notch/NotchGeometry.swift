@@ -288,8 +288,14 @@ struct NotchGeometry {
     /// an invisible one that does.
     var collapsedDepth: CGFloat { notchSize.height }
 
-    /// The old strip, kept named rather than inlined so the trade above can be
-    /// reversed in one place if a status-item complaint ever arrives.
+    /// The depth the collapsed target used to claim on a synthetic notch, kept
+    /// as a record of the number the trade above was made against — 8 pt of menu
+    /// bar left to whatever sits under the island.
+    ///
+    /// Nothing reads it. It is not a switch, and reversing the trade is not one
+    /// either: that means editing `collapsedDepth` to branch on `isPhysical`
+    /// again, and re-cutting the two rects below with it. This comment used to
+    /// claim the reversal was a one-line change here, which was never true.
     static let idleStripDepth: CGFloat = 8
 
     /// Size of the collapsed target: the notch itself, or the strip above.
