@@ -24,6 +24,41 @@ enum Theme {
     static let paneAnimation = Animation.easeOut(duration: 0.18)
     static let paneIn = Animation.easeOut(duration: 0.20).delay(0.04)
     static let paneOut = Animation.easeIn(duration: 0.12)
+
+    /// The lyrics page moving to the next line.
+    ///
+    /// The one animation here allowed to overshoot, and it is allowed because
+    /// the rule at the top of this file is about momentum rather than about
+    /// taste: the page is not something a click moved, it is carried by a voice
+    /// that is already moving, and a page that stops dead the instant it
+    /// arrives reads as the song being cut off rather than sung.
+    ///
+    /// It used to borrow `contentAnimation` — the generic 0.16s ease that also
+    /// drives a badge appearing — for a page travel of one whole slot
+    /// (`LyricsStage.slotHeight` 40 + `slotSpacing` 8 = 48pt). That put the page
+    /// ahead of the word sweep it exists to carry: `KaraokeText` fills a line
+    /// over `.linear(duration: 0.25)`, so the page had already settled at the
+    /// reading centre while the sweep was barely half-way across the words it
+    /// was moving them into view for. The page arrived before the voice did.
+    /// The response therefore has to be longer than that 0.25s, not shorter.
+    ///
+    /// 0.86 is a small overshoot, deliberately: enough that the page reads as
+    /// having been carried, not enough to wobble. `MotionValuesTests`
+    /// `testTheLyricScrollIsSlowerThanTheWordSweepAndMayOvershoot` holds both
+    /// ends of that, and `testNothingWithoutMomentumOvershoots` holds every
+    /// other spring at 1.0 so this stays the single exception.
+    static let lyricScrollResponse: Double = 0.42
+    static let lyricScrollDamping: Double = 0.86
+    static let lyricScroll = Animation.spring(response: lyricScrollResponse,
+                                              dampingFraction: lyricScrollDamping)
+
+    /// Reduce Motion refuses the travel, and a spring is nothing but travel —
+    /// so the page still moves to the next line, it just stops carrying
+    /// anything there. Same short ease every other reduced variant here uses.
+    static func lyricScroll(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : lyricScroll
+    }
+
     // A skip delivers its new title and cover in 68ms, so the crossfade is
     // what the wait actually is. Short enough to read as immediate, long
     // enough that the swap is still a fade rather than a cut.

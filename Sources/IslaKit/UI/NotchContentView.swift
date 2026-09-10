@@ -123,8 +123,22 @@ struct NotchContentView: View {
             )
 
             if !isOpen, compactActivity.isVisible {
+                // Asymmetric, for the same reason `Theme` states for panes: the
+                // thing that is leaving has to be gone before the shape it was
+                // drawn on stops being that shape. This surface is clipped to
+                // the *collapsed* `NotchShape`, so on a symmetric fade it was
+                // still at half alpha while the panel had already grown past a
+                // pill — a graphite band sitting across the top of an opening
+                // panel, in the outline of a pill that was no longer there.
+                // Out on `paneOut` (0.12s) it has gone before that can show; in
+                // on `paneIn` it arrives just after the collapse has given it a
+                // pill to sit on, and what shows underneath in the meantime is
+                // the black `NotchShape` these wings are painted over anyway.
                 compactWingSurface
-                    .transition(.opacity)
+                    .transition(.asymmetric(
+                        insertion: .opacity.animation(Theme.paneIn),
+                        removal: .opacity.animation(Theme.paneOut)
+                    ))
             }
 
             // Above the wings, never beneath them. Underneath, the only place
@@ -136,8 +150,44 @@ struct NotchContentView: View {
             VStack(spacing: 0) {
                 header
                 if isOpen {
+                    // The body arrives after the panel, and leaves before it.
+                    //
+                    // This was a plain `.transition(.opacity)`, which carries no
+                    // animation of its own and so resolved against whatever was
+                    // in flight — the open spring on the `.animation(...,
+                    // value: isOpen)` below. Content and container therefore ran
+                    // on one curve, and the container is a 444pt panel growing
+                    // out of a 32pt notch: at the moment the body was already
+                    // half visible the panel was still half its height, and the
+                    // `.clipped()` two lines down cut the rail and the pane
+                    // through the middle of their glyphs. Text fading up through
+                    // a horizontal cut is not a reveal, it is a rendering
+                    // artefact that happens to be animated.
+                    //
+                    // `Theme.paneIn`/`paneOut` is the pair this file already
+                    // uses for tab swaps and the rule is `Theme`'s own: out fast
+                    // (0.12s), in slower and behind a small delay, so the two
+                    // states are never both half-present for long. Applied here
+                    // it means the panel has height before the body has alpha,
+                    // and on close the body is gone by 0.12s while the panel
+                    // still has 0.34s of collapse left to do on its own.
+                    //
+                    // Opacity only — deliberately not the `.scale` the pane
+                    // switch adds. The far end of the artwork morph
+                    // (`MorphID.artwork`, drawn inside `MediaPane`) is a
+                    // descendant of this view, and a scale on an ancestor is a
+                    // geometry change applied on top of the one
+                    // `matchedGeometryEffect` is interpolating: the cover would
+                    // travel to a frame that was itself being resized under it.
+                    // Note also that the transition lives here, on the
+                    // container, and *not* on either matched view — a view
+                    // carrying a matched geometry effect must never also carry
+                    // an opacity transition, or it fades while it flies.
                     content
-                        .transition(.opacity)
+                        .transition(.asymmetric(
+                            insertion: .opacity.animation(Theme.paneIn),
+                            removal: .opacity.animation(Theme.paneOut)
+                        ))
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .top)
