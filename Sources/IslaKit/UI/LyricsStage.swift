@@ -293,12 +293,23 @@ struct LyricsStage: View {
     }
 
     /// Puts the sung line back at the reading centre.
+    ///
+    /// On `Theme.lyricScroll`, not on the generic content ease this used to
+    /// borrow. `Theme.contentAnimation` is 0.16s — it is the curve for a badge
+    /// appearing — and one page step here is a whole slot, 48pt, moved because
+    /// the song moved. At 0.16s the page beat the thing it exists to carry:
+    /// `KaraokeText` sweeps a line over `.linear(duration: 0.25)`, so the new
+    /// line was already parked at the reading centre with its sweep still
+    /// crossing it. The page has to be the slower of the two, and it is the one
+    /// animation in this app allowed a little overshoot — see the comment on
+    /// `Theme.lyricScroll` for why the momentum rule permits exactly this one.
+    ///
+    /// The Reduce Motion branch is now inside `Theme.lyricScroll(reduceMotion:)`
+    /// rather than being a bare assignment here. It still refuses the spring —
+    /// what it no longer does is snap the page between lines with no transition
+    /// at all, which is the same answer `Theme.open(reduceMotion:)` gives.
     private func center(on id: TimeInterval) {
-        guard !reduceMotion else {
-            reading = id
-            return
-        }
-        withAnimation(Theme.contentAnimation) { reading = id }
+        withAnimation(Theme.lyricScroll(reduceMotion: reduceMotion)) { reading = id }
     }
 
     /// How far the page may drift before the way back is worth offering: the
