@@ -74,6 +74,16 @@ item and no window at any time, and its activation policy is
 that needs no pointer. This is narrower than the parity design's shape,
 which assumes a menu-bar item, so it is recorded here.
 
+From 2026-09-10 the first launch of a fresh account is the one exception,
+and it is not a second front door: the panel opens itself once and its
+own body says the app is running, where it is, what the two hotkeys are,
+and that Quit lives in Settings. It is a pane, not a window and not a
+sixth tab, and it exists for one launch — `hasCompletedFirstRun` in the
+app's defaults. Something had to say it: the app's whole design is
+invisible, and `LSUIElement` keeps it out of Force Quit as well, so a
+first launch was indistinguishable from a failed one and a user who
+could not find the panel could not quit it either.
+
 The panel opens on a click rather than a hover, from 2026-08-26. The
 parity design specifies a hover-opened panel and the delays that govern
 it; those delays now govern the hover route only, which survives as
@@ -156,7 +166,15 @@ Closed from the 2026-09-03 audit (`docs/audits/2026-09-03-synthesis.md`):
   Developer Program membership. Everything else in this list is worth less
   than it looks until this lands: an unsigned build loses the MediaRemote
   path on the user's machine.
-- [ ] First-run pane shown once on a clean account.
+- [x] First-run pane shown once on a clean account. The panel opens itself
+  about 0.8 s after a launch that finds `hasCompletedFirstRun` unset, and the
+  body shows `WelcomePane` instead of a tab: that the app is running, that it
+  lives at the notch and opens on a click, both hotkeys, and where Quit is.
+  Pressing Get Started — or picking any tab out of the rail — sets the flag and
+  lands on Music. Not a window, not a tab, not a status item: the 2026-08-25
+  withdrawal stands (`FirstRunTests`, `TabContractTests`). Still owed: the
+  manual pass on a clean account, which needs the default deleted and the app
+  rebuilt.
 - [ ] `PointerWatcher.tick`'s ordinary inside→outside transition
   (`PointerWatcher.swift:230-245`) carries no `isDragging()` guard, so
   dragging a file *out* of the Shelf can still close the panel mid-drag. The

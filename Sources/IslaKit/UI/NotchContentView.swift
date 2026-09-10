@@ -155,6 +155,10 @@ struct NotchContentView: View {
         .animation(Theme.compact(reduceMotion: reduceMotion), value: compactActivity)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.paneAnimation, value: vm.tab)
+        // The welcome ending is a pane change like any other, and it arrives
+        // from a `Button` — which animates nothing by itself, so without this
+        // the crossfade above would be a cut.
+        .animation(Theme.paneAnimation, value: vm.isShowingWelcome)
     }
 
     // MARK: - Header
@@ -477,16 +481,27 @@ struct NotchContentView: View {
         // Content is replaced in place — no travel. The rail is vertical and
         // the panes are unrelated, so a direction would only be decoration.
         ZStack {
-            pane
-                .id(vm.tab)
-                .transition(.asymmetric(
-                    insertion: .opacity
-                        .combined(with: .scale(scale: 0.97))
-                        .animation(Theme.paneIn),
-                    removal: .opacity
-                        .combined(with: .scale(scale: 1.02))
-                        .animation(Theme.paneOut)
-                ))
+            // For one launch, the welcome wins over the tab. Here rather than
+            // inside `pane` so the per-tab switch and its transitions are
+            // untouched, and so the rail — which the welcome's last line points
+            // at — stays exactly where it is. A plain crossfade, because
+            // dismissing it is not travel between two tabs: one thing ends and
+            // the panel it was in carries on.
+            if vm.isShowingWelcome {
+                WelcomePane(vm: vm)
+                    .transition(.opacity)
+            } else {
+                pane
+                    .id(vm.tab)
+                    .transition(.asymmetric(
+                        insertion: .opacity
+                            .combined(with: .scale(scale: 0.97))
+                            .animation(Theme.paneIn),
+                        removal: .opacity
+                            .combined(with: .scale(scale: 1.02))
+                            .animation(Theme.paneOut)
+                    ))
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
@@ -570,7 +585,13 @@ private struct Rail: View {
         // Moving to another icon cancels the pending switch along with the
         // task, so only the icon actually rested on ever wins.
         .task(id: hovered) {
-            guard let hovered, hovered != vm.tab else { return }
+            // A hover does not answer the welcome. The Get Started button sits
+            // at the bottom of the pane, immediately right of the rail, so the
+            // pointer travelling to it passes over the rail — and a pause on the
+            // way would otherwise have thrown the welcome away and landed the
+            // panel on whichever icon the hand happened to stop over. A click
+            // still goes wherever it was aimed; see `chooseTab`.
+            guard let hovered, hovered != vm.tab, !vm.isShowingWelcome else { return }
             try? await Task.sleep(for: dwell)
             guard !Task.isCancelled else { return }
             vm.select(hovered)
@@ -580,7 +601,10 @@ private struct Rail: View {
     @ViewBuilder
     private func icon(for tab: NotchViewModel.Tab) -> some View {
         Button {
-            vm.select(tab)
+            // `chooseTab`, not `select`: this is the one place a *person* picks
+            // a tab, and picking one is also how somebody answers the welcome
+            // with "not this, that" instead of pressing Get Started.
+            vm.chooseTab(tab)
         } label: {
             Image(systemName: tab.symbol)
                 .font(.system(size: 12, weight: .medium))

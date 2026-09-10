@@ -251,6 +251,24 @@ transitions.
 - Manage selected calendars and feature privacy covers.
 - Provide panel-open, version/about, and quit actions through the app menu.
 
+> **Amended 2026-09-10.** These actions live in the Settings tab, not in a menu —
+> the status item and its menu went on 2026-08-25 (recorded in `checklist.md`)
+> on the grounds that the panel was already the front door. That left nothing at
+> all to see on a first launch: `.accessory` with `LSUIElement` means no Dock
+> icon, no menu-bar item and no window, the compact header draws `Color.clear`
+> while nothing is playing, and neither hotkey appeared in a single user-facing
+> string — so a fresh install was indistinguishable from the app having failed to
+> start, and `LSUIElement` keeps it out of Force Quit, so somebody who could not
+> find the panel could not quit it either. The app now opens its own panel once,
+> about 0.8 s into the first launch of an account, onto `WelcomePane`: the app is
+> running, it lives at the notch and opens on a click, ⌥⌘I and ⌥⌘T, and Quit is
+> in Settings at the foot of the rail. A pane inside the existing body — not a
+> window, not a status item, and not a sixth tab, since something that exists for
+> one launch is not somewhere to navigate to. `hasCompletedFirstRun` in the app's
+> own defaults makes it once per account. Held by `FirstRunTests`, which also
+> measures the pane against the shallowest body any Mac can give it in both
+> languages, and by `TabContractTests`, which still asserts five tabs.
+
 ### Privacy mode
 
 Privacy covers apply independently to Clipboard and Translate (Snippets,

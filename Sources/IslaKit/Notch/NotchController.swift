@@ -563,6 +563,33 @@ final class NotchController {
         updatePinnedClickMonitor()
     }
 
+    /// The one visible moment on a fresh account: the body shows the welcome and
+    /// the panel opens itself to show it.
+    ///
+    /// Here rather than in `AppDelegate` because the view model belongs to the
+    /// panel — it is built inside `build()` and replaced by every rebuild — so
+    /// the delegate holds the controller, not what the controller made.
+    ///
+    /// Through `toggle()`, which pins: the pointer is wherever the user left it
+    /// at launch, and an unpinned panel nobody is hovering folds a third of a
+    /// second after appearing, which is the same as never having opened. Pinned,
+    /// it closes the way every commanded open closes — Escape, a second click on
+    /// the island, or a click in another app.
+    func presentWelcome() {
+        guard let viewModel else { return }
+        // Not over the shield. The island is deliberately inert while the Mac is
+        // locked, so a welcome there could neither be read nor dismissed —
+        // better to spend the moment on the next launch, which is what leaving
+        // the flag unset does.
+        guard !viewModel.isLockedPresentation else { return }
+        viewModel.isShowingWelcome = true
+        // A drag onto the island, or a click on it, can have opened the panel
+        // inside the delay this is called after. Toggling then would have shut
+        // it with the welcome already set, hiding the pane behind a panel the
+        // user had just opened for something else.
+        if !viewModel.isOpen { toggle() }
+    }
+
     /// Keeps the outside-click watch alive exactly while the panel is holding
     /// itself open — which since the teleprompter went on 2026-08-22 means the
     /// pin and nothing else (`holdsOpen` is now just `isPinnedOpen`). It is a
@@ -911,6 +938,14 @@ final class NotchController {
         if !open {
             vm.isPinnedOpen = false
             updatePinnedClickMonitor()
+            // The welcome lives exactly as long as the panel it opened. Left
+            // standing, it would be waiting inside the *next* open too — click
+            // the island to glance at a track and get the welcome again — for
+            // the whole launch, since only Get Started or a tab retires it.
+            // The flag is deliberately not set here: closing the panel is not
+            // an answer, and the reasons a panel closes include the screen
+            // going to sleep. Unanswered, the next launch asks again.
+            vm.isShowingWelcome = false
         }
         openGeneration += 1
         closeActiveRectWork?.cancel()
