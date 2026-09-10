@@ -26,7 +26,8 @@ if [ -z "${DEVELOPER_ID_APPLICATION:-}" ]; then
     echo "  ~ DEVELOPER_ID_APPLICATION не задан: ad-hoc сборка."
     echo "  ~ Gatekeeper ЗАБЛОКИРУЕТ такую сборку у пользователя:"
     echo "    dlopen хелпера в /usr/bin/perl будет отклонён системной политикой."
-    echo "  ~ Гейт пропущен. Релиз обязан идти через Scripts/release.sh."
+    echo "  ~ Гейт пропущен. release.sh вызывает его после test-package.sh,"
+    echo "    где DEVELOPER_ID_APPLICATION уже обязателен, — там он не пропустится."
     exit 0
 fi
 
