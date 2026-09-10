@@ -78,6 +78,30 @@ enum Theme {
     static let openTopRadius: CGFloat = 12
     static let openBottomRadius: CGFloat = 22
 
+    // MARK: - Artwork
+
+    /// The two ends of the cover's travel between the pill and the open panel.
+    ///
+    /// One function because there is one cover. The pill hardcoded 22 pt at
+    /// radius 6 in `NotchContentView` and the pane hardcoded 118 pt at radius 14
+    /// in `MediaPane` — two descriptions of one object, in two files, which is
+    /// the same mistake as drawing it twice and crossfading between the copies.
+    /// A `matchedGeometryEffect` interpolates the frame; what it cannot do is
+    /// notice that the two ends disagree about what shape they are.
+    ///
+    /// The corner is proportional rather than absolute, and the proportion is
+    /// the one `LockScreenCard` has always drawn its own cover at — `side / 5.5`,
+    /// close to the ratio Apple's own app icons use. Hardcoded, the two ends
+    /// were 0.27 and 0.12 of their side: the silhouette changed shape halfway
+    /// through the travel, which is exactly the tell that says *two objects*.
+    /// Squaring them moved the open corner from 14 pt to 21.5 and the pill's
+    /// from 6 pt to 4, and put all three surfaces that show an album — pill,
+    /// panel, lock card — on one silhouette.
+    static func artworkMetrics(isOpen: Bool) -> (side: CGFloat, cornerRadius: CGFloat) {
+        let side: CGFloat = isOpen ? 118 : 22
+        return (side, side / 5.5)
+    }
+
     static let secondary = Color.white.opacity(0.55)
     /// Carries nearly every 9–10pt label in the panel — tab titles, counters,
     /// scrubber times, section headers, placeholders. At 0.32 white over black
@@ -115,6 +139,27 @@ extension View {
     /// Tracks hover without triggering layout changes in the parent.
     func onHoverChange(_ action: @escaping (Bool) -> Void) -> some View {
         onHover(perform: action)
+    }
+
+    /// One end of a travelling object, when there is a namespace to travel in.
+    ///
+    /// The namespace is optional because the views that carry these ids are also
+    /// rendered on their own — `MediaPane` by the layout tests, with no panel
+    /// around it and nothing to travel to. `matchedGeometryEffect` has no
+    /// tolerant form: it takes a `Namespace.ID`, not an optional, so the choice
+    /// has to be made here rather than at every call site.
+    ///
+    /// Apply this **inside** the fixed frame that declares the end's size, never
+    /// outside it. Outside, the effect proposes the other end's size to a frame
+    /// that is already pinned to its own, so the cover moves without ever
+    /// growing — a hero animation that silently loses half its job.
+    @ViewBuilder
+    func morph(_ id: String, in namespace: Namespace.ID?) -> some View {
+        if let namespace {
+            matchedGeometryEffect(id: id, in: namespace)
+        } else {
+            self
+        }
     }
 }
 

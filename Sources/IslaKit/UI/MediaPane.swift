@@ -3,6 +3,13 @@ import SwiftUI
 struct MediaPane: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    /// The namespace the cover travels in, when this pane is inside the panel.
+    ///
+    /// Optional because the pane is also rendered on its own — by the layout
+    /// tests, with no pill above it and nothing to travel from. `nil` means
+    /// "draw the cover where it lands and nothing else", which is what a pane
+    /// with no island around it should do.
+    var morph: Namespace.ID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var scrubHover = false
@@ -161,36 +168,58 @@ struct MediaPane: View {
 
     // MARK: - Artwork
 
+    /// The far end of the cover's travel from the pill.
+    ///
+    /// Both the size and the corner come from `Theme.artworkMetrics` rather than
+    /// from numbers written here: this end hardcoded 118 pt at radius 14 while
+    /// the pill hardcoded 22 pt at radius 6, in another file, and one object
+    /// described twice is how it came to be drawn twice.
+    ///
+    /// Modifier order matters more than usual, and the base of the stack is
+    /// `Color.clear` for a reason. The cover has to *accept* whatever size it is
+    /// offered — the morph offers it the pill's size on the way in — and a view
+    /// that states its own size is a view the effect cannot resize, which leaves
+    /// a cover that slides into place without ever growing. `Color.clear` takes
+    /// the proposal exactly; the picture rides above it in an overlay, where it
+    /// is free to overflow and be clipped. `.frame(maxWidth: .infinity)` looks
+    /// like it would do the same job and does not: it grows to whatever the
+    /// child reports, so a 16:9 cover took the clip out to 164 pt with it.
     private func artwork(for track: MediaController.Track) -> some View {
-        ZStack {
-            if let image = media.artwork {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .transition(.opacity)
-            } else if artworkWaitExpired {
-                // Quiet placeholder, not a shimmer: the wait is over and the
-                // cover is not coming for this track.
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Theme.surface)
-                    .overlay(
-                        Image(systemName: "music.note")
-                            .font(.system(size: 26, weight: .light))
-                            .foregroundStyle(Theme.tertiary)
-                    )
-                    .transition(.opacity)
-            } else {
-                SkeletonBox(cornerRadius: 14)
+        let metrics = Theme.artworkMetrics(isOpen: true)
+        return Color.clear
+            .overlay {
+                if let image = media.artwork {
+                    // No `.transition(.opacity)` here any more. This view is one
+                    // end of a travelling object, and a travelling object that
+                    // fades while it travels is the crossfade the morph was
+                    // added to replace. The album-to-album crossfade it used to
+                    // spell out is the default transition anyway, under the same
+                    // `Theme.artworkAnimation` below.
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else if artworkWaitExpired {
+                    // Quiet placeholder, not a shimmer: the wait is over and the
+                    // cover is not coming for this track.
+                    RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                        .fill(Theme.surface)
+                        .overlay(
+                            Image(systemName: "music.note")
+                                .font(.system(size: 26, weight: .light))
+                                .foregroundStyle(Theme.tertiary)
+                        )
+                        .transition(.opacity)
+                } else {
+                    SkeletonBox(cornerRadius: metrics.cornerRadius)
+                }
             }
-        }
         .task(id: track.key) {
             artworkWaitExpired = false
             try? await Task.sleep(for: .seconds(2.5))
             guard !Task.isCancelled else { return }
             artworkWaitExpired = true
         }
-        .frame(width: 118, height: 118)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
         // The same shape again, this time for the pointer. `clipShape` hides
         // the overflow but does not stop it being touched, and `.fill` on a
         // cover that is not square overflows a long way: a 16:9 thumbnail —
@@ -198,12 +227,17 @@ struct MediaPane: View {
         // this 118 pt box, so 46 pt of invisible picture hangs over each side.
         // The left side is the tab rail, and the four icons behind that
         // overhang stopped answering the pointer (#22).
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
                 .strokeBorder(Theme.hairline, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.5), radius: 12, y: 5)
+        .morph(NotchContentView.MorphID.artwork, in: morph)
+        // Outside the morph, so the pane's layout keeps reserving 118 pt no
+        // matter where the cover is on its way to. Inside it, the frame would
+        // be the thing refusing the pill's size.
+        .frame(width: metrics.side, height: metrics.side)
         .animation(Theme.artworkAnimation, value: media.artwork)
     }
 
