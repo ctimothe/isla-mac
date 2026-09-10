@@ -64,23 +64,103 @@ final class NotchViewModel: ObservableObject {
     /// Whether the panel must stay open with no pointer on it.
     ///
     /// The one exception to the rule stated at `NotchController.setOpen` — the
-    /// pointer decides, always — kept for the ⌥⌘I pin, which is a deliberate
-    /// request to keep the panel up while the hands are elsewhere.
+    /// pointer decides, always — kept for the pin, which is what an open made
+    /// without the pointer leaves behind: a deliberate request to keep the panel
+    /// up while the hands are elsewhere. Nothing else holds the panel open any
+    /// more; the teleprompter, which used to, went on 2026-08-22.
     var holdsOpen: Bool { isPinnedOpen }
 
-    /// The pointer reaching the island.
+    /// The pointer reaching the island: the panel is handed back to it.
     ///
-    /// Separate from the controller's `onChange` so it can be tested without a
-    /// pointer: what it does is state, not event plumbing. Unconditional on
-    /// Open on Hover — the setting decides whether arriving *opens* the panel,
-    /// never whether arriving takes back a panel that is already open.
+    /// State, not event plumbing, so it can be tested without a pointer.
+    /// Unconditional on Open on Hover — the setting decides whether arriving
+    /// *opens* the panel, never whether arriving takes back a panel that is
+    /// already open. A step of its own inside `pointerCrossed` because a drag
+    /// arriving must not run it; see there.
     func pointerArrived() {
         isPinnedOpen = false
         select(.media)
     }
 
-    /// Raised when the panel was opened by a deliberate command rather than by
-    /// the pointer — the ⌥⌘I hotkey or the menu item.
+    /// What the pointer crossing the panel's boundary asks the panel to do.
+    ///
+    /// A verdict rather than an action, so the sequence that used to strand a
+    /// panel open — approach, click, walk away — can be played out in a test
+    /// with no panel, no screen and no cursor. The controller keeps the
+    /// effects; the rules live here with the state they read.
+    enum PointerCrossing: Equatable {
+        /// The pointer arrived and Open on Hover is switched on.
+        case opens
+        /// The pointer left and nothing is holding the panel open.
+        case closes
+        /// Neither: an arrival that only hands the panel back to the pointer,
+        /// or a departure that the pin refuses.
+        case standsAsItIs
+    }
+
+    /// - Parameter inside: whether the pointer is now within the rect that
+    ///   holds the panel open — `NotchGeometry.hoverRect(for:)` while open, the
+    ///   collapsed hover rect while shut.
+    /// - Parameter dragging: whether a drag session is in flight, in which case
+    ///   the arrival is not counted at all. A drag is not a hover: the pointer
+    ///   arriving with a file in hand has already said which tab it wants —
+    ///   `onDragEntered` selects the Shelf — so the arrival must not reset it.
+    ///   It used to, roughly `openDelay` after the file crossed the island,
+    ///   which flipped the pane Shelf→Music mid-drag and took `ShelfPane`'s drop
+    ///   highlight with it until the drop put it back. Leaving the pin standing
+    ///   with it costs nothing: `PointerWatcher.isDragging` already holds the
+    ///   panel open for as long as the session runs.
+    func pointerCrossed(inside: Bool, dragging: Bool = false) -> PointerCrossing {
+        if inside {
+            if !dragging { pointerArrived() }
+            // The arrival takes the panel back from whatever opened it without
+            // a pointer, and it does so *before* the hover-to-open question is
+            // asked. Asked first, with the setting off — the default — it
+            // returned early and left the pin standing, so a clicked-open panel
+            // ignored the pointer leaving and could only be dismissed by
+            // clicking somewhere else entirely.
+            return Self.opensOnHoverEnabled ? .opens : .standsAsItIs
+        }
+        // The one place the pointer does not decide — see `holdsOpen`. Asked
+        // here rather than inside `NotchController.setOpen` so that the reasons
+        // that are not the pointer, like the screen going to sleep, still close
+        // a pinned panel.
+        return holdsOpen ? .standsAsItIs : .closes
+    }
+
+    /// The state half of a click that opens the island. The controller owns the
+    /// rest — the active rect, the animation, the pointer watcher.
+    ///
+    /// - Parameter pointerIsOnPanel: whether the cursor is inside the rect the
+    ///   open panel holds itself open from. It normally is, because the island
+    ///   sits inside that rect, so a mouse click lands the pointer there by
+    ///   definition and the panel needs no pin: leaving is what closes it.
+    ///   False only for a click that did not come from the mouse at all — the
+    ///   compact island's accessibility action, which VoiceOver fires from the
+    ///   keyboard with the cursor wherever it was left.
+    func clickOpened(pointerIsOnPanel: Bool) {
+        // The tab first. A hover always landed on Music — the island is for
+        // glancing at a track, and the other tabs are somewhere to go once it
+        // is open, not somewhere to arrive. Skipping it meant a click opened
+        // whatever had been left behind and then swapped panes *during* the
+        // expansion, which is most of what read as an unsmooth open.
+        select(.media)
+        // The hover lift goes out with the same animation that opens the panel,
+        // rather than snapping off the instant `isOpen` flips.
+        isHovering = false
+        // Pinning a panel the pointer is already standing on is what broke the
+        // walk-away: the pin is only cleared when the pointer *arrives*, and
+        // arriving is a transition that had already happened before the click.
+        // So the departure was refused by `holdsOpen` and the panel stayed open
+        // until something else was clicked (fixed 2026-09-10).
+        isPinnedOpen = !pointerIsOnPanel
+    }
+
+    /// Raised when the panel was opened with the pointer nowhere near it: ⌥⌘I,
+    /// or a click that came from the keyboard rather than the mouse — the
+    /// compact island's accessibility action. (There has been no menu item
+    /// since 2026-08-25; the app has no menu-bar item at all.) A click from the
+    /// pointer deliberately does not pin — see `clickOpened(pointerIsOnPanel:)`.
     ///
     /// Those routes exist so the panel can be reached without a mouse, and the
     /// pointer rule cancels them outright: the cursor is wherever it was left,
