@@ -109,8 +109,12 @@ final class LockCardWindow {
         // arrives on a curve; this did not, and it read as a glitch in the lock
         // screen rather than as the player coming up.
         //
-        // Alpha, and nothing but alpha. The frame is set once, before the
-        // window is ordered in, and is never touched again. Changing a live
+        // Alpha, and nothing but alpha. Not because the frame is immutable —
+        // `reposition(on:)` sets it on a screen change, and the re-present
+        // branch above sets it on a live window — but because *this fade*
+        // touches nothing but alpha. Animating the frame across a lock is what
+        // produced stretched window-server snapshots, which is the whole reason
+        // this card has a window of its own instead of resizing the panel.
         // window's frame across the lock transition is exactly the bug that put
         // this card in a window of its own — the window server snapshots
         // windows across that transition and stretches a snapshot taken at the

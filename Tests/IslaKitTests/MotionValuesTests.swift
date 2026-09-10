@@ -14,7 +14,7 @@ final class MotionValuesTests: XCTestCase {
     /// parameters to read back. Crude, and still the only thing standing
     /// between this file and a bounce creeping back in.
     func testNothingWithoutMomentumOvershoots() {
-        for animation in [Theme.openAnimation, Theme.compactAnimation] {
+        for animation in Theme.criticallyDampedSprings {
             let described = String(describing: animation)
             XCTAssertTrue(
                 described.contains("dampingFraction: 1.0"),
