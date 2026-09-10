@@ -485,19 +485,32 @@ final class NotchController {
         rebuild()
     }
 
-    /// The collapsed island was clicked.
+    /// The island was clicked — the collapsed pill, or the header strip that is
+    /// all of the island that shows while the panel is open.
     ///
-    /// Open, normally. Refused with a shake while the Mac is locked: the island
-    /// stays visible over the shield on purpose, and a click there has to say
-    /// *not here* rather than either opening over the password field or doing
-    /// nothing at all, which reads as a dead app rather than a decision.
+    /// A toggle: open, then shut again by the same gesture on the same surface.
+    /// Refused with a shake while the Mac is locked: the island stays visible
+    /// over the shield on purpose, and a click there has to say *not here*
+    /// rather than either opening over the password field or doing nothing at
+    /// all, which reads as a dead app rather than a decision.
     private func islandClicked() {
         guard let vm = viewModel else { return }
         if vm.isLockedPresentation {
             vm.nudgeLockedIsland()
             return
         }
-        guard !vm.isOpen else { return }
+        // A second click closes. The click that opens and the click that closes
+        // are the same gesture on the same surface — guarding the open state
+        // here meant the island could be opened by clicking it and then not
+        // closed by clicking it, which reads as the app having stopped
+        // listening. Walking away still closes it too; see `pointerArrived`.
+        if vm.isOpen {
+            vm.isPinnedOpen = false
+            setOpen(false)
+            pointer.setInside(false)
+            updatePinnedClickMonitor()
+            return
+        }
 
         // Everything the hover route used to do, in the same order, so a click
         // opens the panel the way a hover did rather than by a second path that
@@ -726,26 +739,23 @@ final class NotchController {
             // here: this rect is padded for a forgiving open, and an edge lit
             // from it appears while the cursor is beside the island.
             //
-            // Unless hover-to-open is switched on, a hover does nothing here.
-            // Leaving still closes — a panel opened by a click is still left by
-            // walking away from it, which is the gesture everyone already has.
-            if inside, !NotchViewModel.opensOnHoverEnabled { return }
-            // The pointer arriving takes the panel back from whatever opened
-            // it without one; from here on the ordinary rule applies again.
+            // The pointer arriving takes the panel back from whatever opened it
+            // without one, and it does so before the hover-to-open question is
+            // asked. This used to sit the other way round, so with hover-to-open
+            // off — the default — a clicked-open panel was never un-pinned,
+            // ignored the pointer leaving, and could only be dismissed by
+            // clicking somewhere else entirely.
+            //
+            // A hover always lands on Music: the island is for glancing at a
+            // track, and the other tabs are somewhere to go once it is open,
+            // not somewhere to arrive. Deliberate routes still choose their own
+            // tab — ⌥⌘T lands on Translate, a drag lands on the Shelf.
             if inside {
-                self.viewModel?.isPinnedOpen = false
+                self.viewModel?.pointerArrived()
                 self.updatePinnedClickMonitor()
-                // A hover always lands on Music.
-                //
-                // This is what the island is for: the other tabs are somewhere
-                // to go once it is open, not somewhere to arrive. Leaving the
-                // last-used tab selected meant that opening it to glance at a
-                // track showed whatever had been left behind — the shelf, or
-                // settings — and cost a second move to get to the thing the
-                // panel exists for. Deliberate routes still choose their own
-                // tab: ⌥⌘T lands on Translate, a drag lands on the Shelf.
-                self.viewModel?.select(.media)
             }
+            // Unless hover-to-open is switched on, arriving does not open.
+            if inside, !NotchViewModel.opensOnHoverEnabled { return }
             // The one place the pointer does not decide — see `holdsOpen`.
             // Guarded here rather than inside `setOpen` so that the reasons
             // that are not the pointer, like the screen going to sleep, still
