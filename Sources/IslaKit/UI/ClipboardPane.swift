@@ -49,6 +49,7 @@ private struct ClipRow: View {
     @State private var hovering = false
     @State private var justCopied = false
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var hidden: Bool { privacy.hides(.clipboard, item.id.uuidString) }
 
     var body: some View {
@@ -56,6 +57,7 @@ private struct ClipRow: View {
             Image(systemName: justCopied ? "checkmark" : item.symbol)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(justCopied ? Color.green : Theme.tertiary)
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                 .frame(width: 14)
             SpoilerText(
                 text: item.preview,

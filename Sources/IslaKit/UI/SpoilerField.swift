@@ -171,6 +171,7 @@ struct SpoilerText: View {
 /// The eye that uncovers one row. Sits where a row's other controls sit and
 /// appears on hover with them.
 struct RevealEye: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let hidden: Bool
     let action: () -> Void
 
@@ -179,6 +180,7 @@ struct RevealEye: View {
             Image(systemName: hidden ? "eye" : "eye.slash")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(Theme.secondary)
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
         }
         .buttonStyle(.plain)
         .help(hidden ? Text(localized("Show")) : Text(localized("Hide")))
