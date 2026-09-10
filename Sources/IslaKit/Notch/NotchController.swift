@@ -1059,12 +1059,14 @@ final class NotchController {
 
     private func applyActiveRect(open: Bool) {
         guard let vm = viewModel, let rootView else { return }
-        // Collapsed, the panel claims only its target strip — on a synthetic
-        // notch that is deliberately shallower than the menu bar, so clicks on
-        // status items underneath reach them instead of a panel nobody can see.
-        // The open size is the current tab's, not a constant: the teleprompter
-        // is taller, and a rect cut for 208 would leave the bottom half of it
-        // visible but untouchable.
+        // Collapsed, the panel claims the island as drawn — the full notch
+        // height on every display, synthetic or not. It used to stop 8 pt down
+        // on a synthetic notch so that menu-bar status items underneath kept
+        // their clicks; since `NotchShape` fills black unconditionally there,
+        // that left most of a permanently visible island dead, and the trade
+        // was reversed on 2026-09-10. The open size is the current tab's, not a
+        // constant: the teleprompter is taller, and a rect cut for 208 would
+        // leave the bottom half of it visible but untouchable.
         let size: CGSize
         if open {
             size = vm.openBodySize
@@ -1074,9 +1076,9 @@ final class NotchController {
             // and only a trip to the notch could reopen it.
             pointer.openRect = vm.geometry.hoverRect(for: vm.openBodySize)
         } else {
-            // A synthetic notch still claims only the top strip so menu-bar
-            // items underneath remain clickable, but the strip spans the full
-            // width of the visible compact activity.
+            // The full drawn depth, and the full width of the visible compact
+            // activity — the pill widens with what is playing, and every point
+            // of what is drawn has to open the panel.
             size = CGSize(width: vm.bodySize.width, height: vm.geometry.collapsedDepth)
             pointer.openRect = vm.geometry.collapsedHoverRect(for: vm.bodySize.width)
         }
