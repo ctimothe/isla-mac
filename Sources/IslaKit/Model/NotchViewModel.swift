@@ -68,6 +68,17 @@ final class NotchViewModel: ObservableObject {
     /// request to keep the panel up while the hands are elsewhere.
     var holdsOpen: Bool { isPinnedOpen }
 
+    /// The pointer reaching the island.
+    ///
+    /// Separate from the controller's `onChange` so it can be tested without a
+    /// pointer: what it does is state, not event plumbing. Unconditional on
+    /// Open on Hover — the setting decides whether arriving *opens* the panel,
+    /// never whether arriving takes back a panel that is already open.
+    func pointerArrived() {
+        isPinnedOpen = false
+        select(.media)
+    }
+
     /// Raised when the panel was opened by a deliberate command rather than by
     /// the pointer — the ⌥⌘I hotkey or the menu item.
     ///
@@ -88,8 +99,10 @@ final class NotchViewModel: ObservableObject {
     /// when you click it.*
     @Published var isHovering = false
 
-    /// Raised when the collapsed island is clicked. The controller owns what
-    /// that means — open, or refuse while locked — because only it knows.
+    /// Raised when the island is clicked — the collapsed pill, or the header
+    /// strip that is all of it that shows while the panel is open. The
+    /// controller owns what that means — open, close, or refuse while locked —
+    /// because only it knows.
     var onIslandClick: (() -> Void)?
 
     /// Whether the panel currently holds the keyboard.

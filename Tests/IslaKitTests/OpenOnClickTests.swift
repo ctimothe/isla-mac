@@ -64,4 +64,52 @@ final class OpenOnClickTests: XCTestCase {
         vm.isHovering = true
         XCTAssertFalse(vm.isOpen, "the edge is drawn without anything opening")
     }
+
+    /// A panel opened by a click is handed back to the pointer as soon as the
+    /// pointer arrives, whether or not hover-to-open is switched on. The
+    /// early return for hover-to-open used to sit above the un-pin, so with
+    /// the default settings a clicked-open panel stayed pinned, ignored the
+    /// pointer leaving, and could only be dismissed by clicking somewhere else
+    /// entirely.
+    func testThePointerArrivingUnpinsAClickedOpenPanel() {
+        withDefault(false) {
+            let stores = NotchStores()
+            guard let geometry = NotchGeometry.current() else {
+                return XCTFail("a test host always has a screen")
+            }
+            let vm = NotchViewModel(geometry: geometry, stores: stores)
+
+            vm.isPinnedOpen = true
+            XCTAssertTrue(vm.holdsOpen)
+
+            vm.pointerArrived()
+            XCTAssertFalse(
+                vm.isPinnedOpen,
+                "with hover-to-open off the pointer still takes the panel back"
+            )
+            XCTAssertEqual(vm.tab, .media, "arriving always lands on Music")
+        }
+    }
+
+    /// Closing is the island's job, not the body's. The gesture that opens the
+    /// panel is attached to a view that fills the whole window, so letting it
+    /// act while open would turn every click on a control inside the panel into
+    /// a click that closes the panel out from under the control.
+    func testTheCloseTargetIsTheIslandAndNotTheWholeBody() throws {
+        let stores = NotchStores()
+        let geometry = try XCTUnwrap(NotchGeometry.current(), "a test host always has a screen")
+        let vm = NotchViewModel(geometry: geometry, stores: stores)
+
+        var clicks = 0
+        vm.onIslandClick = { clicks += 1 }
+        vm.isOpen = true
+
+        let island = vm.geometry.collapsedIslandRect(for: vm.geometry.notchSize.width)
+        let body = vm.geometry.contentRect(for: vm.openBodySize)
+        XCTAssertLessThan(
+            island.height, body.height,
+            "the close target must be the island strip, never the open body"
+        )
+        XCTAssertEqual(clicks, 0, "nothing has been clicked yet")
+    }
 }
