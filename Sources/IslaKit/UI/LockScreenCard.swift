@@ -553,6 +553,7 @@ struct LockScreenCard: View {
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 28, weight: .medium))
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
@@ -592,7 +593,8 @@ struct LockScreenCard: View {
             isOn: media.repeatMode != nil && media.repeatMode != .off,
             accent: accent,
             size: 32,
-            glyphSize: 15
+            glyphSize: 15,
+            reduceMotion: reduceMotion
         ) { media.cycleRepeat() }
         .disabled(media.repeatMode == nil)
         .opacity(media.repeatMode == nil ? 0.3 : 1)
