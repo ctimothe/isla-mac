@@ -34,9 +34,16 @@ fi
 # Обе части подписи. Вложенный dylib проверяется отдельно, потому что именно
 # он ломался: бандл может быть подписан верно, а вложенный код — нет.
 for target in "$APP" "$DYLIB"; do
-    codesign --verify --strict --deep-verify "$target" 2>/dev/null \
-        || codesign --verify --strict "$target" \
-        || fail "подпись не проходит проверку: $target"
+    if ! deep="$(codesign --verify --strict --deep-verify "$target" 2>&1)"; then
+        # Понижение проверки — только вслух. --deep-verify — единственная часть,
+        # которая заходит во вложенный код, и молчаливый откат на --verify
+        # --strict означал, что бандл с непроходящим вложенным кодом — ровно тот
+        # случай, ради которого dylib проверяется отдельно, — проходил гейт
+        # целиком, не оставив в логе ни строчки.
+        echo "  ~ --deep-verify отклонил $target: ${deep%%$'\n'*}"
+        echo "  ~ проверка понижена до --verify --strict — вложенный код не проверен"
+        codesign --verify --strict "$target" || fail "подпись не проходит проверку: $target"
+    fi
     codesign -dvvv "$target" 2>&1 | grep -q "TeamIdentifier=[A-Z0-9]\{10\}" \
         || fail "нет TeamIdentifier — подписано ad-hoc: $target"
 done
@@ -60,7 +67,13 @@ xattr -w com.apple.quarantine "0081;00000000;Safari;" "$WORK/Isla.app/Contents/R
 OUT="$WORK/out"
 /usr/bin/perl -e '
     use DynaLoader;
-    DynaLoader::dl_load_file($ARGV[0], 0x01);
+    # or die — иначе гейт не может упасть. dl_load_file при неудаче возвращает
+    # undef, а не умирает, поэтому print выполнялся всегда и grep "loaded" ниже
+    # совпадал даже для пути, которого вообще нет: релиз с отклонённым
+    # Gatekeeper, битым или отсутствующим dylib проходил проверку, существующую
+    # ровно для этого.
+    DynaLoader::dl_load_file($ARGV[0], 0x01)
+        or die "dl_load_file failed: " . (DynaLoader::dl_error() // "unknown") . "\n";
     print "loaded\n";
 ' "$WORK/Isla.app/Contents/Resources/libislamedia.dylib" > "$OUT" 2>&1 </dev/null || true
 grep -q "loaded" "$OUT" \
