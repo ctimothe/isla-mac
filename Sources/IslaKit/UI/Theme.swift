@@ -45,8 +45,17 @@ enum Theme {
     /// 0.86 is a small overshoot, deliberately: enough that the page reads as
     /// having been carried, not enough to wobble. `MotionValuesTests`
     /// `testTheLyricScrollIsSlowerThanTheWordSweepAndMayOvershoot` holds both
-    /// ends of that, and `testNothingWithoutMomentumOvershoots` holds every
-    /// other spring at 1.0 so this stays the single exception.
+    /// ends of that, and `testNothingWithoutMomentumOvershoots` walks
+    /// `criticallyDampedSprings` so this stays the single exception. Any spring
+    /// added to this file belongs in that list unless it can name the momentum
+    /// it inherited.
+    /// Every spring in this file that is **not** allowed to overshoot.
+    ///
+    /// Listed rather than inferred so the guard is a list somebody has to
+    /// deliberately edit. It used to be hardcoded inside the test, which meant
+    /// a fourth spring at 0.7 would have passed it without anyone noticing.
+    static let criticallyDampedSprings: [Animation] = [openAnimation, compactAnimation]
+
     static let lyricScrollResponse: Double = 0.42
     static let lyricScrollDamping: Double = 0.86
     static let lyricScroll = Animation.spring(response: lyricScrollResponse,
