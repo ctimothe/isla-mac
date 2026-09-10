@@ -278,6 +278,19 @@ transitions.
 > languages, on a machine with no display as well, and by `TabContractTests`,
 > which still asserts five tabs.
 
+> **Amended 2026-09-10 (review follow-up).** The 0.8 s open above is skipped
+> entirely — pane and all — when the panel is already open, which a file dragged
+> onto the island or a click on it inside that delay makes possible. The flag *is*
+> the pane, so raising it over a panel opened for something else drew the welcome
+> on top of what the user had just asked for and cost `ShelfPane` its drop
+> highlight with the file still in the air. The moment goes to the next launch
+> instead, which the contract above already allows: nothing was answered, so
+> nothing is written. And while the pane shows, the open header names no tab — it
+> labels the pane below it, the welcome is deliberately not a tab, and `tab` sits
+> on Music underneath, so the strip used to read "MUSIC" over it. Neither is unit
+> tested: nothing in the suite builds a panel, so both are on the manual
+> first-run pass.
+
 ### Privacy mode
 
 Privacy covers apply independently to Clipboard and Translate (Snippets,
