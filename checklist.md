@@ -137,3 +137,31 @@ is off by default with a 200-file cap once enabled.
 
 Evidence and remaining blockers are recorded in
 [the 2026-08-18 release-candidate report](docs/verification/2026-08-18-release-candidate.md).
+
+## v0.2 — the front door
+
+Closed from the 2026-09-03 audit (`docs/audits/2026-09-03-synthesis.md`):
+
+- [x] A promised file from Mail or Photos no longer trapping the process
+  (`ShelfDropTests`).
+- [x] The whole drawn island answering a click on synthetic notches
+  (`CompactHitAreaTests`).
+- [x] A clicked-open panel released by a second click and by the pointer
+  leaving. A mouse click no longer pins the panel at all — the pointer that
+  clicked is already standing where the panel holds itself open from; only
+  ⌥⌘I, the Translate service, and VoiceOver's accessibility action still pin
+  (`OpenOnClickTests`, `HoverRectTests`).
+- [x] `Scripts/test-gatekeeper.sh` in the gate order and in CI.
+- [ ] Developer ID signing, notarization and stapling — blocked on an Apple
+  Developer Program membership. Everything else in this list is worth less
+  than it looks until this lands: an unsigned build loses the MediaRemote
+  path on the user's machine.
+- [ ] First-run pane shown once on a clean account.
+- [ ] `PointerWatcher.tick`'s ordinary inside→outside transition
+  (`PointerWatcher.swift:230-245`) carries no `isDragging()` guard, so
+  dragging a file *out* of the Shelf can still close the panel mid-drag. The
+  comment at `NotchController.swift:734-741` claims both directions of a drag
+  are covered; that is true for a drag that starts while the pointer is
+  already recorded outside (`PointerWatcher.swift:218`), not for the ordinary
+  hysteresis transition an outward drag rides across on its way out. Found
+  while closing the item above and deliberately left open.
