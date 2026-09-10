@@ -545,7 +545,8 @@ final class NotchController {
         pointer.openDelay = NotchViewModel.hoverOpenDelay
     }
 
-    /// The hotkey and the menu item. Opens until something closes it — the
+    /// The ⌥⌘I hotkey, and the Translate service. Opens until something closes
+    /// it — the
     /// same command again, Escape, or a click outside — rather than until the
     /// next pointer sample, which is what folded it a third of a second after
     /// it appeared and made the keyboard route to the panel unusable.
@@ -891,15 +892,18 @@ final class NotchController {
     /// is a second rule to learn for a panel that has exactly one. What was
     /// typed is kept, so coming back finds it where it was left.
     ///
-    /// The teleprompter is the single exception, and it is one because it
-    /// cannot be anything else: a script is read while looking at the camera,
-    /// which is precisely the moment nobody is touching the trackpad. The
-    /// exception is held as narrow as it goes — one tab, and only while the
-    /// script is actually moving — and it is enforced where the pointer is
-    /// read, not here. Everything else that closes the panel still closes it:
-    /// the screen sleeping, the space changing, the display arrangement
-    /// changing. A pinned teleprompter surviving any of those would be a panel
-    /// stuck open on a screen nobody is looking at.
+    /// The pin is the single exception, and it is enforced where the pointer is
+    /// read rather than here — see `NotchViewModel.holdsOpen`. It exists for
+    /// the routes that open the panel with the pointer nowhere near it: ⌥⌘I,
+    /// the Translate service, and VoiceOver firing the island's accessibility
+    /// action. A click on the island only pins when the pointer would land
+    /// outside the open panel, which it normally does not.
+    ///
+    /// The teleprompter used to be the exception here and went on 2026-08-22.
+    /// Everything else that closes the panel still closes it: the screen
+    /// sleeping, the space changing, the display arrangement changing. A pinned
+    /// panel surviving any of those would be one stuck open on a screen nobody
+    /// is looking at.
     private func setOpen(_ open: Bool) {
         guard let vm = viewModel, vm.isOpen != open else { return }
         // Closing for any reason drops the pin: a panel that is shut is not
