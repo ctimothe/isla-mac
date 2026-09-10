@@ -227,17 +227,33 @@ final class NotchRootView: NSView {
         let queue = OperationQueue()
         queue.qualityOfService = .userInitiated
         for receiver in receivers {
-            receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: queue) { url, error in
-                MainActor.assumeIsolated {
-                    guard error == nil else {
-                        NSLog("Isla: promised file failed: \(error?.localizedDescription ?? "")")
-                        return
-                    }
-                    self.enqueuePromisedFile(url)
-                }
+            receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: queue) { [weak self] url, error in
+                self?.promisedFileArrived(url, error: error)
             }
         }
         return true
+    }
+
+    /// Where a promised file lands, called by `NSFilePromiseReceiver` on the
+    /// queue handed to it above — never on the main queue.
+    ///
+    /// This used to be `MainActor.assumeIsolated`, which is an assertion, not a
+    /// hop: it traps when it is wrong, and here it was wrong every single time.
+    /// Dragging a Mail attachment or a Photos item — the two sources the whole
+    /// promise path exists for — killed the process the moment the first file
+    /// was written. `Task { @MainActor }` is the hop the code always meant.
+    ///
+    /// `nonisolated` on purpose: `NSView` is main-actor isolated, and the
+    /// compiler has to be told this one entry point is not.
+    nonisolated func promisedFileArrived(_ url: URL?, error: Error?) {
+        if let error {
+            NSLog("Isla: promised file failed: \(error.localizedDescription)")
+            return
+        }
+        guard let url else { return }
+        Task { @MainActor [weak self] in
+            self?.enqueuePromisedFile(url)
+        }
     }
 
     /// Files received so far that have not been handed over yet.
