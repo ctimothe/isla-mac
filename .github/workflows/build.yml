@@ -19,5 +19,6 @@ jobs:
           bash Scripts/test-helper.sh
           bash Scripts/test-identity.sh
           bash Scripts/test-package.sh
+          bash Scripts/test-gatekeeper.sh
           bash Scripts/test-lifecycle.sh
           SKIP_BUNDLE=1 bash Scripts/dmg.sh
