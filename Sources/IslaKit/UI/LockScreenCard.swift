@@ -619,6 +619,7 @@ struct LockScreenCard: View {
             Image(systemName: symbol)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(open ? .white : .white.opacity(0.62))
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                 .frame(width: 26, height: 22)
                 .contentShape(Rectangle())
         }
@@ -650,6 +651,7 @@ struct LockScreenCard: View {
                     Image(systemName: isSaved ? "heart.fill" : "heart")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white)
+                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                         .opacity(known == nil ? 0.45 : 1)
                         .frame(width: 20, height: 20)
                         .background(Circle().fill(.black.opacity(0.45)))

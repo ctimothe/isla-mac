@@ -21,6 +21,7 @@ func flash(_ flag: Binding<Bool>) {
 /// see. Turning the icon into a tick for a moment is the whole feedback, which
 /// is why it is worth having in one place rather than four.
 struct CopyButton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let copy: () -> Void
 
     @State private var copied = false
@@ -33,6 +34,7 @@ struct CopyButton: View {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(copied ? Color.green : Theme.secondary)
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
         }
         .buttonStyle(.plain)
         .help(localized("Copy"))
@@ -84,6 +86,7 @@ struct ConfirmTextButton: View {
 
 /// The settings-row shape of `ConfirmTextButton`.
 struct ConfirmRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let symbol: String
     let title: String
     let armedTitle: String
@@ -112,6 +115,7 @@ struct ConfirmRow: View {
                 Image(systemName: armed ? "exclamationmark.triangle.fill" : symbol)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(armed ? Theme.danger : Theme.secondary)
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                     .frame(width: 16)
                 Text(armed ? armedTitle : title)
                     .font(.system(size: 11.5, weight: .medium))
