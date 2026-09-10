@@ -65,6 +65,9 @@ final class PointerWatcher {
     private var wasInteractive: Bool?
     private var wasHovering: Bool?
     private var isWarm = false
+    /// Set by `closedByHand()`: no arrival counts until the pointer has been
+    /// sampled outside once.
+    private var awaitsDeparture = false
     private var lastPoint = CGPoint(x: -1, y: -1)
     private var lastMovedAt = Date.distantPast
 
@@ -94,6 +97,9 @@ final class PointerWatcher {
         // left lit for the whole of a lock or a sleep.
         if wasHovering == true { onHoverChange?(false) }
         wasHovering = nil
+        // The rects are re-cut by whatever starts the watcher again, so a
+        // departure owed against the old ones is not owed against the new.
+        awaitsDeparture = false
     }
 
     private func schedule(warm: Bool) {
@@ -156,6 +162,28 @@ final class PointerWatcher {
         awaitingSince = nil
         isInside = value
         graceUntil = grace > 0 ? Date().addingTimeInterval(grace) : nil
+        // Whatever forces the state is the newer word on it, so a departure the
+        // watcher was still waiting for is no longer owed.
+        awaitsDeparture = false
+    }
+
+    /// The panel was shut by a deliberate gesture — a second click on the
+    /// island, ⌥⌘I again, a click in another app — while the pointer may still
+    /// be standing inside the rect the open panel held itself open from.
+    ///
+    /// `setInside(false)` alone is not enough there, and that is the whole bug
+    /// this exists for. `openRect` is still cut for the *open* body while the
+    /// panel folds — it only shrinks back to the collapsed strip
+    /// `collapseRectShrinkDelay` later, in `NotchController.applyActiveRect` —
+    /// so the very next sample reads the pointer that just clicked as an
+    /// outside→inside transition, waits `openDelay` (50 ms), and with Open on
+    /// Hover switched on reopens the panel it was just told to shut. Click to
+    /// close was inoperative in that mode, and the island visibly folded and
+    /// unfolded. The pointer has to be seen somewhere else once before an
+    /// arrival counts again.
+    func closedByHand() {
+        setInside(false)
+        awaitsDeparture = true
     }
 
     /// Ends the grace early — the pointer arriving on the panel is a better
@@ -215,6 +243,17 @@ final class PointerWatcher {
         // grace has done its job and normal hover rules resume.
         if inside { graceUntil = nil }
 
+        // A deliberate close is not undone by the pointer that performed it.
+        // Until that pointer has been seen off the panel once, an "arrival" is
+        // only the click that shut it, read back — see `closedByHand()`.
+        if awaitsDeparture {
+            guard !inside else {
+                awaitingSince = nil
+                return
+            }
+            awaitsDeparture = false
+        }
+
         if !inside, !isInside, !isDragging(), isPanelOpen() {
             guard !withinGrace else { return }
             guard let start = awaitingSince else {
@@ -228,6 +267,23 @@ final class PointerWatcher {
         }
 
         guard inside != isInside else {
+            awaitingSince = nil
+            return
+        }
+        // A drag in flight is the one time the panel is meant to stand open with
+        // the pointer off it: it was opened to be dropped onto, or a card is
+        // being dragged out of it. The already-outside branch above has asked
+        // this all along and this one — the departure itself — did not, which is
+        // the shape a drag actually takes: click the island open, go to the
+        // Shelf, drag a card to the Desktop, and 0.32 s after the pointer left
+        // `closeRect` the panel folded and tore down the very view the drag
+        // session was still running from. It was unreachable only because every
+        // click used to pin, and `holdsOpen` refused the close on the way out.
+        //
+        // `isInside` is deliberately left standing rather than flipped: when the
+        // drag ends with the pointer still away, the departure is read again from
+        // scratch and the panel folds then, which is what it owed all along.
+        if !inside, isDragging() {
             awaitingSince = nil
             return
         }

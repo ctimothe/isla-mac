@@ -121,6 +121,43 @@ transitions.
 > tab — and a panel that unfolded at each pass interrupts whatever is beneath
 > it. A click is a decision; a hover is traffic.
 
+> **Amended 2026-09-10.** "Every point of the compact island opens it," above,
+> held only on a physical notch. `collapsedDepth` was `8 pt` on synthetic
+> ones — a strip left over so menu-bar status items underneath stayed
+> reachable — while `NotchShape` fills black at the full drawn height
+> whether or not anything is playing, so the pill was visible at all times
+> and roughly three quarters of it was dead to clicks on every non-notched
+> display. Reversed: the collapsed target is the drawn shape everywhere.
+> Those status items are already hidden under that same shape, so a visible
+> target that works is worth more than an invisible one that is merely
+> clickable. Held by `CompactHitAreaTests`.
+
+> **Amended 2026-09-10.** The click above opened the panel and said nothing
+> about closing it. In practice it pinned itself, and nothing in the default
+> configuration un-pinned it: the pointer arriving is what was meant to clear
+> the pin, but the controller asked whether Open on Hover was enabled
+> *before* clearing it, so with the setting off — the default — the early
+> return left the pin standing and the pointer leaving was refused by
+> `holdsOpen`. A second click was separately guarded out. Moving the pin-clear
+> above that guard and letting a second click close fixed the guard, but not
+> the walk-away: the pin is cleared only by an outside→inside pointer
+> *transition*, and by the time a click on the island is possible that
+> transition has always already happened, so there was no arrival left to
+> clear it. The actual fix is that a click delivered by the mouse no longer
+> pins at all — `hoverRect(for: openBodySize)` already contains the whole
+> clickable island, so the pointer that clicked is already standing where the
+> panel holds itself open from, the same fact a hover relies on.
+> `NotchViewModel.clickOpened(pointerIsOnPanel:)` decides this from where the
+> pointer actually is; ⌥⌘I, the Translate service, and VoiceOver firing the
+> island's accessibility action still pin, because none of those routes puts
+> the pointer on the panel. The close target itself is a dedicated tap region
+> on the open header, not the gesture that spans the whole body — that
+> gesture fills the window, and letting it close the panel would close it out
+> from under every control pressed inside it. The same arrival rule was also
+> flipping the pane off the Shelf the instant a dragged file's pointer crossed
+> the island; arrivals during a drag are no longer counted. Held by
+> `OpenOnClickTests` and `HoverRectTests`.
+
 > **Amended 2026-08-25.** The standard content size is now `480…620 × 208 pt`,
 > defaulting to `560`, chosen from Settings. The fixed maximum window is
 > unchanged at `700 × 444 pt` and is cut for the widest body: a narrower
@@ -213,6 +250,46 @@ transitions.
 - Expose relevant application-support and screenshot folders/files.
 - Manage selected calendars and feature privacy covers.
 - Provide panel-open, version/about, and quit actions through the app menu.
+
+> **Amended 2026-09-10.** These actions live in the Settings tab, not in a menu —
+> the status item and its menu went on 2026-08-25 (recorded in `checklist.md`)
+> on the grounds that the panel was already the front door. That left nothing at
+> all to see on a first launch: `.accessory` with `LSUIElement` means no Dock
+> icon, no menu-bar item and no window, the compact header draws `Color.clear`
+> while nothing is playing, and neither hotkey appeared in a single user-facing
+> string — so a fresh install was indistinguishable from the app having failed to
+> start, and `LSUIElement` keeps it out of Force Quit, so somebody who could not
+> find the panel could not quit it either. The app now opens its own panel once,
+> about 0.8 s into the first launch of an account, onto `WelcomePane`: the app is
+> running, it lives at the notch and opens on a click, ⌥⌘I and ⌥⌘T, and Quit is
+> in Settings at the bottom left. A pane inside the existing body — not a
+> window, not a status item, and not a sixth tab, since something that exists for
+> one launch is not somewhere to navigate to. `hasCompletedFirstRun` in the app's
+> own defaults is written by an *answer* and by nothing else — Get Started, or a
+> tab picked out of the rail — so the contract is **once per account until it is
+> answered**, not once per account outright. Everything else that takes the pane
+> off screen leaves the flag alone and the next launch offers it again: Escape, a
+> click in another app, the screen sleeping or locking, the pointer leaving a
+> panel it had been handed, and a file dragged onto the island, which must show
+> the shelf it lands on but is not the user answering anything. A display change
+> is not any of those — the panel is rebuilt, not ended, so the pane is carried
+> across it the same way the selected tab is. Held by `FirstRunTests`, which also
+> measures the pane against the shallowest body any Mac can give it in both
+> languages, on a machine with no display as well, and by `TabContractTests`,
+> which still asserts five tabs.
+
+> **Amended 2026-09-10 (review follow-up).** The 0.8 s open above is skipped
+> entirely — pane and all — when the panel is already open, which a file dragged
+> onto the island or a click on it inside that delay makes possible. The flag *is*
+> the pane, so raising it over a panel opened for something else drew the welcome
+> on top of what the user had just asked for and cost `ShelfPane` its drop
+> highlight with the file still in the air. The moment goes to the next launch
+> instead, which the contract above already allows: nothing was answered, so
+> nothing is written. And while the pane shows, the open header names no tab — it
+> labels the pane below it, the welcome is deliberately not a tab, and `tab` sits
+> on Music underneath, so the strip used to read "MUSIC" over it. Neither is unit
+> tested: nothing in the suite builds a panel, so both are on the manual
+> first-run pass.
 
 ### Privacy mode
 
@@ -310,6 +387,18 @@ in the repository:
     screenshots, marketing copy, and unintended user-visible product strings are
     absent.
 11. `LICENSE` and `THIRD_PARTY_NOTICES.md` checks preserving upstream attribution.
+
+> **Amended 2026-09-10.** Item 3's "code-signing check" reads as release
+> mechanics; it is a behaviour contract. An ad-hoc-signed `libislamedia.dylib`
+> is refused by `/usr/bin/perl` under quarantine, so an unsigned build
+> silently loses the MediaRemote path and falls back to AppleScript — Music
+> and Spotify only — while telling the user nothing. `Scripts/test-gatekeeper.sh`
+> now measures the outside view directly: Developer ID on the bundle and the
+> nested dylib, `spctl` acceptance, a stapled ticket, and a quarantined
+> `dlopen`. It skips loudly on an ad-hoc build rather than blocking the
+> development loop, and runs from CI and from `Scripts/release.sh` after
+> `Scripts/test-package.sh`, where `DEVELOPER_ID_APPLICATION` is already
+> required — so a release can no longer skip it.
 
 ## Delivery sequence
 

@@ -55,6 +55,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NSApp.servicesProvider = self
 
+        // One visible moment on a fresh account, and only one. Everything about
+        // this app is invisible by design — `.accessory`, no Dock icon, no
+        // menu-bar item, no window — which on a first launch is
+        // indistinguishable from the app having failed to start. The delay lets
+        // the panel finish placing itself before it unfolds.
+        //
+        // Read here and not inside the controller so that the flag is asked
+        // exactly once, at launch: `presentWelcome` is also what a rebuild would
+        // reach if it ever wanted the pane back, and a check inside it would make
+        // "once" depend on when it happened to be called.
+        if !NotchViewModel.hasCompletedFirstRun {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.controller?.presentWelcome()
+            }
+        }
+
         // Verification hook, environment-gated: DI_OPEN_LYRICS=1 pins the
         // panel open shortly after launch, so an agent without Accessibility
         // permission — unable to click or reliably synthesize a hover — can

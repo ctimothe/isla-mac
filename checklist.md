@@ -74,6 +74,16 @@ item and no window at any time, and its activation policy is
 that needs no pointer. This is narrower than the parity design's shape,
 which assumes a menu-bar item, so it is recorded here.
 
+From 2026-09-10 the first launch of a fresh account is the one exception,
+and it is not a second front door: the panel opens itself once and its
+own body says the app is running, where it is, what the two hotkeys are,
+and that Quit lives in Settings. It is a pane, not a window and not a
+sixth tab, and it exists for one launch — `hasCompletedFirstRun` in the
+app's defaults. Something had to say it: the app's whole design is
+invisible, and `LSUIElement` keeps it out of Force Quit as well, so a
+first launch was indistinguishable from a failed one and a user who
+could not find the panel could not quit it either.
+
 The panel opens on a click rather than a hover, from 2026-08-26. The
 parity design specifies a hover-opened panel and the delays that govern
 it; those delays now govern the hover route only, which survives as
@@ -137,3 +147,52 @@ is off by default with a 200-file cap once enabled.
 
 Evidence and remaining blockers are recorded in
 [the 2026-08-18 release-candidate report](docs/verification/2026-08-18-release-candidate.md).
+
+## v0.2 — the front door
+
+Closed from the 2026-09-03 audit (`docs/audits/2026-09-03-synthesis.md`):
+
+- [x] A promised file from Mail or Photos no longer trapping the process
+  (`ShelfDropTests`).
+- [x] The whole drawn island answering a click on synthetic notches
+  (`CompactHitAreaTests`).
+- [x] A clicked-open panel released by a second click and by the pointer
+  leaving. A mouse click no longer pins the panel at all — the pointer that
+  clicked is already standing where the panel holds itself open from; only
+  ⌥⌘I, the Translate service, and VoiceOver's accessibility action still pin
+  (`OpenOnClickTests`, `HoverRectTests`).
+- [x] `Scripts/test-gatekeeper.sh` in the gate order and in CI.
+- [ ] Developer ID signing, notarization and stapling — blocked on an Apple
+  Developer Program membership. Everything else in this list is worth less
+  than it looks until this lands: an unsigned build loses the MediaRemote
+  path on the user's machine.
+- [x] First-run pane shown once per account, until it is answered. The panel
+  opens itself about 0.8 s after a launch that finds `hasCompletedFirstRun`
+  unset, and the body shows `WelcomePane` instead of a tab: that the app is
+  running, that it lives at the notch and opens on a click, both hotkeys, and
+  where Quit is. Pressing Get Started — or picking any tab out of the rail —
+  sets the flag and lands on Music. Only those two set it: closing the panel,
+  locking, sleeping, or dropping a file on the island all take the pane off
+  screen with the flag unset, and the next launch offers it again. A display
+  change carries it across the rebuild instead, the same way the selected tab is
+  carried. Not a window, not a tab, not a status item: the 2026-08-25
+  withdrawal stands (`FirstRunTests`, `TabContractTests`). Validated by hand
+  on 2026-09-10 - see the run recorded at the foot of this section.
+- [x] `PointerWatcher.tick`'s ordinary inside-to-outside transition now
+  carries an `isDragging()` guard, so dragging a file *out* of the Shelf no
+  longer closes the panel mid-drag. Recorded here as open when Task 3
+  shipped; the final review found it had become reachable from the default
+  path once a click stopped pinning, so `holdsOpen` had stopped masking it,
+  and it was closed in the same release (`PointerWatcherTests`).
+
+### Validation run - 2026-09-10
+
+**Mac16,8**, macOS 26.6.2 (25G83), Apple M4 Pro. From a clean build: `rm -rf .build
+build`, then all eleven gates re-run green, then installed to `/Applications`
+and launched from there rather than from the worktree.
+
+Exercised on the built-in notched display: the first-run pane on a cleared
+`hasCompletedFirstRun`, click-to-open, click-to-close, walking away, and the
+drag paths. **Not** exercised: an external display, which is the only place the
+`collapsedDepth` change has any effect; and Open on Hover switched on, which is
+the mode the final review flagged for a fold-and-reopen. Both remain owed.

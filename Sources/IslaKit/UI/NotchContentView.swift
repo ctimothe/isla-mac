@@ -64,6 +64,19 @@ struct NotchContentView: View {
         }
     }
 
+    /// The part of the shell gesture that acts: the drawn collapsed island,
+    /// shoulders included, in the coordinates `DragGesture` reports.
+    ///
+    /// Lifted out of the release rather than copied into the press, so what
+    /// lights up under a press and what commits when it lifts cannot come to
+    /// disagree about where the island is.
+    private var islandBounds: CGRect {
+        CGRect(
+            origin: .zero,
+            size: CGSize(width: size.width + 2 * topRadius, height: size.height)
+        )
+    }
+
     private var shell: some View {
         // The shape is wider than the body by `topRadius` on each side: that
         // slack is where the concave shoulders live, so it must not be clipped.
@@ -105,7 +118,8 @@ struct NotchContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // A click anywhere on the collapsed island opens it. The equalizer
         // wing keeps its own tap for play/pause — a child gesture wins, so
-        // pausing still costs one click and does not open anything.
+        // pausing still costs one click and does not open anything, and the open
+        // panel's header strip closes the panel by winning the same way.
         .contentShape(Rectangle())
         // Highlight on press, commit on release — the order Apple states for a
         // tap. Waiting for the click to show anything makes the island feel
@@ -113,18 +127,27 @@ struct NotchContentView: View {
         // asking it a question.
         .gesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in if !isOpen { isPressed = true } }
+                // Lit for exactly the region the release will act on, and for no
+                // other: this shape is the whole window, so a press that landed
+                // beside the island — or slid off it on the way to being let go
+                // — used to light the island up for a click it was always going
+                // to throw away.
+                .onChanged { value in
+                    let pressed = !isOpen && islandBounds.contains(value.location)
+                    // Written only when it changes. This fires on every pointer
+                    // sample for as long as the button is down, and an open
+                    // panel with a scrub slider or a scrolling lyric under the
+                    // pointer must not be re-rendered by a gesture that has
+                    // nothing to say about it.
+                    if isPressed != pressed { isPressed = pressed }
+                }
                 .onEnded { value in
                     isPressed = false
                     guard !isOpen else { return }
                     // Only if the pointer is still on the island. Dragging away
                     // and letting go cancels, which is what every button on the
                     // platform does.
-                    let bounds = CGRect(
-                        origin: .zero,
-                        size: CGSize(width: size.width + 2 * topRadius, height: size.height)
-                    )
-                    if bounds.contains(value.location) { vm.onIslandClick?() }
+                    if islandBounds.contains(value.location) { vm.onIslandClick?() }
                 }
         )
         .animation(Theme.open(reduceMotion: reduceMotion), value: isOpen)
@@ -132,6 +155,10 @@ struct NotchContentView: View {
         .animation(Theme.compact(reduceMotion: reduceMotion), value: compactActivity)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.paneAnimation, value: vm.tab)
+        // The welcome ending is a pane change like any other, and it arrives
+        // from a `Button` — which animates nothing by itself, so without this
+        // the crossfade above would be a cut.
+        .animation(Theme.paneAnimation, value: vm.isShowingWelcome)
     }
 
     // MARK: - Header
@@ -139,8 +166,9 @@ struct NotchContentView: View {
     // This strip sits directly on top of the menu bar. Menu bar utilities such
     // as Ice watch for clicks there with a global event monitor — a passive
     // observer that sees the click no matter which window consumes it — so
-    // clicking here toggles them as a side effect. Nothing interactive goes in
-    // this row; the tab switcher lives in the rail below.
+    // clicking here toggles them as a side effect. No controls go in this row —
+    // the tab switcher lives in the rail below — and the one gesture it answers
+    // is the one the island already owns: the click that shuts the panel.
 
     @ViewBuilder
     private var header: some View {
@@ -157,21 +185,44 @@ struct NotchContentView: View {
 
     private var openHeader: some View {
         HStack(spacing: 0) {
-            Text(vm.tab.title.uppercased())
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(Theme.tertiary)
-                .padding(.leading, 16)
-                .id(vm.tab)
-                .transition(.opacity)
+            // Both ends go quiet for the welcome. This row labels the pane below
+            // it, and the welcome is not a pane the row can name: it is not a tab
+            // (see `NotchViewModel.isShowingWelcome`), and `vm.tab` is left on
+            // Music underneath it, so the strip read "MUSIC" over a pane that had
+            // nothing to do with Music and the right end named a player for it.
+            // The pane carries its own heading; the header has nothing to add for
+            // one launch.
+            if !vm.isShowingWelcome {
+                Text(vm.tab.title.uppercased())
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(Theme.tertiary)
+                    .padding(.leading, 16)
+                    .id(vm.tab)
+                    .transition(.opacity)
+            }
             Spacer(minLength: 0)
             Color.clear.frame(width: vm.geometry.notchSize.width, height: 1)
             Spacer(minLength: 0)
-            trailing
-                .padding(.trailing, 16)
-                .transition(.opacity)
+            if !vm.isShowingWelcome {
+                trailing
+                    .padding(.trailing, 16)
+                    .transition(.opacity)
+            }
         }
         .frame(height: vm.geometry.notchSize.height)
+        // Clicking the island again closes the panel, and while the panel is
+        // open this strip is all of the island there is: the notch itself, at
+        // notch depth, with the body hanging below it. The close cannot be left
+        // to the gesture that opens the island — that one's shape is the whole
+        // window, so it would turn every click on a control in the panel into a
+        // click that shut the panel out from under the control just pressed.
+        //
+        // Safe to claim the full width because nothing in this row is a control
+        // on any tab: the title on the left, and a count or the source name on
+        // the right. The rail and the panes begin below it.
+        .contentShape(Rectangle())
+        .onTapGesture { vm.onIslandClick?() }
     }
 
     private var compactMediaHeader: some View {
@@ -441,16 +492,27 @@ struct NotchContentView: View {
         // Content is replaced in place — no travel. The rail is vertical and
         // the panes are unrelated, so a direction would only be decoration.
         ZStack {
-            pane
-                .id(vm.tab)
-                .transition(.asymmetric(
-                    insertion: .opacity
-                        .combined(with: .scale(scale: 0.97))
-                        .animation(Theme.paneIn),
-                    removal: .opacity
-                        .combined(with: .scale(scale: 1.02))
-                        .animation(Theme.paneOut)
-                ))
+            // For one launch, the welcome wins over the tab. Here rather than
+            // inside `pane` so the per-tab switch and its transitions are
+            // untouched, and so the rail — which the welcome's last line points
+            // at — stays exactly where it is. A plain crossfade, because
+            // dismissing it is not travel between two tabs: one thing ends and
+            // the panel it was in carries on.
+            if vm.isShowingWelcome {
+                WelcomePane(onDismiss: { vm.dismissWelcome() })
+                    .transition(.opacity)
+            } else {
+                pane
+                    .id(vm.tab)
+                    .transition(.asymmetric(
+                        insertion: .opacity
+                            .combined(with: .scale(scale: 0.97))
+                            .animation(Theme.paneIn),
+                        removal: .opacity
+                            .combined(with: .scale(scale: 1.02))
+                            .animation(Theme.paneOut)
+                    ))
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
@@ -534,7 +596,13 @@ private struct Rail: View {
         // Moving to another icon cancels the pending switch along with the
         // task, so only the icon actually rested on ever wins.
         .task(id: hovered) {
-            guard let hovered, hovered != vm.tab else { return }
+            // A hover does not answer the welcome. The Get Started button sits
+            // at the bottom of the pane, immediately right of the rail, so the
+            // pointer travelling to it passes over the rail — and a pause on the
+            // way would otherwise have thrown the welcome away and landed the
+            // panel on whichever icon the hand happened to stop over. A click
+            // still goes wherever it was aimed; see `chooseTab`.
+            guard let hovered, hovered != vm.tab, !vm.isShowingWelcome else { return }
             try? await Task.sleep(for: dwell)
             guard !Task.isCancelled else { return }
             vm.select(hovered)
@@ -544,7 +612,10 @@ private struct Rail: View {
     @ViewBuilder
     private func icon(for tab: NotchViewModel.Tab) -> some View {
         Button {
-            vm.select(tab)
+            // `chooseTab`, not `select`: this is the one place a *person* picks
+            // a tab, and picking one is also how somebody answers the welcome
+            // with "not this, that" instead of pressing Get Started.
+            vm.chooseTab(tab)
         } label: {
             Image(systemName: tab.symbol)
                 .font(.system(size: 12, weight: .medium))

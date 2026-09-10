@@ -145,3 +145,11 @@
 "+%d more in Sound Settings" = "Ещё %d в настройках звука";
 "Open on Hover" = "Открывать при наведении";
 "Output" = "Вывод";
+
+/* Первый запуск */
+"Isla is running." = "Isla работает.";
+"It lives at the notch. Click it to open." = "Она живёт у выреза. Нажмите на неё, чтобы открыть.";
+"Open the panel" = "Открыть панель";
+"Translate the clipboard" = "Перевести из буфера обмена";
+"Quit and everything else lives in Settings, at the bottom left." = "Выход и всё остальное — в настройках, внизу слева.";
+"Get Started" = "Начать";
