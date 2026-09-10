@@ -176,14 +176,23 @@ Closed from the 2026-09-03 audit (`docs/audits/2026-09-03-synthesis.md`):
   screen with the flag unset, and the next launch offers it again. A display
   change carries it across the rebuild instead, the same way the selected tab is
   carried. Not a window, not a tab, not a status item: the 2026-08-25
-  withdrawal stands (`FirstRunTests`, `TabContractTests`). Still owed: the
-  manual pass on a clean account, which needs the default deleted and the app
-  rebuilt.
-- [ ] `PointerWatcher.tick`'s ordinary inside→outside transition
-  (`PointerWatcher.swift:230-245`) carries no `isDragging()` guard, so
-  dragging a file *out* of the Shelf can still close the panel mid-drag. The
-  comment at `NotchController.swift:734-741` claims both directions of a drag
-  are covered; that is true for a drag that starts while the pointer is
-  already recorded outside (`PointerWatcher.swift:218`), not for the ordinary
-  hysteresis transition an outward drag rides across on its way out. Found
-  while closing the item above and deliberately left open.
+  withdrawal stands (`FirstRunTests`, `TabContractTests`). Validated by hand
+  on 2026-09-10 - see the run recorded at the foot of this section.
+- [x] `PointerWatcher.tick`'s ordinary inside-to-outside transition now
+  carries an `isDragging()` guard, so dragging a file *out* of the Shelf no
+  longer closes the panel mid-drag. Recorded here as open when Task 3
+  shipped; the final review found it had become reachable from the default
+  path once a click stopped pinning, so `holdsOpen` had stopped masking it,
+  and it was closed in the same release (`PointerWatcherTests`).
+
+### Validation run - 2026-09-10
+
+**Mac16,8**, macOS 26.6.2 (25G83), Apple M4 Pro. From a clean build: `rm -rf .build
+build`, then all eleven gates re-run green, then installed to `/Applications`
+and launched from there rather than from the worktree.
+
+Exercised on the built-in notched display: the first-run pane on a cleared
+`hasCompletedFirstRun`, click-to-open, click-to-close, walking away, and the
+drag paths. **Not** exercised: an external display, which is the only place the
+`collapsedDepth` change has any effect; and Open on Hover switched on, which is
+the mode the final review flagged for a fold-and-reopen. Both remain owed.
