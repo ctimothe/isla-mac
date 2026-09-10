@@ -12,9 +12,9 @@ before doing anything.
   **active implementation**, and the only worktree normally checked out. A
   macOS 15+ accessory app built for functional/performance parity with
   MIT-licensed Cyclop 0.6.5 (pinned upstream commit
-  `7ab60c8198681ea6c895fa55458448efb6e4c36e`). Pure SwiftPM: `Sources/DynamicIsland`
-  (2-line entry point), `Sources/DynamicIslandKit` (everything),
-  `Sources/DynamicIslandMediaHelper` (Objective-C dylib), `Tests/DynamicIslandKitTests`,
+  `7ab60c8198681ea6c895fa55458448efb6e4c36e`). Pure SwiftPM: `Sources/Isla`
+  (2-line entry point), `Sources/IslaKit` (everything),
+  `Sources/IslaMediaHelper` (Objective-C dylib), `Tests/IslaKitTests`,
   plus `Scripts/*.sh` release gates.
 - Branch `shell-music-mvp` — the earlier shell + Music prototype (XcodeGen
   project + `Packages/IslandCore`, `IslandModule`/`ModuleRegistry`, vendored
@@ -46,7 +46,7 @@ update the spec/design first, then checklist and code in the same change.
 Notes and the Teleprompter on 2026-08-22 (`57650e0`), taking the second rail and
 the tall panel body with them. Five tabs ship — Music, Shelf, Clipboard,
 Translate, Settings — on one rail, and
-`Tests/DynamicIslandKitTests/TabContractTests.swift` asserts the absence so a tab
+`Tests/IslaKitTests/TabContractTests.swift` asserts the absence so a tab
 cannot creep back. The parity design records each removal as a dated
 **Withdrawn** amendment in place rather than deleting the section: amend it the
 same way, never by rewriting the original contract.
@@ -58,9 +58,9 @@ All commands below run from inside `.worktrees/dynamic-island-parity`.
 ```bash
 swift test                          # unit tests
 swift test --filter <TestName>      # single test or test case
-bash Scripts/bundle.sh release      # assemble + ad-hoc-sign build/Dynamic Island.app
-open "build/Dynamic Island.app"
-pkill -x DynamicIsland              # kill a stale instance
+bash Scripts/bundle.sh release      # assemble + ad-hoc-sign build/Isla.app
+open "build/Isla.app"
+pkill -x Isla              # kill a stale instance
 ```
 
 There is no Xcode project — SwiftPM builds the binary and `Scripts/bundle.sh`
@@ -73,12 +73,16 @@ what `Scripts/release.sh` re-runs before it tags:
 ```bash
 swift test
 bash Scripts/test-provenance.sh    # upstream pin + MIT attribution intact
-bash Scripts/test-branding.sh      # no "cyclop"/"libcyclopmedia" anywhere in Sources, Resources, Scripts
+bash Scripts/test-branding.sh      # no "cyclop" and no former "Dynamic Island" identity anywhere
+                                   # in Sources, Resources, Scripts; bundle.sh names Isla
 bash Scripts/test-localizations.sh # en/ru key parity, plutil-clean
 bash Scripts/bundle.sh release
 bash Scripts/test-identity.sh      # Info.plist name/id/executable/LSMinimumSystemVersion=15.0
 bash Scripts/test-helper.sh        # helper answers "get" with one line of JSON
 bash Scripts/test-package.sh       # bundle contract: binary, dylib, icon, both .lproj, licenses
+bash Scripts/test-gatekeeper.sh    # the outside view: Developer ID on the bundle and the
+                                   # nested dylib, spctl, a stapled ticket, and the helper
+                                   # loading under quarantine. Skips itself on an ad-hoc build
 bash Scripts/dmg.sh
 bash Scripts/test-lifecycle.sh     # no helper survives the app
 ```
@@ -112,7 +116,7 @@ running app behind the code:
    ```
 3. **Relaunch it**, replacing the stale instance:
    ```bash
-   pkill -x DynamicIsland; open "build/Dynamic Island.app"
+   pkill -x Isla; open "build/Isla.app"
    ```
 
 Steps 2–3 exist for code in the parity worktree; a docs-only change on `main`
@@ -130,7 +134,7 @@ asks for the keyboard. Because the panel never activates, `NSScreen.main` is
 meaningless here — never use it to pick the target display, and recompute
 geometry on `NSApplication.didChangeScreenParametersNotification`. The app is
 `.accessory` — no Dock icon, no menu-bar item, no window — and the policy is set
-once in `DynamicIslandApplication.run()` and never changed at runtime. There is
+once in `IslaApplication.run()` and never changed at runtime. There is
 no status item: Open Panel, About, Quit and the privacy toggles all live in the
 **Settings** tab (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
 directly). `NotchController` (~1100 lines) owns panel lifecycle, geometry,
@@ -160,8 +164,8 @@ and is the only thing that answers clicks.
 
 **Media path.** MediaRemote's read path is closed to ordinary processes since
 macOS 15.4, and the `com.apple.mediaremote.external-access` entitlement is
-restricted. `Sources/DynamicIslandMediaHelper/helper.m` is built into
-`libdynamicislandmedia.dylib` and loaded into `/usr/bin/perl`, a platform binary
+restricted. `Sources/IslaMediaHelper/helper.m` is built into
+`libislamedia.dylib` and loaded into `/usr/bin/perl`, a platform binary
 the daemon trusts and which is signed without library validation. It prints one
 JSON object per line on stdout, takes commands on stdin, and exits when stdin
 closes so it can never outlive the app. `NowPlayingFeed` spawns it and parses
@@ -188,7 +192,7 @@ there is a backdrop to sample, and `GlassSurface`'s hand-drawn recipe otherwise
 stacked; a drawn scrim under real glass is just a scrim. `SystemAppearance`
 watches Reduce Transparency and Increase Contrast and both are honored live —
 an app built on a material owes them an answer. `defaults write
-dev.dynamicisland.app drawnGlass -bool true` forces the recipe everywhere.
+com.ctimothe.isla drawnGlass -bool true` forces the recipe everywhere.
 
 Animation curves and the collapsed/open corner radii live in `Theme`, including
 Reduce Motion variants and `tracking(forSize:)` — SwiftUI applies Apple's
@@ -217,10 +221,13 @@ first timestamp; do not add a fourth.
 ## Hard constraints
 
 - Cyclop's MIT attribution stays in `THIRD_PARTY_NOTICES.md` and ships inside
-  the bundle; all product identity (name, bundle id `dev.dynamicisland.app`,
+  the bundle; all product identity (name, bundle id `com.ctimothe.isla`,
   paths, icon, copy) must stay original. `test-branding.sh` fails on any
   case-insensitive `cyclop` match under `Sources`, `Resources`, or the named
-  scripts — including in comments.
+  scripts — including in comments. It bans the former product name
+  **Dynamic Island** on the same terms, so the rename to Isla cannot silently
+  regress; the descriptive tagline "Dynamic Island–style" is nominative use and
+  lives only in the README.
 - Every user-facing string is localized in both `Resources/en.lproj` and
   `Resources/ru.lproj`; keys *are* the English text, and `test-localizations.sh`
   enforces key parity. Use `localized(_:)` for strings needed before they reach
