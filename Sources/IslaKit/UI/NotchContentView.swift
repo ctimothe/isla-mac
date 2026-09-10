@@ -185,19 +185,30 @@ struct NotchContentView: View {
 
     private var openHeader: some View {
         HStack(spacing: 0) {
-            Text(vm.tab.title.uppercased())
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(Theme.tertiary)
-                .padding(.leading, 16)
-                .id(vm.tab)
-                .transition(.opacity)
+            // Both ends go quiet for the welcome. This row labels the pane below
+            // it, and the welcome is not a pane the row can name: it is not a tab
+            // (see `NotchViewModel.isShowingWelcome`), and `vm.tab` is left on
+            // Music underneath it, so the strip read "MUSIC" over a pane that had
+            // nothing to do with Music and the right end named a player for it.
+            // The pane carries its own heading; the header has nothing to add for
+            // one launch.
+            if !vm.isShowingWelcome {
+                Text(vm.tab.title.uppercased())
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(Theme.tertiary)
+                    .padding(.leading, 16)
+                    .id(vm.tab)
+                    .transition(.opacity)
+            }
             Spacer(minLength: 0)
             Color.clear.frame(width: vm.geometry.notchSize.width, height: 1)
             Spacer(minLength: 0)
-            trailing
-                .padding(.trailing, 16)
-                .transition(.opacity)
+            if !vm.isShowingWelcome {
+                trailing
+                    .padding(.trailing, 16)
+                    .transition(.opacity)
+            }
         }
         .frame(height: vm.geometry.notchSize.height)
         // Clicking the island again closes the panel, and while the panel is
