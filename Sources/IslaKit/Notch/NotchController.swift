@@ -812,6 +812,13 @@ final class NotchController {
         // destination callbacks, so the panel counted the pointer as away,
         // folded 0.32 s in, and tore down the very view the drag session was
         // still running from.
+        //
+        // Knowing about the outgoing drag was only half the fix, and this comment
+        // claimed the whole one until 2026-09-10. The watcher closes down two
+        // paths and only the already-outside one asked this question; the
+        // departure from `closeRect` — the path a drag out actually takes — folded
+        // the panel regardless, and became reachable the moment a click stopped
+        // pinning. Both ask now: see `PointerWatcher.tick`.
         pointer.isDragging = { [weak root] in
             (root?.isReceivingDrag ?? false) || ShelfDragSource.isDraggingOut
         }

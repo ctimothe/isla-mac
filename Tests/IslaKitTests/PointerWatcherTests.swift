@@ -69,6 +69,39 @@ final class PointerWatcherTests: XCTestCase {
         )
     }
 
+    /// Dragging a card out of the Shelf must not fold the panel it came from.
+    ///
+    /// The pointer leaves `closeRect` with the card, and until 2026-09-10 only
+    /// the watcher's already-outside close path asked whether a drag was in
+    /// flight. The departure itself did not, so 0.32 s after the pointer left,
+    /// the panel folded and took the view the drag session was running from with
+    /// it. It was masked while every click pinned the panel — `holdsOpen` refused
+    /// the close — and a click leaves the panel unpinned now.
+    func testADragOutOfThePanelKeepsItOpenUntilTheDragEnds() {
+        let watcher = PointerWatcher()
+        var changes: [Bool] = []
+        // Open, with the pointer already off it: the card is on its way to the
+        // Desktop.
+        watcher.openRect = Self.nowhere
+        watcher.closeRect = Self.nowhere
+        watcher.closeDelay = 0
+        watcher.isPanelOpen = { true }
+        var dragging = true
+        watcher.isDragging = { dragging }
+        watcher.onChange = { changes.append($0) }
+        watcher.setInside(true)
+        defer { watcher.stop() }
+
+        sample(watcher, times: 4)
+        XCTAssertEqual(changes, [], "a drag in flight keeps the panel it came out of")
+
+        // The card is dropped. Now the pointer being away means what it always
+        // means.
+        dragging = false
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [false], "the drag ended with the pointer still away")
+    }
+
     // MARK: - Harness
 
     /// Large enough to hold the pointer wherever the test runner's cursor

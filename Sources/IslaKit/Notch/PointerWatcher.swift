@@ -270,6 +270,23 @@ final class PointerWatcher {
             awaitingSince = nil
             return
         }
+        // A drag in flight is the one time the panel is meant to stand open with
+        // the pointer off it: it was opened to be dropped onto, or a card is
+        // being dragged out of it. The already-outside branch above has asked
+        // this all along and this one — the departure itself — did not, which is
+        // the shape a drag actually takes: click the island open, go to the
+        // Shelf, drag a card to the Desktop, and 0.32 s after the pointer left
+        // `closeRect` the panel folded and tore down the very view the drag
+        // session was still running from. It was unreachable only because every
+        // click used to pin, and `holdsOpen` refused the close on the way out.
+        //
+        // `isInside` is deliberately left standing rather than flipped: when the
+        // drag ends with the pointer still away, the departure is read again from
+        // scratch and the panel folds then, which is what it owed all along.
+        if !inside, isDragging() {
+            awaitingSince = nil
+            return
+        }
         // Same hold-off for the ordinary inside→outside transition: a
         // programmatic open sets `isInside` true with the pointer elsewhere,
         // and that disagreement resolves here one tick later.
