@@ -145,3 +145,11 @@
 "+%d more in Sound Settings" = "+%d more in Sound Settings";
 "Open on Hover" = "Open on Hover";
 "Output" = "Output";
+
+/* First run */
+"Isla is running." = "Isla is running.";
+"It lives at the notch. Click it to open." = "It lives at the notch. Click it to open.";
+"Open the panel" = "Open the panel";
+"Translate the clipboard" = "Translate the clipboard";
+"Quit and everything else lives in Settings, at the bottom left." = "Quit and everything else lives in Settings, at the bottom left.";
+"Get Started" = "Get Started";

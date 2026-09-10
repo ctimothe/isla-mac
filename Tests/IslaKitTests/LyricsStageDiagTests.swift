@@ -42,10 +42,23 @@ final class LyricsStageDiagTests: XCTestCase {
         try save(image, "diag_offset.png")
     }
 
+    /// Renders the view and proves the render produced real pixels.
+    ///
+    /// This used to write into a hardcoded absolute path under `/private/tmp`
+    /// belonging to one long-dead session, and asserted nothing about what it
+    /// wrote — so it passed only while that directory happened to still exist
+    /// and failed the moment `/tmp` was swept, in a suite that had nothing to
+    /// do with lyrics. The render is worth keeping: `ImageRenderer` over this
+    /// layout is what used to trap. The path is not.
     private func save(_ image: NSImage?, _ name: String) throws {
-        let image = try XCTUnwrap(image)
+        let image = try XCTUnwrap(image, "ImageRenderer produced no image for \(name)")
         let tiff = try XCTUnwrap(image.tiffRepresentation)
         let png = try XCTUnwrap(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
-        try png.write(to: URL(fileURLWithPath: "/private/tmp/claude-501/-Users-ctimothe-code-projects-dynamic-island/518a0e07-9288-4a58-8703-b43facaf658f/scratchpad/\(name)"))
+        XCTAssertGreaterThan(png.count, 1024, "\(name) rendered an empty or near-empty image")
+
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("isla-diag", isDirectory: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try png.write(to: destination.appendingPathComponent(name))
     }
 }
