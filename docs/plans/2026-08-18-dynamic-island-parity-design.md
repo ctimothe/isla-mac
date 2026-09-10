@@ -262,12 +262,21 @@ transitions.
 > find the panel could not quit it either. The app now opens its own panel once,
 > about 0.8 s into the first launch of an account, onto `WelcomePane`: the app is
 > running, it lives at the notch and opens on a click, ⌥⌘I and ⌥⌘T, and Quit is
-> in Settings at the foot of the rail. A pane inside the existing body — not a
+> in Settings at the bottom left. A pane inside the existing body — not a
 > window, not a status item, and not a sixth tab, since something that exists for
 > one launch is not somewhere to navigate to. `hasCompletedFirstRun` in the app's
-> own defaults makes it once per account. Held by `FirstRunTests`, which also
+> own defaults is written by an *answer* and by nothing else — Get Started, or a
+> tab picked out of the rail — so the contract is **once per account until it is
+> answered**, not once per account outright. Everything else that takes the pane
+> off screen leaves the flag alone and the next launch offers it again: Escape, a
+> click in another app, the screen sleeping or locking, the pointer leaving a
+> panel it had been handed, and a file dragged onto the island, which must show
+> the shelf it lands on but is not the user answering anything. A display change
+> is not any of those — the panel is rebuilt, not ended, so the pane is carried
+> across it the same way the selected tab is. Held by `FirstRunTests`, which also
 > measures the pane against the shallowest body any Mac can give it in both
-> languages, and by `TabContractTests`, which still asserts five tabs.
+> languages, on a machine with no display as well, and by `TabContractTests`,
+> which still asserts five tabs.
 
 ### Privacy mode
 

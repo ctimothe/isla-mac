@@ -626,6 +626,7 @@ final class NotchController {
         // only the panel's own state.
         let previousTab = viewModel?.tab
         let wasOpen = viewModel?.isOpen ?? false
+        let wasShowingWelcome = viewModel?.isShowingWelcome ?? false
         // The pin belongs to the panel being torn down; the monitor watching
         // for its exit has to go with it, or it outlives every rebuild.
         viewModel?.isPinnedOpen = false
@@ -641,10 +642,14 @@ final class NotchController {
         panel = nil
         rootView = nil
         viewModel = nil
-        build(restoring: previousTab, wasOpen: wasOpen)
+        build(restoring: previousTab, wasOpen: wasOpen, showingWelcome: wasShowingWelcome)
     }
 
-    private func build(restoring restoredTab: NotchViewModel.Tab? = nil, wasOpen: Bool = false) {
+    private func build(
+        restoring restoredTab: NotchViewModel.Tab? = nil,
+        wasOpen: Bool = false,
+        showingWelcome: Bool = false
+    ) {
         guard let geometry = NotchGeometry.current() else { return }
         let vm = NotchViewModel(geometry: geometry, stores: stores)
         // Before any rect is cut. The tab decides how far down the panel
@@ -653,6 +658,23 @@ final class NotchController {
         // 400 pt with a close rect drawn for 208, and folded under a pointer
         // resting in the lower half of the pane.
         if let restoredTab { vm.tab = restoredTab }
+        // Carried across for the same reason as the tab, and it is the more
+        // fragile of the two: the welcome is shown once per account, so dropping
+        // it here did not merely lose a pane — it spent the account's one moment
+        // on nothing at all. Plugging in a display mid-read is the obvious way
+        // in; the one that actually bit is a fresh login, where the display
+        // arrangement is still settling in the same second `presentWelcome()`
+        // fires, so a rebuild lands just after the flag is raised and the
+        // welcome is gone before anybody could have read it.
+        //
+        // Not in tension with `setOpen(false)` lowering it: that is the panel
+        // *ending* — Escape, a click in another app, the screen sleeping — and
+        // the moment ends with it. A rebuild is the same panel made again, so
+        // whatever it was showing is still owed. If the reopen at the bottom of
+        // this method does not fire, because the pin went with the old panel and
+        // the pointer is elsewhere, the welcome waits for the next open of this
+        // launch rather than being silently spent.
+        vm.isShowingWelcome = showingWelcome
         vm.onIslandClick = { [weak self] in self?.islandClicked() }
         viewModel = vm
 
@@ -677,7 +699,11 @@ final class NotchController {
         }
         root.onDragEntered = { [weak self] in
             guard let self, let vm = self.viewModel else { return }
-            vm.tab = .shelf
+            // `showShelfForDrag()`, not a bare `tab = .shelf`: the welcome is
+            // drawn over the pane switch, and `setOpen(true)` below has nothing
+            // to do on a panel the welcome already opened, so a drag during the
+            // first launch used to change nothing visible whatsoever.
+            vm.showShelfForDrag()
             vm.isDropTargeted = true
             self.setOpen(true)
         }
