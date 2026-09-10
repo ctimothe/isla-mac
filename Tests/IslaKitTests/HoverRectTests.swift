@@ -33,4 +33,46 @@ final class HoverRectTests: XCTestCase {
         XCTAssertFalse(island.contains(beside), "not on the island")
         XCTAssertTrue(target.contains(beside), "but still close enough to open it")
     }
+
+    /// The rect that keeps an open panel open contains the whole clickable
+    /// island, at every width the island can take.
+    ///
+    /// This is why a click no longer pins the panel open
+    /// (`NotchViewModel.clickOpened`): a click delivered by the mouse leaves the
+    /// pointer inside the rect the watcher closes on, so the pin can buy the
+    /// panel nothing and did nothing but refuse the walk-away. Should the two
+    /// ever come apart — a pill allowed to outgrow the body it opens into is how
+    /// — a click could land outside the close rect and the panel would fold
+    /// under the very pointer that opened it, so the containment is asserted
+    /// rather than assumed.
+    func testTheOpenPanelsCloseRectContainsTheWholeClickableIsland() throws {
+        let geometry = try XCTUnwrap(NotchGeometry.current(), "a test host always has a screen")
+        let hold = geometry.hoverRect(for: geometry.expandedSize)
+
+        // Every width the collapsed pill is ever cut to: bare notch, playing,
+        // and the widest a sneak peek can reach. Taken from the same source the
+        // panel takes them from, so the cap is the real cap.
+        let playing = CompactMediaActivity.playing
+        let widths = [
+            geometry.notchSize.width,
+            playing.bodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width).width,
+            playing.bodySize(
+                notchSize: geometry.notchSize,
+                peeking: true,
+                bodyWidth: geometry.expandedSize.width
+            ).width,
+            geometry.expandedSize.width,
+        ]
+
+        for width in widths {
+            // The drawn pill plus its shoulders — what `applyActiveRect` makes
+            // clickable while collapsed, which is where a click can land.
+            let clickable = geometry.collapsedIslandRect(for: width)
+                .insetBy(dx: -Theme.collapsedTopRadius, dy: 0)
+            XCTAssertTrue(
+                hold.contains(clickable),
+                "at \(width)pt a click on the island lands outside the rect that would hold the panel open"
+            )
+        }
+    }
 }

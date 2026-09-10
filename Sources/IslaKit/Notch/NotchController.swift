@@ -503,7 +503,7 @@ final class NotchController {
         // are the same gesture on the same surface — guarding the open state
         // here meant the island could be opened by clicking it and then not
         // closed by clicking it, which reads as the app having stopped
-        // listening. Walking away still closes it too; see `pointerArrived`.
+        // listening. Walking away closes it too; see `clickOpened`.
         if vm.isOpen {
             vm.isPinnedOpen = false
             setOpen(false)
@@ -514,26 +514,31 @@ final class NotchController {
 
         // Everything the hover route used to do, in the same order, so a click
         // opens the panel the way a hover did rather than by a second path that
-        // merely ends up open too.
-        //
-        // The tab first. A hover always landed on Music — the island is for
-        // glancing at a track, and the other tabs are somewhere to go once it is
-        // open, not somewhere to arrive. Skipping it meant a click opened
-        // whatever had been left behind and then swapped panes *during* the
-        // expansion, which is most of what read as an unsmooth open.
-        vm.select(.media)
-        // The hover lift goes out with the same animation that opens the panel,
-        // rather than snapping off the instant `isOpen` flips.
-        vm.isHovering = false
-        // Pinned, like the hotkey: a panel opened deliberately should not close
-        // because the pointer was never technically inside the hover rect.
-        vm.isPinnedOpen = true
+        // merely ends up open too. The tab, the lift and the pin are the view
+        // model's — `clickOpened` — and the panel's own machinery is here.
+        vm.clickOpened(pointerIsOnPanel: pointerIsOnOpenPanel)
         // Before `setOpen`, not after. Telling the watcher afterwards let it
         // re-enter `onChange` mid-expansion and re-run the open path against a
         // panel that was already opening.
         pointer.setInside(true)
         setOpen(true)
         updatePinnedClickMonitor()
+    }
+
+    /// Whether the cursor is standing where the open panel holds itself open
+    /// from.
+    ///
+    /// The same rect the watcher closes on, asked the same way
+    /// `scheduleCollapseIfPointerAway` asks it, so the answer cannot drift from
+    /// the rule it stands in for. `hoverRect(for: openBodySize)` contains the
+    /// whole collapsed island — the pill is never wider than the body it opens
+    /// into (`CompactMediaActivity.bodySize` caps it) and never deeper than the
+    /// notch — so a click delivered by the mouse always answers true, and only
+    /// a click from assistive tech, with the cursor left elsewhere, answers
+    /// false.
+    private var pointerIsOnOpenPanel: Bool {
+        guard let vm = viewModel else { return false }
+        return vm.geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation)
     }
 
     func refreshPointerTuning() {
@@ -558,8 +563,9 @@ final class NotchController {
     }
 
     /// Keeps the outside-click watch alive exactly while the panel is holding
-    /// itself open — the ⌥⌘I pin *or* a running teleprompter. Both are states
-    /// the pointer cannot end, and both promise a click outside will end them.
+    /// itself open — which since the teleprompter went on 2026-08-22 means the
+    /// pin and nothing else (`holdsOpen` is now just `isPinnedOpen`). It is a
+    /// state the pointer cannot end, and it promises a click outside will.
     private func updatePinnedClickMonitor() {
         let wanted = viewModel?.holdsOpen == true
         if wanted, pinnedClickMonitor == nil {
@@ -734,34 +740,26 @@ final class NotchController {
         }
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
         pointer.onChange = { [weak self] inside in
-            guard let self else { return }
+            guard let self, let vm = self.viewModel else { return }
             // The edge is drawn from the shape's own `.onHover`, not from
             // here: this rect is padded for a forgiving open, and an edge lit
             // from it appears while the cursor is beside the island.
             //
-            // The pointer arriving takes the panel back from whatever opened it
-            // without one, and it does so before the hover-to-open question is
-            // asked. This used to sit the other way round, so with hover-to-open
-            // off — the default — a clicked-open panel was never un-pinned,
-            // ignored the pointer leaving, and could only be dismissed by
-            // clicking somewhere else entirely.
-            //
-            // A hover always lands on Music: the island is for glancing at a
-            // track, and the other tabs are somewhere to go once it is open,
-            // not somewhere to arrive. Deliberate routes still choose their own
-            // tab — ⌥⌘T lands on Translate, a drag lands on the Shelf.
-            if inside {
-                self.viewModel?.pointerArrived()
-                self.updatePinnedClickMonitor()
+            // What the crossing means is the view model's — `pointerCrossed`,
+            // where it can be tested without a pointer. What it does to the
+            // panel is this closure's. An arrival lands on Music: the island is
+            // for glancing at a track, and the other tabs are somewhere to go
+            // once it is open, not somewhere to arrive. Deliberate routes still
+            // choose their own tab — ⌥⌘T lands on Translate, and a drag stays on
+            // the Shelf, which is what `dragging` is for.
+            switch vm.pointerCrossed(inside: inside, dragging: self.pointer.isDragging()) {
+            case .opens: self.setOpen(true)
+            case .closes: self.setOpen(false)
+            case .standsAsItIs: break
             }
-            // Unless hover-to-open is switched on, arriving does not open.
-            if inside, !NotchViewModel.opensOnHoverEnabled { return }
-            // The one place the pointer does not decide — see `holdsOpen`.
-            // Guarded here rather than inside `setOpen` so that the reasons
-            // that are not the pointer, like the screen going to sleep, still
-            // close a running teleprompter.
-            if !inside, self.viewModel?.holdsOpen == true { return }
-            self.setOpen(inside)
+            // An arrival may have dropped the pin, and the monitor watching for
+            // the click that would otherwise have ended it goes with it.
+            self.updatePinnedClickMonitor()
         }
         // Everything outside the visible panel must reach the app underneath:
         // a `nil` from hitTest only discards the event, it does not forward it.
@@ -1004,7 +1002,7 @@ final class NotchController {
             // Resync either way. A pointer that is still on the panel has to be
             // recorded as inside, or hover tracking stays convinced it left and
             // the panel hangs open until the notch is touched again.
-            let away = !vm.geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation)
+            let away = !self.pointerIsOnOpenPanel
             self.pointer.setInside(!away)
             if away, !vm.holdsOpen { self.setOpen(false) }
         }
