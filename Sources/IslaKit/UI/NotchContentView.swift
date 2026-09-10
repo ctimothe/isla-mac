@@ -100,10 +100,14 @@ struct NotchContentView: View {
     /// lights up under a press and what commits when it lifts cannot come to
     /// disagree about where the island is.
     private var islandBounds: CGRect {
-        CGRect(
-            origin: .zero,
-            size: CGSize(width: size.width + 2 * topRadius, height: size.height)
-        )
+        // Asked of the geometry rather than built here, so this and
+        // `NotchController.applyActiveRect` cannot describe the island
+        // differently — they did, and this one was the wrong one. It read
+        // `origin: .zero` while the gesture below reports its clicks in the
+        // whole window's space and the island is centred in it, so the region
+        // that actually opened the panel was the island's left edge and nothing
+        // else. See `NotchGeometry.compactGestureRect`.
+        vm.geometry.compactGestureRect(for: size, topRadius: topRadius)
     }
 
     private var shell: some View {
