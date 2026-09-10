@@ -272,15 +272,25 @@ struct NotchGeometry {
 
     /// Depth of the collapsed target, measured down from the top edge.
     ///
-    /// A real notch is a hole: the whole of it can be claimed, because there is
-    /// nothing underneath to claim it from. A synthetic one is cut out of a
-    /// working menu bar — and the middle of the bar is where status items pile
-    /// up once there are a few (measured on a 13" M1: they start at x≈757 while
-    /// the synthetic notch spans 630…810). Claiming the full bar height there
-    /// puts the panel in front of icons the user is aiming at. A strip along the
-    /// very top edge is reached by throwing the pointer up — the same gesture as
-    /// ever — while a pointer travelling to an icon stays below it.
-    var collapsedDepth: CGFloat { isPhysical ? notchSize.height : 8 }
+    /// The drawn depth, on every display. `NotchShape` fills black
+    /// unconditionally (`NotchContentView.swift:74`) — when nothing is playing
+    /// it is the *header* that falls back to `Color.clear`, not the shape — so
+    /// the pill is visible at all times and all of it has to answer a click.
+    ///
+    /// This was `8` on synthetic notches, for a real reason: the middle of a
+    /// working menu bar is where status items pile up once there are a few
+    /// (measured on a 13" M1: they start at x≈757 while the synthetic notch
+    /// spans 630…810), and claiming the full bar height there takes their
+    /// clicks. The trade was made the other way on 2026-09-10: those items are
+    /// already *covered* by the black shape, so what the 8 pt strip preserved
+    /// was a status item you cannot see but can click, at the price of an
+    /// island you can see but mostly cannot. A visible target that works beats
+    /// an invisible one that does.
+    var collapsedDepth: CGFloat { notchSize.height }
+
+    /// The old strip, kept named rather than inlined so the trade above can be
+    /// reversed in one place if a status-item complaint ever arrives.
+    static let idleStripDepth: CGFloat = 8
 
     /// Size of the collapsed target: the notch itself, or the strip above.
     var collapsedSize: CGSize { CGSize(width: notchSize.width, height: collapsedDepth) }
