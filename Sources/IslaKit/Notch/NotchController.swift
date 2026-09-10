@@ -601,12 +601,18 @@ final class NotchController {
         // better to spend the moment on the next launch, which is what leaving
         // the flag unset does.
         guard !viewModel.isLockedPresentation else { return }
+        // Only onto a panel this opens itself. A drag onto the island, or a click
+        // on it, can have opened the panel inside the 0.8 s delay this is called
+        // after, and the flag is the welcome: raising it over that panel drew the
+        // welcome on top of whatever it had been opened for — a file dropped on
+        // the island half a second after login lost `ShelfPane`'s drop highlight
+        // mid-drag to a pane nobody had asked for. Skipping only the `toggle()`
+        // left exactly that, which is the same defect `71d414f` fixed in the
+        // other ordering. Unset, the moment is spent on the next launch instead:
+        // `hasCompletedFirstRun` is still false, so it is still owed.
+        guard !viewModel.isOpen else { return }
         viewModel.isShowingWelcome = true
-        // A drag onto the island, or a click on it, can have opened the panel
-        // inside the delay this is called after. Toggling then would have shut
-        // it with the welcome already set, hiding the pane behind a panel the
-        // user had just opened for something else.
-        if !viewModel.isOpen { toggle() }
+        toggle()
     }
 
     /// Keeps the outside-click watch alive exactly while the panel is holding
