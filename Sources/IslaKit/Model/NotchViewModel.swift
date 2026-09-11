@@ -517,6 +517,26 @@ final class NotchViewModel: ObservableObject {
         )
     }
 
+    /// Persists the width a drag settled on, and returns the width that was
+    /// actually persisted so the caller can rebuild against it rather than
+    /// against what it asked for. Round first, then clamp: rounding is what
+    /// the pane did at this write site before the commit existed (a slider
+    /// hands over fractional ticks), and clamping mirrors `bodyWidth(in:)` —
+    /// the two have to agree or a commit and a `defaults write` of the same
+    /// number would disagree on read, which is the divergence the read-side
+    /// clamp exists to prevent.
+    ///
+    /// `nonisolated` for the same reason the reader is: a default is
+    /// thread-safe, and this is the one sanctioned writer of the key.
+    nonisolated static func commitBodyWidth(_ width: CGFloat, into defaults: UserDefaults) -> CGFloat {
+        let committed = min(
+            max(width.rounded(), NotchMetrics.minimumBodyWidth),
+            NotchMetrics.maximumBodyWidth
+        )
+        defaults.set(Double(committed), forKey: bodyWidthKey)
+        return committed
+    }
+
     /// `nonisolated` because the geometry is a plain struct built off the main
     /// actor as well as on it, and reading a default is thread-safe.
     nonisolated static var bodyWidth: CGFloat { bodyWidth(in: .standard) }
