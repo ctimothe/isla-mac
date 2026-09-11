@@ -96,12 +96,12 @@ final class LyricsStore: ObservableObject {
     ///   the community word-synced database is keyed by it.
     /// - Parameter isrc: the catalogue ISRC from Task 1's Web-API metadata,
     ///   letting searched tiers join on recording identity instead of text.
-    /// - Parameter exactDurationMs: the catalogue duration in seconds, the
+    /// - Parameter exactDuration: the catalogue duration in seconds, the
     ///   number the duration gate compares against instead of the daemon's
     ///   rounded reading.
     func load(
         title: String, artist: String, album: String, duration: TimeInterval,
-        spotifyID: String? = nil, isrc: String? = nil, exactDurationMs: TimeInterval? = nil
+        spotifyID: String? = nil, isrc: String? = nil, exactDuration: TimeInterval? = nil
     ) {
         let key = Self.cacheKey(title: title, artist: artist, album: album, duration: duration)
         // A track whose Spotify id arrives a beat after its metadata reloads
@@ -110,9 +110,18 @@ final class LyricsStore: ObservableObject {
         // The ISRC and exact duration arrive later still, off the Web API,
         // and their arrival reloads once more: exact identity can rescue a
         // match the text search got wrong, and the held words cover the gap.
+        // A load carrying *less* identity than the one in flight is a stale
+        // echo, not news — the views re-fire their task on every published
+        // change, so an isrc-less reload after an isrc-bearing one would
+        // otherwise downgrade the match and fetch again for nothing. The exact
+        // duration is deliberately not identity: it refines the ±3s gate but
+        // unlocks no new tier, it lands jointly with the ISRC in the common
+        // case (and that reload already carries it), and membership would
+        // re-fire a full fetch on metadata jitter. Same reasoning keeps it
+        // out of the views' task ids, which mirror this identity.
         let identity = key + (spotifyID.map { "|\($0)" } ?? "") + (isrc.map { "|\($0)" } ?? "")
         guard identity != loadedKey else { return }
-        if let loadedKey, loadedKey.hasPrefix(key), spotifyID == nil { return }
+        if let loadedKey, loadedKey.hasPrefix(identity) { return }
         loadedKey = identity
         inFlight?.cancel()
 
@@ -139,7 +148,7 @@ final class LyricsStore: ObservableObject {
             state = .loading
         }
         loadedCacheKey = key
-        let referenceDuration = exactDurationMs ?? duration
+        let referenceDuration = exactDuration ?? duration
         inFlight = Task { [weak self] in
             guard let self else { return }
             // The cache read is disk I/O and JSON decoding, so it happens off
@@ -198,7 +207,7 @@ final class LyricsStore: ObservableObject {
     /// re-runs the full three-tier fetch with the cache bypassed for one pass.
     func research(
         title: String, artist: String, album: String, duration: TimeInterval,
-        spotifyID: String? = nil, isrc: String? = nil, exactDurationMs: TimeInterval? = nil
+        spotifyID: String? = nil, isrc: String? = nil, exactDuration: TimeInterval? = nil
     ) {
         inFlight?.cancel()
         let key = Self.cacheKey(title: title, artist: artist, album: album, duration: duration)
@@ -210,7 +219,7 @@ final class LyricsStore: ObservableObject {
         bypassCacheOnce = true
         load(
             title: title, artist: artist, album: album, duration: duration,
-            spotifyID: spotifyID, isrc: isrc, exactDurationMs: exactDurationMs
+            spotifyID: spotifyID, isrc: isrc, exactDuration: exactDuration
         )
     }
 
@@ -370,7 +379,9 @@ final class LyricsStore: ObservableObject {
     /// recording by catalogue identity, from Task 1's Web-API metadata —
     /// outranks any scored hit outright. The rest rank by title/artist
     /// resemblance, raw then cleaned, among the hits inside the ±3s duration
-    /// gate. Ties keep the provider's own order.
+    /// gate. Ties keep the provider's own order. A pool with nothing
+    /// resembling the query answers nil rather than its first row: without a
+    /// floor, index 0 won by default and a wrong song played word-synced.
     static func pickMatch(
         title: String, artist: String, isrc: String?,
         refDuration: TimeInterval, candidates: [MatchCandidate]
@@ -402,7 +413,8 @@ final class LyricsStore: ObservableObject {
             let score = max(raw, cleaned)
             if score > (best?.score ?? -1) { best = (index, score) }
         }
-        return best?.index
+        guard let best, best.score > 0 else { return nil }
+        return best.index
     }
 
     /// How much of a tier is genuinely word-timed. Line-level stragglers
@@ -496,15 +508,12 @@ final class LyricsStore: ObservableObject {
         title: String, artist: String, album: String,
         duration: TimeInterval, refDuration: TimeInterval
     ) async {
-        // All three word tiers at once: the community TTML database is keyed
-        // by the exact track id so there is no matching to get wrong, while
-        // QQ's QRC and Kugou's KRC are word-synced but found by search. An
-        // exact-ID answer is used, never scored — a searched hit, however
-        // complete, must not replace the track's own timing.
-        async let amll = fetchAmll(spotifyID: spotifyID)
-        async let qq = fetchQQ(title: title, artist: artist, isrc: isrc, refDuration: refDuration)
-        async let kugou = fetchKugou(title: title, artist: artist, isrc: isrc, refDuration: refDuration)
-        let (amllLines, qqLines, kugouLines) = await (amll, qq, kugou)
+        // The exact-ID database first and alone: an answer keyed by track id
+        // is used, never scored — and it used to be awaited jointly with the
+        // two searches, so every exact hit paid for both before it could be
+        // used. The searches start only on a miss now; arbitration among them
+        // is unchanged.
+        let amllLines = await fetchAmll(spotifyID: spotifyID)
         guard !Task.isCancelled, loadedKey == key else { return }
         if let amllLines, !amllLines.isEmpty {
             let usable = Self.cleaned(amllLines, title: title, artist: artist)
@@ -514,6 +523,10 @@ final class LyricsStore: ObservableObject {
                 return
             }
         }
+        async let qq = fetchQQ(title: title, artist: artist, isrc: isrc, refDuration: refDuration)
+        async let kugou = fetchKugou(title: title, artist: artist, isrc: isrc, refDuration: refDuration)
+        let (qqLines, kugouLines) = await (qq, kugou)
+        guard !Task.isCancelled, loadedKey == key else { return }
         if let (source, lines) = Self.arbitrate(
             [(.qq, qqLines ?? []), (.kugou, kugouLines ?? [])], duration: refDuration
         ) {
@@ -787,7 +800,7 @@ final class LyricsStore: ObservableObject {
         cacheDirectory.appendingPathComponent("\(key).lrc4.json")
     }
 
-    struct CachedLyrics: Codable {
+    private struct CachedLyrics: Codable {
         let times: [TimeInterval]
         let texts: [String]
         var wordTimes: [[TimeInterval]]? = nil

@@ -132,7 +132,14 @@ enum QQLyrics {
     private static func stringField(_ dict: [String: Any], keys: [String]) -> String? {
         for key in keys {
             if let text = dict[key] as? String, !text.isEmpty { return text }
+            // QQ's shapes disagree about numbers: an id or duration may
+            // arrive numeric or string-encoded, so both decode rather than
+            // the hit degrading to absent.
             if let number = dict[key] as? Int { return String(number) }
+            if let number = dict[key] as? Double {
+                return number.truncatingRemainder(dividingBy: 1) == 0
+                    ? String(Int(number)) : String(number)
+            }
         }
         return nil
     }
@@ -149,10 +156,23 @@ enum QQLyrics {
 
     private static func songDuration(_ dict: [String: Any]) -> TimeInterval? {
         // `interval` is the documented seconds field; anything implausibly
-        // large is the same number in milliseconds from a variant shape.
+        // large is the same number in milliseconds from a variant shape. A
+        // string-encoded number is still a number — only a truly absent or
+        // unparsable value degrades to nil.
         for key in ["interval", "duration", "playtime"] {
-            guard let raw = dict[key] as? Int ?? (dict[key] as? Double).map(Int.init) else { continue }
-            return raw >= 20_000 ? TimeInterval(raw) / 1000 : TimeInterval(raw)
+            let raw: Int?
+            if let int = dict[key] as? Int {
+                raw = int
+            } else if let double = dict[key] as? Double {
+                raw = Int(double)
+            } else if let text = dict[key] as? String,
+                      let double = Double(text.trimmingCharacters(in: .whitespaces)) {
+                raw = Int(double)
+            } else {
+                continue
+            }
+            guard let value = raw else { continue }
+            return value >= 20_000 ? TimeInterval(value) / 1000 : TimeInterval(value)
         }
         return nil
     }
@@ -185,8 +205,10 @@ enum QQLyrics {
             .replacingOccurrences(of: "-->", with: "") else { return nil }
         for tag in ["contentts", "content"] {
             // `[\s>]` after the name: a bare `[^>]*` would also open on
-            // `<contentts>` when looking for `content`.
-            guard let inner = firstMatch(of: "<\(tag)(?:\\s[^>]*)?>(.*?)</\(tag)>", in: text),
+            // `<contentts>` when looking for `content`. The payload is hex
+            // but travels wrapped in CDATA and comments that may span lines,
+            // so `.` has to match newlines too.
+            guard let inner = firstMatch(of: "<\(tag)(?:\\s[^>]*)?>(.*?)</\(tag)>", in: text, dotMatchesLineSeparators: true),
                   !inner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             let hex = inner
                 .replacingOccurrences(of: "<![CDATA[", with: "")

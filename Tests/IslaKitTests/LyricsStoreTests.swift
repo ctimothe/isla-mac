@@ -170,6 +170,19 @@ final class LyricsStoreTests: XCTestCase {
         XCTAssertEqual(picked, 1)
     }
 
+    /// A pool with nothing resembling the query answers nil, never its first
+    /// row: every candidate inside the gate still scores zero on text.
+    func testUnrelatedCandidatesReturnNil() {
+        let picked = LyricsStore.pickMatch(
+            title: "Test Song", artist: "Test Artist", isrc: nil, refDuration: 200,
+            candidates: [
+                candidate("Completely Different", "Someone Else"),
+                candidate("Another Tune", "Other Band"),
+            ]
+        )
+        XCTAssertNil(picked, "an all-zero pool must not default to index 0")
+    }
+
     // MARK: - Arbitration
 
     private func wordLine(_ at: TimeInterval, _ words: [WordSyncedLyrics.Word]) -> LyricsStore.Line {
@@ -319,6 +332,87 @@ final class LyricsStoreTests: XCTestCase {
             return XCTFail("an empty word tier took the line-tier lyrics down with it")
         }
         XCTAssertEqual(kept.map(\.text), first.map(\.text))
+    }
+
+    /// An exact-ID hit answers without touching search: the amll tier is
+    /// awaited first and alone, so on a hit no QQ, Kugou or LRCLIB request
+    /// is ever issued. The amll answer is delayed so a joint await would
+    /// have had time to fire the searches it must not.
+    func testAmllHitNeverAwaitsSearch() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Served on the session's background queue, off the test's actor —
+        // a plain captured var would cross the MainActor boundary, so the
+        // recording lives in a Sendable box like the stub's own handler.
+        final class HostLog: @unchecked Sendable {
+            private let lock = NSLock()
+            private var hosts: [String] = []
+            func record(_ host: String) { lock.withLock { hosts.append(host) } }
+            var snapshot: [String] { lock.withLock { hosts } }
+        }
+        let log = HostLog()
+        let session = TestURLProtocol.session { request in
+            log.record(request.url?.host ?? "")
+            guard request.url?.host == "raw.githubusercontent.com" else { return nil }
+            Thread.sleep(forTimeInterval: 0.2)
+            let ttml = """
+            <tt><body><div>
+            <p begin="10.5s" end="14.0s"><span begin="10.5s" end="11.0s">Blinding</span> <span begin="11.2s" end="12.0s">lights</span></p>
+            <p begin="1:02.25" end="1:05"><span begin="1:02.25">Sky</span></p>
+            </div></body></tt>
+            """
+            return (200, ttml.data(using: .utf8)!)
+        }
+        let store = LyricsStore(session: session, cacheDirectory: root)
+        store.load(title: "Amll Hit", artist: "Amll Artist", album: "Amll Album", duration: 200, spotifyID: "abc123")
+        await waitForSettled(store)
+        guard case .synced(let lines) = store.state else {
+            return XCTFail("the stubbed amll answer should have settled, got \(store.state)")
+        }
+        XCTAssertEqual(lines.count, 2)
+        let hosts = log.snapshot
+        XCTAssertTrue(hosts.contains("raw.githubusercontent.com"))
+        XCTAssertFalse(hosts.contains("u.y.qq.com"), "search fired before the exact-ID answer was used")
+        XCTAssertFalse(hosts.contains("lyrics.kugou.com"), "search fired before the exact-ID answer was used")
+        XCTAssertFalse(hosts.contains("lrclib.net"), "the floor was asked after an exact hit")
+    }
+
+    /// An isrc-less echo after an isrc-bearing load is stale, not news: the
+    /// views re-fire on every published change, and the echo must not fetch.
+    func testIsrcLessReloadDoesNotRefire() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Same off-actor recording as above: the stub must not touch the
+        // test actor's state from the session's background queue.
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var count = 0
+            func bump() { lock.withLock { count += 1 } }
+            var value: Int { lock.withLock { count } }
+        }
+        let counter = Counter()
+        let session = TestURLProtocol.session { request in
+            counter.bump()
+            guard request.url?.host == "lrclib.net",
+                  request.url?.path == "/api/get" else { return nil }
+            let payload = #"{"syncedLyrics":"[00:10.00] First line\n[00:15.00] Second line\n","duration":200}"#
+            return (200, payload.data(using: .utf8)!)
+        }
+        let store = LyricsStore(session: session, cacheDirectory: root)
+        store.load(title: "T", artist: "A", album: "L", duration: 200, spotifyID: "abc123", isrc: "USRC12345678")
+        await waitForSettled(store)
+        guard case .synced = store.state else {
+            return XCTFail("the stubbed answer should have settled, got \(store.state)")
+        }
+        let settledCount = counter.value
+        XCTAssertGreaterThan(settledCount, 0, "the first load has to fetch for this test to mean anything")
+        store.load(title: "T", artist: "A", album: "L", duration: 200, spotifyID: "abc123")
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(counter.value, settledCount, "the isrc-less echo re-fired the fetch")
+        guard case .synced(let kept) = store.state else {
+            return XCTFail("the echo disturbed the settled lyrics")
+        }
+        XCTAssertEqual(kept.count, 2)
     }
 
     /// Word-tier beats line-tier end to end: QQ answers with words while

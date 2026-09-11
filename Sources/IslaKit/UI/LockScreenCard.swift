@@ -143,7 +143,7 @@ struct LockScreenCard: View {
                     album: track.album, duration: media.duration,
                     spotifyID: media.spotifyTrackID,
                     isrc: media.spotifyISRC,
-                    exactDurationMs: media.spotifyExactDurationMs.map { TimeInterval($0) / 1000 }
+                    exactDuration: media.spotifyExactDuration
                 )
             }
             .transition(.opacity)

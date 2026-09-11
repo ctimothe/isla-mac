@@ -133,6 +133,28 @@ final class QQLyricsTests: XCTestCase {
         XCTAssertEqual(QQLyrics.parseDownloadResponse(xml), Data([0x00, 0xFF]))
     }
 
+    /// The hex payload travels wrapped in CDATA and comments that may span
+    /// lines; the extractor has to see past newlines to reach it.
+    func testParseDownloadResponseSpansLines() {
+        let xml = "<QmLyric><contentts><![CDATA[DEAD\nBEEF]]></contentts></QmLyric>".data(using: .utf8)!
+        XCTAssertEqual(QQLyrics.parseDownloadResponse(xml), Data([0xDE, 0xAD, 0xBE, 0xEF]))
+    }
+
+    /// Variant shapes encode numbers as strings; a present value must still
+    /// decode rather than degrading the hit to absent.
+    func testParseSearchResponseAcceptsStringEncodedNumbers() throws {
+        let json = """
+        {"code":0,"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[
+        {"songid":"12345","songname":"Test Song",
+         "singer":[{"name":"Test Artist"}],"albumname":"Test Album","interval":"200000"}
+        ]}}}}}
+        """.data(using: .utf8)!
+        let songs = QQLyrics.parseSearchResponse(json)
+        let song = try XCTUnwrap(songs.first)
+        XCTAssertEqual(song.songID, "12345")
+        XCTAssertEqual(song.duration ?? -1, 200, accuracy: 0.001)
+    }
+
     func testExtractQRCBody() {
         let xml = """
         <?xml version="1.0"?><QrcInfos><Lyric_1 LyricType="1" \

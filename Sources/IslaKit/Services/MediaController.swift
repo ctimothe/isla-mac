@@ -163,10 +163,10 @@ final class MediaController: ObservableObject {
     /// answered. Lyric tiers join providers on this instead of guessing from
     /// title text; nil means unknown, never "this track has none".
     @Published private(set) var spotifyISRC: String?
-    /// The catalogue's exact duration in milliseconds, alongside the id
+    /// The catalogue's exact duration in seconds, alongside the id
     /// above. The snapshot's own duration is the daemon's rounded reading;
     /// this is the number the duration-gated lyric matching compares against.
-    @Published private(set) var spotifyExactDurationMs: Int?
+    @Published private(set) var spotifyExactDuration: TimeInterval?
     /// Answers exact catalogue metadata for a Spotify track id.
     ///
     /// A seam, not a second path: production leaves this nil and the lookup
@@ -432,7 +432,9 @@ final class MediaController: ObservableObject {
         // predecessor's values.
         guard track?.key == key else { return }
         spotifyISRC = metadata?.isrc
-        spotifyExactDurationMs = metadata?.durationMs
+        // The Web API speaks milliseconds; everything past this line —
+        // lyric gates, task identities — speaks seconds.
+        spotifyExactDuration = metadata.map { TimeInterval($0.durationMs) / 1000 }
     }
 
     private func updatePrecisionSync() {
@@ -635,7 +637,7 @@ final class MediaController: ObservableObject {
         if trackChanged || playerChanged {
             spotifyTrackID = nil
             spotifyISRC = nil
-            spotifyExactDurationMs = nil
+            spotifyExactDuration = nil
             requestSpotifyTrackID(for: key, playerPID: snapshot.playerPID, attempt: 0)
         }
         if playerChanged {
@@ -851,7 +853,7 @@ final class MediaController: ObservableObject {
         // invalidated the whole panel graph twice a minute, all day — the same
         // regression documented and fixed on the playing path above.
         guard track != nil || isPlaying || position != 0 || sourceName != nil || activeApp != nil
-            || spotifyTrackID != nil || spotifyISRC != nil || spotifyExactDurationMs != nil else {
+            || spotifyTrackID != nil || spotifyISRC != nil || spotifyExactDuration != nil else {
             return
         }
         activeApp = nil
@@ -878,7 +880,7 @@ final class MediaController: ObservableObject {
         positionSettled = false
         spotifyTrackID = nil
         spotifyISRC = nil
-        spotifyExactDurationMs = nil
+        spotifyExactDuration = nil
         canSkip = true
         playbackRate = 1
         shuffleEnabled = nil
