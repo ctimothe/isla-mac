@@ -485,6 +485,7 @@ final class MediaControllerTests: XCTestCase {
         guard let key = controller.track?.key else {
             return XCTFail("apply must publish a track")
         }
+        controller.setSpotifyTrackIDForTests("track-one")
         await controller.requestSpotifyMetadata(trackID: "track-one", forKey: key)
         XCTAssertEqual(controller.spotifyISRC, "USRC12345678")
         XCTAssertEqual(controller.spotifyExactDuration ?? -1, 213.456, accuracy: 0.001)
@@ -520,6 +521,7 @@ final class MediaControllerTests: XCTestCase {
         guard let key = controller.track?.key else {
             return XCTFail("apply must publish a track")
         }
+        controller.setSpotifyTrackIDForTests("track-one")
         await controller.requestSpotifyMetadata(trackID: "track-one", forKey: key)
         XCTAssertEqual(controller.spotifyISRC, "USRC12345678")
 
@@ -551,6 +553,41 @@ final class MediaControllerTests: XCTestCase {
         XCTAssertNil(controller.spotifyExactDuration)
     }
 
+    /// C2: same key, different catalogue IDs. A late answer for the departed
+    /// ID must not publish onto the track the new ID now owns.
+    func testStaleMetadataWithSameKeyButNewIDIsDropped() async {
+        let controller = MediaController()
+        controller.spotifyMetadataProvider = { id in
+            if id == "id-old" {
+                try? await Task.sleep(for: .milliseconds(200))
+                return SpotifyAccount.TrackMetadata(isrc: "USRC-OLD", durationMs: 100000)
+            }
+            return SpotifyAccount.TrackMetadata(isrc: "USRC-NEW", durationMs: 200000)
+        }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.isPlaying = true
+        playing.playerPID = 111
+        controller.apply(playing)
+        guard let key = controller.track?.key else {
+            return XCTFail("apply must publish a track")
+        }
+        // The old ID resolves first, its metadata fetch starts; before it
+        // lands the catalogue resolves a different ID for the same key.
+        controller.setSpotifyTrackIDForTests("id-old")
+        async let old: Void = controller.requestSpotifyMetadata(trackID: "id-old", forKey: key)
+        controller.setSpotifyTrackIDForTests("id-new")
+        await controller.requestSpotifyMetadata(trackID: "id-new", forKey: key)
+        await old
+        XCTAssertEqual(
+            controller.spotifyISRC, "USRC-NEW",
+            "the departed ID's late answer must not overwrite the current ID"
+        )
+        XCTAssertEqual(controller.spotifyExactDuration ?? -1, 200, accuracy: 0.001)
+    }
+
     /// The catalogue does not always carry an ISRC for a track it otherwise
     /// knows — the exact duration is still worth publishing for the
     /// duration-gated matching the lyric tiers do.
@@ -570,6 +607,7 @@ final class MediaControllerTests: XCTestCase {
             return XCTFail("apply must publish a track")
         }
 
+        controller.setSpotifyTrackIDForTests("track-one")
         await controller.requestSpotifyMetadata(trackID: "track-one", forKey: key)
 
         XCTAssertNil(controller.spotifyISRC)

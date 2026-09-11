@@ -460,12 +460,25 @@ final class MediaController: ObservableObject {
         // identity onto the new one. Assigned unconditionally past the guard:
         // a track the catalogue does not know keeps nil rather than a
         // predecessor's values.
-        guard track?.key == key else { return }
+        //
+        // The key alone is not enough: two catalogue IDs can share one key —
+        // same title, artist, album and pid for a re-release — so a late
+        // answer for the departed ID would still pass the key guard and pin
+        // its ISRC onto the track the new ID now owns. The resolved ID is the
+        // second half of the guard: set beside the fetch call, it has moved
+        // on by the time a stale answer lands.
+        guard track?.key == key, spotifyTrackID == trackID else { return }
         spotifyISRC = metadata?.isrc
         // The Web API speaks milliseconds; everything past this line —
         // lyric gates, task identities — speaks seconds.
         spotifyExactDuration = metadata.map { TimeInterval($0.durationMs) / 1000 }
     }
+
+    /// Test seam: pins the resolved catalogue id the metadata guard reads,
+    /// standing in for the AppleScript lookup that never resolves without a
+    /// running Spotify. Production sets `spotifyTrackID` beside the fetch;
+    /// tests do the same through here.
+    func setSpotifyTrackIDForTests(_ id: String?) { spotifyTrackID = id }
 
     private func updatePrecisionSync() {
         // Playing, too. A paused track's position cannot move, so asking

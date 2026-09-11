@@ -183,6 +183,97 @@ final class LyricsStoreTests: XCTestCase {
         XCTAssertNil(picked, "an all-zero pool must not default to index 0")
     }
 
+    /// An ISRC-exact hit with a wild duration must not outrank a correct
+    /// text+duration hit: provider ISRC fields are untrusted, and one wrong
+    /// ISRC with a 100s gap would otherwise beat the right song.
+    func testISRCExactRespectsDurationGate() {
+        let picked = LyricsStore.pickMatch(
+            title: "Test Song", artist: "Test Artist", isrc: "USRC-CORRECT", refDuration: 200,
+            candidates: [
+                candidate("Test Song", "Test Artist", duration: 200, isrc: "USRC-WRONG"),
+                candidate("Something Else Entirely", "Someone Else", duration: 300, isrc: "USRC-CORRECT"),
+            ]
+        )
+        XCTAssertEqual(picked, 0, "an ISRC hit outside the ±3s gate must not win over text+duration")
+    }
+
+    /// C1: a cache entry written without ISRC must not pin the track forever.
+    /// Seed a WRONG-match v4 entry (old shape, no identity fields), load with
+    /// an ISRC, and the refined fetch must run and settle the ISRC hit — with
+    /// the file never deleted by the test itself.
+    func testIsrcRefinementSkipsStaleCacheHit() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let key = LyricsStore.cacheKey(title: "Test Song", artist: "Test Artist", album: "Test Album", duration: 200)
+        let url = root.appendingPathComponent("\(key).lrc4.json")
+        // Old-shape entry: the first (ISRC-less) load's text match, wrong.
+        let seeded: [String: Any] = [
+            "times": [10.0, 15.0],
+            "texts": ["Wrong cached one", "Wrong cached two"],
+            "source": "lrclib",
+        ]
+        try JSONSerialization.data(withJSONObject: seeded).write(to: url)
+
+        // The correct words, served only to the ISRC-exact QQ hit.
+        let xml = """
+        <?xml version="1.0"?><QrcInfos><Lyric_1 LyricType="1" \
+        LyricContent="[10000,5000]Right (10000,500)line (10500,500)one[16000,4000]Right (16000,500)line (16500,500)two"/></QrcInfos>
+        """
+        let hex = try XCTUnwrap(QQLyrics.encryptQRC(xml)).map { String(format: "%02X", $0) }.joined()
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var count = 0
+            func bump() { lock.withLock { count += 1 } }
+            var value: Int { lock.withLock { count } }
+        }
+        let counter = Counter()
+        let session = TestURLProtocol.session { request in
+            counter.bump()
+            switch request.url?.host {
+            case "u.y.qq.com":
+                let payload = """
+                {"code":0,"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[
+                {"songid":111,"songname":"Test Song","singer":[{"name":"Test Artist"}],
+                 "albumname":"Test Album","interval":200,"isrc":"USRC-WRONG"},
+                {"songid":222,"songname":"Something Else Entirely","singer":[{"name":"Someone Else"}],
+                 "albumname":"Other","interval":200,"isrc":"USRC-CORRECT"}
+                ]}}}}}
+                """
+                return (200, payload.data(using: .utf8)!)
+            case "c.y.qq.com":
+                // Plain body scan: this runs on the session's background queue.
+                var isCorrect = false
+                if let body = request.httpBody, let text = String(data: body, encoding: .utf8) {
+                    isCorrect = text.contains("musicid=222")
+                }
+                guard isCorrect else { return nil }
+                let payload = "<QmLyric><contentts><![CDATA[\(hex)]]></contentts></QmLyric>"
+                return (200, payload.data(using: .utf8)!)
+            default:
+                return nil
+            }
+        }
+        let store = LyricsStore(session: session, cacheDirectory: root)
+        store.load(title: "Test Song", artist: "Test Artist", album: "Test Album", duration: 200, isrc: "USRC-CORRECT")
+        await waitForSettled(store)
+        XCTAssertGreaterThan(counter.value, 0, "the ISRC load must refire the network past the stale cache hit")
+        guard case .synced(let lines) = store.state else {
+            return XCTFail("the ISRC refinement should have settled, got \(store.state)")
+        }
+        XCTAssertTrue(
+            lines.contains { $0.text.contains("Right line") },
+            "the ISRC hit must win over the seeded wrong entry, got \(lines.map(\.text))"
+        )
+        XCTAssertFalse(
+            lines.contains { $0.text.contains("Wrong cached") },
+            "the stale cache hit must not survive the refinement"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: url.path),
+            "the test must not delete the file — the skip is by identity, not by removal"
+        )
+    }
+
     // MARK: - Arbitration
 
     private func wordLine(_ at: TimeInterval, _ words: [WordSyncedLyrics.Word]) -> LyricsStore.Line {

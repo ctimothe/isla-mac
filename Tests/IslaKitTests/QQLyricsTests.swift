@@ -20,6 +20,29 @@ final class TestURLProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        // URLSession hands a POST body to a URLProtocol as a stream, never as
+        // `httpBody` — the two are mutually exclusive by the time the request
+        // lands here. A handler matching on form fields (the QQ download stub
+        // tells the ISRC hit's `musicid=222` from the text hit's `musicid=111`)
+        // would see a nil body on every POST, answer "not mine", and make the
+        // tier under test look broken when the stub was. The stream is drained
+        // back into `httpBody` so handlers read one shape, the shape the wire
+        // actually carries.
+        var request = self.request
+        if request.httpBody == nil, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            let bufferSize = 4096
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+            defer { buffer.deallocate() }
+            while stream.hasBytesAvailable {
+                let read = stream.read(buffer, maxLength: bufferSize)
+                guard read > 0 else { break }
+                data.append(buffer, count: read)
+            }
+            request.httpBody = data
+        }
         let answer = Self.lock.withLock { Self.handler?(request) }
         guard let (status, body) = answer,
               let url = request.url,
