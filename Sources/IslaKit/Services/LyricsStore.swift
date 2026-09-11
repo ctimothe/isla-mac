@@ -129,13 +129,22 @@ final class LyricsStore: ObservableObject {
         guard let key = loadedCacheKey,
               case .synced(let lines) = state,
               let source = loadedSource else { return }
-        writeCache(key, lines: lines, source: source, trackOffset: trackOffsets[key] ?? 0)
+        writeCache(
+            key, lines: lines, source: source, trackOffset: trackOffsets[key] ?? 0,
+            isrc: loadedWriteISRC, durationBucket: loadedWriteBucket
+        )
     }
 
     private let session: URLSession
     private let cacheDirectory: URL
     private var loadedKey: String?
     private var inFlight: Task<Void, Never>?
+    /// The writing identity of the currently loaded entry — the ISRC and
+    /// duration bucket its words were fetched with. Set from the cache on a
+    /// hit, from the load on a fetch, so a nudge's rewrite preserves the
+    /// identity instead of downgrading the entry back to pre-refinement.
+    private var loadedWriteISRC: String?
+    private var loadedWriteBucket: String?
 
     init(session: URLSession? = nil, cacheDirectory: URL? = nil) {
         if let session {
@@ -197,7 +206,10 @@ final class LyricsStore: ObservableObject {
         // every published change, so an isrc-less reload after an isrc-bearing
         // one would otherwise downgrade the match and fetch again for nothing.
         // The views' task ids mirror this identity, so each refinement
-        // re-fires the load exactly once.
+        // re-fires the load exactly once. The disk cache keys on `key`
+        // alone, so the re-fired load would otherwise re-settle the first
+        // load's entry and never reach the network — the hit is skipped when
+        // the load refines the entry's writing identity, below.
         let identity = key + (spotifyID.map { "|\($0)" } ?? "") + Self.exactDurationIdentity(exactDuration) + (isrc.map { "|\($0)" } ?? "")
         guard identity != loadedKey else { return }
         if let loadedKey, loadedKey.hasPrefix(identity) { return }
@@ -247,16 +259,38 @@ final class LyricsStore: ObservableObject {
                 Self.readCacheEntry(at: url)
             }.value
             guard !Task.isCancelled, self.loadedKey == identity else { return }
+            // A cache entry written before refinement must not pin the track:
+            // the first ISRC-less load's text match would otherwise be
+            // re-settled forever and the ISRC-exact pick below never run. When
+            // this load carries strictly more identity than the entry was
+            // written with — an ISRC where there was none (or a different
+            // one), or a duration bucket that appears or changes — the hit is
+            // skipped and the fetch below runs with the refined identity,
+            // upgrading the entry. Old entries without identity fields read as
+            // "none", so the first refined load after the upgrade refetches
+            // exactly once.
+            let writeBucket = Self.exactDurationIdentity(exactDuration)
             if let cached {
-                // The persisted track layer comes back with the words: the
-                // offset corrected this entry's timing, so it is restored for
-                // exactly this key and no other.
-                self.loadedSource = cached.source
-                self.trackOffsets[key] = cached.trackOffset
-                self.trackOffset = cached.trackOffset
-                self.settle(Self.cleaned(cached.lines, title: title, artist: artist))
-                return
+                let loadISRC = (isrc?.isEmpty == false) ? isrc! : nil
+                let cachedISRC = (cached.isrc?.isEmpty == false) ? cached.isrc! : nil
+                let isrcRefines = loadISRC != nil
+                    && (cachedISRC == nil || cachedISRC!.uppercased() != loadISRC!.uppercased())
+                let bucketRefines = !writeBucket.isEmpty && cached.durationBucket != writeBucket
+                if !isrcRefines, !bucketRefines {
+                    // The persisted track layer comes back with the words: the
+                    // offset corrected this entry's timing, so it is restored for
+                    // exactly this key and no other.
+                    self.loadedSource = cached.source
+                    self.loadedWriteISRC = cached.isrc
+                    self.loadedWriteBucket = cached.durationBucket
+                    self.trackOffsets[key] = cached.trackOffset
+                    self.trackOffset = cached.trackOffset
+                    self.settle(Self.cleaned(cached.lines, title: title, artist: artist))
+                    return
+                }
             }
+            self.loadedWriteISRC = isrc
+            self.loadedWriteBucket = writeBucket.isEmpty ? nil : writeBucket
             await self.fetch(
                 key: identity, cacheKey: key, spotifyID: spotifyID, isrc: isrc,
                 title: title, artist: artist, album: album,
@@ -292,6 +326,8 @@ final class LyricsStore: ObservableObject {
         loadedKey = nil
         loadedCacheKey = nil
         loadedSource = nil
+        loadedWriteISRC = nil
+        loadedWriteBucket = nil
         trackOffset = 0
         retained = nil
         state = .idle
@@ -505,9 +541,11 @@ final class LyricsStore: ObservableObject {
 
     /// Picks the searched hit to download. An ISRC-exact hit — the same
     /// recording by catalogue identity, from Task 1's Web-API metadata —
-    /// outranks any scored hit outright. The rest rank by title/artist
-    /// resemblance, raw then cleaned, among the hits inside the ±3s duration
-    /// gate. Ties keep the provider's own order. A pool with nothing
+    /// outranks any scored hit outright, but only inside the same ±3s
+    /// duration gate: provider ISRC fields are untrusted, and one wrong ISRC
+    /// with a wild duration would otherwise beat a correct text+duration hit.
+    /// The rest rank by title/artist resemblance, raw then cleaned, among the
+    /// hits inside the ±3s duration gate. Ties keep the provider's own order. A pool with nothing
     /// resembling the query answers nil rather than its first row: without a
     /// floor, index 0 won by default and a wrong song played word-synced.
     static func pickMatch(
@@ -517,7 +555,8 @@ final class LyricsStore: ObservableObject {
         if let isrc, !isrc.isEmpty {
             let wanted = isrc.uppercased()
             if let exact = candidates.firstIndex(where: {
-                guard let hit = $0.isrc, !hit.isEmpty else { return false }
+                guard let hit = $0.isrc, !hit.isEmpty,
+                      passesGate($0.duration, refDuration: refDuration) else { return false }
                 return hit.uppercased() == wanted
             }) { return exact }
         }
@@ -675,12 +714,18 @@ final class LyricsStore: ObservableObject {
 
     /// Publishes a fetched tier: remembers its source for the bias layer,
     /// restores a nudge made while the fetch was in flight, and writes both
-    /// to the v4 entry together so the next launch replays them as one.
+    /// to the v4 entry together so the next launch replays them as one. The
+    /// entry is stamped with the loading identity (`loadedWriteISRC/Bucket`,
+    /// set beside the fetch call) so a later, more-identified load can tell
+    /// this entry predates refinement and refetch instead of re-settling it.
     private func settleFetched(key: String, lines: [Line], source: LyricSource) {
         loadedSource = source
         let offset = trackOffsets[key] ?? 0
         trackOffset = offset
-        writeCache(key, lines: lines, source: source, trackOffset: offset)
+        writeCache(
+            key, lines: lines, source: source, trackOffset: offset,
+            isrc: loadedWriteISRC, durationBucket: loadedWriteBucket
+        )
         state = .synced(lines)
     }
 
@@ -872,7 +917,10 @@ final class LyricsStore: ObservableObject {
                 loadedSource = .lrclib
                 let offset = trackOffsets[cacheKey] ?? 0
                 trackOffset = offset
-                writeCache(cacheKey, lines: lines, source: .lrclib, trackOffset: offset)
+                writeCache(
+                    cacheKey, lines: lines, source: .lrclib, trackOffset: offset,
+                    isrc: loadedWriteISRC, durationBucket: loadedWriteBucket
+                )
             }
         } catch {
             guard !Task.isCancelled, loadedKey == key else { return }
@@ -966,6 +1014,13 @@ final class LyricsStore: ObservableObject {
         /// This track's timing correction, in seconds. Optional so entries
         /// written before the track layer existed still decode — theirs reads 0.
         var trackOffset: TimeInterval? = nil
+        /// The identity the entry was written with: the ISRC and the 0.1s
+        /// duration bucket of the load that fetched it. Optional so entries
+        /// written before refinement existed still decode as "no identity" —
+        /// any later load carrying an ISRC or exact duration then counts as
+        /// strictly more and refetches once, upgrading the entry.
+        var isrc: String? = nil
+        var durationBucket: String? = nil
     }
 
     /// How many cached tracks to keep. The cache is one small file per track
@@ -980,12 +1035,15 @@ final class LyricsStore: ObservableObject {
         readCacheEntry(at: url)?.lines
     }
 
-    /// The full v4 entry: the words, which tier wrote them, and this track's
-    /// timing correction. `load` restores all three together so a nudge
-    /// replays with the entry it was measured against, never another track's.
+    /// The full v4 entry: the words, which tier wrote them, this track's
+    /// timing correction, and the identity it was written with. `load`
+    /// restores words+source+offset together so a nudge replays with the
+    /// entry it was measured against, never another track's — and compares
+    /// the writing identity against the load's to decide whether the entry
+    /// predates refinement (see `load`).
     nonisolated static func readCacheEntry(
         at url: URL
-    ) -> (lines: [Line], source: LyricSource?, trackOffset: TimeInterval)? {
+    ) -> (lines: [Line], source: LyricSource?, trackOffset: TimeInterval, isrc: String?, durationBucket: String?)? {
         guard let data = try? Data(contentsOf: url),
               let cached = try? JSONDecoder().decode(CachedLyrics.self, from: data),
               cached.times.count == cached.texts.count else { return nil }
@@ -1003,7 +1061,7 @@ final class LyricsStore: ObservableObject {
             return Line(at: cached.times[index], text: cached.texts[index], words: words, isCredit: isCredit)
         }
         let source = cached.source.flatMap(LyricSource.init(rawValue:))
-        return (lines, source, cached.trackOffset ?? 0)
+        return (lines, source, cached.trackOffset ?? 0, cached.isrc, cached.durationBucket)
     }
 
     /// Encodes and writes off the main thread.
@@ -1011,7 +1069,10 @@ final class LyricsStore: ObservableObject {
     /// A word-synced track carries a timing per word, and encoding plus an
     /// atomic write of that used to happen on the main actor during the exact
     /// frame the lyric crossfade was animating.
-    private func writeCache(_ key: String, lines: [Line], source: LyricSource, trackOffset: TimeInterval) {
+    private func writeCache(
+        _ key: String, lines: [Line], source: LyricSource, trackOffset: TimeInterval,
+        isrc: String? = nil, durationBucket: String? = nil
+    ) {
         let cached = CachedLyrics(
             times: lines.map(\.at),
             texts: lines.map(\.text),
@@ -1020,7 +1081,9 @@ final class LyricsStore: ObservableObject {
             wordEnds: lines.map { $0.words.map { $0.end ?? -1 } },
             credits: lines.map(\.isCredit),
             source: source.rawValue,
-            trackOffset: trackOffset
+            trackOffset: trackOffset,
+            isrc: (isrc?.isEmpty == false) ? isrc : nil,
+            durationBucket: (durationBucket?.isEmpty == false) ? durationBucket : nil
         )
         let url = cacheURL(key)
         let directory = cacheDirectory

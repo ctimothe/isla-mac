@@ -75,6 +75,17 @@ final class SpotifyAccountTests: XCTestCase {
         XCTAssertNil(metadata.isrc)
     }
 
+    /// An explicit null is still unknown, not a failure: the caller's fallback
+    /// is text matching, which a throw would skip.
+    func testTrackMetadataDecodesExplicitNullExternalIDsAsNilISRC() throws {
+        let json = """
+        {"id":"4uLU6hMCjMI75M1A2tKUQ","duration_ms":180000,"external_ids":{"isrc":null}}
+        """.data(using: .utf8)!
+        let metadata = try JSONDecoder().decode(SpotifyAccount.TrackMetadata.self, from: json)
+        XCTAssertEqual(metadata.durationMs, 180000)
+        XCTAssertNil(metadata.isrc)
+    }
+
     /// Disconnected answers nil before any token or network is touched.
     func testTrackMetadataReturnsNilWhenDisconnected() async {
         let account = SpotifyAccount(credentials: makeStore())
