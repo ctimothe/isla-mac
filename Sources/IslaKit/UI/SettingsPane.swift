@@ -147,6 +147,10 @@ struct SettingsPane: View {
                             }
                         )
                     )
+                    // Said where the choice is made: flipping this on sends
+                    // listening history off the machine, and the toggle alone
+                    // does not say so.
+                    noteRow(localized("Looks up words at lrclib.net, the amll community database, lyrics.kugou.com and QQ Music. The track title, artist, album and length leave your Mac; nothing else does."))
                     toggleRow(
                         symbol: SettingsIcon.peek,
                         title: localized("Peek at New Tracks"),

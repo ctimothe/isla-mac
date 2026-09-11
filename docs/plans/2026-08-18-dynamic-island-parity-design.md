@@ -186,6 +186,16 @@ transitions.
 > permissions" is amended to permit exactly these three, on the condition
 > that each stays user-controlled and off by default where it sends
 > anything off the machine. No new macOS permission is requested.
+>
+> **Amended 2026-09-11.** The lyrics exception above grows a fourth source:
+> an opt-in **QQ Music** word-synced tier, reached anonymously and keyless
+> at `u.y.qq.com`, `c.y.qq.com` and `shc.y.qq.com`, on the same off-by-default
+> terms. Searched tiers (QQ, Kugou) now match on scored title/artist
+> resemblance inside a ±3s duration gate — an ISRC-exact hit from the
+> Spotify catalogue outranks any scored hit — and concurrent word-tier
+> answers arbitrate by coverage × timing sanity × source trust, with LRCLIB
+> unchanged as the line-level floor. The on-disk cache moves to v4, tagging
+> every entry with its source tier.
 
 ### Music
 

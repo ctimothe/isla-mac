@@ -441,7 +441,9 @@ struct LyricsStage: View {
                 lyrics.research(
                     title: track.title, artist: track.artist,
                     album: track.album, duration: media.duration,
-                    spotifyID: media.spotifyTrackID
+                    spotifyID: media.spotifyTrackID,
+                    isrc: media.spotifyISRC,
+                    exactDurationMs: media.spotifyExactDurationMs.map { TimeInterval($0) / 1000 }
                 )
             } label: {
                 Image(systemName: "arrow.clockwise")

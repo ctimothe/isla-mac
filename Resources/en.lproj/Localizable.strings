@@ -77,6 +77,7 @@
 "Copy Entry" = "Copy Entry";
 "Peek at New Tracks" = "Peek at New Tracks";
 "Show Lyrics" = "Show Lyrics";
+"Looks up words at lrclib.net, the amll community database, lyrics.kugou.com and QQ Music. The track title, artist, album and length leave your Mac; nothing else does." = "Looks up words at lrclib.net, the amll community database, lyrics.kugou.com and QQ Music. The track title, artist, album and length leave your Mac; nothing else does.";
 "Lyrics" = "Lyrics";
 "Show on Lock Screen" = "Show on Lock Screen";
 "Clear Lyrics Cache" = "Clear Lyrics Cache";

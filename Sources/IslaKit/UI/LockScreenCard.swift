@@ -136,12 +136,14 @@ struct LockScreenCard: View {
             .onChange(of: track.key) { _, _ in pane = .player }
             .onAppear { readAudio() }
             .onChange(of: pane) { _, _ in readAudio() }
-            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")") {
+            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")|\(media.spotifyISRC ?? "")") {
                 guard NotchViewModel.showLyricsEnabled else { return }
                 lyrics.load(
                     title: track.title, artist: track.artist,
                     album: track.album, duration: media.duration,
-                    spotifyID: media.spotifyTrackID
+                    spotifyID: media.spotifyTrackID,
+                    isrc: media.spotifyISRC,
+                    exactDurationMs: media.spotifyExactDurationMs.map { TimeInterval($0) / 1000 }
                 )
             }
             .transition(.opacity)

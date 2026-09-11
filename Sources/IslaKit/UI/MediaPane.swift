@@ -86,8 +86,11 @@ struct MediaPane: View {
             }
             // The Spotify id rides in the task identity: it arrives a beat
             // after the metadata, and its arrival is what unlocks the
-            // word-synced database, so it must re-fire the load.
-            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")") {
+            // word-synced database, so it must re-fire the load. The ISRC and
+            // exact duration arrive later still, off the Web API, and re-fire
+            // the same way: exact identity can rescue a match the text search
+            // got wrong, and the held words cover the gap.
+            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")|\(media.spotifyISRC ?? "")") {
                 guard NotchViewModel.showLyricsEnabled else {
                     lyrics.clear()
                     return
@@ -97,7 +100,9 @@ struct MediaPane: View {
                     artist: track.artist,
                     album: track.album,
                     duration: media.duration,
-                    spotifyID: media.spotifyTrackID
+                    spotifyID: media.spotifyTrackID,
+                    isrc: media.spotifyISRC,
+                    exactDurationMs: media.spotifyExactDurationMs.map { TimeInterval($0) / 1000 }
                 )
             }
         } else {

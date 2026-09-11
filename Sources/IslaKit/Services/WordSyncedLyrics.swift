@@ -155,6 +155,63 @@ enum WordSyncedLyrics {
         return lines.sorted { $0.at < $1.at }
     }
 
+    // MARK: - QRC (QQ Music)
+
+    /// QRC body: `[lineStartMs,lineDurationMs]text(startMs,durMs)text…` — the
+    /// timestamp follows its syllable and every time is absolute from the
+    /// track start (AMLL reference sample). Headers are scanned anywhere in
+    /// the string, so newline-separated and concatenated bodies parse alike.
+    static func parseQRCBody(_ body: String) -> [Line] {
+        guard let headerRE = try? NSRegularExpression(pattern: #"\[(\d+),(\d+)\]"#),
+              let stampRE = try? NSRegularExpression(pattern: #"\((\d+),(\d+)\)"#) else { return [] }
+        let full = NSRange(body.startIndex..., in: body)
+        let headers = headerRE.matches(in: body, range: full)
+        guard !headers.isEmpty else { return [] }
+
+        var lines: [Line] = []
+        for (index, header) in headers.enumerated() {
+            guard header.numberOfRanges > 1,
+                  let startRange = Range(header.range(at: 1), in: body),
+                  let headerRange = Range(header.range, in: body),
+                  let startMs = TimeInterval(body[startRange]) else { continue }
+            let lineStart = startMs / 1000
+            let segmentStart = headerRange.upperBound
+            let segmentEnd: String.Index = if index + 1 < headers.count,
+                let next = Range(headers[index + 1].range, in: body)?.lowerBound {
+                next
+            } else {
+                body.endIndex
+            }
+            let segment = body[segmentStart..<segmentEnd]
+
+            var words: [Word] = []
+            var text = ""
+            let segmentString = String(segment)
+            var cursor = segmentString.startIndex
+            let segRange = NSRange(segmentString.startIndex..., in: segmentString)
+            // Only `(\d+,\d+)` splits a syllable: QRC keeps ordinary
+            // parentheses in lyric text, and those ride with the words.
+            for stamp in stampRE.matches(in: segmentString, range: segRange) {
+                guard stamp.numberOfRanges > 2,
+                      let whole = Range(stamp.range, in: segmentString),
+                      let atRange = Range(stamp.range(at: 1), in: segmentString),
+                      let durRange = Range(stamp.range(at: 2), in: segmentString),
+                      let atMs = TimeInterval(segmentString[atRange]),
+                      let durMs = TimeInterval(segmentString[durRange]) else { continue }
+                let syllable = String(segmentString[cursor..<whole.lowerBound])
+                cursor = whole.upperBound
+                guard !syllable.isEmpty else { continue }
+                let at = atMs / 1000
+                words.append(Word(at: at, text: syllable, end: at + durMs / 1000))
+                text += syllable
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            lines.append(Line(at: lineStart, text: trimmed, words: words))
+        }
+        return lines.sorted { $0.at < $1.at }
+    }
+
     // MARK: - Word-accurate sweep
 
     /// Where the reading edge stands inside a word-synced line, 0...1, in
