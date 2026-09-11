@@ -449,7 +449,7 @@ struct LyricsStage: View {
             }
             .buttonStyle(NotchButtonStyle(size: 24))
             .accessibilityLabel(localized("Search Lyrics Again"))
-            .help(localized("Wrong lyrics? Search again"))
+            .help(localized("Wrong lyrics? Search again."))
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
@@ -469,7 +469,7 @@ struct LyricsStage: View {
                 Image(systemName: "text.quote")
                     .islandFont(.display, weight: .light)
                     .foregroundStyle(Theme.tertiary)
-                Text(localized("No lyrics for this track"))
+                Text(localized("No lyrics for this track."))
                     .islandFont(.body)
                     .foregroundStyle(Theme.secondary)
             }

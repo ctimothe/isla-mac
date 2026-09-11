@@ -35,7 +35,7 @@ struct ClipboardPane: View {
             Spacer()
             ConfirmTextButton(
                 title: localized("Clear"),
-                armedTitle: localized("Clear Everything?")
+                armedTitle: localized("Clear Everything")
             ) { clipboard.clear() }
         }
         .padding(.top, 2)

@@ -116,7 +116,7 @@ struct SettingsPane: View {
                     confirmRow(
                         symbol: SettingsIcon.clear,
                         title: clearTitle,
-                        armedTitle: localized("Delete These Files?"),
+                        armedTitle: localized("Delete These Files"),
                         disabled: screenshotUsage.files == 0
                     ) {
                         screenshotVault.clear()
@@ -185,7 +185,7 @@ struct SettingsPane: View {
                     confirmRow(
                         symbol: SettingsIcon.clear,
                         title: localized("Clear Lyrics Cache"),
-                        armedTitle: localized("Delete These Files?"),
+                        armedTitle: localized("Delete These Files"),
                         disabled: false
                     ) {
                         lyrics.clearCache()
@@ -207,7 +207,7 @@ struct SettingsPane: View {
                     // and never for contents, so the offer itself costs no
                     // prompt — pressing it is what asks, once.
                     if spotify.canImportLegacyAccount {
-                        actionRow(symbol: SettingsIcon.importFromKeychain, title: localized("Import Account From Keychain…")) {
+                        actionRow(symbol: SettingsIcon.importFromKeychain, title: localized("Import Account from Keychain…")) {
                             SpotifyAccount.shared.importLegacyAccount()
                         }
                     }
@@ -226,7 +226,7 @@ struct SettingsPane: View {
                     }
                     toggleRow(
                         symbol: SettingsIcon.hideFromRecording,
-                        title: localized("Hide From Screen Recording"),
+                        title: localized("Hide from Screen Recording"),
                         isOn: Binding(
                             get: { hideFromCapture },
                             set: { wants in
@@ -247,7 +247,7 @@ struct SettingsPane: View {
                     confirmRow(
                         symbol: SettingsIcon.quit,
                         title: localized("Quit"),
-                        armedTitle: localized("Quit Isla?")
+                        armedTitle: localized("Quit Isla")
                     ) {
                         NSApp.terminate(nil)
                     }
@@ -320,7 +320,7 @@ struct SettingsPane: View {
     private var storageNote: String {
         switch spotify.storage {
         case .keychain: return localized("Stored in your keychain.")
-        case .file: return localized("Stored in an owner-only file, because this build is unsigned.")
+        case .file: return localized("Stored in a file only you can read.")
         case .unavailable: return localized("Cannot be stored on this Mac.")
         }
     }

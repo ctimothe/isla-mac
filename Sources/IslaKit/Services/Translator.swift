@@ -196,7 +196,7 @@ final class Translator: ObservableObject {
             // Apple's safety filter, which fires on ordinary sentences —
             // "Delete all my files" was refused in testing. Worth naming
             // plainly so it does not read as the app breaking.
-            return localized("macOS refused to translate this text.")
+            return localized("This text could not be translated.")
         case .exceededContextWindowSize:
             return localized("This text is too long to translate at once.")
         default:
