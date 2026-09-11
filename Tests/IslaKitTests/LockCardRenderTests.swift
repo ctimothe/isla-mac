@@ -48,7 +48,7 @@ final class LockCardRenderTests: XCTestCase {
                 "Something further along",
                 "The last one here",
             ],
-        ]).write(to: root.appendingPathComponent("\(key).lrc3.json"))
+        ]).write(to: root.appendingPathComponent("\(key).lrc4.json"))
         lyrics.load(title: "Test Song", artist: "Test Artist", album: "", duration: 240)
         for _ in 0..<60 {
             if case .synced = lyrics.state { break }

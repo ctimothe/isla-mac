@@ -46,7 +46,12 @@ are the exception the design did not anticipate:
 
 - **Lyrics** (Settings, default off) fetches words from `lrclib.net`,
   `raw.githubusercontent.com` and `lyrics.kugou.com`, sending the current
-  track's metadata.
+  track's metadata. From 2026-09-11 also from **QQ Music** (`u.y.qq.com`,
+  `c.y.qq.com`, `shc.y.qq.com`), anonymous and keyless like the rest:
+  searched tiers match on scored title/artist resemblance inside a ±3s
+  duration gate, an ISRC-exact hit outranks any scored hit, concurrent
+  word-tier answers arbitrate by coverage × timing sanity × source trust,
+  and the cache (v4, per-entry source tag) keeps the winner.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain.

@@ -159,7 +159,8 @@ Create a temporary macOS user for the test.
 4. Play a track with **Lyrics** off (the default) and confirm, with Little
    Snitch or `nettop`, that no request leaves the machine.
 5. Turn Lyrics on and confirm requests go only to `lrclib.net`,
-   `raw.githubusercontent.com` and `lyrics.kugou.com`.
+   `raw.githubusercontent.com`, `lyrics.kugou.com`, `u.y.qq.com`,
+   `c.y.qq.com` and `shc.y.qq.com`.
 6. Connect a Spotify account, confirm the browser round trip returns and the
    heart works, then Disconnect and confirm the keychain items are gone.
 

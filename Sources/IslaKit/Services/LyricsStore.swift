@@ -94,12 +94,23 @@ final class LyricsStore: ObservableObject {
     /// Called with the displayed track. Same track twice is free.
     /// - Parameter spotifyID: the catalogue id when Spotify is the player —
     ///   the community word-synced database is keyed by it.
-    func load(title: String, artist: String, album: String, duration: TimeInterval, spotifyID: String? = nil) {
+    /// - Parameter isrc: the catalogue ISRC from Task 1's Web-API metadata,
+    ///   letting searched tiers join on recording identity instead of text.
+    /// - Parameter exactDurationMs: the catalogue duration in seconds, the
+    ///   number the duration gate compares against instead of the daemon's
+    ///   rounded reading.
+    func load(
+        title: String, artist: String, album: String, duration: TimeInterval,
+        spotifyID: String? = nil, isrc: String? = nil, exactDurationMs: TimeInterval? = nil
+    ) {
         let key = Self.cacheKey(title: title, artist: artist, album: album, duration: duration)
         // A track whose Spotify id arrives a beat after its metadata reloads
         // once: the id unlocks the word-synced database, and it is worth one
         // more lookup. An id-bearing load is never replaced by an id-less one.
-        let identity = key + (spotifyID.map { "|\($0)" } ?? "")
+        // The ISRC and exact duration arrive later still, off the Web API,
+        // and their arrival reloads once more: exact identity can rescue a
+        // match the text search got wrong, and the held words cover the gap.
+        let identity = key + (spotifyID.map { "|\($0)" } ?? "") + (isrc.map { "|\($0)" } ?? "")
         guard identity != loadedKey else { return }
         if let loadedKey, loadedKey.hasPrefix(key), spotifyID == nil { return }
         loadedKey = identity
@@ -128,6 +139,7 @@ final class LyricsStore: ObservableObject {
             state = .loading
         }
         loadedCacheKey = key
+        let referenceDuration = exactDurationMs ?? duration
         inFlight = Task { [weak self] in
             guard let self else { return }
             // The cache read is disk I/O and JSON decoding, so it happens off
@@ -146,8 +158,9 @@ final class LyricsStore: ObservableObject {
                 return
             }
             await self.fetch(
-                key: identity, cacheKey: key, spotifyID: spotifyID,
-                title: title, artist: artist, album: album, duration: duration
+                key: identity, cacheKey: key, spotifyID: spotifyID, isrc: isrc,
+                title: title, artist: artist, album: album,
+                duration: duration, refDuration: referenceDuration
             )
         }
     }
@@ -183,7 +196,10 @@ final class LyricsStore: ObservableObject {
     /// answer on every replay forever, with nothing short of clearing the
     /// whole cache to fix one track. This deletes exactly that entry and
     /// re-runs the full three-tier fetch with the cache bypassed for one pass.
-    func research(title: String, artist: String, album: String, duration: TimeInterval, spotifyID: String? = nil) {
+    func research(
+        title: String, artist: String, album: String, duration: TimeInterval,
+        spotifyID: String? = nil, isrc: String? = nil, exactDurationMs: TimeInterval? = nil
+    ) {
         inFlight?.cancel()
         let key = Self.cacheKey(title: title, artist: artist, album: album, duration: duration)
         let url = cacheURL(key)
@@ -192,7 +208,10 @@ final class LyricsStore: ObservableObject {
         }
         loadedKey = nil
         bypassCacheOnce = true
-        load(title: title, artist: artist, album: album, duration: duration, spotifyID: spotifyID)
+        load(
+            title: title, artist: artist, album: album, duration: duration,
+            spotifyID: spotifyID, isrc: isrc, exactDurationMs: exactDurationMs
+        )
     }
 
     /// One-shot cache bypass, consumed by the next `load`.
@@ -270,6 +289,166 @@ final class LyricsStore: ObservableObject {
         return result
     }
 
+    /// Where the settled words came from. Written into every cache entry so
+    /// later work (finer clocks, per-track offsets) can tell a word-synced
+    /// track from a line-level one without refetching.
+    enum LyricSource: String {
+        case amll
+        case qq
+        case kugou
+        case lrclib
+
+        /// How much a tier is trusted when two answer at once. The exact-ID
+        /// database never actually reaches arbitration — an answer keyed by
+        /// track id is used, not scored — but it heads the table so the order
+        /// reads as the fetch order. LRCLIB never arbitrates either: it is
+        /// the line floor below every word tier, so its trust is unused.
+        var trust: Double {
+            switch self {
+            case .amll: return 1.0
+            case .qq: return 0.95
+            case .kugou: return 0.85
+            case .lrclib: return 0
+            }
+        }
+    }
+
+    /// A search hit from a word tier, reduced to what matching judges.
+    struct MatchCandidate {
+        let title: String
+        let artist: String
+        let duration: TimeInterval?
+        let isrc: String?
+    }
+
+    /// Case- and diacritic-folded, the same fold `cleaned` judges credits by.
+    static func normalize(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).lowercased()
+    }
+
+    /// What reissues add to a title the catalogue filed plain: featured
+    /// artists, parentheticals ("(Remastered)", "(Live)"), " - Remaster…"
+    /// suffixes. Applied to the query side when the raw texts disagree, so
+    /// "Title (Remastered)" still finds "Title".
+    static func cleanTitle(_ title: String) -> String {
+        var text = title
+        text = text.replacingOccurrences(of: #"(?i)\s*\b(feat\.?|ft\.?|featuring)\b.+$"#, with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"\s*[\(\[].*?[\)\]]"#, with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"(?i)\s+-\s+remaster.*$"#, with: "", options: .regularExpression)
+        return text.trimmingCharacters(in: .whitespaces)
+    }
+
+    static func cleanArtist(_ artist: String) -> String {
+        var text = artist
+        text = text.replacingOccurrences(of: #"(?i)\s*\b(feat\.?|ft\.?|featuring)\b.+$"#, with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"\s*[\(\[].*?[\)\]]"#, with: "", options: .regularExpression)
+        return text.trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func textScore(queryTitle: String, queryArtist: String, title: String, artist: String) -> Double {
+        func part(_ a: String, _ b: String) -> Double {
+            if a.isEmpty || b.isEmpty { return 0 }
+            if a == b { return 1 }
+            // A catalogue entry filed plain against a tagged query, or the
+            // reverse — close, but not the certainty of equality.
+            if a.contains(b) || b.contains(a) { return 0.8 }
+            return 0
+        }
+        return (part(queryTitle, title) + part(queryArtist, artist)) / 2
+    }
+
+    private static func passesGate(_ duration: TimeInterval?, refDuration: TimeInterval) -> Bool {
+        // Same recording, same length: the one rule that keeps a cover or a
+        // remix with the right name from masquerading as the original. A hit
+        // with no duration cannot be checked and is rejected rather than
+        // trusted — the old Kugou tier required it too.
+        guard let duration else { return false }
+        return abs(duration - refDuration) <= 3
+    }
+
+    /// Picks the searched hit to download. An ISRC-exact hit — the same
+    /// recording by catalogue identity, from Task 1's Web-API metadata —
+    /// outranks any scored hit outright. The rest rank by title/artist
+    /// resemblance, raw then cleaned, among the hits inside the ±3s duration
+    /// gate. Ties keep the provider's own order.
+    static func pickMatch(
+        title: String, artist: String, isrc: String?,
+        refDuration: TimeInterval, candidates: [MatchCandidate]
+    ) -> Int? {
+        if let isrc, !isrc.isEmpty {
+            let wanted = isrc.uppercased()
+            if let exact = candidates.firstIndex(where: {
+                guard let hit = $0.isrc, !hit.isEmpty else { return false }
+                return hit.uppercased() == wanted
+            }) { return exact }
+        }
+        let queryTitle = normalize(title), queryArtist = normalize(artist)
+        let cleanQueryTitle = normalize(cleanTitle(title)), cleanQueryArtist = normalize(cleanArtist(artist))
+        var best: (index: Int, score: Double)?
+        for (index, candidate) in candidates.enumerated() {
+            guard passesGate(candidate.duration, refDuration: refDuration) else { continue }
+            // Only the query side is cleaned: stripping the catalogue side
+            // would erase the very markers — "(Cover)", "(Live)" — that tell
+            // a re-recording from the original.
+            let candidateTitle = normalize(candidate.title), candidateArtist = normalize(candidate.artist)
+            let raw = textScore(
+                queryTitle: queryTitle, queryArtist: queryArtist,
+                title: candidateTitle, artist: candidateArtist
+            )
+            let cleaned = textScore(
+                queryTitle: cleanQueryTitle, queryArtist: cleanQueryArtist,
+                title: candidateTitle, artist: candidateArtist
+            )
+            let score = max(raw, cleaned)
+            if score > (best?.score ?? -1) { best = (index, score) }
+        }
+        return best?.index
+    }
+
+    /// How much of a tier is genuinely word-timed. Line-level stragglers
+    /// inside a word tier score below a fully timed one.
+    static func wordCoverage(_ lines: [Line]) -> Double {
+        guard !lines.isEmpty else { return 0 }
+        return Double(lines.filter { !$0.words.isEmpty }.count) / Double(lines.count)
+    }
+
+    /// Whether a tier's timing is believable: lines in order, words in order
+    /// within their line, and no word ending past the track. Ends get a
+    /// second of grace — the snapshot duration is the daemon's rounded
+    /// reading against the provider's own clock, and a tier timed a beat
+    /// long is mistimed data only past that.
+    static func timingSanity(_ lines: [Line], duration: TimeInterval) -> Double {
+        guard !lines.isEmpty else { return 0 }
+        for pair in zip(lines, lines.dropFirst()) {
+            if pair.1.at < pair.0.at { return 0 }
+        }
+        var within = 0, total = 0
+        for line in lines {
+            var last = line.at
+            for word in line.words {
+                if word.at < last { return 0 }
+                last = word.at
+                total += 1
+                if (word.end ?? word.at) <= duration + 1 { within += 1 }
+            }
+        }
+        guard total > 0 else { return 1 }
+        return Double(within) / Double(total)
+    }
+
+    /// Best non-empty word tier wins: coverage times sanity times source
+    /// trust. A zero — insane timing, or nothing timed at all — never wins;
+    /// the caller falls through to the line floor instead.
+    static func arbitrate(_ contenders: [(LyricSource, [Line])], duration: TimeInterval) -> (LyricSource, [Line])? {
+        var best: (LyricSource, [Line], Double)?
+        for (source, lines) in contenders {
+            guard !lines.isEmpty else { continue }
+            let score = wordCoverage(lines) * timingSanity(lines, duration: duration) * source.trust
+            if score > (best.map(\.2) ?? 0) { best = (source, lines, score) }
+        }
+        return best.map { ($0.0, $0.1) }
+    }
+
     /// The line being sung at `position`, and the one after it.
     ///
     /// Pure and computed by the caller per repaint rather than published per
@@ -313,27 +492,35 @@ final class LyricsStore: ObservableObject {
     // MARK: - Fetch
 
     private func fetch(
-        key: String, cacheKey: String, spotifyID: String?,
-        title: String, artist: String, album: String, duration: TimeInterval
+        key: String, cacheKey: String, spotifyID: String?, isrc: String?,
+        title: String, artist: String, album: String,
+        duration: TimeInterval, refDuration: TimeInterval
     ) async {
-        // Best source first. The community TTML database carries hand-reviewed
-        // word timing and is keyed by the exact track id, so there is no
-        // matching to get wrong; Kugou's KRC is word-synced too but found by
-        // search; LRCLIB's LRC is line-level and the floor.
-        if let spotifyID, let words = await fetchAmll(spotifyID: spotifyID) {
-            guard !Task.isCancelled, loadedKey == key else { return }
-            let usable = Self.cleaned(words, title: title, artist: artist)
+        // All three word tiers at once: the community TTML database is keyed
+        // by the exact track id so there is no matching to get wrong, while
+        // QQ's QRC and Kugou's KRC are word-synced but found by search. An
+        // exact-ID answer is used, never scored — a searched hit, however
+        // complete, must not replace the track's own timing.
+        async let amll = fetchAmll(spotifyID: spotifyID)
+        async let qq = fetchQQ(title: title, artist: artist, isrc: isrc, refDuration: refDuration)
+        async let kugou = fetchKugou(title: title, artist: artist, isrc: isrc, refDuration: refDuration)
+        let (amllLines, qqLines, kugouLines) = await (amll, qq, kugou)
+        guard !Task.isCancelled, loadedKey == key else { return }
+        if let amllLines, !amllLines.isEmpty {
+            let usable = Self.cleaned(amllLines, title: title, artist: artist)
             if !usable.isEmpty {
-                writeCache(cacheKey, lines: usable)
+                writeCache(cacheKey, lines: usable, source: .amll)
                 state = .synced(usable)
                 return
             }
         }
-        if let words = await fetchKugou(title: title, artist: artist, duration: duration) {
+        if let (source, lines) = Self.arbitrate(
+            [(.qq, qqLines ?? []), (.kugou, kugouLines ?? [])], duration: refDuration
+        ) {
             guard !Task.isCancelled, loadedKey == key else { return }
-            let usable = Self.cleaned(words, title: title, artist: artist)
+            let usable = Self.cleaned(lines, title: title, artist: artist)
             if !usable.isEmpty {
-                writeCache(cacheKey, lines: usable)
+                writeCache(cacheKey, lines: usable, source: source)
                 state = .synced(usable)
                 return
             }
@@ -342,45 +529,89 @@ final class LyricsStore: ObservableObject {
     }
 
     /// The amll-ttml-db community database: CC0, word-by-word TTML, one file
-    /// per Spotify track id, served straight from the repository.
-    private func fetchAmll(spotifyID: String) async -> [Line]? {
-        guard let url = URL(string: "https://raw.githubusercontent.com/Steve-xmh/amll-ttml-db/main/spotify-lyrics/\(spotifyID).ttml") else { return nil }
-        guard let (data, response) = try? await session.data(from: url),
+    /// per Spotify track id, served straight from the repository. Nil id in,
+    /// nil out — the tier simply does not exist without one.
+    private func fetchAmll(spotifyID: String?) async -> [Line]? {
+        guard let spotifyID,
+              let url = URL(string: "https://raw.githubusercontent.com/Steve-xmh/amll-ttml-db/main/spotify-lyrics/\(spotifyID).ttml"),
+              let (data, response) = try? await session.data(from: url),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         let parsed = WordSyncedLyrics.parseTTML(data)
         guard !parsed.isEmpty else { return nil }
         return parsed.map { Line(at: $0.at, text: $0.text, words: $0.words) }
     }
 
+    /// QQ Music's word-synced tier: scored search, then the QRC download for
+    /// the winning hit.
+    private func fetchQQ(title: String, artist: String, isrc: String?, refDuration: TimeInterval) async -> [Line]? {
+        let pool = await QQLyrics.searchSongs(title: title, artist: artist, session: session)
+        guard !pool.isEmpty else { return nil }
+        let candidates = pool.map {
+            MatchCandidate(title: $0.title, artist: $0.artist, duration: $0.duration, isrc: $0.isrc)
+        }
+        guard let index = Self.pickMatch(
+            title: title, artist: artist, isrc: isrc,
+            refDuration: refDuration, candidates: candidates
+        ) else { return nil }
+        guard let body = await QQLyrics.fetchLyric(songID: pool[index].songID, session: session) else { return nil }
+        let parsed = WordSyncedLyrics.parseQRCBody(body)
+        guard !parsed.isEmpty else { return nil }
+        return parsed.map { Line(at: $0.at, text: $0.text, words: $0.words) }
+    }
+
     /// Kugou's lyric search and KRC download. Unofficial and keyless; the
-    /// duration gate (±3s) keeps a cover or remix from masquerading, the same
-    /// rule the LRCLIB search fallback uses.
-    private func fetchKugou(title: String, artist: String, duration: TimeInterval) async -> [Line]? {
+    /// scored match (ISRC, then text inside the ±3s duration gate) keeps a
+    /// cover or remix from masquerading, the same rule the LRCLIB search
+    /// fallback uses.
+    private func fetchKugou(title: String, artist: String, isrc: String?, refDuration: TimeInterval) async -> [Line]? {
         var search = URLComponents(string: "https://lyrics.kugou.com/search")!
         search.queryItems = [
             URLQueryItem(name: "ver", value: "1"),
             URLQueryItem(name: "man", value: "yes"),
             URLQueryItem(name: "client", value: "pc"),
             URLQueryItem(name: "keyword", value: "\(artist) - \(title)"),
-            URLQueryItem(name: "duration", value: String(Int(duration * 1000))),
+            URLQueryItem(name: "duration", value: String(Int(refDuration * 1000))),
         ]
         struct SearchReply: Decodable {
             struct Candidate: Decodable {
                 let id: String
                 let accesskey: String
                 let duration: Int?
+                let songname: String?
+                let singername: String?
+                let filename: String?
+                let isrc: String?
             }
             let candidates: [Candidate]
         }
         guard let searchURL = search.url,
               let (data, _) = try? await session.data(from: searchURL),
-              let reply = try? JSONDecoder().decode(SearchReply.self, from: data) else { return nil }
-        let match = reply.candidates.first {
-            guard let ms = $0.duration else { return false }
+              let reply = try? JSONDecoder().decode(SearchReply.self, from: data),
+              !reply.candidates.isEmpty else { return nil }
+        let matches = reply.candidates.map { hit -> MatchCandidate in
+            // `filename` is the catalogue's own "singer - song" pairing, the
+            // fallback when the named fields are absent.
+            var name = hit.songname ?? "", singer = hit.singername ?? ""
+            if name.isEmpty, let file = hit.filename, !file.isEmpty {
+                let parts = file.split(separator: "-", maxSplits: 1).map {
+                    $0.trimmingCharacters(in: .whitespaces)
+                }
+                if parts.count == 2 {
+                    if singer.isEmpty { singer = parts[0] }
+                    name = parts[1]
+                } else {
+                    name = file
+                }
+            }
             // Kugou reports candidate duration in milliseconds.
-            return abs(TimeInterval(ms) / 1000 - duration) <= 3
+            let duration = hit.duration.map { TimeInterval($0) / 1000 }
+            return MatchCandidate(title: name, artist: singer, duration: duration, isrc: hit.isrc)
         }
-        guard let match else { return nil }
+        guard let index = Self.pickMatch(
+            title: title, artist: artist, isrc: isrc,
+            refDuration: refDuration, candidates: matches
+        ) else { return nil }
+        let match = reply.candidates[index]
 
         var download = URLComponents(string: "https://lyrics.kugou.com/download")!
         download.queryItems = [
@@ -480,7 +711,7 @@ final class LyricsStore: ObservableObject {
             // when the service was in a position to answer.
             lines = Self.cleaned(lines, title: title, artist: artist)
             if !lines.isEmpty || serviceAnswered {
-                writeCache(cacheKey, lines: lines)
+                writeCache(cacheKey, lines: lines, source: .lrclib)
             }
         } catch {
             guard !Task.isCancelled, loadedKey == key else { return }
@@ -550,12 +781,13 @@ final class LyricsStore: ObservableObject {
     }
 
     private func cacheURL(_ key: String) -> URL {
-        // v2: the payload gained word timing; v1 files decode without it and
-        // would pin a track to line-level forever, so they are simply ignored.
-        cacheDirectory.appendingPathComponent("\(key).lrc3.json")
+        // v4: every entry carries its source tier. v3 files would decode
+        // without one and pin a track to an untagged answer, so like the
+        // v1→v2 bump they are simply ignored, and pruned below.
+        cacheDirectory.appendingPathComponent("\(key).lrc4.json")
     }
 
-    private struct CachedLyrics: Codable {
+    struct CachedLyrics: Codable {
         let times: [TimeInterval]
         let texts: [String]
         var wordTimes: [[TimeInterval]]? = nil
@@ -567,6 +799,9 @@ final class LyricsStore: ObservableObject {
         /// Which lines are credits. Optional so files written before credits
         /// were kept still decode — theirs simply had them dropped.
         var credits: [Bool]? = nil
+        /// Which tier answered: amll, qq, kugou or lrclib. Optional so
+        /// untagged files still decode; only the suffix decides what is read.
+        var source: String? = nil
     }
 
     /// How many cached tracks to keep. The cache is one small file per track
@@ -599,14 +834,15 @@ final class LyricsStore: ObservableObject {
     /// A word-synced track carries a timing per word, and encoding plus an
     /// atomic write of that used to happen on the main actor during the exact
     /// frame the lyric crossfade was animating.
-    private func writeCache(_ key: String, lines: [Line]) {
+    private func writeCache(_ key: String, lines: [Line], source: LyricSource) {
         let cached = CachedLyrics(
             times: lines.map(\.at),
             texts: lines.map(\.text),
             wordTimes: lines.map { $0.words.map(\.at) },
             wordTexts: lines.map { $0.words.map(\.text) },
             wordEnds: lines.map { $0.words.map { $0.end ?? -1 } },
-            credits: lines.map(\.isCredit)
+            credits: lines.map(\.isCredit),
+            source: source.rawValue
         )
         let url = cacheURL(key)
         let directory = cacheDirectory
@@ -621,7 +857,7 @@ final class LyricsStore: ObservableObject {
     }
 
     /// Drops the least recently used entries once the cache exceeds its limit,
-    /// and clears out abandoned v1 files while it is there — the format bump
+    /// and clears out abandoned v3 files while it is there — the format bump
     /// left those unreadable but on disk forever.
     private nonisolated static func pruneCache(directory: URL, limit: Int) {
         let fm = FileManager.default
@@ -630,10 +866,10 @@ final class LyricsStore: ObservableObject {
             includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles]
         ) else { return }
-        for url in urls where url.pathExtension == "json" && !url.lastPathComponent.hasSuffix(".lrc3.json") {
+        for url in urls where url.pathExtension == "json" && !url.lastPathComponent.hasSuffix(".lrc4.json") {
             try? fm.removeItem(at: url)
         }
-        let current = urls.filter { $0.lastPathComponent.hasSuffix(".lrc3.json") }
+        let current = urls.filter { $0.lastPathComponent.hasSuffix(".lrc4.json") }
         guard current.count > limit else { return }
         let dated = current.map { url -> (URL, Date) in
             let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?

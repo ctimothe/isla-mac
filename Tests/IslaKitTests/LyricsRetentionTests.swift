@@ -20,7 +20,7 @@ final class LyricsRetentionTests: XCTestCase {
             "texts": ["First line", "Second line", "Third line"],
         ]
         try JSONSerialization.data(withJSONObject: cached)
-            .write(to: root.appendingPathComponent("\(key).lrc3.json"))
+            .write(to: root.appendingPathComponent("\(key).lrc4.json"))
     }
 
     private func waitForSynced(_ store: LyricsStore) async -> [LyricsStore.Line]? {

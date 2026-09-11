@@ -110,7 +110,7 @@ final class MediaPaneLayoutTests: XCTestCase {
                 "texts": ["First line", "Second line", "Third line", "Fourth line"],
             ]
             try JSONSerialization.data(withJSONObject: cached)
-                .write(to: root.appendingPathComponent("\(key).lrc3.json"))
+                .write(to: root.appendingPathComponent("\(key).lrc4.json"))
             lyrics.load(title: "Test Song", artist: "Test Artist", album: "", duration: 180)
             for _ in 0..<50 {
                 if case .synced = lyrics.state { break }

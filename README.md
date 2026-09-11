@@ -63,7 +63,8 @@ because each sends something you own somewhere you cannot see.
 - **Save clipboard screenshots** writes a copy of every image that reaches the
   pasteboard to `~/Pictures/Isla` (most recent 200; clearing goes to the Trash).
 - **Lyrics** sends the current title, artist, album and — for Spotify — the track
-  id to `lrclib.net`, `raw.githubusercontent.com` and `lyrics.kugou.com` to look
+  id to `lrclib.net`, `raw.githubusercontent.com`, `lyrics.kugou.com` and
+  QQ Music (`u.y.qq.com`, `c.y.qq.com`, `shc.y.qq.com`) to look
   words up. That is listening history leaving the Mac, so it is asked for rather
   than assumed. Results are cached on disk, capped at 500 tracks.
 - **Connecting a Spotify account** (Settings → Spotify) authorizes Isla through
