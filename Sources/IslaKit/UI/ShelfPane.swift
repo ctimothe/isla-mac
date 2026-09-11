@@ -142,6 +142,7 @@ private struct ShelfCard: View {
                 .islandFont(.caption, weight: .regular)
                 .foregroundStyle(Theme.secondary)
                 .lineLimit(2)
+                .truncationMode(.middle)
                 .multilineTextAlignment(.center)
                 .frame(height: 24, alignment: .top)
         }

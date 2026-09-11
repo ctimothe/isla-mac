@@ -364,7 +364,12 @@ extension View {
 func formatTime(_ seconds: TimeInterval) -> String {
     guard seconds.isFinite, seconds >= 0 else { return "--:--" }
     let total = Int(seconds.rounded())
-    return String(format: "%d:%02d", total / 60, total % 60)
+    let hours = total / 3600
+    // A podcast is the case this exists for: without the roll, a two-hour
+    // episode drew "120:45" into a gutter sized for "59:59" and came out as
+    // "120:…". Under an hour the leading "0:" would be noise, so it is left off.
+    guard hours > 0 else { return String(format: "%d:%02d", total / 60, total % 60) }
+    return String(format: "%d:%02d:%02d", hours, (total % 3600) / 60, total % 60)
 }
 
 extension View {

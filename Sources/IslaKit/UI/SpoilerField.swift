@@ -163,7 +163,7 @@ struct SpoilerText: View {
                 .font(font)
                 .foregroundStyle(color)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.tail)
         }
     }
 }

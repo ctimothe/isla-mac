@@ -669,12 +669,6 @@ struct LockScreenCard: View {
         }
     }
 
-    private func formatTime(_ seconds: TimeInterval) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
-        let total = Int(seconds.rounded())
-        return String(format: "%d:%02d", total / 60, total % 60)
-    }
-
     // MARK: - Pure layout arithmetic
 
     /// A window of `size` indices centred on `centre`, slid inside the song
