@@ -8,7 +8,7 @@ struct ClipboardPane: View {
         VStack(spacing: 0) {
             if clipboard.items.isEmpty {
                 Image(systemName: "list.clipboard")
-                    .font(.system(size: 20, weight: .light))
+                    .islandFont(.display, weight: .light)
                     .foregroundStyle(Theme.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -35,7 +35,7 @@ struct ClipboardPane: View {
             Spacer()
             ConfirmTextButton(
                 title: localized("Clear"),
-                armedTitle: localized("Clear Everything?")
+                armedTitle: localized("Clear Everything")
             ) { clipboard.clear() }
         }
         .padding(.top, 2)
@@ -49,13 +49,15 @@ private struct ClipRow: View {
     @State private var hovering = false
     @State private var justCopied = false
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var hidden: Bool { privacy.hides(.clipboard, item.id.uuidString) }
 
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: justCopied ? "checkmark" : item.symbol)
-                .font(.system(size: 10, weight: .medium))
+                .islandFont(.caption)
                 .foregroundStyle(justCopied ? Color.green : Theme.tertiary)
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                 .frame(width: 14)
             SpoilerText(
                 text: item.preview,
@@ -69,9 +71,9 @@ private struct ClipRow: View {
                 }
                 Button { clipboard.remove(item) } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
+                        .islandFont(.caption, weight: .semibold)
                         .foregroundStyle(Theme.secondary)
-                        // A 9pt glyph is a ~10pt target sitting beside the
+                        // A 10pt glyph is a ~10pt target sitting beside the
                         // reveal eye, inside a row whose own background
                         // copies to the pasteboard — missing it by two
                         // points overwrote what the user had copied.

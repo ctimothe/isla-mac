@@ -196,3 +196,20 @@ Exercised on the built-in notched display: the first-run pane on a cleared
 drag paths. **Not** exercised: an external display, which is the only place the
 `collapsedDepth` change has any effect; and Open on Hover switched on, which is
 the mode the final review flagged for a fold-and-reopen. Both remain owed.
+
+## v0.3 — native motion and material (in progress)
+
+From the approved plan `docs/plans/2026-09-10-v0.3-native-motion-and-material.md`,
+branch `feat/v0.3-native-motion`:
+
+- [x] Increase Contrast reaches the whole app (2026-09-11,
+  `ContrastRampTests` + `AccessibilityDisplayTests`): the `Theme` colour
+  tokens are functions of the setting, the selected rail chip carries its own
+  fill plus border after `ShelfPane`'s selected tile, the lyric falloff is
+  clamped to a floor, and a live change redraws through the one
+  `SystemAppearance` observation at `NotchContentView`. The surface raises are
+  shape-visibility fixes for everyone, not accessibility variants. Shipped
+  2026-09-11: surface base 0.16, surfaceHover base 0.26 — the brief's step-3
+  prose said 0.12/0.22, but those compute to 1.27:1/1.79:1 and fail the brief's
+  own 1.4/2.0 test floors, so the tests governed. Lyric neighbour 0.34/0.44,
+  floor 0.28/0.38; hairline base stays 0.10 by design (1pt edge, not a fill).

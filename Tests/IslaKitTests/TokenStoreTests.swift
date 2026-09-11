@@ -67,7 +67,7 @@ final class TokenStoreTests: XCTestCase {
         XCTAssertEqual(mode?.int16Value, 0o600)
     }
 
-    /// The probe that decides whether to offer "Import Account From Keychain…".
+    /// The probe that decides whether to offer "Import Account from Keychain…".
     /// It must answer without ever asking for the item's contents — asking is
     /// what raises the login-password prompt this whole design exists to avoid.
     func testLegacyProbeAnswersWithoutReadingContents() {

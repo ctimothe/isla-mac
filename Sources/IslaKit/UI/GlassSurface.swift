@@ -126,6 +126,7 @@ struct GlassSurface: View {
             // worth more than any amount of tuning the gradients above it.
             Image(nsImage: Self.grain)
                 .resizable(resizingMode: .tile)
+                .interpolation(.none)
                 .opacity(elevation.grain)
                 .blendMode(.overlay)
                 .allowsHitTesting(false)
@@ -168,7 +169,9 @@ struct GlassSurface: View {
                 data.update(from: buffer.baseAddress!, count: pixels.count)
             }
         }
-        let image = NSImage(size: NSSize(width: side, height: side))
+        // Half the pixel count in points, so the tile lands 1:1 on a 2x
+        // display instead of being upscaled and low-pass filtered.
+        let image = NSImage(size: NSSize(width: CGFloat(side) / 2, height: CGFloat(side) / 2))
         if let rep { image.addRepresentation(rep) }
         return image
     }

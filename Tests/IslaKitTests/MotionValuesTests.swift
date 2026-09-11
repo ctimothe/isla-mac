@@ -14,7 +14,7 @@ final class MotionValuesTests: XCTestCase {
     /// parameters to read back. Crude, and still the only thing standing
     /// between this file and a bounce creeping back in.
     func testNothingWithoutMomentumOvershoots() {
-        for animation in [Theme.openAnimation, Theme.compactAnimation] {
+        for animation in Theme.criticallyDampedSprings {
             let described = String(describing: animation)
             XCTAssertTrue(
                 described.contains("dampingFraction: 1.0"),
@@ -27,5 +27,18 @@ final class MotionValuesTests: XCTestCase {
     func testReduceMotionReplacesTheSpringEntirely() {
         let reduced = String(describing: Theme.open(reduceMotion: true))
         XCTAssertFalse(reduced.contains("spring"), "a spring is travel, and that is what was refused")
+    }
+
+    /// The page is carried by the song, so this is the one animation in the app
+    /// entitled to overshoot: the words have momentum the way a flick does. It
+    /// also has to be slower than the sweep it carries — borrowing the generic
+    /// 0.16s content ease made the page arrive before the voice did.
+    func testTheLyricScrollIsSlowerThanTheWordSweepAndMayOvershoot() {
+        XCTAssertGreaterThan(Theme.lyricScrollResponse, 0.25,
+                             "the page must not outrun the word sweep it carries")
+        XCTAssertLessThan(Theme.lyricScrollDamping, 1.0,
+                          "carried by momentum, so a small overshoot is correct here")
+        XCTAssertGreaterThan(Theme.lyricScrollDamping, 0.75,
+                             "a small overshoot, not a wobble")
     }
 }

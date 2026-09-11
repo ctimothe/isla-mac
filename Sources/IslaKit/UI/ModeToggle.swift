@@ -12,7 +12,14 @@ struct ModeToggle: View {
     let isOn: Bool
     var accent: Color = .white
     var size: CGFloat = 24
-    var glyphSize: CGFloat = 13
+    /// Sized to the caller's well — the island mounts this at the subhead size
+    /// and the card one step up — so the parameter stays a measurement, while
+    /// the choices at the call sites name their roles.
+    var glyphSize: CGFloat = Theme.TypeRole.subhead.size
+    // Passed in, not read here: the two callers already read Reduce Motion
+    // two different ways, and repeat is the only symbol here that actually
+    // changes underfoot.
+    var reduceMotion: Bool = false
     var action: () -> Void
 
     var body: some View {
@@ -21,6 +28,7 @@ struct ModeToggle: View {
                 Image(systemName: symbol)
                     .font(.system(size: glyphSize, weight: .semibold))
                     .foregroundStyle(isOn ? accent : Theme.tertiary)
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                 Circle()
                     .fill(isOn ? accent : .clear)
                     .frame(width: 3, height: 3)

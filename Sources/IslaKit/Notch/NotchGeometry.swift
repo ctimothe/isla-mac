@@ -261,6 +261,30 @@ struct NotchGeometry {
     }
 
     /// Rect the content occupies inside the window, in AppKit window coordinates.
+    /// The compact island's rect in the coordinate space a SwiftUI gesture
+    /// reports its clicks in.
+    ///
+    /// The same rect `NotchController.applyActiveRect` hands to
+    /// `NotchRootView.activeRect`, expressed the other way up. It exists because
+    /// the two layers disagreed and one of them was silently wrong: the panel's
+    /// click gesture is attached to a view that fills the whole window, so its
+    /// `.local` space is the window — and the rect it tested against was pinned
+    /// at that window's origin while the island is centred in it. The overlap
+    /// was the island's left edge. With a track playing on a 185 pt notch, the
+    /// left 34 % opened the panel and the right 66 % did nothing; with nothing
+    /// playing there was no overlap at all and the island was dead everywhere.
+    /// `activeRect` was right the whole time, which is why it let the clicks
+    /// through to be thrown away here, and why hovering — which goes through
+    /// `PointerWatcher` instead — never showed it.
+    ///
+    /// `contentRect` measures up from the bottom, the way AppKit does. SwiftUI
+    /// measures down from the top, and the island is pinned to the top edge, so
+    /// only the horizontal half of that rect carries over.
+    func compactGestureRect(for bodySize: CGSize, topRadius: CGFloat) -> CGRect {
+        let rect = contentRect(for: bodySize).insetBy(dx: -topRadius, dy: 0)
+        return CGRect(x: rect.minX, y: 0, width: rect.width, height: bodySize.height)
+    }
+
     func contentRect(for size: CGSize) -> CGRect {
         CGRect(
             x: (windowSize.width - size.width) / 2,
