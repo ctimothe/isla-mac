@@ -113,6 +113,7 @@ final class ShelfStore: ObservableObject {
     /// being asked, which is the difference between a question and an
     /// interruption.
     func refreshFromDisk() {
+        importNewRecordings()
         guard !items.isEmpty else { return }
         let gone = Set(items.filter { Self.isGone($0.url) }.map(\.id))
         if !gone.isEmpty {
@@ -121,6 +122,29 @@ final class ShelfStore: ObservableObject {
             persist()
         }
         items.forEach(loadThumbnail)
+    }
+
+    /// Screen recordings the system saved since the feature first ran, picked
+    /// up with no copy step. Runs on shelf open — the one moment touching the
+    /// captures folder is an answered question rather than an interruption —
+    /// and never in the background: a recording finished while away is simply
+    /// there on the next open.
+    ///
+    /// The folder is a parameter rather than read inside so tests can point it
+    /// at a temporary directory: the live one is Screenshot.app's save
+    /// location, and a test must never scan the real Desktop.
+    func importNewRecordings(from folder: URL? = nil) {
+        guard NotchViewModel.importRecordingsEnabled else { return }
+        guard let since = defaults.object(forKey: RecordingPickup.sinceKey) as? Date else { return }
+        let seen = Set(defaults.stringArray(forKey: RecordingPickup.seenKey) ?? [])
+        let result = RecordingPickup.fresh(
+            in: folder ?? RecordingPickup.captureFolder(), since: since, seen: seen
+        )
+        // Persisted even when nothing is offered: settling old files is what
+        // keeps them settled, and a denied folder simply reports nothing.
+        defaults.set(Array(result.seen.suffix(RecordingPickup.seenLimit)), forKey: RecordingPickup.seenKey)
+        guard !result.urls.isEmpty else { return }
+        add(result.urls)
     }
 
     /// Whether the file is actually gone, as opposed to merely out of reach.

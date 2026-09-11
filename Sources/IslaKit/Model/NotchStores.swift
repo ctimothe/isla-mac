@@ -33,6 +33,13 @@ final class NotchStores {
     func start() {
         guard !started else { return }
         started = true
+        // Baselines the recording pickup: the scan offers what finished after
+        // this stamp, so stamping at the first shelf open instead would miss a
+        // recording made between install and that open. Stamped once — the key
+        // existing is what makes it once — and never moved again.
+        if UserDefaults.standard.object(forKey: RecordingPickup.sinceKey) == nil {
+            UserDefaults.standard.set(Date(), forKey: RecordingPickup.sinceKey)
+        }
         media.start()
         shelf.load()
         // Drop folders from previous sessions, once, off the main thread.
