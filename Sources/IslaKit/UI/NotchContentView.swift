@@ -235,7 +235,20 @@ struct NotchContentView: View {
                     // Only if the pointer is still on the island. Dragging away
                     // and letting go cancels, which is what every button on the
                     // platform does.
-                    if islandBounds.contains(value.location) { vm.onIslandClick?() }
+                    let inside = islandBounds.contains(value.location)
+                    // Diagnostic, behind DI_GEOM=1: pairs with the CLICK line in
+                    // `NotchRootView.hitTest`, so a dead spot reads as
+                    // hit-but-cancelled here versus never-delivered there.
+                    if ProcessInfo.processInfo.environment["DI_GEOM"] == "1" {
+                        DebugTrail.note(String(
+                            format: "GESTURE loc=(%.1f,%.1f) island=(%.1f,%.1f,%.1f,%.1f) inside=%d",
+                            value.location.x, value.location.y,
+                            islandBounds.minX, islandBounds.minY,
+                            islandBounds.width, islandBounds.height,
+                            inside ? 1 : 0
+                        ))
+                    }
+                    if inside { vm.onIslandClick?() }
                 }
         )
         .animation(Theme.open(reduceMotion: reduceMotion), value: isOpen)
