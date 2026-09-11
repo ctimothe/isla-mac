@@ -588,6 +588,52 @@ final class MediaControllerTests: XCTestCase {
         XCTAssertEqual(controller.spotifyExactDuration ?? -1, 200, accuracy: 0.001)
     }
 
+    /// I3: a rate change discontinues the regression line. Origins measured
+    /// at 1× recomputed at 2× lean the mean, so the window must flush when
+    /// the value changes — and only then.
+    func testRateChangeFlushesCorrectionWindow() {
+        let controller = MediaController()
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 50
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        controller.correctionWindow = [
+            (atMono: 1000, position: 50),
+            (atMono: 1001, position: 51),
+            (atMono: 1002, position: 52),
+        ]
+        var faster = playing
+        faster.rate = 2
+        faster.takenAt = Date()
+        controller.apply(faster)
+        XCTAssertTrue(
+            controller.correctionWindow.isEmpty,
+            "a rate change must flush the regression window built at the old rate"
+        )
+
+        controller.correctionWindow = [
+            (atMono: 2000, position: 60),
+            (atMono: 2001, position: 62),
+        ]
+        var sameRate = playing
+        sameRate.rate = 2
+        sameRate.takenAt = Date()
+        sameRate.elapsed = 60
+        controller.apply(sameRate)
+        XCTAssertEqual(
+            controller.correctionWindow.count, 2,
+            "the same rate is no discontinuity and must keep the window"
+        )
+    }
+
     /// The catalogue does not always carry an ISRC for a track it otherwise
     /// knows — the exact duration is still worth publishing for the
     /// duration-gated matching the lyric tiers do.
