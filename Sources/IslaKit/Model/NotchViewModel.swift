@@ -390,6 +390,21 @@ final class NotchViewModel: ObservableObject {
         UserDefaults.standard.bool(forKey: saveClipboardImagesKey)
     }
 
+    static let importRecordingsKey = "importRecordings"
+
+    /// Defaults to **on**: a recording the system saved is already the user's
+    /// deliberate capture, and the pickup only ever offers what finished after
+    /// the app first ran — nothing predating it is vacuumed in. The one system
+    /// folder prompt this can raise arrives on the first shelf open, with the
+    /// shelf on screen to explain it, and then never again. Off restores the
+    /// copy-flow only: drops and clipboard copies still land, disk is never
+    /// scanned.
+    static var importRecordingsEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: importRecordingsKey) != nil else { return true }
+        return defaults.bool(forKey: importRecordingsKey)
+    }
+
     static let showLyricsKey = "showLyrics"
 
     /// Defaults to **off**. This is the app's only network use: turning it on

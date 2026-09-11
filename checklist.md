@@ -63,6 +63,14 @@ are the exception the design did not anticipate:
   system-wide setting, recorded on the same terms. Absent entirely for a
   device that publishes no volume control rather than shown as a slider
   that moves and changes nothing.
+- **Screen-recording pickup** (Settings, default on, added 2026-09-11)
+  imports movies Screenshot.app saved — its configured location, else the
+  Desktop — when the Shelf opens, if they finished after the app first ran.
+  Copied recordings already landed through the clipboard; this covers the
+  native save-to-disk flow no pasteboard ever sees. The first scan touches a
+  folder macOS guards, so the system asks once, with the shelf on screen to
+  explain it, and the grant sticks; denied means the shelf shows what it
+  holds. Nothing watches in the background.
 
 The status-item menu, and then the whole status item, were removed on
 2026-08-25 by owner decision. A window was built first and withdrawn the
