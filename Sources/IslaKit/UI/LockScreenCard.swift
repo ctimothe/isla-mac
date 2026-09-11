@@ -276,7 +276,9 @@ struct LockScreenCard: View {
                 let at = LyricSweep.position(
                     media.position,
                     precisionSync: media.precisionSync,
-                    userOffset: lyrics.userOffset
+                    userOffset: lyrics.userOffset,
+                    sourceBias: lyrics.currentSourceBias,
+                    trackOffset: lyrics.trackOffset
                 )
                 let centre = LyricSweep.centreIndex(in: lines, at: at)
                 let window = Self.window(around: centre, count: lines.count, size: Self.visibleLyricLines)
@@ -323,7 +325,8 @@ struct LockScreenCard: View {
                 media.seek(to: LyricsStage.clickTarget(
                     lineAt: lines[index].at,
                     lead: LyricSweep.lead(
-                        precisionSync: media.precisionSync, userOffset: lyrics.userOffset
+                        precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
+                        sourceBias: lyrics.currentSourceBias, trackOffset: lyrics.trackOffset
                     ),
                     duration: media.duration
                 ))

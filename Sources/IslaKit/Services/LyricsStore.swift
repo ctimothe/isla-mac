@@ -60,8 +60,9 @@ final class LyricsStore: ObservableObject {
     /// a different master of the song — a remaster shifted by half a second is
     /// common — and no amount of position accuracy can fix data that is offset
     /// at the source. Every serious karaoke surface ships this knob. Persisted
-    /// globally: a per-track table would be more precise and much harder to
-    /// discover, and the common case is "this whole catalogue runs a beat hot".
+    /// globally: this is the catalogue-wide layer for "every source runs a
+    /// beat hot". A single entry's own shift belongs to the per-track layer
+    /// below, so fixing one remaster never moves any other track.
     @Published var userOffset: TimeInterval = UserDefaults.standard.double(forKey: LyricsStore.offsetKey) {
         didSet {
             let clamped = min(max(userOffset, -3), 3)
@@ -70,6 +71,65 @@ final class LyricsStore: ObservableObject {
         }
     }
     static let offsetKey = "lyrics.userOffset"
+
+    /// The per-track timing correction for the loaded track, in seconds — the
+    /// layer the stage's Sync buttons write. A remaster shifted half a second
+    /// is fixed once, for that track, forever, without moving any other track.
+    ///
+    /// Clamped at write (±`trackOffsetLimit`), summed unclamped at read in
+    /// `LyricSweep.lead` together with the global and the source bias. Keyed
+    /// by cache key and persisted inside the v4 entry, so it survives relaunch
+    /// and never leaks across tracks. The overlay carries nudges made while
+    /// no entry is on disk yet — before the first fetch settles — into the
+    /// write that follows.
+    @Published private(set) var trackOffset: TimeInterval = 0
+    static let trackOffsetLimit: TimeInterval = 1.5
+    private var trackOffsets: [String: TimeInterval] = [:]
+    /// The tier the loaded words came from, for its code-only bias. Nil until
+    /// the first settle or cache hit, in which case the bias reads 0.
+    private var loadedSource: LyricSource?
+
+    /// The source tier's correction for the loaded track. Seeded 0 for every
+    /// tier; adjustable only here, in code, when a whole catalogue proves hot.
+    var currentSourceBias: TimeInterval { loadedSource?.bias ?? 0 }
+
+    /// The full correction applied at read: global, then source, then track.
+    /// A plain sum — each layer was already clamped where it was written.
+    var effectiveOffset: TimeInterval {
+        userOffset + currentSourceBias + trackOffset
+    }
+
+    /// Moves the loaded track's layer by `delta`, clamped to ±1.5s. With no
+    /// track loaded there is nothing to correct, so the call is a no-op.
+    func nudgeTrackOffset(by delta: TimeInterval) {
+        guard let key = loadedCacheKey else { return }
+        setTrackOffset((trackOffsets[key] ?? trackOffset) + delta, for: key)
+    }
+
+    /// Forgets the loaded track's correction. The long-press on the stage's
+    /// offset readout is the only caller in the UI.
+    func clearTrackOffset() {
+        guard let key = loadedCacheKey else { return }
+        setTrackOffset(0, for: key)
+    }
+
+    private func setTrackOffset(_ value: TimeInterval, for key: String) {
+        let clamped = min(max(value, -Self.trackOffsetLimit), Self.trackOffsetLimit)
+        trackOffsets[key] = clamped
+        if key == loadedCacheKey { trackOffset = clamped }
+        persistTrackOffset()
+    }
+
+    /// Rewrites the v4 entry carrying the current layer. Only when there is
+    /// an entry to rewrite: settled words from a known tier. A nudge made
+    /// before the first settle has no lines to rewrite with, so the overlay
+    /// above holds it until the fetch's own write lands.
+    private func persistTrackOffset() {
+        guard let key = loadedCacheKey,
+              case .synced(let lines) = state,
+              let source = loadedSource else { return }
+        writeCache(key, lines: lines, source: source, trackOffset: trackOffsets[key] ?? 0)
+    }
 
     private let session: URLSession
     private let cacheDirectory: URL
@@ -177,11 +237,17 @@ final class LyricsStore: ObservableObject {
             let skipCache = self.bypassCacheOnce
             self.bypassCacheOnce = false
             let cached = skipCache ? nil : await Task.detached(priority: .userInitiated) {
-                Self.readCache(at: url)
+                Self.readCacheEntry(at: url)
             }.value
             guard !Task.isCancelled, self.loadedKey == identity else { return }
             if let cached {
-                self.settle(Self.cleaned(cached, title: title, artist: artist))
+                // The persisted track layer comes back with the words: the
+                // offset corrected this entry's timing, so it is restored for
+                // exactly this key and no other.
+                self.loadedSource = cached.source
+                self.trackOffsets[key] = cached.trackOffset
+                self.trackOffset = cached.trackOffset
+                self.settle(Self.cleaned(cached.lines, title: title, artist: artist))
                 return
             }
             await self.fetch(
@@ -211,6 +277,8 @@ final class LyricsStore: ObservableObject {
         inFlight?.cancel()
         loadedKey = nil
         loadedCacheKey = nil
+        loadedSource = nil
+        trackOffset = 0
         retained = nil
         state = .idle
     }
@@ -230,9 +298,16 @@ final class LyricsStore: ObservableObject {
         inFlight?.cancel()
         let key = Self.cacheKey(title: title, artist: artist, album: album, duration: duration)
         let url = cacheURL(key)
-        DispatchQueue.global(qos: .utility).async {
+        Self.cacheIO.async {
             try? FileManager.default.removeItem(at: url)
         }
+        // The deleted entry carried this track's correction, and the correction
+        // belonged to that entry's timing — a fresh match may be timed
+        // differently, so the layer restarts at 0 rather than silently moving
+        // words it was never measured against. Done without persisting: the
+        // file is already gone and the refetch's own write lands the 0.
+        trackOffsets.removeValue(forKey: key)
+        if loadedCacheKey == key { trackOffset = 0 }
         loadedKey = nil
         bypassCacheOnce = true
         load(
@@ -240,6 +315,13 @@ final class LyricsStore: ObservableObject {
             spotifyID: spotifyID, isrc: isrc, exactDuration: exactDuration
         )
     }
+
+    /// Every cache mutation — writes, the v3 prune riding along, research
+    /// deletions, full clears — goes through this one serial queue, in
+    /// dispatch order. The global queue used to let a fetch's write overtake a
+    /// nudge's rewrite of the same file and pin the track to the older value;
+    /// a serial queue cannot reorder them.
+    nonisolated private static let cacheIO = DispatchQueue(label: "Isla.lyricsCache", qos: .utility)
 
     /// One-shot cache bypass, consumed by the next `load`.
     private var bypassCacheOnce = false
@@ -335,6 +417,20 @@ final class LyricsStore: ObservableObject {
             case .amll: return 1.0
             case .qq: return 0.95
             case .kugou: return 0.85
+            case .lrclib: return 0
+            }
+        }
+
+        /// This tier's catalogue-wide timing correction, in seconds. Every
+        /// tier is seeded 0; when a whole source proves consistently hot or
+        /// cold the fix is one literal here, never a setting and never a
+        /// migration — the sum in `LyricSweep.lead` picks it up for every
+        /// track from that tier at once.
+        var bias: TimeInterval {
+            switch self {
+            case .amll: return 0
+            case .qq: return 0
+            case .kugou: return 0
             case .lrclib: return 0
             }
         }
@@ -542,8 +638,7 @@ final class LyricsStore: ObservableObject {
         if let amllLines, !amllLines.isEmpty {
             let usable = Self.cleaned(amllLines, title: title, artist: artist)
             if !usable.isEmpty {
-                writeCache(cacheKey, lines: usable, source: .amll)
-                state = .synced(usable)
+                settleFetched(key: cacheKey, lines: usable, source: .amll)
                 return
             }
         }
@@ -557,12 +652,22 @@ final class LyricsStore: ObservableObject {
             guard !Task.isCancelled, loadedKey == key else { return }
             let usable = Self.cleaned(lines, title: title, artist: artist)
             if !usable.isEmpty {
-                writeCache(cacheKey, lines: usable, source: source)
-                state = .synced(usable)
+                settleFetched(key: cacheKey, lines: usable, source: source)
                 return
             }
         }
         await fetchLRCLIB(key: key, cacheKey: cacheKey, title: title, artist: artist, album: album, duration: duration)
+    }
+
+    /// Publishes a fetched tier: remembers its source for the bias layer,
+    /// restores a nudge made while the fetch was in flight, and writes both
+    /// to the v4 entry together so the next launch replays them as one.
+    private func settleFetched(key: String, lines: [Line], source: LyricSource) {
+        loadedSource = source
+        let offset = trackOffsets[key] ?? 0
+        trackOffset = offset
+        writeCache(key, lines: lines, source: source, trackOffset: offset)
+        state = .synced(lines)
     }
 
     /// The amll-ttml-db community database: CC0, word-by-word TTML, one file
@@ -748,7 +853,12 @@ final class LyricsStore: ObservableObject {
             // when the service was in a position to answer.
             lines = Self.cleaned(lines, title: title, artist: artist)
             if !lines.isEmpty || serviceAnswered {
-                writeCache(cacheKey, lines: lines, source: .lrclib)
+                // A miss is cached too, and the miss entry carries the same
+                // layers a hit would: the next replay restores them as one.
+                loadedSource = .lrclib
+                let offset = trackOffsets[cacheKey] ?? 0
+                trackOffset = offset
+                writeCache(cacheKey, lines: lines, source: .lrclib, trackOffset: offset)
             }
         } catch {
             guard !Task.isCancelled, loadedKey == key else { return }
@@ -839,6 +949,9 @@ final class LyricsStore: ObservableObject {
         /// Which tier answered: amll, qq, kugou or lrclib. Optional so
         /// untagged files still decode; only the suffix decides what is read.
         var source: String? = nil
+        /// This track's timing correction, in seconds. Optional so entries
+        /// written before the track layer existed still decode — theirs reads 0.
+        var trackOffset: TimeInterval? = nil
     }
 
     /// How many cached tracks to keep. The cache is one small file per track
@@ -850,10 +963,19 @@ final class LyricsStore: ObservableObject {
     /// Read by the sync probe for its word-tier fixture as well as by `load`,
     /// so it is internal rather than private. Pure disk + decode, no state.
     nonisolated static func readCache(at url: URL) -> [Line]? {
+        readCacheEntry(at: url)?.lines
+    }
+
+    /// The full v4 entry: the words, which tier wrote them, and this track's
+    /// timing correction. `load` restores all three together so a nudge
+    /// replays with the entry it was measured against, never another track's.
+    nonisolated static func readCacheEntry(
+        at url: URL
+    ) -> (lines: [Line], source: LyricSource?, trackOffset: TimeInterval)? {
         guard let data = try? Data(contentsOf: url),
               let cached = try? JSONDecoder().decode(CachedLyrics.self, from: data),
               cached.times.count == cached.texts.count else { return nil }
-        return cached.times.indices.map { index in
+        let lines: [Line] = cached.times.indices.map { index in
             var words: [WordSyncedLyrics.Word] = []
             if let wt = cached.wordTimes, let wx = cached.wordTexts,
                index < wt.count, index < wx.count, wt[index].count == wx[index].count {
@@ -866,6 +988,8 @@ final class LyricsStore: ObservableObject {
             let isCredit = cached.credits.map { index < $0.count && $0[index] } ?? false
             return Line(at: cached.times[index], text: cached.texts[index], words: words, isCredit: isCredit)
         }
+        let source = cached.source.flatMap(LyricSource.init(rawValue:))
+        return (lines, source, cached.trackOffset ?? 0)
     }
 
     /// Encodes and writes off the main thread.
@@ -873,7 +997,7 @@ final class LyricsStore: ObservableObject {
     /// A word-synced track carries a timing per word, and encoding plus an
     /// atomic write of that used to happen on the main actor during the exact
     /// frame the lyric crossfade was animating.
-    private func writeCache(_ key: String, lines: [Line], source: LyricSource) {
+    private func writeCache(_ key: String, lines: [Line], source: LyricSource, trackOffset: TimeInterval) {
         let cached = CachedLyrics(
             times: lines.map(\.at),
             texts: lines.map(\.text),
@@ -881,12 +1005,13 @@ final class LyricsStore: ObservableObject {
             wordTexts: lines.map { $0.words.map(\.text) },
             wordEnds: lines.map { $0.words.map { $0.end ?? -1 } },
             credits: lines.map(\.isCredit),
-            source: source.rawValue
+            source: source.rawValue,
+            trackOffset: trackOffset
         )
         let url = cacheURL(key)
         let directory = cacheDirectory
         let limit = Self.cacheLimit
-        DispatchQueue.global(qos: .utility).async {
+        Self.cacheIO.async {
             let fm = FileManager.default
             try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
             guard let data = try? JSONEncoder().encode(cached) else { return }
@@ -925,7 +1050,7 @@ final class LyricsStore: ObservableObject {
     /// cache is something the user can see the size of and empty.
     func clearCache() {
         let directory = cacheDirectory
-        DispatchQueue.global(qos: .utility).async {
+        Self.cacheIO.async {
             let fm = FileManager.default
             guard let urls = try? fm.contentsOfDirectory(
                 at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]

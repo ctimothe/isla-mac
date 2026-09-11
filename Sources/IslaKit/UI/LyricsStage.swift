@@ -63,9 +63,13 @@ struct LyricsStage: View {
     /// coloured from the cover is unreadable the moment the cover is pale.
     private let accent: Color = .white
 
-    /// The one lead, shared with the caption and the lock card.
+    /// The one lead, shared with the caption and the lock card: the base plus
+    /// all three offset layers, so a per-track nudge moves every surface.
     private var lead: TimeInterval {
-        LyricSweep.lead(precisionSync: media.precisionSync, userOffset: lyrics.userOffset)
+        LyricSweep.lead(
+            precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
+            sourceBias: lyrics.currentSourceBias, trackOffset: lyrics.trackOffset
+        )
     }
 
     private var now: TimeInterval { media.position + lead }
@@ -407,10 +411,12 @@ struct LyricsStage: View {
 
             Spacer(minLength: 0)
 
-            // The timing nudge. Shown as the correction it is; zero reads as
-            // nothing rather than as "+0.00s".
+            // The per-track timing nudge. Shown as the correction it is; zero
+            // reads as nothing rather than as "+0.00s". This moves only this
+            // track's layer — a remaster fixed here never shifts any other
+            // song — and holding the readout clears it back to 0.
             HStack(spacing: 4) {
-                Button { lyrics.userOffset -= 0.25 } label: {
+                Button { lyrics.nudgeTrackOffset(by: -0.25) } label: {
                     Image(systemName: "minus")
                         // Fitted to the 20pt well, not set as type: a caption
                         // glyph would crowd a button this small.
@@ -418,13 +424,19 @@ struct LyricsStage: View {
                 }
                 .buttonStyle(NotchButtonStyle(size: 20))
                 .accessibilityLabel(localized("Lyrics Earlier"))
-                if abs(lyrics.userOffset) > 0.01 {
-                    Text(String(format: "%+.2fs", lyrics.userOffset))
+                if abs(lyrics.trackOffset) > 0.01 {
+                    Text(String(format: "%+.2fs", lyrics.trackOffset))
                         .font(Theme.TypeRole.caption.font().monospacedDigit())
                         .foregroundStyle(Theme.secondary)
                         .frame(minWidth: 40)
+                        // The only reset, and deliberately a held one: a tap
+                        // target this small, beside two steppers, would eat
+                        // nudges meant for its neighbours.
+                        .onLongPressGesture { lyrics.clearTrackOffset() }
+                        .help(localized("Reset lyric timing"))
+                        .accessibilityHint(localized("Reset lyric timing"))
                 }
-                Button { lyrics.userOffset += 0.25 } label: {
+                Button { lyrics.nudgeTrackOffset(by: 0.25) } label: {
                     Image(systemName: "plus")
                         // Same fitted glyph as the minus beside it.
                         .font(.system(size: 8, weight: .bold))

@@ -26,15 +26,27 @@ enum LyricSweep {
     /// share of the lag is gone; what remains is display cost.
     static let precisionLead: TimeInterval = 0.25
 
-    static func lead(precisionSync: Bool, userOffset: TimeInterval) -> TimeInterval {
-        (precisionSync ? precisionLead : standardLead) + userOffset
+    static func lead(
+        precisionSync: Bool, userOffset: TimeInterval,
+        sourceBias: TimeInterval = 0, trackOffset: TimeInterval = 0
+    ) -> TimeInterval {
+        // Three layers, summed at read and clamped nowhere here: the global
+        // correction clamps at ±3s and the track layer at ±1.5s where each is
+        // written, in LyricsStore. Clamping the sum instead would let one
+        // layer steal another's range — a global +3 with a track −0.5 must
+        // still read +2.5, not a clamped +1.5.
+        (precisionSync ? precisionLead : standardLead) + userOffset + sourceBias + trackOffset
     }
 
     /// The moment the lyric should be read against: the clock, plus the lead.
     static func position(
-        _ position: TimeInterval, precisionSync: Bool, userOffset: TimeInterval
+        _ position: TimeInterval, precisionSync: Bool, userOffset: TimeInterval,
+        sourceBias: TimeInterval = 0, trackOffset: TimeInterval = 0
     ) -> TimeInterval {
-        position + lead(precisionSync: precisionSync, userOffset: userOffset)
+        position + lead(
+            precisionSync: precisionSync, userOffset: userOffset,
+            sourceBias: sourceBias, trackOffset: trackOffset
+        )
     }
 
     /// The line to show right now, which is not always the line being sung.
