@@ -420,6 +420,76 @@ final class LyricsStoreTests: XCTestCase {
         XCTAssertEqual(source, "lrclib")
     }
 
+    /// The real-world repair: entries written before the entity decoder
+    /// existed carry `&apos;` raw in their texts and words — the user's
+    /// actual cached entry did. The cached text is deterministic input to a
+    /// pure transform, so the load decodes it and rewrites the entry stamped
+    /// decoded, offline, zero requests; a second load must hit the stamp and
+    /// leave the file alone.
+    func testCacheHitRepairsUndecodedEntryExactlyOnce() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let key = LyricsStore.cacheKey(title: "Go Slowly", artist: "Radiohead", album: "In Rainbows", duration: 253)
+        let url = root.appendingPathComponent("\(key).lrc4.json")
+        // Hand-written like the on-disk real one: v4 shape, entities raw, no
+        // `decoded` key — the field did not exist when entries were written
+        // before the decoder.
+        let seeded: [String: Any] = [
+            "times": [10.0, 15.0],
+            "texts": ["I&apos;ve been waiting", "I didn&apos;t care"],
+            "wordTimes": [[10.0, 10.5, 11.0], [15.0]],
+            "wordTexts": [["I&apos;ve ", "been ", "waiting"], ["I didn&apos;t care"]],
+            "source": "kugou",
+            "trackOffset": 0.25,
+        ]
+        try JSONSerialization.data(withJSONObject: seeded).write(to: url)
+
+        let store = LyricsStore(session: failingSession(), cacheDirectory: root)
+        store.load(title: "Go Slowly", artist: "Radiohead", album: "In Rainbows", duration: 253)
+        await waitForSettled(store)
+        guard case .synced(let lines) = store.state else {
+            return XCTFail("the seeded cache entry must settle, got \(store.state)")
+        }
+        XCTAssertEqual(lines[0].text, "I've been waiting")
+        XCTAssertEqual(lines[0].words.map(\.text), ["I've ", "been ", "waiting"])
+        XCTAssertEqual(lines[1].text, "I didn't care")
+        XCTAssertEqual(store.trackOffset, 0.25, accuracy: 0.0001, "repair must preserve the entry's layers")
+        XCTAssertEqual(store.loadedSource, .kugou, "repair must preserve the entry's tier")
+
+        // The rewrite lands on the serial cache queue after the settle; wait
+        // for it rather than racing it.
+        var written: [String: Any]?
+        for _ in 0..<100 {
+            if let data = try? Data(contentsOf: url),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               json["decoded"] as? Bool == true {
+                written = json
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        let entry = try XCTUnwrap(written, "the repaired entry was never written back")
+        XCTAssertEqual(entry["texts"] as? [String], ["I've been waiting", "I didn't care"])
+        XCTAssertEqual((entry["wordTexts"] as? [[String]])?.first, ["I've ", "been ", "waiting"])
+        XCTAssertEqual(entry["source"] as? String, "kugou")
+        XCTAssertEqual(entry["trackOffset"] as? Double ?? 0, 0.25, accuracy: 0.0001)
+
+        // The second load hits the stamp: read the file, load again, and the
+        // bytes must not move.
+        let before = try Data(contentsOf: url)
+        let second = LyricsStore(session: failingSession(), cacheDirectory: root)
+        second.load(title: "Go Slowly", artist: "Radiohead", album: "In Rainbows", duration: 253)
+        await waitForSettled(second)
+        // Long enough for any illicit rewrite to have reached the queue.
+        try? await Task.sleep(for: .milliseconds(300))
+        let after = try Data(contentsOf: url)
+        XCTAssertEqual(after, before, "a second load rewrote the repaired entry")
+        guard case .synced(let replayed) = second.state else {
+            return XCTFail("the second load must still hit the cache, got \(second.state)")
+        }
+        XCTAssertEqual(replayed[0].text, "I've been waiting")
+    }
+
     /// research() busts the v4 entry; with nothing on the wire the track ends
     /// with no lyrics rather than the busted answer.
     func testResearchDeletesV4Entry() async throws {
