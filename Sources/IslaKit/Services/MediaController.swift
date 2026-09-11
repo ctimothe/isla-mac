@@ -200,8 +200,11 @@ final class MediaController: ObservableObject {
     /// The last corrections as (monotonic moment, RTT-aged position), oldest
     /// first. Reset wherever the line discontinues — a pause lets the monotonic
     /// clock run while the position stands still, so origins from before it
-    /// would drag the mean after the resume.
-    private var correctionWindow: [(atMono: TimeInterval, position: TimeInterval)] = []
+    /// would drag the mean after the resume. A rate change is the same kind
+    /// of discontinuity: old origins recomputed at the new rate lean the
+    /// mean, so the window flushes there too. Internal so tests can pin the
+    /// mid-window rate change, like `foreignHoldWindow` above.
+    var correctionWindow: [(atMono: TimeInterval, position: TimeInterval)] = []
     /// The fetch behind a correction. Production asks Spotify over AppleScript;
     /// tests substitute canned answers, mirroring `spotifyMetadataProvider`.
     var precisionPositionFetcher: ((@escaping @MainActor (TimeInterval?) -> Void) -> Void)?
@@ -819,7 +822,23 @@ final class MediaController: ObservableObject {
         // The rate the clock extrapolates at, from the player itself. Zero is
         // what a paused session reports and says nothing about how fast it will
         // resume, so the last positive rate is kept.
-        if snapshot.rate > 0 { playbackRate = snapshot.rate }
+        if snapshot.rate > 0 {
+            // A rate change discontinues the regression line the way a seek
+            // and a track change already do (see both): every origin in the
+            // window was measured while the track moved at the old rate, and
+            // `regressedAnchorPosition` derives each origin as
+            // `position - atMono * rate` at the *current* rate — so a window
+            // built at 1x surviving into 2x playback recomputes those origins
+            // a growing distance off, leaning the mean towards the speed
+            // mismatch instead of the player's drift and "correcting" every
+            // fresh reading backwards for the five polls it takes the window
+            // to age out. Only a change flushes: a steady rate is the
+            // ordinary case and must keep the line it has been building, and
+            // the first positive rate after a pause is no change at all —
+            // the loop that was paused flushes its own window on restart.
+            if snapshot.rate != playbackRate { correctionWindow = [] }
+            playbackRate = snapshot.rate
+        }
         if precisionSteers {
             // Position is the correction loop's job; everything else in the
             // snapshot — track, playing state, commands, artwork — landed
