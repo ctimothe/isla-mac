@@ -58,4 +58,16 @@ final class ContrastRampTests: XCTestCase {
             ratioOverBlack(whiteOpacity: LyricRow.falloffFloor(increaseContrast: true)), 3.0
         )
     }
+
+    /// The neighbour one step from the sung line must sit between floor and
+    /// song: e67e80e fixed it sitting below the floor (0.34 < 0.38) under
+    /// Increase Contrast, which turned depth inside out.
+    func testLyricNeighbourSitsAboveTheFalloffFloor() {
+        for contrast in [false, true] {
+            XCTAssertGreaterThan(
+                LyricRow.neighbourOpacity(increaseContrast: contrast),
+                LyricRow.falloffFloor(increaseContrast: contrast)
+            )
+        }
+    }
 }
