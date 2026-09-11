@@ -197,6 +197,38 @@ transitions.
 - Fall back to Music and Spotify scripting/media controls after three consecutive
   helper failures.
 
+> **Amended 2026-09-10.** "Show artwork," above, was being honoured twice. The
+> pill drew a 22 pt cover and the open panel drew a 118 pt one, in two files,
+> with no relationship between them beyond both reading the same image — so
+> opening the panel crossfaded one album past itself: the small cover shrinking
+> and fading where it stood while a different, larger cover faded up somewhere
+> else. The contract is now that the cover is **one object that travels**. The
+> pill and the pane share a geometry identity (`NotchContentView.MorphID`), and
+> both ends of the travel are described by one function, `Theme.artworkMetrics`,
+> rather than by two hardcoded pairs — an interpolated frame cannot notice that
+> its two ends disagree about what shape they are. The equalizer travels the
+> same way, from the pill's right wing to the open header's right end, instead of
+> switching off on one side of the notch and on again on the other.
+>
+> One consequence worth stating because it was tried and withdrawn the same
+> day. The corner was briefly made proportional — `side / 5.5`, the proportion
+> `LockScreenCard` draws its own cover at — which would have moved the open
+> cover's radius from 14 pt to 21.5 and the pill's from 6 pt to 4. That
+> proportion is right for the 42–62 pt thumbnail it was set on and wrong at
+> 118 pt, where 18 per cent reads as a chip rather than a picture; Apple's small
+> artwork is proportionally rounder than its large artwork, never the same. Both
+> ends keep the radius their own size wants — 6 pt and 14 pt, as they shipped —
+> and the morph interpolates the frame between them. The motion is unchanged:
+> the travel rides
+> `Theme.open(reduceMotion:)`, critically damped, because a click carries no
+> momentum to spend on an overshoot; Reduce Motion shortens the travel to a
+> 0.12 s ease rather than leaving the cover stranded mid-flight.
+>
+> Held by `ArtworkMorphTests` — the shared identity, the single description of
+> both ends, and the clip that a resizable cover must not lose (a 16:9 thumbnail
+> is 211 pt wide in a 118 pt slot). What no unit test can hold is the
+> interpolation itself: that one object is seen to move is on the manual pass.
+
 ### Shelf
 
 - Accept files dragged into the panel and allow files to be dragged back out.

@@ -3,6 +3,13 @@ import SwiftUI
 struct MediaPane: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    /// The namespace the cover travels in, when this pane is inside the panel.
+    ///
+    /// Optional because the pane is also rendered on its own — by the layout
+    /// tests, with no pill above it and nothing to travel from. `nil` means
+    /// "draw the cover where it lands and nothing else", which is what a pane
+    /// with no island around it should do.
+    var morph: Namespace.ID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var scrubHover = false
@@ -108,11 +115,11 @@ struct MediaPane: View {
                 artwork(for: track)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(track.title)
-                        .islandFont(16, weight: .semibold)
+                        .islandFont(.title)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Text(subtitle(for: track))
-                        .font(.system(size: 11.5))
+                        .islandFont(.body, weight: .regular)
                         .foregroundStyle(Theme.secondary)
                         .lineLimit(1)
                         .padding(.top, 3)
@@ -161,36 +168,58 @@ struct MediaPane: View {
 
     // MARK: - Artwork
 
+    /// The far end of the cover's travel from the pill.
+    ///
+    /// Both the size and the corner come from `Theme.artworkMetrics` rather than
+    /// from numbers written here: this end hardcoded 118 pt at radius 14 while
+    /// the pill hardcoded 22 pt at radius 6, in another file, and one object
+    /// described twice is how it came to be drawn twice.
+    ///
+    /// Modifier order matters more than usual, and the base of the stack is
+    /// `Color.clear` for a reason. The cover has to *accept* whatever size it is
+    /// offered — the morph offers it the pill's size on the way in — and a view
+    /// that states its own size is a view the effect cannot resize, which leaves
+    /// a cover that slides into place without ever growing. `Color.clear` takes
+    /// the proposal exactly; the picture rides above it in an overlay, where it
+    /// is free to overflow and be clipped. `.frame(maxWidth: .infinity)` looks
+    /// like it would do the same job and does not: it grows to whatever the
+    /// child reports, so a 16:9 cover took the clip out to 164 pt with it.
     private func artwork(for track: MediaController.Track) -> some View {
-        ZStack {
-            if let image = media.artwork {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .transition(.opacity)
-            } else if artworkWaitExpired {
-                // Quiet placeholder, not a shimmer: the wait is over and the
-                // cover is not coming for this track.
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Theme.surface)
-                    .overlay(
-                        Image(systemName: "music.note")
-                            .font(.system(size: 26, weight: .light))
-                            .foregroundStyle(Theme.tertiary)
-                    )
-                    .transition(.opacity)
-            } else {
-                SkeletonBox(cornerRadius: 14)
+        let metrics = Theme.artworkMetrics(isOpen: true)
+        return Color.clear
+            .overlay {
+                if let image = media.artwork {
+                    // No `.transition(.opacity)` here any more. This view is one
+                    // end of a travelling object, and a travelling object that
+                    // fades while it travels is the crossfade the morph was
+                    // added to replace. The album-to-album crossfade it used to
+                    // spell out is the default transition anyway, under the same
+                    // `Theme.artworkAnimation` below.
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else if artworkWaitExpired {
+                    // Quiet placeholder, not a shimmer: the wait is over and the
+                    // cover is not coming for this track.
+                    RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                        .fill(Theme.surface)
+                        .overlay(
+                            Image(systemName: "music.note")
+                                .islandFont(.hero, weight: .light)
+                                .foregroundStyle(Theme.tertiary)
+                        )
+                        .transition(.opacity)
+                } else {
+                    SkeletonBox(cornerRadius: metrics.cornerRadius)
+                }
             }
-        }
         .task(id: track.key) {
             artworkWaitExpired = false
             try? await Task.sleep(for: .seconds(2.5))
             guard !Task.isCancelled else { return }
             artworkWaitExpired = true
         }
-        .frame(width: 118, height: 118)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
         // The same shape again, this time for the pointer. `clipShape` hides
         // the overflow but does not stop it being touched, and `.fill` on a
         // cover that is not square overflows a long way: a 16:9 thumbnail —
@@ -198,12 +227,17 @@ struct MediaPane: View {
         // this 118 pt box, so 46 pt of invisible picture hangs over each side.
         // The left side is the tab rail, and the four icons behind that
         // overhang stopped answering the pointer (#22).
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
                 .strokeBorder(Theme.hairline, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.5), radius: 12, y: 5)
+        .morph(NotchContentView.MorphID.artwork, in: morph)
+        // Outside the morph, so the pane's layout keeps reserving 118 pt no
+        // matter where the cover is on its way to. Inside it, the frame would
+        // be the thing refusing the pill's size.
+        .frame(width: metrics.side, height: metrics.side)
         .animation(Theme.artworkAnimation, value: media.artwork)
     }
 
@@ -223,7 +257,7 @@ struct MediaPane: View {
             // to cover the lyric line above the bar.
             Text(formatTime((previewFraction ?? progress) * media.duration))
                 .foregroundStyle(previewFraction == nil ? Theme.tertiary : Color.white.opacity(0.9))
-                .frame(width: 32, alignment: .leading)
+                .frame(width: media.duration >= 3600 ? 52 : 32, alignment: .leading)
 
             GeometryReader { geo in
                 let width = geo.size.width
@@ -301,9 +335,9 @@ struct MediaPane: View {
             }
 
             Text(formatTime(media.duration))
-                .frame(width: 32, alignment: .trailing)
+                .frame(width: media.duration >= 3600 ? 52 : 32, alignment: .trailing)
         }
-        .font(.system(size: 10, weight: .medium).monospacedDigit())
+        .font(Theme.TypeRole.caption.font().monospacedDigit())
         .foregroundStyle(Theme.tertiary)
     }
 
@@ -331,7 +365,7 @@ struct MediaPane: View {
             .frame(width: 26)
             Spacer(minLength: 0)
             Button { media.previous() } label: {
-                Image(systemName: "backward.fill").font(.system(size: 16, weight: .medium))
+                Image(systemName: "backward.fill").islandFont(.title, weight: .medium)
             }
             .buttonStyle(TransportGlyphStyle(size: 30))
             .disabled(!media.canSkip)
@@ -340,13 +374,18 @@ struct MediaPane: View {
             Spacer(minLength: 0)
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 22, weight: .medium))
+                    .islandFont(.display)
+                    // The glyph is replaced, not swapped. A hard cut on the one
+                    // control the eye is already resting on is the most visible
+                    // non-native moment in the app; `.replace` is what every
+                    // Apple transport control does.
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Spacer(minLength: 0)
             Button { media.next() } label: {
-                Image(systemName: "forward.fill").font(.system(size: 16, weight: .medium))
+                Image(systemName: "forward.fill").islandFont(.title, weight: .medium)
             }
             .buttonStyle(TransportGlyphStyle(size: 30))
             .disabled(!media.canSkip)
@@ -357,7 +396,8 @@ struct MediaPane: View {
                 if let mode = media.repeatMode {
                     ModeToggle(
                         symbol: mode == .one ? "repeat.1" : "repeat",
-                        isOn: mode != .off
+                        isOn: mode != .off,
+                        reduceMotion: reduceMotion
                     ) { media.cycleRepeat() }
                         .accessibilityLabel(localized("Repeat"))
                         .accessibilityValue(repeatValueLabel(mode))
@@ -414,9 +454,9 @@ struct MediaPane: View {
                                 ? 0
                                 : LyricSweep.fraction(line: line, at: at, end: end),
                             reduceMotion: reduceMotion,
-                            // The caption sits at 11pt, where SF opens tracking
+                            // The caption sits at the body size, where SF opens tracking
                             // up slightly rather than tightening it.
-                            tracking: Theme.tracking(forSize: 11)
+                            tracking: Theme.tracking(forSize: Theme.TypeRole.body.size)
                         )
                         .italic(line.isCredit)
                         // Keyed so a line change crossfades instead of morphing
@@ -425,6 +465,9 @@ struct MediaPane: View {
                         .transition(.opacity)
                         if captionHover {
                             Image(systemName: "chevron.right")
+                                // A glyph fitted to its row, not type: it sizes
+                                // the chevron against the caption's cap height,
+                                // and the caption floor has nothing to say about it.
                                 .font(.system(size: 8, weight: .semibold))
                                 .foregroundStyle(Theme.tertiary)
                                 .transition(.opacity)
@@ -447,12 +490,12 @@ struct MediaPane: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "music.note.list")
-                .font(.system(size: 22, weight: .light))
+                .islandFont(.display, weight: .light)
                 .foregroundStyle(Theme.tertiary)
             // Status, not instruction: an empty pane on its own would not say
             // whether nothing is playing or nothing could be read.
-            Text(localized("Nothing is playing"))
-                .font(.system(size: 12, weight: .medium))
+            Text(localized("Nothing is playing."))
+                .islandFont(.subhead)
                 .foregroundStyle(Theme.secondary)
             // And an affordance, because a dead end teaches people not to
             // open the tab. One button per player that is actually installed.
@@ -462,7 +505,7 @@ struct MediaPane: View {
                         NSWorkspace.shared.open(URL(fileURLWithPath: Self.applicationPath(for: app) ?? ""))
                     } label: {
                         Text(localized("Open %@", app.displayName))
-                            .font(.system(size: 10.5, weight: .medium))
+                            .islandFont(.body)
                             .foregroundStyle(.white)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)

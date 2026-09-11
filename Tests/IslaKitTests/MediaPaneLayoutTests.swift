@@ -136,7 +136,7 @@ final class MediaPaneLayoutTests: XCTestCase {
         snapshot.playerPID = 999
         media.apply(snapshot)
 
-        let pane = MediaPane(media: media, lyrics: lyrics)
+        let pane = MediaPane(media: media, lyrics: lyrics, morph: nil)
             .frame(width: NotchMetrics.standardBody.width, height: 162)
             .background(Color.black)
         let renderer = ImageRenderer(content: pane)
