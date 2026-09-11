@@ -136,7 +136,9 @@ struct LockScreenCard: View {
             .onChange(of: track.key) { _, _ in pane = .player }
             .onAppear { readAudio() }
             .onChange(of: pane) { _, _ in readAudio() }
-            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")|\(media.spotifyISRC ?? "")") {
+            // Same identity as MediaPane above: every refinement of the track's
+            // catalogue identity re-fires the load exactly once.
+            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")\(LyricsStore.exactDurationIdentity(media.spotifyExactDuration))|\(media.spotifyISRC ?? "")") {
                 guard NotchViewModel.showLyricsEnabled else { return }
                 lyrics.load(
                     title: track.title, artist: track.artist,
