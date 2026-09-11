@@ -29,6 +29,52 @@ final class PanelWidthTests: XCTestCase {
         XCTAssertEqual(NotchViewModel.bodyWidth(in: defaults), 517)
     }
 
+    /// Committing is the write-side twin of the read-side clamp above. The
+    /// slider hands over whatever tick it is on — fractional, and in range by
+    /// construction — but the commit contract has to hold on its own, because
+    /// the same call is the only sanctioned writer of the key: round, clamp,
+    /// persist, and say what was persisted, so the view can rebuild against
+    /// the width that is actually on disk rather than the one it asked for.
+    func testCommittingAWidthClampsItToWhatTheBodyCanHoldAndPersistsThat() {
+        let suite = "PanelWidthTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertEqual(NotchViewModel.commitBodyWidth(300, into: defaults), NotchMetrics.minimumBodyWidth)
+        XCTAssertEqual(defaults.double(forKey: NotchViewModel.bodyWidthKey), Double(NotchMetrics.minimumBodyWidth))
+
+        XCTAssertEqual(NotchViewModel.commitBodyWidth(700, into: defaults), NotchMetrics.maximumBodyWidth)
+        XCTAssertEqual(defaults.double(forKey: NotchViewModel.bodyWidthKey), Double(NotchMetrics.maximumBodyWidth))
+    }
+
+    /// The slider writes fractional ticks, and the pane rounds each one before
+    /// anything is persisted. The commit carries that rounding so the contract
+    /// does not depend on the caller remembering to round first: a half-point
+    /// persisted here would read back as a half-point panel, which is a width
+    /// nobody asked for.
+    func testCommittingAFractionalWidthRoundsItTheWayTheSliderAlwaysHas() {
+        let suite = "PanelWidthTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertEqual(NotchViewModel.commitBodyWidth(517.4, into: defaults), 517)
+        XCTAssertEqual(NotchViewModel.commitBodyWidth(517.6, into: defaults), 518)
+    }
+
+    /// Round-trip on empty defaults: a commit does not need the key to exist
+    /// and removes nothing — it writes the width where `bodyWidth(in:)` looks,
+    /// so a panel built after the drag agrees with the drag.
+    func testCommittingIntoEmptyDefaultsWritesWhereTheReaderLooks() {
+        let suite = "PanelWidthTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertNil(defaults.object(forKey: NotchViewModel.bodyWidthKey))
+        XCTAssertEqual(NotchViewModel.commitBodyWidth(600, into: defaults), 600)
+        XCTAssertNotNil(defaults.object(forKey: NotchViewModel.bodyWidthKey))
+        XCTAssertEqual(NotchViewModel.bodyWidth(in: defaults), 600)
+    }
+
     /// The window never changes size. That is the whole reason the lock card was
     /// given a window of its own: a panel window resized across a lock had its
     /// window-server snapshot stretched. A narrower body has to come out of the
