@@ -213,6 +213,7 @@ enum Theme {
     /// A 1pt edge, not a fill, so the base stays hairline-thin at 0.10
     /// (1.20:1) and only the contrast variant becomes a defined border at
     /// 0.55 — the same white-0.55 `ShelfPane`'s selected tile already uses.
+    /// Hairline-only edges stay thin by design; raising them is follow-up, not this change.
     static func hairlineOpacity(increaseContrast: Bool) -> Double {
         increaseContrast ? 0.55 : 0.10
     }
