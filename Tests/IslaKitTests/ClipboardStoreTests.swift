@@ -85,4 +85,75 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertNil(receivedImage)
         XCTAssertTrue(store.items.isEmpty)
     }
+
+    /// Movie bytes on the pasteboard — a captured recording copied as data —
+    /// arrive with their container type and leave with it: the vault names the
+    /// file from the extension, so dropping it would save every recording as
+    /// one format regardless of what was copied.
+    func testMovieDataIsDeliveredWithItsContainerExtension() {
+        let board = NSPasteboard(name: .init("ClipboardStoreTests.\(UUID())"))
+        let store = ClipboardStore(pasteboard: board)
+        var received: (data: Data, ext: String)?
+        store.onMovieData = { received = ($0, $1) }
+
+        board.clearContents()
+        board.setData(Data([1, 2, 3]), forType: .init("public.mpeg-4"))
+        store.pollNow()
+
+        XCTAssertEqual(received?.data, Data([1, 2, 3]))
+        XCTAssertEqual(received?.ext, "mp4")
+        // Data captures live on the shelf, not in history — like screenshots.
+        XCTAssertTrue(store.items.isEmpty)
+    }
+
+    /// The screenshot-saving switch guards every clipboard capture that
+    /// writes a file. A recording is megabytes, not bytes; with the switch
+    /// off it must not be encoded, written, or kept.
+    func testMovieDataRespectsTheCaptureSwitch() {
+        let board = NSPasteboard(name: .init("ClipboardStoreTests.\(UUID())"))
+        let store = ClipboardStore(pasteboard: board)
+        store.wantsImages = { false }
+        var received: (data: Data, ext: String)?
+        store.onMovieData = { received = ($0, $1) }
+
+        board.clearContents()
+        board.setData(Data([1, 2, 3]), forType: .init("public.mpeg-4"))
+        store.pollNow()
+
+        XCTAssertNil(received)
+    }
+
+    /// A recording copied as a file in Finder is already on disk, so there is
+    /// nothing for the vault to write — but it still belongs on the shelf, and
+    /// it still belongs in history like every other copied file.
+    func testCopiedMovieFileIsRecordedAndHandedToTheShelf() {
+        let board = NSPasteboard(name: .init("ClipboardStoreTests.\(UUID())"))
+        let store = ClipboardStore(pasteboard: board)
+        var handed: URL?
+        store.onMovieFile = { handed = $0 }
+
+        let url = URL(fileURLWithPath: "/tmp/ClipboardStoreTests-capture.mov")
+        board.clearContents()
+        board.writeObjects([url as NSURL])
+        store.pollNow()
+
+        XCTAssertEqual(handed, url)
+        XCTAssertEqual(store.items.count, 1)
+    }
+
+    /// A copied document is history only: the shelf is for captures, not for
+    /// every file that passes through the pasteboard.
+    func testCopiedNonMovieFileIsNotHandedToTheShelf() {
+        let board = NSPasteboard(name: .init("ClipboardStoreTests.\(UUID())"))
+        let store = ClipboardStore(pasteboard: board)
+        var handed: URL?
+        store.onMovieFile = { handed = $0 }
+
+        board.clearContents()
+        board.writeObjects([URL(fileURLWithPath: "/tmp/notes.pdf") as NSURL])
+        store.pollNow()
+
+        XCTAssertNil(handed)
+        XCTAssertEqual(store.items.count, 1)
+    }
 }

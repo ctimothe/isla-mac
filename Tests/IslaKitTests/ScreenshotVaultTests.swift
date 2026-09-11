@@ -66,6 +66,35 @@ final class ScreenshotVaultTests: XCTestCase {
         )
     }
 
+    /// A captured video is kept the same way a screenshot is: the vault writes
+    /// it under its own name, and the usage and retention figures count it —
+    /// otherwise a shelf full of recordings silently escapes the cap that was
+    /// built for screenshots.
+    func testMovieIsSavedWithRecordingPrefixAndCountsTowardUsage() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let vault = ScreenshotVault(paths: AppPaths(
+            supportDirectory: root.appendingPathComponent("support"),
+            screenshotDirectory: root.appendingPathComponent("pictures")
+        ))
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let saved = await vault.savedMovie(Data([9]), fileExtension: "mov", at: date)
+        let url = try XCTUnwrap(saved)
+        XCTAssertEqual(url.pathExtension, "mov")
+        XCTAssertTrue(
+            url.deletingPathExtension().lastPathComponent.hasPrefix("Screen Recording "),
+            "a recording must carry the prefix the trim matches on, got \(url.lastPathComponent)"
+        )
+        XCTAssertEqual(try Data(contentsOf: url), Data([9]))
+
+        // The user's own movies are not the vault's: counted and trimmed never.
+        let pictures = root.appendingPathComponent("pictures")
+        try Data([7]).write(to: pictures.appendingPathComponent("Holiday.mov"))
+        let usage = vault.usage()
+        XCTAssertEqual(usage.files, 1)
+    }
+
     /// The stamp in the machine's own time zone, so the assertion above does
     /// not depend on where the test runs — the date rolls over with the zone.
     private func expectedStamp(of date: Date) -> String {
@@ -82,6 +111,12 @@ private extension ScreenshotVault {
     func saved(_ png: Data, at date: Date) async -> URL? {
         await withCheckedContinuation { continuation in
             save(png, at: date) { continuation.resume(returning: $0) }
+        }
+    }
+
+    func savedMovie(_ data: Data, fileExtension: String, at date: Date) async -> URL? {
+        await withCheckedContinuation { continuation in
+            saveMovie(data, fileExtension: fileExtension, at: date) { continuation.resume(returning: $0) }
         }
     }
 }
