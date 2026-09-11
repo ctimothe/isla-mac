@@ -73,7 +73,7 @@ private struct ClipRow: View {
                     Image(systemName: "xmark")
                         .islandFont(.caption, weight: .semibold)
                         .foregroundStyle(Theme.secondary)
-                        // A 9pt glyph is a ~10pt target sitting beside the
+                        // A 10pt glyph is a ~10pt target sitting beside the
                         // reveal eye, inside a row whose own background
                         // copies to the pasteboard — missing it by two
                         // points overwrote what the user had copied.
