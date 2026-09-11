@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 struct ClipItem: Identifiable, Equatable {
     enum Payload: Equatable {
@@ -67,9 +68,22 @@ final class ClipboardStore: ObservableObject {
     /// the clipboard, which would otherwise vanish after one paste.
     var onImage: ((Data) -> Void)?
 
-    /// Whether images are worth reading at all. Asked before the TIFF → PNG
-    /// encode, not after: with screenshot saving switched off, a copied picture
-    /// would otherwise be encoded in full and then thrown away.
+    /// Raised for movie bytes on the pasteboard — a captured recording copied
+    /// as data — with the container extension the bytes were copied as. The
+    /// vault names the file from it, like screenshots are named from theirs.
+    var onMovieData: ((Data, String) -> Void)?
+
+    /// Raised for each copied file that is a movie. The file is already on
+    /// disk, so there is nothing for the vault to write; the shelf references
+    /// it directly, the way a drop would.
+    var onMovieFile: ((URL) -> Void)?
+
+    /// Whether clipboard captures are worth reading at all. Asked before the
+    /// TIFF → PNG encode, not after: with screenshot saving switched off, a
+    /// copied picture would otherwise be encoded in full and then thrown away.
+    /// Recordings answer to the same switch — a capture is megabytes, and off
+    /// means off for all of them. Copied files are exempt: they are already on
+    /// disk, so the shelf references them without writing anything.
     var wantsImages: () -> Bool = { true }
 
     private let pasteboard: NSPasteboard
@@ -158,10 +172,21 @@ final class ClipboardStore: ObservableObject {
             // one copy, and pasting the history entry has to reproduce it.
             let payload: ClipItem.Payload = urls.count == 1 ? .file(urls[0]) : .files(urls)
             record(ClipItem(payload: payload, date: Date()))
+            // A copied recording belongs on the shelf, not only in history —
+            // the same arrival screenshots get through the vault. Files need no
+            // capture switch: nothing is written, only referenced.
+            for url in urls where Self.isMovieFile(url) { onMovieFile?(url) }
             return
         }
 
         if wantsImages() {
+            // Movie bytes before stills: a recording is the rarer signal, and
+            // when one is present it is the capture rather than anything else
+            // the copy carried alongside it.
+            if let (data, ext) = movieData() {
+                onMovieData?(data, ext)
+                return
+            }
             if pasteboard.availableType(from: [.png, .tiff]) != nil {
                 encodeImage(at: pasteboard.changeCount)
                 return
@@ -172,6 +197,36 @@ final class ClipboardStore: ObservableObject {
         guard let string = pasteboard.string(forType: .string),
               !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         record(ClipItem(payload: .text(Self.capped(string)), date: Date()))
+    }
+
+    /// Movie bytes and the container they were copied as, when the pasteboard
+    /// carries a recording. Matched by conformance rather than by a fixed type
+    /// list: copies arrive as `public.mpeg-4`, `com.apple.m4v-video` or plain
+    /// `public.movie` depending on where they were copied from, and a list
+    /// would recognise exactly the sources it was written against. `.movie`
+    /// rather than the wider `.audiovisualContent`, which also claims pure
+    /// audio — a copied song is not a captured recording.
+    ///
+    /// Single-shot, unlike the image path: pictures arrive over Continuity in
+    /// two parts — the type first, the bytes over the air — while a recording
+    /// is either on the pasteboard whole or not at all.
+    private func movieData() -> (data: Data, ext: String)? {
+        guard let types = pasteboard.types else { return nil }
+        for type in types {
+            guard let ut = UTType(type.rawValue), ut.conforms(to: .movie) else { continue }
+            guard let data = pasteboard.data(forType: type) else { continue }
+            return (data, ut.preferredFilenameExtension ?? "mov")
+        }
+        return nil
+    }
+
+    /// Whether this file is a recording the shelf can hold. Asked by container
+    /// conformance, so a future container the shelf has never seen still
+    /// answers honestly instead of matching an extension list.
+    private static func isMovieFile(_ url: URL) -> Bool {
+        guard !url.pathExtension.isEmpty,
+              let type = UTType(filenameExtension: url.pathExtension) else { return false }
+        return type.conforms(to: .movie)
     }
 
     /// Longest text kept per entry.
