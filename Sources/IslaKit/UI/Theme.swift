@@ -163,16 +163,95 @@ enum Theme {
         isOpen ? (118, 14) : (22, 6)
     }
 
-    static let secondary = Color.white.opacity(0.55)
+    // MARK: - Contrast ramp
+    //
+    // Every token below is a function of Increase Contrast, not a flat value.
+    // The setting used to reach two `strokeBorder` calls in `GlassSurface` and
+    // nothing else, while the type ramp sat untouched and the lyric context
+    // lines at white 0.18 computed to 1.54:1. The opacity functions are pure so
+    // tests can compute WCAG ratios against black (`ContrastRampTests`); the
+    // `Color` accessors below read `SystemAppearance.shared.increaseContrast`,
+    // and the one observation that makes a live change redraw lives on
+    // `NotchContentView` — every pane is its descendant, so one `@ObservedObject`
+    // at the root invalidates the whole tree.
+    //
+    // The existing names keep working so call sites do not all change at once;
+    // new code that cares about the setting can call the functions directly.
+
+    /// White 0.55 over black is 6.27:1; 0.75 is 11.45:1.
+    static func secondaryOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.75 : 0.55
+    }
+
     /// Carries nearly every 9–10pt label in the panel — tab titles, counters,
     /// scrubber times, section headers, placeholders. At 0.32 white over black
     /// that computes to 2.67:1, far under the 4.5:1 WCAG AA asks of text this
     /// size, and 9pt is precisely the type least able to afford it. 0.46 gives
-    /// 4.58:1 and clears it without turning every label into a headline.
-    static let tertiary = Color.white.opacity(0.46)
-    static let surface = Color.white.opacity(0.08)
-    static let surfaceHover = Color.white.opacity(0.14)
-    static let hairline = Color.white.opacity(0.10)
+    /// 4.58:1 and clears it without turning every label into a headline; 0.65
+    /// gives 8.60:1 once Increase Contrast is on.
+    static func tertiaryOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.65 : 0.46
+    }
+
+    /// A filled shape has to read as a filled shape. 0.08 was 1.14:1 over
+    /// black — the selected tab chip and the empty scrubber track were not
+    /// visible as shapes at all. 0.16 is 1.44:1, the smallest round value that
+    /// clears the 1.4 floor `ContrastRampTests` holds; this is a shape fix for
+    /// everyone, not an accessibility variant, so the base moves and not only
+    /// the contrast one.
+    static func surfaceOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.28 : 0.16
+    }
+
+    /// 0.14 was 1.35:1. 0.26 is 2.10:1, the smallest round value clearing the
+    /// 2.0 floor — same reasoning as `surfaceOpacity`: the hover state has to
+    /// differ from the surface by something a person can see.
+    static func surfaceHoverOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.38 : 0.26
+    }
+
+    /// A 1pt edge, not a fill, so the base stays hairline-thin at 0.10
+    /// (1.20:1) and only the contrast variant becomes a defined border at
+    /// 0.55 — the same white-0.55 `ShelfPane`'s selected tile already uses.
+    static func hairlineOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.55 : 0.10
+    }
+
+    /// The selected rail chip's own fill, following `ShelfPane`'s selected
+    /// tile: a 0.18 fill plus a 1.5pt white-0.55 border. It used to borrow
+    /// `surfaceHover`, which meant the selected tab and a hovered tab were the
+    /// same colour and neither had an edge.
+    static func selectedChipOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.30 : 0.18
+    }
+
+    /// The selected chip's edge: `ShelfPane`'s 0.55, or the 0.85 defined
+    /// border `GlassSurface` draws under Increase Contrast.
+    static func selectedChipBorderOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.85 : 0.55
+    }
+
+    @MainActor static var secondary: Color {
+        Color.white.opacity(secondaryOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var tertiary: Color {
+        Color.white.opacity(tertiaryOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var surface: Color {
+        Color.white.opacity(surfaceOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var surfaceHover: Color {
+        Color.white.opacity(surfaceHoverOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var hairline: Color {
+        Color.white.opacity(hairlineOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var selectedChip: Color {
+        Color.white.opacity(selectedChipOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var selectedChipBorder: Color {
+        Color.white.opacity(selectedChipBorderOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
     /// Only for an action that destroys something, and only once it is armed.
     static let danger = Color(red: 1.0, green: 0.45, blue: 0.40)
 }

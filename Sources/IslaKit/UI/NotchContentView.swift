@@ -2,11 +2,16 @@ import SwiftUI
 
 struct NotchContentView: View {
     @ObservedObject var vm: NotchViewModel
-    /// Reduce Motion from the app's one source rather than from SwiftUI's
-    /// environment. The environment answers it on macOS — it is the only one of
-    /// the three display settings it carries — but the panel is drawn from
-    /// AppKit as much as from SwiftUI, and two readings of one setting is how
-    /// half a transition ends up honouring it and half does not.
+    /// Reduce Motion and Increase Contrast from the app's one source rather than
+    /// from SwiftUI's environment. The environment answers Reduce Motion on
+    /// macOS — it is the only one of the three display settings it carries —
+    /// but the panel is drawn from AppKit as much as from SwiftUI, and two
+    /// readings of one setting is how half a transition ends up honouring it
+    /// and half does not. Observed once here, at the root: `Theme`'s colours
+    /// and `LyricRow`'s falloff read `SystemAppearance.shared` directly, which
+    /// on its own would not invalidate anything, but every pane is a
+    /// descendant of this view, so a change re-renders this body and the whole
+    /// tree under it — rail, panes, and lyric lines alike.
     @ObservedObject private var appearance = SystemAppearance.shared
     private var reduceMotion: Bool { appearance.reduceMotion }
 
@@ -767,6 +772,18 @@ private struct Rail: View {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(fill(for: tab))
                 )
+                .overlay(
+                    // The selected chip's own edge, following `ShelfPane`'s
+                    // selected tile: a fill plus a 1.5pt border, rather than
+                    // the borrowed `surfaceHover` that made selected and
+                    // hovered the same colour with no edge on either.
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(
+                            Theme.selectedChipBorder.opacity(vm.tab == tab ? 1 : 0),
+                            lineWidth: 1.5
+                        )
+                        .allowsHitTesting(false)
+                )
                 .foregroundStyle(vm.tab == tab ? Color.white : Theme.tertiary)
                 .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                 // A render-time transform. Growing the frame instead would
@@ -787,8 +804,9 @@ private struct Rail: View {
         }
     }
 
+    @MainActor
     private func fill(for tab: NotchViewModel.Tab) -> Color {
-        if vm.tab == tab { return Theme.surfaceHover }
+        if vm.tab == tab { return Theme.selectedChip }
         return hovered == tab ? Theme.surface : .clear
     }
 }

@@ -33,6 +33,18 @@ struct LyricRow: View {
     /// Choosing a line is choosing the song's place in it.
     var seek: (() -> Void)?
 
+    /// The dimmest a context line may go.
+    ///
+    /// The falloff below sits at white 0.18, which is 1.54:1 over black —
+    /// a line nobody can read and barely a line at all. The floor lifts it to
+    /// 0.28 (2.27:1) for everyone and to 0.38 (3.39:1) under Increase Contrast,
+    /// past the 3.0 `ContrastRampTests` holds. Depth survives: the sung line
+    /// still arrives at full white through `KaraokeText`, and the neighbour at
+    /// 0.34 still sits between the two.
+    static func falloffFloor(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.38 : 0.28
+    }
+
     var body: some View {
         Button { seek?() } label: {
             content
@@ -45,6 +57,7 @@ struct LyricRow: View {
         .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
     }
 
+    @MainActor
     @ViewBuilder
     private var content: some View {
         if line.isCredit {
@@ -73,11 +86,21 @@ struct LyricRow: View {
             // Depth through opacity alone. An early cut blurred and fractionally
             // scaled these, which at reading size is not depth — it is smeared
             // type, because subpixel scaling rasterises every glyph soft.
+            // Clamped to `falloffFloor`, never the bare 0.18: without the
+            // clamp the far lines sat at 1.54:1, unreadable as text.
             Text(line.text)
                 .islandFont(fontSize, weight: weight)
-                .foregroundStyle(.white.opacity(distance == 1 ? 0.34 : 0.18))
+                .foregroundStyle(.white.opacity(falloffOpacity))
                 .lineLimit(lineLimit)
                 .truncationMode(.tail)
         }
+    }
+
+    /// The context opacity for a non-sung line: the neighbour one step away,
+    /// or the floor for everything further out.
+    @MainActor
+    private var falloffOpacity: Double {
+        guard distance != 1 else { return 0.34 }
+        return max(0.18, Self.falloffFloor(increaseContrast: SystemAppearance.shared.increaseContrast))
     }
 }
