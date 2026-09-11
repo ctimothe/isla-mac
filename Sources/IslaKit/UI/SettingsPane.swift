@@ -16,6 +16,7 @@ struct SettingsPane: View {
     @State private var bodyWidth = NotchViewModel.bodyWidth
     @State private var opensOnHover = NotchViewModel.opensOnHoverEnabled
     @State private var saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
+    @State private var importRecordings = NotchViewModel.importRecordingsEnabled
     @State private var hideFromCapture = NotchViewModel.hideFromCaptureEnabled
     @State private var sneakPeek = NotchViewModel.sneakPeekEnabled
     @State private var showOnLockScreen = NotchViewModel.showOnLockScreenEnabled
@@ -109,6 +110,11 @@ struct SettingsPane: View {
                         symbol: SettingsIcon.saveScreenshots,
                         title: localized("Save Clipboard Screenshots"),
                         isOn: saveClipboardImagesBinding
+                    )
+                    toggleRow(
+                        symbol: SettingsIcon.importRecordings,
+                        title: localized("Import Screen Recordings"),
+                        isOn: importRecordingsBinding
                     )
                     actionRow(symbol: SettingsIcon.showFolder, title: localized("Show Screenshots Folder")) {
                         screenshotVault.reveal()
@@ -264,6 +270,7 @@ struct SettingsPane: View {
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
             saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
+            importRecordings = NotchViewModel.importRecordingsEnabled
             refreshUsage()
         }
     }
@@ -298,6 +305,16 @@ struct SettingsPane: View {
             set: { wants in
                 saveClipboardImages = wants
                 UserDefaults.standard.set(wants, forKey: NotchViewModel.saveClipboardImagesKey)
+            }
+        )
+    }
+
+    private var importRecordingsBinding: Binding<Bool> {
+        Binding(
+            get: { importRecordings },
+            set: { wants in
+                importRecordings = wants
+                UserDefaults.standard.set(wants, forKey: NotchViewModel.importRecordingsKey)
             }
         )
     }
