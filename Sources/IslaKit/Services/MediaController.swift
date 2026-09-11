@@ -159,6 +159,23 @@ final class MediaController: ObservableObject {
     /// displayed player and has answered. The word-synced lyrics database is
     /// keyed by it; everything else falls back to title/artist matching.
     @Published private(set) var spotifyTrackID: String?
+    /// The catalogue ISRC for the displayed track, when the Web API has
+    /// answered. Lyric tiers join providers on this instead of guessing from
+    /// title text; nil means unknown, never "this track has none".
+    @Published private(set) var spotifyISRC: String?
+    /// The catalogue's exact duration in milliseconds, alongside the id
+    /// above. The snapshot's own duration is the daemon's rounded reading;
+    /// this is the number the duration-gated lyric matching compares against.
+    @Published private(set) var spotifyExactDurationMs: Int?
+    /// Answers exact catalogue metadata for a Spotify track id.
+    ///
+    /// A seam, not a second path: production leaves this nil and the lookup
+    /// goes to `SpotifyAccount.shared` over the network. Tests substitute
+    /// canned answers because the AppleScript id lookup that triggers the
+    /// fetch never resolves without a running Spotify, and the fetch would
+    /// otherwise be untestable. Internal so tests can reach it, like
+    /// `foreignHoldWindow` above.
+    var spotifyMetadataProvider: ((String) async -> SpotifyAccount.TrackMetadata?)?
     private var precisionTimer: Timer?
     private var precisionInFlight = false
     private var spotifyStateObserver: (any NSObjectProtocol)?
@@ -379,6 +396,7 @@ final class MediaController: ObservableObject {
                   self.displayedPlayerPID == playerPID else { return }
             if let id {
                 self.spotifyTrackID = id
+                Task { [weak self] in await self?.requestSpotifyMetadata(trackID: id, forKey: key) }
                 return
             }
             // Backing off, and giving up well before it could become a poll.
@@ -390,6 +408,31 @@ final class MediaController: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Fetches the catalogue's exact identity for the resolved Spotify track.
+    ///
+    /// One attempt, not the retry loop above: a lookup that fails simply
+    /// leaves the fields nil and title/artist matching covers the track. The
+    /// next track change refetches, so a failure never needs polling for the
+    /// rest of the song — and a failed lookup must never raise anything,
+    /// because there is no user-grantable permission behind it.
+    func requestSpotifyMetadata(trackID: String, forKey key: String) async {
+        let metadata: SpotifyAccount.TrackMetadata?
+        if let provider = spotifyMetadataProvider {
+            metadata = await provider(trackID)
+        } else {
+            metadata = await SpotifyAccount.shared.trackMetadata(id: trackID)
+        }
+        // The track may have moved on while the lookup was in flight. The
+        // key — pid plus title/artist/album — already identifies the track,
+        // so a stale answer fails this and never pins the previous song's
+        // identity onto the new one. Assigned unconditionally past the guard:
+        // a track the catalogue does not know keeps nil rather than a
+        // predecessor's values.
+        guard track?.key == key else { return }
+        spotifyISRC = metadata?.isrc
+        spotifyExactDurationMs = metadata?.durationMs
     }
 
     private func updatePrecisionSync() {
@@ -591,6 +634,8 @@ final class MediaController: ObservableObject {
         displayedPlayerPID = snapshot.playerPID
         if trackChanged || playerChanged {
             spotifyTrackID = nil
+            spotifyISRC = nil
+            spotifyExactDurationMs = nil
             requestSpotifyTrackID(for: key, playerPID: snapshot.playerPID, attempt: 0)
         }
         if playerChanged {
@@ -805,7 +850,8 @@ final class MediaController: ObservableObject {
         // does not compare before firing, so writing nil over nil still
         // invalidated the whole panel graph twice a minute, all day — the same
         // regression documented and fixed on the playing path above.
-        guard track != nil || isPlaying || position != 0 || sourceName != nil || activeApp != nil else {
+        guard track != nil || isPlaying || position != 0 || sourceName != nil || activeApp != nil
+            || spotifyTrackID != nil || spotifyISRC != nil || spotifyExactDurationMs != nil else {
             return
         }
         activeApp = nil
@@ -831,6 +877,8 @@ final class MediaController: ObservableObject {
         foreignSince = nil
         positionSettled = false
         spotifyTrackID = nil
+        spotifyISRC = nil
+        spotifyExactDurationMs = nil
         canSkip = true
         playbackRate = 1
         shuffleEnabled = nil

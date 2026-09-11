@@ -465,4 +465,114 @@ final class MediaControllerTests: XCTestCase {
             "no player answered, and the extrapolated position is what there is"
         )
     }
+
+    /// A new track must not wear the previous track's catalogue identity.
+    /// Published via the real adoption path, then cleared by a track change
+    /// driven through `apply` like every other controller test.
+    func testTrackChangeClearsPublishedSpotifyMetadata() async {
+        let controller = MediaController()
+        controller.spotifyMetadataProvider = { _ in
+            SpotifyAccount.TrackMetadata(isrc: "USRC12345678", durationMs: 213456)
+        }
+
+        var first = NowPlayingFeed.Snapshot()
+        first.title = "First"
+        first.artist = "Artist"
+        first.album = "Album"
+        first.isPlaying = true
+        first.playerPID = 111
+        controller.apply(first)
+        guard let key = controller.track?.key else {
+            return XCTFail("apply must publish a track")
+        }
+        await controller.requestSpotifyMetadata(trackID: "track-one", forKey: key)
+        XCTAssertEqual(controller.spotifyISRC, "USRC12345678")
+        XCTAssertEqual(controller.spotifyExactDurationMs, 213456)
+
+        var second = first
+        second.title = "Second"
+        controller.apply(second)
+
+        XCTAssertNil(
+            controller.spotifyISRC,
+            "a new track must not wear the previous track's ISRC"
+        )
+        XCTAssertNil(
+            controller.spotifyExactDurationMs,
+            "a new track must not wear the previous track's exact duration"
+        )
+    }
+
+    /// An empty snapshot clears the session — the published identity, which
+    /// only ever describes the displayed track, goes with it.
+    func testClearResetsPublishedSpotifyMetadata() async {
+        let controller = MediaController()
+        controller.spotifyMetadataProvider = { _ in
+            SpotifyAccount.TrackMetadata(isrc: "USRC12345678", durationMs: 213456)
+        }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.isPlaying = true
+        playing.playerPID = 111
+        controller.apply(playing)
+        guard let key = controller.track?.key else {
+            return XCTFail("apply must publish a track")
+        }
+        await controller.requestSpotifyMetadata(trackID: "track-one", forKey: key)
+        XCTAssertEqual(controller.spotifyISRC, "USRC12345678")
+
+        controller.apply(NowPlayingFeed.Snapshot())
+
+        XCTAssertNil(controller.spotifyISRC)
+        XCTAssertNil(controller.spotifyExactDurationMs)
+    }
+
+    /// The lookup is a network round-trip: the track may have moved on before
+    /// the answer lands, and a late answer must not pin the previous song's
+    /// identity onto the new one.
+    func testStaleSpotifyMetadataAnswerIsDropped() async {
+        let controller = MediaController()
+        controller.spotifyMetadataProvider = { _ in
+            SpotifyAccount.TrackMetadata(isrc: "USRC12345678", durationMs: 213456)
+        }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.isPlaying = true
+        playing.playerPID = 111
+        controller.apply(playing)
+
+        await controller.requestSpotifyMetadata(trackID: "track-one", forKey: "a-track-no-longer-shown")
+
+        XCTAssertNil(controller.spotifyISRC, "an answer for a departed track must not publish")
+        XCTAssertNil(controller.spotifyExactDurationMs)
+    }
+
+    /// The catalogue does not always carry an ISRC for a track it otherwise
+    /// knows — the exact duration is still worth publishing for the
+    /// duration-gated matching the lyric tiers do.
+    func testSpotifyMetadataWithoutISRCStillPublishesDuration() async {
+        let controller = MediaController()
+        controller.spotifyMetadataProvider = { _ in
+            SpotifyAccount.TrackMetadata(isrc: nil, durationMs: 180000)
+        }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.isPlaying = true
+        playing.playerPID = 111
+        controller.apply(playing)
+        guard let key = controller.track?.key else {
+            return XCTFail("apply must publish a track")
+        }
+
+        await controller.requestSpotifyMetadata(trackID: "track-one", forKey: key)
+
+        XCTAssertNil(controller.spotifyISRC)
+        XCTAssertEqual(controller.spotifyExactDurationMs, 180000)
+    }
 }
