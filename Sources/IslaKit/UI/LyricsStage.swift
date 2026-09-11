@@ -398,6 +398,16 @@ struct LyricsStage: View {
 
     /// The sung prefix in the accent, the rest dimmed-bright, as one wrapping
     /// Text — so a two-row line fills in reading order.
+
+    /// The nudge corrects the loaded track's own layer, so without synced
+    /// words there is nothing to correct: persisting needs `.synced`, and a
+    /// nudge made without it would sit in the overlay until the next cache
+    /// hit restores the file's 0 over it, silently eating the correction.
+    private var canNudgeTrack: Bool {
+        if case .synced = lyrics.state { return true }
+        return false
+    }
+
     // MARK: - Header
 
     private var header: some View {
@@ -423,6 +433,7 @@ struct LyricsStage: View {
                         .font(.system(size: 8, weight: .bold))
                 }
                 .buttonStyle(NotchButtonStyle(size: 20))
+                .disabled(!canNudgeTrack)
                 .accessibilityLabel(localized("Lyrics Earlier"))
                 if abs(lyrics.trackOffset) > 0.01 {
                     Text(String(format: "%+.2fs", lyrics.trackOffset))
@@ -442,6 +453,7 @@ struct LyricsStage: View {
                         .font(.system(size: 8, weight: .bold))
                 }
                 .buttonStyle(NotchButtonStyle(size: 20))
+                .disabled(!canNudgeTrack)
                 .accessibilityLabel(localized("Lyrics Later"))
             }
             .accessibilityElement(children: .contain)
