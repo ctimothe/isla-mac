@@ -54,7 +54,7 @@ enum WordSyncedLyrics {
             // the whitespace between two spans belongs to the line's text, and
             // to the word before it — dropping it fused every pair of words.
             for span in rangedMatches(of: #"<span\b[^>]*begin="([^"]+)"(?:[^>]*?end="([^"]+)")?[^>]*>(.*?)</span>"#, in: inner) {
-                let gap = decodeEntities(strippingTags(String(inner[cursor..<span.range.lowerBound])))
+                let gap = HTMLEntities.decode(strippingTags(String(inner[cursor..<span.range.lowerBound])))
                 if !gap.isEmpty {
                     text += gap
                     if !words.isEmpty {
@@ -65,7 +65,7 @@ enum WordSyncedLyrics {
                 cursor = span.range.upperBound
                 guard let at = clock(span.group1) else { continue }
                 let end = span.group2.isEmpty ? nil : clock(span.group2)
-                let word = decodeEntities(strippingTags(span.group3))
+                let word = HTMLEntities.decode(strippingTags(span.group3))
                 guard !word.trimmingCharacters(in: .whitespaces).isEmpty else {
                     text += word
                     continue
@@ -74,7 +74,7 @@ enum WordSyncedLyrics {
                 text += word
             }
             if words.isEmpty {
-                text = decodeEntities(strippingTags(inner))
+                text = HTMLEntities.decode(strippingTags(inner))
             }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
@@ -127,7 +127,14 @@ enum WordSyncedLyrics {
 
     /// KRC body: `[lineStartMs,lineDurationMs]<offsetMs,durationMs,0>word<…>word…`
     /// Word offsets are relative to their line's start.
-    static func parseKRCBody(_ body: String) -> [Line] {
+    ///
+    /// Kugou stores lyric text HTML-escaped inside KRC — `I&apos;ve` arrived
+    /// raw on the user's screen — so the decrypted body is decoded once, here,
+    /// before parsing, the QRC tier's approach generalized: the words and the
+    /// line text built from them come out decoded together. Some KRC payloads
+    /// carry no entities; decode-if-present leaves those byte-identical.
+    static func parseKRCBody(_ raw: String) -> [Line] {
+        let body = HTMLEntities.decode(raw)
         var lines: [Line] = []
         for raw in body.split(separator: "\n") {
             let line = String(raw)
@@ -285,13 +292,5 @@ enum WordSyncedLyrics {
 
     private static func strippingTags(_ text: String) -> String {
         text.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-    }
-
-    private static func decodeEntities(_ text: String) -> String {
-        text.replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&apos;", with: "'")
     }
 }

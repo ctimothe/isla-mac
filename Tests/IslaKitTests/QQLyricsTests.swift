@@ -142,6 +142,23 @@ final class QQLyricsTests: XCTestCase {
         XCTAssertEqual(song.duration ?? -1, 200, accuracy: 0.001)
     }
 
+    /// A2: the search answers HTML-escaped metadata, and the matcher scores
+    /// these names against the decoded query — escaped, `Don&apos;t Stop` can
+    /// never score against `Don't` and the right song loses the pool.
+    func testParseSearchResponseDecodesEscapedMetadata() throws {
+        let json = """
+        {"code":0,"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[
+        {"songid":12345,"songname":"Don&apos;t Stop","singer":[{"name":"Fleetwood Mac &amp; Friends"}],
+         "albumname":"Rumours &amp; B-Sides","interval":200}
+        ]}}}}}
+        """.data(using: .utf8)!
+        let songs = QQLyrics.parseSearchResponse(json)
+        let song = try XCTUnwrap(songs.first)
+        XCTAssertEqual(song.title, "Don't Stop")
+        XCTAssertEqual(song.artist, "Fleetwood Mac & Friends")
+        XCTAssertEqual(song.album, "Rumours & B-Sides")
+    }
+
     /// The download answer wraps hex in `contentts` (word-synced) with
     /// `content` as the fallback; HTML comments around the XML are QQ's own.
     func testParseDownloadResponsePrefersContentTS() {

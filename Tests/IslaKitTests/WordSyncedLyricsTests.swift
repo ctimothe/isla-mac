@@ -47,6 +47,26 @@ final class WordSyncedLyricsTests: XCTestCase {
         XCTAssertEqual(lines[1].words[0].text, "Second")
     }
 
+    /// The A1 failure: Kugou stores lyric text HTML-escaped inside KRC, and
+    /// the escape used to ride straight through to the screen — the user
+    /// literally read `I&apos;ve been waiting`. Words and the line text built
+    /// from them both come out decoded.
+    func testKRCBodyDecodesEntitiesInWordsAndLineText() {
+        let body = """
+        [9380,4690]<0,142,0>I&apos;ve <142,158,0>been <300,200,0>waiting
+        [15000,3000]<0,500,0>Rock &apos;n&apos; Roll
+        """
+        let lines = WordSyncedLyrics.parseKRCBody(body)
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertEqual(lines[0].words.map(\.text), ["I've ", "been ", "waiting"])
+        XCTAssertEqual(lines[0].text, "I've been waiting")
+        XCTAssertEqual(lines[1].text, "Rock 'n' Roll")
+        XCTAssertFalse(
+            lines.flatMap { $0.words.map(\.text) }.contains { $0.contains("&") },
+            "an entity survived into the karaoke sweep: \(lines.flatMap { $0.words.map(\.text) })"
+        )
+    }
+
     func testKRCDecryptRoundTrip() throws {
         // Build a synthetic KRC: deflate the body, prepend a zlib header,
         // XOR with the known key, add the magic — then decrypt it back.

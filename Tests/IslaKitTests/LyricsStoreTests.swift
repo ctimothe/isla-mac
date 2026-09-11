@@ -1,4 +1,5 @@
 import XCTest
+import Compression
 @testable import IslaKit
 
 @MainActor
@@ -41,6 +42,13 @@ final class LyricsStoreTests: XCTestCase {
         """
         let lines = LyricsStore.parseLRC(raw)
         XCTAssertEqual(lines.map(\.text), ["Real line"])
+    }
+
+    /// LRCLIB content is user-contributed and escaped text appears there too;
+    /// decoded here so the cache writes what the screen will show.
+    func testLRCLinesDecodeEntities() {
+        let lines = LyricsStore.parseLRC("[00:10.00]I&apos;ve been waiting\n[00:15.00]Plain line")
+        XCTAssertEqual(lines.map(\.text), ["I've been waiting", "Plain line"])
     }
 
     // MARK: - Current-line selection
@@ -112,6 +120,40 @@ final class LyricsStoreTests: XCTestCase {
     }
 
     // MARK: - Scored matching (QQ + Kugou)
+
+    /// A2: Kugou's search answers HTML-escaped names, and `filename` is the
+    /// catalogue's own "singer - song" pairing to fall back on — the mapping
+    /// must split it and decode both fields, or `I&apos;ve` can never score
+    /// against the query `I've`.
+    func testKugouCandidateMappingSplitsFilenameAndDecodes() {
+        let fromFilename = LyricsStore.kugouCandidate(
+            songname: nil, singername: nil,
+            filename: "Big Boi &amp; Sleepy - Don&apos;t Stop",
+            durationMs: 200_000, isrc: nil
+        )
+        XCTAssertEqual(fromFilename.title, "Don't Stop")
+        XCTAssertEqual(fromFilename.artist, "Big Boi & Sleepy")
+        XCTAssertEqual(fromFilename.duration ?? -1, 200, accuracy: 0.001)
+
+        // Named fields take precedence over the split, decoded too, and the
+        // rest of what the matcher judges rides along untouched.
+        let named = LyricsStore.kugouCandidate(
+            songname: "Don&apos;t Stop", singername: "Fleetwood Mac",
+            filename: "ignored - ignored", durationMs: nil, isrc: "USRC12345678"
+        )
+        XCTAssertEqual(named.title, "Don't Stop")
+        XCTAssertEqual(named.artist, "Fleetwood Mac")
+        XCTAssertNil(named.duration)
+        XCTAssertEqual(named.isrc, "USRC12345678")
+
+        // A filename with no "singer - song" shape is the whole answer.
+        let whole = LyricsStore.kugouCandidate(
+            songname: nil, singername: nil, filename: "Unsplit Title",
+            durationMs: nil, isrc: nil
+        )
+        XCTAssertEqual(whole.title, "Unsplit Title")
+        XCTAssertEqual(whole.artist, "")
+    }
 
     private func candidate(
         _ title: String, _ artist: String, duration: TimeInterval? = 200, isrc: String? = nil
@@ -907,5 +949,62 @@ final class LyricsStoreTests: XCTestCase {
         XCTAssertEqual(lines.map(\.text), ["Hello world", "Second line"])
         XCTAssertFalse(lines.flatMap(\.words).isEmpty, "the line-tier answer won over words")
         XCTAssertFalse(requestedHosts.contains("lrclib.net"), "the floor was asked after words answered")
+    }
+
+    /// The named regression for the failure the user actually saw: a Kugou
+    /// KRC payload whose words carry `I&apos;ve been waiting` settles
+    /// `I've been waiting` — decrypt, decode, parse, arbitrate, cache. Every
+    /// other tier answers nothing, so the words could only have come from
+    /// Kugou.
+    func testKugouPayloadArrivesWithApostrophesDecoded() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let body = """
+        [9380,4690]<0,142,0>I&apos;ve <142,158,0>been <300,200,0>waiting
+        [15000,3000]<0,500,0>I didn&apos;t care
+        """
+        let krc = try XCTUnwrap(Self.krcFixture(body))
+        let session = TestURLProtocol.session { request in
+            switch request.url?.host {
+            case "lyrics.kugou.com" where request.url?.path == "/search":
+                let payload = """
+                {"candidates":[{"id":"956271","accesskey":"ak123","duration":253000,
+                 "songname":"Go Slowly","singername":"Radiohead"}]}
+                """
+                return (200, payload.data(using: .utf8)!)
+            case "lyrics.kugou.com" where request.url?.path == "/download":
+                let payload = #"{"content":"\#(krc)"}"#
+                return (200, payload.data(using: .utf8)!)
+            default:
+                return nil
+            }
+        }
+        let store = LyricsStore(session: session, cacheDirectory: root)
+        store.load(title: "Go Slowly", artist: "Radiohead", album: "In Rainbows", duration: 253)
+        await waitForSettled(store)
+        guard case .synced(let lines) = store.state else {
+            return XCTFail("the Kugou tier should have settled, got \(store.state)")
+        }
+        XCTAssertEqual(lines[0].text, "I've been waiting")
+        XCTAssertEqual(lines[0].words.map(\.text), ["I've ", "been ", "waiting"])
+        XCTAssertEqual(lines[1].text, "I didn't care")
+    }
+
+    /// Builds a real KRC payload the way Kugou ships it: deflate, zlib header,
+    /// XOR with the static key, `krc1` magic — the same construction the
+    /// decrypt round-trip test uses, base64-encoded as the download answer
+    /// carries it.
+    private static func krcFixture(_ body: String) -> String? {
+        let source = [UInt8](body.utf8)
+        var deflated = [UInt8](repeating: 0, count: source.count * 2 + 64)
+        let written = source.withUnsafeBufferPointer { src in
+            compression_encode_buffer(&deflated, deflated.count, src.baseAddress!, src.count, nil, COMPRESSION_ZLIB)
+        }
+        guard written > 0 else { return nil }
+        var payload: [UInt8] = [0x78, 0x9C] + deflated[0..<written]
+        let key: [UInt8] = [0x40, 0x47, 0x61, 0x77, 0x5E, 0x32, 0x74, 0x47,
+                            0x51, 0x36, 0x31, 0x2D, 0xCE, 0xD2, 0x6E, 0x69]
+        for index in payload.indices { payload[index] ^= key[index % key.count] }
+        return (Data("krc1".utf8) + Data(payload)).base64EncodedString()
     }
 }
