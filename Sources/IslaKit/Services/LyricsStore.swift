@@ -86,8 +86,9 @@ final class LyricsStore: ObservableObject {
     static let trackOffsetLimit: TimeInterval = 1.5
     private var trackOffsets: [String: TimeInterval] = [:]
     /// The tier the loaded words came from, for its code-only bias. Nil until
-    /// the first settle or cache hit, in which case the bias reads 0.
-    private var loadedSource: LyricSource?
+    /// the first settle or cache hit, in which case the bias reads 0. The
+    /// setter stays private; tests read it to pin the stale-source nil-ing.
+    private(set) var loadedSource: LyricSource?
 
     /// The source tier's correction for the loaded track. Seeded 0 for every
     /// tier; adjustable only here, in code, when a whole catalogue proves hot.
@@ -223,6 +224,12 @@ final class LyricsStore: ObservableObject {
             retained = showing
         } else {
             retained = nil
+            // A new track starts sourceless: the previous track's tier must
+            // not lend its bias to words it never timed, neither while this
+            // lookup is in flight nor after an offline miss that never sets
+            // a new one. The retained path above keeps its source with its
+            // words.
+            loadedSource = nil
             state = .loading
         }
         loadedCacheKey = key
@@ -270,6 +277,13 @@ final class LyricsStore: ObservableObject {
             return
         }
         retained = nil
+        if lines.isEmpty {
+            // No words and none held: there is no tier to bill the silence
+            // to, so the previous track's source goes rather than lingering
+            // for a future non-zero bias to apply to the wrong track. Held
+            // words keep theirs on the path above.
+            loadedSource = nil
+        }
         state = lines.isEmpty ? .none : .synced(lines)
     }
 

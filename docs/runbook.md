@@ -200,7 +200,8 @@ when the scripting fallback first drives Music or Spotify.
   the caption behind it and the stage agree on the current line. Nudge Sync and
   confirm both move together. Nudge one track with Sync ±, replay another, and
   confirm the second is unmoved and the first keeps its nudge; hold the offset
-  readout to clear it back to 0.
+  readout to clear it back to 0. Re-search clears the track nudge: the
+  correction belonged to the deleted entry's timing.
 - Turn on **Reduce Transparency** in System Settings → Accessibility → Display.
   Every translucent surface becomes an opaque panel while the panel is open,
   without relaunching. Turn on **Increase Contrast** and confirm the lit rim

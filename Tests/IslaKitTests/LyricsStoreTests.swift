@@ -714,6 +714,44 @@ final class LyricsStoreTests: XCTestCase {
         XCTAssertEqual(store.trackOffset, 0.5, accuracy: 0.0001)
     }
 
+    /// An offline miss for a new track must not keep the previous track's
+    /// source: a future non-zero bias for that tier would otherwise shift
+    /// words it was never measured against. The bias reads 0 because the
+    /// source is nil, not because every bias happens to be 0 today.
+    func testFailedFetchClearsStaleSource() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let session = TestURLProtocol.session { request in
+            guard request.url?.host == "lrclib.net",
+                  request.url?.path == "/api/get" else { return nil }
+            // Plain loops, no closures: this runs on the session's
+            // background queue, where an inherited-@MainActor closure traps.
+            var track: String?
+            if let url = request.url,
+               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               let items = components.queryItems {
+                for item in items where item.name == "track_name" { track = item.value }
+            }
+            guard track == "Track A" else { return nil }
+            let payload = #"{"syncedLyrics":"[00:10.00] First line\n[00:15.00] Second line\n","duration":200}"#
+            return (200, payload.data(using: .utf8)!)
+        }
+        let store = LyricsStore(session: session, cacheDirectory: root)
+        store.load(title: "Track A", artist: "A", album: "L", duration: 200)
+        await waitForSettled(store)
+        guard case .synced = store.state else {
+            return XCTFail("track A has to settle, got \(store.state)")
+        }
+        XCTAssertNotNil(store.loadedSource, "track A has to carry a source for this test to mean anything")
+        // A new key with nothing retained, and the wire dead: the miss must
+        // leave no source behind.
+        store.load(title: "Track B", artist: "A", album: "L", duration: 200)
+        await waitForSettled(store)
+        XCTAssertEqual(store.state, .none)
+        XCTAssertNil(store.loadedSource)
+        XCTAssertEqual(store.currentSourceBias, 0, accuracy: 0.0001)
+    }
+
     /// The global still shifts everything: the effective correction is the
     /// sum of the global and the track layer (every source bias is seeded 0).
     func testGlobalStillShiftsEffectiveOffset() async throws {
