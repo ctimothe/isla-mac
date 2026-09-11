@@ -99,6 +99,7 @@
 "Lyrics Earlier" = "Текст раньше";
 "Lyrics Later" = "Текст позже";
 "Lyric Timing" = "Тайминг текста";
+"Reset lyric timing" = "Сбросить тайминг текста";
 "Search Lyrics Again" = "Искать текст заново";
 "Wrong lyrics? Search again." = "Не тот текст? Искать заново.";
 "No lyrics for this track." = "Для этого трека нет текста.";

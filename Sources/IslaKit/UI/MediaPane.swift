@@ -435,7 +435,9 @@ struct MediaPane: View {
             let at = LyricSweep.position(
                 media.position,
                 precisionSync: media.precisionSync,
-                userOffset: lyrics.userOffset
+                userOffset: lyrics.userOffset,
+                sourceBias: lyrics.currentSourceBias,
+                trackOffset: lyrics.trackOffset
             )
             if let shown = LyricSweep.displayed(lines: lines, at: at) {
                 let line = shown.line

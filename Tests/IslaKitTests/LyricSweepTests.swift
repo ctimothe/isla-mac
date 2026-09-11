@@ -19,6 +19,34 @@ final class LyricSweepTests: XCTestCase {
         )
     }
 
+    /// The three offset layers sum at read: the listener's global correction,
+    /// the source tier's bias, and the per-track nudge. Nothing clamps here —
+    /// each layer is clamped where it is written, so the sum is the truth.
+    func testLeadSumsAllThreeOffsetLayers() {
+        XCTAssertEqual(
+            LyricSweep.lead(precisionSync: false, userOffset: 1.0, sourceBias: 0.5, trackOffset: 0.25),
+            2.2, accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            LyricSweep.lead(precisionSync: true, userOffset: -0.5, sourceBias: 0.2, trackOffset: -0.1),
+            -0.15, accuracy: 0.0001
+        )
+    }
+
+    /// The defaulted layers keep the old call shape: past callers read the
+    /// same lead they always did.
+    func testLeadDefaultsLeaveOldCallersAlone() {
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.45, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.25, accuracy: 0.0001)
+    }
+
+    func testPositionCarriesAllThreeLayers() {
+        XCTAssertEqual(
+            LyricSweep.position(10, precisionSync: true, userOffset: 0.5, sourceBias: 0.25, trackOffset: -0.25),
+            10.75, accuracy: 0.0001
+        )
+    }
+
     /// Word timing wins wherever a source carried it; the singing-speed estimate
     /// is only for lines that never got any.
     func testWordTimingWinsOverTheEstimate() {

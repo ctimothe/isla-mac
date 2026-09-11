@@ -587,6 +587,156 @@ final class LyricsStoreTests: XCTestCase {
         XCTAssertNotEqual(LyricsStore.exactDurationIdentity(nil), LyricsStore.exactDurationIdentity(200.0))
     }
 
+    // MARK: - Three-layer offsets
+
+    private func lrclibStub() -> URLSession {
+        TestURLProtocol.session { request in
+            guard request.url?.host == "lrclib.net",
+                  request.url?.path == "/api/get" else { return nil }
+            let payload = #"{"syncedLyrics":"[00:10.00] First line\n[00:15.00] Second line\n","duration":200}"#
+            return (200, payload.data(using: .utf8)!)
+        }
+    }
+
+    private func settledStore(in root: URL, title: String) async throws -> LyricsStore {
+        let store = LyricsStore(session: lrclibStub(), cacheDirectory: root)
+        store.userOffset = 0
+        store.load(title: title, artist: "A", album: "L", duration: 200)
+        await waitForSettled(store)
+        guard case .synced = store.state else {
+            throw XCTSkip("the stubbed LRCLIB answer should have settled, got \(store.state)")
+        }
+        return store
+    }
+
+    private func cachedTrackOffset(in root: URL, title: String, expecting: Double) async throws -> Double? {
+        let key = LyricsStore.cacheKey(title: title, artist: "A", album: "L", duration: 200)
+        let url = root.appendingPathComponent("\(key).lrc4.json")
+        // The fetch's own write lands first with the pre-nudge value; the
+        // nudge's rewrite follows it on the serial cache queue. So this waits
+        // for the expected value, not merely any value.
+        var seen: Double?
+        for _ in 0..<100 {
+            if let data = try? Data(contentsOf: url),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let offset = json["trackOffset"] as? Double {
+                seen = offset
+                if abs(offset - expecting) < 0.0001 { return offset }
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return seen
+    }
+
+    /// The track layer clamps at write: no nudge, however large, leaves ±1.5s.
+    func testTrackOffsetClampsAtWrite() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try await settledStore(in: root, title: "T")
+        defer { store.userOffset = 0 }
+
+        store.nudgeTrackOffset(by: 2.0)
+        XCTAssertEqual(store.trackOffset, 1.5, accuracy: 0.0001)
+        store.nudgeTrackOffset(by: -5.0)
+        XCTAssertEqual(store.trackOffset, -1.5, accuracy: 0.0001)
+        XCTAssertEqual(LyricsStore.trackOffsetLimit, 1.5, accuracy: 0.0001)
+    }
+
+    /// The global layer keeps its own clamp at its own write: ±3s, same key.
+    func testGlobalOffsetStillClampsAtThree() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try await settledStore(in: root, title: "T")
+        defer { store.userOffset = 0 }
+
+        store.userOffset = 10
+        XCTAssertEqual(store.userOffset, 3, accuracy: 0.0001)
+        store.userOffset = -10
+        XCTAssertEqual(store.userOffset, -3, accuracy: 0.0001)
+    }
+
+    /// The Sync buttons move the track layer now, never the global one.
+    func testNudgeWritesTrackLayerNotGlobal() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try await settledStore(in: root, title: "T")
+        defer { store.userOffset = 0 }
+
+        store.nudgeTrackOffset(by: 0.25)
+        store.nudgeTrackOffset(by: 0.25)
+        XCTAssertEqual(store.trackOffset, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(store.userOffset, 0, accuracy: 0.0001)
+        store.clearTrackOffset()
+        XCTAssertEqual(store.trackOffset, 0, accuracy: 0.0001)
+    }
+
+    /// A nudge survives the process: the next store loads it back from the
+    /// v4 entry.
+    func testTrackOffsetPersistsAcrossLoad() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try await settledStore(in: root, title: "T")
+        defer { first.userOffset = 0 }
+        first.nudgeTrackOffset(by: 0.5)
+        let written = try await cachedTrackOffset(in: root, title: "T", expecting: 0.5)
+        XCTAssertEqual(written ?? .nan, 0.5, accuracy: 0.0001)
+
+        let second = LyricsStore(session: failingSession(), cacheDirectory: root)
+        second.load(title: "T", artist: "A", album: "L", duration: 200)
+        await waitForSettled(second)
+        guard case .synced = second.state else {
+            return XCTFail("the seeded v4 cache has to load, got \(second.state)")
+        }
+        XCTAssertEqual(second.trackOffset, 0.5, accuracy: 0.0001)
+    }
+
+    /// A remaster fixed on one track must not move any other track.
+    func testTrackOffsetDoesNotLeakAcrossTracks() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try await settledStore(in: root, title: "Track A")
+        defer { store.userOffset = 0 }
+        store.nudgeTrackOffset(by: 0.5)
+        XCTAssertEqual(store.trackOffset, 0.5, accuracy: 0.0001)
+
+        store.load(title: "Track B", artist: "A", album: "L", duration: 200)
+        await waitForSettled(store)
+        guard case .synced = store.state else {
+            return XCTFail("track B has to settle, got \(store.state)")
+        }
+        XCTAssertEqual(store.trackOffset, 0, accuracy: 0.0001)
+
+        store.load(title: "Track A", artist: "A", album: "L", duration: 200)
+        await waitForSettled(store)
+        guard case .synced = store.state else {
+            return XCTFail("track A has to reload, got \(store.state)")
+        }
+        XCTAssertEqual(store.trackOffset, 0.5, accuracy: 0.0001)
+    }
+
+    /// The global still shifts everything: the effective correction is the
+    /// sum of the global and the track layer (every source bias is seeded 0).
+    func testGlobalStillShiftsEffectiveOffset() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try await settledStore(in: root, title: "T")
+        defer { store.userOffset = 0 }
+        store.userOffset = 1.0
+        store.nudgeTrackOffset(by: 0.5)
+        XCTAssertEqual(store.effectiveOffset, 1.5, accuracy: 0.0001)
+        for source in [LyricsStore.LyricSource.amll, .qq, .kugou, .lrclib] {
+            XCTAssertEqual(source.bias, 0, accuracy: 0.0001)
+        }
+    }
+
+    /// With no track loaded there is nothing to nudge: a stray call is a
+    /// no-op, never a crash and never a stored value.
+    func testNudgeWithNoTrackIsANoOp() {
+        let store = LyricsStore(cacheDirectory: FileManager.default.temporaryDirectory)
+        store.nudgeTrackOffset(by: 0.25)
+        XCTAssertEqual(store.trackOffset, 0, accuracy: 0.0001)
+    }
+
     /// Word-tier beats line-tier end to end: QQ answers with words while
     /// LRCLIB answers with lines, and the words are what settles.
     func testWordTierBeatsLineTier() async throws {
