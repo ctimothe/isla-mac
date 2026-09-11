@@ -86,7 +86,23 @@ final class NotchRootView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         // While a drag is in flight the whole window must stay a valid target,
         // otherwise AppKit drops us as the destination mid-animation.
-        guard isReceivingDrag || activeRect.contains(point) else { return nil }
+        let hit = isReceivingDrag || activeRect.contains(point)
+        // Diagnostic, behind DI_GEOM=1 like the geometry trail: a click that
+        // never reaches the panel leaves no other trace, so a dead spot on the
+        // island — the physical cutout in particular, where the cursor itself
+        // disappears — cannot be told apart from a gesture that fired and was
+        // thrown away without knowing which layer ate it. Clicks are rare, so
+        // logging every one costs nothing; a normal run never has the variable.
+        if ProcessInfo.processInfo.environment["DI_GEOM"] == "1" {
+            DebugTrail.note(String(
+                format: "CLICK pt=(%.1f,%.1f) active=(%.1f,%.1f,%.1f,%.1f) drag=%d hit=%d ignores=%d",
+                point.x, point.y,
+                activeRect.minX, activeRect.minY, activeRect.width, activeRect.height,
+                isReceivingDrag ? 1 : 0, hit ? 1 : 0,
+                (window?.ignoresMouseEvents ?? true) ? 1 : 0
+            ))
+        }
+        guard hit else { return nil }
         return super.hitTest(point)
     }
 
