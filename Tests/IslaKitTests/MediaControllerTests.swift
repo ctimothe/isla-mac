@@ -575,4 +575,169 @@ final class MediaControllerTests: XCTestCase {
         XCTAssertNil(controller.spotifyISRC)
         XCTAssertEqual(controller.spotifyExactDuration ?? -1, 180.0, accuracy: 0.001)
     }
+
+    // MARK: - Precision clock (Task 3: 1s monotonic regression clock)
+
+    /// The correction loop polls Spotify's own clock every second, not every
+    /// two: the 2s cadence stair-stepped the lyric sweep on the beat of the
+    /// poll. The tolerance stays tight so a coalesced timer cannot reintroduce it.
+    func testPrecisionPollCadenceIsOneSecond() {
+        XCTAssertEqual(MediaController.precisionPollInterval, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(MediaController.precisionPollTolerance, 0.1, accuracy: 0.0001)
+    }
+
+    /// Five RTT-aged corrections, not one snap: a single AppleScript answer
+    /// carries ±80ms of scheduling jitter, and anchoring on it whole moved the
+    /// sweep by that jitter on every poll. The mean origin converges.
+    func testDriftRegressionConvergesUnderJitter() {
+        let rate = 1.0
+        // Truth: position = 100 + t. Each correction carries fixed jitter.
+        let jitter: [TimeInterval] = [0.08, -0.08, 0.05, -0.05, 0.03]
+        let corrections = jitter.enumerated().map { index, j in
+            (atMono: TimeInterval(index), position: 100 + TimeInterval(index) * rate + j)
+        }
+        let regressed = MediaController.regressedAnchorPosition(
+            corrections: corrections, rate: rate, nowMono: 4
+        )
+        XCTAssertEqual(regressed, 104, accuracy: 0.04,
+                       "five jittered corrections must average out to near-truth")
+        // One sample is a snap, by construction: the regression only helps
+        // once there is a window to regress over.
+        let single = MediaController.regressedAnchorPosition(
+            corrections: [(atMono: 0, position: 100.08)], rate: rate, nowMono: 0
+        )
+        XCTAssertEqual(single, 100.08, accuracy: 0.0001)
+    }
+
+    /// The anchor runs on a monotonic clock, not the wall: an NTP step or a
+    /// sleep/wake that moves `Date` by seconds must not move the position.
+    func testMonotonicAnchorIgnoresWallClockJump() {
+        let controller = MediaController()
+        controller.monotonicNow = { 1_000 }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 50
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        controller.monotonicNow = { 1_005 }
+        controller.tick()
+        XCTAssertEqual(controller.position, 55, accuracy: 0.5,
+                       "the position must follow the monotonic clock")
+
+        // The wall kept moving under the frozen monotonic clock (the NTP
+        // step); the position must not follow it.
+        Thread.sleep(forTimeInterval: 0.1)
+        controller.tick()
+        XCTAssertEqual(controller.position, 55, accuracy: 0.02,
+                       "a wall-clock jump with the monotonic clock frozen must not move the bar")
+    }
+
+    /// A Spotify play/pause/track-change broadcast re-anchors at once: the
+    /// reading is unsettled until the authoritative correction lands, and the
+    /// correction is asked for immediately rather than on the next poll.
+    func testSpotifyNotificationReanchorsAndUnsettles() async {
+        let controller = MediaController()
+        controller.monotonicNow = { 2_000 }
+        controller.spotifyDisplayForTests = true
+        // Far past the settle grace, so only the fresh correction — never the
+        // watchdog — can settle what the notification below unsettles.
+        MediaController.settleGrace = 30
+        defer { MediaController.settleGrace = 1.2 }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 40
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        var fetches = 0
+        controller.precisionPositionFetcher = { next in
+            fetches += 1
+            Task { @MainActor in next(42.3) }
+        }
+        controller.setActive(true)
+
+        // Let the loop-start correction the panel-open above triggered land
+        // first: it holds the in-flight flag, and the notification's own
+        // correction would rightly yield to it.
+        for _ in 0..<200 {
+            if controller.positionSettled { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        fetches = 0
+
+        controller.handleSpotifyPlaybackState(position: 42)
+
+        XCTAssertEqual(controller.position, 42, accuracy: 0.0001,
+                       "the broadcast's millisecond reading anchors immediately")
+        XCTAssertFalse(controller.positionSettled,
+                       "the position is unsettled until the fresh correction lands")
+        XCTAssertTrue(fetches == 1, "the notification must trigger a correction at once")
+
+        // Suspended, never blocked: the delivery above needs the main actor,
+        // which `wait(for:)` would hold.
+        for _ in 0..<200 {
+            if controller.positionSettled { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(controller.positionSettled,
+                      "the fresh reading settles the position")
+        // Leave no timers or watchdogs running into the next test: the panel
+        // is closed, so the loop and the ticker stop with it.
+        controller.setActive(false)
+    }
+
+    /// Five corrections are regressed, not one snapped: the window the
+    /// estimator keeps is exactly five deep.
+    func testCorrectionWindowHoldsFiveSamples() {
+        XCTAssertEqual(MediaController.correctionWindowSize, 5)
+    }
+
+    /// An event-scale correction is a seek, not drift: it snaps at once
+    /// instead of dragging the old line through the window for five polls.
+    func testEventScaleCorrectionSnapsInsteadOfRegressing() async {
+        let controller = MediaController()
+        controller.monotonicNow = { 3_000 }
+        controller.spotifyDisplayForTests = true
+        MediaController.settleGrace = 30
+        defer { MediaController.settleGrace = 1.2 }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 40
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+        controller.precisionPositionFetcher = { next in
+            Task { @MainActor in next(70) }
+        }
+        controller.setActive(true)
+
+        for _ in 0..<200 {
+            if controller.positionSettled, controller.position > 60 { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(controller.position, 70, accuracy: 0.5,
+                       "a +30s correction is a seek in the player and must land at once")
+        controller.setActive(false)
+    }
 }

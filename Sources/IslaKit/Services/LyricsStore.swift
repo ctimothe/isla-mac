@@ -847,7 +847,9 @@ final class LyricsStore: ObservableObject {
     /// and no way to clear them short of finding the folder.
     static let cacheLimit = 500
 
-    private nonisolated static func readCache(at url: URL) -> [Line]? {
+    /// Read by the sync probe for its word-tier fixture as well as by `load`,
+    /// so it is internal rather than private. Pure disk + decode, no state.
+    nonisolated static func readCache(at url: URL) -> [Line]? {
         guard let data = try? Data(contentsOf: url),
               let cached = try? JSONDecoder().decode(CachedLyrics.self, from: data),
               cached.times.count == cached.texts.count else { return nil }

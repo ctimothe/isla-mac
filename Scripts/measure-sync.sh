@@ -5,7 +5,10 @@
 # MediaController's actual anchor/adopt/tick logic — in-process, and samples
 # it at 5Hz against Spotify's own scriptable player position, which is the
 # clock its UI renders. Scripted events cover the edges: pause, resume, a
-# forward seek, a large backward seek, and a sub-threshold backward one.
+# forward seek, a large backward seek, and a sub-threshold backward one. Word
+# columns sample a word-tier fixture for the playing track (its cached lyrics
+# when they carry word timing, else a synthetic grid), gating steady word-edge
+# error under 0.3s and zero word movement while paused.
 #
 # This exists because the position code has now twice been "fixed" on
 # reasoning alone and been wrong about the result. Claims about sync accuracy
@@ -66,7 +69,32 @@ for a, b, label in phases:
     if not (low <= median <= high):
         failures.append(f"{label}: median {median:+.3f} outside [{low}, {high}]")
 
+# Word gate: the probe's word-edge error column speaks in lyric units — how far
+# apart the two clocks' current words start. Steady median under 0.3s, and the
+# paused clock must not move at all (no index or fraction drift while paused).
+werrs = [float(r["werr"]) for r in rows if 0 <= float(r["t"]) < 8]
+if not werrs:
+    failures.append("word-edge: no steady samples")
+else:
+    wmedian = statistics.median(werrs)
+    print(f"  word-edge steady median={wmedian:.3f}  max={max(werrs):.3f}")
+    if wmedian >= 0.3:
+        failures.append(f"word-edge: steady median {wmedian:.3f} >= 0.3")
+# The first second after the pause event is the transition — the final
+# readings landing — so the freeze is judged on the settled remainder.
+paused = [r for r in rows if 9 <= float(r["t"]) < 12]
+if not paused:
+    failures.append("paused words: no samples")
+else:
+    widx = {r["wordOurs"] for r in paused}
+    fracs = [float(r["fracOurs"]) for r in paused]
+    drift = max(fracs) - min(fracs)
+    print(f"  paused words: {len(widx)} distinct word(s), fraction drift={drift:.4f}")
+    if len(widx) != 1 or drift != 0:
+        failures.append("paused words: clock moved while paused")
+
 print("\ngate: steady-play median within [-0.5, +0.2]; every phase median within [-0.6, +0.6]")
+print("gate: steady word-edge median < 0.3; zero word movement while paused")
 # Actually enforced. The bounds above used to be printed and nothing more: the
 # medians were computed, never compared, and the script exited 0 with sync
 # seconds out.
