@@ -8,7 +8,7 @@ struct ClipboardPane: View {
         VStack(spacing: 0) {
             if clipboard.items.isEmpty {
                 Image(systemName: "list.clipboard")
-                    .font(.system(size: 20, weight: .light))
+                    .islandFont(.display, weight: .light)
                     .foregroundStyle(Theme.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -55,7 +55,7 @@ private struct ClipRow: View {
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: justCopied ? "checkmark" : item.symbol)
-                .font(.system(size: 10, weight: .medium))
+                .islandFont(.caption)
                 .foregroundStyle(justCopied ? Color.green : Theme.tertiary)
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                 .frame(width: 14)
@@ -71,7 +71,7 @@ private struct ClipRow: View {
                 }
                 Button { clipboard.remove(item) } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
+                        .islandFont(.caption, weight: .semibold)
                         .foregroundStyle(Theme.secondary)
                         // A 9pt glyph is a ~10pt target sitting beside the
                         // reveal eye, inside a row whose own background

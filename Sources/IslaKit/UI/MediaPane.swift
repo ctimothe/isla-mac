@@ -115,11 +115,11 @@ struct MediaPane: View {
                 artwork(for: track)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(track.title)
-                        .islandFont(16, weight: .semibold)
+                        .islandFont(.title)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Text(subtitle(for: track))
-                        .font(.system(size: 11.5))
+                        .islandFont(.body, weight: .regular)
                         .foregroundStyle(Theme.secondary)
                         .lineLimit(1)
                         .padding(.top, 3)
@@ -205,7 +205,7 @@ struct MediaPane: View {
                         .fill(Theme.surface)
                         .overlay(
                             Image(systemName: "music.note")
-                                .font(.system(size: 26, weight: .light))
+                                .islandFont(.hero, weight: .light)
                                 .foregroundStyle(Theme.tertiary)
                         )
                         .transition(.opacity)
@@ -337,7 +337,7 @@ struct MediaPane: View {
             Text(formatTime(media.duration))
                 .frame(width: 32, alignment: .trailing)
         }
-        .font(.system(size: 10, weight: .medium).monospacedDigit())
+        .font(Theme.TypeRole.caption.font().monospacedDigit())
         .foregroundStyle(Theme.tertiary)
     }
 
@@ -365,7 +365,7 @@ struct MediaPane: View {
             .frame(width: 26)
             Spacer(minLength: 0)
             Button { media.previous() } label: {
-                Image(systemName: "backward.fill").font(.system(size: 16, weight: .medium))
+                Image(systemName: "backward.fill").islandFont(.title, weight: .medium)
             }
             .buttonStyle(TransportGlyphStyle(size: 30))
             .disabled(!media.canSkip)
@@ -374,7 +374,7 @@ struct MediaPane: View {
             Spacer(minLength: 0)
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 22, weight: .medium))
+                    .islandFont(.display)
                     // The glyph is replaced, not swapped. A hard cut on the one
                     // control the eye is already resting on is the most visible
                     // non-native moment in the app; `.replace` is what every
@@ -385,7 +385,7 @@ struct MediaPane: View {
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Spacer(minLength: 0)
             Button { media.next() } label: {
-                Image(systemName: "forward.fill").font(.system(size: 16, weight: .medium))
+                Image(systemName: "forward.fill").islandFont(.title, weight: .medium)
             }
             .buttonStyle(TransportGlyphStyle(size: 30))
             .disabled(!media.canSkip)
@@ -454,9 +454,9 @@ struct MediaPane: View {
                                 ? 0
                                 : LyricSweep.fraction(line: line, at: at, end: end),
                             reduceMotion: reduceMotion,
-                            // The caption sits at 11pt, where SF opens tracking
+                            // The caption sits at the body size, where SF opens tracking
                             // up slightly rather than tightening it.
-                            tracking: Theme.tracking(forSize: 11)
+                            tracking: Theme.tracking(forSize: Theme.TypeRole.body.size)
                         )
                         .italic(line.isCredit)
                         // Keyed so a line change crossfades instead of morphing
@@ -465,6 +465,9 @@ struct MediaPane: View {
                         .transition(.opacity)
                         if captionHover {
                             Image(systemName: "chevron.right")
+                                // A glyph fitted to its row, not type: it sizes
+                                // the chevron against the caption's cap height,
+                                // and the caption floor has nothing to say about it.
                                 .font(.system(size: 8, weight: .semibold))
                                 .foregroundStyle(Theme.tertiary)
                                 .transition(.opacity)
@@ -487,12 +490,12 @@ struct MediaPane: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "music.note.list")
-                .font(.system(size: 22, weight: .light))
+                .islandFont(.display, weight: .light)
                 .foregroundStyle(Theme.tertiary)
             // Status, not instruction: an empty pane on its own would not say
             // whether nothing is playing or nothing could be read.
             Text(localized("Nothing is playing"))
-                .font(.system(size: 12, weight: .medium))
+                .islandFont(.subhead)
                 .foregroundStyle(Theme.secondary)
             // And an affordance, because a dead end teaches people not to
             // open the tab. One button per player that is actually installed.
@@ -502,7 +505,7 @@ struct MediaPane: View {
                         NSWorkspace.shared.open(URL(fileURLWithPath: Self.applicationPath(for: app) ?? ""))
                     } label: {
                         Text(localized("Open %@", app.displayName))
-                            .font(.system(size: 10.5, weight: .medium))
+                            .islandFont(.body)
                             .foregroundStyle(.white)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)

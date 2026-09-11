@@ -290,7 +290,7 @@ struct NotchContentView: View {
             // one launch.
             if !vm.isShowingWelcome {
                 Text(vm.tab.title.uppercased())
-                    .font(.system(size: 9, weight: .semibold))
+                    .islandFont(.caption, weight: .semibold)
                     .tracking(0.8)
                     .foregroundStyle(Theme.tertiary)
                     .padding(.leading, 16)
@@ -340,11 +340,11 @@ struct NotchContentView: View {
                 if vm.isPeeking, let track = vm.media.track {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(track.title)
-                            .font(.system(size: 10, weight: .semibold))
+                            .islandFont(.caption, weight: .semibold)
                             .foregroundStyle(.white)
                             .lineLimit(1)
                         Text(track.artist)
-                            .font(.system(size: 9))
+                            .islandFont(.caption, weight: .regular)
                             .foregroundStyle(Theme.secondary)
                             .lineLimit(1)
                     }
@@ -518,7 +518,7 @@ struct NotchContentView: View {
                             .id(vm.media.track?.key)
                     } else {
                         Image(systemName: "music.note")
-                            .font(.system(size: 10, weight: .semibold))
+                            .islandFont(.caption, weight: .semibold)
                             .foregroundStyle(Color.white.opacity(0.75))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(Theme.surface)
@@ -533,6 +533,8 @@ struct NotchContentView: View {
                         .frame(width: 15, height: 15)
                         .overlay(
                             Image(systemName: "play.fill")
+                                // A glyph fitted inside a 15pt badge, not type:
+                                // the caption floor would burst the circle.
                                 .font(.system(size: 7, weight: .bold))
                                 .foregroundStyle(Color.white.opacity(0.92))
                                 .offset(x: 0.5)
@@ -593,7 +595,7 @@ struct NotchContentView: View {
                         .morph(MorphID.equalizer, in: morph)
                 }
                 Text(vm.media.sourceName ?? "")
-                    .font(.system(size: 10, weight: .medium))
+                    .islandFont(.caption)
                     .foregroundStyle(Theme.tertiary)
             }
         case .shelf:
@@ -613,7 +615,7 @@ struct NotchContentView: View {
     private func counter(_ value: Int) -> some View {
         if value > 0 {
             Text("\(value)")
-                .font(.system(size: 10, weight: .medium).monospacedDigit())
+                .font(Theme.TypeRole.caption.font().monospacedDigit())
                 .foregroundStyle(Theme.tertiary)
         }
     }
@@ -766,7 +768,7 @@ private struct Rail: View {
             vm.chooseTab(tab)
         } label: {
             Image(systemName: tab.symbol)
-                .font(.system(size: 12, weight: .medium))
+                .islandFont(.subhead)
                 .frame(width: 30, height: vm.geometry.railIconHeight)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)

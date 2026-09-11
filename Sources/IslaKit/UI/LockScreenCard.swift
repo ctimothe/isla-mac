@@ -155,11 +155,11 @@ struct LockScreenCard: View {
             artwork
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title)
-                    .islandFont(pane == .player ? 18 : 15, weight: .semibold)
+                    .islandFont(.title)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(track.artist)
-                    .islandFont(pane == .player ? 14 : 12.5)
+                    .islandFont(.subhead, weight: .regular)
                     .foregroundStyle(.white.opacity(0.62))
                     .lineLimit(1)
             }
@@ -180,6 +180,9 @@ struct LockScreenCard: View {
                         .fill(.white.opacity(0.08))
                         .overlay(
                             Image(systemName: "music.note")
+                                // A third of the cover's side, at either cover
+                                // size — a proportion, not a size, so no role
+                                // can name it.
                                 .font(.system(size: side / 3, weight: .light))
                                 .foregroundStyle(.white.opacity(0.4))
                         )
@@ -221,7 +224,7 @@ struct LockScreenCard: View {
                 .accessibilityLabel(media.sourceName ?? localized("Sound Output"))
         } else if let source = media.sourceName, !source.isEmpty {
             Text(String(source.prefix(1)))
-                .font(.system(size: 9, weight: .bold))
+                .islandFont(.caption, weight: .bold)
                 .foregroundStyle(.white)
                 .frame(width: 17, height: 17)
                 .background(Circle().fill(.black.opacity(0.75)))
@@ -281,7 +284,7 @@ struct LockScreenCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text(lyricsStatus)
-                    .font(.system(size: 13))
+                    .islandFont(.subhead, weight: .regular)
                     .foregroundStyle(.white.opacity(0.45))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -305,7 +308,7 @@ struct LockScreenCard: View {
             distance: abs(index - centre),
             at: at,
             end: LyricSweep.end(of: index, in: lines),
-            fontSize: 16,
+            fontSize: Theme.TypeRole.title.size,
             weight: .bold,
             lineLimit: 1,
             accent: accent,
@@ -359,14 +362,14 @@ struct LockScreenCard: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(localized("Output"))
-                        .islandFont(11, weight: .semibold)
+                        .islandFont(.body, weight: .semibold)
                         .foregroundStyle(.white.opacity(0.5))
                         .padding(.horizontal, 12)
                         .padding(.bottom, 4)
 
                     if outputs.isEmpty {
                         Text(localized("No output devices."))
-                            .font(.system(size: 13))
+                            .islandFont(.subhead, weight: .regular)
                             .foregroundStyle(.white.opacity(0.45))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
@@ -427,11 +430,11 @@ struct LockScreenCard: View {
                         .fill(selected ? Color(nsColor: .controlAccentColor) : Color.white.opacity(0.12))
                         .frame(width: 26, height: 26)
                     Image(systemName: device.symbol)
-                        .font(.system(size: 12, weight: .medium))
+                        .islandFont(.subhead)
                         .foregroundStyle(.white)
                 }
                 Text(device.name)
-                    .islandFont(13.5, weight: selected ? .semibold : .regular)
+                    .islandFont(.subhead, weight: selected ? .semibold : .regular)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 6)
@@ -498,8 +501,8 @@ struct LockScreenCard: View {
                 // how long until this is over.
                 Text("-" + formatTime(max(0, media.duration - fraction * media.duration)))
             }
-            .font(.system(size: 11, weight: .semibold).monospacedDigit())
-            .tracking(Theme.tracking(forSize: 11))
+            .font(Theme.TypeRole.body.font(weight: .semibold).monospacedDigit())
+            .tracking(Theme.tracking(forSize: Theme.TypeRole.body.size))
             .foregroundStyle(.white.opacity(0.55))
         }
     }
@@ -508,7 +511,7 @@ struct LockScreenCard: View {
     /// to give, rather than a slider that moves and changes nothing.
     private var volumeBar: some View {
         HStack(spacing: 10) {
-            Image(systemName: "speaker.fill").font(.system(size: 10))
+            Image(systemName: "speaker.fill").islandFont(.caption, weight: .regular)
             GeometryReader { geo in
                 let width = geo.size.width
                 let level = Double(draggingVolume ?? volume ?? 0)
@@ -533,7 +536,7 @@ struct LockScreenCard: View {
                 )
             }
             .frame(height: 14)
-            Image(systemName: "speaker.wave.3.fill").font(.system(size: 10))
+            Image(systemName: "speaker.wave.3.fill").islandFont(.caption, weight: .regular)
         }
         .foregroundStyle(.white.opacity(0.6))
     }
@@ -543,7 +546,7 @@ struct LockScreenCard: View {
             shuffle
             Spacer(minLength: 0)
             Button { media.previous() } label: {
-                Image(systemName: "backward.fill").font(.system(size: 21, weight: .medium))
+                Image(systemName: "backward.fill").islandFont(.display)
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .disabled(!media.canSkip)
@@ -552,14 +555,14 @@ struct LockScreenCard: View {
             Spacer(minLength: 0)
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 28, weight: .medium))
+                    .islandFont(.hero)
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Spacer(minLength: 0)
             Button { media.next() } label: {
-                Image(systemName: "forward.fill").font(.system(size: 21, weight: .medium))
+                Image(systemName: "forward.fill").islandFont(.display)
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .disabled(!media.canSkip)
@@ -579,7 +582,7 @@ struct LockScreenCard: View {
             isOn: media.shuffleEnabled == true,
             accent: accent,
             size: 32,
-            glyphSize: 15
+            glyphSize: Theme.TypeRole.title.size
         ) { media.toggleShuffle() }
         .disabled(media.shuffleEnabled == nil)
         .opacity(media.shuffleEnabled == nil ? 0.3 : 1)
@@ -593,7 +596,7 @@ struct LockScreenCard: View {
             isOn: media.repeatMode != nil && media.repeatMode != .off,
             accent: accent,
             size: 32,
-            glyphSize: 15,
+            glyphSize: Theme.TypeRole.title.size,
             reduceMotion: reduceMotion
         ) { media.cycleRepeat() }
         .disabled(media.repeatMode == nil)
@@ -617,7 +620,7 @@ struct LockScreenCard: View {
             pane = open ? .player : target
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 15, weight: .medium))
+                .islandFont(.title, weight: .medium)
                 .foregroundStyle(open ? .white : .white.opacity(0.62))
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                 .frame(width: 26, height: 22)
@@ -648,8 +651,8 @@ struct LockScreenCard: View {
                 let known = spotify.saved[id]
                 let isSaved = known ?? false
                 Button { spotify.toggleSaved(trackID: id) } label: {
-                    Image(systemName: isSaved ? "heart.fill" : "heart")
-                        .font(.system(size: 11, weight: .semibold))
+                        Image(systemName: isSaved ? "heart.fill" : "heart")
+                        .islandFont(.body, weight: .semibold)
                         .foregroundStyle(.white)
                         .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                         .opacity(known == nil ? 0.45 : 1)

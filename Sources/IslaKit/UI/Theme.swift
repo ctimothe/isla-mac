@@ -117,6 +117,63 @@ enum Theme {
         }
     }
 
+    /// Six roles, not fifteen sizes.
+    ///
+    /// Every size here was chosen locally and well, which is how there came to
+    /// be fifteen of them — 7, 8, 9, 10, 10.5, 11, 11.5, 12, 13, 15, 16, 20,
+    /// 21, 22, 26, 28, plus computed. A reader cannot tell 10pt from 11pt
+    /// apart as a decision, only as noise, so the roles are the vocabulary and
+    /// a size that is not a role has to justify itself where it stands. Each
+    /// role sits at the rung its cluster already gathered around: the 9pt
+    /// labels carrying most of the panel rise to the caption floor AppKit
+    /// itself sets at 10pt, the 10.5/11.5 in-betweens rejoin the body they
+    /// were always a rounding away from, and the lyric stage's 15 meets the
+    /// card's 16 at the title they already shared a tracking band at.
+    ///
+    /// `tracking(forSize:)` stays: the table is Apple's, indexed by points,
+    /// and the roles read from it rather than replacing it.
+    enum TypeRole: CaseIterable {
+        /// Tab titles, counters, scrubber times, section headers, footnotes —
+        /// most of the panel's labels. AppKit's own caption floor.
+        case caption
+        /// The reading voice: row titles, translated text, status lines.
+        case body
+        /// One step up from reading: rail icons, empty-state status, picker rows.
+        case subhead
+        /// Track titles and lyric lines.
+        case title
+        /// Empty-state glyphs and transport symbols.
+        case display
+        /// The artwork placeholder and the lock card's play button.
+        case hero
+
+        var size: CGFloat {
+            switch self {
+            case .caption: return 10
+            case .body: return 11
+            case .subhead: return 13
+            case .title: return 16
+            case .display: return 21
+            case .hero: return 28
+            }
+        }
+
+        /// What the role usually weighs. Titles arrive semibold; everything
+        /// else arrives medium and says so only when it wants otherwise.
+        var weight: Font.Weight {
+            switch self {
+            case .title: return .semibold
+            default: return .medium
+            }
+        }
+
+        /// The role as a `Font`, for the places a view modifier cannot reach —
+        /// a `KaraokeText` parameter, a monospaced digit chain, a button style.
+        func font(weight: Font.Weight? = nil) -> Font {
+            .system(size: size, weight: weight ?? self.weight)
+        }
+    }
+
     static let collapsedTopRadius: CGFloat = 6
     static let collapsedBottomRadius: CGFloat = 9
     static let openTopRadius: CGFloat = 12
@@ -264,7 +321,7 @@ struct NotchButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: prominent ? 17 : 13, weight: .medium))
+            .font(prominent ? Theme.TypeRole.title.font(weight: .medium) : Theme.TypeRole.subhead.font())
             .foregroundStyle(.white)
             .frame(width: size, height: size)
             .background(
@@ -319,5 +376,12 @@ extension View {
     func islandFont(_ size: CGFloat, weight: Font.Weight = .regular) -> some View {
         font(.system(size: size, weight: weight))
             .tracking(Theme.tracking(forSize: size))
+    }
+
+    /// The same, by role. An explicit weight wins; left out, the role's own
+    /// weight applies — which means a call site that used to say nothing, and
+    /// so read as regular, must keep saying `.regular` out loud.
+    func islandFont(_ role: Theme.TypeRole, weight: Font.Weight? = nil) -> some View {
+        islandFont(role.size, weight: weight ?? role.weight)
     }
 }

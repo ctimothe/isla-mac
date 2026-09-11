@@ -85,11 +85,11 @@ struct WelcomePane: View {
         // languages. `FirstRunTests` holds the number.
         VStack(alignment: .leading, spacing: 8) {
             Text(copy.running)
-                .islandFont(15, weight: .semibold)
+                .islandFont(.title)
                 .foregroundStyle(.white)
 
             Text(copy.whereItLives)
-                .islandFont(11)
+                .islandFont(.body, weight: .regular)
                 .foregroundStyle(Theme.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -100,7 +100,7 @@ struct WelcomePane: View {
             .padding(.top, 2)
 
             Text(copy.settingsFootnote)
-                .islandFont(10)
+                .islandFont(.caption, weight: .regular)
                 .foregroundStyle(Theme.tertiary)
                 // This line and the one above it are the two long enough to
                 // wrap. Neither does today — both fit on one line even at the
@@ -116,7 +116,7 @@ struct WelcomePane: View {
             // the note at the top.
             Button(action: onDismiss) {
                 Text(copy.action)
-                    .islandFont(11, weight: .medium)
+                    .islandFont(.body)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
@@ -159,7 +159,7 @@ struct WelcomePane: View {
     private func shortcut(_ keys: String, _ label: String) -> some View {
         HStack(spacing: 8) {
             Text(keys)
-                .font(.system(size: 11, weight: .medium))
+                .font(Theme.TypeRole.body.font())
                 .foregroundStyle(.white)
                 // Inside the padding, so the well grows with the glyphs rather
                 // than the glyphs sliding around inside a fixed well.
@@ -168,7 +168,7 @@ struct WelcomePane: View {
                 .padding(.vertical, 2)
                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
             Text(label)
-                .islandFont(11)
+                .islandFont(.body, weight: .regular)
                 .foregroundStyle(Theme.secondary)
         }
         // One element, so VoiceOver reads the pair as "⌥⌘I, open the panel"
