@@ -69,7 +69,14 @@ final class MediaController: ObservableObject {
     /// tab, most podcasts — would otherwise be asked again on every snapshot,
     /// twice a second, forever.
     private var artworkRequestedFor: Set<String> = []
-    private var anchor: (position: TimeInterval, at: Date)?
+    private var anchor: (position: TimeInterval, atMono: TimeInterval)?
+    /// The clock the anchor extrapolates on. Wall time jumps on NTP steps and
+    /// across sleep, and the anchor used to ride it — a +5s step teleported the
+    /// bar and the lyric. `systemUptime` never jumps, so the extrapolation
+    /// survives both. A seam, like `foreignHoldWindow`: tests freeze it while
+    /// the wall runs on. `Date` stays only inside the 1.5s seek-verdict window,
+    /// where what matters is ordering recent events, not measuring durations.
+    var monotonicNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     /// How fast the player says the track is moving. Podcast and video apps
     /// routinely play at 1.5× or 2×, and the ticker extrapolating at 1×
     /// regardless meant the bar fell behind between polls and lurched forward
@@ -178,6 +185,29 @@ final class MediaController: ObservableObject {
     var spotifyMetadataProvider: ((String) async -> SpotifyAccount.TrackMetadata?)?
     private var precisionTimer: Timer?
     private var precisionInFlight = false
+    /// How often Spotify's own clock is asked while the panel is open on it.
+    /// Every two seconds the lyric sweep stair-stepped on the beat of the poll —
+    /// a correction yanking the clock up to a tenth forward, then a dead anchor
+    /// free-running until the next one — so the cadence is one second.
+    static let precisionPollInterval: TimeInterval = 1.0
+    /// Tight, for the same reason: a coalesced timer firing late reintroduces
+    /// the very stepping the cadence above removes.
+    static let precisionPollTolerance: TimeInterval = 0.1
+    /// How many RTT-aged corrections the drift regression keeps. One snap
+    /// carried the poll's ±80ms of scheduling jitter straight into the sweep;
+    /// the mean of five converges to the player's line instead.
+    static let correctionWindowSize = 5
+    /// The last corrections as (monotonic moment, RTT-aged position), oldest
+    /// first. Reset wherever the line discontinues — a pause lets the monotonic
+    /// clock run while the position stands still, so origins from before it
+    /// would drag the mean after the resume.
+    private var correctionWindow: [(atMono: TimeInterval, position: TimeInterval)] = []
+    /// The fetch behind a correction. Production asks Spotify over AppleScript;
+    /// tests substitute canned answers, mirroring `spotifyMetadataProvider`.
+    var precisionPositionFetcher: ((@escaping @MainActor (TimeInterval?) -> Void) -> Void)?
+    /// Forces the Spotify-displayed verdict in tests, where no Spotify pid can
+    /// be adopted through `NSRunningApplication`. Production leaves this nil.
+    var spotifyDisplayForTests: Bool?
     private var spotifyStateObserver: (any NSObjectProtocol)?
 
     private var ticker: Timer?
@@ -199,7 +229,8 @@ final class MediaController: ObservableObject {
         // measured arriving 10-30ms after the change, needing no permission
         // at all. It does not fire on seeks (MediaRemote pushes a fresh pair
         // ~185ms after those, covering the gap) and delivery is not
-        // guaranteed, so it is an anchor source, never the only source.
+        // guaranteed, so the broadcast re-anchors at once and then asks for
+        // the authoritative correction — never the only source.
         spotifyStateObserver = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.spotify.client.PlaybackStateChanged"),
             object: nil,
@@ -232,11 +263,10 @@ final class MediaController: ObservableObject {
         guard position.isFinite, position >= 0 else { return }
         guard duration <= 0 || position <= duration + 1 else { return }
         trace(String(format: "bc pos=%.2f old=%.2f", position, self.position))
-        setAnchor(position)
-        // Deliberately not `positionSettled = true`. Delivery of these
-        // notifications is not guaranteed and they do not fire on seeks, which
-        // is exactly why the flag exists — it means "an authoritative reading
-        // has landed", and this is an anchor hint, not that reading.
+        // The broadcast is an anchor hint no longer: a play, pause or
+        // track-change re-anchors at once and asks for the authoritative
+        // correction immediately, unsettled until it lands.
+        handleSpotifyPlaybackState(position: position)
     }
 
     /// Returns the controller to the state `start()` expects.
@@ -359,13 +389,13 @@ final class MediaController: ObservableObject {
     /// re-serves one elapsed/timestamp pair between state changes. Spotify,
     /// though, answers its exact position over scripting to within ~50ms —
     /// so while the panel is open and Spotify is the displayed player, the
-    /// position is corrected against the player itself every two seconds.
+    /// position is corrected against the player itself every second.
     ///
     /// Spotify only, deliberately: it is the player that answers, and the
     /// first use raises macOS's one-time automation consent for it. Scoped to
     /// the open panel so a closed pill costs nothing and prompts for nothing.
     private var displayedPlayerIsSpotify: Bool {
-        displayedPlayerApp == .spotify
+        spotifyDisplayForTests ?? (displayedPlayerApp == .spotify)
     }
 
     /// The scriptable player behind the displayed session, when it is one.
@@ -439,7 +469,7 @@ final class MediaController: ObservableObject {
 
     private func updatePrecisionSync() {
         // Playing, too. A paused track's position cannot move, so asking
-        // Spotify where it is every two seconds — a fresh AppleScript compile
+        // Spotify where it is every second — a fresh AppleScript compile
         // and an Apple event into another process each time — bought a number
         // already known. Pausing and walking away used to leave that running
         // indefinitely.
@@ -451,20 +481,62 @@ final class MediaController: ObservableObject {
             return
         }
         guard precisionTimer == nil else { return }
-        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+        // A (re)starting loop is a new line: origins measured before a pause
+        // describe a frozen position against a running clock, and regressing
+        // them with the fresh ones would lean the mean backwards for five polls.
+        correctionWindow = []
+        let timer = Timer(timeInterval: Self.precisionPollInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.precisionCorrect() }
         }
-        timer.tolerance = 0.2
+        timer.tolerance = Self.precisionPollTolerance
         RunLoop.main.add(timer, forMode: .common)
         precisionTimer = timer
+        precisionCorrect()
+    }
+
+    /// The smoothed anchor for a window of RTT-aged corrections.
+    ///
+    /// Each correction implies an origin — where the track stood at monotonic
+    /// zero had it always run at `rate` — and the mean of those origins is the
+    /// line the player is actually on. Zero-mean scheduling jitter cancels
+    /// across the window instead of yanking the sweep every poll, while a real
+    /// drift moves every sample and carries the mean with it. A single sample
+    /// is just a snap: the regression only helps once there is a window.
+    static func regressedAnchorPosition(
+        corrections: [(atMono: TimeInterval, position: TimeInterval)],
+        rate: Double,
+        nowMono: TimeInterval
+    ) -> TimeInterval {
+        guard let last = corrections.last else { return 0 }
+        guard rate > 0 else { return last.position }
+        let mean = corrections.map { $0.position - $0.atMono * rate }.reduce(0, +)
+            / TimeInterval(corrections.count)
+        return mean + nowMono * rate
+    }
+
+    /// What a Spotify play/pause/track-change broadcast is worth.
+    ///
+    /// The reading arrives in 10-30ms with millisecond precision, so it anchors
+    /// at once — then a correction is asked for immediately rather than on the
+    /// next poll, and the position reads unsettled until that authoritative
+    /// answer lands so no lyric is chosen from the hint. The guards (Spotify
+    /// displayed, no seek in flight, sane value) stay with the caller.
+    func handleSpotifyPlaybackState(position broadcastPosition: TimeInterval) {
+        setAnchor(broadcastPosition)
+        positionSettled = false
         precisionCorrect()
     }
 
     private func precisionCorrect() {
         guard !precisionInFlight, displayedPlayerIsSpotify else { return }
         precisionInFlight = true
-        let asked = Date()
-        PlayerBridge.preciseSpotifyPosition { [weak self] value in
+        let askedMono = monotonicNow()
+        // The seek verdict below is the one place the wall clock stays: it
+        // orders a reading against a seek issued moments ago, and thresholds
+        // (1.5s expiry, 0.6 phantom, 0.8 target) are unchanged.
+        let askedWall = Date()
+        let fetch = precisionPositionFetcher ?? PlayerBridge.preciseSpotifyPosition
+        fetch { [weak self] value in
             guard let self else { return }
             self.precisionInFlight = false
             guard let value, self.isActive, self.displayedPlayerIsSpotify else { return }
@@ -480,7 +552,7 @@ final class MediaController: ObservableObject {
                     reading: value,
                     target: pending.target,
                     issuedAt: pending.at,
-                    askedAt: asked,
+                    askedAt: askedWall,
                     now: Date(),
                     origin: pending.origin,
                     rate: self.isPlaying ? self.playbackRate : 0
@@ -495,20 +567,42 @@ final class MediaController: ObservableObject {
             // it describes the moment mid-round-trip, so while playing it is
             // aged by half the trip before use. Without this every correction
             // pulled the clock back by its own latency, and the measured
-            // result was a position that froze for a third of a second every
-            // two seconds: the exact stutter this path exists to remove.
-            let latency = Date().timeIntervalSince(asked)
+            // result was a position that froze for a third of a second on every
+            // poll: the exact stutter this path exists to remove. The
+            // trip is timed on the monotonic clock, so a wall step mid-round-trip
+            // cannot stretch or shrink it.
+            let nowMono = self.monotonicNow()
+            let latency = nowMono - askedMono
             let corrected = self.isPlaying ? value + latency / 2 : value
             let delta = corrected - self.position
             self.trace(String(format: "pc val=%.2f lat=%.2f delta=%.2f pos=%.2f", value, latency, delta, self.position))
 
             // Monotonic while playing: time does not go backwards, so a small
             // backward disagreement is sampling noise and only re-bases the
-            // clock. A large one is a real rewind and is taken whole.
+            // clock. A large one is a real rewind and is taken whole. Forward
+            // and large corrections join the regression window instead of
+            // snapping the anchor, so one jittered answer cannot move the sweep.
             if delta >= 0 || delta <= -1.0 || !self.isPlaying {
-                self.setAnchor(corrected)
+                // ...unless the jump is event-scale — a seek made in the
+                // player, not drift. The window still leans on the old line,
+                // and regressing a +30s jump would drag the anchor back towards
+                // where the track was for five polls. Flush and snap, mirroring
+                // the 1.0s band the rebase rule above already draws.
+                if self.isPlaying, abs(delta) >= 1.0 {
+                    self.correctionWindow = []
+                    self.setAnchor(corrected)
+                } else {
+                    self.correctionWindow.append((atMono: nowMono, position: corrected))
+                    if self.correctionWindow.count > Self.correctionWindowSize {
+                        self.correctionWindow.removeFirst(
+                            self.correctionWindow.count - Self.correctionWindowSize)
+                    }
+                    let rate = self.isPlaying ? self.playbackRate : 0
+                    self.setAnchor(Self.regressedAnchorPosition(
+                        corrections: self.correctionWindow, rate: rate, nowMono: nowMono))
+                }
             } else {
-                self.anchor = (self.position, Date())
+                self.anchor = (self.position, nowMono)
             }
             if !self.positionSettled { self.positionSettled = true }
         }
@@ -546,6 +640,9 @@ final class MediaController: ObservableObject {
         // trajectory the track has already left.
         rewindCandidate = nil
         setAnchor(clamped)
+        // Our own jump starts a new line: corrections measured against the old
+        // one would lean the regression back towards it for five polls.
+        correctionWindow = []
         pendingSeek = (clamped, Date(), origin)
         lastSeek = (clamped, Date(), origin)
         if feedAvailable {
@@ -638,6 +735,8 @@ final class MediaController: ObservableObject {
             spotifyTrackID = nil
             spotifyISRC = nil
             spotifyExactDuration = nil
+            // A new song is a new line for the regression too.
+            correctionWindow = []
             requestSpotifyTrackID(for: key, playerPID: snapshot.playerPID, attempt: 0)
         }
         if playerChanged {
@@ -893,6 +992,7 @@ final class MediaController: ObservableObject {
         anchor = nil
         pendingSeek = nil
         rewindCandidate = nil
+        correctionWindow = []
         updatePrecisionSync()
         updateTicker()
     }
@@ -1032,7 +1132,7 @@ final class MediaController: ObservableObject {
 
     private func setAnchor(_ value: TimeInterval) {
         position = value
-        anchor = (value, Date())
+        anchor = (value, monotonicNow())
     }
 
     /// Verification-only: one-line breadcrumbs through the position pipeline,
@@ -1112,6 +1212,7 @@ final class MediaController: ObservableObject {
         if duration > 0 { value = min(value, duration) }
         let delta = value - position
         let now = Date()
+        let nowMono = monotonicNow()
 
         if delta <= -seekThreshold, !mayRewindAtOnce, isPlaying {
             let confirmed = Self.corroboratesRewind(
@@ -1124,11 +1225,11 @@ final class MediaController: ObservableObject {
             guard confirmed else {
                 // Keep the clock running under the held reading, so the ignored
                 // difference cannot accumulate into the next comparison.
-                anchor = (position, now)
+                anchor = (position, nowMono)
                 return
             }
             position = value
-            anchor = (value, now)
+            anchor = (value, nowMono)
             return
         }
         rewindCandidate = nil
@@ -1137,11 +1238,11 @@ final class MediaController: ObservableObject {
 
         if delta >= forwardTolerance || delta <= -seekThreshold {
             position = value
-            anchor = (value, Date())
+            anchor = (value, nowMono)
         } else {
             // Keep what is on screen and re-base the clock under it, so the
             // ignored difference cannot accumulate into the next comparison.
-            anchor = (position, Date())
+            anchor = (position, nowMono)
         }
     }
 
@@ -1164,9 +1265,11 @@ final class MediaController: ObservableObject {
         ticker = timer
     }
 
-    private func tick() {
+    /// Advances the bar from the anchor. Internal so tests can drive the clock
+    /// without waiting on the quarter-second timer.
+    func tick() {
         guard let anchor, isPlaying else { return }
-        let value = anchor.position + Date().timeIntervalSince(anchor.at) * playbackRate
+        let value = anchor.position + (monotonicNow() - anchor.atMono) * playbackRate
         position = duration > 0 ? min(value, duration) : value
     }
 }
