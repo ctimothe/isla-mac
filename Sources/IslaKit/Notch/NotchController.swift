@@ -495,6 +495,9 @@ final class NotchController {
     /// all, which reads as a dead app rather than a decision.
     private func islandClicked() {
         guard let vm = viewModel else { return }
+        // Diagnostic, behind DI_GEOM=1: the third line of the click trail, so
+        // a gesture that fired reads here as refused, closed, or opened.
+        geometryTrace("click open=\(vm.isOpen ? 1 : 0) locked=\(vm.isLockedPresentation ? 1 : 0)")
         if vm.isLockedPresentation {
             vm.nudgeLockedIsland()
             return
