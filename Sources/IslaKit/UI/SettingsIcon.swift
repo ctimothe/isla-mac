@@ -21,6 +21,8 @@ enum SettingsIcon {
 
     // Screenshots
     static let saveScreenshots = "square.and.arrow.down"
+    /// A recording arriving on its own: video coming in, not going out.
+    static let importRecordings = "video.badge.plus"
     static let showFolder = "folder"
     static let clear = "trash"
 
@@ -51,7 +53,7 @@ enum SettingsIcon {
 
     static let all: [String] = [
         launchAtLogin, openOnHover, hoverDelay, panelWidth,
-        saveScreenshots, showFolder, clear,
+        saveScreenshots, importRecordings, showFolder, clear,
         lyrics, peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, translate, hideFromRecording,

@@ -122,4 +122,75 @@ final class ShelfStoreTests: XCTestCase {
 
         XCTAssertEqual(store.items.count, 1)
     }
+
+    /// A finished recording is imported on the next scan, exactly once: the
+    /// second scan finds nothing new, so the shelf does not duplicate what it
+    /// already holds.
+    func testFreshRecordingIsImportedOnce() throws {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Date.distantPast, forKey: RecordingPickup.sinceKey)
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data([1]).write(to: dir.appendingPathComponent("rec.mov"))
+
+        let store = ShelfStore(defaults: defaults)
+        store.importNewRecordings(from: dir)
+        XCTAssertEqual(store.items.map(\.url.lastPathComponent), ["rec.mov"])
+
+        store.importNewRecordings(from: dir)
+        XCTAssertEqual(store.items.count, 1)
+    }
+
+    /// Throwing a recording off the shelf is a decision: the scan remembers
+    /// what it met, so the next open does not resurrect it.
+    func testRemovedRecordingStaysRemoved() throws {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Date.distantPast, forKey: RecordingPickup.sinceKey)
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data([1]).write(to: dir.appendingPathComponent("rec.mov"))
+
+        let store = ShelfStore(defaults: defaults)
+        store.importNewRecordings(from: dir)
+        XCTAssertEqual(store.items.count, 1)
+
+        store.remove(store.items[0])
+        store.importNewRecordings(from: dir)
+        XCTAssertTrue(store.items.isEmpty)
+    }
+
+    /// Off means off: with the toggle down the captures folder is never
+    /// touched — which is also what keeps the system prompt from ever
+    /// appearing for someone who declined the feature.
+    func testDisabledToggleNeverScans() throws {
+        let standard = UserDefaults.standard
+        let had = standard.object(forKey: NotchViewModel.importRecordingsKey)
+        defer {
+            if let had { standard.set(had, forKey: NotchViewModel.importRecordingsKey) }
+            else { standard.removeObject(forKey: NotchViewModel.importRecordingsKey) }
+        }
+        standard.set(false, forKey: NotchViewModel.importRecordingsKey)
+
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Date.distantPast, forKey: RecordingPickup.sinceKey)
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data([1]).write(to: dir.appendingPathComponent("rec.mov"))
+
+        let store = ShelfStore(defaults: defaults)
+        store.importNewRecordings(from: dir)
+        XCTAssertTrue(store.items.isEmpty)
+    }
 }
