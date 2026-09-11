@@ -86,7 +86,7 @@ struct LyricsStage: View {
         .overlay(alignment: .bottomLeading) {
             if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
                 Text(debugStateDescription)
-                    .font(.system(size: 9, weight: .medium).monospacedDigit())
+                    .font(Theme.TypeRole.caption.font().monospacedDigit())
                     .foregroundStyle(.yellow)
                     .padding(6)
                     // A readout is not a control. Left hittable it sat over the
@@ -335,9 +335,9 @@ struct LyricsStage: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "music.note")
-                    .font(.system(size: 9, weight: .bold))
+                    .islandFont(.caption, weight: .bold)
                 Text(localized("Sync"))
-                    .font(.system(size: 10, weight: .semibold))
+                    .islandFont(.caption, weight: .semibold)
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
@@ -363,9 +363,10 @@ struct LyricsStage: View {
             at: now,
             end: LyricSweep.end(of: index, in: lines),
             // The stage reads at arm's length and lets a long line wrap; the
-            // card holds one line at a glance. Size and wrapping are the only
-            // things either surface still decides for itself.
-            fontSize: 15,
+            // card holds one line at a glance. Wrapping is the only thing
+            // either surface still decides for itself — both read at the title
+            // size, which is where the two had already met in one tracking band.
+            fontSize: Theme.TypeRole.title.size,
             weight: .bold,
             lineLimit: 2,
             accent: accent,
@@ -399,7 +400,7 @@ struct LyricsStage: View {
         HStack(spacing: 10) {
             Button(action: dismiss) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 10, weight: .semibold))
+                    .islandFont(.caption, weight: .semibold)
             }
             .buttonStyle(NotchButtonStyle(size: 24))
             .accessibilityLabel(localized("Back to Player"))
@@ -411,18 +412,21 @@ struct LyricsStage: View {
             HStack(spacing: 4) {
                 Button { lyrics.userOffset -= 0.25 } label: {
                     Image(systemName: "minus")
+                        // Fitted to the 20pt well, not set as type: a caption
+                        // glyph would crowd a button this small.
                         .font(.system(size: 8, weight: .bold))
                 }
                 .buttonStyle(NotchButtonStyle(size: 20))
                 .accessibilityLabel(localized("Lyrics Earlier"))
                 if abs(lyrics.userOffset) > 0.01 {
                     Text(String(format: "%+.2fs", lyrics.userOffset))
-                        .font(.system(size: 9, weight: .medium).monospacedDigit())
+                        .font(Theme.TypeRole.caption.font().monospacedDigit())
                         .foregroundStyle(Theme.secondary)
                         .frame(minWidth: 40)
                 }
                 Button { lyrics.userOffset += 0.25 } label: {
                     Image(systemName: "plus")
+                        // Same fitted glyph as the minus beside it.
                         .font(.system(size: 8, weight: .bold))
                 }
                 .buttonStyle(NotchButtonStyle(size: 20))
@@ -441,7 +445,7 @@ struct LyricsStage: View {
                 )
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 9, weight: .semibold))
+                    .islandFont(.caption, weight: .semibold)
             }
             .buttonStyle(NotchButtonStyle(size: 24))
             .accessibilityLabel(localized("Search Lyrics Again"))
@@ -463,10 +467,10 @@ struct LyricsStage: View {
                     .tint(.white)
             } else {
                 Image(systemName: "text.quote")
-                    .font(.system(size: 20, weight: .light))
+                    .islandFont(.display, weight: .light)
                     .foregroundStyle(Theme.tertiary)
                 Text(localized("No lyrics for this track"))
-                    .font(.system(size: 11.5, weight: .medium))
+                    .islandFont(.body)
                     .foregroundStyle(Theme.secondary)
             }
         }
@@ -474,7 +478,7 @@ struct LyricsStage: View {
         .overlay(alignment: .topLeading) {
             Button(action: dismiss) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 10, weight: .semibold))
+                    .islandFont(.caption, weight: .semibold)
             }
             .buttonStyle(NotchButtonStyle(size: 24))
             .accessibilityLabel(localized("Back to Player"))

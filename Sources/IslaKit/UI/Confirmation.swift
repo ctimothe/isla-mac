@@ -32,7 +32,7 @@ struct CopyButton: View {
             flash($copied)
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(.system(size: 10, weight: .semibold))
+                .islandFont(.caption, weight: .semibold)
                 .foregroundStyle(copied ? Color.green : Theme.secondary)
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
         }
@@ -73,7 +73,7 @@ struct ConfirmTextButton: View {
             }
         } label: {
             Text(armed ? armedTitle : title)
-                .font(.system(size: 10, weight: .medium))
+                .islandFont(.caption)
                 .foregroundStyle(armed ? Theme.danger : Theme.secondary)
         }
         .buttonStyle(.plain)
@@ -113,12 +113,12 @@ struct ConfirmRow: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: armed ? "exclamationmark.triangle.fill" : symbol)
-                    .font(.system(size: 11, weight: .medium))
+                    .islandFont(.body)
                     .foregroundStyle(armed ? Theme.danger : Theme.secondary)
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                     .frame(width: 16)
                 Text(armed ? armedTitle : title)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .islandFont(.body)
                     .foregroundStyle(armed ? Theme.danger : .white)
                 Spacer(minLength: 8)
             }

@@ -25,7 +25,8 @@ struct LyricRow: View {
 
     /// A size rather than a `Font`, so the row can apply the tracking that size
     /// wants — SF ships a table for it and `.system(size:)` leaves it behind.
-    var fontSize: CGFloat = 16
+    /// The default is the title role both surfaces had already gathered at.
+    var fontSize: CGFloat = Theme.TypeRole.title.size
     var weight: Font.Weight = .bold
     var lineLimit: Int = 1
     var accent: Color = .white

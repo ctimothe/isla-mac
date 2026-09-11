@@ -56,17 +56,17 @@ struct SettingsPane: View {
                     if opensOnHover {
                     HStack(spacing: 8) {
                         Image(systemName: SettingsIcon.hoverDelay)
-                            .font(.system(size: 11, weight: .medium))
+                            .islandFont(.body)
                             .foregroundStyle(Theme.secondary)
                             .frame(width: 16)
                         Text(localized("Hover Delay"))
-                            .font(.system(size: 11.5, weight: .medium))
+                            .islandFont(.body)
                             .foregroundStyle(.white)
                         Slider(value: hoverDelayBinding, in: 0.05...1.0)
                             .controlSize(.mini)
                             .tint(Theme.secondary)
                         Text(String(format: "%.2fs", hoverDelay))
-                            .font(.system(size: 10, weight: .medium).monospacedDigit())
+                            .font(Theme.TypeRole.caption.font().monospacedDigit())
                             .foregroundStyle(Theme.tertiary)
                             .frame(width: 38, alignment: .trailing)
                     }
@@ -81,11 +81,11 @@ struct SettingsPane: View {
                     // so this is free to move.
                     HStack(spacing: 8) {
                         Image(systemName: SettingsIcon.panelWidth)
-                            .font(.system(size: 11, weight: .medium))
+                            .islandFont(.body)
                             .foregroundStyle(Theme.secondary)
                             .frame(width: 16)
                         Text(localized("Panel Width"))
-                            .font(.system(size: 11.5, weight: .medium))
+                            .islandFont(.body)
                             .foregroundStyle(.white)
                         Slider(
                             value: bodyWidthBinding,
@@ -94,7 +94,7 @@ struct SettingsPane: View {
                         .controlSize(.mini)
                         .tint(Theme.secondary)
                         Text("\(Int(bodyWidth)) pt")
-                            .font(.system(size: 10, weight: .medium).monospacedDigit())
+                            .font(Theme.TypeRole.caption.font().monospacedDigit())
                             .foregroundStyle(Theme.tertiary)
                             .frame(width: 38, alignment: .trailing)
                     }
@@ -385,7 +385,7 @@ struct SettingsPane: View {
     private func section<Rows: View>(_ title: String, @ViewBuilder rows: () -> Rows) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title.uppercased())
-                .font(.system(size: 9, weight: .semibold))
+                .islandFont(.caption, weight: .semibold)
                 .tracking(0.6)
                 .foregroundStyle(Theme.tertiary)
                 .padding(.leading, 8)
@@ -403,11 +403,11 @@ struct SettingsPane: View {
     private func toggleRow(symbol: String, title: String, isOn: Binding<Bool>) -> some View {
         HStack(spacing: 8) {
             Image(systemName: symbol)
-                .font(.system(size: 11, weight: .medium))
+                .islandFont(.body)
                 .foregroundStyle(Theme.secondary)
                 .frame(width: 16)
             Text(title)
-                .font(.system(size: 11.5, weight: .medium))
+                .islandFont(.body)
                 .foregroundStyle(.white)
             Spacer(minLength: 8)
             Toggle("", isOn: isOn)
@@ -431,11 +431,11 @@ struct SettingsPane: View {
     ) -> some View {
         HStack(spacing: 8) {
             Image(systemName: symbol)
-                .font(.system(size: 11, weight: .medium))
+                .islandFont(.body)
                 .foregroundStyle(Theme.secondary)
                 .frame(width: 16)
             Text(title)
-                .font(.system(size: 11.5, weight: .medium))
+                .islandFont(.body)
                 .foregroundStyle(.white)
             Spacer(minLength: 8)
             HStack(spacing: 2) {
@@ -443,7 +443,7 @@ struct SettingsPane: View {
                     let isSelected = option == selection.wrappedValue
                     Button { selection.wrappedValue = option } label: {
                         Text(optionTitle(option))
-                            .font(.system(size: 10.5, weight: .medium))
+                            .islandFont(.body)
                             .foregroundStyle(isSelected ? .white : Theme.tertiary)
                             .padding(.horizontal, 9)
                             .padding(.vertical, 3)
@@ -488,7 +488,7 @@ struct SettingsPane: View {
     /// it states something the user would otherwise have to guess.
     private func noteRow(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10.5))
+            .islandFont(.body, weight: .regular)
             .foregroundStyle(Theme.tertiary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 8)
@@ -505,11 +505,11 @@ struct SettingsPane: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: symbol)
-                    .font(.system(size: 11, weight: .medium))
+                    .islandFont(.body)
                     .foregroundStyle(Theme.secondary)
                     .frame(width: 16)
                 Text(title)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .islandFont(.body)
                     .foregroundStyle(.white)
                 Spacer(minLength: 8)
             }

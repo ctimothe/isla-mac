@@ -82,7 +82,7 @@ struct ShelfPane: View {
             )
             .overlay(
                 Image(systemName: "tray.and.arrow.down.fill")
-                    .font(.system(size: 20, weight: .light))
+                    .islandFont(.display, weight: .light)
                     .foregroundStyle(isTargeted ? .white : Theme.tertiary)
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -93,14 +93,14 @@ struct ShelfPane: View {
         HStack(spacing: 10) {
             if !shelf.selection.isEmpty {
                 Text(localized("Selected: %d", shelf.selection.count))
-                    .font(.system(size: 9))
+                    .islandFont(.caption, weight: .regular)
                     .foregroundStyle(Theme.tertiary)
             }
             Spacer()
             if !shelf.selection.isEmpty {
                 Button("Deselect") { shelf.clearSelection() }
                     .buttonStyle(.plain)
-                    .font(.system(size: 10, weight: .medium))
+                    .islandFont(.caption)
                     .foregroundStyle(Theme.secondary)
             }
             ConfirmTextButton(
@@ -139,7 +139,7 @@ private struct ShelfCard: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 68, height: 40)
             Text(item.name)
-                .font(.system(size: 9))
+                .islandFont(.caption, weight: .regular)
                 .foregroundStyle(Theme.secondary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
@@ -170,7 +170,7 @@ private struct ShelfCard: View {
         .overlay(alignment: .topLeading) {
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 12))
+                    .islandFont(.subhead, weight: .regular)
                     .foregroundStyle(.white)
                     .padding(4)
                     .allowsHitTesting(false)
@@ -180,7 +180,7 @@ private struct ShelfCard: View {
             if isHovered {
                 Button { shelf.remove(item) } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 13))
+                        .islandFont(.subhead, weight: .regular)
                         .foregroundStyle(Color.white.opacity(0.75))
                 }
                 .buttonStyle(.plain)

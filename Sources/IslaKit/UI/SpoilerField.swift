@@ -136,7 +136,7 @@ private struct Splitmix64 {
 struct SpoilerText: View {
     let text: String
     let hidden: Bool
-    var font: Font = .system(size: 11)
+    var font: Font = Theme.TypeRole.body.font(weight: .regular)
     var color: Color = .white
     /// Height of the field that stands in for the text, so a covered row is
     /// exactly as tall as an uncovered one.
@@ -178,7 +178,7 @@ struct RevealEye: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: hidden ? "eye" : "eye.slash")
-                .font(.system(size: 9, weight: .semibold))
+                .islandFont(.caption, weight: .semibold)
                 .foregroundStyle(Theme.secondary)
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
         }
