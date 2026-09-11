@@ -119,11 +119,17 @@ enum QQLyrics {
     private static func parseSong(_ dict: [String: Any]) -> Song? {
         guard let songID = stringField(dict, keys: ["songid", "songId", "id", "musicid", "musicId"]),
               !songID.isEmpty else { return nil }
+        // The search answers HTML-escaped metadata (`Don&apos;t Stop`), and the
+        // matcher scores these names against the decoded query — escaped,
+        // `I&apos;ve` can never score against `I've` and the right hit loses
+        // the pool to a worse-shaped candidate. Decoded here, at the only
+        // boundary the text crosses, so matching judges the same world the
+        // display will show.
         return Song(
             songID: songID,
-            title: stringField(dict, keys: ["songname", "songName", "title", "name"]) ?? "",
-            artist: singerName(dict),
-            album: stringField(dict, keys: ["albumname", "albumName", "album"]) ?? "",
+            title: HTMLEntities.decode(stringField(dict, keys: ["songname", "songName", "title", "name"]) ?? ""),
+            artist: HTMLEntities.decode(singerName(dict)),
+            album: HTMLEntities.decode(stringField(dict, keys: ["albumname", "albumName", "album"]) ?? ""),
             duration: songDuration(dict),
             isrc: stringField(dict, keys: ["isrc", "ISRC"])
         )
@@ -233,7 +239,7 @@ enum QQLyrics {
     /// used as-is rather than dropped.
     static func extractQRCBody(from xml: String) -> String? {
         if let content = firstMatch(of: #"LyricContent="(.*?)""#, in: xml, dotMatchesLineSeparators: true) {
-            return decodeEntities(content)
+            return HTMLEntities.decode(content)
         }
         return xml.range(of: #"\[\d+,\d+\]"#, options: .regularExpression) != nil ? xml : nil
     }
@@ -246,14 +252,6 @@ enum QQLyrics {
               match.numberOfRanges > 1,
               let range = Range(match.range(at: 1), in: text) else { return nil }
         return String(text[range])
-    }
-
-    private static func decodeEntities(_ text: String) -> String {
-        text.replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&apos;", with: "'")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&amp;", with: "&")
     }
 
     // MARK: - QRC decrypt

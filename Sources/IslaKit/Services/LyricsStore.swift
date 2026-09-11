@@ -285,6 +285,29 @@ final class LyricsStore: ObservableObject {
                     self.loadedWriteBucket = cached.durationBucket
                     self.trackOffsets[key] = cached.trackOffset
                     self.trackOffset = cached.trackOffset
+                    // Repair-on-read: entries written before the entity decoder
+                    // existed carry `&apos;` raw in their texts and words — the
+                    // user's real cached entry did. The cached text is
+                    // deterministic input to a pure transform, so no network is
+                    // needed to fix it: decode here and rewrite the entry stamped
+                    // decoded, on the serial cache queue, so every track cached
+                    // before the fix repairs itself on first open, offline, with
+                    // zero requests — and only once, since the next load reads
+                    // the stamp and skips straight to settling. A refetch here
+                    // would break the one-request-per-track promise this cache
+                    // exists to keep.
+                    if cached.decoded != true {
+                        let repaired = Self.decoded(cached.lines)
+                        if let source = cached.source {
+                            self.writeCache(
+                                key, lines: repaired, source: source,
+                                trackOffset: cached.trackOffset,
+                                isrc: cached.isrc, durationBucket: cached.durationBucket
+                            )
+                        }
+                        self.settle(Self.cleaned(repaired, title: title, artist: artist))
+                        return
+                    }
                     self.settle(Self.cleaned(cached.lines, title: title, artist: artist))
                     return
                 }
@@ -760,6 +783,43 @@ final class LyricsStore: ObservableObject {
         return parsed.map { Line(at: $0.at, text: $0.text, words: $0.words) }
     }
 
+    /// One Kugou search hit reduced to what matching judges, extracted pure so
+    /// the filename fallback split, the ms→s duration and the entity decode are
+    /// testable without the wire.
+    ///
+    /// The search answers HTML-escaped metadata (`Big Boi &amp; Sleepy`,
+    /// `Don&apos;t Stop`), and `pickMatch` scores these names against the
+    /// decoded query — escaped, `I&apos;ve` can never score against `I've`,
+    /// so the right song loses the pool to a worse-shaped hit. Decoded here,
+    /// at the only boundary the text crosses.
+    static func kugouCandidate(
+        songname: String?, singername: String?, filename: String?,
+        durationMs: Int?, isrc: String?
+    ) -> MatchCandidate {
+        var name = songname ?? "", singer = singername ?? ""
+        if name.isEmpty, let file = filename, !file.isEmpty {
+            // `filename` is the catalogue's own "singer - song" pairing, the
+            // fallback when the named fields are absent.
+            let parts = file.split(separator: "-", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            if parts.count == 2 {
+                if singer.isEmpty { singer = parts[0] }
+                name = parts[1]
+            } else {
+                name = file
+            }
+        }
+        // Kugou reports candidate duration in milliseconds.
+        let duration = durationMs.map { TimeInterval($0) / 1000 }
+        return MatchCandidate(
+            title: HTMLEntities.decode(name),
+            artist: HTMLEntities.decode(singer),
+            duration: duration,
+            isrc: isrc
+        )
+    }
+
     /// Kugou's lyric search and KRC download. Unofficial and keyless; the
     /// scored match (ISRC, then text inside the ±3s duration gate) keeps a
     /// cover or remix from masquerading, the same rule the LRCLIB search
@@ -789,24 +849,11 @@ final class LyricsStore: ObservableObject {
               let (data, _) = try? await session.data(from: searchURL),
               let reply = try? JSONDecoder().decode(SearchReply.self, from: data),
               !reply.candidates.isEmpty else { return nil }
-        let matches = reply.candidates.map { hit -> MatchCandidate in
-            // `filename` is the catalogue's own "singer - song" pairing, the
-            // fallback when the named fields are absent.
-            var name = hit.songname ?? "", singer = hit.singername ?? ""
-            if name.isEmpty, let file = hit.filename, !file.isEmpty {
-                let parts = file.split(separator: "-", maxSplits: 1).map {
-                    $0.trimmingCharacters(in: .whitespaces)
-                }
-                if parts.count == 2 {
-                    if singer.isEmpty { singer = parts[0] }
-                    name = parts[1]
-                } else {
-                    name = file
-                }
-            }
-            // Kugou reports candidate duration in milliseconds.
-            let duration = hit.duration.map { TimeInterval($0) / 1000 }
-            return MatchCandidate(title: name, artist: singer, duration: duration, isrc: hit.isrc)
+        let matches = reply.candidates.map { hit in
+            Self.kugouCandidate(
+                songname: hit.songname, singername: hit.singername,
+                filename: hit.filename, durationMs: hit.duration, isrc: hit.isrc
+            )
         }
         guard let index = Self.pickMatch(
             title: title, artist: artist, isrc: isrc,
@@ -964,7 +1011,10 @@ final class LyricsStore: ObservableObject {
             }
             guard !times.isEmpty else { continue }
 
-            let text = rest.trimmingCharacters(in: .whitespaces)
+            // LRCLIB content is user-contributed and escaped text appears
+            // there too — `I&apos;ve` in line text decodes here so the cache
+            // writes what the screen will show.
+            let text = HTMLEntities.decode(rest.trimmingCharacters(in: .whitespaces))
             guard !text.isEmpty else { continue }
             for time in times {
                 // The offset tag shifts the whole file; clamped so a broken
@@ -1021,6 +1071,11 @@ final class LyricsStore: ObservableObject {
         /// strictly more and refetches once, upgrading the entry.
         var isrc: String? = nil
         var durationBucket: String? = nil
+        /// Whether the texts were written already entity-decoded. Optional so
+        /// entries written before the decoder existed still decode — theirs
+        /// reads nil, and the load repairs them on read rather than refetching
+        /// (see the cache-hit branch in `load`).
+        var decoded: Bool? = nil
     }
 
     /// How many cached tracks to keep. The cache is one small file per track
@@ -1035,6 +1090,24 @@ final class LyricsStore: ObservableObject {
         readCacheEntry(at: url)?.lines
     }
 
+    /// Every line's text and every word's text through the shared entity
+    /// decoder. Pure, so the cache repair is a transform of the entry on disk —
+    /// cached bytes in, decoded lines out, no network.
+    static func decoded(_ lines: [Line]) -> [Line] {
+        lines.map { line in
+            Line(
+                at: line.at,
+                text: HTMLEntities.decode(line.text),
+                words: line.words.map {
+                    WordSyncedLyrics.Word(
+                        at: $0.at, text: HTMLEntities.decode($0.text), end: $0.end
+                    )
+                },
+                isCredit: line.isCredit
+            )
+        }
+    }
+
     /// The full v4 entry: the words, which tier wrote them, this track's
     /// timing correction, and the identity it was written with. `load`
     /// restores words+source+offset together so a nudge replays with the
@@ -1043,7 +1116,7 @@ final class LyricsStore: ObservableObject {
     /// predates refinement (see `load`).
     nonisolated static func readCacheEntry(
         at url: URL
-    ) -> (lines: [Line], source: LyricSource?, trackOffset: TimeInterval, isrc: String?, durationBucket: String?)? {
+    ) -> (lines: [Line], source: LyricSource?, trackOffset: TimeInterval, isrc: String?, durationBucket: String?, decoded: Bool?)? {
         guard let data = try? Data(contentsOf: url),
               let cached = try? JSONDecoder().decode(CachedLyrics.self, from: data),
               cached.times.count == cached.texts.count else { return nil }
@@ -1061,7 +1134,7 @@ final class LyricsStore: ObservableObject {
             return Line(at: cached.times[index], text: cached.texts[index], words: words, isCredit: isCredit)
         }
         let source = cached.source.flatMap(LyricSource.init(rawValue:))
-        return (lines, source, cached.trackOffset ?? 0, cached.isrc, cached.durationBucket)
+        return (lines, source, cached.trackOffset ?? 0, cached.isrc, cached.durationBucket, cached.decoded)
     }
 
     /// Encodes and writes off the main thread.
@@ -1083,7 +1156,13 @@ final class LyricsStore: ObservableObject {
             source: source.rawValue,
             trackOffset: trackOffset,
             isrc: (isrc?.isEmpty == false) ? isrc : nil,
-            durationBucket: (durationBucket?.isEmpty == false) ? durationBucket : nil
+            durationBucket: (durationBucket?.isEmpty == false) ? durationBucket : nil,
+            // Every writer runs after the parsers' boundary decode, and the
+            // repair-on-read pass above rewrites pre-decoder entries decoded —
+            // so this is a stamp, not a question: a reader seeing anything but
+            // true knows it is looking at a pre-decoder entry and repairs it,
+            // once.
+            decoded: true
         )
         let url = cacheURL(key)
         let directory = cacheDirectory
