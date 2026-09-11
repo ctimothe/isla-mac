@@ -92,7 +92,7 @@ struct ShelfPane: View {
     private var footer: some View {
         HStack(spacing: 10) {
             if !shelf.selection.isEmpty {
-                Text(localized("Selected: %d", shelf.selection.count))
+                Text(localized("%d selected", shelf.selection.count))
                     .islandFont(.caption, weight: .regular)
                     .foregroundStyle(Theme.tertiary)
             }
@@ -105,7 +105,7 @@ struct ShelfPane: View {
             }
             ConfirmTextButton(
                 title: localized("Clear"),
-                armedTitle: localized("Clear Everything?")
+                armedTitle: localized("Clear Everything")
             ) { shelf.clear() }
         }
         .padding(.top, 2)

@@ -294,8 +294,8 @@ struct LockScreenCard: View {
     private var lyricsStatus: String {
         guard NotchViewModel.showLyricsEnabled else { return localized("Lyrics are switched off in Settings.") }
         switch lyrics.state {
-        case .loading: return localized("Looking for the words…")
-        default: return localized("No words for this track.")
+        case .loading: return localized("Looking for lyrics…")
+        default: return localized("No lyrics for this track.")
         }
     }
 

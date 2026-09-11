@@ -494,7 +494,7 @@ struct MediaPane: View {
                 .foregroundStyle(Theme.tertiary)
             // Status, not instruction: an empty pane on its own would not say
             // whether nothing is playing or nothing could be read.
-            Text(localized("Nothing is playing"))
+            Text(localized("Nothing is playing."))
                 .islandFont(.subhead)
                 .foregroundStyle(Theme.secondary)
             // And an affordance, because a dead end teaches people not to
