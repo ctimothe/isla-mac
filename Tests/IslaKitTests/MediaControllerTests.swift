@@ -487,7 +487,7 @@ final class MediaControllerTests: XCTestCase {
         }
         await controller.requestSpotifyMetadata(trackID: "track-one", forKey: key)
         XCTAssertEqual(controller.spotifyISRC, "USRC12345678")
-        XCTAssertEqual(controller.spotifyExactDurationMs, 213456)
+        XCTAssertEqual(controller.spotifyExactDuration ?? -1, 213.456, accuracy: 0.001)
 
         var second = first
         second.title = "Second"
@@ -498,7 +498,7 @@ final class MediaControllerTests: XCTestCase {
             "a new track must not wear the previous track's ISRC"
         )
         XCTAssertNil(
-            controller.spotifyExactDurationMs,
+            controller.spotifyExactDuration,
             "a new track must not wear the previous track's exact duration"
         )
     }
@@ -526,7 +526,7 @@ final class MediaControllerTests: XCTestCase {
         controller.apply(NowPlayingFeed.Snapshot())
 
         XCTAssertNil(controller.spotifyISRC)
-        XCTAssertNil(controller.spotifyExactDurationMs)
+        XCTAssertNil(controller.spotifyExactDuration)
     }
 
     /// The lookup is a network round-trip: the track may have moved on before
@@ -548,7 +548,7 @@ final class MediaControllerTests: XCTestCase {
         await controller.requestSpotifyMetadata(trackID: "track-one", forKey: "a-track-no-longer-shown")
 
         XCTAssertNil(controller.spotifyISRC, "an answer for a departed track must not publish")
-        XCTAssertNil(controller.spotifyExactDurationMs)
+        XCTAssertNil(controller.spotifyExactDuration)
     }
 
     /// The catalogue does not always carry an ISRC for a track it otherwise
@@ -573,6 +573,6 @@ final class MediaControllerTests: XCTestCase {
         await controller.requestSpotifyMetadata(trackID: "track-one", forKey: key)
 
         XCTAssertNil(controller.spotifyISRC)
-        XCTAssertEqual(controller.spotifyExactDurationMs, 180000)
+        XCTAssertEqual(controller.spotifyExactDuration ?? -1, 180.0, accuracy: 0.001)
     }
 }

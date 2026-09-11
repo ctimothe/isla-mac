@@ -102,7 +102,7 @@ struct MediaPane: View {
                     duration: media.duration,
                     spotifyID: media.spotifyTrackID,
                     isrc: media.spotifyISRC,
-                    exactDurationMs: media.spotifyExactDurationMs.map { TimeInterval($0) / 1000 }
+                    exactDuration: media.spotifyExactDuration
                 )
             }
         } else {
