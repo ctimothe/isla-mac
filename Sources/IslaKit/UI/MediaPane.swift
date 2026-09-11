@@ -257,7 +257,7 @@ struct MediaPane: View {
             // to cover the lyric line above the bar.
             Text(formatTime((previewFraction ?? progress) * media.duration))
                 .foregroundStyle(previewFraction == nil ? Theme.tertiary : Color.white.opacity(0.9))
-                .frame(width: 32, alignment: .leading)
+                .frame(width: media.duration >= 3600 ? 52 : 32, alignment: .leading)
 
             GeometryReader { geo in
                 let width = geo.size.width
@@ -335,7 +335,7 @@ struct MediaPane: View {
             }
 
             Text(formatTime(media.duration))
-                .frame(width: 32, alignment: .trailing)
+                .frame(width: media.duration >= 3600 ? 52 : 32, alignment: .trailing)
         }
         .font(Theme.TypeRole.caption.font().monospacedDigit())
         .foregroundStyle(Theme.tertiary)
