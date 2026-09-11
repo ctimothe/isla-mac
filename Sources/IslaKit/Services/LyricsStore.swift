@@ -760,6 +760,43 @@ final class LyricsStore: ObservableObject {
         return parsed.map { Line(at: $0.at, text: $0.text, words: $0.words) }
     }
 
+    /// One Kugou search hit reduced to what matching judges, extracted pure so
+    /// the filename fallback split, the ms→s duration and the entity decode are
+    /// testable without the wire.
+    ///
+    /// The search answers HTML-escaped metadata (`Big Boi &amp; Sleepy`,
+    /// `Don&apos;t Stop`), and `pickMatch` scores these names against the
+    /// decoded query — escaped, `I&apos;ve` can never score against `I've`,
+    /// so the right song loses the pool to a worse-shaped hit. Decoded here,
+    /// at the only boundary the text crosses.
+    static func kugouCandidate(
+        songname: String?, singername: String?, filename: String?,
+        durationMs: Int?, isrc: String?
+    ) -> MatchCandidate {
+        var name = songname ?? "", singer = singername ?? ""
+        if name.isEmpty, let file = filename, !file.isEmpty {
+            // `filename` is the catalogue's own "singer - song" pairing, the
+            // fallback when the named fields are absent.
+            let parts = file.split(separator: "-", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            if parts.count == 2 {
+                if singer.isEmpty { singer = parts[0] }
+                name = parts[1]
+            } else {
+                name = file
+            }
+        }
+        // Kugou reports candidate duration in milliseconds.
+        let duration = durationMs.map { TimeInterval($0) / 1000 }
+        return MatchCandidate(
+            title: HTMLEntities.decode(name),
+            artist: HTMLEntities.decode(singer),
+            duration: duration,
+            isrc: isrc
+        )
+    }
+
     /// Kugou's lyric search and KRC download. Unofficial and keyless; the
     /// scored match (ISRC, then text inside the ±3s duration gate) keeps a
     /// cover or remix from masquerading, the same rule the LRCLIB search
@@ -789,24 +826,11 @@ final class LyricsStore: ObservableObject {
               let (data, _) = try? await session.data(from: searchURL),
               let reply = try? JSONDecoder().decode(SearchReply.self, from: data),
               !reply.candidates.isEmpty else { return nil }
-        let matches = reply.candidates.map { hit -> MatchCandidate in
-            // `filename` is the catalogue's own "singer - song" pairing, the
-            // fallback when the named fields are absent.
-            var name = hit.songname ?? "", singer = hit.singername ?? ""
-            if name.isEmpty, let file = hit.filename, !file.isEmpty {
-                let parts = file.split(separator: "-", maxSplits: 1).map {
-                    $0.trimmingCharacters(in: .whitespaces)
-                }
-                if parts.count == 2 {
-                    if singer.isEmpty { singer = parts[0] }
-                    name = parts[1]
-                } else {
-                    name = file
-                }
-            }
-            // Kugou reports candidate duration in milliseconds.
-            let duration = hit.duration.map { TimeInterval($0) / 1000 }
-            return MatchCandidate(title: name, artist: singer, duration: duration, isrc: hit.isrc)
+        let matches = reply.candidates.map { hit in
+            Self.kugouCandidate(
+                songname: hit.songname, singername: hit.singername,
+                filename: hit.filename, durationMs: hit.duration, isrc: hit.isrc
+            )
         }
         guard let index = Self.pickMatch(
             title: title, artist: artist, isrc: isrc,
@@ -964,7 +988,10 @@ final class LyricsStore: ObservableObject {
             }
             guard !times.isEmpty else { continue }
 
-            let text = rest.trimmingCharacters(in: .whitespaces)
+            // LRCLIB content is user-contributed and escaped text appears
+            // there too — `I&apos;ve` in line text decodes here so the cache
+            // writes what the screen will show.
+            let text = HTMLEntities.decode(rest.trimmingCharacters(in: .whitespaces))
             guard !text.isEmpty else { continue }
             for time in times {
                 // The offset tag shifts the whole file; clamped so a broken
