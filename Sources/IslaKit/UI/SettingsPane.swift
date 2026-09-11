@@ -79,7 +79,8 @@ struct SettingsPane: View {
 
                     // How wide the panel opens. The window behind it never
                     // changes size — only how much of it the island draws in —
-                    // so this is free to move.
+                    // so this is free to move. The drag previews in state and
+                    // commits once, on release: see `bodyWidthBinding`.
                     HStack(spacing: 8) {
                         Image(systemName: SettingsIcon.panelWidth)
                             .islandFont(.body)
@@ -90,7 +91,11 @@ struct SettingsPane: View {
                             .foregroundStyle(.white)
                         Slider(
                             value: bodyWidthBinding,
-                            in: Double(NotchMetrics.minimumBodyWidth)...Double(NotchMetrics.maximumBodyWidth)
+                            in: Double(NotchMetrics.minimumBodyWidth)...Double(NotchMetrics.maximumBodyWidth),
+                            onEditingChanged: { editing in
+                                guard !editing else { return }
+                                commitBodyWidth()
+                            }
                         )
                         .controlSize(.mini)
                         .tint(Theme.secondary)
@@ -346,6 +351,14 @@ struct SettingsPane: View {
         }
     }
 
+    /// The drag's live preview, and nothing more. A slider writes its binding
+    /// on every tick of the drag, and this setter used to persist the width
+    /// and rebuild the whole panel per tick (audit A7): one drag across the
+    /// range tore the panel down and rebuilt it — view model included, pointer
+    /// watcher restarted — for every point of travel, ~140 times for a width
+    /// that was obsolete on the next tick. A tick is not a decision; letting
+    /// go is. The persist and the rebuild happen once, in `commitBodyWidth`,
+    /// when the slider reports the drag ended.
     private var bodyWidthBinding: Binding<Double> {
         Binding(
             get: { Double(bodyWidth) },
@@ -353,13 +366,22 @@ struct SettingsPane: View {
                 let width = CGFloat(value.rounded())
                 guard width != bodyWidth else { return }
                 bodyWidth = width
-                UserDefaults.standard.set(Double(width), forKey: NotchViewModel.bodyWidthKey)
-                // Rebuilt, not nudged: the geometry is computed once when the
-                // panel is built, and rebuilding is the path a display change
-                // already takes.
-                (NSApp.delegate as? AppDelegate)?.refreshGeometry()
             }
         )
+    }
+
+    /// The one commit, when the drag ends. Still rebuilt, not nudged: the
+    /// geometry is computed once when the panel is built, and rebuilding is
+    /// the path a display change already takes. That cost was the reason for
+    /// deferring — paying it per tick was ~140 teardowns per drag — and paying
+    /// it once, for the width that was actually chosen, is what the rebuild is
+    /// for. The commit is the tested unit on `NotchViewModel`, so what lands
+    /// on disk is clamped and rounded the way the read side expects; the state
+    /// takes the returned value in case the commit adjusted what was asked for.
+    private func commitBodyWidth() {
+        let committed = NotchViewModel.commitBodyWidth(CGFloat(bodyWidth), into: .standard)
+        bodyWidth = committed
+        (NSApp.delegate as? AppDelegate)?.refreshGeometry()
     }
 
     private var hoverDelayBinding: Binding<Double> {
