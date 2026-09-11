@@ -91,6 +91,19 @@ final class LyricsStore: ObservableObject {
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("IslaLyrics", isDirectory: true)
     }
 
+    // MARK: - Load identity
+
+    /// The exact catalogue duration as load identity, bucketed to 0.1s.
+    ///
+    /// The daemon reports a rounded number while the Web API knows the real
+    /// one, and raw doubles would re-fire on float noise; the bucket is what
+    /// converges. Empty for unknown, so a reading refines nil exactly once.
+    /// The views' task ids build from this, so both change in lockstep.
+    static func exactDurationIdentity(_ exactDuration: TimeInterval?) -> String {
+        guard let exactDuration else { return "" }
+        return "|d\(Int((exactDuration * 10).rounded()))"
+    }
+
     /// Called with the displayed track. Same track twice is free.
     /// - Parameter spotifyID: the catalogue id when Spotify is the player —
     ///   the community word-synced database is keyed by it.
@@ -98,7 +111,7 @@ final class LyricsStore: ObservableObject {
     ///   letting searched tiers join on recording identity instead of text.
     /// - Parameter exactDuration: the catalogue duration in seconds, the
     ///   number the duration gate compares against instead of the daemon's
-    ///   rounded reading.
+    ///   rounded reading. Bucketed to 0.1s in the load identity below.
     func load(
         title: String, artist: String, album: String, duration: TimeInterval,
         spotifyID: String? = nil, isrc: String? = nil, exactDuration: TimeInterval? = nil
@@ -107,19 +120,24 @@ final class LyricsStore: ObservableObject {
         // A track whose Spotify id arrives a beat after its metadata reloads
         // once: the id unlocks the word-synced database, and it is worth one
         // more lookup. An id-bearing load is never replaced by an id-less one.
-        // The ISRC and exact duration arrive later still, off the Web API,
-        // and their arrival reloads once more: exact identity can rescue a
-        // match the text search got wrong, and the held words cover the gap.
-        // A load carrying *less* identity than the one in flight is a stale
-        // echo, not news — the views re-fire their task on every published
-        // change, so an isrc-less reload after an isrc-bearing one would
-        // otherwise downgrade the match and fetch again for nothing. The exact
-        // duration is deliberately not identity: it refines the ±3s gate but
-        // unlocks no new tier, it lands jointly with the ISRC in the common
-        // case (and that reload already carries it), and membership would
-        // re-fire a full fetch on metadata jitter. Same reasoning keeps it
-        // out of the views' task ids, which mirror this identity.
-        let identity = key + (spotifyID.map { "|\($0)" } ?? "") + (isrc.map { "|\($0)" } ?? "")
+        // The Web-API metadata arrives later still, carrying the ISRC and the
+        // exact catalogue duration, and reloads once more: exact identity can
+        // rescue a match the text search got wrong, the gate compares against
+        // the real duration instead of the daemon's rounded reading, and the
+        // held words cover the gap. The duration rides in identity bucketed
+        // to 0.1s — without this the equal-identity early return below would
+        // keep the refinement from ever applying. The bucket converges:
+        // snapshot-rounded first, exact second, then stable: at most one
+        // extra fetch per track, and sub-0.05s jitter never leaves its
+        // bucket. It sits before the ISRC so an isrc-less echo stays a string
+        // prefix of the load it echoes, which is what the stale-echo guard
+        // below recognizes. A load carrying *less* identity than the one in
+        // flight is a stale echo, not news — the views re-fire their task on
+        // every published change, so an isrc-less reload after an isrc-bearing
+        // one would otherwise downgrade the match and fetch again for nothing.
+        // The views' task ids mirror this identity, so each refinement
+        // re-fires the load exactly once.
+        let identity = key + (spotifyID.map { "|\($0)" } ?? "") + Self.exactDurationIdentity(exactDuration) + (isrc.map { "|\($0)" } ?? "")
         guard identity != loadedKey else { return }
         if let loadedKey, loadedKey.hasPrefix(identity) { return }
         loadedKey = identity
@@ -513,6 +531,12 @@ final class LyricsStore: ObservableObject {
         // two searches, so every exact hit paid for both before it could be
         // used. The searches start only on a miss now; arbitration among them
         // is unchanged.
+        // Staging taxes every word-tier miss with the full amll latency: QQ
+        // and Kugou wait for it to answer or time out first. Accepted on
+        // purpose — amll hits are the common Spotify case, so the exact answer
+        // lands sooner for most tracks than a joint start would let it, and a
+        // miss merely waits out one lookup. A hanging amll delays the miss by
+        // at most the session's 8s request timeout, never forever.
         let amllLines = await fetchAmll(spotifyID: spotifyID)
         guard !Task.isCancelled, loadedKey == key else { return }
         if let amllLines, !amllLines.isEmpty {

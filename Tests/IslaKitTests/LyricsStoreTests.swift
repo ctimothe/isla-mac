@@ -415,6 +415,178 @@ final class LyricsStoreTests: XCTestCase {
         XCTAssertEqual(kept.count, 2)
     }
 
+    /// The guard proof that counts: the v4 entry is deleted before the echo,
+    /// so a re-fire would miss the cache and reach the network. The test
+    /// above settles with the entry present, where even an unguarded echo
+    /// answers from disk and the count cannot move either way.
+    func testIsrcLessEchoDoesNotRefireWhenCacheIsBypassed() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var count = 0
+            func bump() { lock.withLock { count += 1 } }
+            var value: Int { lock.withLock { count } }
+        }
+        let counter = Counter()
+        let session = TestURLProtocol.session { request in
+            counter.bump()
+            guard request.url?.host == "lrclib.net",
+                  request.url?.path == "/api/get" else { return nil }
+            let payload = #"{"syncedLyrics":"[00:10.00] First line\n[00:15.00] Second line\n","duration":200}"#
+            return (200, payload.data(using: .utf8)!)
+        }
+        let store = LyricsStore(session: session, cacheDirectory: root)
+        store.load(title: "T", artist: "A", album: "L", duration: 200, spotifyID: "abc123", isrc: "USRC12345678")
+        await waitForSettled(store)
+        guard case .synced = store.state else {
+            return XCTFail("the stubbed answer should have settled, got \(store.state)")
+        }
+        // The write lands off the main actor; the deletion has to wait for
+        // it, or nothing about this path is bypassed.
+        let key = LyricsStore.cacheKey(title: "T", artist: "A", album: "L", duration: 200)
+        let url = root.appendingPathComponent("\(key).lrc4.json")
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: url.path) {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: url.path),
+            "the first load has to cache for the bypass to mean anything"
+        )
+        try FileManager.default.removeItem(at: url)
+        let settledCount = counter.value
+        XCTAssertGreaterThan(settledCount, 0, "the first load has to fetch for this test to mean anything")
+        store.load(title: "T", artist: "A", album: "L", duration: 200, spotifyID: "abc123")
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(counter.value, settledCount, "the isrc-less echo re-fired past the guard with no cache to hide behind")
+        guard case .synced(let kept) = store.state else {
+            return XCTFail("the echo disturbed the settled lyrics")
+        }
+        XCTAssertEqual(kept.count, 2)
+    }
+
+    /// Arrival of the exact catalogue duration re-fires the gate once: the
+    /// daemon's rounded reading settles first, the exact number refines, then
+    /// the same exact number is stable. The v4 entry is deleted before each
+    /// follow-up load so a re-fire cannot hide behind the cache.
+    func testExactDurationRefiresGateOnceThenStable() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var count = 0
+            func bump() { lock.withLock { count += 1 } }
+            var value: Int { lock.withLock { count } }
+        }
+        let counter = Counter()
+        let session = TestURLProtocol.session { request in
+            counter.bump()
+            guard request.url?.host == "lrclib.net",
+                  request.url?.path == "/api/get" else { return nil }
+            let payload = #"{"syncedLyrics":"[00:10.00] First line\n[00:15.00] Second line\n","duration":200}"#
+            return (200, payload.data(using: .utf8)!)
+        }
+        let store = LyricsStore(session: session, cacheDirectory: root)
+        let key = LyricsStore.cacheKey(title: "T", artist: "A", album: "L", duration: 200)
+        let url = root.appendingPathComponent("\(key).lrc4.json")
+        store.load(title: "T", artist: "A", album: "L", duration: 200)
+        await waitForSettled(store)
+        guard case .synced = store.state else {
+            return XCTFail("the stubbed answer should have settled, got \(store.state)")
+        }
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: url.path) {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: url.path),
+            "the first load has to cache for the bypass to mean anything"
+        )
+        try FileManager.default.removeItem(at: url)
+
+        let before = counter.value
+        store.load(title: "T", artist: "A", album: "L", duration: 200, exactDuration: 200.5)
+        var refired = false
+        for _ in 0..<100 {
+            if counter.value > before { refired = true; break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(refired, "arrival of the exact duration never re-fired the gate")
+        // The refire's own write proves it finished; only then is the
+        // stability baseline below honest.
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: url.path) {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: url.path),
+            "the refire has to settle before stability means anything"
+        )
+        try FileManager.default.removeItem(at: url)
+        let stable = counter.value
+        store.load(title: "T", artist: "A", album: "L", duration: 200, exactDuration: 200.5)
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(counter.value, stable, "the settled exact duration re-fired the gate again")
+        guard case .synced = store.state else {
+            return XCTFail("the stability echo disturbed the settled lyrics")
+        }
+    }
+
+    /// Sub-bucket jitter in the exact duration is not news: two values in the
+    /// same 0.1s bucket share one identity, so the second load returns early
+    /// even with no cache to answer from.
+    func testSameBucketExactDurationDoesNotRefire() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var count = 0
+            func bump() { lock.withLock { count += 1 } }
+            var value: Int { lock.withLock { count } }
+        }
+        let counter = Counter()
+        let session = TestURLProtocol.session { request in
+            counter.bump()
+            guard request.url?.host == "lrclib.net",
+                  request.url?.path == "/api/get" else { return nil }
+            let payload = #"{"syncedLyrics":"[00:10.00] First line\n[00:15.00] Second line\n","duration":200}"#
+            return (200, payload.data(using: .utf8)!)
+        }
+        let store = LyricsStore(session: session, cacheDirectory: root)
+        store.load(title: "T", artist: "A", album: "L", duration: 200, exactDuration: 200.42)
+        await waitForSettled(store)
+        guard case .synced = store.state else {
+            return XCTFail("the stubbed answer should have settled, got \(store.state)")
+        }
+        let key = LyricsStore.cacheKey(title: "T", artist: "A", album: "L", duration: 200)
+        let url = root.appendingPathComponent("\(key).lrc4.json")
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: url.path) {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: url.path),
+            "the first load has to cache for the bypass to mean anything"
+        )
+        try FileManager.default.removeItem(at: url)
+        let baseline = counter.value
+        XCTAssertGreaterThan(baseline, 0, "the first load has to fetch for this test to mean anything")
+        store.load(title: "T", artist: "A", album: "L", duration: 200, exactDuration: 200.44)
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(counter.value, baseline, "same-bucket exact duration re-fired the gate")
+    }
+
+    /// The bucket itself: a 0.02s wobble shares identity, a 0.5s refinement
+    /// does not, and absence stays distinguishable from any value.
+    func testExactDurationIdentityBucketsToTenth() {
+        XCTAssertEqual(
+            LyricsStore.exactDurationIdentity(200.42),
+            LyricsStore.exactDurationIdentity(200.44)
+        )
+        XCTAssertNotEqual(
+            LyricsStore.exactDurationIdentity(200.42),
+            LyricsStore.exactDurationIdentity(200.5)
+        )
+        XCTAssertNotEqual(LyricsStore.exactDurationIdentity(nil), LyricsStore.exactDurationIdentity(200.0))
+    }
+
     /// Word-tier beats line-tier end to end: QQ answers with words while
     /// LRCLIB answers with lines, and the words are what settles.
     func testWordTierBeatsLineTier() async throws {
