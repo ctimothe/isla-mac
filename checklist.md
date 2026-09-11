@@ -208,4 +208,8 @@ branch `feat/v0.3-native-motion`:
   fill plus border after `ShelfPane`'s selected tile, the lyric falloff is
   clamped to a floor, and a live change redraws through the one
   `SystemAppearance` observation at `NotchContentView`. The surface raises are
-  shape-visibility fixes for everyone, not accessibility variants.
+  shape-visibility fixes for everyone, not accessibility variants. Shipped
+  2026-09-11: surface base 0.16, surfaceHover base 0.26 — the brief's step-3
+  prose said 0.12/0.22, but those compute to 1.27:1/1.79:1 and fail the brief's
+  own 1.4/2.0 test floors, so the tests governed. Lyric neighbour 0.34/0.44,
+  floor 0.28/0.38; hairline base stays 0.10 by design (1pt edge, not a fill).

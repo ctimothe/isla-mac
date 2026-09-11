@@ -39,10 +39,19 @@ struct LyricRow: View {
     /// a line nobody can read and barely a line at all. The floor lifts it to
     /// 0.28 (2.27:1) for everyone and to 0.38 (3.39:1) under Increase Contrast,
     /// past the 3.0 `ContrastRampTests` holds. Depth survives: the sung line
-    /// still arrives at full white through `KaraokeText`, and the neighbour at
-    /// 0.34 still sits between the two.
+    /// still arrives at full white through `KaraokeText`, and the neighbour
+    /// (0.34, 0.44 under Increase Contrast) still sits between floor and song.
     static func falloffFloor(increaseContrast: Bool) -> Double {
         increaseContrast ? 0.38 : 0.28
+    }
+
+    /// The neighbour one step from the sung line.
+    ///
+    /// It used to sit at 0.34 at every setting, which put it *below* the far
+    /// floor once Increase Contrast raised that to 0.38 — the near line dimmer
+    /// than the far ones, depth inside out. 0.44 keeps it between floor and song.
+    static func neighbourOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.44 : 0.34
     }
 
     var body: some View {
@@ -97,10 +106,12 @@ struct LyricRow: View {
     }
 
     /// The context opacity for a non-sung line: the neighbour one step away,
-    /// or the floor for everything further out.
+    /// or the floor for everything further out. The floor always clears the
+    /// old 0.18, so no `max` guard is needed — the clamp *is* the value.
     @MainActor
     private var falloffOpacity: Double {
-        guard distance != 1 else { return 0.34 }
-        return max(0.18, Self.falloffFloor(increaseContrast: SystemAppearance.shared.increaseContrast))
+        let increaseContrast = SystemAppearance.shared.increaseContrast
+        guard distance != 1 else { return Self.neighbourOpacity(increaseContrast: increaseContrast) }
+        return Self.falloffFloor(increaseContrast: increaseContrast)
     }
 }
