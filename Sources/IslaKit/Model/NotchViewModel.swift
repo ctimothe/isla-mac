@@ -344,6 +344,37 @@ final class NotchViewModel: ObservableObject {
         lockedHoverNudges += 1
     }
 
+    /// What a deliberate open command — ⌥⌘I, the translate shortcut, the
+    /// welcome — is worth right now.
+    ///
+    /// Over the shield nothing may open and nothing may take the keyboard. An
+    /// open there is not merely invisible-because-covered: `setOpen(true)`
+    /// grows the clickable region from the deliberate pill-sized locked rect
+    /// (`applyLockedActiveRect`) to the open body, over the password field, and
+    /// the translate route would additionally land on a tab that types — a
+    /// window the lock presentation deliberately lifted above the shield, now
+    /// key and holding the keyboard. `panel.onPress` already refuses exactly
+    /// that at the keyboard, and the island's own click refusal answers with
+    /// the shake; the commands get the same grammar: refuse, and shake the pill
+    /// instead of doing nothing, which would read as a dead app rather than as
+    /// a limit.
+    ///
+    /// A verdict rather than an action, so the sequence — command, refusal,
+    /// shake — can be played out in a test with no panel, the same shape as
+    /// `PointerCrossing`. The controller keeps the effects.
+    enum CommandVerdict: Equatable {
+        /// The command runs its ordinary open path.
+        case proceed
+        /// Over the shield: shake the pill and do nothing else.
+        case refuseWithShake
+    }
+
+    /// The verdict for `toggle()` and `translate(_:)`, asked before either
+    /// touches a tab, the translator, the pin or `setOpen`.
+    func verdictForDeliberateOpen() -> CommandVerdict {
+        isLockedPresentation ? .refuseWithShake : .proceed
+    }
+
 
 
     var compactMediaActivity: CompactMediaActivity {
