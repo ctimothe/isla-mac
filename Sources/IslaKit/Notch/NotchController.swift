@@ -451,6 +451,16 @@ final class NotchController {
     /// Opens on the translate tab with this text already in it.
     func translate(_ text: String) {
         guard let vm = viewModel else { return }
+        // Refused over the shield, before the translator, the tab or `setOpen`
+        // is touched: this route would open the panel over the password field
+        // and then make it key through `select(.translate)` — a window the lock
+        // presentation deliberately lifted above the shield, holding the
+        // keyboard in front of the password field, the exact hazard
+        // `panel.onPress` refuses for the same reason.
+        guard vm.verdictForDeliberateOpen() == .proceed else {
+            vm.nudgeLockedIsland()
+            return
+        }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         peekWork?.cancel()
@@ -566,6 +576,16 @@ final class NotchController {
     /// route to the panel unusable.
     func toggle() {
         guard let viewModel else { return }
+        // Refused over the shield, before the pin or `setOpen` is touched: an
+        // open there would grow the clickable region from the deliberate
+        // pill-sized locked rect to the open body, over the password field. The
+        // shake is the same refusal the island's own click gives — and
+        // `presentWelcome()` keeps its own silent guard, so the welcome never
+        // reaches here while locked.
+        guard viewModel.verdictForDeliberateOpen() == .proceed else {
+            viewModel.nudgeLockedIsland()
+            return
+        }
         // `setOpen`'s close path defers the `isOpen` mutation to the next run
         // loop pass, so reading `viewModel.isOpen` right after calling it would
         // read the stale, pre-close value. Capture the intended target state
