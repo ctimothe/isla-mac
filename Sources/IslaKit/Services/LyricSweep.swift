@@ -15,16 +15,15 @@ import Foundation
 /// are separate clocks, and the only fix for separate clocks is one clock.
 @MainActor
 enum LyricSweep {
-    /// Three real delays stack between the singer and the screen: the position
-    /// ticks four times a second, so a line lands up to 250ms after its
-    /// timestamp; the crossfade spends another 160ms arriving; and the
-    /// pipeline's own readings run slightly behind the audio. Leading by roughly
-    /// their sum is what karaoke has always done — the line appears as the voice
-    /// does, not noticeably after it.
-    static let standardLead: TimeInterval = 0.45
-    /// With the position corrected against the player's own clock the pipeline's
-    /// share of the lag is gone; what remains is display cost.
-    static let precisionLead: TimeInterval = 0.25
+    /// The live Spotify probe found the raw position clock about 110ms behind.
+    /// The former 450ms allowance compounded that lag into a visibly early
+    /// caption/card. One ticker interval remains enough to avoid displaying a
+    /// line late without making every source appear ahead of the voice.
+    static let standardLead: TimeInterval = 0.25
+    /// Precision sync already corrects against the player's own clock. Its
+    /// smaller lead only covers rendering/crossfade cost, not lag already
+    /// accounted for by the clock correction.
+    static let precisionLead: TimeInterval = 0.15
 
     static func lead(
         precisionSync: Bool, userOffset: TimeInterval,
