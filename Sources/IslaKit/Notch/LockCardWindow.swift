@@ -59,12 +59,20 @@ final class LockCardWindow {
 
     var isPresenting: Bool { panel != nil }
 
+    /// The machine's audio state for the length of one lock. Created with the
+    /// card, stopped at dismiss — the window is destroyed per lock anyway, so
+    /// the watch's lifetime is exactly the card's, and the listeners can never
+    /// outlive the surface that drew from them.
+    private var audioWatch: AudioWatch?
+
     /// Puts the card on screen above the shield.
     func present(media: MediaController, lyrics: LyricsStore, on screen: NSScreen, presence: LockScreenPresence) {
         let frame = Self.frame(on: screen.frame, size: Self.windowSize)
         if let panel {
             // Already up — a second lock notification, or a display that
-            // changed shape underneath us.
+            // changed shape underneath us. The audio watch is still running;
+            // one re-read in case the machine moved with the display.
+            audioWatch?.systemAudioChanged()
             panel.setFrame(frame, display: true)
             // Straight to full, no fade: this path is a correction to a card
             // that is already being looked at, and re-fading it would read as a
@@ -77,12 +85,16 @@ final class LockCardWindow {
             return
         }
 
+        let watch = AudioWatch()
+        watch.start()
+        audioWatch = watch
+
         let panel = NotchPanel(contentRect: frame)
         // The card answers clicks — transport, scrubbing, the output picker —
         // but the app must never activate for them, which the panel's
         // non-activating style already guarantees.
         panel.ignoresMouseEvents = false
-        let hosting = NSHostingView(rootView: LockScreenCard(media: media, lyrics: lyrics))
+        let hosting = NSHostingView(rootView: LockScreenCard(media: media, lyrics: lyrics, audio: watch))
         // The card sits inset inside the window, so its shadow has somewhere to
         // go. Not autoresizing: the card is one fixed size and the window is
         // only ever set to one size, so a stretched card could only ever be a
@@ -144,9 +156,13 @@ final class LockCardWindow {
 
     /// Takes it away. The window is destroyed rather than hidden: it exists
     /// only for the length of a lock, and a window kept around is a window that
-    /// can be found in the wrong state next time.
+    /// can be found in the wrong state next time. The audio watch goes with it,
+    /// before the panel is torn down — its listeners belong to exactly one
+    /// lock, and a dismissed card must not keep hearing the machine.
     func dismiss(presence: LockScreenPresence) {
         guard let panel else { return }
+        audioWatch?.stop()
+        audioWatch = nil
         presence.apply(to: panel, locked: false)
         panel.orderOut(nil)
         panel.contentView = nil
