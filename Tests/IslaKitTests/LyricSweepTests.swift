@@ -5,17 +5,18 @@ import XCTest
 @MainActor
 final class LyricSweepTests: XCTestCase {
 
-    /// The caption used to read the lead without the listener's own correction
-    /// and the lock card hardcoded `+ 0.25`, consulting neither the correction
-    /// nor the precision flag. So nudging Sync on the stage moved the stage and
-    /// left the other two pointing at the line before.
-    func testTheListenerCorrectionAndThePrecisionFlagReachEverySurface() {
-        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.45, accuracy: 0.0001)
-        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.25, accuracy: 0.0001)
-        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: -0.4), -0.15, accuracy: 0.0001)
-        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 1.2), 1.65, accuracy: 0.0001)
+    /// The live probe measured the raw position clock 112ms behind Spotify.
+    /// A 450ms standard lead therefore put the caption/card roughly 338ms
+    /// ahead of the voice, while 250ms still left a precision-synced panel
+    /// about 138ms ahead. These defaults leave the shared surfaces at a small,
+    /// deliberate advance without asking listeners to nudge every track.
+    func testTheMeasuredClockLagCalibratesTheSharedDefaultLead() {
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.25, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.15, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: -0.4), -0.25, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 1.2), 1.45, accuracy: 0.0001)
         XCTAssertEqual(
-            LyricSweep.position(10, precisionSync: true, userOffset: 0.5), 10.75, accuracy: 0.0001
+            LyricSweep.position(10, precisionSync: true, userOffset: 0.5), 10.65, accuracy: 0.0001
         )
     }
 
@@ -25,25 +26,24 @@ final class LyricSweepTests: XCTestCase {
     func testLeadSumsAllThreeOffsetLayers() {
         XCTAssertEqual(
             LyricSweep.lead(precisionSync: false, userOffset: 1.0, sourceBias: 0.5, trackOffset: 0.25),
-            2.2, accuracy: 0.0001
+            2.0, accuracy: 0.0001
         )
         XCTAssertEqual(
             LyricSweep.lead(precisionSync: true, userOffset: -0.5, sourceBias: 0.2, trackOffset: -0.1),
-            -0.15, accuracy: 0.0001
+            -0.25, accuracy: 0.0001
         )
     }
 
-    /// The defaulted layers keep the old call shape: past callers read the
-    /// same lead they always did.
-    func testLeadDefaultsLeaveOldCallersAlone() {
-        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.45, accuracy: 0.0001)
-        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.25, accuracy: 0.0001)
+    /// The defaulted layers keep every caller on the calibrated shared clock.
+    func testLeadDefaultsUseTheCalibratedValues() {
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.25, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.15, accuracy: 0.0001)
     }
 
     func testPositionCarriesAllThreeLayers() {
         XCTAssertEqual(
             LyricSweep.position(10, precisionSync: true, userOffset: 0.5, sourceBias: 0.25, trackOffset: -0.25),
-            10.75, accuracy: 0.0001
+            10.65, accuracy: 0.0001
         )
     }
 
