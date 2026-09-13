@@ -39,6 +39,8 @@
 
 ## Task 1: Establish local LRC documents
 
+**Status:** complete
+
 **Files:**
 - Create: Sources/IslaKit/Services/LocalLyricsDocument.swift
 - Create: Tests/IslaKitTests/LocalLyricsDocumentTests.swift
