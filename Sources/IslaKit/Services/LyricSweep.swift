@@ -20,10 +20,10 @@ enum LyricSweep {
     /// caption/card. One ticker interval remains enough to avoid displaying a
     /// line late without making every source appear ahead of the voice.
     static let standardLead: TimeInterval = 0.25
-    /// Precision sync already corrects against the player's own clock. Its
-    /// smaller lead only covers rendering/crossfade cost, not lag already
-    /// accounted for by the clock correction.
-    static let precisionLead: TimeInterval = 0.15
+    /// Precision sync corrects against the player's own clock, but the live
+    /// Spotify probe still measures cross-process sampling and rendering cost.
+    /// A 250ms surface lead keeps its lyric surface inside the 150ms p95 gate.
+    static let precisionLead: TimeInterval = 0.25
 
     static func lead(
         precisionSync: Bool, userOffset: TimeInterval,

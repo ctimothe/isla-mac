@@ -145,6 +145,10 @@ is off by default with a 200-file cap once enabled.
   VoiceOver, Reduce Motion, English, Russian, and local-LRC workflows.
 - [ ] Measure Spotify and Apple Music word timing at or below 150 ms p95; keep
   every unmeasured publisher line-level.
+- [ ] Run `LyricsCoordinatorTests/testLatencyHarnessPublishesACachedTimelineBeforePanelOpenAndNetworkResultsUnderBudget`:
+  cache-ready lyric state must arrive within 150 ms before any panel opens and
+  the mocked broker p95 within 2 s. Before broker release, record its
+  metadata-free aggregate resolve-latency p95 at or below 2 s as well.
 - [ ] The lock card appears centred at its own size across repeated
   lock/unlock cycles, including after display sleep.
 - [ ] Protected Shelf files prompt only when the Shelf is opened or used.

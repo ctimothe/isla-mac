@@ -24,3 +24,10 @@ secret; and production-environment approval for the manual release workflow.
 
 Without every prerequisite, leave the adapter and bindings absent. The worker
 fails closed; it never falls back to community sources.
+
+Before a configured broker is released, run the client latency harness
+`LyricsCoordinatorTests/testLatencyHarnessPublishesACachedTimelineBeforePanelOpenAndNetworkResultsUnderBudget`
+and capture aggregate Worker resolve latency. The client gate is cache-ready
+within 150ms before panel open and mocked-resolver p95 below 2s; the production
+gate is aggregate first validated resolve p95 below 2s. Never add track fields
+to obtain that measurement.

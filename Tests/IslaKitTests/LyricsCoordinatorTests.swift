@@ -35,6 +35,23 @@ final class LyricsCoordinatorTests: XCTestCase {
         }
     }
 
+    private final class DelayedResolver: LyricsResolving {
+        private let delay: Duration
+        private let result: LyricsResolution
+        private(set) var completions = 0
+
+        init(delay: Duration, result: LyricsResolution) {
+            self.delay = delay
+            self.result = result
+        }
+
+        func resolve(_ identity: LyricIdentity) async -> LyricsResolution {
+            try? await Task.sleep(for: delay)
+            completions += 1
+            return result
+        }
+    }
+
     func testPrefetchesWhenNowPlayingArrivesWithoutOpeningALyricSurface() async {
         let media = MediaController()
         let resolver = Resolver()
@@ -95,6 +112,67 @@ final class LyricsCoordinatorTests: XCTestCase {
         guard case .ready = stores.lyricsCoordinator.availability else {
             return XCTFail("the session should own the prefetched result")
         }
+    }
+
+    func testLatencyHarnessPublishesACachedTimelineBeforePanelOpenAndNetworkResultsUnderBudget() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = LicensedLyricsCache(directory: root)
+        let media = MediaController()
+        let remote = Resolver()
+        let coordinator = LyricsCoordinator(
+            media: media,
+            resolver: CachedLyricsResolver(cache: cache, remote: remote),
+            isEnabled: { true },
+            cache: cache
+        )
+        let identity = LyricIdentity(
+            playerID: "other", title: "Song", artist: "Artist", album: "Album", duration: 180
+        )
+        try cache.writeLicensed(timeline(), for: identity)
+
+        coordinator.start()
+        defer { coordinator.stop() }
+        let cachedStart = ContinuousClock.now
+        media.apply(playingSnapshot())
+        XCTAssertFalse(
+            LyricsPresentation.compactCaption(for: coordinator.availability, currentLine: nil).isEmpty,
+            "the compact surface must have status text synchronously"
+        )
+        guard let cachedLatency = await waitForReady(coordinator, timeout: .milliseconds(150), from: cachedStart) else {
+            return XCTFail("a valid local cache entry must become ready before the panel opens")
+        }
+        XCTAssertLessThan(cachedLatency, .milliseconds(150))
+        XCTAssertTrue(remote.requests.isEmpty, "a valid local cache result must not leave the Mac")
+
+        let networkMedia = MediaController()
+        let network = DelayedResolver(delay: .milliseconds(45), result: .available(timeline()))
+        let networkCoordinator = LyricsCoordinator(
+            media: networkMedia, resolver: network, isEnabled: { true }
+        )
+        networkCoordinator.start()
+        defer { networkCoordinator.stop() }
+        networkMedia.apply(playingSnapshot())
+
+        let firstNetworkStart = ContinuousClock.now
+        guard let firstNetworkLatency = await waitForReady(
+            networkCoordinator, timeout: .seconds(2), from: firstNetworkStart
+        ) else {
+            return XCTFail("the first validated network result must arrive within two seconds")
+        }
+        var samples: [Duration] = [firstNetworkLatency]
+        for completion in 2...20 {
+            let start = ContinuousClock.now
+            networkCoordinator.retry()
+            guard let latency = await waitForCompletions(
+                network, count: completion, timeout: .seconds(2), from: start
+            ) else {
+                return XCTFail("a validated network result must arrive within two seconds")
+            }
+            samples.append(latency)
+        }
+        let p95 = samples.sorted()[Int((Double(samples.count) * 0.95).rounded(.up)) - 1]
+        XCTAssertLessThan(p95, .seconds(2), "mocked broker p95 must retain the two-second budget")
     }
 
     func testMetadataEnrichmentKeepsTheCurrentRequestAndEnrichesRetry() async {
@@ -387,5 +465,33 @@ final class LyricsCoordinatorTests: XCTestCase {
             matchConfidence: confidence,
             cacheExpiry: Date().addingTimeInterval(60)
         )
+    }
+
+    private func waitForReady(
+        _ coordinator: LyricsCoordinator, timeout: Duration, from start: ContinuousClock.Instant
+    ) async -> Duration? {
+        let clock = ContinuousClock()
+        let deadline = start.advanced(by: timeout)
+        while clock.now < deadline {
+            if case .ready = coordinator.availability {
+                return start.duration(to: clock.now)
+            }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return nil
+    }
+
+    private func waitForCompletions(
+        _ resolver: DelayedResolver, count: Int, timeout: Duration, from start: ContinuousClock.Instant
+    ) async -> Duration? {
+        let clock = ContinuousClock()
+        let deadline = start.advanced(by: timeout)
+        while clock.now < deadline {
+            if resolver.completions >= count {
+                return start.duration(to: clock.now)
+            }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return nil
     }
 }
