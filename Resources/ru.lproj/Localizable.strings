@@ -78,7 +78,6 @@
 "Copy Entry" = "Копировать запись";
 "Peek at New Tracks" = "Показывать новые треки";
 "Show Lyrics" = "Показывать текст песни";
-"Looks up words at lrclib.net, the amll community database, lyrics.kugou.com and QQ Music. The track title, artist, album and length leave your Mac; nothing else does." = "Ищет слова на lrclib.net, в общественной базе amll, на lyrics.kugou.com и в QQ Music. С этого Mac уходят название трека, исполнитель, альбом и длительность — и больше ничего.";
 "Lyrics" = "Текст песни";
 "Show on Lock Screen" = "Показывать на экране блокировки";
 "Clear Lyrics Cache" = "Очистить кэш текстов";
@@ -100,9 +99,14 @@
 "Lyrics Later" = "Текст позже";
 "Lyric Timing" = "Тайминг текста";
 "Reset lyric timing" = "Сбросить тайминг текста";
-"Search Lyrics Again" = "Искать текст заново";
-"Wrong lyrics? Search again." = "Не тот текст? Искать заново.";
+"Import Local LRC" = "Импортировать локальный LRC";
+"Remove Local Override" = "Удалить локальную замену";
 "No lyrics for this track." = "Для этого трека нет текста.";
+"Syncing playback…" = "Синхронизация воспроизведения…";
+"Finding lyrics…" = "Ищем текст песни…";
+"Lyrics connection failed." = "Не удалось подключиться к сервису текстов.";
+"Lyrics are temporarily rate limited." = "Сервис текстов временно ограничил запросы.";
+"Lyrics service is unavailable." = "Сервис текстов недоступен.";
 "Jumps the song to this line" = "Перематывает песню к этой строке";
 "Opens the full lyrics" = "Открывает полный текст";
 
@@ -125,7 +129,8 @@
 
 /* Lock card panes */
 "Lyrics are switched off in Settings." = "Тексты выключены в настройках.";
-"Looking for lyrics…" = "Ищем текст песни…";
+"Uses the Isla lyrics broker. After you opt in, it receives the player app, track title, artist, album, duration, optional Spotify or recording ID, app language, and anonymous installation token. It never receives audio, playback position, library data, Spotify account token, or a user identifier." = "Используется брокер текстов Isla. После вашего согласия ему передаются приложение-плеер, название трека, исполнитель, альбом, длительность, необязательный идентификатор Spotify или записи, язык приложения и анонимный токен установки. Аудио, позиция воспроизведения, данные медиатеки, токен аккаунта Spotify и идентификатор пользователя не передаются.";
+"Clearing the lyrics cache also deletes imported local LRC overrides." = "Очистка кэша текстов также удаляет импортированные локальные переопределения LRC.";
 "No output devices." = "Нет устройств вывода.";
 "Open on Hover" = "Открывать при наведении";
 "Output" = "Вывод";

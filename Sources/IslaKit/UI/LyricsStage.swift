@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The full lyrics view: every line, scrolling with the voice.
 ///
@@ -46,6 +47,9 @@ extension AnyTransition {
 struct LyricsStage: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    var retry: () -> Void = {}
+    var importLocalLRC: (String) -> Void = { _ in }
+    var removeLocalOverride: () -> Void = {}
     /// Folds the stage back into the ordinary pane.
     var dismiss: () -> Void
 
@@ -74,13 +78,24 @@ struct LyricsStage: View {
 
     private var now: TimeInterval { media.position + lead }
 
+    private var wordTimingEnabled: Bool {
+        LyricsPresentation.usesWordTiming(
+            lyrics.timingGranularity, precisionMeasured: media.precisionSync
+        )
+    }
+
     var body: some View {
         ZStack {
             ambience
-            if case .synced(let lines) = lyrics.state, !lines.isEmpty {
-                stage(lines: lines)
-            } else {
-                unavailable
+            VStack(spacing: 0) {
+                header
+                if case .ready = lyrics.availability,
+                   case .synced(let lines) = lyrics.state,
+                   !lines.isEmpty {
+                    stage(lines: lines)
+                } else {
+                    unavailable
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -214,9 +229,7 @@ struct LyricsStage: View {
         // waiting at the reading centre, dimmed, taking the sweep the moment
         // the voice arrives. Anchoring on nothing left the stage vacant.
         let anchor = currentIndex ?? 0
-        return VStack(spacing: 0) {
-            header
-            GeometryReader { geo in
+        return GeometryReader { geo in
                 // Half a viewport of air above the first line and below the
                 // last, so either end can still reach the reading centre
                 // instead of stopping short against the scroll bounds.
@@ -291,9 +304,8 @@ struct LyricsStage: View {
                 }
                 .animation(reduceMotion ? nil : Theme.contentAnimation, value: following)
                 .animation(reduceMotion ? nil : Theme.contentAnimation, value: strayed)
-            }
-            .padding(.horizontal, 22)
         }
+        .padding(.horizontal, 22)
     }
 
     /// Puts the sung line back at the reading centre.
@@ -355,7 +367,6 @@ struct LyricsStage: View {
         .help(localized("Back to the current line"))
     }
 
-    @ViewBuilder
     private func row(line: LyricsStore.Line, index: Int, current: Int?, lines: [LyricsStore.Line]) -> some View {
         let isCurrent = index == current
         // How far from the voice this line stands, for the depth falloff.
@@ -375,6 +386,7 @@ struct LyricsStage: View {
             lineLimit: 2,
             accent: accent,
             reduceMotion: reduceMotion,
+            wordTimingEnabled: wordTimingEnabled,
             seek: {
                 if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
                     DebugTrail.note(String(
@@ -404,7 +416,7 @@ struct LyricsStage: View {
     /// nudge made without it would sit in the overlay until the next cache
     /// hit restores the file's 0 over it, silently eating the correction.
     private var canNudgeTrack: Bool {
-        if case .synced = lyrics.state { return true }
+        if case .ready = lyrics.availability, case .synced = lyrics.state { return true }
         return false
     }
 
@@ -419,13 +431,21 @@ struct LyricsStage: View {
             .buttonStyle(NotchButtonStyle(size: 24))
             .accessibilityLabel(localized("Back to Player"))
 
+            if case .ready(let timeline) = lyrics.availability {
+                Text(timeline.attribution)
+                    .islandFont(.caption, weight: .regular)
+                    .foregroundStyle(Theme.tertiary)
+                    .lineLimit(1)
+            }
+
             Spacer(minLength: 0)
 
             // The per-track timing nudge. Shown as the correction it is; zero
             // reads as nothing rather than as "+0.00s". This moves only this
             // track's layer — a remaster fixed here never shifts any other
             // song — and holding the readout clears it back to 0.
-            HStack(spacing: 4) {
+            if canNudgeTrack {
+                HStack(spacing: 4) {
                 Button { lyrics.nudgeTrackOffset(by: -0.25) } label: {
                     Image(systemName: "minus")
                         // Fitted to the 20pt well, not set as type: a caption
@@ -455,39 +475,63 @@ struct LyricsStage: View {
                 .buttonStyle(NotchButtonStyle(size: 20))
                 .disabled(!canNudgeTrack)
                 .accessibilityLabel(localized("Lyrics Later"))
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(localized("Lyric Timing"))
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(localized("Lyric Timing"))
 
-            // The bad-match escape hatch.
-            Button {
-                guard let track = media.track else { return }
-                lyrics.research(
-                    title: track.title, artist: track.artist,
-                    album: track.album, duration: media.duration,
-                    spotifyID: media.spotifyTrackID,
-                    isrc: media.spotifyISRC,
-                    exactDuration: media.spotifyExactDuration
-                )
-            } label: {
+            Button(action: chooseLocalLRC) {
+                Image(systemName: "doc.badge.plus")
+                    .islandFont(.caption, weight: .semibold)
+            }
+            .buttonStyle(NotchButtonStyle(size: 24))
+            .accessibilityLabel(localized("Import Local LRC"))
+            .help(localized("Import Local LRC"))
+
+            if lyrics.hasLocalOverride {
+                Button(action: removeLocalOverride) {
+                    Image(systemName: "trash")
+                        .islandFont(.caption, weight: .semibold)
+                }
+                .buttonStyle(NotchButtonStyle(size: 24))
+                .accessibilityLabel(localized("Remove Local Override"))
+                .help(localized("Remove Local Override"))
+            }
+
+            Button(action: retry) {
                 Image(systemName: "arrow.clockwise")
                     .islandFont(.caption, weight: .semibold)
             }
             .buttonStyle(NotchButtonStyle(size: 24))
-            .accessibilityLabel(localized("Search Lyrics Again"))
-            .help(localized("Wrong lyrics? Search again."))
+            .disabled(!LyricsPresentation.canRetry(lyrics.availability))
+            .accessibilityLabel(localized("Retry"))
+            .help(localized("Retry"))
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
     }
 
+    private func chooseLocalLRC() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "lrc")!]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK,
+              let url = panel.url,
+              let raw = try? String(contentsOf: url, encoding: .utf8) else {
+            return
+        }
+        importLocalLRC(raw)
+    }
+
     // MARK: - Empty
 
-    /// Loading, or genuinely nothing. Either way the stage says so instead of
-    /// standing empty.
     private var unavailable: some View {
         VStack(spacing: 8) {
-            if case .loading = lyrics.state {
+            if case .settlingPlayback = lyrics.availability {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+            } else if case .resolving = lyrics.availability {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)
@@ -495,22 +539,12 @@ struct LyricsStage: View {
                 Image(systemName: "text.quote")
                     .islandFont(.display, weight: .light)
                     .foregroundStyle(Theme.tertiary)
-                Text(localized("No lyrics for this track."))
+                Text(LyricsPresentation.compactCaption(for: lyrics.availability, currentLine: nil))
                     .islandFont(.body)
                     .foregroundStyle(Theme.secondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(alignment: .topLeading) {
-            Button(action: dismiss) {
-                Image(systemName: "chevron.left")
-                    .islandFont(.caption, weight: .semibold)
-            }
-            .buttonStyle(NotchButtonStyle(size: 24))
-            .accessibilityLabel(localized("Back to Player"))
-            .padding(.leading, 14)
-            .padding(.top, 10)
-        }
     }
 
     /// Index of the line being sung at `at`, by the same binary search the

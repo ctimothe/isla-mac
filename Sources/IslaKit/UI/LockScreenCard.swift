@@ -22,6 +22,7 @@ import SwiftUI
 struct LockScreenCard: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    var retryLyrics: () -> Void = {}
     /// The machine's audio state, followed while the card is up. The window
     /// starts it before the card exists and stops it at dismiss; a render
     /// without one gets a bare watch, which reads the machine on demand and
@@ -41,9 +42,16 @@ struct LockScreenCard: View {
 
     /// Which pane the card opens on. Always `.player` in the app; the parameter
     /// exists so a render can photograph the other two without a click.
-    init(media: MediaController, lyrics: LyricsStore, audio: AudioWatch? = nil, initialPane: Pane = .player) {
+    init(
+        media: MediaController,
+        lyrics: LyricsStore,
+        retryLyrics: @escaping () -> Void = {},
+        audio: AudioWatch? = nil,
+        initialPane: Pane = .player
+    ) {
         self.media = media
         self.lyrics = lyrics
+        self.retryLyrics = retryLyrics
         _audio = ObservedObject(wrappedValue: audio ?? AudioWatch())
         _pane = State(initialValue: initialPane)
     }
@@ -152,18 +160,6 @@ struct LockScreenCard: View {
             .onReceive(audio.$volume) { newValue in
                 guard draggingVolume == nil else { return }
                 volume = newValue
-            }
-            // Same identity as MediaPane above: every refinement of the track's
-            // catalogue identity re-fires the load exactly once.
-            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")\(LyricsStore.exactDurationIdentity(media.spotifyExactDuration))|\(media.spotifyISRC ?? "")") {
-                guard NotchViewModel.showLyricsEnabled else { return }
-                lyrics.load(
-                    title: track.title, artist: track.artist,
-                    album: track.album, duration: media.duration,
-                    spotifyID: media.spotifyTrackID,
-                    isrc: media.spotifyISRC,
-                    exactDuration: media.spotifyExactDuration
-                )
             }
             .transition(.opacity)
         }
@@ -289,7 +285,9 @@ struct LockScreenCard: View {
     /// exactly as it does on the full stage.
     private var lyricsPane: some View {
         Group {
-            if case .synced(let lines) = lyrics.state, !lines.isEmpty {
+            if case .ready = lyrics.availability,
+               case .synced(let lines) = lyrics.state,
+               !lines.isEmpty {
                 let at = LyricSweep.position(
                     media.position,
                     precisionSync: media.precisionSync,
@@ -306,20 +304,34 @@ struct LockScreenCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                Text(lyricsStatus)
-                    .islandFont(.subhead, weight: .regular)
-                    .foregroundStyle(.white.opacity(0.45))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 8) {
+                    if case .settlingPlayback = lyrics.availability {
+                        ProgressView().controlSize(.small).tint(.white)
+                    } else if case .resolving = lyrics.availability {
+                        ProgressView().controlSize(.small).tint(.white)
+                    }
+                    Text(lyricsStatus)
+                        .islandFont(.subhead, weight: .regular)
+                        .foregroundStyle(.white.opacity(0.45))
+                    if LyricsPresentation.canRetry(lyrics.availability) {
+                        Button(localized("Retry"), action: retryLyrics)
+                            .buttonStyle(NotchButtonStyle(size: 24))
+                            .accessibilityLabel(localized("Retry"))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
     private var lyricsStatus: String {
-        guard NotchViewModel.showLyricsEnabled else { return localized("Lyrics are switched off in Settings.") }
-        switch lyrics.state {
-        case .loading: return localized("Looking for lyrics…")
-        default: return localized("No lyrics for this track.")
-        }
+        LyricsPresentation.compactCaption(for: lyrics.availability, currentLine: nil)
+    }
+
+    private var wordTimingEnabled: Bool {
+        LyricsPresentation.usesWordTiming(
+            lyrics.timingGranularity, precisionMeasured: media.precisionSync
+        )
     }
 
     private func lyricRow(
@@ -336,6 +348,7 @@ struct LockScreenCard: View {
             lineLimit: 1,
             accent: accent,
             reduceMotion: reduceMotion,
+            wordTimingEnabled: wordTimingEnabled,
             seek: {
                 // The song landing on a line somebody pointed at.
                 Haptics.alignment()

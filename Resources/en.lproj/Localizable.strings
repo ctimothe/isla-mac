@@ -77,7 +77,6 @@
 "Copy Entry" = "Copy Entry";
 "Peek at New Tracks" = "Peek at New Tracks";
 "Show Lyrics" = "Show Lyrics";
-"Looks up words at lrclib.net, the amll community database, lyrics.kugou.com and QQ Music. The track title, artist, album and length leave your Mac; nothing else does." = "Looks up words at lrclib.net, the amll community database, lyrics.kugou.com and QQ Music. The track title, artist, album and length leave your Mac; nothing else does.";
 "Lyrics" = "Lyrics";
 "Show on Lock Screen" = "Show on Lock Screen";
 "Clear Lyrics Cache" = "Clear Lyrics Cache";
@@ -99,9 +98,14 @@
 "Lyrics Later" = "Lyrics Later";
 "Lyric Timing" = "Lyric Timing";
 "Reset lyric timing" = "Reset lyric timing";
-"Search Lyrics Again" = "Search Lyrics Again";
-"Wrong lyrics? Search again." = "Wrong lyrics? Search again.";
+"Import Local LRC" = "Import Local LRC";
+"Remove Local Override" = "Remove Local Override";
 "No lyrics for this track." = "No lyrics for this track.";
+"Syncing playback…" = "Syncing playback…";
+"Finding lyrics…" = "Finding lyrics…";
+"Lyrics connection failed." = "Lyrics connection failed.";
+"Lyrics are temporarily rate limited." = "Lyrics are temporarily rate limited.";
+"Lyrics service is unavailable." = "Lyrics service is unavailable.";
 "Jumps the song to this line" = "Jumps the song to this line";
 "Opens the full lyrics" = "Opens the full lyrics";
 
@@ -124,7 +128,8 @@
 
 /* Lock card panes */
 "Lyrics are switched off in Settings." = "Lyrics are switched off in Settings.";
-"Looking for lyrics…" = "Looking for lyrics…";
+"Uses the Isla lyrics broker. After you opt in, it receives the player app, track title, artist, album, duration, optional Spotify or recording ID, app language, and anonymous installation token. It never receives audio, playback position, library data, Spotify account token, or a user identifier." = "Uses the Isla lyrics broker. After you opt in, it receives the player app, track title, artist, album, duration, optional Spotify or recording ID, app language, and anonymous installation token. It never receives audio, playback position, library data, Spotify account token, or a user identifier.";
+"Clearing the lyrics cache also deletes imported local LRC overrides." = "Clearing the lyrics cache also deletes imported local LRC overrides.";
 "No output devices." = "No output devices.";
 "Open on Hover" = "Open on Hover";
 "Output" = "Output";

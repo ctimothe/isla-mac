@@ -13,7 +13,7 @@ final class NotchController {
     private let lockCard = LockCardWindow()
     /// Stores that belong to the session, not to the panel: a rebuild replaces
     /// the panel and its view model and leaves these untouched.
-    private let stores = NotchStores()
+    private let stores = NotchStores(pruneLegacyLyrics: true)
     private var closeActiveRectWork: DispatchWorkItem?
     private var collapseCheckWork: DispatchWorkItem?
     private var peekWork: DispatchWorkItem?
@@ -227,7 +227,13 @@ final class NotchController {
         // primary one, which is a different display whenever the notch is not
         // on it.
         if let vm = viewModel, let screen = vm.geometry.screen as NSScreen? {
-            lockCard.present(media: vm.media, lyrics: vm.lyrics, on: screen, presence: lockPresence)
+            lockCard.present(
+                media: vm.media,
+                lyrics: vm.lyrics,
+                retryLyrics: vm.lyricsCoordinator.retry,
+                on: screen,
+                presence: lockPresence
+            )
         }
     }
 

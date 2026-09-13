@@ -20,6 +20,8 @@ final class NotchStores {
     let screenshotVault = ScreenshotVault()
     let translator = Translator()
     let lyrics = LyricsStore()
+    let lyricsCache: LicensedLyricsCache
+    let lyricsCoordinator: LyricsCoordinator
     /// Shared by every pane that shows something worth not showing.
     let privacy = PrivacyMode()
 
@@ -29,6 +31,31 @@ final class NotchStores {
     var onScreenshot: ((URL) -> Void)?
 
     private var started = false
+
+    init(
+        lyricsResolver: (any LyricsResolving)? = nil,
+        lyricsEnabled: (() -> Bool)? = nil,
+        lyricsCache: LicensedLyricsCache? = nil,
+        pruneLegacyLyrics: Bool = false
+    ) {
+        let cache = lyricsCache ?? LicensedLyricsCache(
+            legacyDirectory: pruneLegacyLyrics ? AppPaths.live.supportFile("lyrics") : nil
+        )
+        self.lyricsCache = cache
+        let remote = lyricsResolver ?? UnconfiguredLyricsResolver()
+        lyricsCoordinator = LyricsCoordinator(
+            media: media,
+            resolver: CachedLyricsResolver(cache: cache, remote: remote),
+            isEnabled: lyricsEnabled ?? { NotchViewModel.showLyricsEnabled },
+            presentation: lyrics,
+            cache: cache
+        )
+    }
+
+    func clearLyricsCache() {
+        lyricsCoordinator.clearCache()
+        lyrics.clearCache()
+    }
 
     func start() {
         guard !started else { return }
@@ -41,6 +68,7 @@ final class NotchStores {
             UserDefaults.standard.set(Date(), forKey: RecordingPickup.sinceKey)
         }
         media.start()
+        lyricsCoordinator.start()
         shelf.load()
         // Drop folders from previous sessions, once, off the main thread.
         DispatchQueue.global(qos: .utility).async { AppPaths.pruneDropInbox() }
@@ -87,6 +115,7 @@ final class NotchStores {
     func stop() {
         guard started else { return }
         started = false
+        lyricsCoordinator.stop()
         media.stop()
         clipboard.stop()
         // Whatever was typed makes it to disk even when quitting mid-thought.

@@ -685,7 +685,14 @@ struct NotchContentView: View {
             // travel is drawn inside it, and it is the one pane that has an end
             // to offer. Open on any other tab and the compact cover is simply a
             // lone member of the group — it leaves the way it always did.
-            MediaPane(media: vm.media, lyrics: vm.lyrics, morph: morph)
+            MediaPane(
+                media: vm.media,
+                lyrics: vm.lyrics,
+                retryLyrics: vm.lyricsCoordinator.retry,
+                importLocalLRC: { raw in try? vm.lyricsCoordinator.importLocalOverride(raw) },
+                removeLocalOverride: { try? vm.lyricsCoordinator.removeLocalOverride() },
+                morph: morph
+            )
         case .shelf:
             ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)
         case .clipboard:
@@ -697,6 +704,8 @@ struct NotchContentView: View {
                 shelf: vm.shelf,
                 screenshotVault: vm.screenshotVault,
                 lyrics: vm.lyrics,
+                onLyricsConsentChanged: vm.lyricsCoordinator.refreshConsent,
+                clearLyricsCache: vm.clearLyricsCache,
                 privacy: vm.privacy
             )
         }

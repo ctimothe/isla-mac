@@ -66,7 +66,13 @@ final class LockCardWindow {
     private var audioWatch: AudioWatch?
 
     /// Puts the card on screen above the shield.
-    func present(media: MediaController, lyrics: LyricsStore, on screen: NSScreen, presence: LockScreenPresence) {
+    func present(
+        media: MediaController,
+        lyrics: LyricsStore,
+        retryLyrics: @escaping () -> Void = {},
+        on screen: NSScreen,
+        presence: LockScreenPresence
+    ) {
         let frame = Self.frame(on: screen.frame, size: Self.windowSize)
         if let panel {
             // Already up — a second lock notification, or a display that
@@ -94,7 +100,9 @@ final class LockCardWindow {
         // but the app must never activate for them, which the panel's
         // non-activating style already guarantees.
         panel.ignoresMouseEvents = false
-        let hosting = NSHostingView(rootView: LockScreenCard(media: media, lyrics: lyrics, audio: watch))
+        let hosting = NSHostingView(rootView: LockScreenCard(
+            media: media, lyrics: lyrics, retryLyrics: retryLyrics, audio: watch
+        ))
         // The card sits inset inside the window, so its shadow has somewhere to
         // go. Not autoresizing: the card is one fixed size and the window is
         // only ever set to one size, so a stretched card could only ever be a

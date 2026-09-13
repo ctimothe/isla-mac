@@ -243,6 +243,7 @@ final class NotchViewModel: ObservableObject {
     let screenshotVault: ScreenshotVault
     let translator: Translator
     let lyrics: LyricsStore
+    let lyricsCoordinator: LyricsCoordinator
     /// Shared by every pane that shows something worth not showing.
     let privacy: PrivacyMode
     /// The session's stores, borrowed rather than owned — see `NotchStores`.
@@ -259,6 +260,7 @@ final class NotchViewModel: ObservableObject {
         self.screenshotVault = stores.screenshotVault
         self.translator = stores.translator
         self.lyrics = stores.lyrics
+        self.lyricsCoordinator = stores.lyricsCoordinator
         self.privacy = stores.privacy
 
         // The panel header reads through to the stores — counters, the source
@@ -312,6 +314,10 @@ final class NotchViewModel: ObservableObject {
                 }
                 .store(in: &cancellables)
         }
+    }
+
+    func clearLyricsCache() {
+        stores.clearLyricsCache()
     }
 
     /// Body this tab takes when open — asked whether it is open yet or not.
@@ -438,11 +444,10 @@ final class NotchViewModel: ObservableObject {
 
     static let showLyricsKey = "showLyrics"
 
-    /// Defaults to **off**. This is the app's only network use: turning it on
-    /// sends what is currently playing — title, artist, album, and for Spotify
-    /// the track id — to three third-party services. That is listening history
-    /// leaving the machine, so it is asked for rather than assumed. Off means
-    /// no request ever leaves.
+    /// Defaults to **off**. Once a licensed provider is configured, turning it
+    /// on sends the broker only the disclosed track identity and an anonymous
+    /// installation token. That is listening history leaving the machine, so
+    /// it is asked for rather than assumed. Off means no request ever leaves.
     static var showLyricsEnabled: Bool {
         UserDefaults.standard.bool(forKey: showLyricsKey)
     }

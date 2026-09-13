@@ -62,11 +62,13 @@ because each sends something you own somewhere you cannot see.
 
 - **Save clipboard screenshots** writes a copy of every image that reaches the
   pasteboard to `~/Pictures/Isla` (most recent 200; clearing goes to the Trash).
-- **Lyrics** sends the current title, artist, album and — for Spotify — the track
-  id to `lrclib.net`, `raw.githubusercontent.com`, `lyrics.kugou.com` and
-  QQ Music (`u.y.qq.com`, `c.y.qq.com`, `shc.y.qq.com`) to look
-  words up. That is listening history leaving the Mac, so it is asked for rather
-  than assumed. Results are cached on disk, capped at 500 tracks.
+ **Lyrics** is opt-in. Once the licensed Isla broker is released, it receives
+  the player app, title, artist, album, duration, optional Spotify or recording
+  ID, app language, and an anonymous installation token. It never receives audio,
+  playback position, library data, Spotify account token, or a user identifier.
+  Until the provider agreement and broker release are complete, Isla makes no
+  network lyric lookup; imported local LRC files stay on this Mac. Licensed
+  results may be cached only until their provider-authorized expiry.
 - **Connecting a Spotify account** (Settings → Spotify) authorizes Isla through
   Spotify's own PKCE flow in the browser, for one feature the local APIs do not
   expose: Liked Songs. There is **no client secret**; tokens live in the keychain
