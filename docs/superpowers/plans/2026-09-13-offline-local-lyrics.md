@@ -148,6 +148,8 @@ git commit -m "feat: add local LRC document model"
 
 ## Task 2: Build the indexed local library and conservative matcher
 
+**Status:** complete
+
 **Files:**
 - Create: Sources/IslaKit/Services/LocalLyricsLibrary.swift
 - Create: Tests/IslaKitTests/LocalLyricsLibraryTests.swift

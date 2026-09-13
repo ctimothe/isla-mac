@@ -3,19 +3,28 @@ import Foundation
 /// Copy and interaction policy shared by every lyric surface. Views render a
 /// concrete availability state; they never treat missing lines as a status.
 enum LyricsPresentation {
-    static func compactCaption(for availability: LyricsAvailability, currentLine: String?) -> String {
+    static func compactCaption(
+        for availability: LyricsAvailability,
+        currentLine: String?,
+        localLookup: LocalLyricsLookup? = nil
+    ) -> String {
+        if case .noLocalLyrics = availability, case .ambiguous = localLookup {
+            return localized("Choose local lyrics…")
+        }
         switch availability {
         case .disabled:
             return localized("Lyrics are switched off in Settings.")
         case .settlingPlayback:
             return localized("Syncing playback…")
-        case .resolving:
+        case .findingLocalLyrics, .resolving:
             return localized("Finding lyrics…")
         case .ready:
             return currentLine?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 ? currentLine!
                 : localized("Finding lyrics…")
-        case .unavailable:
+        case .noLocalLyrics, .unavailable:
+            return localized("No lyrics for this track.")
+        case .invalidLocalFile:
             return localized("No lyrics for this track.")
         case .failed(let failure):
             switch failure.kind {
@@ -29,7 +38,7 @@ enum LyricsPresentation {
     static func canRetry(_ availability: LyricsAvailability) -> Bool {
         switch availability {
         case .ready: return true
-        case .unavailable: return true
+        case .noLocalLyrics, .invalidLocalFile, .unavailable: return true
         case .failed(let failure): return failure.retryable
         default: return false
         }
