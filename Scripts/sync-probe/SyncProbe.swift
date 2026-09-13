@@ -5,19 +5,19 @@ import AppKit
 ///
 /// Runs the REAL pipeline — NowPlayingFeed spawning the shipped helper,
 /// MediaController's anchor/adopt/tick logic — in-process, and samples it
-/// against Spotify's own player position read over AppleScript, which is the
-/// clock Spotify's UI renders. Scripted events hit the edges: pause, resume,
+/// against the selected scriptable player's position read over AppleScript,
+/// which is the clock Apple Music or Spotify renders. Scripted events hit the edges: pause, resume,
 /// forward seek, large backward seek, and a sub-threshold backward seek.
 ///
-/// Word columns sample a word-tier fixture for the playing track at the same
-/// 5Hz: the track's cached `.lrc4.json` lyrics when they carry word timing,
-/// else a synthetic word grid anchored at the window start. `werr` is the
-/// word-edge error — how far apart the two clocks' current words start — so
-/// the gate speaks in lyric units, not just seconds of clock delta.
+/// Word columns sample an authorized v5/local word timeline for the playing
+/// track at the same 5Hz, or a synthetic grid anchored at the window start.
+/// `werr` is the word-edge error — how far apart the two clocks' current words
+/// start — so the gate speaks in lyric units, not just seconds of clock delta.
 @MainActor
 final class Probe {
     let controller = MediaController()
-    var out: [String] = ["t,ours,truth,delta,event,wordOurs,wordTruth,fracOurs,fracTruth,werr"]
+    let player: PlayerApp = ProcessInfo.processInfo.environment["SYNC_PLAYER"] == "music" ? .music : .spotify
+    var out: [String] = ["t,ours,truth,delta,surfaceDelta,event,wordOurs,wordTruth,fracOurs,fracTruth,werr"]
     var event = ""
     var start = Date()
     /// Flat word starts of the fixture, sorted. A word owns its start;
@@ -40,39 +40,42 @@ final class Probe {
 
     func truthPosition() -> (position: TimeInterval, latency: TimeInterval)? {
         let t0 = Date()
-        guard let raw = runAppleScript("tell application \"Spotify\" to player position"),
+        guard let raw = runAppleScript("tell application id \"\(player.bundleID)\" to player position"),
               let value = TimeInterval(raw) else { return nil }
         return (value, Date().timeIntervalSince(t0))
     }
 
-    /// The playing track's word-tier fixture: its cached lyrics when they
-    /// carry word timing, else a synthetic grid so the word gate still runs on
-    /// a track nobody has fetched lyrics for. The grid is anchored at the
-    /// window's truth so its edges fall inside the sampling window.
+    /// The playing track's authorized word-tier fixture, or a synthetic grid
+    /// so the word gate still runs before the licensed provider is released.
+    /// The grid is anchored at the window's truth so its edges fall inside the
+    /// sampling window.
     func resolveFixture(truthStart: TimeInterval) {
         if let raw = runAppleScript("""
-            tell application "Spotify"
+            tell application id "\(player.bundleID)"
                 set t to current track
                 return (name of t) & "\u{1}" & (artist of t) & "\u{1}" & (album of t) & "\u{1}" & (duration of t)
             end tell
             """) {
             let parts = raw.components(separatedBy: "\u{1}")
-            if parts.count >= 4, let durationMs = Double(parts[3]) {
-                let key = LyricsStore.cacheKey(
-                    title: parts[0], artist: parts[1], album: parts[2],
-                    duration: durationMs / 1000)
-                if let dir = AppPaths.live.supportFile("lyrics") {
-                    let url = dir.appendingPathComponent("\(key).lrc4.json")
-                    if let lines = LyricsStore.readCache(at: url) {
-                        let starts = lines.flatMap { line in
-                            [line.at] + line.words.map(\.at)
-                        }.sorted()
-                        if lines.contains(where: { !$0.words.isEmpty }), !starts.isEmpty {
-                            wordStarts = starts
-                            fixtureEnd = (lines.map(\.at).max() ?? 0) + 6
-                            print("fixture: cache \(key) (\(lines.count) lines, \(starts.count) edges)")
-                            return
-                        }
+            if parts.count >= 4, let rawDuration = Double(parts[3]) {
+                // Spotify's scripting dictionary reports milliseconds; Music
+                // reports seconds. The cache key must agree with the client
+                // identity or a lawful local/authorized fixture is missed.
+                let duration = player == .spotify ? rawDuration / 1_000 : rawDuration
+                let identity = LyricIdentity(
+                    playerID: player.rawValue, title: parts[0], artist: parts[1],
+                    album: parts[2], duration: duration
+                )
+                if let timeline = LicensedLyricsCache().read(for: identity),
+                   timeline.granularity == .word {
+                    let starts = timeline.lines.flatMap { line in
+                        [line.at] + line.words.map(\.at)
+                    }.sorted()
+                    if !starts.isEmpty {
+                        wordStarts = starts
+                        fixtureEnd = (timeline.lines.map(\.at).max() ?? 0) + 6
+                        print("fixture: authorized cache (\(timeline.lines.count) lines, \(starts.count) edges)")
+                        return
                     }
                 }
             }
@@ -106,10 +109,10 @@ final class Probe {
         return (index, min(max((pos - start) / (end - start), 0), 1))
     }
 
-    func spotify(_ command: String) {
+    func playerCommand(_ command: String) {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        task.arguments = ["-e", "tell application \"Spotify\" to \(command)"]
+        task.arguments = ["-e", "tell application id \"\(player.bundleID)\" to \(command)"]
         try? task.run()
         task.waitUntilExit()
     }
@@ -124,13 +127,14 @@ final class Probe {
         // Words are read against the same lead the lyric surfaces use, so the
         // columns say what the screen would show, not what the raw clock says.
         let lead = LyricSweep.lead(precisionSync: controller.precisionSync, userOffset: 0)
+        let surfaceDelta = ours + lead - truth.position
         let oursCursor = wordCursor(at: ours + lead)
         let truthCursor = wordCursor(at: truth.position + lead)
         let oursEdge = oursCursor.index >= 0 ? wordStarts[oursCursor.index] : 0
         let truthEdge = truthCursor.index >= 0 ? wordStarts[truthCursor.index] : 0
         let werr = abs(oursEdge - truthEdge)
-        out.append(String(format: "%.2f,%.3f,%.3f,%+.3f,%@,%d,%d,%.3f,%.3f,%.3f",
-                          t, ours, truth.position, delta, event,
+        out.append(String(format: "%.2f,%.3f,%.3f,%+.3f,%+.3f,%@,%d,%d,%.3f,%.3f,%.3f",
+                          t, ours, truth.position, delta, surfaceDelta, event,
                           oursCursor.index, truthCursor.index,
                           oursCursor.fraction, truthCursor.fraction, werr))
         event = ""
@@ -138,8 +142,9 @@ final class Probe {
 
     func run() async {
         controller.start()
+        controller.precisionPlayerForTests = player
         controller.setActive(true)  // ticker on, like an open panel
-        spotify("play")
+        playerCommand("play")
         try? await Task.sleep(for: .seconds(3))  // pipeline warm-up
         start = Date()
         resolveFixture(truthStart: truthPosition()?.position ?? 0)
@@ -151,7 +156,7 @@ final class Probe {
             for (at, name, cmd) in events where Int(at) == Int(t) && !fired.contains(Int(at)) {
                 fired.insert(Int(at))
                 event = name
-                spotify(cmd)
+                playerCommand(cmd)
             }
             sample()
             try? await Task.sleep(for: .milliseconds(200))
