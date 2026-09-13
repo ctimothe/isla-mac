@@ -439,6 +439,8 @@ git commit -m "feat: migrate local lyric overrides"
 
 ## Task 4: Add local controls, ambiguity picker, and offline editor
 
+**Status:** complete
+
 **Files:**
 - Create: Sources/IslaKit/Services/LocalLyricsEditor.swift
 - Create: Sources/IslaKit/UI/LocalLyricsEditorView.swift

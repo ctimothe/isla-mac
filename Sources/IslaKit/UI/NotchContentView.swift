@@ -688,9 +688,13 @@ struct NotchContentView: View {
             MediaPane(
                 media: vm.media,
                 lyrics: vm.lyrics,
+                localLookup: vm.lyricsCoordinator.localLookup,
                 retryLyrics: vm.lyricsCoordinator.retry,
-                importLocalLRC: { raw in try? vm.lyricsCoordinator.importLocalOverride(raw) },
-                removeLocalOverride: { try? vm.lyricsCoordinator.removeLocalOverride() },
+                importLocalFile: { url in try? vm.lyricsCoordinator.importLocalFile(at: url) },
+                selectLocalCandidate: vm.lyricsCoordinator.selectLocalCandidate,
+                removeLocalBinding: vm.lyricsCoordinator.removeLocalBinding,
+                localLibrary: vm.localLyricsLibrary,
+                currentLocalTrackIdentity: { vm.lyricsCoordinator.currentLocalTrackIdentity },
                 morph: morph
             )
         case .shelf:

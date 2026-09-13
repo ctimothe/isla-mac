@@ -230,6 +230,7 @@ final class NotchController {
             lockCard.present(
                 media: vm.media,
                 lyrics: vm.lyrics,
+                localLookup: { vm.lyricsCoordinator.localLookup },
                 retryLyrics: vm.lyricsCoordinator.retry,
                 on: screen,
                 presence: lockPresence

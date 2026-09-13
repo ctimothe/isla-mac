@@ -243,6 +243,7 @@ final class NotchViewModel: ObservableObject {
     let screenshotVault: ScreenshotVault
     let translator: Translator
     let lyrics: LyricsStore
+    let localLyricsLibrary: LocalLyricsLibrary
     let lyricsCoordinator: LyricsCoordinator
     /// Shared by every pane that shows something worth not showing.
     let privacy: PrivacyMode
@@ -260,6 +261,7 @@ final class NotchViewModel: ObservableObject {
         self.screenshotVault = stores.screenshotVault
         self.translator = stores.translator
         self.lyrics = stores.lyrics
+        self.localLyricsLibrary = stores.localLyricsLibrary
         self.lyricsCoordinator = stores.lyricsCoordinator
         self.privacy = stores.privacy
 

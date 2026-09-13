@@ -160,6 +160,8 @@ final class LyricsCoordinator: ObservableObject {
     private var logicalTrackKey: String?
     private var currentIdentity: LocalTrackIdentity?
 
+    var currentLocalTrackIdentity: LocalTrackIdentity? { currentIdentity }
+
     init(
         media: MediaController,
         library: LocalLyricsLibrary,
@@ -236,11 +238,29 @@ final class LyricsCoordinator: ObservableObject {
         presentation?.presentLocalOverride(true)
     }
 
-    func removeLocalOverride() throws {
+    func importLocalFile(at url: URL) throws {
+        guard let currentIdentity else { return }
+        _ = try library.importDocument(at: url, binding: currentIdentity)
+        hasLocalOverride = true
+        presentation?.presentLocalOverride(true)
+    }
+
+    func selectLocalCandidate(_ candidate: LocalLyricsCandidate) {
+        guard let currentIdentity else { return }
+        library.bind(candidate, to: currentIdentity)
+        hasLocalOverride = true
+        presentation?.presentLocalOverride(true)
+    }
+
+    func removeLocalBinding() {
         guard let currentIdentity else { return }
         library.removeBinding(for: currentIdentity)
         hasLocalOverride = false
         presentation?.presentLocalOverride(false)
+    }
+
+    func removeLocalOverride() throws {
+        removeLocalBinding()
     }
 
     /// Cache clearing no longer affects local documents. Settings is rewired

@@ -22,6 +22,7 @@ import SwiftUI
 struct LockScreenCard: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    var localLookup: () -> LocalLyricsLookup? = { nil }
     var retryLyrics: () -> Void = {}
     /// The machine's audio state, followed while the card is up. The window
     /// starts it before the card exists and stops it at dismiss; a render
@@ -45,12 +46,14 @@ struct LockScreenCard: View {
     init(
         media: MediaController,
         lyrics: LyricsStore,
+        localLookup: @escaping () -> LocalLyricsLookup? = { nil },
         retryLyrics: @escaping () -> Void = {},
         audio: AudioWatch? = nil,
         initialPane: Pane = .player
     ) {
         self.media = media
         self.lyrics = lyrics
+        self.localLookup = localLookup
         self.retryLyrics = retryLyrics
         _audio = ObservedObject(wrappedValue: audio ?? AudioWatch())
         _pane = State(initialValue: initialPane)
@@ -307,6 +310,8 @@ struct LockScreenCard: View {
                 VStack(spacing: 8) {
                     if case .settlingPlayback = lyrics.availability {
                         ProgressView().controlSize(.small).tint(.white)
+                    } else if case .findingLocalLyrics = lyrics.availability {
+                        ProgressView().controlSize(.small).tint(.white)
                     } else if case .resolving = lyrics.availability {
                         ProgressView().controlSize(.small).tint(.white)
                     }
@@ -325,7 +330,9 @@ struct LockScreenCard: View {
     }
 
     private var lyricsStatus: String {
-        LyricsPresentation.compactCaption(for: lyrics.availability, currentLine: nil)
+        LyricsPresentation.compactCaption(
+            for: lyrics.availability, currentLine: nil, localLookup: localLookup()
+        )
     }
 
     private var wordTimingEnabled: Bool {
