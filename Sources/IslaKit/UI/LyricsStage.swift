@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// The full lyrics view: every line, scrolling with the voice.
 ///
@@ -49,7 +48,7 @@ struct LyricsStage: View {
     @ObservedObject var lyrics: LyricsStore
     var localLookup: LocalLyricsLookup? = nil
     var retry: () -> Void = {}
-    var importLocalFile: (URL) -> Void = { _ in }
+    var importLocalFile: () -> Void = {}
     var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
     var removeLocalBinding: () -> Void = {}
     var editLocalLyrics: (LocalLyricsCandidate) -> Void = { _ in }
@@ -524,15 +523,7 @@ struct LyricsStage: View {
         .padding(.top, 10)
     }
 
-    private func chooseLocalLRC() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "lrc")!]
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else {
-            return
-        }
-        importLocalFile(url)
-    }
+    private func chooseLocalLRC() { importLocalFile() }
 
     // MARK: - Empty
 

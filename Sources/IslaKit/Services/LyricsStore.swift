@@ -169,6 +169,17 @@ final class LyricsStore: ObservableObject {
         if activeLocalTrackIdentity == identity { trackOffset = trackOffset(for: identity) }
     }
 
+    func clearLocalTrackOffsets() {
+        localTrackOffsets.removeAll()
+        trackOffset = 0
+        persistLocalOffsets()
+    }
+
+    func dismissUnassignedLegacyOffset(named filename: String) {
+        unassignedLegacyOffsets.removeAll { $0.filename == filename }
+        Self.writeUnassignedLegacyOffsets(unassignedLegacyOffsets, to: unassignedOffsetsURL)
+    }
+
     /// Imports cache-era corrections without reviving a cache-era lyric entry.
     static func migrateLegacyOffsets(
         _ assigned: [LegacyOffsetMigration],

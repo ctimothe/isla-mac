@@ -5,7 +5,7 @@ struct MediaPane: View {
     @ObservedObject var lyrics: LyricsStore
     var localLookup: LocalLyricsLookup? = nil
     var retryLyrics: () -> Void = {}
-    var importLocalFile: (URL) -> Void = { _ in }
+    var importLocalFile: () -> Void = {}
     var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
     var removeLocalBinding: () -> Void = {}
     var localLibrary: LocalLyricsLibrary?

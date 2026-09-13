@@ -79,7 +79,16 @@
 "Show Lyrics" = "Show Lyrics";
 "Lyrics" = "Lyrics";
 "Show on Lock Screen" = "Show on Lock Screen";
-"Clear Lyrics Cache" = "Clear Lyrics Cache";
+"Lyrics stay on this Mac." = "Lyrics stay on this Mac.";
+"Import LRC…" = "Import LRC…";
+"Add Lyrics Folder…" = "Add Lyrics Folder…";
+"Remove %@" = "Remove %@";
+"Rescan Local Lyrics" = "Rescan Local Lyrics";
+"Open Lyrics Folder" = "Open Lyrics Folder";
+"Clear Imported Lyrics" = "Clear Imported Lyrics";
+"Clear Bindings and Timing Corrections" = "Clear Bindings and Timing Corrections";
+"Unassigned timing corrections" = "Unassigned timing corrections";
+"Dismiss %@" = "Dismiss %@";
 "Add to Liked Songs" = "Add to Liked Songs";
 "Remove from Liked Songs" = "Remove from Liked Songs";
 "Connect Spotify Account…" = "Connect Spotify Account…";
@@ -144,8 +153,6 @@
 
 /* Lock card panes */
 "Lyrics are switched off in Settings." = "Lyrics are switched off in Settings.";
-"Uses the Isla lyrics broker. After you opt in, it receives the player app, track title, artist, album, duration, optional Spotify or recording ID, app language, and anonymous installation token. It never receives audio, playback position, library data, Spotify account token, or a user identifier." = "Uses the Isla lyrics broker. After you opt in, it receives the player app, track title, artist, album, duration, optional Spotify or recording ID, app language, and anonymous installation token. It never receives audio, playback position, library data, Spotify account token, or a user identifier.";
-"Clearing the lyrics cache also deletes imported local LRC overrides." = "Clearing the lyrics cache also deletes imported local LRC overrides.";
 "No output devices." = "No output devices.";
 "Open on Hover" = "Open on Hover";
 "Output" = "Output";

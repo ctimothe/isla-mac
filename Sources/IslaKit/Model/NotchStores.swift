@@ -63,6 +63,15 @@ final class NotchStores {
         lyrics.clearCache()
     }
 
+    func clearImportedLyrics() {
+        localLyricsLibrary.clearImportedDocuments()
+    }
+
+    func clearBindingsAndTimingCorrections() {
+        localLyricsLibrary.clearBindings()
+        lyrics.clearLocalTrackOffsets()
+    }
+
     func start() {
         guard !started else { return }
         started = true
@@ -75,6 +84,7 @@ final class NotchStores {
         }
         media.start()
         lyricsCoordinator.start()
+        localLyricsLibrary.startWatchingFolders()
         shelf.load()
         // Drop folders from previous sessions, once, off the main thread.
         DispatchQueue.global(qos: .utility).async { AppPaths.pruneDropInbox() }
@@ -122,6 +132,7 @@ final class NotchStores {
         guard started else { return }
         started = false
         lyricsCoordinator.stop()
+        localLyricsLibrary.stopWatchingFolders()
         media.stop()
         clipboard.stop()
         // Whatever was typed makes it to disk even when quitting mid-thought.

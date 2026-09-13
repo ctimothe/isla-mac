@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import UniformTypeIdentifiers
 
 @MainActor
 final class NotchViewModel: ObservableObject {
@@ -320,6 +321,48 @@ final class NotchViewModel: ObservableObject {
 
     func clearLyricsCache() {
         stores.clearLyricsCache()
+    }
+
+    func chooseLocalLyricsFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.init(filenameExtension: "lrc")!]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? lyricsCoordinator.importLocalFile(at: url)
+    }
+
+    func chooseLocalLyricsFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? localLyricsLibrary.addFolder(url)
+    }
+
+    func removeLocalLyricsFolder(_ url: URL) {
+        localLyricsLibrary.removeFolder(url)
+    }
+
+    func rescanLocalLyrics() {
+        try? localLyricsLibrary.rescanFolders()
+    }
+
+    func revealLocalLyricsFolder() {
+        NSWorkspace.shared.activateFileViewerSelecting([localLyricsLibrary.storageDirectory])
+    }
+
+    func clearImportedLyrics() {
+        stores.clearImportedLyrics()
+    }
+
+    func clearLyricsBindingsAndTimingCorrections() {
+        stores.clearBindingsAndTimingCorrections()
+    }
+
+    func dismissUnassignedLyricsOffset(named filename: String) {
+        lyrics.dismissUnassignedLegacyOffset(named: filename)
     }
 
     /// Body this tab takes when open — asked whether it is open yet or not.

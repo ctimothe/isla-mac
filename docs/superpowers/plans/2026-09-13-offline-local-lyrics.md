@@ -539,6 +539,8 @@ git commit -m "feat: edit and bind local lyrics"
 
 ## Task 5: Replace Settings and store ownership
 
+**Status:** complete
+
 **Files:**
 - Modify: Sources/IslaKit/Model/NotchStores.swift
 - Modify: Sources/IslaKit/Model/NotchViewModel.swift
