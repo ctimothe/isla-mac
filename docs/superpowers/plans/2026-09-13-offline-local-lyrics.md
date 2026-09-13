@@ -340,6 +340,8 @@ git commit -m "feat: resolve lyrics from local library"
 
 ## Task 3: Migrate local overrides and preserve timing corrections
 
+**Status:** complete
+
 **Files:**
 - Modify: Sources/IslaKit/Services/LocalLyricsLibrary.swift
 - Modify: Sources/IslaKit/Services/LyricsStore.swift

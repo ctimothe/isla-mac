@@ -45,6 +45,22 @@ final class LyricSweepTests: XCTestCase {
         )
     }
 
+    func testLocalTrackOffsetPersistsByBoundIdentity() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let identity = LocalTrackIdentity(
+            playerID: "test", title: "Song", artist: "Artist", album: "Album",
+            duration: 180, recordingID: nil
+        )
+        let store = LyricsStore(offsetsDirectory: root)
+        store.activateTrackOffset(for: identity)
+        store.nudgeTrackOffset(by: 0.25)
+
+        let reloaded = LyricsStore(offsetsDirectory: root)
+
+        XCTAssertEqual(reloaded.trackOffset(for: identity), 0.25, accuracy: 0.001)
+    }
+
     /// Word timing wins wherever a source carried it; the singing-speed estimate
     /// is only for lines that never got any.
     func testWordTimingWinsOverTheEstimate() {
