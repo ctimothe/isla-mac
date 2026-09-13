@@ -9,18 +9,18 @@ import Foundation
 /// no active lyric surface invokes them.
 @MainActor
 final class LyricsStore: ObservableObject {
-    struct Line: Equatable {
+    struct Line: Codable, Equatable, Sendable {
         /// Seconds from the start of the track at which this line begins.
         var at: TimeInterval
-        let text: String
+        var text: String
         /// Word starts within this line, when a word-synced source had them.
-        var words: [WordSyncedLyrics.Word] = []
+        var words: [LyricWord] = []
         /// Who wrote, produced or mixed the track, rather than a word anybody
         /// sings. Shown during the intro and never swept: a sweep says "this is
         /// being sung right now", which of a producer credit is a lie.
         var isCredit: Bool = false
 
-        init(at: TimeInterval, text: String, words: [WordSyncedLyrics.Word] = [], isCredit: Bool = false) {
+        init(at: TimeInterval, text: String, words: [LyricWord] = [], isCredit: Bool = false) {
             self.at = at
             self.text = text
             self.words = words

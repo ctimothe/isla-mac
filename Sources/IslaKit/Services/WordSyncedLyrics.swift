@@ -9,23 +9,7 @@ import Compression
 /// per-word offsets and durations. Between them and LRCLIB's line-level LRC,
 /// every track gets the best timing that exists for it.
 enum WordSyncedLyrics {
-    struct Word: Equatable {
-        /// Seconds from the start of the track.
-        let at: TimeInterval
-        let text: String
-        /// When the word stops being sung, where the source knew. Nil falls
-        /// back to the next word's start — which is exactly what both formats
-        /// used to be flattened to, and why the sweep kept moving through
-        /// pauses: a line with a breath in the middle carried real end times
-        /// that were parsed and then thrown away.
-        var end: TimeInterval? = nil
-
-        init(at: TimeInterval, text: String, end: TimeInterval? = nil) {
-            self.at = at
-            self.text = text
-            self.end = end
-        }
-    }
+    typealias Word = LyricWord
 
     struct Line: Equatable {
         let at: TimeInterval
