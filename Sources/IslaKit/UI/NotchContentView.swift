@@ -690,7 +690,7 @@ struct NotchContentView: View {
                 lyrics: vm.lyrics,
                 localLookup: vm.lyricsCoordinator.localLookup,
                 retryLyrics: vm.lyricsCoordinator.retry,
-                importLocalFile: { url in try? vm.lyricsCoordinator.importLocalFile(at: url) },
+                importLocalFile: vm.chooseLocalLyricsFile,
                 selectLocalCandidate: vm.lyricsCoordinator.selectLocalCandidate,
                 removeLocalBinding: vm.lyricsCoordinator.removeLocalBinding,
                 localLibrary: vm.localLyricsLibrary,
@@ -708,8 +708,16 @@ struct NotchContentView: View {
                 shelf: vm.shelf,
                 screenshotVault: vm.screenshotVault,
                 lyrics: vm.lyrics,
-                onLyricsConsentChanged: vm.lyricsCoordinator.refreshConsent,
-                clearLyricsCache: vm.clearLyricsCache,
+                localLyrics: vm.localLyricsLibrary,
+                onLyricsVisibilityChanged: vm.lyricsCoordinator.refreshConsent,
+                importLocalLyrics: vm.chooseLocalLyricsFile,
+                addLocalLyricsFolder: vm.chooseLocalLyricsFolder,
+                removeLocalLyricsFolder: vm.removeLocalLyricsFolder,
+                rescanLocalLyrics: vm.rescanLocalLyrics,
+                openLocalLyricsFolder: vm.revealLocalLyricsFolder,
+                clearImportedLyrics: vm.clearImportedLyrics,
+                clearBindingsAndTimingCorrections: vm.clearLyricsBindingsAndTimingCorrections,
+                dismissUnassignedLyricsOffset: vm.dismissUnassignedLyricsOffset,
                 privacy: vm.privacy
             )
         }

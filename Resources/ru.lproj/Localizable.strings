@@ -80,7 +80,16 @@
 "Show Lyrics" = "Показывать текст песни";
 "Lyrics" = "Текст песни";
 "Show on Lock Screen" = "Показывать на экране блокировки";
-"Clear Lyrics Cache" = "Очистить кэш текстов";
+"Lyrics stay on this Mac." = "Тексты песен остаются на этом Mac.";
+"Import LRC…" = "Импортировать LRC…";
+"Add Lyrics Folder…" = "Добавить папку с текстами…";
+"Remove %@" = "Удалить %@";
+"Rescan Local Lyrics" = "Пересканировать локальные тексты";
+"Open Lyrics Folder" = "Открыть папку с текстами";
+"Clear Imported Lyrics" = "Удалить импортированные тексты";
+"Clear Bindings and Timing Corrections" = "Удалить привязки и поправки тайминга";
+"Unassigned timing corrections" = "Неназначенные поправки тайминга";
+"Dismiss %@" = "Скрыть %@";
 "Add to Liked Songs" = "Добавить в любимые треки";
 "Remove from Liked Songs" = "Убрать из любимых треков";
 "Connect Spotify Account…" = "Подключить аккаунт Spotify…";
@@ -145,8 +154,6 @@
 
 /* Lock card panes */
 "Lyrics are switched off in Settings." = "Тексты выключены в настройках.";
-"Uses the Isla lyrics broker. After you opt in, it receives the player app, track title, artist, album, duration, optional Spotify or recording ID, app language, and anonymous installation token. It never receives audio, playback position, library data, Spotify account token, or a user identifier." = "Используется брокер текстов Isla. После вашего согласия ему передаются приложение-плеер, название трека, исполнитель, альбом, длительность, необязательный идентификатор Spotify или записи, язык приложения и анонимный токен установки. Аудио, позиция воспроизведения, данные медиатеки, токен аккаунта Spotify и идентификатор пользователя не передаются.";
-"Clearing the lyrics cache also deletes imported local LRC overrides." = "Очистка кэша текстов также удаляет импортированные локальные переопределения LRC.";
 "No output devices." = "Нет устройств вывода.";
 "Open on Hover" = "Открывать при наведении";
 "Output" = "Вывод";

@@ -8,10 +8,20 @@ import ServiceManagement
 struct SettingsPane: View {
     @ObservedObject var shelf: ShelfStore
     let screenshotVault: ScreenshotVault
-    let lyrics: LyricsStore
-    var onLyricsConsentChanged: () -> Void = {}
-    var clearLyricsCache: () -> Void = {}
+    @ObservedObject var lyrics: LyricsStore
+    @ObservedObject var localLyrics: LocalLyricsLibrary
+    var onLyricsVisibilityChanged: () -> Void = {}
+    var importLocalLyrics: () -> Void = {}
+    var addLocalLyricsFolder: () -> Void = {}
+    var removeLocalLyricsFolder: (URL) -> Void = { _ in }
+    var rescanLocalLyrics: () -> Void = {}
+    var openLocalLyricsFolder: () -> Void = {}
+    var clearImportedLyrics: () -> Void = {}
+    var clearBindingsAndTimingCorrections: () -> Void = {}
+    var dismissUnassignedLyricsOffset: (String) -> Void = { _ in }
     @ObservedObject var privacy: PrivacyMode
+
+    static let localLyricsPrivacyCopyKey = "Lyrics stay on this Mac."
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hoverDelay = NotchViewModel.hoverOpenDelay
@@ -151,14 +161,57 @@ struct SettingsPane: View {
                             set: { wants in
                                 showLyrics = wants
                                 UserDefaults.standard.set(wants, forKey: NotchViewModel.showLyricsKey)
-                                onLyricsConsentChanged()
+                                onLyricsVisibilityChanged()
                             }
                         )
                     )
-                    // Said where the choice is made: flipping this on sends
-                    // listening history off the machine, and the toggle alone
-                    // does not say so.
-                    noteRow(localized("Uses the Isla lyrics broker. After you opt in, it receives the player app, track title, artist, album, duration, optional Spotify or recording ID, app language, and anonymous installation token. It never receives audio, playback position, library data, Spotify account token, or a user identifier."))
+                    noteRow(localized("Lyrics stay on this Mac."))
+                    actionRow(symbol: SettingsIcon.lyrics, title: localized("Import LRC…")) {
+                        importLocalLyrics()
+                    }
+                    actionRow(symbol: SettingsIcon.showFolder, title: localized("Add Lyrics Folder…")) {
+                        addLocalLyricsFolder()
+                    }
+                    ForEach(localLyrics.selectedFolders, id: \.path) { folder in
+                        actionRow(
+                            symbol: SettingsIcon.clear,
+                            title: localized("Remove %@", folder.lastPathComponent)
+                        ) {
+                            removeLocalLyricsFolder(folder)
+                        }
+                    }
+                    actionRow(symbol: SettingsIcon.showFolder, title: localized("Rescan Local Lyrics")) {
+                        rescanLocalLyrics()
+                    }
+                    actionRow(symbol: SettingsIcon.showFolder, title: localized("Open Lyrics Folder")) {
+                        openLocalLyricsFolder()
+                    }
+                    confirmRow(
+                        symbol: SettingsIcon.clear,
+                        title: localized("Clear Imported Lyrics"),
+                        armedTitle: localized("Delete These Files")
+                    ) {
+                        clearImportedLyrics()
+                    }
+                    confirmRow(
+                        symbol: SettingsIcon.clear,
+                        title: localized("Clear Bindings and Timing Corrections"),
+                        armedTitle: localized("Delete These Files")
+                    ) {
+                        clearBindingsAndTimingCorrections()
+                    }
+                    if !lyrics.unassignedLegacyOffsets.isEmpty {
+                        noteRow(localized("Unassigned timing corrections"))
+                        ForEach(lyrics.unassignedLegacyOffsets) { correction in
+                            actionRow(
+                                symbol: SettingsIcon.clear,
+                                title: localized("Dismiss %@", correction.filename)
+                            ) {
+                                dismissUnassignedLyricsOffset(correction.filename)
+                            }
+                            .accessibilityHint(String(format: "%+.2fs", correction.offset))
+                        }
+                    }
                     toggleRow(
                         symbol: SettingsIcon.peek,
                         title: localized("Peek at New Tracks"),
@@ -197,18 +250,6 @@ struct SettingsPane: View {
                             title: { $0.title }
                         )
                     }
-                    // Looked-up lyrics are kept on disk so a replay costs no
-                    // request. Offered here because a cache the user cannot
-                    // see the end of is a cache they cannot empty.
-                    confirmRow(
-                        symbol: SettingsIcon.clear,
-                        title: localized("Clear Lyrics Cache"),
-                        armedTitle: localized("Delete These Files"),
-                        disabled: false
-                    ) {
-                        clearLyricsCache()
-                    }
-                    noteRow(localized("Clearing the lyrics cache also deletes imported local LRC overrides."))
                 }
 
                 section(localized("Spotify")) {

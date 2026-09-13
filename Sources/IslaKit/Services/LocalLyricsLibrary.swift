@@ -59,6 +59,7 @@ final class LocalLyricsLibrary: ObservableObject {
 
     /// The support root shared with local timing-correction persistence.
     var storageDirectory: URL { root }
+    var selectedFolders: [URL] { state.folders.map { URL(fileURLWithPath: $0.path) } }
 
     private struct StoredDocument: Codable, Equatable {
         let id: UUID
@@ -300,6 +301,33 @@ final class LocalLyricsLibrary: ObservableObject {
 
     func removeBinding(for identity: LocalTrackIdentity) {
         state.bindings.removeValue(forKey: identityKey(identity))
+        persist()
+        advanceRevision()
+    }
+
+    /// Deletes only copies Isla owns under `lyrics-local/imports`. Files from
+    /// selected folders are deliberately never candidates for this operation.
+    func clearImportedDocuments() {
+        let imported = state.documents.filter { $0.origin == .imported }
+        let importedIDs = Set(imported.map(\.id))
+        for document in imported where document.path.hasPrefix(importsDirectory.path + "/") {
+            try? fileManager.removeItem(atPath: document.path)
+        }
+        state.documents.removeAll { $0.origin == .imported }
+        records = records.filter { !importedIDs.contains($0.key) }
+        state.bindings = state.bindings.filter { !importedIDs.contains($0.value) }
+        state.issues.removeAll { $0.path.hasPrefix(importsDirectory.path + "/") }
+        state.unassignedImports.removeAll {
+            importedIDs.contains($0.id) || $0.path.hasPrefix(importsDirectory.path + "/")
+        }
+        rebuildUnassignedImports()
+        persist()
+        advanceRevision()
+    }
+
+    func clearBindings() {
+        guard !state.bindings.isEmpty else { return }
+        state.bindings.removeAll()
         persist()
         advanceRevision()
     }
