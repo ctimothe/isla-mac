@@ -44,6 +44,13 @@ enum LyricsPresentation {
         }
     }
 
+    static func canOpenLocalActions(_ availability: LyricsAvailability) -> Bool {
+        switch availability {
+        case .noLocalLyrics, .invalidLocalFile: return true
+        default: return false
+        }
+    }
+
     static func usesWordTiming(
         _ granularity: LyricTimeline.Granularity?,
         precisionMeasured: Bool

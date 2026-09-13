@@ -47,9 +47,12 @@ extension AnyTransition {
 struct LyricsStage: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    var localLookup: LocalLyricsLookup? = nil
     var retry: () -> Void = {}
-    var importLocalLRC: (String) -> Void = { _ in }
-    var removeLocalOverride: () -> Void = {}
+    var importLocalFile: (URL) -> Void = { _ in }
+    var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
+    var removeLocalBinding: () -> Void = {}
+    var editLocalLyrics: (LocalLyricsCandidate) -> Void = { _ in }
     /// Folds the stage back into the ordinary pane.
     var dismiss: () -> Void
 
@@ -488,14 +491,24 @@ struct LyricsStage: View {
             .accessibilityLabel(localized("Import Local LRC"))
             .help(localized("Import Local LRC"))
 
+            if case .some(.ready(let candidate)) = localLookup {
+                Button { editLocalLyrics(candidate) } label: {
+                    Image(systemName: "pencil")
+                        .islandFont(.caption, weight: .semibold)
+                }
+                .buttonStyle(NotchButtonStyle(size: 24))
+                .accessibilityLabel(localized("Edit Lyrics"))
+                .help(localized("Edit Lyrics"))
+            }
+
             if lyrics.hasLocalOverride {
-                Button(action: removeLocalOverride) {
+                Button(action: removeLocalBinding) {
                     Image(systemName: "trash")
                         .islandFont(.caption, weight: .semibold)
                 }
                 .buttonStyle(NotchButtonStyle(size: 24))
-                .accessibilityLabel(localized("Remove Local Override"))
-                .help(localized("Remove Local Override"))
+                .accessibilityLabel(localized("Remove Local Binding"))
+                .help(localized("Remove Local Binding"))
             }
 
             Button(action: retry) {
@@ -515,12 +528,10 @@ struct LyricsStage: View {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "lrc")!]
         panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK,
-              let url = panel.url,
-              let raw = try? String(contentsOf: url, encoding: .utf8) else {
+        guard panel.runModal() == .OK, let url = panel.url else {
             return
         }
-        importLocalLRC(raw)
+        importLocalFile(url)
     }
 
     // MARK: - Empty
@@ -528,6 +539,10 @@ struct LyricsStage: View {
     private var unavailable: some View {
         VStack(spacing: 8) {
             if case .settlingPlayback = lyrics.availability {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+            } else if case .findingLocalLyrics = lyrics.availability {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)
@@ -539,12 +554,36 @@ struct LyricsStage: View {
                 Image(systemName: "text.quote")
                     .islandFont(.display, weight: .light)
                     .foregroundStyle(Theme.tertiary)
-                Text(LyricsPresentation.compactCaption(for: lyrics.availability, currentLine: nil))
+                Text(LyricsPresentation.compactCaption(
+                    for: lyrics.availability, currentLine: nil, localLookup: localLookup
+                ))
                     .islandFont(.body)
                     .foregroundStyle(Theme.secondary)
             }
+            if case .some(.ambiguous(let candidates)) = localLookup {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(candidates) { candidate in
+                        Button { selectLocalCandidate(candidate) } label: {
+                            Text(candidateLabel(candidate))
+                                .islandFont(.caption, weight: .regular)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(candidateLabel(candidate))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func candidateLabel(_ candidate: LocalLyricsCandidate) -> String {
+        let metadata = candidate.document.metadata
+        return [metadata.title, metadata.artist, metadata.album]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " — ")
     }
 
     /// Index of the line being sung at `at`, by the same binary search the

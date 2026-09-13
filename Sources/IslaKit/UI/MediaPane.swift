@@ -3,9 +3,13 @@ import SwiftUI
 struct MediaPane: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    var localLookup: LocalLyricsLookup? = nil
     var retryLyrics: () -> Void = {}
-    var importLocalLRC: (String) -> Void = { _ in }
-    var removeLocalOverride: () -> Void = {}
+    var importLocalFile: (URL) -> Void = { _ in }
+    var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
+    var removeLocalBinding: () -> Void = {}
+    var localLibrary: LocalLyricsLibrary?
+    var currentLocalTrackIdentity: () -> LocalTrackIdentity? = { nil }
     /// The namespace the cover travels in, when this pane is inside the panel.
     ///
     /// Optional because the pane is also rendered on its own — by the layout
@@ -37,6 +41,7 @@ struct MediaPane: View {
     @State private var artworkWaitExpired = false
     /// True while the pane shows the full lyrics stage instead of the player.
     @State private var showingLyrics = false
+    @State private var editingCandidate: LocalLyricsCandidate?
     /// Hover on the caption, which surfaces its chevron.
     @State private var captionHover = false
 
@@ -63,9 +68,15 @@ struct MediaPane: View {
                     LyricsStage(
                         media: media,
                         lyrics: lyrics,
+                        localLookup: localLookup,
                         retry: retryLyrics,
-                        importLocalLRC: importLocalLRC,
-                        removeLocalOverride: removeLocalOverride
+                        importLocalFile: importLocalFile,
+                        selectLocalCandidate: selectLocalCandidate,
+                        removeLocalBinding: removeLocalBinding,
+                        editLocalLyrics: { candidate in
+                            guard localLibrary != nil else { return }
+                            editingCandidate = candidate
+                        }
                     ) {
                         showingLyrics = false
                     }
@@ -92,6 +103,17 @@ struct MediaPane: View {
             // app launched normally never has the variable.
             .onAppear {
                 if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" { showingLyrics = true }
+            }
+            .sheet(item: $editingCandidate) { candidate in
+                if let localLibrary {
+                    LocalLyricsEditorView(
+                        document: candidate.document,
+                        editor: LocalLyricsEditor(library: localLibrary),
+                        binding: currentLocalTrackIdentity(),
+                        onSaved: { _ in editingCandidate = nil },
+                        onDismiss: { editingCandidate = nil }
+                    )
+                }
             }
         } else {
             emptyState
@@ -498,10 +520,14 @@ struct MediaPane: View {
             HStack(spacing: 5) {
                 if case .settlingPlayback = lyrics.availability {
                     ProgressView().controlSize(.mini).tint(Theme.tertiary)
+                } else if case .findingLocalLyrics = lyrics.availability {
+                    ProgressView().controlSize(.mini).tint(Theme.tertiary)
                 } else if case .resolving = lyrics.availability {
                     ProgressView().controlSize(.mini).tint(Theme.tertiary)
                 }
-                Text(LyricsPresentation.compactCaption(for: lyrics.availability, currentLine: nil))
+                Text(LyricsPresentation.compactCaption(
+                    for: lyrics.availability, currentLine: nil, localLookup: localLookup
+                ))
                     .islandFont(.body, weight: .regular)
                     .foregroundStyle(Theme.secondary)
                     .lineLimit(1)
@@ -519,7 +545,9 @@ struct MediaPane: View {
         .onHover { captionHover = $0 }
         .animation(Theme.contentAnimation, value: captionHover)
         .accessibilityLabel(localized("Lyrics"))
-        .accessibilityValue(LyricsPresentation.compactCaption(for: lyrics.availability, currentLine: nil))
+        .accessibilityValue(LyricsPresentation.compactCaption(
+            for: lyrics.availability, currentLine: nil, localLookup: localLookup
+        ))
         .accessibilityHint(localized("Opens the full lyrics"))
     }
 

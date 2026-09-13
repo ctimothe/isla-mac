@@ -57,4 +57,29 @@ final class SharedLyricTimelineTests: XCTestCase {
             accuracy: 0.0001
         )
     }
+
+    func testEveryLocalAvailabilityHasCaptionAndLocalRecoveryAction() {
+        let timeline = LyricTimeline(
+            lines: [LyricsStore.Line(at: 1, text: "One")],
+            granularity: .line,
+            attribution: "Local LRC",
+            source: "local",
+            matchConfidence: 1,
+            cacheExpiry: .distantFuture
+        )
+        let states: [LyricsAvailability] = [
+            .disabled,
+            .settlingPlayback,
+            .findingLocalLyrics,
+            .ready(timeline),
+            .noLocalLyrics,
+            .invalidLocalFile(.malformed),
+        ]
+
+        for state in states {
+            XCTAssertFalse(LyricsPresentation.compactCaption(for: state, currentLine: nil).isEmpty)
+        }
+        XCTAssertTrue(LyricsPresentation.canOpenLocalActions(.noLocalLyrics))
+        XCTAssertTrue(LyricsPresentation.canOpenLocalActions(.invalidLocalFile(.malformed)))
+    }
 }

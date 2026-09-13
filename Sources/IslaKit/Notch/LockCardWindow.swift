@@ -69,6 +69,7 @@ final class LockCardWindow {
     func present(
         media: MediaController,
         lyrics: LyricsStore,
+        localLookup: @escaping () -> LocalLyricsLookup? = { nil },
         retryLyrics: @escaping () -> Void = {},
         on screen: NSScreen,
         presence: LockScreenPresence
@@ -101,7 +102,11 @@ final class LockCardWindow {
         // non-activating style already guarantees.
         panel.ignoresMouseEvents = false
         let hosting = NSHostingView(rootView: LockScreenCard(
-            media: media, lyrics: lyrics, retryLyrics: retryLyrics, audio: watch
+            media: media,
+            lyrics: lyrics,
+            localLookup: localLookup,
+            retryLyrics: retryLyrics,
+            audio: watch
         ))
         // The card sits inset inside the window, so its shadow has somewhere to
         // go. Not autoresizing: the card is one fixed size and the window is
