@@ -58,11 +58,11 @@ final class LyricsStore: ObservableObject {
         switch availability {
         case .disabled:
             state = .idle
-        case .settlingPlayback, .resolving:
+        case .settlingPlayback, .findingLocalLyrics, .resolving:
             state = .loading
         case .ready(let timeline):
             state = .synced(timeline.lines)
-        case .unavailable, .failed:
+        case .noLocalLyrics, .invalidLocalFile, .unavailable, .failed:
             state = .none
         }
     }

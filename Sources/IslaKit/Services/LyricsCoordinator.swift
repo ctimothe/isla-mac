@@ -1,10 +1,8 @@
 import Combine
 import Foundation
 
-/// The minimum metadata a lyric service needs to identify a recording.
-///
-/// This is deliberately playback-free: position, library contents, account
-/// credentials and any installation identifier stay out of a resolve request.
+/// Legacy broker identity kept only until Task 6 removes the retired broker
+/// implementation files. The active coordinator uses LocalTrackIdentity.
 struct LyricIdentity: Equatable, Sendable {
     let playerID: String
     let title: String
@@ -14,9 +12,6 @@ struct LyricIdentity: Equatable, Sendable {
     let spotifyID: String?
     let isrc: String?
     let locale: String
-    /// The duration observed when this logical track began. Catalogue metadata
-    /// may later refine the request duration, but imports and licensed cache
-    /// entries must keep the same per-track storage key.
     let cacheDuration: TimeInterval
 
     init(
@@ -44,15 +39,9 @@ struct LyricIdentity: Equatable, Sendable {
         spotifyID: String?, isrc: String?, exactDuration: TimeInterval?
     ) -> LyricIdentity {
         LyricIdentity(
-            playerID: playerID,
-            title: title,
-            artist: artist,
-            album: album,
-            duration: exactDuration ?? duration,
-            spotifyID: spotifyID ?? self.spotifyID,
-            isrc: isrc ?? self.isrc,
-            locale: locale,
-            cacheDuration: cacheDuration
+            playerID: playerID, title: title, artist: artist, album: album,
+            duration: exactDuration ?? duration, spotifyID: spotifyID ?? self.spotifyID,
+            isrc: isrc ?? self.isrc, locale: locale, cacheDuration: cacheDuration
         )
     }
 
@@ -72,6 +61,7 @@ struct LyricIdentity: Equatable, Sendable {
     }
 }
 
+/// The common value rendered by compact, stage, and lock-card lyric surfaces.
 struct LyricTimeline: Equatable, Sendable {
     enum Granularity: String, Codable, Equatable, Sendable {
         case word
@@ -80,6 +70,11 @@ struct LyricTimeline: Equatable, Sendable {
 
     let lines: [LyricsStore.Line]
     let granularity: Granularity
+    /// Stable identifier for an explicitly local document. Broker-era entries
+    /// remain nil until their implementation is removed in Task 6.
+    let documentID: UUID?
+    /// Retained temporarily for the broker's response contract. Local entries
+    /// fill these compatibility values and Task 6 deletes them.
     let attribution: String
     let source: String
     let matchConfidence: Double
@@ -88,6 +83,7 @@ struct LyricTimeline: Equatable, Sendable {
     init(
         lines: [LyricsStore.Line],
         granularity: Granularity,
+        documentID: UUID? = nil,
         attribution: String,
         source: String,
         matchConfidence: Double,
@@ -95,6 +91,7 @@ struct LyricTimeline: Equatable, Sendable {
     ) {
         self.lines = lines
         self.granularity = granularity
+        self.documentID = documentID
         self.attribution = attribution
         self.source = source
         self.matchConfidence = matchConfidence
@@ -102,6 +99,7 @@ struct LyricTimeline: Equatable, Sendable {
     }
 }
 
+/// Retired broker failures, preserved only while the broker source compiles.
 struct LyricsFailure: Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case connection
@@ -122,21 +120,23 @@ enum LyricsResolution: Equatable, Sendable {
 enum LyricsAvailability: Equatable, Sendable {
     case disabled
     case settlingPlayback
-    case resolving
+    case findingLocalLyrics
     case ready(LyricTimeline)
+    case noLocalLyrics
+    case invalidLocalFile(LocalLyricsLibrary.FileIssue)
+    /// Compatibility cases disappear with retired source code in Task 6.
+    case resolving
     case unavailable
     case failed(LyricsFailure)
 }
 
-/// The client-side contract for the licensed broker. A real adapter can only
-/// be enabled after the provider agreement and broker endpoint exist.
+/// Compatibility protocol for the retired broker code. LyricsCoordinator no
+/// longer accepts it on its active initializer.
 @MainActor
 protocol LyricsResolving: AnyObject {
     func resolve(_ identity: LyricIdentity) async -> LyricsResolution
 }
 
-/// Safe production default while the provider contract is not configured.
-/// It neither contacts community sources nor emits track metadata.
 @MainActor
 final class UnconfiguredLyricsResolver: LyricsResolving {
     func resolve(_ identity: LyricIdentity) async -> LyricsResolution {
@@ -144,36 +144,50 @@ final class UnconfiguredLyricsResolver: LyricsResolving {
     }
 }
 
-/// Session-owned lyric resolution. It begins when Now Playing is valid, not
-/// when SwiftUI happens to construct a lyric surface.
+/// Session-owned local lyric prefetch. It starts on Now Playing, never when a
+/// SwiftUI lyric view happens to be created.
 @MainActor
 final class LyricsCoordinator: ObservableObject {
     @Published private(set) var availability: LyricsAvailability = .disabled
     @Published private(set) var hasLocalOverride = false
+    @Published private(set) var localLookup: LocalLyricsLookup?
 
+    let library: LocalLyricsLibrary
     private let media: MediaController
-    private let resolver: any LyricsResolving
     private let isEnabled: () -> Bool
-    private let cache: LicensedLyricsCache?
     private weak var presentation: LyricsStore?
     private var observers = Set<AnyCancellable>()
-    private var request: Task<Void, Never>?
     private var logicalTrackKey: String?
-    private var currentIdentity: LyricIdentity?
-    private var resolution: LyricsResolution?
+    private var currentIdentity: LocalTrackIdentity?
 
     init(
         media: MediaController,
-        resolver: any LyricsResolving,
+        library: LocalLyricsLibrary,
         isEnabled: @escaping () -> Bool,
-        presentation: LyricsStore? = nil,
-        cache: LicensedLyricsCache? = nil
+        presentation: LyricsStore? = nil
     ) {
         self.media = media
-        self.resolver = resolver
+        self.library = library
         self.isEnabled = isEnabled
         self.presentation = presentation
-        self.cache = cache
+    }
+
+    /// Compatibility initializer for callers that have not yet moved their
+    /// store ownership to LocalLyricsLibrary. Its resolver and cache are never
+    /// used; the active path is still entirely local.
+    convenience init(
+        media: MediaController,
+        resolver _: any LyricsResolving,
+        isEnabled: @escaping () -> Bool,
+        presentation: LyricsStore? = nil,
+        cache _: LicensedLyricsCache? = nil
+    ) {
+        self.init(
+            media: media,
+            library: LocalLyricsLibrary(directory: AppPaths.live.supportDirectory),
+            isEnabled: isEnabled,
+            presentation: presentation
+        )
     }
 
     func start() {
@@ -185,93 +199,61 @@ final class LyricsCoordinator: ObservableObject {
             }
             .store(in: &observers)
         media.$positionSettled
-            .sink { [weak self] settled in self?.publishAvailability(positionSettled: settled) }
+            .sink { [weak self] _ in self?.publishAvailability() }
             .store(in: &observers)
-        Publishers.CombineLatest3(
-            media.$spotifyTrackID, media.$spotifyISRC, media.$spotifyExactDuration
-        )
-        .sink { [weak self] spotifyID, isrc, exactDuration in
-            self?.enrichCurrentIdentity(
-                spotifyID: spotifyID, isrc: isrc, exactDuration: exactDuration
-            )
-        }
-        .store(in: &observers)
+        library.$revision
+            .dropFirst()
+            .sink { [weak self] _ in self?.recheckCurrentTrack() }
+            .store(in: &observers)
         reconcileTrack(track: media.track, duration: media.duration)
     }
 
     func stop() {
         observers.removeAll()
-        request?.cancel()
-        request = nil
         logicalTrackKey = nil
         currentIdentity = nil
-        resolution = nil
+        localLookup = nil
         hasLocalOverride = false
         presentation?.presentLocalOverride(false)
         availability = .disabled
         presentation?.present(.disabled)
     }
 
+    /// Kept as a source-compatible Settings callback while consent becomes a
+    /// local-only Show Lyrics switch.
     func refreshConsent() {
         reconcileTrack(track: media.track, duration: media.duration, force: true)
     }
 
     func retry() {
-        guard currentIdentity != nil else { return }
-        request?.cancel()
-        request = nil
-        // A visible, validated timeline remains the truth while retry checks
-        // for an equal-or-better result. Clearing it would blank the caption;
-        // accepting a weaker result would be worse than the transient failure.
-        if case .available = resolution {
-            // Keep the shown timeline.
-        } else {
-            resolution = nil
-        }
-        beginResolve()
+        recheckCurrentTrack()
     }
 
     func importLocalOverride(_ lrc: String) throws {
-        guard let cache, let identity = currentIdentity else { return }
-        try cache.writeLocalOverride(lrc, for: identity)
+        guard let currentIdentity else { return }
+        _ = try library.importDocument(lrc, binding: currentIdentity)
         hasLocalOverride = true
         presentation?.presentLocalOverride(true)
-        retry()
     }
 
     func removeLocalOverride() throws {
-        guard let cache, let identity = currentIdentity else { return }
-        try cache.removeLocalOverride(for: identity)
+        guard let currentIdentity else { return }
+        library.removeBinding(for: currentIdentity)
         hasLocalOverride = false
         presentation?.presentLocalOverride(false)
-        retry()
     }
 
-    func clearCache() {
-        cache?.clear()
-    }
+    /// Cache clearing no longer affects local documents. Settings is rewired
+    /// to explicit local-library actions in Task 5.
+    func clearCache() {}
 
     private func reconcileTrack(
         track: MediaController.Track?, duration: TimeInterval, force: Bool = false
     ) {
-        guard isEnabled() else {
-            request?.cancel()
-            request = nil
+        guard isEnabled(), let track, !track.title.isEmpty, duration > 0 else {
             logicalTrackKey = nil
             currentIdentity = nil
-            resolution = nil
-            hasLocalOverride = false
-            presentation?.presentLocalOverride(false)
-            availability = .disabled
-            presentation?.present(availability)
-            return
-        }
-        guard let track, !track.title.isEmpty, duration > 0 else {
-            request?.cancel()
-            request = nil
-            logicalTrackKey = nil
-            currentIdentity = nil
-            resolution = nil
+            localLookup = nil
             hasLocalOverride = false
             presentation?.presentLocalOverride(false)
             availability = .disabled
@@ -284,69 +266,49 @@ final class LyricsCoordinator: ObservableObject {
             return
         }
 
-        request?.cancel()
         logicalTrackKey = track.key
-        currentIdentity = LyricIdentity(
+        currentIdentity = LocalTrackIdentity(
             playerID: media.lyricPlayerID,
             title: track.title,
             artist: track.artist,
             album: track.album,
-            duration: media.spotifyExactDuration ?? duration,
-            spotifyID: media.spotifyTrackID,
-            isrc: media.spotifyISRC
+            duration: duration,
+            recordingID: nil
         )
-        hasLocalOverride = currentIdentity.map { cache?.hasLocalOverride(for: $0) ?? false } ?? false
-        presentation?.presentLocalOverride(hasLocalOverride)
-        resolution = nil
-        beginResolve()
+        hasLocalOverride = false
+        presentation?.presentLocalOverride(false)
+        resolveCurrentTrack()
     }
 
-    private func beginResolve() {
-        guard let identity = currentIdentity, let key = logicalTrackKey else { return }
+    private func recheckCurrentTrack() {
+        guard currentIdentity != nil else { return }
+        resolveCurrentTrack()
+    }
+
+    private func resolveCurrentTrack() {
+        guard let identity = currentIdentity else { return }
+        localLookup = nil
         publishAvailability()
-        request = Task { [weak self, resolver] in
-            let resolved = await resolver.resolve(identity)
-            guard !Task.isCancelled, let self, self.logicalTrackKey == key else { return }
-            if case .available(let shown) = self.resolution,
-               case .available(let candidate) = resolved,
-               candidate.matchConfidence < shown.matchConfidence {
-                self.publishAvailability()
-                return
-            }
-            self.resolution = resolved
-            self.publishAvailability()
-        }
+        localLookup = library.lookup(identity: identity)
+        publishAvailability()
     }
 
-    private func enrichCurrentIdentity(
-        spotifyID: String?, isrc: String?, exactDuration: TimeInterval?
-    ) {
-        guard let currentIdentity else { return }
-        let enriched = currentIdentity.enriched(
-            spotifyID: spotifyID, isrc: isrc, exactDuration: exactDuration
-        )
-        guard enriched != currentIdentity else { return }
-        // This deliberately changes only data used by a later retry. The
-        // in-flight request keeps its stable identity and visible state.
-        self.currentIdentity = enriched
-    }
-
-    private func publishAvailability(positionSettled: Bool? = nil) {
+    private func publishAvailability() {
         guard isEnabled(), currentIdentity != nil else {
             availability = .disabled
             presentation?.present(availability)
             return
         }
-        guard positionSettled ?? media.positionSettled else {
+        guard media.positionSettled else {
             availability = .settlingPlayback
             presentation?.present(availability)
             return
         }
-        switch resolution {
-        case .available(let timeline): availability = .ready(timeline)
-        case .unavailable: availability = .unavailable
-        case .failed(let failure): availability = .failed(failure)
-        case nil: availability = .resolving
+        switch localLookup {
+        case .ready(let candidate): availability = .ready(candidate.timeline)
+        case .invalid(let issue): availability = .invalidLocalFile(issue)
+        case .noMatch, .ambiguous: availability = .noLocalLyrics
+        case nil: availability = .findingLocalLyrics
         }
         presentation?.present(availability)
     }

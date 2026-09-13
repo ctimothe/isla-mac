@@ -39,6 +39,18 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
         lines.allSatisfy { !$0.words.isEmpty } ? .word : .line
     }
 
+    func timeline(documentID: UUID?) -> LyricTimeline {
+        LyricTimeline(
+            lines: lines,
+            granularity: granularity,
+            documentID: documentID,
+            attribution: "Local LRC",
+            source: "local",
+            matchConfidence: 1,
+            cacheExpiry: .distantFuture
+        )
+    }
+
     static func parse(_ raw: String) throws -> Self {
         var metadata = LocalLyricsMetadata()
         var offset: TimeInterval = 0

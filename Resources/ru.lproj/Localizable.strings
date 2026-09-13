@@ -101,6 +101,7 @@
 "Reset lyric timing" = "Сбросить тайминг текста";
 "Import Local LRC" = "Импортировать локальный LRC";
 "Remove Local Override" = "Удалить локальную замену";
+"Choose local lyrics…" = "Выберите локальный текст…";
 "No lyrics for this track." = "Для этого трека нет текста.";
 "Syncing playback…" = "Синхронизация воспроизведения…";
 "Finding lyrics…" = "Ищем текст песни…";
