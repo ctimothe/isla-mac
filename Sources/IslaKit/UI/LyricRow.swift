@@ -31,6 +31,9 @@ struct LyricRow: View {
     var lineLimit: Int = 1
     var accent: Color = .white
     var reduceMotion: Bool = false
+    /// A line timeline, or an unmeasured player clock, highlights the whole
+    /// current line. It must never animate a made-up word progression.
+    var wordTimingEnabled = false
     /// Choosing a line is choosing the song's place in it.
     var seek: (() -> Void)?
 
@@ -82,7 +85,9 @@ struct LyricRow: View {
         } else if isCurrent {
             KaraokeText(
                 text: line.text,
-                fraction: LyricSweep.fraction(line: line, at: at, end: end),
+                fraction: wordTimingEnabled
+                    ? LyricSweep.fraction(line: line, at: at, end: end)
+                    : 1,
                 reduceMotion: reduceMotion,
                 accent: accent,
                 font: .system(size: fontSize, weight: weight),

@@ -44,14 +44,16 @@ absent until the user asks. They are recorded here because the parity
 design's non-goals rule out "network services" and "accounts", and these
 are the exception the design did not anticipate:
 
-- **Lyrics** (Settings, default off) fetches words from `lrclib.net`,
-  `raw.githubusercontent.com` and `lyrics.kugou.com`, sending the current
-  track's metadata. From 2026-09-11 also from **QQ Music** (`u.y.qq.com`,
-  `c.y.qq.com`, `shc.y.qq.com`), anonymous and keyless like the rest:
-  searched tiers match on scored title/artist resemblance inside a ±3s
-  duration gate, an ISRC-exact hit outranks any scored hit, concurrent
-  word-tier answers arbitrate by coverage × timing sanity × source trust,
-  and the cache (v4, per-entry source tag) keeps the winner.
+- **Lyrics** (Settings, default off) resolves once per Now Playing session
+  through the Isla broker before any lyric surface opens. It sends only player
+  class, title, artist, album, duration, optional Spotify or recording ID,
+  locale, and an anonymous installation token. It never sends audio, playback
+  position, library data, Spotify credentials, or a user identifier. Results
+  use a v5 cache only when licensed cache rights remain valid; local LRC
+  overrides take precedence and never leave the installation. QQ, Kugou, AMLL,
+  and LRCLIB are not invoked by the shipping lyric path. A licensed provider
+  agreement and Cloudflare broker release remain required before a provider
+  adapter can be enabled.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain.
@@ -136,6 +138,13 @@ is off by default with a 200-file cap once enabled.
 - [ ] Every tab passes its workflow on a clean macOS account.
 - [ ] The lyrics page scrolls both ways, holds where it is left, and the
   sync pill returns it to the sung line.
+- [ ] Compact music and lock-card captions never go blank: exercise disabled,
+  settling, resolving, ready, unavailable, offline, rate-limited, and service
+  failure states, including retry and local-LRC removal.
+- [ ] Validate physical-notch, lock-card, slow-network, denied-territory,
+  VoiceOver, Reduce Motion, English, Russian, and local-LRC workflows.
+- [ ] Measure Spotify and Apple Music word timing at or below 150 ms p95; keep
+  every unmeasured publisher line-level.
 - [ ] The lock card appears centred at its own size across repeated
   lock/unlock cycles, including after display sleep.
 - [ ] Protected Shelf files prompt only when the Shelf is opened or used.

@@ -380,6 +380,7 @@ final class MediaControllerTests: XCTestCase {
     func testPositionSettlesOnlyOnARealReading() {
         let controller = MediaController()
         controller.setActive(true)
+        defer { controller.setActive(false) }
         XCTAssertFalse(controller.positionSettled, "opening the panel must unsettle the position")
 
         var playing = NowPlayingFeed.Snapshot()
@@ -409,6 +410,7 @@ final class MediaControllerTests: XCTestCase {
     /// "the lyrics come back if I pause and play".
     func testOpeningOnAPausedTrackKeepsTheSettledPosition() {
         let controller = MediaController()
+        defer { controller.setActive(false) }
         var playing = NowPlayingFeed.Snapshot()
         playing.title = "Track"
         playing.artist = "Artist"
@@ -442,6 +444,7 @@ final class MediaControllerTests: XCTestCase {
     /// on a player that never answers.
     func testAnUnansweredPlayingTrackSettlesOnItsOwn() async throws {
         let controller = MediaController()
+        defer { controller.setActive(false) }
         var playing = NowPlayingFeed.Snapshot()
         playing.title = "Track"
         playing.artist = "Artist"
@@ -668,6 +671,41 @@ final class MediaControllerTests: XCTestCase {
     func testPrecisionPollCadenceIsOneSecond() {
         XCTAssertEqual(MediaController.precisionPollInterval, 1.0, accuracy: 0.0001)
         XCTAssertEqual(MediaController.precisionPollTolerance, 0.1, accuracy: 0.0001)
+    }
+
+    /// Apple Music is scriptable too.  Its measured player clock earns the
+    /// same precision path as Spotify; browser and other MediaRemote sessions
+    /// must remain line-only because they have no equivalent reading.
+    func testAppleMusicStartsPrecisionPolling() async {
+        let controller = MediaController()
+        controller.precisionPlayerForTests = .music
+        controller.precisionPositionFetcher = { next in
+            Task { @MainActor in next(42.3) }
+        }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 40
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+        controller.setActive(true)
+
+        for _ in 0..<200 {
+            if controller.positionSettled { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(controller.precisionSync,
+                      "Apple Music must use its own measured playback position")
+        XCTAssertTrue(controller.positionSettled,
+                      "the Apple Music correction must settle the lyric clock")
+        controller.setActive(false)
     }
 
     /// Five RTT-aged corrections, not one snap: a single AppleScript answer

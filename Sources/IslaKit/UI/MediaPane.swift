@@ -3,6 +3,9 @@ import SwiftUI
 struct MediaPane: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    var retryLyrics: () -> Void = {}
+    var importLocalLRC: (String) -> Void = { _ in }
+    var removeLocalOverride: () -> Void = {}
     /// The namespace the cover travels in, when this pane is inside the panel.
     ///
     /// Optional because the pane is also rendered on its own — by the layout
@@ -57,7 +60,13 @@ struct MediaPane: View {
                     // The Liquid Glass entrance: blur, scale and opacity settle
                     // together, so the stage materializes rather than pops. The
                     // exit is faster than the entry, as every pane swap here is.
-                    LyricsStage(media: media, lyrics: lyrics) {
+                    LyricsStage(
+                        media: media,
+                        lyrics: lyrics,
+                        retry: retryLyrics,
+                        importLocalLRC: importLocalLRC,
+                        removeLocalOverride: removeLocalOverride
+                    ) {
                         showingLyrics = false
                     }
                     .transition(reduceMotion ? AnyTransition.opacity : .materialize)
@@ -83,28 +92,6 @@ struct MediaPane: View {
             // app launched normally never has the variable.
             .onAppear {
                 if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" { showingLyrics = true }
-            }
-            // The Spotify id rides in the task identity: it arrives a beat
-            // after the metadata, and its arrival is what unlocks the
-            // word-synced database, so it must re-fire the load. The exact
-            // duration (0.1s bucket) and ISRC arrive later still, off the Web
-            // API, and re-fire the same way: exact identity can rescue a match
-            // the text search got wrong, and the held words cover the gap.
-            // The order mirrors LyricsStore's load identity.
-            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")\(LyricsStore.exactDurationIdentity(media.spotifyExactDuration))|\(media.spotifyISRC ?? "")") {
-                guard NotchViewModel.showLyricsEnabled else {
-                    lyrics.clear()
-                    return
-                }
-                lyrics.load(
-                    title: track.title,
-                    artist: track.artist,
-                    album: track.album,
-                    duration: media.duration,
-                    spotifyID: media.spotifyTrackID,
-                    isrc: media.spotifyISRC,
-                    exactDuration: media.spotifyExactDuration
-                )
             }
         } else {
             emptyState
@@ -431,7 +418,9 @@ struct MediaPane: View {
     /// the music, not a document.
     @ViewBuilder
     private var lyricsLine: some View {
-        if media.positionSettled, case .synced(let lines) = lyrics.state {
+        if case .ready = lyrics.availability,
+           media.positionSettled,
+           case .synced(let lines) = lyrics.state {
             let at = LyricSweep.position(
                 media.position,
                 precisionSync: media.precisionSync,
@@ -441,6 +430,9 @@ struct MediaPane: View {
             )
             if let shown = LyricSweep.displayed(lines: lines, at: at) {
                 let line = shown.line
+                let wordTimingEnabled = LyricsPresentation.usesWordTiming(
+                    lyrics.timingGranularity, precisionMeasured: media.precisionSync
+                )
                 // Where the voice stands inside this line, 0...1. The catalogue
                 // carries line timestamps, not word ones, so within a line the
                 // sweep is linear time — even pacing, which is what singing
@@ -460,7 +452,9 @@ struct MediaPane: View {
                             // voice is there, which it is not.
                             fraction: line.isCredit || !shown.swept
                                 ? 0
-                                : LyricSweep.fraction(line: line, at: at, end: end),
+                                : wordTimingEnabled
+                                    ? LyricSweep.fraction(line: line, at: at, end: end)
+                                    : 1,
                             reduceMotion: reduceMotion,
                             // The caption sits at the body size, where SF opens tracking
                             // up slightly rather than tightening it.
@@ -491,8 +485,42 @@ struct MediaPane: View {
                 .accessibilityLabel(localized("Lyrics"))
                 .accessibilityValue(line.text)
                 .accessibilityHint(localized("Opens the full lyrics"))
+            } else {
+                compactLyricsStatus
             }
+        } else {
+            compactLyricsStatus
         }
+    }
+
+    private var compactLyricsStatus: some View {
+        Button { showingLyrics = true } label: {
+            HStack(spacing: 5) {
+                if case .settlingPlayback = lyrics.availability {
+                    ProgressView().controlSize(.mini).tint(Theme.tertiary)
+                } else if case .resolving = lyrics.availability {
+                    ProgressView().controlSize(.mini).tint(Theme.tertiary)
+                }
+                Text(LyricsPresentation.compactCaption(for: lyrics.availability, currentLine: nil))
+                    .islandFont(.body, weight: .regular)
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(1)
+                if captionHover {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(Theme.tertiary)
+                        .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { captionHover = $0 }
+        .animation(Theme.contentAnimation, value: captionHover)
+        .accessibilityLabel(localized("Lyrics"))
+        .accessibilityValue(LyricsPresentation.compactCaption(for: lyrics.availability, currentLine: nil))
+        .accessibilityHint(localized("Opens the full lyrics"))
     }
 
     private var emptyState: some View {

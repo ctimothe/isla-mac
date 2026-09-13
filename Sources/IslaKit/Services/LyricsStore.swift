@@ -1,18 +1,12 @@
 import Foundation
 
-/// Synced lyrics for the current track, from LRCLIB.
+/// Shared lyric presentation, timing controls, and legacy parser support.
 ///
-/// This is the app's first and only network call, so its manners matter. One
-/// request per track, ever: an answer — including "no lyrics exist" — is
-/// cached on disk, so replaying an album a year later asks for nothing twice.
-/// Fetching happens only while the media pane is actually showing, and an
-/// off switch in Settings turns the feature, and with it the network, off
-/// entirely.
-///
-/// LRCLIB because it is the one open, keyless, account-less source of
-/// timestamped lyrics; every player's own lyrics API is private. The `get`
-/// endpoint matches on title, artist, album and duration, which is exactly
-/// the identity the media feed already carries.
+/// Shipping resolution is owned by `LyricsCoordinator`: it starts with Now
+/// Playing, emits an explicit availability state, and only reaches the
+/// licensed broker after consent. The legacy source routines below remain for
+/// parser compatibility while the production provider contract is external;
+/// no active lyric surface invokes them.
 @MainActor
 final class LyricsStore: ObservableObject {
     struct Line: Equatable {
@@ -44,6 +38,38 @@ final class LyricsStore: ObservableObject {
     }
 
     @Published private(set) var state: State = .idle
+    /// The shared status for compact, full-stage and lock-card surfaces.
+    /// `state` remains the renderer's timeline shape while the coordinator is
+    /// being adopted; no view is allowed to infer loading or failure from an
+    /// empty line array.
+    @Published private(set) var availability: LyricsAvailability = .disabled
+    /// The renderer may sweep words only when this says the timeline carries
+    /// word timestamps and MediaController confirms a measured player clock.
+    @Published private(set) var timingGranularity: LyricTimeline.Granularity?
+    @Published private(set) var hasLocalOverride = false
+
+    func present(_ availability: LyricsAvailability) {
+        self.availability = availability
+        if case .ready(let timeline) = availability {
+            timingGranularity = timeline.granularity
+        } else {
+            timingGranularity = nil
+        }
+        switch availability {
+        case .disabled:
+            state = .idle
+        case .settlingPlayback, .resolving:
+            state = .loading
+        case .ready(let timeline):
+            state = .synced(timeline.lines)
+        case .unavailable, .failed:
+            state = .none
+        }
+    }
+
+    func presentLocalOverride(_ active: Bool) {
+        hasLocalOverride = active
+    }
 
     /// The cache key the current `state` describes — the track without the
     /// Spotify id, so a second lookup for the same song can be told apart from a
@@ -220,6 +246,7 @@ final class LyricsStore: ObservableObject {
             retained = nil
             loadedCacheKey = nil
             state = .none
+            availability = .unavailable
             return
         }
 
@@ -243,6 +270,7 @@ final class LyricsStore: ObservableObject {
             // words.
             loadedSource = nil
             state = .loading
+            availability = .resolving
         }
         loadedCacheKey = key
         let referenceDuration = exactDuration ?? duration
@@ -331,6 +359,7 @@ final class LyricsStore: ObservableObject {
     private func settle(_ lines: [Line]) {
         if lines.isEmpty, let retained, !retained.isEmpty {
             state = .synced(retained)
+            availability = .ready(legacyTimeline(retained))
             return
         }
         retained = nil
@@ -342,6 +371,18 @@ final class LyricsStore: ObservableObject {
             loadedSource = nil
         }
         state = lines.isEmpty ? .none : .synced(lines)
+        availability = lines.isEmpty ? .unavailable : .ready(legacyTimeline(lines))
+    }
+
+    private func legacyTimeline(_ lines: [Line]) -> LyricTimeline {
+        LyricTimeline(
+            lines: lines,
+            granularity: lines.contains { !$0.words.isEmpty } ? .word : .line,
+            attribution: "",
+            source: loadedSource?.rawValue ?? "legacy-test",
+            matchConfidence: 1,
+            cacheExpiry: .distantFuture
+        )
     }
 
     func clear() {
@@ -354,6 +395,7 @@ final class LyricsStore: ObservableObject {
         trackOffset = 0
         retained = nil
         state = .idle
+        availability = .disabled
     }
 
     /// Throws away what was cached for this track and asks the services again.

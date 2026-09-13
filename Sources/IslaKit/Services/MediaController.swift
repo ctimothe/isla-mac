@@ -185,7 +185,8 @@ final class MediaController: ObservableObject {
     var spotifyMetadataProvider: ((String) async -> SpotifyAccount.TrackMetadata?)?
     private var precisionTimer: Timer?
     private var precisionInFlight = false
-    /// How often Spotify's own clock is asked while the panel is open on it.
+    /// How often a scriptable player's own clock is asked while its panel is
+    /// open. Apple Music and Spotify both expose this public scripting value.
     /// Every two seconds the lyric sweep stair-stepped on the beat of the poll —
     /// a correction yanking the clock up to a tenth forward, then a dead anchor
     /// free-running until the next one — so the cadence is one second.
@@ -211,6 +212,9 @@ final class MediaController: ObservableObject {
     /// Forces the Spotify-displayed verdict in tests, where no Spotify pid can
     /// be adopted through `NSRunningApplication`. Production leaves this nil.
     var spotifyDisplayForTests: Bool?
+    /// Pins the scriptable precision source in tests without requiring a
+    /// running player process.
+    var precisionPlayerForTests: PlayerApp?
     private var spotifyStateObserver: (any NSObjectProtocol)?
 
     private var ticker: Timer?
@@ -401,6 +405,12 @@ final class MediaController: ObservableObject {
         spotifyDisplayForTests ?? (displayedPlayerApp == .spotify)
     }
 
+    private var precisionPlayer: PlayerApp? {
+        if let precisionPlayerForTests { return precisionPlayerForTests }
+        if spotifyDisplayForTests == true { return .spotify }
+        return displayedPlayerApp
+    }
+
     /// The scriptable player behind the displayed session, when it is one.
     /// Browsers and everything else answer nil — the honest value, since
     /// shuffle and repeat cannot even be asked about there.
@@ -408,6 +418,13 @@ final class MediaController: ObservableObject {
         guard let pid = displayedPlayerPID,
               let bundle = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier else { return nil }
         return PlayerApp.allCases.first { $0.bundleID == bundle }
+    }
+
+    /// A coarse player class for lyric matching. It is metadata, never an
+    /// account or a process identifier, and lets timing policy distinguish
+    /// scriptable players from unmeasured Now Playing publishers.
+    var lyricPlayerID: String {
+        displayedPlayerApp?.rawValue ?? "other"
     }
 
     /// Asks Spotify which track this is, and asks again if it does not answer.
@@ -483,13 +500,23 @@ final class MediaController: ObservableObject {
     /// tests do the same through here.
     func setSpotifyTrackIDForTests(_ id: String?) { spotifyTrackID = id }
 
+    /// Test seam for late Spotify catalogue metadata. Production writes these
+    /// fields through `requestSpotifyMetadata(trackID:forKey:)`.
+    func setSpotifyMetadataForTests(
+        trackID: String?, isrc: String?, exactDuration: TimeInterval?
+    ) {
+        spotifyTrackID = trackID
+        spotifyISRC = isrc
+        spotifyExactDuration = exactDuration
+    }
+
     private func updatePrecisionSync() {
         // Playing, too. A paused track's position cannot move, so asking
         // Spotify where it is every second — a fresh AppleScript compile
         // and an Apple event into another process each time — bought a number
         // already known. Pausing and walking away used to leave that running
         // indefinitely.
-        let wanted = isActive && isPlaying && displayedPlayerIsSpotify
+        let wanted = isActive && isPlaying && precisionPlayer != nil
         if precisionSync != wanted { precisionSync = wanted }
         guard wanted else {
             precisionTimer?.invalidate()
@@ -502,7 +529,7 @@ final class MediaController: ObservableObject {
         // them with the fresh ones would lean the mean backwards for five polls.
         correctionWindow = []
         let timer = Timer(timeInterval: Self.precisionPollInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.precisionCorrect() }
+            Task { @MainActor [weak self] in self?.precisionCorrect() }
         }
         timer.tolerance = Self.precisionPollTolerance
         RunLoop.main.add(timer, forMode: .common)
@@ -544,18 +571,20 @@ final class MediaController: ObservableObject {
     }
 
     private func precisionCorrect() {
-        guard !precisionInFlight, displayedPlayerIsSpotify else { return }
+        guard !precisionInFlight, let player = precisionPlayer else { return }
         precisionInFlight = true
         let askedMono = monotonicNow()
         // The seek verdict below is the one place the wall clock stays: it
         // orders a reading against a seek issued moments ago, and thresholds
         // (1.5s expiry, 0.6 phantom, 0.8 target) are unchanged.
         let askedWall = Date()
-        let fetch = precisionPositionFetcher ?? PlayerBridge.preciseSpotifyPosition
+        let fetch = precisionPositionFetcher ?? { completion in
+            PlayerBridge.precisePosition(of: player, completion: completion)
+        }
         fetch { [weak self] value in
             guard let self else { return }
             self.precisionInFlight = false
-            guard let value, self.isActive, self.displayedPlayerIsSpotify else { return }
+            guard let value, self.isActive, self.precisionPlayer == player else { return }
 
             // With corrections stewarding the position, this loop must also
             // settle a pending seek — the MediaRemote branch that used to is
@@ -736,10 +765,18 @@ final class MediaController: ObservableObject {
         // every two seconds forever, and the whole panel graph was rebuilt off
         // the back of it — measured at roughly a quarter of the app's idle CPU,
         // spent re-rendering a collapsed shell that had not changed.
-        let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
         let trackChanged = track?.key != key
-        if track != fresh { track = fresh }
         let playerChanged = displayedPlayerPID != snapshot.playerPID
+        // Clear metadata for the departing logical track before publishing the
+        // new one. Otherwise a subscriber can observe the new title paired
+        // with the previous recording ID for one synchronous Combine turn.
+        if trackChanged || playerChanged {
+            spotifyTrackID = nil
+            spotifyISRC = nil
+            spotifyExactDuration = nil
+        }
+        let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
+        if track != fresh { track = fresh }
         // Adopted *before* the Spotify id is asked for. Asking first tested the
         // player the last snapshot came from: switching Music → Spotify skipped
         // the lookup for the first Spotify track, so its word-synced lyrics
@@ -748,9 +785,6 @@ final class MediaController: ObservableObject {
         // lyrics to the wrong song entirely.
         displayedPlayerPID = snapshot.playerPID
         if trackChanged || playerChanged {
-            spotifyTrackID = nil
-            spotifyISRC = nil
-            spotifyExactDuration = nil
             // A new song is a new line for the regression too.
             correctionWindow = []
             requestSpotifyTrackID(for: key, playerPID: snapshot.playerPID, attempt: 0)
@@ -1290,7 +1324,7 @@ final class MediaController: ObservableObject {
         // Four times a second: the bar advances in sub-pixel steps, so it reads
         // as smooth without any animation smoothing the seek away with it.
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+            Task { @MainActor [weak self] in self?.tick() }
         }
         timer.tolerance = 0.05
         RunLoop.main.add(timer, forMode: .common)

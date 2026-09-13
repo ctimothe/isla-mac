@@ -196,6 +196,27 @@ transitions.
 > answers arbitrate by coverage × timing sanity × source trust, with LRCLIB
 > unchanged as the line-level floor. The on-disk cache moves to v4, tagging
 > every entry with its source tier.
+>
+> **Amended 2026-09-13.** This supersedes the two earlier lyric-source
+> amendments. Lyrics are session-owned, opt-in brokered data, not view-owned
+> direct community lookups. The client sends only player class, title, artist,
+> album, duration, optional Spotify or recording ID, locale, and an anonymous
+> installation token to the Isla broker; it never sends audio, playback
+> position, library data, Spotify credentials, or a user identifier. The
+> broker records aggregate outcome, provider, error class, and latency only.
+> It must hold an executed provider agreement covering desktop display,
+> timing, territory, attribution, caching, rate limits, and takedown handling
+> before a provider adapter is enabled. Until then, its mock contract fails
+> closed and local LRC overrides are the only lyric data path.
+>
+> Cached entries are v5 and may contain only a local override or licensed data
+> with unexpired cache rights. Legacy v4 community entries are ignored and
+> pruned. Local LRC files are copied into Isla support storage, stay private to
+> that installation, and can be removed or cleared. Apple Music lyric text or
+> timings are never scraped: public MusicKit exposes presence and playback,
+> not a timed lyric payload. Word animation requires word timing plus a
+> measured Apple Music or Spotify player position; every other publisher uses
+> line-level highlighting.
 
 ### Music
 

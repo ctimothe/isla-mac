@@ -1,0 +1,31 @@
+name: Release lyrics broker
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lyrics-broker-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: lyrics-broker-production
+    defaults:
+      run:
+        working-directory: services/isla-lyrics-broker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/isla-lyrics-broker/package-lock.json
+      - run: npm ci
+      - run: npm run verify
+      - run: npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

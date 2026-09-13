@@ -9,6 +9,8 @@ struct SettingsPane: View {
     @ObservedObject var shelf: ShelfStore
     let screenshotVault: ScreenshotVault
     let lyrics: LyricsStore
+    var onLyricsConsentChanged: () -> Void = {}
+    var clearLyricsCache: () -> Void = {}
     @ObservedObject var privacy: PrivacyMode
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -149,13 +151,14 @@ struct SettingsPane: View {
                             set: { wants in
                                 showLyrics = wants
                                 UserDefaults.standard.set(wants, forKey: NotchViewModel.showLyricsKey)
+                                onLyricsConsentChanged()
                             }
                         )
                     )
                     // Said where the choice is made: flipping this on sends
                     // listening history off the machine, and the toggle alone
                     // does not say so.
-                    noteRow(localized("Looks up words at lrclib.net, the amll community database, lyrics.kugou.com and QQ Music. The track title, artist, album and length leave your Mac; nothing else does."))
+                    noteRow(localized("Uses the Isla lyrics broker. After you opt in, it receives the player app, track title, artist, album, duration, optional Spotify or recording ID, app language, and anonymous installation token. It never receives audio, playback position, library data, Spotify account token, or a user identifier."))
                     toggleRow(
                         symbol: SettingsIcon.peek,
                         title: localized("Peek at New Tracks"),
@@ -203,8 +206,9 @@ struct SettingsPane: View {
                         armedTitle: localized("Delete These Files"),
                         disabled: false
                     ) {
-                        lyrics.clearCache()
+                        clearLyricsCache()
                     }
+                    noteRow(localized("Clearing the lyrics cache also deletes imported local LRC overrides."))
                 }
 
                 section(localized("Spotify")) {

@@ -60,7 +60,7 @@ enum PlayerBridge {
     }
 
     /// The Spotify catalogue id of the current track ("spotify:track:…" →
-    /// the bare id). The community word-lyrics database is keyed by it.
+    /// the bare id). The licensed broker can use it to refine a match.
     static func spotifyTrackID(completion: @escaping @MainActor (String?) -> Void) {
         let script = """
         tell application id "\(PlayerApp.spotify.bundleID)"
@@ -77,12 +77,14 @@ enum PlayerBridge {
         }
     }
 
-    /// Spotify's own playback position, fractional seconds, asked directly.
-    /// The one scriptable value that beats MediaRemote: the daemon's readings
-    /// sit about a second stale, the player's own answer lands within ~50ms.
-    static func preciseSpotifyPosition(completion: @escaping @MainActor (TimeInterval?) -> Void) {
+    /// A scriptable player's own playback position, fractional seconds, asked
+    /// directly. The player clock beats MediaRemote's stale elapsed reading.
+    static func precisePosition(
+        of app: PlayerApp,
+        completion: @escaping @MainActor (TimeInterval?) -> Void
+    ) {
         let script = """
-        tell application id "\(PlayerApp.spotify.bundleID)"
+        tell application id "\(app.bundleID)"
             if it is running then
                 return (player position as text)
             end if
@@ -93,6 +95,11 @@ enum PlayerBridge {
                 completion(result?.stringValue.flatMap { TimeInterval($0.replacingOccurrences(of: ",", with: ".")) })
             }
         }
+    }
+
+    /// Compatibility entry point for existing Spotify-specific callers.
+    static func preciseSpotifyPosition(completion: @escaping @MainActor (TimeInterval?) -> Void) {
+        precisePosition(of: .spotify, completion: completion)
     }
 
     /// Never launches a player: only already-running ones are queried, and a
