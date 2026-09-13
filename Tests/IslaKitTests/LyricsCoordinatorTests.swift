@@ -82,6 +82,15 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertEqual(timeline.lines.first?.text, "Opening line")
     }
 
+    func testUnconfiguredResolverFailsClosedUntilTheBrokerIsReleased() async {
+        let resolver = UnconfiguredLyricsResolver()
+        let resolution = await resolver.resolve(LyricIdentity(
+            playerID: "spotify", title: "Song", artist: "Artist", album: "Album", duration: 180
+        ))
+
+        XCTAssertEqual(resolution, .failed(LyricsFailure(kind: .service, retryable: false)))
+    }
+
     func testSessionStartOwnsPrefetchInsteadOfAMediaPane() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
