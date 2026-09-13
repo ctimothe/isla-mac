@@ -22,6 +22,11 @@ import SwiftUI
 struct LockScreenCard: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    /// The machine's audio state, followed while the card is up. The window
+    /// starts it before the card exists and stops it at dismiss; a render
+    /// without one gets a bare watch, which reads the machine on demand and
+    /// never installs listeners.
+    @ObservedObject private var audio: AudioWatch
     @ObservedObject private var spotify = SpotifyAccount.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -36,9 +41,10 @@ struct LockScreenCard: View {
 
     /// Which pane the card opens on. Always `.player` in the app; the parameter
     /// exists so a render can photograph the other two without a click.
-    init(media: MediaController, lyrics: LyricsStore, initialPane: Pane = .player) {
+    init(media: MediaController, lyrics: LyricsStore, audio: AudioWatch? = nil, initialPane: Pane = .player) {
         self.media = media
         self.lyrics = lyrics
+        _audio = ObservedObject(wrappedValue: audio ?? AudioWatch())
         _pane = State(initialValue: initialPane)
     }
 
@@ -136,6 +142,17 @@ struct LockScreenCard: View {
             .onChange(of: track.key) { _, _ in pane = .player }
             .onAppear { readAudio() }
             .onChange(of: pane) { _, _ in readAudio() }
+            // The machine moves on its own while the card stands here — a
+            // device connecting mid-lock, the volume keys — and the card used
+            // to miss every bit of it until a pane switch re-read. The watch's
+            // listeners speak for the card now; a finger on the bar owns the
+            // level until release, so its mirror stands down while one drags.
+            .onReceive(audio.$outputs) { outputs = $0 }
+            .onReceive(audio.$current) { currentOutput = $0 }
+            .onReceive(audio.$volume) { newValue in
+                guard draggingVolume == nil else { return }
+                volume = newValue
+            }
             // Same identity as MediaPane above: every refinement of the track's
             // catalogue identity re-fires the load exactly once.
             .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")\(LyricsStore.exactDurationIdentity(media.spotifyExactDuration))|\(media.spotifyISRC ?? "")") {
@@ -425,8 +442,10 @@ struct LockScreenCard: View {
             guard AudioOutputs.select(device.id) else { return }
             // A discrete value committed, which is what this pattern is for.
             Haptics.levelChange()
-            currentOutput = AudioOutputs.current()
-            volume = SystemVolume.current()
+            // Through the watch, not straight into state: the volume listener
+            // has to follow the device we just made default, and one re-read
+            // mirrors everything — list, highlight, level — back into the card.
+            readAudio()
             pane = .player
         } label: {
             HStack(spacing: 10) {
@@ -463,10 +482,18 @@ struct LockScreenCard: View {
     /// had never opened the picker showed a generic AirPlay symbol for a Mac
     /// playing through its own speakers; and the volume rail cannot decide
     /// whether it exists until something has asked.
+    /// One re-read of the machine, mirrored straight into the card's state.
+    ///
+    /// Everything audio now flows through the watch — this asks it to re-read
+    /// and copies what it found, so the pane-change and selection paths and the
+    /// listener-driven path all publish through one place. Direct reads here
+    /// would leave the watch's picture of the machine behind the card's, and
+    /// the volume listener would follow the old default after a selection.
     private func readAudio() {
-        outputs = AudioOutputs.available()
-        currentOutput = AudioOutputs.current()
-        volume = SystemVolume.current()
+        audio.systemAudioChanged()
+        outputs = audio.outputs
+        currentOutput = audio.current
+        volume = audio.volume
     }
 
     // MARK: - Rails
