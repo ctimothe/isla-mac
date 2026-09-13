@@ -19,7 +19,8 @@ final class NotchStores {
     let clipboard = ClipboardStore()
     let screenshotVault = ScreenshotVault()
     let translator = Translator()
-    let lyrics = LyricsStore()
+    let lyrics: LyricsStore
+    let localLyricsLibrary: LocalLyricsLibrary
     let lyricsCache: LicensedLyricsCache
     let lyricsCoordinator: LyricsCoordinator
     /// Shared by every pane that shows something worth not showing.
@@ -33,22 +34,27 @@ final class NotchStores {
     private var started = false
 
     init(
-        lyricsResolver: (any LyricsResolving)? = nil,
+        lyricsResolver _: (any LyricsResolving)? = nil,
         lyricsEnabled: (() -> Bool)? = nil,
         lyricsCache: LicensedLyricsCache? = nil,
-        pruneLegacyLyrics: Bool = false
+        pruneLegacyLyrics: Bool = false,
+        localLyricsDirectory: URL = AppPaths.live.supportDirectory
     ) {
+        // Import a listener's old local override and timing correction before
+        // the retired cache helper gets a chance to prune its cache files.
+        // The local library is now the coordinator's only lyric authority.
+        let library = LocalLyricsLibrary(directory: localLyricsDirectory)
+        localLyricsLibrary = library
+        lyrics = LyricsStore(offsetsDirectory: library.storageDirectory)
         let cache = lyricsCache ?? LicensedLyricsCache(
             legacyDirectory: pruneLegacyLyrics ? AppPaths.live.supportFile("lyrics") : nil
         )
         self.lyricsCache = cache
-        let remote = lyricsResolver ?? UnconfiguredLyricsResolver()
         lyricsCoordinator = LyricsCoordinator(
             media: media,
-            resolver: CachedLyricsResolver(cache: cache, remote: remote),
+            library: library,
             isEnabled: lyricsEnabled ?? { NotchViewModel.showLyricsEnabled },
-            presentation: lyrics,
-            cache: cache
+            presentation: lyrics
         )
     }
 

@@ -34,6 +34,17 @@ enum LocalLyricsLookup: Equatable {
     case invalid(LocalLyricsLibrary.FileIssue)
 }
 
+/// A migrated local document that needs an explicit binding before it can be
+/// displayed. Its contents remain in Isla-owned storage; a parsed candidate is
+/// available for an explicit binding, while malformed files surface only their
+/// filename and validation state.
+struct LocalUnassignedImport: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let filename: String
+    let issue: LocalLyricsLibrary.FileIssue?
+    let candidate: LocalLyricsCandidate?
+}
+
 /// The only lyric-data authority in Isla. Its inputs are explicit LRC imports
 /// and explicitly selected folders; it has no remote resolver or transport.
 @MainActor
@@ -44,6 +55,10 @@ final class LocalLyricsLibrary: ObservableObject {
     }
 
     @Published private(set) var revision = 0
+    @Published private(set) var unassignedImports: [LocalUnassignedImport] = []
+
+    /// The support root shared with local timing-correction persistence.
+    var storageDirectory: URL { root }
 
     private struct StoredDocument: Codable, Equatable {
         let id: UUID
@@ -61,11 +76,39 @@ final class LocalLyricsLibrary: ObservableObject {
         let issue: FileIssue
     }
 
+    private struct StoredUnassignedImport: Codable, Equatable {
+        let id: UUID
+        let path: String
+        let issue: FileIssue?
+    }
+
     private struct State: Codable {
         var documents: [StoredDocument] = []
         var folders: [StoredFolder] = []
         var bindings: [String: UUID] = [:]
         var issues: [StoredIssue] = []
+        var unassignedImports: [StoredUnassignedImport] = []
+        var legacyMigrationCompleted = false
+
+        enum CodingKeys: String, CodingKey {
+            case documents, folders, bindings, issues, unassignedImports, legacyMigrationCompleted
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            documents = try container.decodeIfPresent([StoredDocument].self, forKey: .documents) ?? []
+            folders = try container.decodeIfPresent([StoredFolder].self, forKey: .folders) ?? []
+            bindings = try container.decodeIfPresent([String: UUID].self, forKey: .bindings) ?? [:]
+            issues = try container.decodeIfPresent([StoredIssue].self, forKey: .issues) ?? []
+            unassignedImports = try container.decodeIfPresent(
+                [StoredUnassignedImport].self, forKey: .unassignedImports
+            ) ?? []
+            legacyMigrationCompleted = try container.decodeIfPresent(
+                Bool.self, forKey: .legacyMigrationCompleted
+            ) ?? false
+        }
     }
 
     private struct Record {
@@ -88,8 +131,6 @@ final class LocalLyricsLibrary: ObservableObject {
     private var scheduledRescan: DispatchWorkItem?
     private var watching = false
 
-    /// `legacyV5Directory` and `legacyV4Directory` are accepted now so the
-    /// migration task can be introduced without changing this public seam.
     init(
         directory: URL,
         legacyV5Directory: URL? = nil,
@@ -104,8 +145,12 @@ final class LocalLyricsLibrary: ObservableObject {
         self.onLookup = onLookup
         state = Self.loadState(from: indexURL, fileManager: fileManager)
         try? fileManager.createDirectory(at: importsDirectory, withIntermediateDirectories: true)
+        let v5 = legacyV5Directory ?? directory.appendingPathComponent("lyrics-v5", isDirectory: true)
+        let v4 = legacyV4Directory ?? directory.appendingPathComponent("lyrics", isDirectory: true)
+        migrateLegacyData(v5Directory: v5, v4Directory: v4)
         reloadImportedRecords()
         try? rescanFolders()
+        rebuildUnassignedImports()
     }
 
     func importDocument(at url: URL, binding: LocalTrackIdentity?) throws -> LocalLyricsCandidate {
@@ -247,6 +292,8 @@ final class LocalLyricsLibrary: ObservableObject {
     func bind(_ candidate: LocalLyricsCandidate, to identity: LocalTrackIdentity) {
         guard records[candidate.id] != nil else { return }
         state.bindings[identityKey(identity)] = candidate.id
+        state.unassignedImports.removeAll { $0.id == candidate.id }
+        rebuildUnassignedImports()
         persist()
         advanceRevision()
     }
@@ -271,6 +318,103 @@ final class LocalLyricsLibrary: ObservableObject {
         folderWatchers.removeAll()
     }
 
+    /// Makes the only permitted exception to the new file format boundary:
+    /// user-authored LRC overrides move into the new local library, then every
+    /// cache entry from retired lyric sources is removed. No remote lyric text
+    /// is decoded, displayed, or copied during this pass.
+    private func migrateLegacyData(v5Directory: URL, v4Directory: URL) {
+        guard !state.legacyMigrationCompleted else { return }
+
+        var recoveredOffsets: [LyricsStore.LegacyOffsetMigration] = []
+        var matchedV4Paths = Set<String>()
+        let overrides = v5Directory.appendingPathComponent("overrides", isDirectory: true)
+        for source in Self.files(
+            in: overrides,
+            fileManager: fileManager,
+            matching: { $0.pathExtension.caseInsensitiveCompare("lrc") == .orderedSame }
+        ) {
+            let id = UUID()
+            let destination = importsDirectory.appendingPathComponent("\(id.uuidString).lrc")
+            guard let raw = try? String(contentsOf: source, encoding: .utf8) else {
+                state.unassignedImports.append(
+                    StoredUnassignedImport(id: id, path: source.path, issue: .unreadable)
+                )
+                continue
+            }
+            do {
+                try Data(raw.utf8).write(to: destination, options: .atomic)
+            } catch {
+                // The source stays in the prior location and is named in the
+                // recovery list; migration never destroys a user file it could
+                // not make durable in its new home.
+                state.unassignedImports.append(
+                    StoredUnassignedImport(id: id, path: source.path, issue: .unreadable)
+                )
+                continue
+            }
+
+            do {
+                let document = try LocalLyricsDocument.parse(raw)
+                let stored = StoredDocument(id: id, origin: .imported, path: destination.path)
+                state.documents.append(stored)
+                if let identity = Self.legacyIdentity(for: document) {
+                    let v4Name = LyricsStore.cacheKey(
+                        title: identity.title,
+                        artist: identity.artist,
+                        album: identity.album,
+                        duration: identity.duration
+                    )
+                    let v4 = v4Directory.appendingPathComponent("\(v4Name).lrc4.json")
+                    if let offset = Self.legacyTrackOffset(at: v4) {
+                        recoveredOffsets.append(.init(identity: identity, offset: offset))
+                        matchedV4Paths.insert(v4.standardizedFileURL.path)
+                    }
+                } else {
+                    state.unassignedImports.append(
+                        StoredUnassignedImport(id: id, path: destination.path, issue: nil)
+                    )
+                }
+            } catch {
+                state.issues.append(StoredIssue(path: destination.path, issue: .malformed))
+                state.unassignedImports.append(
+                    StoredUnassignedImport(id: id, path: destination.path, issue: .malformed)
+                )
+            }
+        }
+
+        let legacyV4Entries = Self.files(in: v4Directory, fileManager: fileManager) {
+            $0.lastPathComponent.hasSuffix(".lrc4.json")
+        }
+        let unassignedOffsets = legacyV4Entries.compactMap { entry -> LyricsStore.UnassignedLegacyOffset? in
+            guard !matchedV4Paths.contains(entry.standardizedFileURL.path),
+                  let offset = Self.legacyTrackOffset(at: entry)
+            else { return nil }
+            return LyricsStore.UnassignedLegacyOffset(filename: entry.lastPathComponent, offset: offset)
+        }
+        LyricsStore.migrateLegacyOffsets(
+            recoveredOffsets,
+            unassigned: unassignedOffsets,
+            directory: root,
+            fileManager: fileManager
+        )
+
+        Self.removeLegacyCacheEntries(in: v5Directory, fileManager: fileManager)
+        Self.removeLegacyCacheEntries(in: v4Directory, fileManager: fileManager)
+        state.legacyMigrationCompleted = true
+        persist()
+    }
+
+    private func rebuildUnassignedImports() {
+        unassignedImports = state.unassignedImports.map { stored in
+            LocalUnassignedImport(
+                id: stored.id,
+                filename: URL(fileURLWithPath: stored.path).lastPathComponent,
+                issue: stored.issue,
+                candidate: records[stored.id]?.candidate
+            )
+        }
+    }
+
     private func reloadImportedRecords() {
         var imported: [StoredDocument] = []
         for stored in state.documents where stored.origin == .imported {
@@ -281,6 +425,51 @@ final class LocalLyricsLibrary: ObservableObject {
             records[stored.id] = Record(stored: stored, document: document)
         }
         state.documents = imported + state.documents.filter { $0.origin == .referencedFolder }
+    }
+
+    private static func legacyIdentity(for document: LocalLyricsDocument) -> LocalTrackIdentity? {
+        guard let title = document.metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let artist = document.metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let album = document.metadata.album,
+              let duration = document.duration,
+              !title.isEmpty, !artist.isEmpty
+        else { return nil }
+        return LocalTrackIdentity(
+            playerID: "legacy", title: title, artist: artist, album: album,
+            duration: duration, recordingID: nil
+        )
+    }
+
+    private static func legacyTrackOffset(at url: URL) -> TimeInterval? {
+        struct Entry: Decodable { let trackOffset: TimeInterval? }
+        guard let data = try? Data(contentsOf: url),
+              let entry = try? JSONDecoder().decode(Entry.self, from: data),
+              let offset = entry.trackOffset,
+              abs(offset) > 0.000_001
+        else { return nil }
+        return offset
+    }
+
+    private static func files(
+        in directory: URL,
+        fileManager: FileManager = .default,
+        matching: (URL) -> Bool = { _ in true }
+    ) -> [URL] {
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return enumerator.compactMap { $0 as? URL }.filter { url in
+            (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true && matching(url)
+        }
+    }
+
+    private static func removeLegacyCacheEntries(in directory: URL, fileManager: FileManager) {
+        for entry in files(in: directory, fileManager: fileManager) where entry.lastPathComponent.hasSuffix(".lrc5.json")
+            || entry.lastPathComponent.hasSuffix(".lrc4.json") {
+            try? fileManager.removeItem(at: entry)
+        }
     }
 
     private func resolve(_ folder: StoredFolder) throws -> URL {

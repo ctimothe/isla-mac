@@ -275,6 +275,7 @@ final class LyricsCoordinator: ObservableObject {
             duration: duration,
             recordingID: nil
         )
+        if let currentIdentity { presentation?.activateTrackOffset(for: currentIdentity) }
         hasLocalOverride = false
         presentation?.presentLocalOverride(false)
         resolveCurrentTrack()

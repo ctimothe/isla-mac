@@ -111,6 +111,13 @@ final class LyricsStore: ObservableObject {
     @Published private(set) var trackOffset: TimeInterval = 0
     static let trackOffsetLimit: TimeInterval = 1.5
     private var trackOffsets: [String: TimeInterval] = [:]
+    /// Old cache-backed offsets remain only until Task 6 removes their source
+    /// code. Local timelines use this durable, identity-addressable store.
+    private var activeLocalTrackIdentity: LocalTrackIdentity?
+    private var localTrackOffsets: [String: LocalTrackOffset] = [:]
+    @Published private(set) var unassignedLegacyOffsets: [UnassignedLegacyOffset] = []
+    private let localOffsetsURL: URL
+    private let unassignedOffsetsURL: URL
     /// The tier the loaded words came from, for its code-only bias. Nil until
     /// the first settle or cache hit, in which case the bias reads 0. The
     /// setter stays private; tests read it to pin the stale-source nil-ing.
@@ -126,9 +133,77 @@ final class LyricsStore: ObservableObject {
         userOffset + currentSourceBias + trackOffset
     }
 
+    struct UnassignedLegacyOffset: Codable, Equatable, Sendable, Identifiable {
+        let filename: String
+        let offset: TimeInterval
+
+        var id: String { filename }
+    }
+
+    struct LegacyOffsetMigration: Sendable {
+        let identity: LocalTrackIdentity
+        let offset: TimeInterval
+    }
+
+    /// Selects the local recording whose timing controls are on screen.
+    func activateTrackOffset(for identity: LocalTrackIdentity) {
+        activeLocalTrackIdentity = identity
+        trackOffset = trackOffset(for: identity)
+    }
+
+    func trackOffset(for identity: LocalTrackIdentity) -> TimeInterval {
+        if let exact = localTrackOffsets[Self.localOffsetKey(identity)] {
+            return Self.clampedTrackOffset(exact.offset)
+        }
+        // Historical cache entries did not include a player ID. They can be
+        // recovered only as an explicit legacy fallback for the same tagged
+        // recording; the first user adjustment creates an exact new entry.
+        return localTrackOffsets.values.first(where: {
+            $0.identity.playerID == "legacy" && Self.sameRecording($0.identity, identity)
+        }).map { Self.clampedTrackOffset($0.offset) } ?? 0
+    }
+
+    func removeTrackOffset(for identity: LocalTrackIdentity) {
+        localTrackOffsets.removeValue(forKey: Self.localOffsetKey(identity))
+        persistLocalOffsets()
+        if activeLocalTrackIdentity == identity { trackOffset = trackOffset(for: identity) }
+    }
+
+    /// Imports cache-era corrections without reviving a cache-era lyric entry.
+    static func migrateLegacyOffsets(
+        _ assigned: [LegacyOffsetMigration],
+        unassigned: [UnassignedLegacyOffset],
+        directory: URL,
+        fileManager: FileManager = .default
+    ) {
+        let offsetsURL = directory.appendingPathComponent("offsets.json")
+        var offsets = loadLocalTrackOffsets(from: offsetsURL, fileManager: fileManager)
+        for migration in assigned where abs(migration.offset) > 0.000_001 {
+            let key = localOffsetKey(migration.identity)
+            guard offsets[key] == nil else { continue }
+            offsets[key] = LocalTrackOffset(
+                identity: migration.identity,
+                offset: clampedTrackOffset(migration.offset)
+            )
+        }
+        writeLocalTrackOffsets(offsets, to: offsetsURL, fileManager: fileManager)
+
+        let unassignedURL = directory.appendingPathComponent("unassigned-offsets.json")
+        let existing = loadUnassignedLegacyOffsets(from: unassignedURL, fileManager: fileManager)
+        let merged = Dictionary(
+            (existing + unassigned).map { ($0.filename, $0) },
+            uniquingKeysWith: { first, _ in first }
+        ).values.sorted { $0.filename < $1.filename }
+        writeUnassignedLegacyOffsets(merged, to: unassignedURL, fileManager: fileManager)
+    }
+
     /// Moves the loaded track's layer by `delta`, clamped to ±1.5s. With no
     /// track loaded there is nothing to correct, so the call is a no-op.
     func nudgeTrackOffset(by delta: TimeInterval) {
+        if let activeLocalTrackIdentity {
+            setLocalTrackOffset(trackOffset(for: activeLocalTrackIdentity) + delta, for: activeLocalTrackIdentity)
+            return
+        }
         guard let key = loadedCacheKey else { return }
         setTrackOffset((trackOffsets[key] ?? trackOffset) + delta, for: key)
     }
@@ -136,8 +211,19 @@ final class LyricsStore: ObservableObject {
     /// Forgets the loaded track's correction. The long-press on the stage's
     /// offset readout is the only caller in the UI.
     func clearTrackOffset() {
+        if let activeLocalTrackIdentity {
+            setLocalTrackOffset(0, for: activeLocalTrackIdentity)
+            return
+        }
         guard let key = loadedCacheKey else { return }
         setTrackOffset(0, for: key)
+    }
+
+    private func setLocalTrackOffset(_ value: TimeInterval, for identity: LocalTrackIdentity) {
+        let clamped = Self.clampedTrackOffset(value)
+        localTrackOffsets[Self.localOffsetKey(identity)] = LocalTrackOffset(identity: identity, offset: clamped)
+        if activeLocalTrackIdentity == identity { trackOffset = clamped }
+        persistLocalOffsets()
     }
 
     private func setTrackOffset(_ value: TimeInterval, for key: String) {
@@ -172,7 +258,11 @@ final class LyricsStore: ObservableObject {
     private var loadedWriteISRC: String?
     private var loadedWriteBucket: String?
 
-    init(session: URLSession? = nil, cacheDirectory: URL? = nil) {
+    init(
+        session: URLSession? = nil,
+        cacheDirectory: URL? = nil,
+        offsetsDirectory: URL? = nil
+    ) {
         if let session {
             self.session = session
         } else {
@@ -185,6 +275,91 @@ final class LyricsStore: ObservableObject {
         }
         self.cacheDirectory = cacheDirectory ?? AppPaths.live.supportFile("lyrics")
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("IslaLyrics", isDirectory: true)
+        let defaultOffsetsDirectory = cacheDirectory?.appendingPathComponent("lyrics-local", isDirectory: true)
+            ?? AppPaths.live.supportFile("lyrics-local")
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("IslaLyricsLocal", isDirectory: true)
+        let resolvedOffsetsDirectory = offsetsDirectory ?? defaultOffsetsDirectory
+        localOffsetsURL = resolvedOffsetsDirectory.appendingPathComponent("offsets.json")
+        unassignedOffsetsURL = resolvedOffsetsDirectory.appendingPathComponent("unassigned-offsets.json")
+        localTrackOffsets = Self.loadLocalTrackOffsets(from: localOffsetsURL)
+        unassignedLegacyOffsets = Self.loadUnassignedLegacyOffsets(from: unassignedOffsetsURL)
+    }
+
+    private struct LocalTrackOffset: Codable, Equatable {
+        let identity: LocalTrackIdentity
+        let offset: TimeInterval
+    }
+
+    private func persistLocalOffsets() {
+        Self.writeLocalTrackOffsets(localTrackOffsets, to: localOffsetsURL)
+    }
+
+    private static func localOffsetKey(_ identity: LocalTrackIdentity) -> String {
+        [
+            identity.playerID,
+            identity.title,
+            identity.artist,
+            identity.album,
+            String(format: "%.3f", identity.duration),
+            identity.recordingID ?? "",
+        ].joined(separator: "\u{1F}")
+    }
+
+    private static func clampedTrackOffset(_ value: TimeInterval) -> TimeInterval {
+        min(max(value, -trackOffsetLimit), trackOffsetLimit)
+    }
+
+    private static func sameRecording(_ lhs: LocalTrackIdentity, _ rhs: LocalTrackIdentity) -> Bool {
+        normalizedOffsetField(lhs.title) == normalizedOffsetField(rhs.title)
+            && normalizedOffsetField(lhs.artist) == normalizedOffsetField(rhs.artist)
+            && normalizedOffsetField(lhs.album) == normalizedOffsetField(rhs.album)
+            // Legacy cache filenames rounded duration to one second. This is
+            // intentionally the same comparison, not the stricter matcher
+            // threshold used for a new automatic lyric association.
+            && lhs.duration.rounded() == rhs.duration.rounded()
+            && (lhs.recordingID == nil || rhs.recordingID == nil || lhs.recordingID == rhs.recordingID)
+    }
+
+    private static func normalizedOffsetField(_ text: String) -> String {
+        text.precomposedStringWithCompatibilityMapping
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func loadLocalTrackOffsets(
+        from url: URL, fileManager: FileManager = .default
+    ) -> [String: LocalTrackOffset] {
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let offsets = try? JSONDecoder().decode([String: LocalTrackOffset].self, from: data)
+        else { return [:] }
+        return offsets
+    }
+
+    private static func writeLocalTrackOffsets(
+        _ offsets: [String: LocalTrackOffset], to url: URL, fileManager: FileManager = .default
+    ) {
+        guard let data = try? JSONEncoder().encode(offsets) else { return }
+        try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private static func loadUnassignedLegacyOffsets(
+        from url: URL, fileManager: FileManager = .default
+    ) -> [UnassignedLegacyOffset] {
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let offsets = try? JSONDecoder().decode([UnassignedLegacyOffset].self, from: data)
+        else { return [] }
+        return offsets
+    }
+
+    private static func writeUnassignedLegacyOffsets(
+        _ offsets: [UnassignedLegacyOffset], to url: URL, fileManager: FileManager = .default
+    ) {
+        guard let data = try? JSONEncoder().encode(offsets) else { return }
+        try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
     }
 
     // MARK: - Load identity
@@ -212,6 +387,7 @@ final class LyricsStore: ObservableObject {
         title: String, artist: String, album: String, duration: TimeInterval,
         spotifyID: String? = nil, isrc: String? = nil, exactDuration: TimeInterval? = nil
     ) {
+        activeLocalTrackIdentity = nil
         let key = Self.cacheKey(title: title, artist: artist, album: album, duration: duration)
         // A track whose Spotify id arrives a beat after its metadata reloads
         // once: the id unlocks the word-synced database, and it is worth one
@@ -389,6 +565,7 @@ final class LyricsStore: ObservableObject {
         inFlight?.cancel()
         loadedKey = nil
         loadedCacheKey = nil
+        activeLocalTrackIdentity = nil
         loadedSource = nil
         loadedWriteISRC = nil
         loadedWriteBucket = nil

@@ -9,6 +9,15 @@ final class LocalLyricsLibraryTests: XCTestCase {
     override func setUpWithError() throws {
         root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let v5 = root.appendingPathComponent("lyrics-v5", isDirectory: true)
+        try fileManager.createDirectory(
+            at: v5.appendingPathComponent("overrides", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: root.appendingPathComponent("lyrics", isDirectory: true),
+            withIntermediateDirectories: true
+        )
     }
 
     override func tearDownWithError() throws {
@@ -84,6 +93,96 @@ final class LocalLyricsLibraryTests: XCTestCase {
         XCTAssertEqual(caption, localized("Choose local lyrics…"))
     }
 
+    func testMigrationCopiesTaggedV5OverrideAndDeletesLicensedEntries() throws {
+        let track = identity(title: "Song", artist: "Artist", album: "Album", duration: 180)
+        try write(studioLRC.replacingOccurrences(of: "Studio", with: "Private"), to: legacyOverrides.appendingPathComponent("old.lrc"))
+        let licensed = legacyV5.appendingPathComponent("old.lrc5.json")
+        try write("{}", to: licensed)
+
+        let library = LocalLyricsLibrary(directory: root, legacyV5Directory: legacyV5)
+
+        guard case .ready(let candidate) = library.lookup(identity: track) else {
+            return XCTFail("the tagged override should migrate")
+        }
+        XCTAssertEqual(candidate.timeline.lines.first?.text, "Private")
+        XCTAssertFalse(fileManager.fileExists(atPath: licensed.path))
+    }
+
+    func testMigrationKeepsTaglessOverrideAsUnassignedImport() throws {
+        try write("[00:01.00]Private", to: legacyOverrides.appendingPathComponent("tagless.lrc"))
+
+        let library = LocalLyricsLibrary(directory: root, legacyV5Directory: legacyV5)
+
+        XCTAssertEqual(library.unassignedImports.count, 1)
+    }
+
+    func testMigrationCarriesReconstructableLegacyNudgeToTaggedOverride() throws {
+        let track = identity(duration: 180.4)
+        try write(studioLRC.replacingOccurrences(of: "Studio", with: "Private"), to: legacyOverrides.appendingPathComponent("old.lrc"))
+        let legacyEntry = legacyV4.appendingPathComponent(legacyV4Name(for: track))
+        try write(legacyV4Entry(trackOffset: 0.25), to: legacyEntry)
+
+        _ = LocalLyricsLibrary(
+            directory: root,
+            legacyV5Directory: legacyV5,
+            legacyV4Directory: legacyV4
+        )
+        let store = LyricsStore(offsetsDirectory: root.appendingPathComponent("lyrics-local"))
+        store.activateTrackOffset(for: track)
+
+        XCTAssertEqual(store.trackOffset, 0.25, accuracy: 0.001)
+        XCTAssertFalse(fileManager.fileExists(atPath: legacyEntry.path))
+    }
+
+    func testMigrationClampsAnInvalidLegacyNudge() throws {
+        let track = identity()
+        try write(studioLRC, to: legacyOverrides.appendingPathComponent("old.lrc"))
+        let legacyEntry = legacyV4.appendingPathComponent(legacyV4Name(for: track))
+        try write(legacyV4Entry(trackOffset: 9), to: legacyEntry)
+
+        _ = LocalLyricsLibrary(
+            directory: root,
+            legacyV5Directory: legacyV5,
+            legacyV4Directory: legacyV4
+        )
+        let store = LyricsStore(offsetsDirectory: root.appendingPathComponent("lyrics-local"))
+        store.activateTrackOffset(for: track)
+
+        XCTAssertEqual(store.trackOffset, LyricsStore.trackOffsetLimit, accuracy: 0.001)
+    }
+
+    func testMigrationKeepsUnreconstructableLegacyNudgeForRecovery() throws {
+        try write(legacyV4Entry(trackOffset: 0.25), to: legacyV4.appendingPathComponent("orphan.lrc4.json"))
+
+        _ = LocalLyricsLibrary(
+            directory: root,
+            legacyV5Directory: legacyV5,
+            legacyV4Directory: legacyV4
+        )
+        let store = LyricsStore(offsetsDirectory: root.appendingPathComponent("lyrics-local"))
+
+        XCTAssertEqual(store.unassignedLegacyOffsets, [
+            .init(filename: "orphan.lrc4.json", offset: 0.25),
+        ])
+    }
+
+    func testNotchStoresMigrateLegacyNudgesBeforeLegacyCacheCleanup() throws {
+        let track = identity()
+        try write(studioLRC, to: legacyOverrides.appendingPathComponent("old.lrc"))
+        let legacyEntry = legacyV4.appendingPathComponent(legacyV4Name(for: track))
+        try write(legacyV4Entry(trackOffset: 0.25), to: legacyEntry)
+
+        let stores = NotchStores(
+            lyricsCache: LicensedLyricsCache(directory: root.appendingPathComponent("unused-v5")),
+            pruneLegacyLyrics: true,
+            localLyricsDirectory: root
+        )
+        stores.lyrics.activateTrackOffset(for: track)
+
+        XCTAssertEqual(stores.lyrics.trackOffset, 0.25, accuracy: 0.001)
+        XCTAssertFalse(fileManager.fileExists(atPath: legacyEntry.path))
+    }
+
     private var studioLRC: String {
         "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Studio"
     }
@@ -94,6 +193,18 @@ final class LocalLyricsLibraryTests: XCTestCase {
 
     private var liveLRC: String {
         "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Live"
+    }
+
+    private var legacyV5: URL {
+        root.appendingPathComponent("lyrics-v5", isDirectory: true)
+    }
+
+    private var legacyOverrides: URL {
+        legacyV5.appendingPathComponent("overrides", isDirectory: true)
+    }
+
+    private var legacyV4: URL {
+        root.appendingPathComponent("lyrics", isDirectory: true)
     }
 
     private func identity(
@@ -120,5 +231,19 @@ final class LocalLyricsLibraryTests: XCTestCase {
     private func write(_ contents: String, to url: URL) throws -> URL {
         try Data(contents.utf8).write(to: url, options: .atomic)
         return url
+    }
+
+    private func legacyV4Entry(trackOffset: TimeInterval) -> String {
+        "{\"times\":[1],\"texts\":[\"old\"],\"trackOffset\":\(trackOffset)}"
+    }
+
+    private func legacyV4Name(for identity: LocalTrackIdentity) -> String {
+        let value = "\(identity.title)|\(identity.artist)|\(identity.album)|\(Int(identity.duration.rounded()))"
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return String(format: "%016llx.lrc4.json", hash)
     }
 }
