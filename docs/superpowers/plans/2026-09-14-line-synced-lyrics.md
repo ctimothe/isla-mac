@@ -20,6 +20,8 @@
 
 ### Task 1: Persist and apply the Word Karaoke preference
 
+**Status:** complete
+
 **Files:**
 - Modify: `Sources/IslaKit/Services/LyricsStore.swift`
 - Modify: `Sources/IslaKit/UI/LyricsPresentation.swift`
@@ -92,6 +94,8 @@ git commit -m "feat: make word karaoke optional"
 ```
 
 ### Task 2: Expose the preference in Settings
+
+**Status:** complete
 
 **Files:**
 - Modify: `Sources/IslaKit/UI/SettingsPane.swift`
