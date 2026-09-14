@@ -172,6 +172,22 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
+    func testEveryLocalLyricsStringHasEnglishAndRussianTranslations() throws {
+        let keys = [
+            "Local Lyrics Library", "Add Lyrics Folder…", "No local lyrics",
+            "This LRC file is invalid", "Export LRC", "Lyrics stay on this Mac.",
+        ]
+        for language in ["en", "ru"] {
+            let table = try Self.table(language)
+            for key in keys {
+                XCTAssertTrue(table.contains("\"\(key)\" = "), "\(language) is missing \(key)")
+                if language == "ru" {
+                    XCTAssertNotEqual(Self.value(for: key, in: table), key, "\(key) is untranslated")
+                }
+            }
+        }
+    }
+
     /// The two keycaps have to be the same size, or the two labels beside them
     /// start at different x and a two-row list visibly fails to line up.
     ///

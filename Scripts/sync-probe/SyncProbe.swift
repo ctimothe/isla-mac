@@ -9,8 +9,8 @@ import AppKit
 /// which is the clock Apple Music or Spotify renders. Scripted events hit the edges: pause, resume,
 /// forward seek, large backward seek, and a sub-threshold backward seek.
 ///
-/// Word columns sample an authorized v5/local word timeline for the playing
-/// track at the same 5Hz, or a synthetic grid anchored at the window start.
+/// Word columns sample the explicit enhanced LRC fixture for the playing track
+/// at the same 5Hz.
 /// `werr` is the word-edge error — how far apart the two clocks' current words
 /// start — so the gate speaks in lyric units, not just seconds of clock delta.
 @MainActor
@@ -45,54 +45,18 @@ final class Probe {
         return (value, Date().timeIntervalSince(t0))
     }
 
-    /// The playing track's authorized word-tier fixture, or a synthetic grid
-    /// so the word gate still runs before the licensed provider is released.
-    /// The grid is anchored at the window's truth so its edges fall inside the
-    /// sampling window.
-    func resolveFixture(truthStart: TimeInterval) {
-        if let raw = runAppleScript("""
-            tell application id "\(player.bundleID)"
-                set t to current track
-                return (name of t) & "\u{1}" & (artist of t) & "\u{1}" & (album of t) & "\u{1}" & (duration of t)
-            end tell
-            """) {
-            let parts = raw.components(separatedBy: "\u{1}")
-            if parts.count >= 4, let rawDuration = Double(parts[3]) {
-                // Spotify's scripting dictionary reports milliseconds; Music
-                // reports seconds. The cache key must agree with the client
-                // identity or a lawful local/authorized fixture is missed.
-                let duration = player == .spotify ? rawDuration / 1_000 : rawDuration
-                let identity = LyricIdentity(
-                    playerID: player.rawValue, title: parts[0], artist: parts[1],
-                    album: parts[2], duration: duration
-                )
-                if let timeline = LicensedLyricsCache().read(for: identity),
-                   timeline.granularity == .word {
-                    let starts = timeline.lines.flatMap { line in
-                        [line.at] + line.words.map(\.at)
-                    }.sorted()
-                    if !starts.isEmpty {
-                        wordStarts = starts
-                        fixtureEnd = (timeline.lines.map(\.at).max() ?? 0) + 6
-                        print("fixture: authorized cache (\(timeline.lines.count) lines, \(starts.count) edges)")
-                        return
-                    }
-                }
-            }
+    func resolveFixture() {
+        guard let path = ProcessInfo.processInfo.environment["SYNC_LRC_FIXTURE"],
+              let raw = try? String(contentsOfFile: path, encoding: .utf8),
+              let document = try? LocalLyricsDocument.parse(raw),
+              document.granularity == .word
+        else {
+            FileHandle.standardError.write(Data("sync-probe: invalid enhanced LRC fixture\n".utf8))
+            exit(2)
         }
-        // No cached word timing for this track: four words a line, a line
-        // every two seconds — dense enough that the steady window crosses
-        // dozens of edges, sparse enough to read like a song.
-        var starts: [TimeInterval] = []
-        var t = (truthStart - 2).rounded(.down)
-        while t < truthStart + 55 {
-            starts.append(t)
-            for i in 1..<4 { starts.append(t + Double(i) * 0.4) }
-            t += 2.0
-        }
-        wordStarts = starts.sorted()
-        fixtureEnd = truthStart + 55
-        print("fixture: synthetic grid (\(starts.count) edges)")
+        wordStarts = Array(Set(document.lines.flatMap { $0.words.map(\.at) })).sorted()
+        fixtureEnd = document.duration ?? (document.lines.last?.at ?? 0) + 6
+        print("fixture: local LRC (\(document.lines.count) lines, \(wordStarts.count) edges)")
     }
 
     /// The word owning `pos`: the last start at or before it, and how far
@@ -147,7 +111,7 @@ final class Probe {
         playerCommand("play")
         try? await Task.sleep(for: .seconds(3))  // pipeline warm-up
         start = Date()
-        resolveFixture(truthStart: truthPosition()?.position ?? 0)
+        resolveFixture()
 
         // 45 seconds, 5Hz sampling, events at fixed offsets.
         var fired: Set<Int> = []

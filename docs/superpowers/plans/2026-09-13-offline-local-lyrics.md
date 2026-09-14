@@ -709,6 +709,8 @@ git commit -m "refactor: make lyrics fully offline"
 
 ## Task 7: Localize, document contributions, and verify timing
 
+**Status:** complete
+
 **Files:**
 - Modify: Resources/en.lproj/Localizable.strings
 - Modify: Resources/ru.lproj/Localizable.strings
