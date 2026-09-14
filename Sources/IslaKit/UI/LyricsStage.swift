@@ -82,7 +82,9 @@ struct LyricsStage: View {
 
     private var wordTimingEnabled: Bool {
         LyricsPresentation.usesWordTiming(
-            lyrics.timingGranularity, precisionMeasured: media.precisionSync
+            lyrics.timingGranularity,
+            precisionMeasured: media.precisionSync,
+            wordKaraokeEnabled: lyrics.wordKaraokeEnabled
         )
     }
 
