@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import IslaKit
 
@@ -77,5 +78,22 @@ final class SharedLyricTimelineTests: XCTestCase {
         }
         XCTAssertTrue(LyricsPresentation.canOpenLocalActions(.noLocalLyrics))
         XCTAssertTrue(LyricsPresentation.canOpenLocalActions(.invalidLocalFile(.malformed)))
+    }
+
+    func testWordKaraokeDefaultsOffAndPersistsAnExplicitSelection() {
+        UserDefaults.standard.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey)
+        defer { UserDefaults.standard.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey) }
+
+        let lyrics = LyricsStore()
+        XCTAssertFalse(lyrics.wordKaraokeEnabled)
+        lyrics.wordKaraokeEnabled = true
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: LyricsStore.wordKaraokeEnabledKey))
+    }
+
+    func testWordKaraokeRequiresPreferenceWordTimelineAndMeasuredClock() {
+        XCTAssertFalse(LyricsPresentation.usesWordTiming(.word, precisionMeasured: true, wordKaraokeEnabled: false))
+        XCTAssertFalse(LyricsPresentation.usesWordTiming(.line, precisionMeasured: true, wordKaraokeEnabled: true))
+        XCTAssertFalse(LyricsPresentation.usesWordTiming(.word, precisionMeasured: false, wordKaraokeEnabled: true))
+        XCTAssertTrue(LyricsPresentation.usesWordTiming(.word, precisionMeasured: true, wordKaraokeEnabled: true))
     }
 }

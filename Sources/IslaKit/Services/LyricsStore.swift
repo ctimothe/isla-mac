@@ -32,6 +32,13 @@ final class LyricsStore: ObservableObject {
     @Published private(set) var timingGranularity: LyricTimeline.Granularity?
     @Published private(set) var hasLocalOverride = false
 
+    @Published var wordKaraokeEnabled = UserDefaults.standard.bool(forKey: LyricsStore.wordKaraokeEnabledKey) {
+        didSet {
+            UserDefaults.standard.set(wordKaraokeEnabled, forKey: LyricsStore.wordKaraokeEnabledKey)
+        }
+    }
+    static let wordKaraokeEnabledKey = "lyrics.wordKaraokeEnabled"
+
     @Published var userOffset: TimeInterval = UserDefaults.standard.double(forKey: LyricsStore.offsetKey) {
         didSet {
             let clamped = min(max(userOffset, -3), 3)

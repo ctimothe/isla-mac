@@ -46,8 +46,9 @@ enum LyricsPresentation {
 
     static func usesWordTiming(
         _ granularity: LyricTimeline.Granularity?,
-        precisionMeasured: Bool
+        precisionMeasured: Bool,
+        wordKaraokeEnabled: Bool
     ) -> Bool {
-        granularity == .word && precisionMeasured
+        wordKaraokeEnabled && granularity == .word && precisionMeasured
     }
 }

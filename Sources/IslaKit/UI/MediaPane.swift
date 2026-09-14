@@ -452,7 +452,9 @@ struct MediaPane: View {
             if let shown = LyricSweep.displayed(lines: lines, at: at) {
                 let line = shown.line
                 let wordTimingEnabled = LyricsPresentation.usesWordTiming(
-                    lyrics.timingGranularity, precisionMeasured: media.precisionSync
+                    lyrics.timingGranularity,
+                    precisionMeasured: media.precisionSync,
+                    wordKaraokeEnabled: lyrics.wordKaraokeEnabled
                 )
                 // Where the voice stands inside this line, 0...1. The catalogue
                 // carries line timestamps, not word ones, so within a line the
