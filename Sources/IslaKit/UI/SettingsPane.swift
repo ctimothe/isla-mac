@@ -165,6 +165,11 @@ struct SettingsPane: View {
                             }
                         )
                     )
+                    toggleRow(
+                        symbol: SettingsIcon.lyrics,
+                        title: localized("Word Karaoke"),
+                        isOn: $lyrics.wordKaraokeEnabled
+                    )
                     noteRow(localized("Lyrics stay on this Mac."))
                     noteRow(localized("Local Lyrics Library"))
                     actionRow(symbol: SettingsIcon.lyrics, title: localized("Import LRC…")) {

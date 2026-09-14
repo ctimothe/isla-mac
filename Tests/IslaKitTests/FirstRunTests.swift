@@ -188,6 +188,14 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
+    func testWordKaraokeHasEnglishAndRussianTranslations() throws {
+        for language in ["en", "ru"] {
+            let table = try Self.table(language)
+            XCTAssertTrue(table.contains("\"Word Karaoke\" = "), "\(language) is missing Word Karaoke")
+        }
+        XCTAssertNotEqual(Self.value(for: "Word Karaoke", in: try Self.table("ru")), "Word Karaoke")
+    }
+
     /// The two keycaps have to be the same size, or the two labels beside them
     /// start at different x and a two-row list visibly fails to line up.
     ///
