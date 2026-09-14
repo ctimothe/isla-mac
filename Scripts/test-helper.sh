@@ -1,0 +1,119 @@
+#!/bin/bash
+# Проверяет одно: что Now Playing helper отвечает.
+#
+# Не что он отдаёт верный трек — на машине сборки ничего не играет, да и на живой
+# может не играть. Проверяется контракт: получив "get", хелпер обязан выдать одну
+# строку валидного JSON. Либо снимок, либо честную ошибку, если маршрут закрыт.
+# Молчание — единственный неприемлемый ответ.
+#
+# Это ловит класс отказов, который не видит ни компилятор, ни подпись, ни проверка
+# файлов в бандле: хелпер жив, процесс не падает, а строк не приходит. Так уже
+# было — вызов за списком команд, вложенный в колбэк на той же последовательной
+# очереди, не возвращал ответ, и вкладка «Музыка» становилась мёртвой в релизе,
+# пройдя всю сборку зелёной.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DYLIB="${1:-$ROOT/build/Isla.app/Contents/Resources/libislamedia.dylib}"
+TIMEOUT="${TIMEOUT:-8}"
+
+fail() { echo "!!! $1" >&2; exit 1; }
+
+[ -f "$DYLIB" ] || fail "нет хелпера: $DYLIB (сначала ./Scripts/bundle.sh)"
+[ -x /usr/bin/perl ] || fail "нет /usr/bin/perl — хелперу негде запускаться"
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"; [ -n "${HOLDER_PID:-}" ] && kill "$HOLDER_PID" 2>/dev/null; [ -n "${PERL_PID:-}" ] && kill "$PERL_PID" 2>/dev/null' EXIT
+
+FIFO="$WORK/in"
+CLOSE="$WORK/close"
+OUT="$WORK/out"
+mkfifo "$FIFO" "$CLOSE"
+
+# Держатель stdin посылает одну команду и держит канал открытым весь допустимый
+# срок. Закрыть его просит основной поток только после проверки ответа: холодный
+# MediaRemote иногда отвечает дольше секунды, и прежний таймер сам убивал
+# корректный хелпер до истечения заявленного TIMEOUT.
+# `art` перед `get`: он сбрасывает запомненный идентификатор обложки, так что
+# следующий снимок обязан нести artwork заново. Это и есть контракт, из-за
+# которого обложка переставала возвращаться: хелпер считал её уже отданной.
+( exec 3>"$FIFO"; echo "art" >&3; echo "get" >&3; read -r _ < "$CLOSE"; exec 3>&- ) &
+HOLDER_PID=$!
+
+/usr/bin/perl -e '
+    use DynaLoader;
+    DynaLoader::dl_load_file($ARGV[0], 0x01);
+    while (1) { sleep 3600; }
+' "$DYLIB" < "$FIFO" > "$OUT" 2>&1 &
+PERL_PID=$!
+
+# Ждём первую строку, а не весь таймаут: хелпер обычно отвечает за десятки
+# миллисекунд, и растягивать зелёный прогон на восемь секунд незачем.
+for _ in $(seq 1 $((TIMEOUT * 10))); do
+    [ -s "$OUT" ] && break
+    sleep 0.1
+done
+
+[ -s "$OUT" ] || fail "хелпер не ответил ни одной строкой за ${TIMEOUT}с — лента молчит"
+
+python3 - "$OUT" <<'PY'
+import json, sys
+
+line = None
+for raw in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    raw = raw.strip()
+    if raw.startswith("{"):
+        line = raw
+        break
+
+if line is None:
+    print("!!! в выводе нет ни одной строки JSON:", file=sys.stderr)
+    print(open(sys.argv[1]).read()[:400], file=sys.stderr)
+    sys.exit(1)
+
+try:
+    payload = json.loads(line)
+except json.JSONDecodeError as e:
+    print(f"!!! строка не разбирается как JSON: {e}", file=sys.stderr)
+    print(line[:400], file=sys.stderr)
+    sys.exit(1)
+
+# Закрытый маршрут — тоже ответ. Приложение на него рассчитывает: получив error,
+# оно гасит хелпер и уходит на запасной путь.
+if "error" in payload:
+    print(f"  ✓ хелпер ответил честной ошибкой: {payload['error']}")
+    sys.exit(0)
+
+required = {"playing", "title", "duration", "elapsed", "rate", "timestamp"}
+missing = required - payload.keys()
+if missing:
+    print(f"!!! в снимке нет обязательных ключей: {sorted(missing)}", file=sys.stderr)
+    print(f"    пришло: {sorted(payload.keys())}", file=sys.stderr)
+    sys.exit(1)
+
+if not isinstance(payload["playing"], bool):
+    print(f"!!! playing должен быть булевым, пришло {type(payload['playing']).__name__}", file=sys.stderr)
+    sys.exit(1)
+
+extra = ""
+if "commands" in payload:
+    extra = f", команд объявлено: {len(payload['commands'])}"
+title = payload["title"] or "—"
+print(f"  ✓ хелпер ответил снимком (playing={payload['playing']}, трек: {title[:40]}{extra})")
+PY
+
+# Закрытый stdin — контракт жизненного цикла. Без этого perl-хост остаётся
+# сиротой после недоступного маршрута или завершения приложения.
+echo close > "$CLOSE"
+wait "$HOLDER_PID" 2>/dev/null
+HOLDER_PID=""
+for _ in $(seq 1 30); do
+    ! kill -0 "$PERL_PID" 2>/dev/null && break
+    sleep 0.1
+done
+if kill -0 "$PERL_PID" 2>/dev/null; then
+    fail "хелпер не завершился за 3с после закрытия stdin"
+fi
+wait "$PERL_PID" 2>/dev/null
+PERL_PID=""
+echo "  ✓ хелпер завершился после закрытия stdin"
