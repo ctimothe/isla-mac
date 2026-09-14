@@ -7,10 +7,7 @@ final class SettingsPaneTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let stores = NotchStores(
-            lyricsCache: LicensedLyricsCache(directory: root.appendingPathComponent("unused-v5")),
-            localLyricsDirectory: root
-        )
+        let stores = NotchStores(localLyricsDirectory: root)
 
         XCTAssertTrue(stores.localLyricsLibrary === stores.lyricsCoordinator.library)
     }

@@ -176,47 +176,18 @@ transitions.
 > elsewhere in this document are superseded accordingly. Everything else
 > stands.
 >
-> **Amended 2026-08-21.** Three capabilities were added that this
-> document's non-goals did not anticipate, each off or absent until the
-> user asks for it: an opt-in **lyrics** lookup against `lrclib.net`,
-> `raw.githubusercontent.com` and `lyrics.kugou.com`; an optional
-> **Spotify account** connected through Spotify's own PKCE flow, for
-> Liked Songs, which has no local API; and a **lock-screen card**. The
-> non-goal "no cloud sync, accounts, analytics, network services, or new
-> permissions" is amended to permit exactly these three, on the condition
-> that each stays user-controlled and off by default where it sends
-> anything off the machine. No new macOS permission is requested.
+> **Amended 2026-09-14.** Lyrics are entirely offline and local-file-only.
+> The session-owned coordinator reads only LRC files the listener imports or
+> files in folders the listener explicitly selects; it never downloads,
+> uploads, scrapes, or sends lyric data. Imported copies, local bindings, and
+> timing corrections remain on that Mac and may be cleared independently.
+> Ambiguous metadata never auto-matches. Enhanced LRC word animation requires
+> word timestamps plus a measured player position; every other publisher uses
+> line-level highlighting. Apple Music lyric text or timing is never scraped.
 >
-> **Amended 2026-09-11.** The lyrics exception above grows a fourth source:
-> an opt-in **QQ Music** word-synced tier, reached anonymously and keyless
-> at `u.y.qq.com`, `c.y.qq.com` and `shc.y.qq.com`, on the same off-by-default
-> terms. Searched tiers (QQ, Kugou) now match on scored title/artist
-> resemblance inside a ±3s duration gate — an ISRC-exact hit from the
-> Spotify catalogue outranks any scored hit — and concurrent word-tier
-> answers arbitrate by coverage × timing sanity × source trust, with LRCLIB
-> unchanged as the line-level floor. The on-disk cache moves to v4, tagging
-> every entry with its source tier.
->
-> **Amended 2026-09-13.** This supersedes the two earlier lyric-source
-> amendments. Lyrics are session-owned, opt-in brokered data, not view-owned
-> direct community lookups. The client sends only player class, title, artist,
-> album, duration, optional Spotify or recording ID, locale, and an anonymous
-> installation token to the Isla broker; it never sends audio, playback
-> position, library data, Spotify credentials, or a user identifier. The
-> broker records aggregate outcome, provider, error class, and latency only.
-> It must hold an executed provider agreement covering desktop display,
-> timing, territory, attribution, caching, rate limits, and takedown handling
-> before a provider adapter is enabled. Until then, its mock contract fails
-> closed and local LRC overrides are the only lyric data path.
->
-> Cached entries are v5 and may contain only a local override or licensed data
-> with unexpired cache rights. Legacy v4 community entries are ignored and
-> pruned. Local LRC files are copied into Isla support storage, stay private to
-> that installation, and can be removed or cleared. Apple Music lyric text or
-> timings are never scraped: public MusicKit exposes presence and playback,
-> not a timed lyric payload. Word animation requires word timing plus a
-> measured Apple Music or Spotify player position; every other publisher uses
-> line-level highlighting.
+> The optional **Spotify account** remains separate, connected through
+> Spotify's own PKCE flow for Liked Songs. The **lock-screen card** remains a
+> local presentation feature. Neither changes the offline lyric boundary.
 
 ### Music
 

@@ -21,7 +21,6 @@ final class NotchStores {
     let translator = Translator()
     let lyrics: LyricsStore
     let localLyricsLibrary: LocalLyricsLibrary
-    let lyricsCache: LicensedLyricsCache
     let lyricsCoordinator: LyricsCoordinator
     /// Shared by every pane that shows something worth not showing.
     let privacy = PrivacyMode()
@@ -34,10 +33,7 @@ final class NotchStores {
     private var started = false
 
     init(
-        lyricsResolver _: (any LyricsResolving)? = nil,
         lyricsEnabled: (() -> Bool)? = nil,
-        lyricsCache: LicensedLyricsCache? = nil,
-        pruneLegacyLyrics: Bool = false,
         localLyricsDirectory: URL = AppPaths.live.supportDirectory
     ) {
         // Import a listener's old local override and timing correction before
@@ -46,21 +42,12 @@ final class NotchStores {
         let library = LocalLyricsLibrary(directory: localLyricsDirectory)
         localLyricsLibrary = library
         lyrics = LyricsStore(offsetsDirectory: library.storageDirectory)
-        let cache = lyricsCache ?? LicensedLyricsCache(
-            legacyDirectory: pruneLegacyLyrics ? AppPaths.live.supportFile("lyrics") : nil
-        )
-        self.lyricsCache = cache
         lyricsCoordinator = LyricsCoordinator(
             media: media,
             library: library,
             isEnabled: lyricsEnabled ?? { NotchViewModel.showLyricsEnabled },
             presentation: lyrics
         )
-    }
-
-    func clearLyricsCache() {
-        lyricsCoordinator.clearCache()
-        lyrics.clearCache()
     }
 
     func clearImportedLyrics() {

@@ -74,7 +74,7 @@ struct LyricsStage: View {
     private var lead: TimeInterval {
         LyricSweep.lead(
             precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
-            sourceBias: lyrics.currentSourceBias, trackOffset: lyrics.trackOffset
+            trackOffset: lyrics.trackOffset
         )
     }
 
@@ -433,13 +433,6 @@ struct LyricsStage: View {
             .buttonStyle(NotchButtonStyle(size: 24))
             .accessibilityLabel(localized("Back to Player"))
 
-            if case .ready(let timeline) = lyrics.availability {
-                Text(timeline.attribution)
-                    .islandFont(.caption, weight: .regular)
-                    .foregroundStyle(Theme.tertiary)
-                    .lineLimit(1)
-            }
-
             Spacer(minLength: 0)
 
             // The per-track timing nudge. Shown as the correction it is; zero
@@ -534,10 +527,6 @@ struct LyricsStage: View {
                     .controlSize(.small)
                     .tint(.white)
             } else if case .findingLocalLyrics = lyrics.availability {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-            } else if case .resolving = lyrics.availability {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)

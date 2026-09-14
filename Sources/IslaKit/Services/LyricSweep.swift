@@ -26,25 +26,23 @@ enum LyricSweep {
     static let precisionLead: TimeInterval = 0.25
 
     static func lead(
-        precisionSync: Bool, userOffset: TimeInterval,
-        sourceBias: TimeInterval = 0, trackOffset: TimeInterval = 0
+        precisionSync: Bool, userOffset: TimeInterval, trackOffset: TimeInterval = 0
     ) -> TimeInterval {
         // Three layers, summed at read and clamped nowhere here: the global
         // correction clamps at ±3s and the track layer at ±1.5s where each is
         // written, in LyricsStore. Clamping the sum instead would let one
         // layer steal another's range — a global +3 with a track −0.5 must
         // still read +2.5, not a clamped +1.5.
-        (precisionSync ? precisionLead : standardLead) + userOffset + sourceBias + trackOffset
+        (precisionSync ? precisionLead : standardLead) + userOffset + trackOffset
     }
 
     /// The moment the lyric should be read against: the clock, plus the lead.
     static func position(
         _ position: TimeInterval, precisionSync: Bool, userOffset: TimeInterval,
-        sourceBias: TimeInterval = 0, trackOffset: TimeInterval = 0
+        trackOffset: TimeInterval = 0
     ) -> TimeInterval {
         position + lead(
-            precisionSync: precisionSync, userOffset: userOffset,
-            sourceBias: sourceBias, trackOffset: trackOffset
+            precisionSync: precisionSync, userOffset: userOffset, trackOffset: trackOffset
         )
     }
 
@@ -111,9 +109,32 @@ enum LyricSweep {
     /// lines that never got any.
     static func fraction(line: LyricsStore.Line, at: TimeInterval, end: TimeInterval) -> Double {
         guard line.words.isEmpty else {
-            return WordSyncedLyrics.wordFraction(words: line.words, at: at, lineEnd: end)
+            return wordFraction(words: line.words, at: at, lineEnd: end)
         }
         let span = LyricsStore.sweepSpan(text: line.text, slot: end - line.at)
         return min(max((at - line.at) / span, 0), 1)
+    }
+
+    static func wordFraction(words: [LyricWord], at position: TimeInterval, lineEnd: TimeInterval) -> Double {
+        guard !words.isEmpty else { return 0 }
+        let counts = words.map { Double($0.text.count) }
+        let total = counts.reduce(0, +)
+        guard total > 0 else { return 0 }
+
+        var sung: Double = 0
+        for (index, word) in words.enumerated() {
+            let nextStart = index + 1 < words.count ? words[index + 1].at : lineEnd
+            let wordEnd = min(word.end ?? nextStart, nextStart)
+            if position >= wordEnd {
+                sung += counts[index]
+            } else if position > word.at {
+                let span = max(wordEnd - word.at, 0.05)
+                sung += counts[index] * min((position - word.at) / span, 1)
+                break
+            } else {
+                break
+            }
+        }
+        return min(max(sung / total, 0), 1)
     }
 }

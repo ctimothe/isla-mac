@@ -319,10 +319,6 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
-    func clearLyricsCache() {
-        stores.clearLyricsCache()
-    }
-
     func chooseLocalLyricsFile() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.init(filenameExtension: "lrc")!]

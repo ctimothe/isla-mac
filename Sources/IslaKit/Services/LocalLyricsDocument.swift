@@ -43,11 +43,7 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
         LyricTimeline(
             lines: lines,
             granularity: granularity,
-            documentID: documentID,
-            attribution: "Local LRC",
-            source: "local",
-            matchConfidence: 1,
-            cacheExpiry: .distantFuture
+            documentID: documentID
         )
     }
 

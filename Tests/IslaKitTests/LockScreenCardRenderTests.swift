@@ -26,8 +26,6 @@ final class LockScreenCardRenderTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
         let card = ZStack {
             // Something with light and dark in it, like the desk photo any
             // lock screen actually sits on.
@@ -39,7 +37,7 @@ final class LockScreenCardRenderTests: XCTestCase {
                 ],
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
-            LockScreenCard(media: media, lyrics: LyricsStore(cacheDirectory: root))
+            LockScreenCard(media: media, lyrics: LyricsStore())
         }
         .frame(width: LockScreenCard.size.width + 120, height: LockScreenCard.size.height + 120)
 
