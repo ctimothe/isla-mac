@@ -129,9 +129,6 @@
 "No lyrics for this track." = "Для этого трека нет текста.";
 "Syncing playback…" = "Синхронизация воспроизведения…";
 "Finding lyrics…" = "Ищем текст песни…";
-"Lyrics connection failed." = "Не удалось подключиться к сервису текстов.";
-"Lyrics are temporarily rate limited." = "Сервис текстов временно ограничил запросы.";
-"Lyrics service is unavailable." = "Сервис текстов недоступен.";
 "Jumps the song to this line" = "Перематывает песню к этой строке";
 "Opens the full lyrics" = "Открывает полный текст";
 

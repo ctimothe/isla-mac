@@ -447,7 +447,6 @@ struct MediaPane: View {
                 media.position,
                 precisionSync: media.precisionSync,
                 userOffset: lyrics.userOffset,
-                sourceBias: lyrics.currentSourceBias,
                 trackOffset: lyrics.trackOffset
             )
             if let shown = LyricSweep.displayed(lines: lines, at: at) {
@@ -521,8 +520,6 @@ struct MediaPane: View {
                 if case .settlingPlayback = lyrics.availability {
                     ProgressView().controlSize(.mini).tint(Theme.tertiary)
                 } else if case .findingLocalLyrics = lyrics.availability {
-                    ProgressView().controlSize(.mini).tint(Theme.tertiary)
-                } else if case .resolving = lyrics.availability {
                     ProgressView().controlSize(.mini).tint(Theme.tertiary)
                 }
                 Text(LyricsPresentation.compactCaption(

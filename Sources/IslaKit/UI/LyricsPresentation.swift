@@ -16,30 +16,23 @@ enum LyricsPresentation {
             return localized("Lyrics are switched off in Settings.")
         case .settlingPlayback:
             return localized("Syncing playback…")
-        case .findingLocalLyrics, .resolving:
+        case .findingLocalLyrics:
             return localized("Finding lyrics…")
         case .ready:
             return currentLine?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 ? currentLine!
                 : localized("Finding lyrics…")
-        case .noLocalLyrics, .unavailable:
+        case .noLocalLyrics:
             return localized("No lyrics for this track.")
         case .invalidLocalFile:
             return localized("No lyrics for this track.")
-        case .failed(let failure):
-            switch failure.kind {
-            case .connection: return localized("Lyrics connection failed.")
-            case .rateLimited: return localized("Lyrics are temporarily rate limited.")
-            case .service: return localized("Lyrics service is unavailable.")
-            }
         }
     }
 
     static func canRetry(_ availability: LyricsAvailability) -> Bool {
         switch availability {
         case .ready: return true
-        case .noLocalLyrics, .invalidLocalFile, .unavailable: return true
-        case .failed(let failure): return failure.retryable
+        case .noLocalLyrics, .invalidLocalFile: return true
         default: return false
         }
     }

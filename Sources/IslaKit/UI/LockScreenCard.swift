@@ -295,7 +295,6 @@ struct LockScreenCard: View {
                     media.position,
                     precisionSync: media.precisionSync,
                     userOffset: lyrics.userOffset,
-                    sourceBias: lyrics.currentSourceBias,
                     trackOffset: lyrics.trackOffset
                 )
                 let centre = LyricSweep.centreIndex(in: lines, at: at)
@@ -311,8 +310,6 @@ struct LockScreenCard: View {
                     if case .settlingPlayback = lyrics.availability {
                         ProgressView().controlSize(.small).tint(.white)
                     } else if case .findingLocalLyrics = lyrics.availability {
-                        ProgressView().controlSize(.small).tint(.white)
-                    } else if case .resolving = lyrics.availability {
                         ProgressView().controlSize(.small).tint(.white)
                     }
                     Text(lyricsStatus)
@@ -363,7 +360,7 @@ struct LockScreenCard: View {
                     lineAt: lines[index].at,
                     lead: LyricSweep.lead(
                         precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
-                        sourceBias: lyrics.currentSourceBias, trackOffset: lyrics.trackOffset
+                        trackOffset: lyrics.trackOffset
                     ),
                     duration: media.duration
                 ))

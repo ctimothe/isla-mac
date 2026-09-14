@@ -709,7 +709,7 @@ struct NotchContentView: View {
                 screenshotVault: vm.screenshotVault,
                 lyrics: vm.lyrics,
                 localLyrics: vm.localLyricsLibrary,
-                onLyricsVisibilityChanged: vm.lyricsCoordinator.refreshConsent,
+                onLyricsVisibilityChanged: vm.lyricsCoordinator.refreshVisibility,
                 importLocalLyrics: vm.chooseLocalLyricsFile,
                 addLocalLyricsFolder: vm.chooseLocalLyricsFolder,
                 removeLocalLyricsFolder: vm.removeLocalLyricsFolder,

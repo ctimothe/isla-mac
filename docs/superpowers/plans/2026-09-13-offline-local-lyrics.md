@@ -606,6 +606,8 @@ git commit -m "feat: manage local lyrics in settings"
 
 ## Task 6: Delete broker/community paths and prove lyric isolation
 
+**Status:** complete
+
 **Files:**
 - Delete: Sources/IslaKit/Services/BrokerLyricsResolver.swift
 - Delete: Sources/IslaKit/Services/CachedLyricsResolver.swift

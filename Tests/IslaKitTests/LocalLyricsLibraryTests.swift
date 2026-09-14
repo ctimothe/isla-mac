@@ -172,11 +172,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
         let legacyEntry = legacyV4.appendingPathComponent(legacyV4Name(for: track))
         try write(legacyV4Entry(trackOffset: 0.25), to: legacyEntry)
 
-        let stores = NotchStores(
-            lyricsCache: LicensedLyricsCache(directory: root.appendingPathComponent("unused-v5")),
-            pruneLegacyLyrics: true,
-            localLyricsDirectory: root
-        )
+        let stores = NotchStores(localLyricsDirectory: root)
         stores.lyrics.activateTrackOffset(for: track)
 
         XCTAssertEqual(stores.lyrics.trackOffset, 0.25, accuracy: 0.001)

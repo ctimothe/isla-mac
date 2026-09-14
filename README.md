@@ -62,13 +62,12 @@ because each sends something you own somewhere you cannot see.
 
 - **Save clipboard screenshots** writes a copy of every image that reaches the
   pasteboard to `~/Pictures/Isla` (most recent 200; clearing goes to the Trash).
- **Lyrics** is opt-in. Once the licensed Isla broker is released, it receives
-  the player app, title, artist, album, duration, optional Spotify or recording
-  ID, app language, and an anonymous installation token. It never receives audio,
-  playback position, library data, Spotify account token, or a user identifier.
-  Until the provider agreement and broker release are complete, Isla makes no
-  network lyric lookup; imported local LRC files stay on this Mac. Licensed
-  results may be cached only until their provider-authorized expiry.
+ **Lyrics** is opt-in and fully offline. Isla reads only LRC files you import
+  or files in folders you explicitly select; it does not download, upload,
+  scrape, or send lyric data anywhere. Imported copies, bindings, and timing
+  corrections stay on this Mac. Enhanced LRC word timestamps animate only when
+  the active player has a measured precision clock; other players highlight
+  complete lines.
 - **Connecting a Spotify account** (Settings → Spotify) authorizes Isla through
   Spotify's own PKCE flow in the browser, for one feature the local APIs do not
   expose: Liked Songs. There is **no client secret**; tokens live in the keychain

@@ -47,13 +47,13 @@ final class SharedLyricTimelineTests: XCTestCase {
         let timed = LyricsStore.Line(
             at: 0, text: "one two",
             words: [
-                WordSyncedLyrics.Word(at: 0, text: "one", end: 1),
-                WordSyncedLyrics.Word(at: 1, text: "two", end: 2),
+                LyricWord(at: 0, text: "one", end: 1),
+                LyricWord(at: 1, text: "two", end: 2),
             ]
         )
         XCTAssertEqual(
             LyricSweep.fraction(line: timed, at: 1, end: 2),
-            WordSyncedLyrics.wordFraction(words: timed.words, at: 1, lineEnd: 2),
+            LyricSweep.wordFraction(words: timed.words, at: 1, lineEnd: 2),
             accuracy: 0.0001
         )
     }
@@ -61,11 +61,7 @@ final class SharedLyricTimelineTests: XCTestCase {
     func testEveryLocalAvailabilityHasCaptionAndLocalRecoveryAction() {
         let timeline = LyricTimeline(
             lines: [LyricsStore.Line(at: 1, text: "One")],
-            granularity: .line,
-            attribution: "Local LRC",
-            source: "local",
-            matchConfidence: 1,
-            cacheExpiry: .distantFuture
+            granularity: .line
         )
         let states: [LyricsAvailability] = [
             .disabled,

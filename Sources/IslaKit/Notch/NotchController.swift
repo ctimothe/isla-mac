@@ -13,7 +13,7 @@ final class NotchController {
     private let lockCard = LockCardWindow()
     /// Stores that belong to the session, not to the panel: a rebuild replaces
     /// the panel and its view model and leaves these untouched.
-    private let stores = NotchStores(pruneLegacyLyrics: true)
+    private let stores = NotchStores()
     private var closeActiveRectWork: DispatchWorkItem?
     private var collapseCheckWork: DispatchWorkItem?
     private var peekWork: DispatchWorkItem?

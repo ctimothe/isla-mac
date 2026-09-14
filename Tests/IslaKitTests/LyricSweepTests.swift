@@ -18,17 +18,15 @@ final class LyricSweepTests: XCTestCase {
         )
     }
 
-    /// The three offset layers sum at read: the listener's global correction,
-    /// the source tier's bias, and the per-track nudge. Nothing clamps here —
-    /// each layer is clamped where it is written, so the sum is the truth.
-    func testLeadSumsAllThreeOffsetLayers() {
+    /// The listener's global correction and the local track nudge sum at read.
+    func testLeadSumsTheLocalOffsetLayers() {
         XCTAssertEqual(
-            LyricSweep.lead(precisionSync: false, userOffset: 1.0, sourceBias: 0.5, trackOffset: 0.25),
-            2.0, accuracy: 0.0001
+            LyricSweep.lead(precisionSync: false, userOffset: 1.0, trackOffset: 0.25),
+            1.5, accuracy: 0.0001
         )
         XCTAssertEqual(
-            LyricSweep.lead(precisionSync: true, userOffset: -0.5, sourceBias: 0.2, trackOffset: -0.1),
-            -0.15, accuracy: 0.0001
+            LyricSweep.lead(precisionSync: true, userOffset: -0.5, trackOffset: -0.1),
+            -0.35, accuracy: 0.0001
         )
     }
 
@@ -38,10 +36,10 @@ final class LyricSweepTests: XCTestCase {
         XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.25, accuracy: 0.0001)
     }
 
-    func testPositionCarriesAllThreeLayers() {
+    func testPositionCarriesBothLocalOffsetLayers() {
         XCTAssertEqual(
-            LyricSweep.position(10, precisionSync: true, userOffset: 0.5, sourceBias: 0.25, trackOffset: -0.25),
-            10.75, accuracy: 0.0001
+            LyricSweep.position(10, precisionSync: true, userOffset: 0.5, trackOffset: -0.25),
+            10.5, accuracy: 0.0001
         )
     }
 
@@ -68,13 +66,13 @@ final class LyricSweepTests: XCTestCase {
             at: 0,
             text: "one two",
             words: [
-                WordSyncedLyrics.Word(at: 0, text: "one", end: 1),
-                WordSyncedLyrics.Word(at: 1, text: "two", end: 2),
+                LyricWord(at: 0, text: "one", end: 1),
+                LyricWord(at: 1, text: "two", end: 2),
             ]
         )
         XCTAssertEqual(
             LyricSweep.fraction(line: timed, at: 1, end: 2),
-            WordSyncedLyrics.wordFraction(words: timed.words, at: 1, lineEnd: 2),
+            LyricSweep.wordFraction(words: timed.words, at: 1, lineEnd: 2),
             accuracy: 0.0001
         )
 

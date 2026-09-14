@@ -49,6 +49,12 @@ struct LocalUnassignedImport: Identifiable, Equatable, Sendable {
 /// and explicitly selected folders; it has no remote resolver or transport.
 @MainActor
 final class LocalLyricsLibrary: ObservableObject {
+    enum NetworkPolicy: Equatable, Sendable {
+        case forbidden
+    }
+
+    static let networkPolicy: NetworkPolicy = .forbidden
+
     enum FileIssue: String, Codable, Equatable, Sendable {
         case malformed
         case unreadable
@@ -386,7 +392,7 @@ final class LocalLyricsLibrary: ObservableObject {
                 let stored = StoredDocument(id: id, origin: .imported, path: destination.path)
                 state.documents.append(stored)
                 if let identity = Self.legacyIdentity(for: document) {
-                    let v4Name = LyricsStore.cacheKey(
+                    let v4Name = Self.legacyCacheKey(
                         title: identity.title,
                         artist: identity.artist,
                         album: identity.album,
@@ -498,6 +504,18 @@ final class LocalLyricsLibrary: ObservableObject {
             || entry.lastPathComponent.hasSuffix(".lrc4.json") {
             try? fileManager.removeItem(at: entry)
         }
+    }
+
+    private static func legacyCacheKey(
+        title: String, artist: String, album: String, duration: TimeInterval
+    ) -> String {
+        let identity = "\(title)|\(artist)|\(album)|\(Int(duration.rounded()))"
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in identity.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return String(format: "%016llx", hash)
     }
 
     private func resolve(_ folder: StoredFolder) throws -> URL {
