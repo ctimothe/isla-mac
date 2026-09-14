@@ -1,0 +1,24 @@
+name: Build and verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  release-candidate:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run parity and packaging gates
+        run: |
+          swift test
+          bash Scripts/test-provenance.sh
+          bash Scripts/test-branding.sh
+          bash Scripts/test-localizations.sh
+          bash Scripts/bundle.sh release
+          bash Scripts/test-helper.sh
+          bash Scripts/test-identity.sh
+          bash Scripts/test-package.sh
+          bash Scripts/test-gatekeeper.sh
+          bash Scripts/test-lifecycle.sh
+          SKIP_BUNDLE=1 bash Scripts/dmg.sh

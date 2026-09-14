@@ -1,192 +1,265 @@
----
-title: Development and Release Runbook
-description: Reproducible commands and validation gates for the Dynamic Island MVP.
-lastModified: 2026-08-18
----
+# Isla verification runbook
 
-# Development and Release Runbook
+Use this runbook from a clean checkout of the intended release commit. The
+approved parity design is the behavior contract; this document is the execution
+path.
 
-> **This runbook covers the historical `shell-music-mvp` prototype only.**
-> The active implementation is the `dynamic-island-parity` branch, whose own
-> runbook lives at `.worktrees/dynamic-island-parity/docs/runbook.md`. That one
-> targets macOS 15 and builds with SwiftPM plus `Scripts/bundle.sh`; none of
-> the commands below apply to it.
+## 1. Prerequisites
 
-## 1. Locate the implementation
+- macOS 15 or later.
+- Xcode Command Line Tools with Swift, Clang, `codesign`, `iconutil`, and
+  `hdiutil`.
+- A physical-notch MacBook for the hardware pass and a non-notch/external display
+  for the synthetic pass.
+- Cyclop 0.6.5 built from pinned commit
+  `7ab60c8198681ea6c895fa55458448efb6e4c36e` for performance comparison.
 
-The prototype this document describes lives on the `shell-music-mvp` branch. List local
-worktrees before running commands:
-
-```bash
-git worktree list
-```
-
-In the current checkout, enter it with:
+Confirm the tree and toolchain:
 
 ```bash
-cd .worktrees/shell-music-mvp
-```
-
-After the branch is integrated, run the remaining commands from the repository
-root instead.
-
-## 2. Toolchain
-
-The documented flow was last verified with:
-
-- Xcode 26.6 (build 17F113).
-- Apple Swift 6.3.3.
-- macOS SDK 26.5.
-- XcodeGen available at `/opt/homebrew/bin/xcodegen`.
-
-The prototype's deployment target is macOS 14.0. (The active parity
-implementation targets macOS 15.0 — see its own runbook.) XcodeGen is needed only after
-editing `project.yml`; ordinary builds use the committed Xcode project.
-
-Inspect the local toolchain with:
-
-```bash
-xcodebuild -version
+git status --short
 swift --version
-command -v xcodegen
+xcode-select -p
 ```
 
-## 3. Verify source state
+## 2. Automated release-candidate gates
 
-Before changing or validating the implementation:
+Run in this order:
 
 ```bash
-git status --short --branch
-git diff --check
+swift test
+bash Scripts/test-provenance.sh
+bash Scripts/test-branding.sh
+bash Scripts/test-localizations.sh
+bash Scripts/bundle.sh release
+bash Scripts/test-helper.sh
+bash Scripts/test-package.sh
+bash Scripts/dmg.sh
+bash Scripts/test-lifecycle.sh
 ```
 
-Do not discard unrelated or uncommitted work. If `project.yml` changes,
-regenerate and review the project diff:
+Expected artifacts:
+
+```text
+build/Isla.app
+build/Isla-0.6.5.dmg
+```
+
+Launch the verified bundle:
 
 ```bash
-xcodegen generate
-git diff -- DynamicIsland.xcodeproj/project.pbxproj
+open "build/Isla.app"
 ```
 
-## 4. Run automated checks
+The app has no Dock icon, no menu-bar item and no window. If the panel is not
+visible, press ⌥⌘I — that shortcut is the only route in that needs no pointer.
 
-Run the core test suite:
+## 3. Every-tab smoke pass
+
+| Tab | Action | Expected result |
+| --- | --- | --- |
+| Music | Play media, seek, pause, skip | Metadata and progress update; supported controls act on the active player |
+| Shelf | Drop files, multi-select, drag out, copy, reveal, remove | Files remain references; previews load only while Shelf is visible |
+| Clipboard | Copy 41 text values, a multi-file selection, and a concealed item | Latest 40 remain; the selection returns all of its files when pasted back; concealed item is absent |
+| Translate | Enter English and Cyrillic text; press ⌥⌘T with text on the clipboard | Route reverses by script; the pane takes the keyboard; covered when Translate privacy is on |
+| Settings | Toggle screenshot saving, lyrics, capture hiding and launch at login; drag the panel-width slider; open support files | Values persist, the panel rebuilds at the new width, and actions open Isla-owned paths; screenshot saving and lyrics start off |
+
+Collapse the panel after privacy-covered rows are temporarily revealed. Reopen
+it and confirm every reveal reset.
+
+## 3a. Nothing but the island
+
+The app must show no surface other than the panel itself.
+
+1. Launch and confirm there is **no** Dock icon, **no** menu-bar item, and no
+   window — before, during and after opening the panel.
+2. Press ⌥⌘I with the pointer nowhere near the notch. The panel opens.
+3. In Settings, press **Open Panel** and confirm it closes again.
+4. In Settings, press **About** and confirm the standard about panel names the
+   build's version.
+5. In Settings, toggle **Hide Contents** for a section and confirm the panel
+   covers exactly that tab.
+6. In Settings, press **Quit**, confirm the second press is required, and
+   confirm the app exits. This is the only quit route; if it fails, the app can
+   only be stopped from Activity Monitor.
+
+## 3b. Panel width
+
+1. Drag **Settings → Panel Width** to its minimum. The panel rebuilds narrower,
+   the rail keeps all five icons, and nothing is clipped.
+2. Drag it to its maximum and confirm the panel is the full 620 pt again.
+3. At every setting the outer window is unchanged: hover just outside the drawn
+   panel and confirm the click goes to whatever is behind it, not to the island.
+
+## 4. Display passes
+
+### Physical notch
+
+On a notched MacBook display:
+
+1. Move the pointer into the camera-housing region. The island brightens
+   under the pointer and does **not** open.
+2. Click anywhere on it — artwork side, the cutout, equalizer side, and each
+   outer shoulder — and confirm every one of them opens the panel without
+   shifting the outer window. Nothing on the compact island is a control:
+   confirm no click on it starts or stops playback.
+3. Turn on **Settings → Open on Hover**, confirm the hover-delay slider appears
+   and a hover opens the panel after the 50 ms delay, then turn it off again.
+4. Move down the rail and confirm the 150 ms tab dwell prevents accidental
+   switching.
+5. Leave the cool zone and confirm collapse after 320 ms.
+6. Press ⌥⌘I, move the pointer well away, and confirm the panel stays open
+   until Escape, ⌥⌘I again, or a click in another application closes it.
+7. Set the panel width to its minimum and maximum in turn, and repeat step 2 at
+   each: the clickable area is cut from the width, so a dead edge would only
+   appear at one of them.
+
+### Synthetic notch
+
+Make a non-notch or external display primary, relaunch, and repeat the pass. The
+collapsed target must be centered at the menu-bar top and all five tabs must
+remain available.
+
+### Display changes and the lock screen
+
+1. With the panel open on the Translate tab and a phrase half-typed in it, plug
+   in or unplug an external display. The panel is rebuilt on the notch display,
+   keeps the tab, and keeps the clipboard history and the half-typed
+   translation.
+2. Lock the Mac with the panel expanded. The lock card appears centered, its
+   transport answers clicks, and the pill stays at the notch. Hover the pill:
+   it brightens. Click it: it shakes and nothing opens, and the music keeps
+   playing — the compact island has no transport over the shield either.
+2a. Watch the card for a minute while a track plays. The scrubber advances and
+   the lyric moves with it; a frozen clock here means media was deactivated by
+   the lock path.
+3. Let the display sleep while locked, then wake it. The card still works and
+   the panel never opens under the shield.
+4. Let a track change while locked. The card stays clickable and no phantom
+   region elsewhere on the shield eats clicks.
+5. Unlock. The panel returns to its notch frame, collapsed.
+5a. Repeat the lock with the panel width set to its minimum. The card and the
+   pill are placed the same way — the window never resized, so nothing about the
+   lock path depends on the width.
+6. With the lock-screen card switched off in Settings, repeat step 2: nothing
+   is drawn over the shield and pointer movement over the notch opens nothing.
+
+## 5. Permission and network passes on a clean account
+
+Create a temporary macOS user for the test.
+
+1. Launch and visit every tab. No app permission prompt should appear at
+   launch or while browsing: the one entitlement the app claims
+   (`com.apple.security.automation.apple-events`) is only exercised when the
+   scripting fallback first drives a player.
+2. Drag a file from Downloads to Shelf. Any protected-folder prompt must appear
+   in the context of that Shelf action, never at launch.
+3. Copy a screenshot with **Save clipboard screenshots** off (the default) and
+   confirm nothing is written to `~/Pictures/Isla`.
+4. Play a track with **Lyrics** off (the default) and confirm, with Little
+   Snitch or `nettop`, that no request leaves the machine.
+5. Turn Lyrics on and confirm requests go only to `lrclib.net`,
+   `raw.githubusercontent.com`, `lyrics.kugou.com`, `u.y.qq.com`,
+   `c.y.qq.com` and `shc.y.qq.com`.
+6. Connect a Spotify account, confirm the browser round trip returns and the
+   heart works, then Disconnect and confirm the keychain items are gone.
+
+The app must not request Accessibility, Screen Recording, contacts, or
+permission to read Cyclop data. Apple Events consent is raised by macOS only
+when the scripting fallback first drives Music or Spotify.
+
+7. Force the fallback (remove the bundled helper) on a *signed* build and
+   confirm the Apple Events prompt appears and transport works after Allow.
+   This is the check that would have caught a hardened-runtime build shipping
+   without that entitlement, where the fallback fails with -1743 and logs
+   nothing a user would see.
+
+## 6. Failure and persistence passes
+
+- Drop several files on the Shelf, one of them from a protected folder; quit,
+  relaunch, and confirm every card returns and still opens its file.
+- Make the lyrics cache directory
+  `~/Library/Application Support/Isla/lyrics` unreadable
+  (`chmod 000`); play a track with Lyrics on, restore permissions, and confirm
+  the track kept playing and the cached words are intact.
+- On an unsigned local build with a Spotify account connected, confirm
+  `spotify-credentials.json` is mode `0600`, then make it unreadable: the cost
+  is the account showing as disconnected, never a failed launch.
+- Temporarily remove the bundled media helper; confirm Music falls back after
+  three failures without crashing the shell, and that the restart delay grows
+  rather than repeating every two seconds.
+- Suspend the helper process (`kill -STOP`) so it stays alive but silent;
+  confirm the app notices within about fifteen seconds and falls back rather
+  than showing an empty media tab indefinitely.
+- Delete a referenced Shelf file; open Shelf and confirm only the missing card is
+  removed. Denied access must keep the card.
+- Pause a track before its first lyric line, then open the panel. The caption
+  shows the opening line, unswept — never nothing — and the transport sits at
+  exactly the height it does for a track with words.
+- Play a track whose lyrics carry word timing, open the full stage, and confirm
+  the caption behind it and the stage agree on the current line. Nudge Sync and
+  confirm both move together. Nudge one track with Sync ±, replay another, and
+  confirm the second is unmoved and the first keeps its nudge; hold the offset
+  readout to clear it back to 0. Re-search clears the track nudge: the
+  correction belonged to the deleted entry's timing.
+- Turn on **Reduce Transparency** in System Settings → Accessibility → Display.
+  Every translucent surface becomes an opaque panel while the panel is open,
+  without relaunching. Turn on **Increase Contrast** and confirm the lit rim
+  becomes a defined border. Turn both off again.
+- Open the lock card's output list and choose a device: the trackpad taps once,
+  the list closes, and the foot rail's glyph becomes that device's.
+- Enable launch at login, log out/in, confirm a single instance launches, then
+  disable the setting.
+- Quit from the menu and run `pgrep -fl libislamedia`; it must return no
+  Isla helper.
+
+## 7. Performance comparison
+
+Build the pinned reference and product, then run:
 
 ```bash
-swift test --package-path Packages/IslandCore
+bash Scripts/build-reference.sh
+bash Scripts/measure-performance.sh \
+  "build/reference/Cyclop.app" \
+  "build/Isla.app" \
+  "docs/performance/2026-08-18-cyclop-0.6.5-baseline.md"
 ```
 
-Expected baseline on 2026-08-18: 18 tests in six suites pass.
+The report uses three 60-second runs per app. Closed CPU must remain `0.0%`;
+product application/helper RSS must be no higher than the reference median; no
+helper may survive its parent. Record any unavoidable original-icon bundle-size
+variance.
 
-Build an unsigned Debug application into a predictable local directory:
+## 8. Developer ID and notarized release
+
+Local builds default to ad-hoc signing. Publishing requires these values and an
+installed Developer ID Application certificate:
 
 ```bash
-xcodebuild \
-  -project DynamicIsland.xcodeproj \
-  -scheme DynamicIsland \
-  -configuration Debug \
-  -destination 'platform=macOS' \
-  -derivedDataPath .build/xcode \
-  CODE_SIGNING_ALLOWED=NO \
-  build
+export DEVELOPER_ID_APPLICATION="Developer ID Application: Example Corp (TEAMID)"
+export APPLE_ID="release@example.com"
+export APPLE_TEAM_ID="TEAMID"
+export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
 ```
 
-Expected result: `** BUILD SUCCEEDED **`. Two run-script phases currently warn
-that they declare no outputs. The unsigned verification build also notes that
-Hardened Runtime is disabled; that note is expected only because
-`CODE_SIGNING_ALLOWED=NO` is explicit. Record any additional warning as a new
-checklist item.
-
-Inspect the bundled adapter resources:
+Create `docs/releases/0.6.5.md`, commit and push it, confirm the tree is clean,
+then explicitly publish:
 
 ```bash
-test -d .build/xcode/Build/Products/Debug/DynamicIsland.app/Contents/Resources/mediaremote-adapter/MediaRemoteAdapter.framework
-test -f .build/xcode/Build/Products/Debug/DynamicIsland.app/Contents/Resources/mediaremote-adapter/mediaremote-adapter.pl
-test -f .build/xcode/Build/Products/Debug/DynamicIsland.app/Contents/Resources/mediaremote-adapter/LICENSE
+bash Scripts/release.sh
 ```
 
-Each command must exit with status 0.
+The script runs every gate in §2 — including `test-identity.sh` and
+`test-lifecycle.sh` — then Developer ID-signs, notarizes and staples the app,
+builds the disk image around that stapled app without rebuilding it, notarizes
+and staples the image, and only then tags `v0.6.5` and uploads the
+checksum-bearing GitHub release. A failure while publishing removes the tag it
+pushed, so a retry is not blocked by it. It never publishes from an uncommitted
+tree or without release notes and credentials.
 
-## 5. Launch a local Debug build
+## 9. Evidence
 
-Unsigned builds are suitable for local development only:
-
-```bash
-open .build/xcode/Build/Products/Debug/DynamicIsland.app
-```
-
-Quit through the status-menu item before rebuilding or relaunching. If a stale
-instance remains:
-
-```bash
-pkill -x DynamicIsland
-```
-
-## 6. Manual hardware matrix
-
-Record the Mac model and macOS version beside each result in
-[`../checklist.md`](../checklist.md).
-
-- [ ] Launch with the built-in notched display active; one island appears and
-  is centered on the physical notch.
-- [ ] Hover for less than 150 ms; the island does not expand.
-- [ ] Continue hovering; the expanded content appears without clipping.
-- [ ] Move the pointer away; the island collapses after about 2.5 seconds.
-- [ ] Click while expanded; the island remains pinned after the pointer leaves.
-- [ ] Click again; the island unpins and returns to compact behavior.
-- [ ] Switch Spaces; the panel remains correctly placed and does not enter
-  normal window cycling.
-- [ ] Enter and leave fullscreen with another app; verify visibility and focus
-  behavior.
-- [ ] Disconnect, close, or otherwise deactivate the built-in display; no fake
-  island appears on an unnotched display and the unsupported state remains
-  discoverable from the status menu.
-- [ ] Reactivate the built-in display; the island returns at the correct frame.
-- [ ] If Ice, Bartender, iBar, or another menu-bar utility is installed, repeat
-  pointer and fullscreen checks and record conflicts.
-- [ ] Choose About and Quit from the status menu; both actions work without a
-  Dock icon.
-
-## 7. Manual Music matrix
-
-- [ ] Start a track in Apple Music; compact mode shows its title.
-- [ ] Pause the track; Music remains active and shows a paused state.
-- [ ] Resume, skip forward, and skip backward from expanded controls.
-- [ ] Verify title, artist, and album update after a track change.
-- [ ] Repeat observation and controls with at least one third-party player.
-- [ ] Stop playback and clear the player's queue; Music becomes inactive and
-  the shell collapses.
-- [ ] Terminate the adapter subprocess or temporarily remove its bundled
-  resources in a disposable build; the app remains alive and Music deactivates.
-- [ ] Restore the normal build before continuing. No MediaRemote permission
-  prompt should have appeared.
-
-## 8. Archive and distribution gates
-
-Do not distribute the unsigned Debug product. For a release candidate:
-
-1. Configure Developer ID Application signing without enabling App Sandbox.
-2. Archive the `DynamicIsland` scheme in Release configuration.
-3. Verify the app and nested adapter framework signatures with
-   `codesign --verify --deep --strict --verbose=2`.
-4. Confirm the adapter framework, Perl script, and BSD-3-Clause license are in
-   the archived app's `Contents/Resources/mediaremote-adapter` directory.
-5. Package the signed app in a DMG.
-6. Submit the DMG with `xcrun notarytool`, wait for an accepted result, and
-   staple the ticket with `xcrun stapler`.
-7. Run `spctl --assess --type open --context context:primary-signature` against
-   the stapled DMG.
-8. Test installation and launch from the DMG in a clean user account.
-
-Signing identities, Apple credentials, bundle ownership, and the final DMG
-layout are release-owner inputs and must never be committed to this repository.
-
-## 9. Close the loop
-
-After every validation run:
-
-- Update [`../checklist.md`](../checklist.md) with results and tested hardware.
-- Add newly discovered behavior to the specification before changing code.
-- Keep investigation details in the research archive, not in the status list.
-- Run `git diff --check`, tests, and the Debug build once more before claiming
-  the change is ready.
+Record the date, Mac model, macOS version, display arrangement, test account,
+artifact checksum, result, and any issue link beside each gate in
+[release-checklist.md](release-checklist.md). A checkbox without evidence is not
+a release pass.

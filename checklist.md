@@ -1,100 +1,236 @@
-# Dynamic Island — shell-music-mvp Prototype Status
+# Isla parity checklist
 
-Last verified: 2026-08-18
+This is the live completion view for the approved
+[Cyclop 0.6.5 parity design](docs/plans/2026-08-18-dynamic-island-parity-design.md).
+Do not mark a manual gate complete without recording evidence in
+[the release checklist](docs/release-checklist.md).
 
-> **Superseded for the shipping product.** Everything below tracks the
-> historical `shell-music-mvp` prototype. The active implementation is the
-> `dynamic-island-parity` branch, governed by the approved
-> [parity design](docs/plans/2026-08-18-dynamic-island-parity-design.md) and
-> tracked in `.worktrees/dynamic-island-parity/checklist.md`. Where the two
-> disagree — D7's "never draw a simulated fallback island", and the deferral of
-> lock-screen presentation and internationalization, all three of which the
-> parity product does — the parity design wins.
+## Automated gates
 
-This file tracks delivery status only. Binding behavior belongs in the
-[`Shell + Music MVP specification`](docs/specs/shell-music-mvp.md), exact
-commands belong in the [`runbook`](docs/runbook.md), and supporting evidence
-belongs in the [`research archive`](docs/research/technical-feasibility.md).
+- [x] Swift unit and service tests pass.
+- [x] Pinned-source provenance and MIT attribution pass.
+- [x] Isla branding and path audits pass.
+- [x] English and Russian localization tables validate with matching keys.
+- [x] Release bundle builds with executable, helper, icon, localizations,
+  licenses, and a valid signature.
+- [x] The live media helper returns NDJSON and exits after its input closes.
+- [x] Versioned `Isla-0.6.5.dmg` builds from the verified package.
+- [x] Lifecycle test leaves no Isla media helper after quit.
 
-## Binding MVP decisions
+## Scope divergence from Cyclop 0.6.5
 
-These identifiers are stable because implementation comments refer to them.
+Snippets and Calendar were removed from the product on 2026-08-20 by
+owner decision. They are not deferred and not hidden — the tabs, stores,
+panes, privacy sections, and tests are gone, and the calendar entitlement
+went with them. The app now claims exactly one entitlement,
+`com.apple.security.automation.apple-events`, which the hardened runtime
+requires before the scripting fallback can drive Music or Spotify at all;
+macOS asks for that consent at the moment the fallback is first used, and
+it is refusable. Nothing is requested at launch. Parity gates below no longer cover either feature, and the parity
+claim is explicitly partial as a result. (Two stale section *comments* in
+`Resources/en.lproj/Localizable.strings` outlived the removal and were
+retitled on 2026-08-21; the keys under them are shared ones that were
+always used elsewhere.)
 
-- [x] **D1 — Panel:** use public `NSPanel` APIs with the proven
-  `.mainMenu + 3` window level and
-  `.fullScreenAuxiliary`/`.stationary`/`.canJoinAllSpaces`/`.ignoresCycle`
-  behaviors. Do not use private SkyLight APIs in the MVP.
-- [x] **D2 — Geometry:** detect the active built-in notch with
-  `safeAreaInsets.top`, prefer the auxiliary top areas for exact bounds, and
-  fall back to a centered 185 × 32 point rectangle.
-- [x] **D3 — Activity:** Music is active when a current track has a title or
-  artist, whether it is playing or paused.
-- [x] **D4 — Failure mode:** if now-playing observation becomes unavailable,
-  deactivate Music and collapse the island without crashing or presenting a
-  false permission prompt.
-- [x] **D5 — MediaRemote integration:** vendor one pinned copy of
-  `ungive/mediaremote-adapter`; use its Perl bridge for observation and its
-  command mode for play, pause, next, and previous.
-- [x] **D6 — Distribution:** ship outside the Mac App Store as a signed,
-  notarized direct download because the Music implementation depends on a
-  private framework.
-- [x] **D7 — Hardware:** support only Macs with an active built-in camera
-  notch. Never draw a simulated fallback island on an unnotched display.
-- [x] **D8 — Architecture:** host SwiftUI content in AppKit and route feature
-  modules through `IslandModule` and `ModuleRegistry`. The MVP contains exactly
-  one feature module: Music.
+Notes and the Teleprompter were removed on 2026-08-22 by owner decision,
+on the same terms: the tabs, panes, stores, privacy sections, strings and
+tests are gone, the tall panel body went with the teleprompter, and the
+second rail went with the overflow it existed to hold. Five tabs remain —
+Music, Shelf, Clipboard, Translate, and Settings at the foot of the one
+rail.
 
-## Completed implementation
+Four capabilities were added beyond Cyclop 0.6.5, all of them off or
+absent until the user asks. They are recorded here because the parity
+design's non-goals rule out "network services" and "accounts", and these
+are the exception the design did not anticipate:
 
-- [x] Create the `IslandCore` Swift package with notch geometry, module
-  selection, now-playing decoding, NDJSON buffering, and adapter process
-  wrappers.
-- [x] Cover the core package with 18 passing tests across six suites.
-- [x] Create the macOS 14+ `LSUIElement` application and status-menu exit path.
-- [x] Create collapsed, compact, and expanded shell states with hover and click
-  transitions.
-- [x] Add compact and expanded Music views with play/pause, next, and previous
-  controls.
-- [x] Vendor `mediaremote-adapter` at commit
-  `3ac3d4bdf862c7b5399b4fba4df5689f5c38609a` with its BSD-3-Clause license.
-- [x] Build the adapter as a native framework and stage the framework, Perl
-  bridge, and license in the app bundle.
-- [x] Decode a real adapter payload, including its ISO 8601 timestamp and
-  duration field.
-- [x] Verify `swift test` and an unsigned Debug `xcodebuild` on 2026-08-18.
+- **Lyrics** (Settings, default off) resolves from imported LRC files and
+  explicitly selected local folders before any lyric surface opens. It never
+  downloads, uploads, scrapes, or sends lyric data. Imported copies, bindings,
+  and timing corrections stay on the Mac; ambiguous files always require an
+  explicit choice. Enhanced LRC word timing animates only for a measured player
+  clock; every other player uses line-level highlighting.
+- **Spotify account** (Settings) authorizes through Spotify's PKCE flow
+  for Liked Songs, the one feature with no local API. Tokens live in the
+  keychain.
+- **Lock-screen card** (Settings, default on) presents the player over
+  the shield, in a window of its own, finished as Glass or Solid. The
+  shield is protected content and no window above it is given a backdrop
+  to blur, so the glass is a drawn recipe rather than a sample — the
+  system's own lock-screen widgets work the same way.
+- **Sound output** (lock card, no setting) lists the Mac's output devices
+  and switches the system default. It changes a system-wide setting, so
+  it is recorded here even though it needs no permission and no network.
+- **Output volume** (lock card, no setting) reads and sets the default
+  output device's volume, added 2026-08-25 with the card's rebuild. Another
+  system-wide setting, recorded on the same terms. Absent entirely for a
+  device that publishes no volume control rather than shown as a slider
+  that moves and changes nothing.
+- **Screen-recording pickup** (Settings, default on, added 2026-09-11)
+  imports movies Screenshot.app saved — its configured location, else the
+  Desktop — when the Shelf opens, if they finished after the app first ran.
+  Copied recordings already landed through the clipboard; this covers the
+  native save-to-disk flow no pasteboard ever sees. The first scan touches a
+  folder macOS guards, so the system asks once, with the shelf on screen to
+  explain it, and the grant sticks; denied means the shelf shows what it
+  holds. Nothing watches in the background.
 
-## Required before MVP release
+The status-item menu, and then the whole status item, were removed on
+2026-08-25 by owner decision. A window was built first and withdrawn the
+same day: the panel's own Settings tab already carried Open Panel, About
+and Quit, so both a menu and a window were second front doors to what
+the island already does. The app now shows no Dock icon, no menu-bar
+item and no window at any time, and its activation policy is
+`.accessory` with nothing able to change it. ⌥⌘I is the only route in
+that needs no pointer. This is narrower than the parity design's shape,
+which assumes a menu-bar item, so it is recorded here.
 
-- [ ] Make compact and expanded panel content resize without clipping while
-  remaining centered on the physical notch.
-- [ ] Show a clear unsupported-display state without drawing an island, and
-  recover when a supported built-in display becomes active.
-- [ ] Complete the manual notch-hardware matrix in the runbook: hover, pin,
-  auto-collapse, Spaces, fullscreen, display changes, and menu-bar utilities.
-- [ ] Complete the Music matrix in the runbook with Apple Music plus at least
-  one third-party player, including paused and unavailable-adapter cases.
-- [ ] Confirm the app bundle contains the pinned adapter framework, Perl script,
-  and BSD-3-Clause license in both Debug and Archive products.
-- [ ] Eliminate or explicitly accept the two dependency-analysis warnings from
-  the Xcode run-script phases.
-- [ ] Configure Developer ID signing and Hardened Runtime for the app and its
-  bundled adapter framework.
-- [ ] Produce a notarized, stapled DMG and verify it on a clean user account.
-- [ ] Re-run the complete automated and manual release gates and record the
-  tested Mac model and macOS versions in this file.
+From 2026-09-10 the first launch of a fresh account is the one exception,
+and it is not a second front door: the panel opens itself once and its
+own body says the app is running, where it is, what the two hotkeys are,
+and that Quit lives in Settings. It is a pane, not a window and not a
+sixth tab, and it exists for one launch — `hasCompletedFirstRun` in the
+app's defaults. Something had to say it: the app's whole design is
+invisible, and `LSUIElement` keeps it out of Force Quit as well, so a
+first launch was indistinguishable from a failed one and a user who
+could not find the panel could not quit it either.
 
-## Deferred beyond the MVP
+The panel opens on a click rather than a hover, from 2026-08-26. The
+parity design specifies a hover-opened panel and the delays that govern
+it; those delays now govern the hover route only, which survives as
+**Open on Hover** in Settings and is off by default. The compact island
+also lost its one control — the equalizer wing toggled playback, which
+gave a single surface two meanings once a click began opening the panel.
+Recorded here because it narrows a behaviour the design states.
 
-- Clipboard history, Calendar, Translate, and Shelf modules.
-- Private SkyLight/CGSSpace integration and lock-screen presentation.
-- App Store distribution.
-- Artwork, seeking, shuffle, repeat, preferences, auto-update, and analytics.
-- Internationalization and non-notch fallback UI.
+Translucency became the system's own material on 2026-08-25, through
+`glassEffect` where macOS has it, with the hand-drawn recipe standing in
+below macOS 26 and anywhere there is no backdrop to sample. With it, the
+app now answers **Reduce Transparency** — surfaces go opaque — and
+**Increase Contrast** — the lit rim becomes a defined border. Neither is
+a divergence so much as a debt paid: an app built on a translucent
+material owes those settings an answer. `defaults write
+com.ctimothe.isla drawnGlass -bool true` forces the drawn recipe
+everywhere, for the one surface whose backdrop cannot be checked from a
+build machine.
 
-## Risks to re-check before every release
+Haptic feedback was added on 2026-08-25, at two moments only: an output
+device chosen, and a click on a lyric landing the song on that line. It
+needs no permission, leaves nothing, and is silent on Macs without a
+Force Touch trackpad.
 
-- Apple can change or close the `/usr/bin/perl` MediaRemote bridge at any time.
-- Private MediaRemote behavior can change in any macOS update.
-- Window ordering can conflict with menu-bar managers and new macOS windowing
-  behavior.
-- A successful build does not replace validation on physical notch hardware.
+The panel's width became a setting on 2026-08-25, `480…620 pt` with a
+default of `560`. The parity design fixed it at `620`; it is recorded here
+because a person can now change a number the design stated. The window it
+is drawn in is untouched at `700 × 444 pt` — the body narrows inside a
+frame that never resizes.
+
+Privacy defaults were also corrected on 2026-08-21: the panel is now
+hidden from screen capture by default, and clipboard-screenshot saving
+is off by default with a 200-file cap once enabled.
+
+## Manual parity gates
+
+- [ ] Every tab passes its workflow on a clean macOS account.
+- [ ] The lyrics page scrolls both ways, holds where it is left, and the
+  sync pill returns it to the sung line.
+- [ ] Compact music and lock-card captions never go blank: exercise disabled,
+  settling, finding local lyrics, ready, no local lyrics, invalid local file,
+  retry, import, binding removal, and ambiguous-file selection.
+- [ ] Validate physical-notch, lock-card, offline behavior, folder changes,
+  VoiceOver, Reduce Motion, English, Russian, and local-LRC workflows.
+- [ ] Measure Spotify and Apple Music word timing at or below 150 ms p95; keep
+  every unmeasured publisher line-level.
+- [ ] Run local-library prefetch checks: an already indexed local timeline must
+  be available before any panel opens, and a folder rescan must not replace a
+  displayed lyric with an ambiguous or lower-confidence candidate.
+- [ ] The lock card appears centred at its own size across repeated
+  lock/unlock cycles, including after display sleep.
+- [ ] Protected Shelf files prompt only when the Shelf is opened or used.
+- [ ] Physical-notch behavior passes on a supported MacBook.
+- [ ] Synthetic-notch behavior passes on an external/non-notch display.
+- [ ] English and Russian layouts have no clipping or untranslated product copy.
+- [ ] Quit/relaunch, launch at login, unavailable helper, and
+  missing Shelf file scenarios pass.
+- [ ] Three-run performance medians meet the approved Cyclop 0.6.5 gates.
+  Blocked: CPU peaked at `0.3%` rather than absolute `0.0%`, and helper RSS
+  measured `19.05 MiB` versus `19.03 MiB` for Cyclop.
+- [ ] Developer ID signing, notarization, stapling, and Gatekeeper validation pass.
+
+## Release verdict
+
+- [ ] All eleven release gates have evidence.
+- [ ] The 102-finding audit of 2026-08-21 is closed out: every fix is in
+  the tree, `swift test` passes, and every script gate runs green.
+- [ ] The release commit is clean and pushed.
+- [ ] Release notes exist at `docs/releases/<version>.md`.
+- [ ] `Scripts/release.sh` completes without bypassing a gate.
+
+Evidence and remaining blockers are recorded in
+[the 2026-08-18 release-candidate report](docs/verification/2026-08-18-release-candidate.md).
+
+## v0.2 — the front door
+
+Closed from the 2026-09-03 audit (`docs/audits/2026-09-03-synthesis.md`):
+
+- [x] A promised file from Mail or Photos no longer trapping the process
+  (`ShelfDropTests`).
+- [x] The whole drawn island answering a click on synthetic notches
+  (`CompactHitAreaTests`).
+- [x] A clicked-open panel released by a second click and by the pointer
+  leaving. A mouse click no longer pins the panel at all — the pointer that
+  clicked is already standing where the panel holds itself open from; only
+  ⌥⌘I, the Translate service, and VoiceOver's accessibility action still pin
+  (`OpenOnClickTests`, `HoverRectTests`).
+- [x] `Scripts/test-gatekeeper.sh` in the gate order and in CI.
+- [ ] Developer ID signing, notarization and stapling — blocked on an Apple
+  Developer Program membership. Everything else in this list is worth less
+  than it looks until this lands: an unsigned build loses the MediaRemote
+  path on the user's machine.
+- [x] First-run pane shown once per account, until it is answered. The panel
+  opens itself about 0.8 s after a launch that finds `hasCompletedFirstRun`
+  unset, and the body shows `WelcomePane` instead of a tab: that the app is
+  running, that it lives at the notch and opens on a click, both hotkeys, and
+  where Quit is. Pressing Get Started — or picking any tab out of the rail —
+  sets the flag and lands on Music. Only those two set it: closing the panel,
+  locking, sleeping, or dropping a file on the island all take the pane off
+  screen with the flag unset, and the next launch offers it again. A display
+  change carries it across the rebuild instead, the same way the selected tab is
+  carried. Not a window, not a tab, not a status item: the 2026-08-25
+  withdrawal stands (`FirstRunTests`, `TabContractTests`). Validated by hand
+  on 2026-09-10 - see the run recorded at the foot of this section.
+- [x] `PointerWatcher.tick`'s ordinary inside-to-outside transition now
+  carries an `isDragging()` guard, so dragging a file *out* of the Shelf no
+  longer closes the panel mid-drag. Recorded here as open when Task 3
+  shipped; the final review found it had become reachable from the default
+  path once a click stopped pinning, so `holdsOpen` had stopped masking it,
+  and it was closed in the same release (`PointerWatcherTests`).
+
+### Validation run - 2026-09-10
+
+**Mac16,8**, macOS 26.6.2 (25G83), Apple M4 Pro. From a clean build: `rm -rf .build
+build`, then all eleven gates re-run green, then installed to `/Applications`
+and launched from there rather than from the worktree.
+
+Exercised on the built-in notched display: the first-run pane on a cleared
+`hasCompletedFirstRun`, click-to-open, click-to-close, walking away, and the
+drag paths. **Not** exercised: an external display, which is the only place the
+`collapsedDepth` change has any effect; and Open on Hover switched on, which is
+the mode the final review flagged for a fold-and-reopen. Both remain owed.
+
+## v0.3 — native motion and material (in progress)
+
+From the approved plan `docs/plans/2026-09-10-v0.3-native-motion-and-material.md`,
+branch `feat/v0.3-native-motion`:
+
+- [x] Increase Contrast reaches the whole app (2026-09-11,
+  `ContrastRampTests` + `AccessibilityDisplayTests`): the `Theme` colour
+  tokens are functions of the setting, the selected rail chip carries its own
+  fill plus border after `ShelfPane`'s selected tile, the lyric falloff is
+  clamped to a floor, and a live change redraws through the one
+  `SystemAppearance` observation at `NotchContentView`. The surface raises are
+  shape-visibility fixes for everyone, not accessibility variants. Shipped
+  2026-09-11: surface base 0.16, surfaceHover base 0.26 — the brief's step-3
+  prose said 0.12/0.22, but those compute to 1.27:1/1.79:1 and fail the brief's
+  own 1.4/2.0 test floors, so the tests governed. Lyric neighbour 0.34/0.44,
+  floor 0.28/0.38; hairline base stays 0.10 by design (1pt edge, not a fill).

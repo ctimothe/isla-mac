@@ -1,0 +1,75 @@
+#!/bin/bash
+# Packs the built app into a disk image — the form a Mac app is handed over in.
+# Собирает приложение, если его еще нет, и кладет рядом ярлык /Applications,
+# чтобы установка была одним перетаскиванием.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP="$ROOT/build/Isla.app"
+VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" 2>/dev/null || true)"
+# Пустая версия проходила все проверки ниже: sed на файле без строки VERSION=
+# завершается успешно и печатает пустоту, так что запасной вариант не срабатывал
+# и наружу выходил Isla-.dmg без версии внутри.
+if [ -z "$VERSION" ]; then
+    echo "!!! в Scripts/version нет строки VERSION=" >&2
+    exit 1
+fi
+DMG="$ROOT/build/Isla-$VERSION.dmg"
+
+# Всегда, а не только когда приложения нет. Иначе образ уносит то, что лежало в
+# build с прошлого раза: номер на образе новый, приложение внутри старое, и
+# заметить это можно лишь запустив его.
+#
+# SKIP_BUNDLE=1 — для release.sh, который уже собрал бандл и прогнал по нему все
+# проверки: пересборка здесь давала образ со второй, непроверенной сборкой.
+if [ "${SKIP_BUNDLE:-0}" != "1" ]; then
+    "$ROOT/Scripts/bundle.sh" release
+elif [ ! -d "$APP" ]; then
+    echo "!!! SKIP_BUNDLE=1, но собранного приложения нет: $APP" >&2
+    exit 1
+fi
+
+# Verify before producing the image, so a version mismatch cannot leave behind
+# a DMG whose filename advertises content it does not contain.
+INSIDE="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
+    "$APP/Contents/Info.plist" 2>/dev/null || echo "?")"
+if [ "$INSIDE" != "$VERSION" ]; then
+    echo "!!! в образе лежит версия $INSIDE, а имя обещает $VERSION" >&2
+    exit 1
+fi
+
+echo "==> раскладка образа"
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+cp -R "$APP" "$STAGE/Isla.app"
+ln -s /Applications "$STAGE/Applications"
+
+echo "==> сборка $DMG"
+rm -f "$DMG"
+hdiutil create \
+    -volname "Isla $VERSION" \
+    -srcfolder "$STAGE" \
+    -fs HFS+ \
+    -format UDZO \
+    -quiet \
+    "$DMG"
+
+SIZE="$(du -h "$DMG" | cut -f1 | tr -d ' ')"
+echo "==> готово: $DMG ($SIZE)"
+
+echo "==> версия внутри совпадает: $INSIDE"
+
+# Сказано здесь, потому что узнать это иначе можно только от человека, у
+# которого приложение не открылось.
+if ! spctl -a "$APP" >/dev/null 2>&1; then
+    cat <<'NOTE'
+
+    Внимание: сборка подписана ad-hoc, без Developer ID, и не нотаризована.
+    На твоей машине она запускается, на любой другой Gatekeeper ее не пустит.
+    Тому, кому отдаешь образ, придется один раз зайти в Системные настройки →
+    Конфиденциальность и безопасность → "Все равно открыть". В macOS 15
+    открытие через Control-клик для такого случая больше не работает.
+
+    Чтобы этого не требовалось, нужен Apple Developer ID и нотаризация.
+NOTE
+fi
