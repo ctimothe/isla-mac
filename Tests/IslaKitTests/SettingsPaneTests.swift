@@ -15,4 +15,17 @@ final class SettingsPaneTests: XCTestCase {
     func testSettingsCopyPromisesLocalOnlyLyrics() {
         XCTAssertEqual(SettingsPane.localLyricsPrivacyCopyKey, "Lyrics stay on this Mac.")
     }
+
+    func testEverySettingsToggleUsesItsVisibleTitleAsAccessibilityLabel() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/SettingsPane.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains(".labelsHidden()\n                .accessibilityLabel(title)"))
+    }
 }
