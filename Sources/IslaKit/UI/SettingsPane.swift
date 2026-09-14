@@ -508,6 +508,7 @@ struct SettingsPane: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .labelsHidden()
+                .accessibilityLabel(title)
         }
         .padding(.horizontal, 8)
         .frame(height: 26)
