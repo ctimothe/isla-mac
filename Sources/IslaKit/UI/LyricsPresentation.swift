@@ -23,7 +23,7 @@ enum LyricsPresentation {
                 ? currentLine!
                 : localized("Finding lyrics…")
         case .noLocalLyrics:
-            return localized("No lyrics for this track.")
+            return localized("No local lyrics")
         case .invalidLocalFile:
             return localized("No lyrics for this track.")
         }

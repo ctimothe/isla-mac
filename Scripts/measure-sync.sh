@@ -6,18 +6,31 @@
 # it at 5Hz against Apple Music's or Spotify's own scriptable player position,
 # clock its UI renders. Scripted events cover the edges: pause, resume, a
 # forward seek, a large backward seek, and a sub-threshold backward one. Word
-# columns sample a word-tier fixture for the playing track (its cached lyrics
-# when they carry word timing, else a synthetic grid), reporting word-edge
-# disagreement and gating zero word movement while paused.
+# columns sample exactly the enhanced LRC fixture selected for the playing
+# track, reporting word-edge disagreement and gating zero word movement while
+# paused.
 #
 # This exists because the position code has now twice been "fixed" on
 # reasoning alone and been wrong about the result. Claims about sync accuracy
 # are made from this harness's numbers or not at all.
 #
-# Set SYNC_PLAYER=spotify or SYNC_PLAYER=music (Spotify is the default).
+# Set SYNC_PLAYER=spotify or SYNC_PLAYER=music (Spotify is the default), and
+# SYNC_LRC_FIXTURE=/absolute/path/file.lrc for the exact track under test.
 # Requires that player running with a track. WILL pause and seek the music, then restore it.
 set -euo pipefail
 SYNC_PLAYER="${SYNC_PLAYER:-spotify}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FIXTURE="${SYNC_LRC_FIXTURE:-}"
+if [[ "$FIXTURE" != /* ]] || [ ! -r "$FIXTURE" ]; then
+  echo "SYNC_LRC_FIXTURE must name a readable absolute enhanced-LRC file" >&2
+  exit 2
+fi
+VALIDATION="$(bash "$ROOT/Scripts/validate-lrc.sh" "$FIXTURE")" || exit $?
+if ! grep -qx 'granularity: word' <<<"$VALIDATION"; then
+  echo "SYNC_LRC_FIXTURE must contain enhanced word timestamps" >&2
+  exit 2
+fi
+export SYNC_LRC_FIXTURE="$FIXTURE"
 case "$SYNC_PLAYER" in
   spotify) PLAYER_BUNDLE_ID="com.spotify.client"; PLAYER_PROCESS="Spotify" ;;
   music) PLAYER_BUNDLE_ID="com.apple.Music"; PLAYER_PROCESS="Music" ;;
@@ -34,7 +47,6 @@ if original="$(osascript -e "tell application id \"$PLAYER_BUNDLE_ID\" to return
   ORIGINAL_STATE="${original%%|*}"
   ORIGINAL_POSITION="${original#*|}"
 fi
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$(mktemp -d "${TMPDIR:-/tmp}/sync-probe-XXXXXX")"
 # Every other script here sets one; this one leaked a compiled binary and a copy
 # of the helper dylib into /tmp on every run.
@@ -64,8 +76,16 @@ swift build --package-path "$ROOT" >/dev/null
 # Asked for, not assumed: the hard-coded arm64 path failed outright on an Intel
 # Mac and under Rosetta.
 BUILD="$(swift build --package-path "$ROOT" --show-bin-path)"
-swiftc -parse-as-library "$ROOT/Scripts/sync-probe/SyncProbe.swift" \
-  -I "$BUILD/Modules" "$BUILD"/IslaKit.build/*.o \
+# SwiftPM retains objects for removed source files. The probe must link exactly
+# the active IslaKit target, never obsolete online-lyrics implementations.
+OBJECTS=()
+while IFS= read -r source; do
+  object="$BUILD/IslaKit.build/$(basename "$source").o"
+  [ -f "$object" ] || { echo "missing IslaKit object: $object" >&2; exit 1; }
+  OBJECTS+=("$object")
+done < <(find "$ROOT/Sources/IslaKit" -type f -name '*.swift' | sort)
+swiftc -parse-as-library -enable-testing "$ROOT/Scripts/sync-probe/SyncProbe.swift" \
+  -I "$BUILD/Modules" "${OBJECTS[@]}" \
   -framework Carbon -o "$OUT/sync-probe"
 cp "$ROOT/build/Isla.app/Contents/Resources/libislamedia.dylib" "$OUT/" 2>/dev/null \
   || { echo "run Scripts/bundle.sh first (needs the helper dylib)"; exit 1; }

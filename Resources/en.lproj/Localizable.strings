@@ -80,6 +80,8 @@
 "Lyrics" = "Lyrics";
 "Show on Lock Screen" = "Show on Lock Screen";
 "Lyrics stay on this Mac." = "Lyrics stay on this Mac.";
+"Local Lyrics Library" = "Local Lyrics Library";
+"No local lyrics" = "No local lyrics";
 "Import LRC…" = "Import LRC…";
 "Add Lyrics Folder…" = "Add Lyrics Folder…";
 "Remove %@" = "Remove %@";

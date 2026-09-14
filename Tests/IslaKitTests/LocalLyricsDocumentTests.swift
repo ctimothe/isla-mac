@@ -31,4 +31,15 @@ final class LocalLyricsDocumentTests: XCTestCase {
 
         XCTAssertEqual(try LocalLyricsDocument.parse(parsed.serialize()), parsed)
     }
+
+    func testEnhancedFixtureIsValidLocalLRC() throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Tests/Fixtures/local-word-timed.lrc")
+        let document = try LocalLyricsDocument.parse(String(contentsOf: fixture, encoding: .utf8))
+
+        XCTAssertEqual(document.granularity, .word)
+    }
 }

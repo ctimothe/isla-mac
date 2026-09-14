@@ -166,6 +166,7 @@ struct SettingsPane: View {
                         )
                     )
                     noteRow(localized("Lyrics stay on this Mac."))
+                    noteRow(localized("Local Lyrics Library"))
                     actionRow(symbol: SettingsIcon.lyrics, title: localized("Import LRC…")) {
                         importLocalLyrics()
                     }
