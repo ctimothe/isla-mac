@@ -76,16 +76,24 @@ swift build --package-path "$ROOT" >/dev/null
 # Asked for, not assumed: the hard-coded arm64 path failed outright on an Intel
 # Mac and under Rosetta.
 BUILD="$(swift build --package-path "$ROOT" --show-bin-path)"
-# SwiftPM retains objects for removed source files. The probe must link exactly
-# the active IslaKit target, never obsolete online-lyrics implementations.
+# The probe must link exactly the active IslaKit target, never obsolete
+# implementations left in .build. The newer toolchain emits one merged
+# `IslaKit.o` and no per-source objects; the older one emitted a `.o` per
+# source. See the same note in `Scripts/validate-lrc.sh`.
 OBJECTS=()
-while IFS= read -r source; do
-  object="$BUILD/IslaKit.build/$(basename "$source").o"
-  [ -f "$object" ] || { echo "missing IslaKit object: $object" >&2; exit 1; }
-  OBJECTS+=("$object")
-done < <(find "$ROOT/Sources/IslaKit" -type f -name '*.swift' | sort)
+MODULE_PATH="$BUILD"
+if [ -f "$BUILD/IslaKit.o" ]; then
+  OBJECTS=("$BUILD/IslaKit.o")
+else
+  [ -d "$BUILD/Modules" ] && MODULE_PATH="$BUILD/Modules"
+  while IFS= read -r source; do
+    object="$BUILD/IslaKit.build/$(basename "$source").o"
+    [ -f "$object" ] || { echo "missing IslaKit object: $object" >&2; exit 1; }
+    OBJECTS+=("$object")
+  done < <(find "$ROOT/Sources/IslaKit" -type f -name '*.swift' | sort)
+fi
 swiftc -parse-as-library -enable-testing "$ROOT/Scripts/sync-probe/SyncProbe.swift" \
-  -I "$BUILD/Modules" "${OBJECTS[@]}" \
+  -I "$MODULE_PATH" "${OBJECTS[@]}" \
   -framework Carbon -o "$OUT/sync-probe"
 cp "$ROOT/build/Isla.app/Contents/Resources/libislamedia.dylib" "$OUT/" 2>/dev/null \
   || { echo "run Scripts/bundle.sh first (needs the helper dylib)"; exit 1; }

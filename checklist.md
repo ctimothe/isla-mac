@@ -371,11 +371,29 @@ started; each is the owner's call.
   opening Shortcuts and Spotlight to confirm the verbs appear and run; Launch
   Services will likely want the app in `/Applications` to register them.
 
+- [x] **Measured, 2026-09-21** (`Scripts/measure-sync.sh`, live Spotify,
+  Mac16,8 / macOS 26.6.2, word-timed fixture spanning the track). The first run
+  **failed** the harness's own 150 ms word-timing gate at p95 0.167 s — and the
+  bias was near zero, so the failure was entirely the *spread*. The cause was
+  not the lead: `position` republished only on a 250 ms ticker, so any surface
+  drawing between two ticks read a number up to a quarter-second stale. At a
+  100 ms tick the same run measured **p95 0.074 s and 0.083 s, PASS**, with
+  steady-play delta a median 0.188 s behind truth — which the 0.20 s lead
+  centres to within 12 ms. Every phase median sits inside its gate.
+
+  `Scripts/measure-sync.sh` and `Scripts/validate-lrc.sh` had stopped working
+  entirely: both linked IslaKit by enumerating one `.o` per source under
+  `$BUILD/IslaKit.build`, and the current toolchain emits a single merged
+  `IslaKit.o` and no per-source objects. They handle both layouts now. The
+  harness had been unrunnable for as long as that toolchain has been in use,
+  which is why "re-run the probe" had stayed owed.
+
 Owed on the lyric path, in order:
 
-- [ ] **Re-run `Scripts/measure-sync.sh`.** The leads moved to 0.20 s and line
-  changes are now scheduled on their own boundary; neither has been measured
-  against live Spotify. The harness is this repo's arbiter for any sync claim.
+- [ ] **Re-run `Scripts/measure-performance.sh`.** The position ticker went
+  from 4 Hz to 10 Hz while the panel is open — six extra wake-ups a second,
+  bounded to an open panel. Small, and unmeasured against the approved CPU
+  gates, which were already blocked at `0.3%` vs Cyclop's `0.0%`.
 - [ ] **Word karaoke is gated on a *measured* clock, which today means Spotify
   alone** (`LyricsPresentation.usesWordTiming` requires `precisionMeasured`).
   An Apple Music listener with a word-timed LRC never sees the sweep, even

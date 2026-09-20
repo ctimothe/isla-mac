@@ -264,6 +264,24 @@ final class MediaController: ObservableObject {
     /// carried the poll's ±80ms of scheduling jitter straight into the sweep;
     /// the mean of five converges to the player's line instead.
     static let correctionWindowSize = 5
+
+    /// How often the position is republished while the panel is open.
+    ///
+    /// This was four times a second, chosen so the scrubber advanced in
+    /// sub-pixel steps. It is also how stale the published position can be,
+    /// and *that* is what a lyric reads: `position` only moves when this fires,
+    /// so a surface drawing between two ticks is showing a number up to a full
+    /// interval old. The live probe measured it — steady-play delta ran a
+    /// median 0.235s behind Spotify against a true pipeline lag of about
+    /// 0.11s, the rest being exactly this staleness — and the spread it
+    /// produced was what failed the harness's 150ms word-timing gate, with the
+    /// bias itself very nearly zero.
+    ///
+    /// Ten times a second costs six extra wake-ups per second, only while the
+    /// panel is open, and cuts the worst-case staleness from 250ms to 100ms.
+    /// The boundary timer beside it still fires exactly on a line change, so
+    /// what this governs is the sweep and the bar between those changes.
+    static let positionTickInterval: TimeInterval = 0.1
     /// The last corrections as (monotonic moment, RTT-aged position), oldest
     /// first. Reset wherever the line discontinues — a pause lets the monotonic
     /// clock run while the position stands still, so origins from before it
@@ -1393,12 +1411,13 @@ final class MediaController: ObservableObject {
             boundaryTimer = nil
             return
         }
-        // Four times a second: the bar advances in sub-pixel steps, so it reads
-        // as smooth without any animation smoothing the seek away with it.
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Self.positionTickInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.tick() }
         }
-        timer.tolerance = 0.05
+        // A twentieth of the interval, so the grid stays a grid. At the old
+        // 0.05 tolerance on a 0.25 interval the system was free to slide a
+        // tick a fifth of the way to the next one.
+        timer.tolerance = Self.positionTickInterval / 20
         RunLoop.main.add(timer, forMode: .common)
         ticker = timer
         armBoundaryTimer()
