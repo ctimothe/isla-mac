@@ -22,6 +22,16 @@ struct LyricTimeline: Equatable, Sendable {
 
 enum LyricsAvailability: Equatable, Sendable {
     case disabled
+    /// Asked, with nothing to say yet — and deliberately drawn as nothing.
+    ///
+    /// A track change resolves in one of two ways: from memory, which is
+    /// immediate, or from the catalogue, which is a round trip. Publishing
+    /// "Finding lyrics…" for both meant every skip flashed a spinner that was
+    /// gone a frame later, and a queue of skips strobed. The slot is already
+    /// reserved at a fixed height, so holding it empty for a moment is
+    /// invisible; `LyricsCoordinator` promotes this to `findingLocalLyrics`
+    /// only once the wait is long enough to be worth admitting to.
+    case resolving
     case findingLocalLyrics
     case ready(LyricTimeline)
     case noLocalLyrics
@@ -48,6 +58,24 @@ final class LyricsCoordinator: ObservableObject {
     private var onlineTimeline: LyricTimeline?
     /// Bumped per track, so a slow answer can tell it is no longer wanted.
     private var lookUpGeneration = 0
+    /// The request in flight. Held so a skip can cancel it outright rather than
+    /// merely ignore its answer: ten fast skips used to leave ten requests
+    /// running to completion against a free service, for nine answers nobody
+    /// would ever see.
+    private var lookUpTask: Task<Void, Never>?
+    /// Promotes `resolving` to `findingLocalLyrics` once the wait is real.
+    private var admitWaitTask: Task<Void, Never>?
+    /// False until `quietGrace` has passed with no answer. Reset by every
+    /// track change, so each skip gets its own quiet moment.
+    private var waitIsWorthAdmitting = false
+
+    /// How long a lyric may take to arrive before the app says it is looking.
+    ///
+    /// Under this, a skip shows an empty slot that fills — which reads as
+    /// instant, because it is. Over it, silence would read as broken, so the
+    /// spinner and "Finding lyrics…" appear. It sits just past a warm
+    /// catalogue answer and well under the point a person starts to wonder.
+    static var quietGrace: TimeInterval = 0.35
     private weak var presentation: LyricsStore?
     private var observers = Set<AnyCancellable>()
     private var logicalTrackKey: String?
@@ -98,6 +126,10 @@ final class LyricsCoordinator: ObservableObject {
         currentIdentity = nil
         onlineTimeline = nil
         lookUpGeneration += 1
+        lookUpTask?.cancel()
+        lookUpTask = nil
+        admitWaitTask?.cancel()
+        admitWaitTask = nil
         localLookup = nil
         hasLocalOverride = false
         presentation?.presentLocalOverride(false)
@@ -182,6 +214,9 @@ final class LyricsCoordinator: ObservableObject {
         // this one, and any answer still in flight is stale.
         onlineTimeline = nil
         lookUpGeneration += 1
+        lookUpTask?.cancel()
+        lookUpTask = nil
+        waitIsWorthAdmitting = false
         currentIdentity = LocalTrackIdentity(
             playerID: media.lyricPlayerID,
             title: track.title,
@@ -227,12 +262,21 @@ final class LyricsCoordinator: ObservableObject {
             return
         }
         let generation = lookUpGeneration
-        Task { [weak self] in
+        lookUpTask?.cancel()
+        lookUpTask = Task { [weak self] in
             guard let self else { return }
             let outcome = await self.onlineLookUp(identity)
-            guard self.lookUpGeneration == generation else { return }
+            guard !Task.isCancelled, self.lookUpGeneration == generation else { return }
             self.onlineCache.remember(outcome, for: identity)
             if case .found(let timeline) = outcome { self.onlineTimeline = timeline }
+            self.publishAvailability()
+        }
+        // And start the clock on admitting to the wait, if it becomes one.
+        admitWaitTask?.cancel()
+        admitWaitTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.quietGrace))
+            guard !Task.isCancelled, let self, self.lookUpGeneration == generation else { return }
+            self.waitIsWorthAdmitting = true
             self.publishAvailability()
         }
     }
@@ -259,14 +303,16 @@ final class LyricsCoordinator: ObservableObject {
                 // Still asking. The caption already says "Finding lyrics…",
                 // which is true of a request in flight as much as of a folder
                 // scan, so no surface needs a new state to render.
+                // Quiet at first: an answer landing inside the grace never
+                // draws a loading state at all.
                 availability = onlineCache.cached(identity) == nil
-                    ? .findingLocalLyrics
+                    ? (waitIsWorthAdmitting ? .findingLocalLyrics : .resolving)
                     : .noLocalLyrics
             } else {
                 availability = .noLocalLyrics
             }
         case .ambiguous: availability = .noLocalLyrics
-        case nil: availability = .findingLocalLyrics
+        case nil: availability = waitIsWorthAdmitting ? .findingLocalLyrics : .resolving
         }
         presentation?.present(availability)
         registerBoundaries()

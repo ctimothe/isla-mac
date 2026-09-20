@@ -533,7 +533,12 @@ struct LyricsStage: View {
 
     private var unavailable: some View {
         VStack(spacing: 8) {
-            if case .findingLocalLyrics = lyrics.availability {
+            if case .resolving = lyrics.availability {
+                // Nothing at all while the answer is still quick. A glyph and a
+                // blank caption for a fifth of a second is a flicker, not
+                // information.
+                EmptyView()
+            } else if case .findingLocalLyrics = lyrics.availability {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)

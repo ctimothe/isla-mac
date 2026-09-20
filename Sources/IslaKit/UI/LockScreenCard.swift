@@ -306,6 +306,8 @@ struct LockScreenCard: View {
                     if case .findingLocalLyrics = lyrics.availability {
                         ProgressView().controlSize(.small).tint(.white)
                     }
+                    // `.resolving` draws neither spinner nor text: the status
+                    // line below it is empty for that state by design.
                     Text(lyricsStatus)
                         .islandFont(.subhead, weight: .regular)
                         .foregroundStyle(.white.opacity(0.45))
