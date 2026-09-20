@@ -33,11 +33,14 @@ struct CopyButton: View {
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
                 .islandFont(.caption, weight: .semibold)
-                .foregroundStyle(copied ? Color.green : Theme.secondary)
+                .foregroundStyle(copied ? Theme.success : Theme.secondary)
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .help(localized("Copy"))
+        .accessibilityLabel(localized("Copy"))
         .animation(Theme.contentAnimation, value: copied)
     }
 }
@@ -76,7 +79,7 @@ struct ConfirmTextButton: View {
                 .islandFont(.caption)
                 .foregroundStyle(armed ? Theme.danger : Theme.secondary)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .accessibilityLabel(armed ? armedTitle : title)
         .accessibilityHint(armed ? "" : localized("Asks for confirmation before acting."))
         .animation(Theme.contentAnimation, value: armed)
@@ -126,7 +129,7 @@ struct ConfirmRow: View {
             .frame(height: 26)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .disabled(disabled)
         .opacity(disabled ? 0.4 : 1)
         .accessibilityLabel(armed ? armedTitle : title)

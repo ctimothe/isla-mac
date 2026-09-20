@@ -21,7 +21,12 @@ enum NotchMetrics {
     /// transparent outside the panel, and what is clickable is decided by the
     /// active rect — so a narrower body simply leaves more of it transparent.
     static let standardBody = CGSize(width: maximumBodyWidth, height: standardBodyHeight)
-    static let teleprompterBody = CGSize(width: 620, height: 400)
+    /// The tallest body the window was ever cut for. The tab that asked for it
+    /// — the teleprompter — was removed on 2026-08-22, but the window keeps this
+    /// height on purpose: `maximumWindow` is derived from it, and a window that
+    /// is never resized is the whole reason the lock transition does not
+    /// stretch. Shrinking it is a geometry change, not a cleanup.
+    static let tallestBody = CGSize(width: 620, height: 400)
     static let maximumWindow = CGSize(width: 700, height: 444)
     /// Extra room split equally between the two sides of a collapsed notch:
     /// artwork on the left, playback state on the right.

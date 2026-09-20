@@ -82,7 +82,7 @@
 "Word Karaoke" = "Word Karaoke";
 "Lyrics stay on this Mac." = "Lyrics stay on this Mac.";
 "Local Lyrics Library" = "Local Lyrics Library";
-"No local lyrics" = "No local lyrics";
+"No local lyrics." = "No local lyrics.";
 "Import LRC…" = "Import LRC…";
 "Add Lyrics Folder…" = "Add Lyrics Folder…";
 "Remove %@" = "Remove %@";
@@ -116,17 +116,17 @@
 "Save Copy" = "Save Copy";
 "Cancel" = "Cancel";
 "Lyrics Metadata" = "Lyrics Metadata";
-"Local lyrics" = "Local lyrics";
+"Local Lyrics" = "Local Lyrics";
 "Timestamp" = "Timestamp";
 "Title" = "Title";
 "Artist" = "Artist";
 "Album" = "Album";
 "Version" = "Version";
 "Duration" = "Duration";
-"Add lyric line" = "Add lyric line";
-"Remove lyric line" = "Remove lyric line";
+"Add Lyric Line" = "Add Lyric Line";
+"Remove Lyric Line" = "Remove Lyric Line";
 "Export LRC" = "Export LRC";
-"This LRC file is invalid" = "This LRC file is invalid";
+"This LRC file is invalid." = "This LRC file is invalid.";
 "Choose local lyrics…" = "Choose local lyrics…";
 "No lyrics for this track." = "No lyrics for this track.";
 "Syncing playback…" = "Syncing playback…";
@@ -164,3 +164,10 @@
 "Translate the clipboard" = "Translate the clipboard";
 "Quit and everything else lives in Settings, at the bottom left." = "Quit and everything else lives in Settings, at the bottom left.";
 "Get Started" = "Get Started";
+
+"Volume" = "Volume";
+
+/* Unit readouts */
+"%.2fs" = "%.2fs";
+"%+.2fs" = "%+.2fs";
+"%d pt" = "%d pt";

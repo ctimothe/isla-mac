@@ -29,6 +29,18 @@ enum SettingsIcon {
     // Music
     /// Apple Music's own glyph for lyrics.
     static let lyrics = "quote.bubble"
+    /// Word-by-word, as opposed to the line: the glyph is about the words.
+    static let wordKaraoke = "text.word.spacing"
+    /// A file arriving. `saveScreenshots` already owns the tray glyph, and an
+    /// import is a document being added, not a screenshot being kept.
+    static let importLyrics = "doc.badge.plus"
+    static let addFolder = "folder.badge.plus"
+    /// Removing a folder from the library forgets it; nothing on disk is touched,
+    /// so it is not the trash.
+    static let removeFolder = "folder.badge.minus"
+    static let rescan = "arrow.clockwise"
+    /// Dismissing a leftover timing correction sets it aside; it deletes no file.
+    static let dismiss = "xmark.circle"
     /// A brief look at the track that just started.
     static let peek = "eye"
     static let lockScreen = "lock.display"
@@ -54,7 +66,8 @@ enum SettingsIcon {
     static let all: [String] = [
         launchAtLogin, openOnHover, hoverDelay, panelWidth,
         saveScreenshots, importRecordings, showFolder, clear,
-        lyrics, peek, lockScreen, cardStyle,
+        lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, dismiss,
+        peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, translate, hideFromRecording,
         about, quit,

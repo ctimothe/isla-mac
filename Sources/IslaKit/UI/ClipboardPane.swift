@@ -56,7 +56,7 @@ private struct ClipRow: View {
         HStack(spacing: 9) {
             Image(systemName: justCopied ? "checkmark" : item.symbol)
                 .islandFont(.caption)
-                .foregroundStyle(justCopied ? Color.green : Theme.tertiary)
+                .foregroundStyle(justCopied ? Theme.success : Theme.tertiary)
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                 .frame(width: 14)
             SpoilerText(
@@ -80,7 +80,7 @@ private struct ClipRow: View {
                         .frame(width: 22, height: 22)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PanelButtonStyle())
                 .accessibilityLabel(localized("Remove Entry"))
             }
         }

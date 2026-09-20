@@ -4,42 +4,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository layout — read this first
 
-`main` contains **documentation only**. All code lives on branches checked out
-as git worktrees under `.worktrees/` (git-ignored). Run `git worktree list`
-before doing anything.
+`main` carries the **code** — it has since the parity foundation was imported
+on 2026-08-18 (`b789719`), and every feature branch lands on it with a merge
+commit. Run `git worktree list` before doing anything: feature branches are checked out
+as git worktrees under `.worktrees/` (git-ignored), and a worktree may sit on a
+branch that has already been merged. Compare against `main` before trusting one.
 
-- `.worktrees/dynamic-island-parity` (branch `dynamic-island-parity`) — the
-  **active implementation**, and the only worktree normally checked out. A
-  macOS 15+ accessory app built for functional/performance parity with
-  MIT-licensed Cyclop 0.6.5 (pinned upstream commit
+- The app, on `main` and every `feat/…`/`fix/…` branch cut from it — a macOS
+  15+ accessory app built for functional/performance parity with MIT-licensed
+  Cyclop 0.6.5 (pinned upstream commit
   `7ab60c8198681ea6c895fa55458448efb6e4c36e`). Pure SwiftPM: `Sources/Isla`
-  (2-line entry point), `Sources/IslaKit` (everything),
+  (a four-line entry point), `Sources/IslaKit` (everything),
   `Sources/IslaMediaHelper` (Objective-C dylib), `Tests/IslaKitTests`,
-  plus `Scripts/*.sh` release gates.
+  plus `Scripts/*.sh` release gates and `scripts/check`, the one verification
+  gate.
 - Branch `shell-music-mvp` — the earlier shell + Music prototype (XcodeGen
   project + `Packages/IslandCore`, `IslandModule`/`ModuleRegistry`, vendored
   `ungive/mediaremote-adapter` Perl bridge). **Has no worktree**; add one with
   `git worktree add .worktrees/shell-music-mvp shell-music-mvp` if it is ever
   needed. Kept as historical work per the approved parity design — do not
-  extend it unless asked.
-
-The parity worktree carries no `CLAUDE.md` of its own; this file is picked up
-from the parent directory. Its `checklist.md` and `docs/` are separate from the
-root-level ones, which describe the shell-music-mvp prototype.
+  extend it unless asked. Its `checklist.md` and `docs/specs/shell-music-mvp.md`
+  live on that branch and describe that prototype, not this app.
 
 ## Source-of-truth policy
 
 Binding documents win over status/tracking documents. When behavior changes,
 update the spec/design first, then checklist and code in the same change.
 
-- dynamic-island-parity: `docs/plans/2026-08-18-dynamic-island-parity-design.md`
-  (approved) is the behavior and performance contract; the worktree's own
-  `docs/runbook.md` and `docs/release-checklist.md` are the execution path; its
-  `checklist.md` §"Scope divergence from Cyclop 0.6.5" is the current record of
-  what the product deliberately does *not* match.
-- shell-music-mvp: `docs/specs/shell-music-mvp.md` is the binding contract;
-  root `checklist.md` tracks delivery (its D1–D8 decisions bind *that* branch
-  only — nothing in the parity sources references them);
+- The app: `docs/plans/2026-08-18-dynamic-island-parity-design.md`
+  (approved) is the behavior and performance contract; `docs/runbook.md` and
+  `docs/release-checklist.md` are the execution path; `checklist.md` §"Scope
+  divergence from Cyclop 0.6.5" is the current record of what the product
+  deliberately does *not* match, and its dated sections (v0.2, v0.3, …) record
+  what each release closed.
+- shell-music-mvp (that branch only): `docs/specs/shell-music-mvp.md` is the
+  binding contract; that branch's `checklist.md` tracks delivery (its D1–D8
+  decisions bind *that* branch only — nothing in this app references them);
   `docs/research/technical-feasibility.md` is non-binding evidence.
 
 **Removed features stay removed.** Snippets and Calendar went on 2026-08-20;
@@ -53,9 +53,11 @@ same way, never by rewriting the original contract.
 
 ## Commands
 
-All commands below run from inside `.worktrees/dynamic-island-parity`.
+All commands below run from the repository root (or the root of whichever
+worktree the change lives in).
 
 ```bash
+./scripts/check                     # the gate: swift test + provenance + branding + localizations
 swift test                          # unit tests
 swift test --filter <TestName>      # single test or test case
 bash Scripts/bundle.sh release      # assemble + ad-hoc-sign build/Isla.app
@@ -83,8 +85,8 @@ bash Scripts/test-package.sh       # bundle contract: binary, dylib, icon, both 
 bash Scripts/test-gatekeeper.sh    # the outside view: Developer ID on the bundle and the
                                    # nested dylib, spctl, a stapled ticket, and the helper
                                    # loading under quarantine. Skips itself on an ad-hoc build
-bash Scripts/dmg.sh
 bash Scripts/test-lifecycle.sh     # no helper survives the app
+bash Scripts/dmg.sh
 ```
 
 Two harnesses are run by hand, never as gates:
@@ -119,9 +121,9 @@ running app behind the code:
    pkill -x Isla; open "build/Isla.app"
    ```
 
-Steps 2–3 exist for code in the parity worktree; a docs-only change on `main`
-has nothing to rebuild or relaunch and stops at the commit. The point is that
-the dev app is never left running against superseded code.
+Steps 2–3 exist for code changes; a docs-only change has nothing to rebuild or
+relaunch and stops at the commit. The point is that the dev app is never left
+running against superseded code.
 
 ## Architecture
 
@@ -137,7 +139,7 @@ geometry on `NSApplication.didChangeScreenParametersNotification`. The app is
 once in `IslaApplication.run()` and never changed at runtime. There is
 no status item: Open Panel, About, Quit and the privacy toggles all live in the
 **Settings** tab (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
-directly). `NotchController` (~1100 lines) owns panel lifecycle, geometry,
+directly). `NotchController` (~1250 lines) owns panel lifecycle, geometry,
 open/close timing, and the lock transition; `AppDelegate` owns the two global hot
 keys (⌥⌘I open, ⌥⌘T translate clipboard), the "Translate in Dynamic Island"
 service (`NSApp.servicesProvider`, no Accessibility permission), and the Spotify
@@ -227,7 +229,8 @@ first timestamp; do not add a fourth.
   scripts — including in comments. It bans the former product name
   **Dynamic Island** on the same terms, so the rename to Isla cannot silently
   regress; the descriptive tagline "Dynamic Island–style" is nominative use and
-  lives only in the README.
+  lives only in the README. The hyphenated repository name `dynamic-island`
+  is not matched, on purpose: it names the folder, not the product.
 - Every user-facing string is localized in both `Resources/en.lproj` and
   `Resources/ru.lproj`; keys *are* the English text, and `test-localizations.sh`
   enforces key parity. Use `localized(_:)` for strings needed before they reach
@@ -242,9 +245,12 @@ first timestamp; do not add a fourth.
   carry amendments; the status item, its menu and a short-lived main window were
   all withdrawn on 2026-08-25 — the app has no Dock icon, no menu-bar item and
   no window, and `.accessory` is not changed at runtime.
-- The app claims exactly one entitlement,
+- The app claims exactly one entitlement in `Resources/Isla.entitlements`,
   `com.apple.security.automation.apple-events`, for the scripting fallback.
-  Adding an entitlement is a product decision, not an implementation detail.
+  A Developer ID build adds `keychain-access-groups` at bundle time
+  (`Scripts/bundle.sh`) so Spotify tokens can live in the data-protection
+  keychain; an ad-hoc build cannot carry it. Adding any other entitlement is a
+  product decision, not an implementation detail.
 - Signing identities, Apple credentials, and notarization inputs are
   release-owner inputs — never commit them. `Scripts/release.sh` refuses an
   unclean tree or missing release notes.

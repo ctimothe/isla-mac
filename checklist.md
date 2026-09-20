@@ -14,7 +14,9 @@ Do not mark a manual gate complete without recording evidence in
 - [x] Release bundle builds with executable, helper, icon, localizations,
   licenses, and a valid signature.
 - [x] The live media helper returns NDJSON and exits after its input closes.
-- [x] Versioned `Isla-0.6.5.dmg` builds from the verified package.
+- [x] Versioned `Isla-<version>.dmg` builds from the verified package, named
+  from `Scripts/version` (`0.1.0` today; `0.6.5` is the upstream pin, not
+  Isla's own number).
 - [x] Lifecycle test leaves no Isla media helper after quit.
 
 ## Scope divergence from Cyclop 0.6.5
@@ -22,8 +24,9 @@ Do not mark a manual gate complete without recording evidence in
 Snippets and Calendar were removed from the product on 2026-08-20 by
 owner decision. They are not deferred and not hidden — the tabs, stores,
 panes, privacy sections, and tests are gone, and the calendar entitlement
-went with them. The app now claims exactly one entitlement,
-`com.apple.security.automation.apple-events`, which the hardened runtime
+went with them. The app now claims one entitlement of its own,
+`com.apple.security.automation.apple-events` (a Developer ID build adds a
+keychain access group at bundle time, see `Scripts/bundle.sh`), which the hardened runtime
 requires before the scripting fallback can drive Music or Spotify at all;
 macOS asks for that consent at the moment the fallback is first used, and
 it is refusable. Nothing is requested at launch. Parity gates below no longer cover either feature, and the parity
@@ -234,3 +237,107 @@ branch `feat/v0.3-native-motion`:
   prose said 0.12/0.22, but those compute to 1.27:1/1.79:1 and fail the brief's
   own 1.4/2.0 test floors, so the tests governed. Lyric neighbour 0.34/0.44,
   floor 0.28/0.38; hairline base stays 0.10 by design (1pt edge, not a fill).
+- [x] The cover is one object that travels (2026-09-10, `e2c3240`,
+  `ArtworkMorphTests`): `matchedGeometryEffect` between the pill's 22 pt cover
+  and the pane's 118 pt cover, both ends described once by
+  `Theme.artworkMetrics`, the equalizer travelling the same way.
+- [x] Play and pause replace each other instead of cutting (2026-09-10,
+  `7826630`): `.symbolEffect(.replace)` on every state-driven glyph swap,
+  `.identity` under Reduce Motion. Not unit-testable; verified by eye.
+- [x] Three timings that fought what they carried (2026-09-10, `1fd2269`,
+  `MotionValuesTests`): panel content arrives on `paneIn`/`paneOut` rather
+  than the open spring, the lyrics page moves on its own spring (0.42 / 0.86,
+  the one overshoot in the app), and the lock card fades in instead of
+  appearing in one frame.
+- [x] Fifteen font sizes became six roles (2026-09-11, `fc25c89`,
+  `TypeRoleTests`): `Theme.TypeRole` — caption 10, body 11, subhead 13,
+  title 16, display 21, hero 28 — read through `islandFont(_:)` so the
+  tracking table still applies.
+- [x] The copy reads like one app wrote it (2026-09-11, `c9af7bb`): the
+  editorial pass over both tables, and `Scripts/test-localizations.sh` now
+  scrapes `localized("…")` and `Button("…")` call sites against the English
+  table in both directions.
+- [x] Four one-edit corrections (2026-09-11, `04f4465`, `FormatTimeTests`):
+  `formatTime` rolls hours, its duplicate in the lock card is gone, the grain
+  tile lands 1:1 on a 2x display, and long names truncate in the middle.
+- [x] Merged as `d20c88c` on 2026-09-11.
+
+## Review pass — 2026-09-20
+
+A first-glance pass against Apple's *Designing Fluid Interfaces* rules and the
+HIG, on branch `claude/quick-review-macos-design-cd5943`. Everything below
+either shipped in that pass or is listed as an open decision for the owner.
+
+Shipped:
+
+- [x] **Press-down feedback everywhere.** `PanelButtonStyle` in `Theme` dims a
+  control while it is held, the way `NotchButtonStyle` and
+  `TransportGlyphStyle` already did; every `.buttonStyle(.plain)` in the panel
+  now uses it. The island's own press lift drew nothing at all — it was
+  `.opacity(2.2)`, which the compositor clamps to 1 — and now lays the light
+  down a second time while pressed.
+- [x] **Hover answers on the content ease, not the open spring.** The lift
+  took 0.34 s to arrive; it takes 0.16 s.
+- [x] **Reduce Motion reaches the controller.** `NotchController`'s two
+  `withAnimation(Theme.openAnimation)` calls read `Theme.open(reduceMotion:)`
+  like the view does; the lock card's output popover falls back to a fade.
+- [x] **Tooltips and names.** `.help(…)` on the transport, shuffle, repeat, the
+  rail, the back button, and the clear/remove glyphs; `accessibilityLabel` on
+  the four icon-only buttons that had none; the lock card's seek and volume
+  bars are adjustable elements for VoiceOver (they were invisible to it).
+  22 pt targets on the copy, reveal, clear and remove glyphs and the lyric
+  nudges.
+- [x] **The lyrics editor sheet answers Escape and Return.**
+- [x] **Tokens where literals had crept back**: `ShelfPane`'s selected tile
+  reads `Theme.selectedChip`/`selectedChipBorder` (it was the model for them,
+  and had stopped following the contrast ramp), `Theme.success` replaces two
+  bare `Color.green`s, `Theme.capsTracking` replaces three hand-typed
+  tracking values for one role, and the one raw `.easeInOut` in `MediaPane`
+  is `Theme.contentAnimation`.
+- [x] **The hover-delay slider commits on release**, like the width slider.
+- [x] **The caption chevron no longer re-truncates the lyric under the
+  pointer**: it is always in the row and only its alpha moves.
+- [x] **Settings icons no longer repeat within a section**: word karaoke,
+  import, add/remove folder, rescan and dismiss each carry their own glyph
+  (`SettingsIconTests` holds that the set has no duplicates).
+- [x] **Accuracy**: `CLAUDE.md` said `main` carried documentation only — it
+  has carried the code since the v0.3 merge; the gate order in `README.md`
+  had lost `test-gatekeeper.sh`; `NotchMetrics.teleprompterBody` outlived the
+  teleprompter by a month and is `tallestBody`, with the reason the window
+  keeps its height stated; stale comments in `Theme`, `MediaPane`,
+  `SettingsPane` and `LyricsStage` that described removed code are gone; the
+  Russian table lost an orphaned `/* Заметки */` and its two spellings of
+  "screenshots"; four unit readouts (`0.05s`, `560 pt`, `+0.25s`) are
+  localized; three strings joined the Title Case convention and two gained
+  their full stop.
+
+Open, for the owner — each is a design decision, not a defect:
+
+- [ ] `LockScreenCard` carries 22 white/black literals, its own material
+  stack for the Solid style (`.ultraThinMaterial` + a black scrim *under* the
+  drawn glass), and a scrim over real glass on macOS 26 — a second, untracked
+  theme. The fix is a `.solid` elevation on `GlassSurface`, which changes how
+  the Solid card looks.
+- [ ] `SettingsPane.choiceRow` is a hand-rolled segmented control; a native
+  `Picker(.segmented)` would restore arrow keys and radio-group VoiceOver but
+  look like AppKit on a dark pane.
+- [ ] Hovering the rail for 150 ms switches tabs. macOS does not navigate on
+  hover outside menus; kept because it is documented and cheap to cancel.
+- [ ] The rail icon scales 1.15× on hover on top of the chip fill. macOS fills
+  a well and does not grow the glyph.
+- [ ] No focus rings and no keyboard shortcuts inside the panel (⌘, ⌘W,
+  Return-to-confirm). Escape is handled at the window. An `.accessory` app
+  has no menu bar to carry these, so it is a per-panel binding while key.
+- [ ] Escape does not disarm a two-press confirmation; it closes the panel.
+- [ ] `Toggle("", isOn:)` with a detached label: clicking the label text does
+  not flip the switch, which a native labelled `Toggle` gives for free.
+- [ ] `TranslatePane`'s font ladder `[27, 20, 15, 11]` shares only its last
+  rung with the six type roles.
+- [ ] `NotchMetrics.collapseRectShrinkDelay` (0.45) is tied to the open
+  spring's settle by comment only.
+- [ ] `Translator.swift:173` uses the deprecated
+  `GenerationOptions(sampling:)`; the replacement (`samplingMode:`) exists
+  only in the macOS 27 SDK, so switching would break a macOS 26 Xcode build.
+- [ ] `scripts/check` is tracked in lowercase while every other script is
+  under `Scripts/`; one directory on this Mac's case-insensitive disk, two on
+  a case-sensitive one.

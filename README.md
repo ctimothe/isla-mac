@@ -62,7 +62,7 @@ because each sends something you own somewhere you cannot see.
 
 - **Save clipboard screenshots** writes a copy of every image that reaches the
   pasteboard to `~/Pictures/Isla` (most recent 200; clearing goes to the Trash).
- **Lyrics** is opt-in and fully offline. Isla reads only LRC files you import
+- **Lyrics** is opt-in and fully offline. Isla reads only LRC files you import
   or files in folders you explicitly select; it does not download, upload,
   scrape, or send lyric data anywhere. Imported copies, bindings, and timing
   corrections stay on this Mac. Enhanced LRC word timestamps animate only when
@@ -74,9 +74,11 @@ because each sends something you own somewhere you cannot see.
   (`WhenUnlockedThisDeviceOnly`), and Disconnect deletes them. Translation itself
   is on-device and never uses the network.
 
-Isla claims exactly one entitlement,
+Isla claims one entitlement,
 `com.apple.security.automation.apple-events` — what lets the scripting fallback
-drive Music or Spotify when the MediaRemote helper is unavailable. macOS asks for
+drive Music or Spotify when the MediaRemote helper is unavailable. A signed
+Developer ID build also carries a keychain access group, which is what lets
+the Spotify tokens live in the data-protection keychain described below. macOS asks for
 that consent the first time it is used; refusing it costs only that fallback.
 
 Isla never asks for your login password, in any build. Spotify tokens go to the
@@ -114,6 +116,7 @@ bash Scripts/bundle.sh release
 bash Scripts/test-identity.sh
 bash Scripts/test-helper.sh
 bash Scripts/test-package.sh
+bash Scripts/test-gatekeeper.sh
 bash Scripts/test-lifecycle.sh
 bash Scripts/dmg.sh
 ```

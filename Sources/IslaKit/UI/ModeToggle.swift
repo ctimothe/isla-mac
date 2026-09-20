@@ -36,7 +36,7 @@ struct ModeToggle: View {
             .frame(width: size, height: size)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .animation(Theme.contentAnimation, value: isOn)
     }
 }

@@ -99,7 +99,7 @@ struct ShelfPane: View {
             Spacer()
             if !shelf.selection.isEmpty {
                 Button("Deselect") { shelf.clearSelection() }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PanelButtonStyle())
                     .islandFont(.caption)
                     .foregroundStyle(Theme.secondary)
             }
@@ -151,11 +151,11 @@ private struct ShelfCard: View {
         .frame(width: 86, height: 92)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.white.opacity(0.18) : (isHovered ? Theme.surfaceHover : Theme.surface))
+                .fill(isSelected ? Theme.selectedChip : (isHovered ? Theme.surfaceHover : Theme.surface))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(isSelected ? 0.55 : 0), lineWidth: 1.5)
+                .strokeBorder(Theme.selectedChipBorder.opacity(isSelected ? 1 : 0), lineWidth: 1.5)
                 .allowsHitTesting(false)
         )
         // Owns clicks and drags: a group drag needs one dragging item per file,
@@ -183,9 +183,13 @@ private struct ShelfCard: View {
                     Image(systemName: "xmark.circle.fill")
                         .islandFont(.subhead, weight: .regular)
                         .foregroundStyle(Color.white.opacity(0.75))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .padding(4)
+                .buttonStyle(PanelButtonStyle())
+                .help(localized("Remove from Shelf"))
+                .accessibilityLabel(localized("Remove from Shelf"))
+                .padding(2)
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

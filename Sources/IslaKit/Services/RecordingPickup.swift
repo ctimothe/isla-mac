@@ -71,8 +71,15 @@ enum RecordingPickup {
 
     /// Where Screenshot.app saves captures: its configured location, or the
     /// Desktop, which is where the system saves by default.
-    static func captureFolder() -> URL {
-        if let location = screencaptureLocation(), !location.isEmpty {
+    ///
+    /// The preferences file is a parameter so the fallback can be tested
+    /// without depending on the Mac running the tests: the test that pinned
+    /// "Desktop" read the real `com.apple.screencapture.plist` and failed the
+    /// moment this machine's Screenshot app was pointed somewhere else.
+    static func captureFolder(preferencesFile: URL? = nil) -> URL {
+        let location = preferencesFile.map(screencaptureLocation(preferencesFile:))
+            ?? screencaptureLocation()
+        if let location, !location.isEmpty {
             return URL(
                 fileURLWithPath: (location as NSString).expandingTildeInPath,
                 isDirectory: true
