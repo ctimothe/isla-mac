@@ -17,7 +17,7 @@
 "Launch at Login" = "Launch at Login";
 "Screenshots" = "Screenshots";
 "Save Clipboard Screenshots" = "Save Clipboard Screenshots";
-"Import Screen Recordings" = "Import Screen Recordings";
+"Show Screen Captures" = "Show Screen Captures";
 "Show Screenshots Folder" = "Show Screenshots Folder";
 "Clear Screenshots Folder" = "Clear Screenshots Folder";
 "Clear Screenshots Folder (%@)" = "Clear Screenshots Folder (%@)";
@@ -82,7 +82,7 @@
 "Word Karaoke" = "Word Karaoke";
 "Lyrics stay on this Mac." = "Lyrics stay on this Mac.";
 "Local Lyrics Library" = "Local Lyrics Library";
-"No local lyrics" = "No local lyrics";
+"No local lyrics." = "No local lyrics.";
 "Import LRC…" = "Import LRC…";
 "Add Lyrics Folder…" = "Add Lyrics Folder…";
 "Remove %@" = "Remove %@";
@@ -116,20 +116,19 @@
 "Save Copy" = "Save Copy";
 "Cancel" = "Cancel";
 "Lyrics Metadata" = "Lyrics Metadata";
-"Local lyrics" = "Local lyrics";
+"Local Lyrics" = "Local Lyrics";
 "Timestamp" = "Timestamp";
 "Title" = "Title";
 "Artist" = "Artist";
 "Album" = "Album";
 "Version" = "Version";
 "Duration" = "Duration";
-"Add lyric line" = "Add lyric line";
-"Remove lyric line" = "Remove lyric line";
+"Add Lyric Line" = "Add Lyric Line";
+"Remove Lyric Line" = "Remove Lyric Line";
 "Export LRC" = "Export LRC";
-"This LRC file is invalid" = "This LRC file is invalid";
+"This LRC file is invalid." = "This LRC file is invalid.";
 "Choose local lyrics…" = "Choose local lyrics…";
 "No lyrics for this track." = "No lyrics for this track.";
-"Syncing playback…" = "Syncing playback…";
 "Finding lyrics…" = "Finding lyrics…";
 "Jumps the song to this line" = "Jumps the song to this line";
 "Opens the full lyrics" = "Opens the full lyrics";
@@ -164,3 +163,21 @@
 "Translate the clipboard" = "Translate the clipboard";
 "Quit and everything else lives in Settings, at the bottom left." = "Quit and everything else lives in Settings, at the bottom left.";
 "Get Started" = "Get Started";
+
+"Volume" = "Volume";
+
+/* Unit readouts */
+"%.2fs" = "%.2fs";
+"%+.2fs" = "%+.2fs";
+"%d pt" = "%d pt";
+
+/* Lyric timing and copying */
+"Lyric Delay" = "Lyric Delay";
+"Reset Lyric Delay" = "Reset Lyric Delay";
+"Negative shows lyrics earlier; positive, later." = "Negative shows lyrics earlier; positive, later.";
+"Copy Line" = "Copy Line";
+"Copy All Lyrics" = "Copy All Lyrics";
+
+/* Online lyrics */
+"Look Up Lyrics Online" = "Look Up Lyrics Online";
+"Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you." = "Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you.";

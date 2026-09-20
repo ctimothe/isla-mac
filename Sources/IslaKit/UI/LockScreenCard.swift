@@ -125,19 +125,15 @@ struct LockScreenCard: View {
                 // No tint from the cover either. The glass takes its character
                 // from the wallpaper it is actually over, which is the point of
                 // it being glass.
-                samplesBackdrop: style == .glass
+                samplesBackdrop: style == .glass,
+                // Solid is the panel Reduce Transparency draws, chosen on
+                // purpose. It used to be the drawn glass laid over an
+                // `.ultraThinMaterial` and a black scrim — three surfaces for
+                // one card, and above the shield the material had nothing to
+                // sample anyway, so what it added was a muddier version of the
+                // recipe already on top of it. One surface, one rule.
+                solid: style == .solid
             )
-            .background {
-                if style == .solid {
-                    RoundedRectangle(cornerRadius: 30, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .environment(\.colorScheme, .dark)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                                .fill(.black.opacity(0.45))
-                        }
-                }
-            }
             // No drop shadow. The system's own lock player has none — the
             // material defines its own edge, and a card floating on a drawn
             // shadow reads as a sticker laid on the wallpaper rather than a
@@ -307,11 +303,11 @@ struct LockScreenCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 VStack(spacing: 8) {
-                    if case .settlingPlayback = lyrics.availability {
-                        ProgressView().controlSize(.small).tint(.white)
-                    } else if case .findingLocalLyrics = lyrics.availability {
+                    if case .findingLocalLyrics = lyrics.availability {
                         ProgressView().controlSize(.small).tint(.white)
                     }
+                    // `.resolving` draws neither spinner nor text: the status
+                    // line below it is empty for that state by design.
                     Text(lyricsStatus)
                         .islandFont(.subhead, weight: .regular)
                         .foregroundStyle(.white.opacity(0.45))
@@ -435,7 +431,7 @@ struct LockScreenCard: View {
                 // coming into focus — instead of a picture of glass turning
                 // opaque. A plain opacity fade is the tell that a material is
                 // painted on rather than real.
-                .transition(.materialize(anchor: .bottomTrailing))
+                .transition(reduceMotion ? .opacity : .materialize(anchor: .bottomTrailing))
                 // Anchored to the control that opened it, which is the rule
                 // Apple states outright: a popover points as directly as it can
                 // at the element that revealed it, and avoids covering that
@@ -547,6 +543,27 @@ struct LockScreenCard: View {
                 )
             }
             .frame(height: 14)
+            // One adjustable element, the way the panel's scrubber is declared:
+            // a capsule with a drag gesture is nothing at all to assistive
+            // tech, and over the lock screen this is the only way to move the
+            // song without a pointer.
+            .accessibilityElement()
+            .accessibilityLabel(localized("Playback Position"))
+            .accessibilityValue(
+                localized(
+                    "%@ of %@",
+                    formatTime(fraction * media.duration),
+                    formatTime(media.duration)
+                )
+            )
+            .accessibilityAdjustableAction { direction in
+                let step = media.duration * 0.05
+                switch direction {
+                case .increment: media.seek(to: media.position + step)
+                case .decrement: media.seek(to: media.position - step)
+                @unknown default: break
+                }
+            }
             HStack {
                 Text(formatTime(fraction * media.duration))
                 Spacer()
@@ -559,6 +576,10 @@ struct LockScreenCard: View {
             .foregroundStyle(.white.opacity(0.55))
         }
     }
+
+    /// Where the volume bar stands, 0...1: the finger while dragging, else the
+    /// device.
+    private var volumeLevel: Double { Double(draggingVolume ?? volume ?? 0) }
 
     /// The system's output volume. Absent entirely for a device that has none
     /// to give, rather than a slider that moves and changes nothing.
@@ -589,6 +610,24 @@ struct LockScreenCard: View {
                 )
             }
             .frame(height: 14)
+            // The same contract as the seek bar above: heard as a percentage,
+            // moved in five-percent steps. This is the system's output volume,
+            // and it was invisible to VoiceOver.
+            .accessibilityElement()
+            .accessibilityLabel(localized("Volume"))
+            .accessibilityValue(Text(volumeLevel, format: .percent))
+            .accessibilityAdjustableAction { direction in
+                let step: Float = 0.05
+                let current = Float(volumeLevel)
+                let next: Float
+                switch direction {
+                case .increment: next = min(current + step, 1)
+                case .decrement: next = max(current - step, 0)
+                @unknown default: return
+                }
+                SystemVolume.set(next)
+                volume = SystemVolume.current() ?? next
+            }
             Image(systemName: "speaker.wave.3.fill").islandFont(.caption, weight: .regular)
         }
         .foregroundStyle(.white.opacity(0.6))
@@ -604,6 +643,7 @@ struct LockScreenCard: View {
             .buttonStyle(TransportGlyphStyle(size: 34))
             .disabled(!media.canSkip)
             .opacity(media.canSkip ? 1 : 0.35)
+            .help(localized("Previous Track"))
             .accessibilityLabel(localized("Previous Track"))
             Spacer(minLength: 0)
             Button { media.togglePlayPause() } label: {
@@ -612,6 +652,7 @@ struct LockScreenCard: View {
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
+            .help(media.isPlaying ? localized("Pause") : localized("Play"))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Spacer(minLength: 0)
             Button { media.next() } label: {
@@ -620,6 +661,7 @@ struct LockScreenCard: View {
             .buttonStyle(TransportGlyphStyle(size: 34))
             .disabled(!media.canSkip)
             .opacity(media.canSkip ? 1 : 0.35)
+            .help(localized("Next Track"))
             .accessibilityLabel(localized("Next Track"))
             Spacer(minLength: 0)
             repeatToggle
@@ -639,6 +681,7 @@ struct LockScreenCard: View {
         ) { media.toggleShuffle() }
         .disabled(media.shuffleEnabled == nil)
         .opacity(media.shuffleEnabled == nil ? 0.3 : 1)
+        .help(localized("Shuffle"))
         .accessibilityLabel(localized("Shuffle"))
         .accessibilityValue(media.shuffleEnabled == true ? localized("On") : localized("Off"))
     }
@@ -654,6 +697,7 @@ struct LockScreenCard: View {
         ) { media.cycleRepeat() }
         .disabled(media.repeatMode == nil)
         .opacity(media.repeatMode == nil ? 0.3 : 1)
+        .help(localized("Repeat"))
         .accessibilityLabel(localized("Repeat"))
     }
 
@@ -679,7 +723,7 @@ struct LockScreenCard: View {
                 .frame(width: 26, height: 22)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .help(label)
         .accessibilityLabel(label)
         .accessibilityAddTraits(open ? [.isSelected] : [])
@@ -709,11 +753,11 @@ struct LockScreenCard: View {
                         .foregroundStyle(.white)
                         .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                         .opacity(known == nil ? 0.45 : 1)
-                        .frame(width: 20, height: 20)
+                        .frame(width: 22, height: 22)
                         .background(Circle().fill(.black.opacity(0.45)))
                 }
                 .disabled(known == nil)
-                .buttonStyle(.plain)
+                .buttonStyle(PanelButtonStyle())
                 .accessibilityLabel(
                     isSaved ? localized("Remove from Liked Songs") : localized("Add to Liked Songs")
                 )

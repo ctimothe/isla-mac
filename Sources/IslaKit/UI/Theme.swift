@@ -25,6 +25,13 @@ enum Theme {
     static let paneIn = Animation.easeOut(duration: 0.20).delay(0.04)
     static let paneOut = Animation.easeIn(duration: 0.12)
 
+    /// Every spring in this file that is **not** allowed to overshoot.
+    ///
+    /// Listed rather than inferred so the guard is a list somebody has to
+    /// deliberately edit. It used to be hardcoded inside the test, which meant
+    /// a fourth spring at 0.7 would have passed it without anyone noticing.
+    static let criticallyDampedSprings: [Animation] = [openAnimation, compactAnimation]
+
     /// The lyrics page moving to the next line.
     ///
     /// The one animation here allowed to overshoot, and it is allowed because
@@ -49,13 +56,6 @@ enum Theme {
     /// `criticallyDampedSprings` so this stays the single exception. Any spring
     /// added to this file belongs in that list unless it can name the momentum
     /// it inherited.
-    /// Every spring in this file that is **not** allowed to overshoot.
-    ///
-    /// Listed rather than inferred so the guard is a list somebody has to
-    /// deliberately edit. It used to be hardcoded inside the test, which meant
-    /// a fourth spring at 0.7 would have passed it without anyone noticing.
-    static let criticallyDampedSprings: [Animation] = [openAnimation, compactAnimation]
-
     static let lyricScrollResponse: Double = 0.42
     static let lyricScrollDamping: Double = 0.86
     static let lyricScroll = Animation.spring(response: lyricScrollResponse,
@@ -203,20 +203,6 @@ enum Theme {
     /// at this size, so each end keeps the value it actually wants and the
     /// morph interpolates the frame between them.
     static func artworkMetrics(isOpen: Bool) -> (side: CGFloat, cornerRadius: CGFloat) {
-        // Both ends of the travel, described once. They used to be two hardcoded
-        // pairs in two files — 22/6 in the compact header and 118/14 in the
-        // media pane — which is the same mistake as two views of one cover, one
-        // level down.
-        //
-        // The radius does not scale with the side, and that is deliberate. An
-        // earlier version held the ratio constant on the reasoning that one
-        // object keeps its proportions while it travels; it took the open cover
-        // to 21.45pt, which reads as a chip the size of a postcard. Apple's
-        // small artwork is proportionally rounder than its large artwork —
-        // a thumbnail is a chip, a cover is a picture — so the two ends carry
-        // the values each size actually wants and let the morph interpolate
-        // between them. `side / 5.5` on the lock card is right for the 42–62pt
-        // cover it was set on, and wrong here.
         isOpen ? (118, 14) : (22, 6)
     }
 
@@ -312,6 +298,32 @@ enum Theme {
     }
     /// Only for an action that destroys something, and only once it is armed.
     static let danger = Color(red: 1.0, green: 0.45, blue: 0.40)
+    /// A copy that landed, a tick that means done. The system green, named so
+    /// the two places that flash it cannot drift to two greens.
+    static let success = Color.green
+
+    /// Tracking for an uppercased caption — the tab title, a section header, a
+    /// column title. Capitals set at caption size close up, so they take a
+    /// little more air than the table gives lowercase at that size. One value:
+    /// the three headers used to carry 0.8, 0.8 and 0.6 for the same role.
+    static let capsTracking: CGFloat = 0.8
+}
+
+/// The pressed state `.plain` does not give.
+///
+/// Apple's rule is feedback on press-down, not on release: a control that
+/// shows nothing until the click is let go feels dead for the length of the
+/// press. `.buttonStyle(PanelButtonStyle())` on macOS leaves a custom label untouched while
+/// it is held, so every plain button in the panel — rows, chips, glyphs, the
+/// rail — went through the press with no answer. This dims the label the same
+/// way `NotchButtonStyle` and `TransportGlyphStyle` already do, so one press
+/// looks like one press everywhere.
+struct PanelButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.55 : 1)
+            .animation(Theme.contentAnimation, value: configuration.isPressed)
+    }
 }
 
 /// Flat, focus-free button used for every control in the panel.

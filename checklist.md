@@ -14,7 +14,9 @@ Do not mark a manual gate complete without recording evidence in
 - [x] Release bundle builds with executable, helper, icon, localizations,
   licenses, and a valid signature.
 - [x] The live media helper returns NDJSON and exits after its input closes.
-- [x] Versioned `Isla-0.6.5.dmg` builds from the verified package.
+- [x] Versioned `Isla-<version>.dmg` builds from the verified package, named
+  from `Scripts/version` (`0.1.0` today; `0.6.5` is the upstream pin, not
+  Isla's own number).
 - [x] Lifecycle test leaves no Isla media helper after quit.
 
 ## Scope divergence from Cyclop 0.6.5
@@ -22,8 +24,9 @@ Do not mark a manual gate complete without recording evidence in
 Snippets and Calendar were removed from the product on 2026-08-20 by
 owner decision. They are not deferred and not hidden — the tabs, stores,
 panes, privacy sections, and tests are gone, and the calendar entitlement
-went with them. The app now claims exactly one entitlement,
-`com.apple.security.automation.apple-events`, which the hardened runtime
+went with them. The app now claims one entitlement of its own,
+`com.apple.security.automation.apple-events` (a Developer ID build adds a
+keychain access group at bundle time, see `Scripts/bundle.sh`), which the hardened runtime
 requires before the scripting fallback can drive Music or Spotify at all;
 macOS asks for that consent at the moment the fallback is first used, and
 it is refusable. Nothing is requested at launch. Parity gates below no longer cover either feature, and the parity
@@ -45,11 +48,22 @@ design's non-goals rule out "network services" and "accounts", and these
 are the exception the design did not anticipate:
 
 - **Lyrics** (Settings, default off) resolves from imported LRC files and
-  explicitly selected local folders before any lyric surface opens. It never
-  downloads, uploads, scrapes, or sends lyric data. Imported copies, bindings,
-  and timing corrections stay on the Mac; ambiguous files always require an
-  explicit choice. Enhanced LRC word timing animates only for a measured player
-  clock; every other player uses line-level highlighting.
+  explicitly selected local folders before any lyric surface opens. Imported
+  copies, bindings, and timing corrections stay on the Mac; ambiguous files
+  always require an explicit choice. Enhanced LRC word timing animates only for
+  a measured player clock; every other player uses line-level highlighting.
+- **Look Up Lyrics Online** (Settings, default off, added 2026-09-21) is the
+  only part of the app that reaches the internet. A streamed track has no file
+  on this Mac, so the offline-only rule approved on 2026-09-13 meant a Spotify
+  listener saw "No local lyrics" on every song. With the switch on, a track the
+  local library does not match is looked up at LRCLIB — free, community-run, no
+  account, no key — sending the title, artist, album and duration and nothing
+  about the listener. Answers are cached so a song is asked about once, misses
+  for a fortnight. A local file always wins; an ambiguous local result still
+  asks. Timelines from it are line-level, so the word sweep stays off for them.
+  The design doc carries the dated amendment and
+  `OfflineLyricsIsolationTests` bounds the exception to one file and one
+  endpoint.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain.
@@ -66,9 +80,16 @@ are the exception the design did not anticipate:
   system-wide setting, recorded on the same terms. Absent entirely for a
   device that publishes no volume control rather than shown as a slider
   that moves and changes nothing.
-- **Screen-recording pickup** (Settings, default on, added 2026-09-11)
-  imports movies Screenshot.app saved — its configured location, else the
-  Desktop — when the Shelf opens, if they finished after the app first ran.
+- **Screen-capture pickup** (Settings, default on, added 2026-09-11; widened
+  to stills and to every folder captures have been sent on 2026-09-21) shows
+  what Screenshot.app saved — its configured location, the Desktop, and any
+  location it has pointed at since — on the Shelf when it opens, if the capture
+  finished after the app first ran. **Nothing is copied:** the card holds the
+  file where macOS put it, so dragging it out drags the original and deleting
+  it there removes the card. A movie counts on its type alone; a still must
+  also carry the capture prefix (`com.apple.screencapture name` when set,
+  else the system's), because the capture folder is so often the Desktop and a
+  folder of somebody's own pictures must not be swept up wholesale.
   Copied recordings already landed through the clipboard; this covers the
   native save-to-disk flow no pasteboard ever sees. The first scan touches a
   folder macOS guards, so the system asks once, with the shelf on screen to
@@ -234,3 +255,218 @@ branch `feat/v0.3-native-motion`:
   prose said 0.12/0.22, but those compute to 1.27:1/1.79:1 and fail the brief's
   own 1.4/2.0 test floors, so the tests governed. Lyric neighbour 0.34/0.44,
   floor 0.28/0.38; hairline base stays 0.10 by design (1pt edge, not a fill).
+- [x] The cover is one object that travels (2026-09-10, `e2c3240`,
+  `ArtworkMorphTests`): `matchedGeometryEffect` between the pill's 22 pt cover
+  and the pane's 118 pt cover, both ends described once by
+  `Theme.artworkMetrics`, the equalizer travelling the same way.
+- [x] Play and pause replace each other instead of cutting (2026-09-10,
+  `7826630`): `.symbolEffect(.replace)` on every state-driven glyph swap,
+  `.identity` under Reduce Motion. Not unit-testable; verified by eye.
+- [x] Three timings that fought what they carried (2026-09-10, `1fd2269`,
+  `MotionValuesTests`): panel content arrives on `paneIn`/`paneOut` rather
+  than the open spring, the lyrics page moves on its own spring (0.42 / 0.86,
+  the one overshoot in the app), and the lock card fades in instead of
+  appearing in one frame.
+- [x] Fifteen font sizes became six roles (2026-09-11, `fc25c89`,
+  `TypeRoleTests`): `Theme.TypeRole` — caption 10, body 11, subhead 13,
+  title 16, display 21, hero 28 — read through `islandFont(_:)` so the
+  tracking table still applies.
+- [x] The copy reads like one app wrote it (2026-09-11, `c9af7bb`): the
+  editorial pass over both tables, and `Scripts/test-localizations.sh` now
+  scrapes `localized("…")` and `Button("…")` call sites against the English
+  table in both directions.
+- [x] Four one-edit corrections (2026-09-11, `04f4465`, `FormatTimeTests`):
+  `formatTime` rolls hours, its duplicate in the lock card is gone, the grain
+  tile lands 1:1 on a 2x display, and long names truncate in the middle.
+- [x] Merged as `d20c88c` on 2026-09-11.
+
+## Review pass — 2026-09-20
+
+A first-glance pass against Apple's *Designing Fluid Interfaces* rules and the
+HIG, on branch `claude/quick-review-macos-design-cd5943`. Everything below
+either shipped in that pass or is listed as an open decision for the owner.
+
+Shipped:
+
+- [x] **Press-down feedback everywhere.** `PanelButtonStyle` in `Theme` dims a
+  control while it is held, the way `NotchButtonStyle` and
+  `TransportGlyphStyle` already did; every `.buttonStyle(.plain)` in the panel
+  now uses it. The island's own press lift drew nothing at all — it was
+  `.opacity(2.2)`, which the compositor clamps to 1 — and now lays the light
+  down a second time while pressed.
+- [x] **Hover answers on the content ease, not the open spring.** The lift
+  took 0.34 s to arrive; it takes 0.16 s.
+- [x] **Reduce Motion reaches the controller.** `NotchController`'s two
+  `withAnimation(Theme.openAnimation)` calls read `Theme.open(reduceMotion:)`
+  like the view does; the lock card's output popover falls back to a fade.
+- [x] **Tooltips and names.** `.help(…)` on the transport, shuffle, repeat, the
+  rail, the back button, and the clear/remove glyphs; `accessibilityLabel` on
+  the four icon-only buttons that had none; the lock card's seek and volume
+  bars are adjustable elements for VoiceOver (they were invisible to it).
+  22 pt targets on the copy, reveal, clear and remove glyphs and the lyric
+  nudges.
+- [x] **The lyrics editor sheet answers Escape and Return.**
+- [x] **Tokens where literals had crept back**: `ShelfPane`'s selected tile
+  reads `Theme.selectedChip`/`selectedChipBorder` (it was the model for them,
+  and had stopped following the contrast ramp), `Theme.success` replaces two
+  bare `Color.green`s, `Theme.capsTracking` replaces three hand-typed
+  tracking values for one role, and the one raw `.easeInOut` in `MediaPane`
+  is `Theme.contentAnimation`.
+- [x] **The hover-delay slider commits on release**, like the width slider.
+- [x] **The caption chevron no longer re-truncates the lyric under the
+  pointer**: it is always in the row and only its alpha moves.
+- [x] **Settings icons no longer repeat within a section**: word karaoke,
+  import, add/remove folder, rescan and dismiss each carry their own glyph
+  (`SettingsIconTests` holds that the set has no duplicates).
+- [x] **Accuracy**: `CLAUDE.md` said `main` carried documentation only — it
+  has carried the code since the v0.3 merge; the gate order in `README.md`
+  had lost `test-gatekeeper.sh`; `NotchMetrics.teleprompterBody` outlived the
+  teleprompter by a month and is `tallestBody`, with the reason the window
+  keeps its height stated; stale comments in `Theme`, `MediaPane`,
+  `SettingsPane` and `LyricsStage` that described removed code are gone; the
+  Russian table lost an orphaned `/* Заметки */` and its two spellings of
+  "screenshots"; four unit readouts (`0.05s`, `560 pt`, `+0.25s`) are
+  localized; three strings joined the Title Case convention and two gained
+  their full stop.
+
+- [x] **Lyrics are instant and turn on the beat** (2026-09-20, second
+  commit of this pass). No lyric surface waits for `positionSettled` any
+  more — the "Syncing playback…" spinner that met every open of the panel is
+  gone, and the line shown is the one the clock points at, corrected when a
+  reading lands. The clock wakes on the frame a line is due
+  (`MediaController.setLyricBoundaries`) instead of on its 250 ms grid, and
+  both leads drop from 0.25 s to 0.20 s now that the grid no longer has to be
+  covered. `Scripts/measure-sync.sh` has **not** been re-run since; it is the
+  arbiter and is owed a run against live Spotify. Amended in
+  `docs/superpowers/specs/2026-09-14-line-synced-lyrics-design.md`.
+- [x] **The Solid lock card is one surface.** `glassSurface(solid:)` routes
+  it through the opaque panel Reduce Transparency already draws; the
+  `.ultraThinMaterial` and black scrim that sat *under* the drawn glass are
+  gone (`GlassRoutingTests`).
+
+`docs/research/2026-09-20-paid-notch-apps-patterns.md` records what the paid
+notch apps charge for and ranks ten things Isla could ship free without a new
+entitlement — camera/mic in-use pill, AirDrop from the Shelf, battery, Shortcuts
+via App Intents, a volume HUD promoted off the lock card, a timer, a mirror,
+deeper lyric offsets, Downloads progress and Quick Look in the Shelf, and a
+calendar next-event (which would reverse a 2026-08-20 removal). None is
+started; each is the owner's call.
+
+### Lyrics UX — 2026-09-21
+
+- [x] **⌥⌘L opens the lyrics page** and folds it back to the player when
+  pressed again. The page's state moved from `MediaPane`'s own `@State` to
+  `NotchViewModel.isShowingLyrics`, so it is a place the app can be *sent*
+  rather than a toggle only the pane can flip — which is also what the
+  `DI_OPEN_LYRICS` hook now uses instead of an `onAppear` reading an
+  environment variable. Leaving the Music tab folds it.
+- [x] **The global lyric delay has a writer at last** (Settings → Music,
+  ±3 s). It existed in `LyricsStore` and no interface wrote to it, so the only
+  cure for a catalogue that ran early — or for the delay a pair of AirPods
+  adds — was nudging every track one at a time. Named *delay* to keep it
+  distinct from the lyrics page's per-track *timing* nudge. Closes item 3 of
+  `docs/audits/2026-09-13-…-lyric-sync-investigation.md` §3.4.
+- [x] **A lyric can be copied.** Right-click any line on the page: Copy Line,
+  or Copy All Lyrics, which leaves out the credits the app inferred. The words
+  were readable and not quotable, which for a lyric is most of the point.
+
+### Apple ecosystem — 2026-09-21
+
+- [x] **Shortcuts, Spotlight and Siri** (`Sources/IslaKit/App/IslaIntents.swift`).
+  Eight intents — Show Lyrics, Show Isla, Get Current Lyric, Get Current Track,
+  Set Lyric Delay, play/pause, next, previous — and four App Shortcut phrases,
+  so the first of those answer from Spotlight without anyone building a
+  shortcut first. No entitlement, no permission, no network: it adds a
+  *surface*, not a capability that leaves the machine, which is why it is
+  recorded here and not in the privacy list above.
+
+  The metadata Shortcuts reads is generated at bundle time by
+  `appintentsmetadataprocessor` out of the `.swiftconstvalues` SwiftPM already
+  emits — there is no Xcode project here to run the usual build phase. It needs
+  full Xcode rather than just the Command Line Tools: `Scripts/bundle.sh` warns
+  and continues without it, and `Scripts/test-package.sh` refuses a release
+  whose bundle lacks the metadata or its App Shortcuts. **Owed:** a human
+  opening Shortcuts and Spotlight to confirm the verbs appear and run; Launch
+  Services will likely want the app in `/Applications` to register them.
+
+- [x] **Measured, 2026-09-21** (`Scripts/measure-sync.sh`, live Spotify,
+  Mac16,8 / macOS 26.6.2, word-timed fixture spanning the track). The first run
+  **failed** the harness's own 150 ms word-timing gate at p95 0.167 s — and the
+  bias was near zero, so the failure was entirely the *spread*. The cause was
+  not the lead: `position` republished only on a 250 ms ticker, so any surface
+  drawing between two ticks read a number up to a quarter-second stale. At a
+  100 ms tick the same run measured **p95 0.074 s and 0.083 s, PASS**, with
+  steady-play delta a median 0.188 s behind truth — which the 0.20 s lead
+  centres to within 12 ms. Every phase median sits inside its gate.
+
+  `Scripts/measure-sync.sh` and `Scripts/validate-lrc.sh` had stopped working
+  entirely: both linked IslaKit by enumerating one `.o` per source under
+  `$BUILD/IslaKit.build`, and the current toolchain emits a single merged
+  `IslaKit.o` and no per-source objects. They handle both layouts now. The
+  harness had been unrunnable for as long as that toolchain has been in use,
+  which is why "re-run the probe" had stayed owed.
+
+### Track changes — 2026-09-21
+
+- [x] **A skip draws no loading state while the answer is quick.** Every track
+  change used to publish "Finding lyrics…" at once, so a cached hit flashed a
+  spinner for a frame and a run of skips strobed. `LyricsAvailability.resolving`
+  is drawn as nothing — the slot already holds its height — and is promoted to
+  `findingLocalLyrics` only after `LyricsCoordinator.quietGrace` (0.35 s).
+- [x] **A skip cancels the request the skip before it started.** Ten fast skips
+  used to leave ten requests running against a free service for nine answers
+  nobody would see. The generation counter only discarded the *results*.
+- [x] **The cache write left the main thread.** It encoded and wrote
+  synchronously on every answer, which during a run of skips was a file write
+  per skip on the thread the panel, the scrubber and the lyric sweep draw from.
+  Coalesced to one write per 400 ms, written off-main.
+- [ ] **Prefetching the *next* track is not possible today, and is not
+  pretended to be.** Spotify's `next track` is a command, not a readable
+  property; MediaRemote publishes now-playing only, with no queue. The one real
+  route is Spotify's Web API `/v1/me/player/queue`, which needs the
+  `user-read-playback-state` scope — Isla currently requests only
+  `user-library-read`/`user-library-modify` — and a connected account, so it
+  would help only those who have one. Worth doing behind the existing account
+  connection; it would make a skip inside a known queue genuinely pre-warmed.
+
+Owed on the lyric path, in order:
+
+- [ ] **Re-run `Scripts/measure-performance.sh`.** The position ticker went
+  from 4 Hz to 10 Hz while the panel is open — six extra wake-ups a second,
+  bounded to an open panel. Small, and unmeasured against the approved CPU
+  gates, which were already blocked at `0.3%` vs Cyclop's `0.0%`.
+- [ ] **Word karaoke is gated on a *measured* clock, which today means Spotify
+  alone** (`LyricsPresentation.usesWordTiming` requires `precisionMeasured`).
+  An Apple Music listener with a word-timed LRC never sees the sweep, even
+  though the MediaRemote helper's clock may well be good enough. Deciding that
+  needs the probe pointed at Music, not a guess.
+- [ ] **Per-source bias** (`LyricSource.bias`, all zeros) — item 2 of the same
+  investigation, and the amplifier behind "certain songs run fast".
+
+Open, for the owner — each is a design decision, not a defect:
+
+- [ ] `LockScreenCard` still carries 22 white/black literals and a scrim over
+  real glass on macOS 26 — a second, untracked theme.
+- [ ] `SettingsPane.choiceRow` is a hand-rolled segmented control; a native
+  `Picker(.segmented)` would restore arrow keys and radio-group VoiceOver but
+  look like AppKit on a dark pane.
+- [ ] Hovering the rail for 150 ms switches tabs. macOS does not navigate on
+  hover outside menus; kept because it is documented and cheap to cancel.
+- [ ] The rail icon scales 1.15× on hover on top of the chip fill. macOS fills
+  a well and does not grow the glyph.
+- [ ] No focus rings and no keyboard shortcuts inside the panel (⌘, ⌘W,
+  Return-to-confirm). Escape is handled at the window. An `.accessory` app
+  has no menu bar to carry these, so it is a per-panel binding while key.
+- [ ] Escape does not disarm a two-press confirmation; it closes the panel.
+- [ ] `Toggle("", isOn:)` with a detached label: clicking the label text does
+  not flip the switch, which a native labelled `Toggle` gives for free.
+- [ ] `TranslatePane`'s font ladder `[27, 20, 15, 11]` shares only its last
+  rung with the six type roles.
+- [ ] `NotchMetrics.collapseRectShrinkDelay` (0.45) is tied to the open
+  spring's settle by comment only.
+- [ ] `Translator.swift:173` uses the deprecated
+  `GenerationOptions(sampling:)`; the replacement (`samplingMode:`) exists
+  only in the macOS 27 SDK, so switching would break a macOS 26 Xcode build.
+- [ ] `scripts/check` is tracked in lowercase while every other script is
+  under `Scripts/`; one directory on this Mac's case-insensitive disk, two on
+  a case-sensitive one.

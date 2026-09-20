@@ -7,6 +7,11 @@ final class NotchController {
     private var panel: NotchPanel?
     private var rootView: NotchRootView?
     private var viewModel: NotchViewModel?
+
+    /// The live model, for App Intents. Read-only and optional on purpose: the
+    /// panel builds its model in `install()`, so an intent that launched the app
+    /// can arrive before there is one, and "not ready yet" is an honest answer.
+    var intentModel: NotchViewModel? { viewModel }
     private let pointer = PointerWatcher()
     private let lockPresence = LockScreenPresence()
     /// The lock screen's player, in a window of its own — see `LockCardWindow`.
@@ -453,6 +458,40 @@ final class NotchController {
         cancellables.removeAll()
         panel?.acceptsKeyboard = false
         panel?.orderOut(nil)
+    }
+
+    /// Opens on the Music tab with the lyrics page already up.
+    ///
+    /// The same shape as `translate(_:)` and for the same reasons: refused over
+    /// the shield before anything is touched, and pinned open because the
+    /// pointer that asked for it is on the keyboard rather than on the notch.
+    /// Pressing it again folds the page back to the player rather than doing
+    /// nothing, so one key is the whole round trip.
+    func toggleLyrics() {
+        guard let vm = viewModel else { return }
+        guard vm.verdictForDeliberateOpen() == .proceed else {
+            vm.nudgeLockedIsland()
+            return
+        }
+        // Pressed again with the page already up, it folds the page back to
+        // the player rather than doing nothing: one key is the whole round
+        // trip, and the panel is left open on the music it was opened for.
+        if vm.isOpen, vm.tab == .media, vm.isShowingLyrics {
+            vm.isShowingLyrics = false
+            return
+        }
+        peekWork?.cancel()
+        vm.isPeeking = false
+        vm.select(.media)
+        vm.isShowingLyrics = true
+        // Pinned, like ⌥⌘I and for the same reason: the hand that pressed it is
+        // on the keyboard, not on the notch, and an unpinned panel nobody is
+        // hovering folds a third of a second after it appears. Lyrics are read
+        // for the length of a song, which is the longest any of these stays up.
+        vm.isPinnedOpen = true
+        setOpen(true)
+        pointer.setInside(true)
+        updatePinnedClickMonitor()
     }
 
     /// Opens on the translate tab with this text already in it.
@@ -1046,7 +1085,7 @@ final class NotchController {
             // Grow the interactive area first so the pointer never falls
             // through a region the animation has not covered yet.
             applyActiveRect(open: true)
-            withAnimation(Theme.openAnimation) { vm.isOpen = true }
+            withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = true }
             vm.media.setActive(true)
         } else {
             // The keyboard goes first and the fold goes second — one run-loop
@@ -1099,7 +1138,7 @@ final class NotchController {
         // swap is what made the card and the pill slide in from the notch's
         // old position, at the old size, instead of simply being there.
         if deferRectShrink {
-            withAnimation(Theme.openAnimation) { vm.isOpen = false }
+            withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = false }
         } else {
             var instant = Transaction()
             instant.disablesAnimations = true

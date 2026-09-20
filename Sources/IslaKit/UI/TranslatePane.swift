@@ -66,8 +66,12 @@ struct TranslatePane: View {
                     Image(systemName: "xmark")
                         .islandFont(.caption, weight: .semibold)
                         .foregroundStyle(Theme.secondary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PanelButtonStyle())
+                .help(localized("Clear"))
+                .accessibilityLabel(localized("Clear"))
             }
         } content: {
             // A `TextField(axis: .vertical)` grows to fit its text, and growing
@@ -104,10 +108,10 @@ struct TranslatePane: View {
                 .padding(.leading, -5)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .contentShape(Rectangle())
-                .onKeyPress(.escape) {
-                    translator.reset()
-                    return .handled
-                }
+                // No Escape handler here: `NotchPanel.sendEvent` takes every
+                // Escape before it reaches the responder chain, and the reset
+                // lives in `NotchViewModel.consumeEscape`. A handler here was
+                // dead code that looked like the behaviour.
         }
         .padding(10)
         .background(
@@ -143,7 +147,7 @@ struct TranslatePane: View {
                     }
                     Button("Retry") { translator.retry() }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PanelButtonStyle())
                 .islandFont(.caption)
                 .foregroundStyle(.white)
             }
@@ -222,7 +226,7 @@ struct TranslatePane: View {
             HStack(spacing: 6) {
                 Text(title.uppercased())
                     .islandFont(.caption, weight: .semibold)
-                    .tracking(0.8)
+                    .tracking(Theme.capsTracking)
                     .foregroundStyle(Theme.tertiary)
                 Spacer(minLength: 4)
                 accessory()

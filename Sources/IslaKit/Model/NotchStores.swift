@@ -46,6 +46,7 @@ final class NotchStores {
             media: media,
             library: library,
             isEnabled: lyricsEnabled ?? { NotchViewModel.showLyricsEnabled },
+            isOnlineEnabled: { NotchViewModel.onlineLyricsEnabled },
             presentation: lyrics
         )
     }

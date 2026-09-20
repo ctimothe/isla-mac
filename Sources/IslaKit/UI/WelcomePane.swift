@@ -127,7 +127,7 @@ struct WelcomePane: View {
                     .background(Theme.surfaceHover, in: Capsule())
                     .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PanelButtonStyle())
         }
         // Aligned with every other pane rather than inset on its own: the rail
         // is beside it and the body already pads its content by 14.
