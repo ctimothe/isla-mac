@@ -14,8 +14,6 @@ enum LyricsPresentation {
         switch availability {
         case .disabled:
             return localized("Lyrics are switched off in Settings.")
-        case .settlingPlayback:
-            return localized("Syncing playback…")
         case .findingLocalLyrics:
             return localized("Finding lyrics…")
         case .ready:

@@ -66,7 +66,6 @@ final class SharedLyricTimelineTests: XCTestCase {
         )
         let states: [LyricsAvailability] = [
             .disabled,
-            .settlingPlayback,
             .findingLocalLyrics,
             .ready(timeline),
             .noLocalLyrics,

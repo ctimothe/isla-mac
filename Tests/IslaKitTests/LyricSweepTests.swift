@@ -5,16 +5,18 @@ import XCTest
 @MainActor
 final class LyricSweepTests: XCTestCase {
 
-    /// The live Spotify probe measured the precision surface 178ms behind at
-    /// p95 with a 150ms lead. A 250ms lead brings that measured tail under
-    /// the 150ms release gate without asking listeners to nudge every track.
+    /// Two measured terms and no grid. The live Spotify probe put the clock
+    /// 0.10s behind the audio; the other 0.10s is the anticipation every
+    /// karaoke surface carries. The quarter-second the lead used to hold in
+    /// reserve for the ticker's grid is gone with the grid: the clock now
+    /// wakes on the frame a line is due (`MediaControllerTests`).
     func testTheMeasuredClockLagCalibratesTheSharedDefaultLead() {
-        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.25, accuracy: 0.0001)
-        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.25, accuracy: 0.0001)
-        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: -0.4), -0.15, accuracy: 0.0001)
-        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 1.2), 1.45, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.20, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.20, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: -0.4), -0.20, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 1.2), 1.40, accuracy: 0.0001)
         XCTAssertEqual(
-            LyricSweep.position(10, precisionSync: true, userOffset: 0.5), 10.75, accuracy: 0.0001
+            LyricSweep.position(10, precisionSync: true, userOffset: 0.5), 10.70, accuracy: 0.0001
         )
     }
 
@@ -22,24 +24,24 @@ final class LyricSweepTests: XCTestCase {
     func testLeadSumsTheLocalOffsetLayers() {
         XCTAssertEqual(
             LyricSweep.lead(precisionSync: false, userOffset: 1.0, trackOffset: 0.25),
-            1.5, accuracy: 0.0001
+            1.45, accuracy: 0.0001
         )
         XCTAssertEqual(
             LyricSweep.lead(precisionSync: true, userOffset: -0.5, trackOffset: -0.1),
-            -0.35, accuracy: 0.0001
+            -0.40, accuracy: 0.0001
         )
     }
 
     /// The defaulted layers keep every caller on the calibrated shared clock.
     func testLeadDefaultsUseTheCalibratedValues() {
-        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.25, accuracy: 0.0001)
-        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.25, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.20, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.20, accuracy: 0.0001)
     }
 
     func testPositionCarriesBothLocalOffsetLayers() {
         XCTAssertEqual(
             LyricSweep.position(10, precisionSync: true, userOffset: 0.5, trackOffset: -0.25),
-            10.5, accuracy: 0.0001
+            10.45, accuracy: 0.0001
         )
     }
 

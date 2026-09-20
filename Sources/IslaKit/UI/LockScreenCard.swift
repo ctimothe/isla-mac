@@ -125,19 +125,15 @@ struct LockScreenCard: View {
                 // No tint from the cover either. The glass takes its character
                 // from the wallpaper it is actually over, which is the point of
                 // it being glass.
-                samplesBackdrop: style == .glass
+                samplesBackdrop: style == .glass,
+                // Solid is the panel Reduce Transparency draws, chosen on
+                // purpose. It used to be the drawn glass laid over an
+                // `.ultraThinMaterial` and a black scrim — three surfaces for
+                // one card, and above the shield the material had nothing to
+                // sample anyway, so what it added was a muddier version of the
+                // recipe already on top of it. One surface, one rule.
+                solid: style == .solid
             )
-            .background {
-                if style == .solid {
-                    RoundedRectangle(cornerRadius: 30, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .environment(\.colorScheme, .dark)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                                .fill(.black.opacity(0.45))
-                        }
-                }
-            }
             // No drop shadow. The system's own lock player has none — the
             // material defines its own edge, and a card floating on a drawn
             // shadow reads as a sticker laid on the wallpaper rather than a
@@ -307,9 +303,7 @@ struct LockScreenCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 VStack(spacing: 8) {
-                    if case .settlingPlayback = lyrics.availability {
-                        ProgressView().controlSize(.small).tint(.white)
-                    } else if case .findingLocalLyrics = lyrics.availability {
+                    if case .findingLocalLyrics = lyrics.availability {
                         ProgressView().controlSize(.small).tint(.white)
                     }
                     Text(lyricsStatus)

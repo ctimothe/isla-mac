@@ -398,11 +398,11 @@ final class MediaControllerTests: XCTestCase {
         XCTAssertTrue(controller.positionSettled, "a real reading settles it")
     }
 
-    /// Opening the panel on a paused track must not hide the lyrics.
+    /// Opening the panel on a paused track must not unsettle the clock.
     ///
-    /// `positionSettled` gates every lyric surface: it means "an authoritative
-    /// reading has landed", and it is cleared whenever the panel opens so a
-    /// stale extrapolation cannot flash the wrong line. But while paused
+    /// `positionSettled` means "an authoritative reading has landed" (it no
+    /// longer gates any lyric surface, but the trail and the precision loop
+    /// still read it), and it is cleared whenever the panel opens. But while paused
     /// nothing can set it again — MediaRemote republishes the reading it
     /// already gave, which is judged stale, and the precision loop runs only
     /// while playing. So the panel opened on a paused song and the lyric never
@@ -435,6 +435,66 @@ final class MediaControllerTests: XCTestCase {
             controller.positionSettled,
             "a paused track cannot have moved, so what we already know is still authoritative"
         )
+    }
+
+    // MARK: - Lyric boundaries
+
+    /// The clock wakes on the frame a line is due, not on its quarter-second
+    /// grid. The arithmetic is pure: given the boundaries, the lead and where
+    /// the clock stands, the next wake is the first boundary ahead, less the
+    /// lead, scaled by the rate.
+    func testTheNextLyricWakeIsTheFirstBoundaryAheadLessTheLead() {
+        let boundaries: [TimeInterval] = [10, 12.5, 20]
+        XCTAssertEqual(
+            MediaController.nextLyricWake(boundaries: boundaries, lead: 0.2, position: 11, rate: 1)!,
+            1.3, accuracy: 0.0001, "12.5 less the lead, from 11"
+        )
+        XCTAssertEqual(
+            MediaController.nextLyricWake(boundaries: boundaries, lead: 0.2, position: 11, rate: 2)!,
+            0.65, accuracy: 0.0001, "double speed halves the wait"
+        )
+        XCTAssertNil(
+            MediaController.nextLyricWake(boundaries: boundaries, lead: 0.2, position: 19.8, rate: 1),
+            "past the last boundary there is nothing left to wake for"
+        )
+        XCTAssertNil(
+            MediaController.nextLyricWake(boundaries: boundaries, lead: 0.2, position: 11, rate: 0),
+            "a paused clock never wakes"
+        )
+        // A wake that fired exactly on a boundary must arm the one after it,
+        // not itself again.
+        XCTAssertEqual(
+            MediaController.nextLyricWake(boundaries: boundaries, lead: 0.2, position: 12.3, rate: 1)!,
+            7.5, accuracy: 0.0001
+        )
+    }
+
+    /// End to end: with a line due 120ms out, the position is republished on
+    /// that boundary — well inside the 250ms the grid alone would have taken.
+    func testTheClockPublishesOnALyricBoundaryAheadOfItsGrid() async {
+        let controller = MediaController()
+        controller.setActive(true)
+        defer { controller.setActive(false) }
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.duration = 200
+        playing.elapsed = 50
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 7
+        controller.apply(playing)
+        let start = controller.position
+
+        var published: [TimeInterval] = []
+        let observer = controller.$position.dropFirst().sink { published.append($0) }
+        defer { observer.cancel() }
+        controller.setLyricBoundaries([start + 0.14], lead: { 0.02 })
+
+        try? await Task.sleep(for: .milliseconds(180))
+        XCTAssertFalse(published.isEmpty, "the boundary wake must publish before the 250ms grid tick")
+        XCTAssertEqual(published[0], start + 0.12, accuracy: 0.03, "…and publish the position the line is due at")
     }
 
     /// And a player that publishes nothing at all still gives up its lyrics.

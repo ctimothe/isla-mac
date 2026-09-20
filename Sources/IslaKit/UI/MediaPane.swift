@@ -440,7 +440,6 @@ struct MediaPane: View {
     @ViewBuilder
     private var lyricsLine: some View {
         if case .ready = lyrics.availability,
-           media.positionSettled,
            case .synced(let lines) = lyrics.state {
             let at = LyricSweep.position(
                 media.position,
@@ -521,9 +520,7 @@ struct MediaPane: View {
     private var compactLyricsStatus: some View {
         Button { showingLyrics = true } label: {
             HStack(spacing: 5) {
-                if case .settlingPlayback = lyrics.availability {
-                    ProgressView().controlSize(.mini).tint(Theme.tertiary)
-                } else if case .findingLocalLyrics = lyrics.availability {
+                if case .findingLocalLyrics = lyrics.availability {
                     ProgressView().controlSize(.mini).tint(Theme.tertiary)
                 }
                 Text(LyricsPresentation.compactCaption(

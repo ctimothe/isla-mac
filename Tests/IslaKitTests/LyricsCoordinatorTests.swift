@@ -36,6 +36,35 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertEqual(candidate.timeline.lines.first?.text, "Local opening")
     }
 
+    /// The lyric is there the instant the panel opens. It used to wait for the
+    /// clock to settle — "Syncing playback…" on every open, for up to the 1.2s
+    /// grace — to avoid a wrong line that a fresh anchor almost never gives.
+    func testLyricsAreReadyBeforeTheClockSettles() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        _ = try library.importDocument(at: try writeLRC(), binding: nil)
+        let media = MediaController()
+        let store = LyricsStore(offsetsDirectory: root)
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true }, presentation: store
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+        media.apply(playingSnapshot())
+
+        // Opening the panel again unsettles the clock; the lyric must not care.
+        media.setActive(false)
+        media.setActive(true)
+        XCTAssertFalse(media.positionSettled, "the fixture: a fresh open is unsettled")
+        guard case .ready = coordinator.availability else {
+            return XCTFail("lyrics must be ready while the clock is still settling")
+        }
+        guard case .synced = store.state else {
+            return XCTFail("and the store must present them, not a loading state")
+        }
+    }
+
     func testMetadataEnrichmentDoesNotStartAnotherLocalLookupOrBlankLyrics() throws {
         var lookups: [LocalTrackIdentity] = []
         let library = LocalLyricsLibrary(directory: root, onLookup: { lookups.append($0) })

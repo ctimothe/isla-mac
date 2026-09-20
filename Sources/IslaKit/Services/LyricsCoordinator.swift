@@ -22,7 +22,6 @@ struct LyricTimeline: Equatable, Sendable {
 
 enum LyricsAvailability: Equatable, Sendable {
     case disabled
-    case settlingPlayback
     case findingLocalLyrics
     case ready(LyricTimeline)
     case noLocalLyrics
@@ -66,9 +65,6 @@ final class LyricsCoordinator: ObservableObject {
             .sink { [weak self] track, duration in
                 self?.reconcileTrack(track: track, duration: duration)
             }
-            .store(in: &observers)
-        media.$positionSettled
-            .sink { [weak self] _ in self?.publishAvailability() }
             .store(in: &observers)
         library.$revision
             .dropFirst()
@@ -177,13 +173,13 @@ final class LyricsCoordinator: ObservableObject {
         guard isEnabled(), currentIdentity != nil else {
             availability = .disabled
             presentation?.present(availability)
+            media.setLyricBoundaries([], lead: { 0 })
             return
         }
-        guard media.positionSettled else {
-            availability = .settlingPlayback
-            presentation?.present(availability)
-            return
-        }
+        // Nothing here waits for the clock to settle. The line shown is the one
+        // the clock points at now, and it moves when a correction lands — the
+        // way the system's own lyrics behave. The wait this used to impose
+        // showed a spinner on every open of the panel.
         switch localLookup {
         case .ready(let candidate): availability = .ready(candidate.timeline)
         case .invalid(let issue): availability = .invalidLocalFile(issue)
@@ -191,5 +187,25 @@ final class LyricsCoordinator: ObservableObject {
         case nil: availability = .findingLocalLyrics
         }
         presentation?.present(availability)
+        registerBoundaries()
+    }
+
+    /// Hands the clock every line's timestamp, so it can wake the surfaces on
+    /// the frame a line is due instead of on its quarter-second grid. The lead
+    /// is read at each wake, so a nudge takes effect on the next one.
+    private func registerBoundaries() {
+        guard case .ready(let timeline) = availability else {
+            media.setLyricBoundaries([], lead: { 0 })
+            return
+        }
+        let media = self.media
+        let presentation = self.presentation
+        media.setLyricBoundaries(timeline.lines.map(\.at)) {
+            LyricSweep.lead(
+                precisionSync: media.precisionSync,
+                userOffset: presentation?.userOffset ?? 0,
+                trackOffset: presentation?.trackOffset ?? 0
+            )
+        }
     }
 }
