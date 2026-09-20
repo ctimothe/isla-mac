@@ -80,9 +80,16 @@ are the exception the design did not anticipate:
   system-wide setting, recorded on the same terms. Absent entirely for a
   device that publishes no volume control rather than shown as a slider
   that moves and changes nothing.
-- **Screen-recording pickup** (Settings, default on, added 2026-09-11)
-  imports movies Screenshot.app saved — its configured location, else the
-  Desktop — when the Shelf opens, if they finished after the app first ran.
+- **Screen-capture pickup** (Settings, default on, added 2026-09-11; widened
+  to stills and to every folder captures have been sent on 2026-09-21) shows
+  what Screenshot.app saved — its configured location, the Desktop, and any
+  location it has pointed at since — on the Shelf when it opens, if the capture
+  finished after the app first ran. **Nothing is copied:** the card holds the
+  file where macOS put it, so dragging it out drags the original and deleting
+  it there removes the card. A movie counts on its type alone; a still must
+  also carry the capture prefix (`com.apple.screencapture name` when set,
+  else the system's), because the capture folder is so often the Desktop and a
+  folder of somebody's own pictures must not be swept up wholesale.
   Copied recordings already landed through the clipboard; this covers the
   native save-to-disk flow no pasteboard ever sees. The first scan touches a
   folder macOS guards, so the system asks once, with the shelf on screen to
