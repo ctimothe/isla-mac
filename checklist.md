@@ -326,6 +326,14 @@ Shipped:
   `.ultraThinMaterial` and black scrim that sat *under* the drawn glass are
   gone (`GlassRoutingTests`).
 
+`docs/research/2026-09-20-paid-notch-apps-patterns.md` records what the paid
+notch apps charge for and ranks ten things Isla could ship free without a new
+entitlement — camera/mic in-use pill, AirDrop from the Shelf, battery, Shortcuts
+via App Intents, a volume HUD promoted off the lock card, a timer, a mirror,
+deeper lyric offsets, Downloads progress and Quick Look in the Shelf, and a
+calendar next-event (which would reverse a 2026-08-20 removal). None is
+started; each is the owner's call.
+
 Open, for the owner — each is a design decision, not a defect:
 
 - [ ] `LockScreenCard` still carries 22 white/black literals and a scrim over
