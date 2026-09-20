@@ -16,10 +16,10 @@
 "Launch at Login" = "Запускать при входе";
 "Screenshots" = "Скриншоты";
 "Save Clipboard Screenshots" = "Сохранять скриншоты из буфера";
-"Import Screen Recordings" = "Импортировать записи экрана";
+"Show Screen Captures" = "Показывать снимки и записи экрана";
 "Show Screenshots Folder" = "Показать папку скриншотов";
-"Clear Screenshots Folder" = "Очистить папку снимков";
-"Clear Screenshots Folder (%@)" = "Очистить папку снимков (%@)";
+"Clear Screenshots Folder" = "Очистить папку скриншотов";
+"Clear Screenshots Folder (%@)" = "Очистить папку скриншотов (%@)";
 "Privacy" = "Конфиденциальность";
 "Application" = "Приложение";
 "About %@" = "О программе %@";
@@ -35,8 +35,6 @@
 
 /* Музыка */
 "Nothing is playing." = "Ничего не играет.";
-
-/* Заметки */
 
 /* Перевод */
 "Translation Languages…" = "Языки перевода…";
@@ -83,7 +81,7 @@
 "Word Karaoke" = "Караоке по словам";
 "Lyrics stay on this Mac." = "Тексты песен остаются на этом Mac.";
 "Local Lyrics Library" = "Библиотека локальных текстов";
-"No local lyrics" = "Нет локального текста";
+"No local lyrics." = "Нет локального текста.";
 "Import LRC…" = "Импортировать LRC…";
 "Add Lyrics Folder…" = "Добавить папку с текстами…";
 "Remove %@" = "Удалить %@";
@@ -117,20 +115,19 @@
 "Save Copy" = "Сохранить копию";
 "Cancel" = "Отмена";
 "Lyrics Metadata" = "Метаданные текста";
-"Local lyrics" = "Локальный текст";
+"Local Lyrics" = "Локальный текст";
 "Timestamp" = "Метка времени";
 "Title" = "Название";
 "Artist" = "Исполнитель";
 "Album" = "Альбом";
 "Version" = "Версия";
 "Duration" = "Длительность";
-"Add lyric line" = "Добавить строку текста";
-"Remove lyric line" = "Удалить строку текста";
+"Add Lyric Line" = "Добавить строку текста";
+"Remove Lyric Line" = "Удалить строку текста";
 "Export LRC" = "Экспортировать LRC";
-"This LRC file is invalid" = "Этот LRC-файл недействителен";
+"This LRC file is invalid." = "Этот LRC-файл недействителен.";
 "Choose local lyrics…" = "Выберите локальный текст…";
 "No lyrics for this track." = "Для этого трека нет текста.";
-"Syncing playback…" = "Синхронизация воспроизведения…";
 "Finding lyrics…" = "Ищем текст песни…";
 "Jumps the song to this line" = "Перематывает песню к этой строке";
 "Opens the full lyrics" = "Открывает полный текст";
@@ -165,3 +162,21 @@
 "Translate the clipboard" = "Перевести из буфера обмена";
 "Quit and everything else lives in Settings, at the bottom left." = "Выход и всё остальное — в настройках, внизу слева.";
 "Get Started" = "Начать";
+
+"Volume" = "Громкость";
+
+/* Показания с единицами */
+"%.2fs" = "%.2f с";
+"%+.2fs" = "%+.2f с";
+"%d pt" = "%d пт";
+
+/* Тайминг и копирование текста */
+"Lyric Delay" = "Задержка текста";
+"Reset Lyric Delay" = "Сбросить задержку текста";
+"Negative shows lyrics earlier; positive, later." = "Отрицательное значение показывает текст раньше, положительное — позже.";
+"Copy Line" = "Скопировать строку";
+"Copy All Lyrics" = "Скопировать весь текст";
+
+/* Онлайн-поиск текста */
+"Look Up Lyrics Online" = "Искать текст онлайн";
+"Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you." = "Запрашивает LRCLIB для треков, которым не нашлось локального файла. Отправляются название, исполнитель, альбом и длительность — ничего о вас.";

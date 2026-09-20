@@ -59,8 +59,23 @@ final class NotchViewModel: ObservableObject {
             if tab == .shelf { shelf.refreshFromDisk() }
             // Leaving the tab that types gives the keyboard straight back.
             if !tab.needsKeyboard { wantsKeyboard = false }
+            // And leaving Music folds the stage, so coming back to the tab
+            // lands on the player rather than on a page of words left open
+            // three songs ago.
+            if tab != .media { isShowingLyrics = false }
         }
     }
+
+    /// Whether the Music tab is showing the full lyrics page instead of the
+    /// player.
+    ///
+    /// It lives here rather than inside `MediaPane` because it is a place the
+    /// app can be *sent*, not just a toggle the pane owns: ⌥⌘L opens the panel
+    /// straight onto it, and the verification hook does the same without a
+    /// pointer. State that only the view holds is state nothing else can ask
+    /// for — which is what made the hook an `onAppear` reading an environment
+    /// variable rather than a route like every other way in.
+    @Published var isShowingLyrics = false
 
     /// Whether the panel must stay open with no pointer on it.
     ///
@@ -485,12 +500,25 @@ final class NotchViewModel: ObservableObject {
 
     static let showLyricsKey = "showLyrics"
 
-    /// Defaults to **off**. Once a licensed provider is configured, turning it
-    /// on sends the broker only the disclosed track identity and an anonymous
-    /// installation token. That is listening history leaving the machine, so
-    /// it is asked for rather than assumed. Off means no request ever leaves.
+    /// Defaults to **off**. On its own it reaches nothing but this Mac: lyrics
+    /// come from files imported here and folders chosen here.
     static var showLyricsEnabled: Bool {
         UserDefaults.standard.bool(forKey: showLyricsKey)
+    }
+
+    static let onlineLyricsKey = "lyrics.onlineEnabled"
+
+    /// Defaults to **off**, and is the only thing in the lyric path that ever
+    /// reaches the network.
+    ///
+    /// A streamed track has no file on this Mac, so no offline lookup can ever
+    /// find words for it — which is why this exists at all. Turning it on lets
+    /// Isla ask LRCLIB, a free community catalogue that needs no account and no
+    /// key, for the words of a track the local library did not match. What
+    /// leaves is the title, artist, album and duration; nothing about the
+    /// listener, and nothing is uploaded. See `OnlineLyrics`.
+    static var onlineLyricsEnabled: Bool {
+        UserDefaults.standard.bool(forKey: onlineLyricsKey)
     }
 
     static let sneakPeekKey = "sneakPeek"

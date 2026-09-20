@@ -104,6 +104,68 @@ clang -dynamiclib -fobjc-arc -O2 \
     -o "$APP/Contents/Resources/libislamedia.dylib" \
     "$ROOT/Sources/IslaMediaHelper/helper.m"
 
+# App Intents: what Shortcuts, Spotlight and Siri read to find Isla's verbs.
+#
+# Shortcuts does not read the binary. It reads `Metadata.appintents`, a small
+# bundle of JSON that Xcode normally produces in a build phase this project does
+# not have — there is no Xcode project here, only SwiftPM and this script. The
+# generator is a real tool that ships inside Xcode, and it can be driven by hand
+# with what SwiftPM has already produced:
+#
+#   * `swift build` emits a `.swiftconstvalues` file per module as soon as a
+#     target imports AppIntents. No Package.swift change asks for this; the
+#     toolchain does it on seeing the import.
+#   * the processor turns those, plus the source files they came from, into the
+#     metadata bundle. It takes both modules in one call — the intents live in
+#     IslaKit while the app is Isla — with `--module-name` naming the app.
+#
+# The output is derived entirely from the compiled Swift: it carries no bundle
+# id and no path, so generating it here is equivalent to what Xcode would have
+# produced. It must land *before* the signature, because adding a file to a
+# signed bundle invalidates it.
+#
+# Skipped, loudly but without failing, when only the Command Line Tools are
+# installed: the processor ships with full Xcode. A bundle without the metadata
+# is a working app that Shortcuts cannot see, which is worth saying out loud and
+# not worth refusing to build over. `Scripts/test-package.sh` is where a release
+# insists on it.
+TOOLCHAIN_DIR="$(xcode-select -p 2>/dev/null)/Toolchains/XcodeDefault.xctoolchain"
+INTENTS_TOOL="$TOOLCHAIN_DIR/usr/bin/appintentsmetadataprocessor"
+if [ -x "$INTENTS_TOOL" ]; then
+    echo "==> generating App Intents metadata"
+    INTENTS_WORK="$ROOT/build/appintents"
+    rm -rf "$INTENTS_WORK"
+    mkdir -p "$INTENTS_WORK"
+    # Both modules' sources, and the const values the build just emitted for
+    # them. Scoped to this configuration's build directory so a stale debug
+    # artifact cannot be picked up for a release bundle.
+    find "$ROOT/Sources/Isla" "$ROOT/Sources/IslaKit" -name '*.swift' > "$INTENTS_WORK/sources.txt"
+    # `-ipath` because SwiftPM names the directory `Release` while this script
+    # takes `release`, and the tests' own const values are excluded — they
+    # describe XCTest cases, not intents, and feeding them in makes the
+    # processor describe a bundle nobody ships.
+    find "$ROOT/.build" -ipath "*/Isla.build/$CONFIG/*" -name '*.swiftconstvalues' \
+        ! -ipath '*Tests*' > "$INTENTS_WORK/constvalues.txt"
+    if [ -s "$INTENTS_WORK/constvalues.txt" ]; then
+        "$INTENTS_TOOL" \
+            --output "$APP/Contents/Resources" \
+            --toolchain-dir "$TOOLCHAIN_DIR" \
+            --module-name Isla \
+            --sdk-root "$(xcrun --sdk macosx --show-sdk-path)" \
+            --xcode-version "$(xcodebuild -version 2>/dev/null | sed -n 's/Build version //p')" \
+            --platform-family macOS \
+            --deployment-target 15.0 \
+            --target-triple "$(uname -m)-apple-macosx15.0" \
+            --source-file-list "$INTENTS_WORK/sources.txt" \
+            --swift-const-vals-list "$INTENTS_WORK/constvalues.txt" \
+            || echo "!!! App Intents metadata failed — Shortcuts will not see Isla" >&2
+    else
+        echo "!!! no .swiftconstvalues found — Shortcuts will not see Isla" >&2
+    fi
+else
+    echo "==> skipping App Intents metadata (needs full Xcode, not just the CLT)"
+fi
+
 # SwiftPM's release executable still contains local symbols. They add more than
 # the entire UI payload to a direct-download bundle and have no runtime value;
 # strip before signing, because changing a Mach-O afterwards invalidates it.

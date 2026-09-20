@@ -69,7 +69,10 @@ final class MediaController: ObservableObject {
     /// tab, most podcasts — would otherwise be asked again on every snapshot,
     /// twice a second, forever.
     private var artworkRequestedFor: Set<String> = []
-    private var anchor: (position: TimeInterval, atMono: TimeInterval)?
+    private var anchor: (position: TimeInterval, atMono: TimeInterval)? {
+        // A new anchor moves every boundary's wall time with it.
+        didSet { armBoundaryTimer() }
+    }
     /// The clock the anchor extrapolates on. Wall time jumps on NTP steps and
     /// across sleep, and the anchor used to ride it — a +5s step teleported the
     /// bar and the lyric. `systemUptime` never jumps, so the extrapolation
@@ -81,7 +84,9 @@ final class MediaController: ObservableObject {
     /// routinely play at 1.5× or 2×, and the ticker extrapolating at 1×
     /// regardless meant the bar fell behind between polls and lurched forward
     /// on each one; below 1× it ran ahead and was yanked back.
-    private var playbackRate: Double = 1
+    private var playbackRate: Double = 1 {
+        didSet { if playbackRate != oldValue { armBoundaryTimer() } }
+    }
     /// Where we asked the player to jump, when — and from where, because the
     /// pre-seek trajectory is the only thing that can unmask a reading taken
     /// after the seek was issued but before the player applied it.
@@ -151,12 +156,73 @@ final class MediaController: ObservableObject {
     /// precise position most of the compensation is unnecessary.
     @Published private(set) var precisionSync = false
     /// False from panel-open or track-change until the first authoritative
-    /// reading lands. The moment the panel opens, the position is a stale
-    /// extrapolation from whenever it closed — usually right, but wrong
-    /// whenever a pause or seek happened while it was shut, and a lyric line
-    /// chosen from it flashes wrong and then corrects. The lyric waits the
-    /// ~150ms for a real fix instead.
+    /// reading lands: the position is an extrapolation from the anchor until
+    /// then — usually right, wrong only if a pause or seek happened while the
+    /// panel was shut and no broadcast reported it.
+    ///
+    /// No lyric surface waits on this any more. They did, and every open of
+    /// the panel showed "Syncing playback…" for the 150ms a real fix takes and
+    /// for the full 1.2s grace when none came — which read as lyrics that were
+    /// slow, on every open, to cover a wrong line that almost never happened.
+    /// The system's own lyrics show the line the clock points at and move it
+    /// when a correction lands; so do these now. The flag stays as the clock's
+    /// own statement of how much it trusts itself, for the tests and the trail.
     @Published private(set) var positionSettled = false
+
+    // MARK: - Lyric boundaries
+
+    /// Track positions at which a lyric surface changes its line — every
+    /// line's timestamp, before the lead — and how much lead the surfaces read
+    /// with. Registered by `LyricsCoordinator` when a timeline is ready.
+    ///
+    /// The four-times-a-second ticker below moves the scrubber, and a scrubber
+    /// does not care about 250ms. A lyric line does: on that grid a line lands
+    /// anywhere from on time to a quarter-second late, at random, which is the
+    /// "sometimes early, sometimes late" that no lead constant can fix. So the
+    /// clock also wakes exactly when the next line is due — one one-shot timer,
+    /// re-armed at every tick and every anchor change — and publishes the
+    /// position on that frame, so every surface turns its line together and
+    /// on the beat. Between boundaries nothing extra runs.
+    private var lyricBoundaries: [TimeInterval] = []
+    private var lyricLead: @MainActor () -> TimeInterval = { 0 }
+    private var boundaryTimer: Timer?
+
+    func setLyricBoundaries(_ boundaries: [TimeInterval], lead: @escaping @MainActor () -> TimeInterval) {
+        lyricBoundaries = boundaries.sorted()
+        lyricLead = lead
+        armBoundaryTimer()
+    }
+
+    /// Seconds until the next boundary strictly ahead of the clock, or nil
+    /// when the song has no more lines to turn. Pure, so the arithmetic is
+    /// testable without a timer.
+    static func nextLyricWake(
+        boundaries: [TimeInterval], lead: TimeInterval, position: TimeInterval, rate: Double
+    ) -> TimeInterval? {
+        guard rate > 0 else { return nil }
+        // Sorted, so the first boundary past the clock is the next one. Half a
+        // millisecond of slack keeps a wake that fired exactly on a boundary
+        // from re-arming for the boundary it just served.
+        guard let next = boundaries.first(where: { $0 - lead > position + 0.0005 }) else { return nil }
+        return ((next - lead) - position) / rate
+    }
+
+    private func armBoundaryTimer() {
+        boundaryTimer?.invalidate()
+        boundaryTimer = nil
+        guard isPlaying, isActive, let anchor, !lyricBoundaries.isEmpty else { return }
+        let now = anchor.position + (monotonicNow() - anchor.atMono) * playbackRate
+        guard let delay = Self.nextLyricWake(
+            boundaries: lyricBoundaries, lead: lyricLead(), position: now, rate: playbackRate
+        ) else { return }
+        let timer = Timer(timeInterval: max(delay, 0.001), repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.tick() }
+        }
+        // No tolerance: the whole point is the frame the line is due on.
+        timer.tolerance = 0
+        RunLoop.main.add(timer, forMode: .common)
+        boundaryTimer = timer
+    }
     /// How long an active panel waits for an authoritative reading before it
     /// settles for the position it has. Long enough for the ~150ms a real fix
     /// takes, short enough that nobody reads it as missing lyrics.
@@ -198,6 +264,24 @@ final class MediaController: ObservableObject {
     /// carried the poll's ±80ms of scheduling jitter straight into the sweep;
     /// the mean of five converges to the player's line instead.
     static let correctionWindowSize = 5
+
+    /// How often the position is republished while the panel is open.
+    ///
+    /// This was four times a second, chosen so the scrubber advanced in
+    /// sub-pixel steps. It is also how stale the published position can be,
+    /// and *that* is what a lyric reads: `position` only moves when this fires,
+    /// so a surface drawing between two ticks is showing a number up to a full
+    /// interval old. The live probe measured it — steady-play delta ran a
+    /// median 0.235s behind Spotify against a true pipeline lag of about
+    /// 0.11s, the rest being exactly this staleness — and the spread it
+    /// produced was what failed the harness's 150ms word-timing gate, with the
+    /// bias itself very nearly zero.
+    ///
+    /// Ten times a second costs six extra wake-ups per second, only while the
+    /// panel is open, and cuts the worst-case staleness from 250ms to 100ms.
+    /// The boundary timer beside it still fires exactly on a line change, so
+    /// what this governs is the sweep and the bar between those changes.
+    static let positionTickInterval: TimeInterval = 0.1
     /// The last corrections as (monotonic moment, RTT-aged position), oldest
     /// first. Reset wherever the line discontinues — a pause lets the monotonic
     /// clock run while the position stands still, so origins from before it
@@ -297,6 +381,8 @@ final class MediaController: ObservableObject {
         observers.removeAll()
         ticker?.invalidate()
         ticker = nil
+        boundaryTimer?.invalidate()
+        boundaryTimer = nil
     }
 
     /// Panel visibility. The position ticker hangs off this: it exists to move
@@ -1320,15 +1406,21 @@ final class MediaController: ObservableObject {
         // re-evaluated wherever they change rather than at the handful of call
         // sites that happened to remember.
         updatePrecisionSync()
-        guard isPlaying, isActive else { return }
-        // Four times a second: the bar advances in sub-pixel steps, so it reads
-        // as smooth without any animation smoothing the seek away with it.
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+        guard isPlaying, isActive else {
+            boundaryTimer?.invalidate()
+            boundaryTimer = nil
+            return
+        }
+        let timer = Timer(timeInterval: Self.positionTickInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.tick() }
         }
-        timer.tolerance = 0.05
+        // A twentieth of the interval, so the grid stays a grid. At the old
+        // 0.05 tolerance on a 0.25 interval the system was free to slide a
+        // tick a fifth of the way to the next one.
+        timer.tolerance = Self.positionTickInterval / 20
         RunLoop.main.add(timer, forMode: .common)
         ticker = timer
+        armBoundaryTimer()
     }
 
     /// Advances the bar from the anchor. Internal so tests can drive the clock
@@ -1337,5 +1429,8 @@ final class MediaController: ObservableObject {
         guard let anchor, isPlaying else { return }
         let value = anchor.position + (monotonicNow() - anchor.atMono) * playbackRate
         position = duration > 0 ? min(value, duration) : value
+        // Whether this was the grid or a boundary, the next boundary is armed
+        // from the position just published.
+        armBoundaryTimer()
     }
 }

@@ -68,7 +68,7 @@ struct NotchContentView: View {
                     // The same lift as unlocked, and the same exclusion: the
                     // cutout is a hole and nothing may be drawn in it.
                     .overlay { hoverLift }
-                    .animation(Theme.open(reduceMotion: reduceMotion), value: vm.isHovering)
+                    .animation(Theme.contentAnimation, value: vm.isHovering)
                     // The edge says the island is there; the shake says it is
                     // not opening here. Two different answers to two different
                     // gestures, rather than one shake for both.
@@ -252,7 +252,10 @@ struct NotchContentView: View {
                 }
         )
         .animation(Theme.open(reduceMotion: reduceMotion), value: isOpen)
-        .animation(Theme.open(reduceMotion: reduceMotion), value: vm.isHovering)
+        // The lift is a brightening, not a travel: it answers the pointer on
+        // the content ease, not the open spring. On the spring it took 0.34 s
+        // to arrive, which read as the island noticing the pointer late.
+        .animation(Theme.contentAnimation, value: vm.isHovering)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: compactActivity)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.paneAnimation, value: vm.tab)
@@ -304,7 +307,7 @@ struct NotchContentView: View {
             if !vm.isShowingWelcome {
                 Text(vm.tab.title.uppercased())
                     .islandFont(.caption, weight: .semibold)
-                    .tracking(0.8)
+                    .tracking(Theme.capsTracking)
                     .foregroundStyle(Theme.tertiary)
                     .padding(.leading, 16)
                     .id(vm.tab)
@@ -414,40 +417,53 @@ struct NotchContentView: View {
     @ViewBuilder
     private var hoverLift: some View {
         if vm.isHovering || isPressed {
-            let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2 + topRadius)
-            HStack(spacing: 0) {
-                // Each wing fades out toward the cutout, the way the wing
-                // surface underneath already fades into the hardware edge.
-                // Without it the two wings lit as hard-edged blocks either side
-                // of the notch — two rectangles switching on, rather than light
-                // falling across the island.
-                Self.liftFill
-                    .frame(width: wingWidth)
-                    .mask(Self.falloff(towards: .trailing))
-                if vm.geometry.isPhysical {
-                    Color.clear.frame(width: vm.geometry.notchSize.width)
-                } else {
-                    Self.liftFill.frame(width: vm.geometry.notchSize.width)
+            ZStack {
+                liftWings
+                // Pressing deepens the same light rather than introducing a
+                // second idea: the wings are lit a second time, so the surface
+                // catches more of it the harder you are asking. This used to be
+                // `.opacity(2.2)` on the one layer, which the compositor clamps
+                // to 1 — the press looked exactly like the hover, and the whole
+                // press-down path drew nothing.
+                if isPressed {
+                    liftWings.transition(.opacity)
                 }
-                Self.liftFill
-                    .frame(width: wingWidth)
-                    .mask(Self.falloff(towards: .leading))
             }
-            .frame(width: size.width + 2 * topRadius, height: size.height)
-            .clipShape(
-                NotchShape(
-                    topRadius: Theme.collapsedTopRadius,
-                    bottomRadius: Theme.collapsedBottomRadius
-                )
-            )
             .allowsHitTesting(false)
-            // Pressing deepens the same light rather than introducing a second
-            // idea. One vocabulary: the surface catches more of it the harder
-            // you are asking.
-            .opacity(isPressed ? 2.2 : 1)
             .animation(Theme.contentAnimation, value: isPressed)
             .transition(.opacity)
         }
+    }
+
+    /// The lift itself: both wings, faded toward the cutout, clipped to the
+    /// collapsed island.
+    private var liftWings: some View {
+        let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2 + topRadius)
+        return HStack(spacing: 0) {
+            // Each wing fades out toward the cutout, the way the wing
+            // surface underneath already fades into the hardware edge.
+            // Without it the two wings lit as hard-edged blocks either side
+            // of the notch — two rectangles switching on, rather than light
+            // falling across the island.
+            Self.liftFill
+                .frame(width: wingWidth)
+                .mask(Self.falloff(towards: .trailing))
+            if vm.geometry.isPhysical {
+                Color.clear.frame(width: vm.geometry.notchSize.width)
+            } else {
+                Self.liftFill.frame(width: vm.geometry.notchSize.width)
+            }
+            Self.liftFill
+                .frame(width: wingWidth)
+                .mask(Self.falloff(towards: .leading))
+        }
+        .frame(width: size.width + 2 * topRadius, height: size.height)
+        .clipShape(
+            NotchShape(
+                topRadius: Theme.collapsedTopRadius,
+                bottomRadius: Theme.collapsedBottomRadius
+            )
+        )
     }
 
     /// What macOS does when the pointer finds something pressable: lighten the
@@ -695,7 +711,8 @@ struct NotchContentView: View {
                 removeLocalBinding: vm.lyricsCoordinator.removeLocalBinding,
                 localLibrary: vm.localLyricsLibrary,
                 currentLocalTrackIdentity: { vm.lyricsCoordinator.currentLocalTrackIdentity },
-                morph: morph
+                morph: morph,
+                showingLyrics: $vm.isShowingLyrics
             )
         case .shelf:
             ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)
@@ -828,7 +845,8 @@ private struct Rail: View {
                 // stutter.
                 .scaleEffect(reduceMotion ? 1 : (hovered == tab ? 1.15 : 1))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
+        .help(tab.title)
         .accessibilityLabel(tab.title)
         .accessibilityAddTraits(vm.tab == tab ? [.isButton, .isSelected] : .isButton)
         .onHover { inside in

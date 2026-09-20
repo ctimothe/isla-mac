@@ -174,8 +174,8 @@ final class FirstRunTests: XCTestCase {
 
     func testEveryLocalLyricsStringHasEnglishAndRussianTranslations() throws {
         let keys = [
-            "Local Lyrics Library", "Add Lyrics Folder…", "No local lyrics",
-            "This LRC file is invalid", "Export LRC", "Lyrics stay on this Mac.",
+            "Local Lyrics Library", "Add Lyrics Folder…", "No local lyrics.",
+            "This LRC file is invalid.", "Export LRC", "Lyrics stay on this Mac.",
         ]
         for language in ["en", "ru"] {
             let table = try Self.table(language)

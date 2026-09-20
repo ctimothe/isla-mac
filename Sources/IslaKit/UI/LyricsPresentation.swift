@@ -14,8 +14,10 @@ enum LyricsPresentation {
         switch availability {
         case .disabled:
             return localized("Lyrics are switched off in Settings.")
-        case .settlingPlayback:
-            return localized("Syncing playback…")
+        case .resolving:
+            // Deliberately empty: the slot holds its height and fills when the
+            // answer lands, so a fast one never shows a loading state.
+            return ""
         case .findingLocalLyrics:
             return localized("Finding lyrics…")
         case .ready:
@@ -23,7 +25,7 @@ enum LyricsPresentation {
                 ? currentLine!
                 : localized("Finding lyrics…")
         case .noLocalLyrics:
-            return localized("No local lyrics")
+            return localized("No local lyrics.")
         case .invalidLocalFile:
             return localized("No lyrics for this track.")
         }

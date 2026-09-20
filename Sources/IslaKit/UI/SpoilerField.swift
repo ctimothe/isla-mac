@@ -181,8 +181,13 @@ struct RevealEye: View {
                 .islandFont(.caption, weight: .semibold)
                 .foregroundStyle(Theme.secondary)
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                // A 10pt glyph is a 10pt target; the row's own background is a
+                // control, so a near miss does something else.
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .help(hidden ? Text(localized("Show")) : Text(localized("Hide")))
+        .accessibilityLabel(hidden ? localized("Show") : localized("Hide"))
     }
 }

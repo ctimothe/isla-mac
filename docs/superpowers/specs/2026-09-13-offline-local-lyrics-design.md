@@ -13,6 +13,35 @@ This supersedes the licensed-broker design. Isla will not operate a lyric
 service, accept provider credentials, contact a lyrics endpoint, or distribute
 a bundled lyric catalogue.
 
+> **Amended 2026-09-21 — one endpoint, off by default.** "Contact a lyrics
+> endpoint" is narrowed; everything else in this sentence still stands. Isla
+> still operates no service, holds no credential, and ships no catalogue.
+>
+> The reason is one this design could not answer: a streamed track has no file
+> on this Mac, so no offline lookup can ever find words for it. In practice
+> that meant a listener on Spotify saw "No local lyrics" on every song and the
+> only cure was to find an LRC by hand, per song. The owner decided on
+> 2026-09-21 that this cost more than the rule bought.
+>
+> What is admitted, and nothing more: **LRCLIB** (`https://lrclib.net/api/get`),
+> a free community catalogue that needs no account and no key, consulted
+> **only** when the local library reports no match at all, and **only** while
+> `Look Up Lyrics Online` is switched on — off on a fresh install. What leaves
+> the Mac is the track's title, artist, album and duration. Nothing identifies
+> the listener, nothing is uploaded, and there is no analytics or contribution
+> call.
+>
+> The non-goals below are otherwise unchanged, and two of them now bind this
+> path too. **Word timing is still never invented:** LRCLIB carries line-level
+> LRC, so a timeline from it is `.line` and the karaoke sweep stays off for it —
+> only an enhanced LRC you import animates word by word. **An ambiguous local
+> result still asks you to choose** rather than quietly fetching instead: a
+> file you put there outranks anything a catalogue suggests.
+>
+> Held by `OfflineLyricsIsolationTests`, which no longer forbids the network
+> outright but bounds it — exactly one source file may reach it, at exactly
+> this endpoint, and the removed providers and the broker stay removed.
+
 ## Non-goals
 
 - Universal automatic lyric coverage.

@@ -34,6 +34,7 @@ struct SettingsPane: View {
     @State private var showOnLockScreen = NotchViewModel.showOnLockScreenEnabled
     @State private var lockCardStyle = NotchViewModel.lockCardStyle
     @State private var showLyrics = NotchViewModel.showLyricsEnabled
+    @State private var onlineLyrics = NotchViewModel.onlineLyricsEnabled
     /// Observed, not snapshotted: the connect flow completes in the browser
     /// long after this pane rendered, and a one-shot copy of isConnected sat
     /// on "Connect" forever while the tokens were already in the keychain.
@@ -61,32 +62,39 @@ struct SettingsPane: View {
                         )
                     )
                     // How long a pointer has to rest on the notch before the
-                    // panel opens. Only reachable when a hover is what opens it. The default is nearly instant, which suits a
-                    // real notch — a hole nothing lives under — but anyone who
-                    // keeps windows near the top of the screen can slow it so a
-                    // drive-by never opens the panel. Longer delays also make
-                    // the pill's click-to-pause usable before the panel opens.
+                    // panel opens. Only shown when a hover is what opens it. The
+                    // default is nearly instant, which suits a real notch — a
+                    // hole nothing lives under — but anyone who keeps windows
+                    // near the top of the screen can slow it so a drive-by never
+                    // opens the panel.
                     if opensOnHover {
-                    HStack(spacing: 8) {
-                        Image(systemName: SettingsIcon.hoverDelay)
-                            .islandFont(.body)
-                            .foregroundStyle(Theme.secondary)
-                            .frame(width: 16)
-                        Text(localized("Hover Delay"))
-                            .islandFont(.body)
-                            .foregroundStyle(.white)
-                        Slider(value: hoverDelayBinding, in: 0.05...1.0)
+                        HStack(spacing: 8) {
+                            Image(systemName: SettingsIcon.hoverDelay)
+                                .islandFont(.body)
+                                .foregroundStyle(Theme.secondary)
+                                .frame(width: 16)
+                            Text(localized("Hover Delay"))
+                                .islandFont(.body)
+                                .foregroundStyle(.white)
+                            Slider(
+                                value: hoverDelayBinding,
+                                in: 0.05...1.0,
+                                onEditingChanged: { editing in
+                                    guard !editing else { return }
+                                    commitHoverDelay()
+                                }
+                            )
                             .controlSize(.mini)
                             .tint(Theme.secondary)
-                        Text(String(format: "%.2fs", hoverDelay))
-                            .font(Theme.TypeRole.caption.font().monospacedDigit())
-                            .foregroundStyle(Theme.tertiary)
-                            .frame(width: 38, alignment: .trailing)
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: 26)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(localized("Hover Delay"))
+                            Text(localized("%.2fs", hoverDelay))
+                                .font(Theme.TypeRole.caption.font().monospacedDigit())
+                                .foregroundStyle(Theme.tertiary)
+                                .frame(width: 38, alignment: .trailing)
+                        }
+                        .padding(.horizontal, 8)
+                        .frame(height: 26)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(localized("Hover Delay"))
                     }
 
                     // How wide the panel opens. The window behind it never
@@ -111,7 +119,7 @@ struct SettingsPane: View {
                         )
                         .controlSize(.mini)
                         .tint(Theme.secondary)
-                        Text("\(Int(bodyWidth)) pt")
+                        Text(localized("%d pt", Int(bodyWidth)))
                             .font(Theme.TypeRole.caption.font().monospacedDigit())
                             .foregroundStyle(Theme.tertiary)
                             .frame(width: 38, alignment: .trailing)
@@ -130,7 +138,7 @@ struct SettingsPane: View {
                     )
                     toggleRow(
                         symbol: SettingsIcon.importRecordings,
-                        title: localized("Import Screen Recordings"),
+                        title: localized("Show Screen Captures"),
                         isOn: importRecordingsBinding
                     )
                     actionRow(symbol: SettingsIcon.showFolder, title: localized("Show Screenshots Folder")) {
@@ -166,27 +174,85 @@ struct SettingsPane: View {
                         )
                     )
                     toggleRow(
-                        symbol: SettingsIcon.lyrics,
+                        symbol: SettingsIcon.wordKaraoke,
                         title: localized("Word Karaoke"),
                         isOn: $lyrics.wordKaraokeEnabled
                     )
-                    noteRow(localized("Lyrics stay on this Mac."))
+                    // The correction that moves every song at once.
+                    //
+                    // The per-track nudge on the lyrics page fixes one bad
+                    // master; this fixes a catalogue — or a pair of AirPods,
+                    // or a Bluetooth speaker, which delay the audio and leave
+                    // every lyric on the Mac running early by the same amount.
+                    // It existed in the store and had no writer anywhere in the
+                    // interface, so the only fix for "all my lyrics run fast"
+                    // was to nudge every track one at a time.
+                    HStack(spacing: 8) {
+                        Image(systemName: SettingsIcon.lyricTiming)
+                            .islandFont(.body)
+                            .foregroundStyle(Theme.secondary)
+                            .frame(width: 16)
+                        Text(localized("Lyric Delay"))
+                            .islandFont(.body)
+                            .foregroundStyle(.white)
+                        Slider(value: $lyrics.userOffset, in: -3...3)
+                            .controlSize(.mini)
+                            .tint(Theme.secondary)
+                        Text(localized("%+.2fs", lyrics.userOffset))
+                            .font(Theme.TypeRole.caption.font().monospacedDigit())
+                            .foregroundStyle(Theme.tertiary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(localized("Lyric Delay"))
+                    .accessibilityValue(localized("%+.2fs", lyrics.userOffset))
+                    if abs(lyrics.userOffset) > 0.01 {
+                        actionRow(
+                            symbol: SettingsIcon.resetTiming,
+                            title: localized("Reset Lyric Delay")
+                        ) {
+                            lyrics.userOffset = 0
+                        }
+                    }
+                    noteRow(localized("Negative shows lyrics earlier; positive, later."))
+                    // The one switch in the lyric path that reaches the
+                    // network, and the note under it says so before it is
+                    // flipped rather than in a policy nobody opens.
+                    toggleRow(
+                        symbol: SettingsIcon.onlineLyrics,
+                        title: localized("Look Up Lyrics Online"),
+                        isOn: Binding(
+                            get: { onlineLyrics },
+                            set: { wants in
+                                onlineLyrics = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.onlineLyricsKey)
+                                onLyricsVisibilityChanged()
+                            }
+                        )
+                    )
+                    if onlineLyrics {
+                        noteRow(localized("Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you."))
+                    } else {
+                        noteRow(localized("Lyrics stay on this Mac."))
+                    }
                     noteRow(localized("Local Lyrics Library"))
-                    actionRow(symbol: SettingsIcon.lyrics, title: localized("Import LRC…")) {
+                    actionRow(symbol: SettingsIcon.importLyrics, title: localized("Import LRC…")) {
                         importLocalLyrics()
                     }
-                    actionRow(symbol: SettingsIcon.showFolder, title: localized("Add Lyrics Folder…")) {
+                    actionRow(symbol: SettingsIcon.addFolder, title: localized("Add Lyrics Folder…")) {
                         addLocalLyricsFolder()
                     }
                     ForEach(localLyrics.selectedFolders, id: \.path) { folder in
                         actionRow(
-                            symbol: SettingsIcon.clear,
+                            symbol: SettingsIcon.removeFolder,
                             title: localized("Remove %@", folder.lastPathComponent)
                         ) {
                             removeLocalLyricsFolder(folder)
                         }
                     }
-                    actionRow(symbol: SettingsIcon.showFolder, title: localized("Rescan Local Lyrics")) {
+                    actionRow(symbol: SettingsIcon.rescan, title: localized("Rescan Local Lyrics")) {
                         rescanLocalLyrics()
                     }
                     actionRow(symbol: SettingsIcon.showFolder, title: localized("Open Lyrics Folder")) {
@@ -210,12 +276,12 @@ struct SettingsPane: View {
                         noteRow(localized("Unassigned timing corrections"))
                         ForEach(lyrics.unassignedLegacyOffsets) { correction in
                             actionRow(
-                                symbol: SettingsIcon.clear,
+                                symbol: SettingsIcon.dismiss,
                                 title: localized("Dismiss %@", correction.filename)
                             ) {
                                 dismissUnassignedLyricsOffset(correction.filename)
                             }
-                            .accessibilityHint(String(format: "%+.2fs", correction.offset))
+                            .accessibilityHint(localized("%+.2fs", correction.offset))
                         }
                     }
                     toggleRow(
@@ -380,8 +446,8 @@ struct SettingsPane: View {
     }
 
 
-    /// Reuses `PrivacyMode`'s own per-section cover, the same switch the
-    /// status-bar menu's "Hide Contents" submenu flips.
+    /// Reuses `PrivacyMode`'s own per-section cover, so this row and the dots
+    /// it draws over a pane cannot disagree about what is hidden.
     private func privacyCoversBinding(for section: PrivacyMode.Section) -> Binding<Bool> {
         Binding(
             get: { privacy.covers(section) },
@@ -389,8 +455,6 @@ struct SettingsPane: View {
         )
     }
 
-    /// Matches the icon each section's own tab already uses (`NotchViewModel.Tab.symbol`),
-    /// so the same feature reads as the same feature here.
     /// Where the tokens are, in the user's words. Said out loud because the
     /// answer depends on how the app was signed, and somebody running a build
     /// they made themselves deserves to know it is not the keychain.
@@ -435,18 +499,21 @@ struct SettingsPane: View {
         (NSApp.delegate as? AppDelegate)?.refreshGeometry()
     }
 
+    /// The drag's live preview only, like `bodyWidthBinding`: the persist and
+    /// the sampler retune happen once, in `commitHoverDelay`, when the drag
+    /// ends, rather than on every tick of it.
     private var hoverDelayBinding: Binding<Double> {
-        Binding(
-            get: { hoverDelay },
-            set: { value in
-                hoverDelay = value
-                UserDefaults.standard.set(value, forKey: NotchViewModel.hoverDelayKey)
-                // The live sampler, not just the next panel built.
-                (NSApp.delegate as? AppDelegate)?.refreshPointerTuning()
-            }
-        )
+        Binding(get: { hoverDelay }, set: { hoverDelay = $0 })
     }
 
+    private func commitHoverDelay() {
+        UserDefaults.standard.set(hoverDelay, forKey: NotchViewModel.hoverDelayKey)
+        // The live sampler, not just the next panel built.
+        (NSApp.delegate as? AppDelegate)?.refreshPointerTuning()
+    }
+
+    /// Matches the icon each section's own tab already uses (`NotchViewModel.Tab.symbol`),
+    /// so the same feature reads as the same feature here.
     private func privacySymbol(for section: PrivacyMode.Section) -> String {
         switch section {
         case .clipboard: return SettingsIcon.clipboard
@@ -454,9 +521,6 @@ struct SettingsPane: View {
         }
     }
 
-    /// The one flow that needs a real dialog: pasting the client id. NSAlert
-    /// with a text field, because the panel cannot present sheets — it never
-    /// activates. The id is remembered, so this runs once.
     /// One click: straight to Spotify's consent page in the browser. The
     /// registration is built in, so there is nothing to paste and nothing to
     /// read — the way every other platform's connect button behaves.
@@ -480,7 +544,7 @@ struct SettingsPane: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title.uppercased())
                 .islandFont(.caption, weight: .semibold)
-                .tracking(0.6)
+                .tracking(Theme.capsTracking)
                 .foregroundStyle(Theme.tertiary)
                 .padding(.leading, 8)
             VStack(spacing: 1) {
@@ -548,7 +612,7 @@ struct SettingsPane: View {
                             )
                             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PanelButtonStyle())
                     .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
                 }
             }
@@ -612,7 +676,7 @@ struct SettingsPane: View {
             .frame(height: 26)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .disabled(disabled)
         .opacity(disabled ? 0.4 : 1)
     }

@@ -29,17 +29,13 @@ struct NotchGeometry {
     /// only one known to leave every rect consistent.
     let expandedSize = NotchMetrics.body(width: NotchViewModel.bodyWidth)
 
-    /// Body for the teleprompter, the one tab that asks for more.
+    /// The tallest body the window is cut for.
     ///
-    /// Same width, so the panel does not change shape sideways — only the
-    /// bottom edge moves, and it moves away from the notch rather than around
-    /// it. The height is the smallest that fits a paragraph at a size readable
-    /// without focusing: below this the tab shows the current line and the next
-    /// one, which is a countdown, not a script.
-    static let tallBodyHeight = NotchMetrics.teleprompterBody.height
-    var tallExpandedSize: CGSize {
-        CGSize(width: expandedSize.width, height: Self.tallBodyHeight)
-    }
+    /// No tab asks for it any more — the teleprompter that did was removed on
+    /// 2026-08-22 — but the window is still cut to it, because the window is
+    /// never resized and every rect below is written against that height.
+    /// Same width as the standard body, so nothing ever changed shape sideways.
+    static let tallBodyHeight = NotchMetrics.tallestBody.height
     /// Tallest body any tab can ask for. The window is cut to this once and
     /// never resized: it is transparent outside the visible panel, and what is
     /// clickable is decided separately by the active rect.

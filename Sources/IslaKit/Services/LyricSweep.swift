@@ -15,15 +15,29 @@ import Foundation
 /// are separate clocks, and the only fix for separate clocks is one clock.
 @MainActor
 enum LyricSweep {
-    /// The live Spotify probe found the raw position clock about 110ms behind.
-    /// The former 450ms allowance compounded that lag into a visibly early
-    /// caption/card. One ticker interval remains enough to avoid displaying a
-    /// line late without making every source appear ahead of the voice.
-    static let standardLead: TimeInterval = 0.25
-    /// Precision sync corrects against the player's own clock, but the live
-    /// Spotify probe still measures cross-process sampling and rendering cost.
-    /// A 250ms surface lead keeps its lyric surface inside the 150ms p95 gate.
-    static let precisionLead: TimeInterval = 0.25
+    /// How far ahead of the clock a line is shown.
+    ///
+    /// Two terms, both measured or conventional, and one that used to be here
+    /// and is not any more. The live Spotify probe (`Scripts/measure-sync.sh`,
+    /// 2026-09-13) found the clock about 0.10s behind the audio in steady
+    /// play; that is the first term. The second is the anticipation every
+    /// karaoke surface carries on purpose — the system's own lyrics light a
+    /// line a beat before the voice reaches it, so the eye is already there —
+    /// and 0.10s is the small end of that. The term that is gone is the
+    /// ticker's quarter-second grid: `MediaController` now wakes on the frame
+    /// a line is due, so the lead no longer has to over-shoot to cover a
+    /// change that might land 250ms late. It was 0.25 when it did, and 0.45
+    /// before the probe measured anything, and both read as ahead of the
+    /// singing on the tracks the sources had timed well.
+    ///
+    /// The probe stays the arbiter: re-run it after any change here and read
+    /// the word-edge column before believing the number.
+    static let standardLead: TimeInterval = 0.20
+    /// Precision sync corrects against the player's own clock, and the probe
+    /// still measured the same 0.10s behind through cross-process sampling
+    /// and rendering — so the same two terms apply. Kept as its own constant
+    /// so the two paths can be re-measured apart.
+    static let precisionLead: TimeInterval = 0.20
 
     static func lead(
         precisionSync: Bool, userOffset: TimeInterval, trackOffset: TimeInterval = 0

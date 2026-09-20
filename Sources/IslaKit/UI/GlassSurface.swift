@@ -137,7 +137,7 @@ struct GlassSurface: View {
 
     /// A small tile of noise, made once and reused. Deterministic, so the
     /// surface looks the same every launch and a test can say what it is.
-    nonisolated(unsafe) static let grain: NSImage = grainTile(side: 96)
+    static let grain: NSImage = grainTile(side: 96)
 
     /// Plain value noise from a fixed seed — no Foundation randomness, so this
     /// is the same tile on every machine and in every run.
@@ -202,7 +202,11 @@ extension View {
         samplesBackdrop: Bool = true,
         // Force the drawn recipe even where the real material exists. For the
         // one surface that cannot sample anything: above the login shield.
-        preferDrawn: Bool = false
+        preferDrawn: Bool = false,
+        // An opaque panel by choice rather than by the accessibility setting:
+        // the same surface Reduce Transparency draws, asked for on purpose.
+        // The lock card's Solid style is the one caller.
+        solid: Bool = false
     ) -> some View {
         modifier(GlassSurfaceStyle(
             cornerRadius: cornerRadius,
@@ -210,7 +214,8 @@ extension View {
             tint: tint,
             light: light,
             samplesBackdrop: samplesBackdrop,
-            preferDrawn: preferDrawn
+            preferDrawn: preferDrawn,
+            solid: solid
         ))
     }
 }
@@ -224,6 +229,7 @@ struct GlassSurfaceStyle: ViewModifier {
     let light: NSImage?
     let samplesBackdrop: Bool
     let preferDrawn: Bool
+    var solid: Bool = false
 
     /// Whether Apple's material is both available and able to do its job.
     ///
@@ -233,14 +239,15 @@ struct GlassSurfaceStyle: ViewModifier {
     /// the opposite of belonging to the platform, and the setting exists because
     /// for some people translucency is unreadable rather than merely fancy.
     var usesSystemGlass: Bool {
-        guard !preferDrawn, !NotchViewModel.forcesDrawnGlass, samplesBackdrop else { return false }
+        guard !preferDrawn, !NotchViewModel.forcesDrawnGlass, samplesBackdrop, !solid else { return false }
         guard !appearance.reduceTransparency else { return false }
         if #available(macOS 26.0, *) { return true }
         return false
     }
 
-    /// Whether to draw glass at all, as opposed to an opaque panel.
-    var isOpaque: Bool { appearance.reduceTransparency }
+    /// Whether to draw glass at all, as opposed to an opaque panel — the
+    /// setting's answer, or the caller's.
+    var isOpaque: Bool { appearance.reduceTransparency || solid }
 
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *), usesSystemGlass {

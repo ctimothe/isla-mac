@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# ./scripts/check — the one verification gate for dynamic-island.
+# ./scripts/check — the one verification gate for Isla: what every change owes.
+# The packaging gates (bundle, identity, helper, package, gatekeeper, lifecycle,
+# dmg) belong to a release candidate and live in docs/runbook.md §2.
 #
 # Run by humans, coding agents (Claude Code, Codex, OpenCode), git hooks, and CI.
 # Passing this is what "done" means here. Nothing else counts as evidence.

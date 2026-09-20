@@ -16,7 +16,7 @@ public enum IslaApplication {
         let delegate = AppDelegate()
         app.delegate = delegate
         app.setActivationPolicy(activationPolicy)
-        objc_setAssociatedObject(app, "dynamic-island.delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(app, "isla.delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
         app.run()
     }
 }
