@@ -176,3 +176,7 @@
 "Negative shows lyrics earlier; positive, later." = "Отрицательное значение показывает текст раньше, положительное — позже.";
 "Copy Line" = "Скопировать строку";
 "Copy All Lyrics" = "Скопировать весь текст";
+
+/* Онлайн-поиск текста */
+"Look Up Lyrics Online" = "Искать текст онлайн";
+"Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you." = "Запрашивает LRCLIB для треков, которым не нашлось локального файла. Отправляются название, исполнитель, альбом и длительность — ничего о вас.";

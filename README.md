@@ -68,12 +68,17 @@ because each sends something you own somewhere you cannot see.
 
 - **Save clipboard screenshots** writes a copy of every image that reaches the
   pasteboard to `~/Pictures/Isla` (most recent 200; clearing goes to the Trash).
-- **Lyrics** is opt-in and fully offline. Isla reads only LRC files you import
-  or files in folders you explicitly select; it does not download, upload,
-  scrape, or send lyric data anywhere. Imported copies, bindings, and timing
-  corrections stay on this Mac. Enhanced LRC word timestamps animate only when
-  the active player has a measured precision clock; other players highlight
-  complete lines.
+- **Lyrics** is opt-in. Isla reads LRC files you import and files in folders
+  you explicitly select; imported copies, bindings, and timing corrections stay
+  on this Mac. Enhanced LRC word timestamps animate only when the active player
+  has a measured precision clock; other players highlight complete lines.
+- **Look Up Lyrics Online** is a second switch, also off by default, and the
+  only part of Isla that asks the internet for anything. With it on, a track
+  that no local file matches is looked up at
+  [LRCLIB](https://lrclib.net) — a free community catalogue needing no account
+  and no key. What leaves the Mac is the title, artist, album and length of the
+  track. Nothing identifies you, nothing is uploaded, and answers are cached so
+  a song is asked about once. A file you chose always wins over the catalogue.
 - **Connecting a Spotify account** (Settings → Spotify) authorizes Isla through
   Spotify's own PKCE flow in the browser, for one feature the local APIs do not
   expose: Liked Songs. There is **no client secret**; tokens live in the keychain

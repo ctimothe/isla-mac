@@ -34,6 +34,7 @@ struct SettingsPane: View {
     @State private var showOnLockScreen = NotchViewModel.showOnLockScreenEnabled
     @State private var lockCardStyle = NotchViewModel.lockCardStyle
     @State private var showLyrics = NotchViewModel.showLyricsEnabled
+    @State private var onlineLyrics = NotchViewModel.onlineLyricsEnabled
     /// Observed, not snapshotted: the connect flow completes in the browser
     /// long after this pane rendered, and a one-shot copy of isConnected sat
     /// on "Connect" forever while the tokens were already in the keychain.
@@ -216,7 +217,26 @@ struct SettingsPane: View {
                         }
                     }
                     noteRow(localized("Negative shows lyrics earlier; positive, later."))
-                    noteRow(localized("Lyrics stay on this Mac."))
+                    // The one switch in the lyric path that reaches the
+                    // network, and the note under it says so before it is
+                    // flipped rather than in a policy nobody opens.
+                    toggleRow(
+                        symbol: SettingsIcon.onlineLyrics,
+                        title: localized("Look Up Lyrics Online"),
+                        isOn: Binding(
+                            get: { onlineLyrics },
+                            set: { wants in
+                                onlineLyrics = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.onlineLyricsKey)
+                                onLyricsVisibilityChanged()
+                            }
+                        )
+                    )
+                    if onlineLyrics {
+                        noteRow(localized("Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you."))
+                    } else {
+                        noteRow(localized("Lyrics stay on this Mac."))
+                    }
                     noteRow(localized("Local Lyrics Library"))
                     actionRow(symbol: SettingsIcon.importLyrics, title: localized("Import LRC…")) {
                         importLocalLyrics()

@@ -39,6 +39,15 @@ final class LyricsCoordinator: ObservableObject {
     let library: LocalLyricsLibrary
     private let media: MediaController
     private let isEnabled: () -> Bool
+    private let isOnlineEnabled: () -> Bool
+    private let onlineCache: OnlineLyricsCache
+    private let onlineLookUp: (LocalTrackIdentity) async -> OnlineLyrics.Outcome
+    /// A timeline LRCLIB answered with, for the track on screen now. Cleared on
+    /// every track change, so a fetch that lands late for the previous song
+    /// cannot present itself against this one.
+    private var onlineTimeline: LyricTimeline?
+    /// Bumped per track, so a slow answer can tell it is no longer wanted.
+    private var lookUpGeneration = 0
     private weak var presentation: LyricsStore?
     private var observers = Set<AnyCancellable>()
     private var logicalTrackKey: String?
@@ -50,12 +59,22 @@ final class LyricsCoordinator: ObservableObject {
         media: MediaController,
         library: LocalLyricsLibrary,
         isEnabled: @escaping () -> Bool,
-        presentation: LyricsStore? = nil
+        isOnlineEnabled: @escaping () -> Bool = { false },
+        presentation: LyricsStore? = nil,
+        onlineCache: OnlineLyricsCache? = nil,
+        onlineLookUp: @escaping (LocalTrackIdentity) async -> OnlineLyrics.Outcome = {
+            await OnlineLyrics.lookUp($0)
+        }
     ) {
         self.media = media
         self.library = library
         self.isEnabled = isEnabled
+        // Default false, so a coordinator built without an opinion — every
+        // existing test — never reaches the network.
+        self.isOnlineEnabled = isOnlineEnabled
         self.presentation = presentation
+        self.onlineCache = onlineCache ?? OnlineLyricsCache()
+        self.onlineLookUp = onlineLookUp
     }
 
     func start() {
@@ -77,6 +96,8 @@ final class LyricsCoordinator: ObservableObject {
         observers.removeAll()
         logicalTrackKey = nil
         currentIdentity = nil
+        onlineTimeline = nil
+        lookUpGeneration += 1
         localLookup = nil
         hasLocalOverride = false
         presentation?.presentLocalOverride(false)
@@ -88,7 +109,11 @@ final class LyricsCoordinator: ObservableObject {
         reconcileTrack(track: media.track, duration: media.duration, force: true)
     }
 
+    /// Ask again, including the network. A remembered miss is forgotten first,
+    /// so Retry means retry rather than "show me the same no".
     func retry() {
+        onlineTimeline = nil
+        if let currentIdentity { onlineCache.forget(currentIdentity) }
         recheckCurrentTrack()
     }
 
@@ -142,6 +167,10 @@ final class LyricsCoordinator: ObservableObject {
         }
 
         logicalTrackKey = track.key
+        // A new song: whatever the network said about the last one is not about
+        // this one, and any answer still in flight is stale.
+        onlineTimeline = nil
+        lookUpGeneration += 1
         currentIdentity = LocalTrackIdentity(
             playerID: media.lyricPlayerID,
             title: track.title,
@@ -167,10 +196,38 @@ final class LyricsCoordinator: ObservableObject {
         publishAvailability()
         localLookup = library.lookup(identity: identity)
         publishAvailability()
+        lookUpOnlineIfNeeded(for: identity)
+    }
+
+    /// The network, and only where nothing else can answer.
+    ///
+    /// Reached only when the local library found *no* match at all. An
+    /// ambiguous local result still asks the listener to choose — a file they
+    /// put there outranks anything a catalogue suggests, and quietly fetching
+    /// instead of asking would be the app deciding for them.
+    private func lookUpOnlineIfNeeded(for identity: LocalTrackIdentity) {
+        guard isOnlineEnabled(), isEnabled(), localLookup == .noMatch else { return }
+        if let remembered = onlineCache.cached(identity) {
+            // Asked before: a remembered hit shows at once and a remembered
+            // miss stays a miss, so a library of tracks LRCLIB does not have
+            // costs one request each rather than one per play.
+            onlineTimeline = remembered
+            publishAvailability()
+            return
+        }
+        let generation = lookUpGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            let outcome = await self.onlineLookUp(identity)
+            guard self.lookUpGeneration == generation else { return }
+            self.onlineCache.remember(outcome, for: identity)
+            if case .found(let timeline) = outcome { self.onlineTimeline = timeline }
+            self.publishAvailability()
+        }
     }
 
     private func publishAvailability() {
-        guard isEnabled(), currentIdentity != nil else {
+        guard isEnabled(), let identity = currentIdentity else {
             availability = .disabled
             presentation?.present(availability)
             media.setLyricBoundaries([], lead: { 0 })
@@ -183,7 +240,21 @@ final class LyricsCoordinator: ObservableObject {
         switch localLookup {
         case .ready(let candidate): availability = .ready(candidate.timeline)
         case .invalid(let issue): availability = .invalidLocalFile(issue)
-        case .noMatch, .ambiguous: availability = .noLocalLyrics
+        case .noMatch:
+            // The network's answer stands in only where there is no local one.
+            if let onlineTimeline {
+                availability = .ready(onlineTimeline)
+            } else if isOnlineEnabled(), isEnabled() {
+                // Still asking. The caption already says "Finding lyrics…",
+                // which is true of a request in flight as much as of a folder
+                // scan, so no surface needs a new state to render.
+                availability = onlineCache.cached(identity) == nil
+                    ? .findingLocalLyrics
+                    : .noLocalLyrics
+            } else {
+                availability = .noLocalLyrics
+            }
+        case .ambiguous: availability = .noLocalLyrics
         case nil: availability = .findingLocalLyrics
         }
         presentation?.present(availability)

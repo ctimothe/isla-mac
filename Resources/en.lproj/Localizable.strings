@@ -177,3 +177,7 @@
 "Negative shows lyrics earlier; positive, later." = "Negative shows lyrics earlier; positive, later.";
 "Copy Line" = "Copy Line";
 "Copy All Lyrics" = "Copy All Lyrics";
+
+/* Online lyrics */
+"Look Up Lyrics Online" = "Look Up Lyrics Online";
+"Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you." = "Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you.";

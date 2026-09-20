@@ -127,6 +127,90 @@ final class LyricsCoordinatorTests: XCTestCase {
         )
     }
 
+    /// Off by default, and off means no request is ever made.
+    ///
+    /// The switch is the whole privacy claim. A coordinator built without an
+    /// opinion — which is every other test in this file — must never reach the
+    /// network, so the default is proved here rather than assumed.
+    func testNothingReachesTheNetworkWhileTheSwitchIsOff() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        var asked = 0
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true },
+            onlineCache: OnlineLyricsCache(directory: root),
+            onlineLookUp: { _ in asked += 1; return .none }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        media.apply(playingSnapshot())
+
+        XCTAssertEqual(asked, 0, "the default must not reach the network")
+        XCTAssertEqual(coordinator.availability, .noLocalLyrics)
+    }
+
+    /// A file the listener chose outranks anything a catalogue could offer, so
+    /// a local match means the network is never asked at all.
+    func testALocalMatchIsNeverSecondGuessedOnline() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        _ = try library.importDocument(at: try writeLRC(), binding: nil)
+        let media = MediaController()
+        var asked = 0
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true },
+            isOnlineEnabled: { true },
+            onlineCache: OnlineLyricsCache(directory: root),
+            onlineLookUp: { _ in asked += 1; return .none }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        media.apply(playingSnapshot())
+
+        XCTAssertEqual(asked, 0, "a local file answers; nothing else is consulted")
+        guard case .ready(let timeline) = coordinator.availability else {
+            return XCTFail("the local file is what shows")
+        }
+        XCTAssertEqual(timeline.lines.first?.text, "Local opening")
+    }
+
+    /// And with nothing local and the switch on, the words arrive from LRCLIB.
+    func testWithNoLocalFileTheWordsComeFromTheService() async throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        let fetched = LyricTimeline(
+            lines: [LyricsStore.Line(at: 2, text: "From the catalogue")], granularity: .line
+        )
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true },
+            isOnlineEnabled: { true },
+            onlineCache: OnlineLyricsCache(directory: root),
+            onlineLookUp: { _ in .found(fetched) }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        media.apply(playingSnapshot())
+        // The lookup is a task; give it the one hop it needs to land.
+        for _ in 0..<50 {
+            if case .ready = coordinator.availability { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        guard case .ready(let timeline) = coordinator.availability else {
+            return XCTFail("an answer from the service is what shows when nothing local matches")
+        }
+        XCTAssertEqual(timeline.lines.first?.text, "From the catalogue")
+        XCTAssertEqual(timeline.granularity, .line, "never a word sweep from a line timeline")
+    }
+
     private func writeLRC() throws -> URL {
         let url = root.appendingPathComponent("song.lrc")
         try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Local opening".utf8)
