@@ -132,7 +132,8 @@ Costs more than it returns, for this app:
   `[offset:]` tag, and the sign convention is *not* agreed: Wikipedia documents `+` as "appear
   sooner", several format guides document `+` as later. An importer must therefore treat the
   tag as a magnitude plus a heuristic, not as a trusted signed value. Isla fixes its own
-  surface lead at 0.25 s (`LyricSweep.standardLead`/`precisionLead`).
+  surface lead at 0.20 s (`LyricSweep.standardLead`/`precisionLead`, retuned the same day
+  this was written, once line changes stopped landing on the 250 ms ticker grid).
 - **Line versus word is a data question before it is a design one.** Enhanced LRC (A2) carries
   `<mm:ss.xx>` word tags; Apple-style TTML carries `itunes:timing="Word"|"Line"`, background
   vocals as `ttm:role="x-bg"`, and translations/romanizations as `x-translation`/`x-roman`.
