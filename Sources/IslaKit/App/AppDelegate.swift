@@ -2,7 +2,9 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var controller: NotchController?
+    /// Readable so `IslaIntents` can reach the live panel the way `SettingsPane`
+    /// already reaches this delegate. Still only ever set here.
+    private(set) var controller: NotchController?
     private var hotKey: GlobalHotKey?
     private var translateHotKey: GlobalHotKey?
     private var lyricsHotKey: GlobalHotKey?

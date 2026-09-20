@@ -352,6 +352,25 @@ started; each is the owner's call.
   or Copy All Lyrics, which leaves out the credits the app inferred. The words
   were readable and not quotable, which for a lyric is most of the point.
 
+### Apple ecosystem — 2026-09-21
+
+- [x] **Shortcuts, Spotlight and Siri** (`Sources/IslaKit/App/IslaIntents.swift`).
+  Eight intents — Show Lyrics, Show Isla, Get Current Lyric, Get Current Track,
+  Set Lyric Delay, play/pause, next, previous — and four App Shortcut phrases,
+  so the first of those answer from Spotlight without anyone building a
+  shortcut first. No entitlement, no permission, no network: it adds a
+  *surface*, not a capability that leaves the machine, which is why it is
+  recorded here and not in the privacy list above.
+
+  The metadata Shortcuts reads is generated at bundle time by
+  `appintentsmetadataprocessor` out of the `.swiftconstvalues` SwiftPM already
+  emits — there is no Xcode project here to run the usual build phase. It needs
+  full Xcode rather than just the Command Line Tools: `Scripts/bundle.sh` warns
+  and continues without it, and `Scripts/test-package.sh` refuses a release
+  whose bundle lacks the metadata or its App Shortcuts. **Owed:** a human
+  opening Shortcuts and Spotlight to confirm the verbs appear and run; Launch
+  Services will likely want the app in `/Applications` to register them.
+
 Owed on the lyric path, in order:
 
 - [ ] **Re-run `Scripts/measure-sync.sh`.** The leads moved to 0.20 s and line

@@ -81,7 +81,8 @@ bash Scripts/test-localizations.sh # en/ru key parity, plutil-clean
 bash Scripts/bundle.sh release
 bash Scripts/test-identity.sh      # Info.plist name/id/executable/LSMinimumSystemVersion=15.0
 bash Scripts/test-helper.sh        # helper answers "get" with one line of JSON
-bash Scripts/test-package.sh       # bundle contract: binary, dylib, icon, both .lproj, licenses
+bash Scripts/test-package.sh       # bundle contract: binary, dylib, icon, both .lproj,
+                                   # licenses, App Intents metadata
 bash Scripts/test-gatekeeper.sh    # the outside view: Developer ID on the bundle and the
                                    # nested dylib, spctl, a stapled ticket, and the helper
                                    # loading under quarantine. Skips itself on an ad-hoc build

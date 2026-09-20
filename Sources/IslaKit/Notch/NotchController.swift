@@ -7,6 +7,11 @@ final class NotchController {
     private var panel: NotchPanel?
     private var rootView: NotchRootView?
     private var viewModel: NotchViewModel?
+
+    /// The live model, for App Intents. Read-only and optional on purpose: the
+    /// panel builds its model in `install()`, so an intent that launched the app
+    /// can arrive before there is one, and "not ready yet" is an honest answer.
+    var intentModel: NotchViewModel? { viewModel }
     private let pointer = PointerWatcher()
     private let lockPresence = LockScreenPresence()
     /// The lock screen's player, in a window of its own — see `LockCardWindow`.
