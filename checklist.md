@@ -435,11 +435,18 @@ Owed on the lyric path, in order:
   from 4 Hz to 10 Hz while the panel is open — six extra wake-ups a second,
   bounded to an open panel. Small, and unmeasured against the approved CPU
   gates, which were already blocked at `0.3%` vs Cyclop's `0.0%`.
-- [ ] **Word karaoke is gated on a *measured* clock, which today means Spotify
-  alone** (`LyricsPresentation.usesWordTiming` requires `precisionMeasured`).
-  An Apple Music listener with a word-timed LRC never sees the sweep, even
-  though the MediaRemote helper's clock may well be good enough. Deciding that
-  needs the probe pointed at Music, not a guess.
+- [x] **Word karaoke is not Spotify-only** — checked 2026-09-21, having
+  claimed otherwise. `MediaController.precisionPlayer` resolves to
+  `displayedPlayerApp`, which is Music *or* Spotify, and
+  `PlayerBridge.precisePosition` scripts either by bundle id. So an Apple
+  Music listener with a word-timed LRC and the switch on does get the sweep.
+  What genuinely has no measured clock is a browser tab or any non-scriptable
+  player, and there the line-level highlight is the honest answer.
+- [ ] **Fetched lyrics never animate word by word**, which is a *source*
+  question rather than a gate one: LRCLIB carries line-level LRC only. Word
+  timing today means an enhanced LRC imported by hand. Closing that means
+  either a word-level catalogue — which is what the removed QQ/KRC providers
+  were — or accepting that karaoke is for files you bring.
 - [ ] **Per-source bias** (`LyricSource.bias`, all zeros) — item 2 of the same
   investigation, and the amplifier behind "certain songs run fast".
 
