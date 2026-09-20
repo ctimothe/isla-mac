@@ -161,7 +161,18 @@ final class LyricsCoordinator: ObservableObject {
             return
         }
 
-        guard force || logicalTrackKey != track.key else {
+        // A track change, or a correction to the one already showing.
+        //
+        // The second case is not hypothetical: the player publishes the title
+        // before it knows the length, so this ran once with the new track and
+        // the *previous* track's duration. Keyed on the title alone, the stale
+        // duration then stuck for as long as the song played — and duration is
+        // what both the local matcher (±2s) and the online lookup identify a
+        // recording by, so that song simply had no lyrics until it was played
+        // again. Observed on 2026-09-21: a lookup cached against a length
+        // belonging to the song before it.
+        let durationMoved = currentIdentity.map { abs($0.duration - duration) > 1 } ?? true
+        guard force || logicalTrackKey != track.key || durationMoved else {
             publishAvailability()
             return
         }

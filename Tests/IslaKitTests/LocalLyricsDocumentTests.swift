@@ -42,4 +42,29 @@ final class LocalLyricsDocumentTests: XCTestCase {
 
         XCTAssertEqual(document.granularity, .word)
     }
+
+    /// A stamp with no words is a gap between verses, not a broken file.
+    ///
+    /// LRC writers mark the pause between stanzas with a bare timestamp, and
+    /// LRCLIB emits one in most files. This threw `emptyTimeline`, and because
+    /// that error aborts the whole parse, a single blank line rejected an
+    /// otherwise perfect lyric — an imported file was called invalid, and an
+    /// online answer was cached as "this track has no lyrics".
+    func testABareTimestampIsAGapAndNotABrokenFile() throws {
+        let document = try LocalLyricsDocument.parse("""
+        [00:10.58] Through your eyes I see
+        [00:15.77] A smile you bring to me
+        [00:21.05]
+        [00:26.30] Not a lot, just forever
+        """)
+        XCTAssertEqual(document.lines.map(\.text), [
+            "Through your eyes I see", "A smile you bring to me", "Not a lot, just forever",
+        ])
+        XCTAssertEqual(document.granularity, .line)
+    }
+
+    /// And a file that is nothing but gaps is still no lyric at all.
+    func testAFileWithNoWordsAnywhereIsStillRejected() {
+        XCTAssertThrowsError(try LocalLyricsDocument.parse("[00:01.00]\n[00:02.00]  "))
+    }
 }

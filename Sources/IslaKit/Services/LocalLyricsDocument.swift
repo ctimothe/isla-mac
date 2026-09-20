@@ -150,7 +150,14 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
 
         guard !timestamps.isEmpty else { return TimedLine(timestamps: [], text: "", words: []) }
         let content = String(remainder).trimmingCharacters(in: .whitespaces)
-        guard !content.isEmpty else { throw Error.emptyTimeline }
+        // A stamp with no words after it is a gap — the pause between verses,
+        // which LRC writers mark exactly this way and which LRCLIB emits in
+        // every second file. It used to throw `emptyTimeline`, and because that
+        // error aborts the whole parse, one blank stanza break rejected an
+        // otherwise perfect lyric: the file was reported invalid, and an online
+        // answer was cached as "this track has no lyrics". Dropped instead, so
+        // the line before it simply runs until the next one that has words.
+        guard !content.isEmpty else { return TimedLine(timestamps: [], text: "", words: []) }
         let words = try parseWords(in: content, lineStart: timestamps[0])
         let text = words.isEmpty ? content : words.map(\.text).joined(separator: " ")
         return TimedLine(timestamps: timestamps, text: text, words: words)
