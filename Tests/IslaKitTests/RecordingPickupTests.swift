@@ -30,7 +30,7 @@ final class RecordingPickupTests: XCTestCase {
         try write("Screen Recording 2026-09-11 at 10.00.02.mov", in: dir)
 
         let result = RecordingPickup.fresh(
-            in: dir, since: Date().addingTimeInterval(-3600), seen: []
+            in: [dir], since: Date().addingTimeInterval(-3600), seen: []
         )
 
         XCTAssertEqual(result.urls.map(\.lastPathComponent), [
@@ -46,29 +46,104 @@ final class RecordingPickupTests: XCTestCase {
         let dir = try folder()
         try write("old.mov", in: dir, modified: 30)
 
-        let first = RecordingPickup.fresh(in: dir, since: Date(), seen: [])
+        let first = RecordingPickup.fresh(in: [dir], since: Date(), seen: [])
         XCTAssertTrue(first.urls.isEmpty)
 
         let second = RecordingPickup.fresh(
-            in: dir, since: .distantPast, seen: first.seen
+            in: [dir], since: .distantPast, seen: first.seen
         )
         XCTAssertTrue(second.urls.isEmpty, "seen once means settled, whatever since says")
     }
 
-    func testNonMoviesAreIgnored() throws {
+    /// Anything that is not a capture is left where it is.
+    ///
+    /// A still now counts, so the rule that keeps a Desktop full of somebody's
+    /// own pictures off the shelf is the capture *prefix* — `picture.png` is
+    /// theirs, `Screenshot ….png` is the system's.
+    func testOnlyCapturesAreOffered() throws {
         let dir = try folder()
         try write("notes.txt", in: dir)
-        try write("shot.png", in: dir)
+        try write("picture.png", in: dir)
         try write("song.mp3", in: dir)
+        try write("Screenshot 2026-09-21 at 10.00.01.png", in: dir)
 
-        let result = RecordingPickup.fresh(in: dir, since: .distantPast, seen: [])
-        XCTAssertTrue(result.urls.isEmpty)
+        let result = RecordingPickup.fresh(in: [dir], since: .distantPast, seen: [])
+        XCTAssertEqual(
+            result.urls.map(\.lastPathComponent),
+            ["Screenshot 2026-09-21 at 10.00.01.png"]
+        )
+    }
+
+    /// A still saved to disk arrives on the shelf beside the recordings.
+    ///
+    /// Only clipboard images used to reach the shelf, so ⇧⌘4 to a file showed
+    /// nothing at all while ⇧⌘5 did — one capture key working and its
+    /// neighbour not, for no reason a person could see.
+    func testStillsAndRecordingsArriveTogetherOldestFirst() throws {
+        let dir = try folder()
+        try write("Screenshot 2026-09-21 at 10.00.01.png", in: dir, modified: 2)
+        try write("Screen Recording 2026-09-21 at 10.00.02.mov", in: dir, modified: 1)
+
+        let result = RecordingPickup.fresh(in: [dir], since: .distantPast, seen: [])
+        XCTAssertEqual(result.urls.map(\.lastPathComponent), [
+            "Screenshot 2026-09-21 at 10.00.01.png",
+            "Screen Recording 2026-09-21 at 10.00.02.mov",
+        ])
+    }
+
+    /// A custom prefix set in Screenshot.app's options is honoured.
+    func testACustomCaptureNameIsHonoured() throws {
+        let dir = try folder()
+        try write("Grab 2026-09-21 at 10.00.01.png", in: dir)
+        let prefixes = RecordingPickup.capturePrefixes(customName: "Grab")
+        let result = RecordingPickup.fresh(
+            in: [dir], since: .distantPast, seen: [], prefixes: prefixes
+        )
+        XCTAssertEqual(result.urls.map(\.lastPathComponent), ["Grab 2026-09-21 at 10.00.01.png"])
+    }
+
+    /// Changing the save location must not orphan what is still in the old one.
+    ///
+    /// The scan used to look at the current folder and nowhere else, so a
+    /// person who moved their captures mid-session lost everything already
+    /// sitting where they used to go.
+    func testCapturesInAPreviousFolderAreStillFound() throws {
+        let old = try folder()
+        let new = try folder()
+        try write("Screen Recording 2026-09-21 at 09.00.00.mov", in: old, modified: 2)
+        try write("Screenshot 2026-09-21 at 10.00.00.png", in: new, modified: 1)
+
+        let result = RecordingPickup.fresh(in: [new, old], since: .distantPast, seen: [])
+        XCTAssertEqual(Set(result.urls.map(\.lastPathComponent)), [
+            "Screen Recording 2026-09-21 at 09.00.00.mov",
+            "Screenshot 2026-09-21 at 10.00.00.png",
+        ])
+    }
+
+    /// And the folder list remembers where captures have been sent, so the
+    /// next scan still looks in the one that was just left behind.
+    func testTheFolderListRemembersWhereCapturesHaveBeenSent() throws {
+        let suite = "isla-capture-folders-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let folders = RecordingPickup.captureFolders(defaults: defaults)
+        XCTAssertFalse(folders.isEmpty)
+        XCTAssertEqual(
+            defaults.stringArray(forKey: RecordingPickup.knownFoldersKey), folders.map(\.path),
+            "what was scanned is written back, so a later change keeps it in the list"
+        )
+        // The Desktop is always in the list: it is where the system saves when
+        // nothing is configured.
+        let desktop = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Desktop", isDirectory: true).path
+        XCTAssertTrue(folders.map(\.path).contains(desktop))
     }
 
     func testMissingFolderIsEmptyNotAnError() {
         let missing = FileManager.default.temporaryDirectory
             .appendingPathComponent("isla-never-created-\(UUID())")
-        let result = RecordingPickup.fresh(in: missing, since: .distantPast, seen: [])
+        let result = RecordingPickup.fresh(in: [missing], since: .distantPast, seen: [])
         XCTAssertTrue(result.urls.isEmpty)
     }
 

@@ -138,7 +138,7 @@ struct SettingsPane: View {
                     )
                     toggleRow(
                         symbol: SettingsIcon.importRecordings,
-                        title: localized("Import Screen Recordings"),
+                        title: localized("Show Screen Captures"),
                         isOn: importRecordingsBinding
                     )
                     actionRow(symbol: SettingsIcon.showFolder, title: localized("Show Screenshots Folder")) {

@@ -138,7 +138,8 @@ final class ShelfStore: ObservableObject {
         guard let since = defaults.object(forKey: RecordingPickup.sinceKey) as? Date else { return }
         let seen = Set(defaults.stringArray(forKey: RecordingPickup.seenKey) ?? [])
         let result = RecordingPickup.fresh(
-            in: folder ?? RecordingPickup.captureFolder(), since: since, seen: seen
+            in: folder.map { [$0] } ?? RecordingPickup.captureFolders(defaults: defaults),
+            since: since, seen: seen
         )
         // Persisted even when nothing is offered: settling old files is what
         // keeps them settled, and a denied folder simply reports nothing.
