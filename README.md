@@ -52,6 +52,11 @@ Prefer to compile it yourself? See [Build from source](#build-from-source).
   Settings inside the panel carries Open Panel, About and Quit.
 - One rail carries **Music, Shelf, Clipboard, and Translate**, with **Settings**
   at its foot. Settings sets how wide the panel opens (480–620 pt).
+- **Shortcuts, Spotlight and Siri** reach the same verbs: Show Lyrics, Get
+  Current Lyric, Get Current Track, Set Lyric Delay, and play/next/previous.
+  Nothing to turn on, no permission, no network — the delay one exists because
+  Bluetooth headphones put every lyric early, and an automation can correct it
+  when they connect.
 - Translucent surfaces use the system's own material where macOS has it, and a
   hand-drawn recipe otherwise. **Reduce Transparency** replaces them with opaque
   panels and **Increase Contrast** gives them a border, both followed live.

@@ -86,3 +86,47 @@ final class LyricRoutesTests: XCTestCase {
         )
     }
 }
+
+/// What Isla hands the rest of the system.
+///
+/// An `AppIntent`'s `perform()` needs the live app, so what a unit test can
+/// hold is the pure shape around it: how a track is described, and that the
+/// delay intent's range matches the store's own clamp. Whether Shortcuts
+/// actually lists them is a bundle question, held by `Scripts/test-package.sh`,
+/// and whether they *run* is a human question.
+@MainActor
+final class IntentSurfaceTests: XCTestCase {
+
+    /// Artist first, because that is the order a person says it in, and the
+    /// title alone when there is no artist to name rather than a dangling dash.
+    func testATrackIsDescribedTheWayItIsSpoken() {
+        XCTAssertEqual(
+            CurrentTrackIntent.describe(
+                .init(title: "Song", artist: "Someone", album: "Album", key: "k")
+            ),
+            "Someone — Song"
+        )
+        XCTAssertEqual(
+            CurrentTrackIntent.describe(.init(title: "Song", artist: "", album: "", key: "k")),
+            "Song",
+            "no artist means no dash to hang"
+        )
+    }
+
+    /// The intent's parameter range and the store's clamp are the same number.
+    /// They are declared in two files, and a shortcut that could ask for four
+    /// seconds would get three back with no explanation.
+    func testTheDelayIntentOffersExactlyWhatTheStoreWillKeep() {
+        UserDefaults.standard.removeObject(forKey: LyricsStore.offsetKey)
+        defer { UserDefaults.standard.removeObject(forKey: LyricsStore.offsetKey) }
+        let store = LyricsStore()
+        store.userOffset = 3
+        XCTAssertEqual(store.userOffset, 3, accuracy: 0.0001)
+        store.userOffset = -3
+        XCTAssertEqual(store.userOffset, -3, accuracy: 0.0001)
+        // The intent declares `inclusiveRange: (-3, 3)`; anything past it is
+        // the store's business, and it holds.
+        store.userOffset = 3.01
+        XCTAssertEqual(store.userOffset, 3, accuracy: 0.0001)
+    }
+}
