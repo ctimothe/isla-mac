@@ -41,4 +41,17 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertGreaterThan(Theme.lyricScrollDamping, 0.75,
                              "a small overshoot, not a wobble")
     }
+
+    /// The caption's line turn stays inside its slot. The travel is clipped at
+    /// the slot's edge, so a travel past half the slot would have the arriving
+    /// line cut off mid-glyph before it settled; and it is a real travel, not a
+    /// crossfade wearing an offset — under 3 pt reads as a shiver.
+    func testTheLineTurnTravelsWithinTheCaptionSlot() {
+        XCTAssertLessThan(LyricLineTurn.travel, MediaPane.captionHeight / 2,
+                          "the turn must settle before the clip takes it")
+        XCTAssertGreaterThanOrEqual(LyricLineTurn.travel, 3, "a turn, not a shiver")
+        // Both ends of the modifier: gone and arrived.
+        XCTAssertEqual(LyricLineTurn(progress: 1, direction: 1).progress, 1)
+        XCTAssertEqual(LyricLineTurn(progress: 0, direction: -1).progress, 0)
+    }
 }

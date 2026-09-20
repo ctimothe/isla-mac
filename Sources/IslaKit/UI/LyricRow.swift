@@ -82,32 +82,50 @@ struct LyricRow: View {
                 .italic()
                 .foregroundStyle(.white.opacity(isCurrent ? 0.68 : 0.34))
                 .lineLimit(lineLimit)
-        } else if isCurrent {
-            KaraokeText(
-                text: line.text,
-                fraction: wordTimingEnabled
-                    ? LyricSweep.fraction(line: line, at: at, end: end)
-                    : 1,
-                reduceMotion: reduceMotion,
-                accent: accent,
-                font: .system(size: fontSize, weight: weight),
-                tracking: Theme.tracking(forSize: fontSize),
-                // Brighter than any neighbour even before the sweep arrives:
-                // the line being sung must never be the darkest thing on screen.
-                base: .white.opacity(0.5),
-                lineLimit: lineLimit
-            )
         } else {
-            // Depth through opacity alone. An early cut blurred and fractionally
-            // scaled these, which at reading size is not depth — it is smeared
-            // type, because subpixel scaling rasterises every glyph soft.
-            // Clamped to `falloffFloor`, never the bare 0.18: without the
-            // clamp the far lines sat at 1.54:1, unreadable as text.
-            Text(line.text)
-                .islandFont(fontSize, weight: weight)
-                .foregroundStyle(.white.opacity(falloffOpacity))
-                .lineLimit(lineLimit)
-                .truncationMode(.tail)
+            // The sung line lighting up is a motion, not a cut. This used to
+            // swap a dim `Text` for a bright `KaraokeText` the instant the clock
+            // crossed the line's timestamp — two views, no transition between
+            // them — so on every surface the line change was the one thing that
+            // did not move while the page under it did. The two now crossfade
+            // on the lyric spring: the dim line fades as the bright one arrives,
+            // which reads as the line lighting up in time with the voice, and
+            // the brightening and the page's travel are one gesture because they
+            // share one curve.
+            ZStack(alignment: .leading) {
+                if isCurrent {
+                    KaraokeText(
+                        text: line.text,
+                        fraction: wordTimingEnabled
+                            ? LyricSweep.fraction(line: line, at: at, end: end)
+                            : 1,
+                        reduceMotion: reduceMotion,
+                        accent: accent,
+                        font: .system(size: fontSize, weight: weight),
+                        tracking: Theme.tracking(forSize: fontSize),
+                        // Brighter than any neighbour even before the sweep
+                        // arrives: the line being sung must never be the darkest
+                        // thing on screen.
+                        base: .white.opacity(0.5),
+                        lineLimit: lineLimit
+                    )
+                    .transition(.opacity)
+                } else {
+                    // Depth through opacity alone. An early cut blurred and
+                    // fractionally scaled these, which at reading size is not
+                    // depth — it is smeared type, because subpixel scaling
+                    // rasterises every glyph soft. Clamped to `falloffFloor`,
+                    // never the bare 0.18: without the clamp the far lines sat
+                    // at 1.54:1, unreadable as text.
+                    Text(line.text)
+                        .islandFont(fontSize, weight: weight)
+                        .foregroundStyle(.white.opacity(falloffOpacity))
+                        .lineLimit(lineLimit)
+                        .truncationMode(.tail)
+                        .transition(.opacity)
+                }
+            }
+            .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: isCurrent)
         }
     }
 
@@ -119,5 +137,50 @@ struct LyricRow: View {
         let increaseContrast = SystemAppearance.shared.increaseContrast
         guard distance != 1 else { return Self.neighbourOpacity(increaseContrast: increaseContrast) }
         return Self.falloffFloor(increaseContrast: increaseContrast)
+    }
+}
+
+/// The next line arriving in a one-line slot — the caption on the panel — as a
+/// turn rather than a crossfade.
+///
+/// The new line rises into the slot from just below while the one it replaces
+/// lifts out above it, each softening as it goes: the way the system's own
+/// island swaps what it is showing, and the way a page of lyrics moves when
+/// the whole page is on screen. A crossfade in place was the one motion on the
+/// panel that told the eye nothing had moved, when the song had.
+struct LyricLineTurn: ViewModifier {
+    /// 1 while absent, 0 once arrived.
+    let progress: Double
+    /// +1 for a line arriving from below, −1 for one leaving upward.
+    let direction: CGFloat
+
+    /// Under half the caption slot: enough to read as travel, not enough to
+    /// leave the slot before the clip takes it. `MotionValuesTests` holds the
+    /// relation to `MediaPane.captionHeight`.
+    static let travel: CGFloat = 7
+
+    func body(content: Content) -> some View {
+        content
+            .offset(y: progress * Self.travel * direction)
+            .blur(radius: progress * 3)
+            .opacity(1 - progress)
+    }
+}
+
+extension AnyTransition {
+    /// One line giving way to the next. Reduce Motion keeps the change and
+    /// drops the travel, as every reduced variant here does.
+    static func lyricLine(reduceMotion: Bool) -> AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .modifier(
+                active: LyricLineTurn(progress: 1, direction: 1),
+                identity: LyricLineTurn(progress: 0, direction: 1)
+            ),
+            removal: .modifier(
+                active: LyricLineTurn(progress: 1, direction: -1),
+                identity: LyricLineTurn(progress: 0, direction: -1)
+            )
+        )
     }
 }

@@ -153,6 +153,9 @@ struct MediaPane: View {
                         lyricsLine
                     }
                     .frame(height: Self.captionHeight)
+                    // The line turn travels inside the slot and nowhere else:
+                    // a line lifting out must not cross the artist above it.
+                    .clipped()
                     .padding(.top, 4)
                     Spacer(minLength: 6)
                     // A live stream has no duration, and a scrubber with no
@@ -482,10 +485,11 @@ struct MediaPane: View {
                             tracking: Theme.tracking(forSize: Theme.TypeRole.body.size)
                         )
                         .italic(line.isCredit)
-                        // Keyed so a line change crossfades instead of morphing
-                        // glyph-by-glyph in place.
+                        // Keyed so a line change is a change of line — not a
+                        // morph glyph-by-glyph in place — and the change is a
+                        // turn, not a crossfade: see `AnyTransition.lyricLine`.
                         .id(line.at)
-                        .transition(.opacity)
+                        .transition(.lyricLine(reduceMotion: reduceMotion))
                         Image(systemName: "chevron.right")
                             // A glyph fitted to its row, not type: it sizes
                             // the chevron against the caption's cap height,
@@ -504,7 +508,10 @@ struct MediaPane: View {
                 }
                 .buttonStyle(PanelButtonStyle())
                 .onHover { captionHover = $0 }
-                .animation(Theme.contentAnimation, value: line.at)
+                // On the lyric spring, like the page and the row: the song
+                // carries this motion, so it is allowed the momentum the
+                // 0.16 s content ease was refusing it.
+                .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: line.at)
                 .animation(Theme.contentAnimation, value: captionHover)
                 .accessibilityLabel(localized("Lyrics"))
                 .accessibilityValue(line.text)
