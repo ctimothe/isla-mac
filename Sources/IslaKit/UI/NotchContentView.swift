@@ -711,7 +711,8 @@ struct NotchContentView: View {
                 removeLocalBinding: vm.lyricsCoordinator.removeLocalBinding,
                 localLibrary: vm.localLyricsLibrary,
                 currentLocalTrackIdentity: { vm.lyricsCoordinator.currentLocalTrackIdentity },
-                morph: morph
+                morph: morph,
+                showingLyrics: $vm.isShowingLyrics
             )
         case .shelf:
             ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)

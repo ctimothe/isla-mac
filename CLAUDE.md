@@ -140,10 +140,10 @@ once in `IslaApplication.run()` and never changed at runtime. There is
 no status item: Open Panel, About, Quit and the privacy toggles all live in the
 **Settings** tab (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
 directly). `NotchController` (~1250 lines) owns panel lifecycle, geometry,
-open/close timing, and the lock transition; `AppDelegate` owns the two global hot
-keys (⌥⌘I open, ⌥⌘T translate clipboard), the "Translate in Dynamic Island"
-service (`NSApp.servicesProvider`, no Accessibility permission), and the Spotify
-URL-scheme callback.
+open/close timing, and the lock transition; `AppDelegate` owns the three global hot
+keys (⌥⌘I open, ⌥⌘T translate clipboard, ⌥⌘L lyrics page), the "Translate in
+Isla" service (`NSApp.servicesProvider`, no Accessibility permission), and the
+Spotify URL-scheme callback.
 
 **Window sizing.** The window is cut once to the tallest body any tab can ask
 for and then never resized — it is transparent outside the visible panel, and

@@ -17,6 +17,14 @@ struct MediaPane: View {
     /// "draw the cover where it lands and nothing else", which is what a pane
     /// with no island around it should do.
     var morph: Namespace.ID?
+    /// Whether the pane is showing the lyrics page.
+    ///
+    /// A binding rather than this pane's own `@State`, because the page is a
+    /// place the app can be *sent* and not just a toggle the pane owns: ⌥⌘L
+    /// opens the panel straight onto it. It defaults to a constant so the pane
+    /// still renders standalone in the layout tests, where there is no panel
+    /// to route anything and nowhere for the request to go.
+    var showingLyrics: Binding<Bool> = .constant(false)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var scrubHover = false
@@ -39,8 +47,6 @@ struct MediaPane: View {
     /// is evidently not coming. Some sources never publish a cover, and a
     /// shimmer that promises one forever reads as stuck, not loading.
     @State private var artworkWaitExpired = false
-    /// True while the pane shows the full lyrics stage instead of the player.
-    @State private var showingLyrics = false
     @State private var editingCandidate: LocalLyricsCandidate?
     /// Hover on the caption, which surfaces its chevron.
     @State private var captionHover = false
@@ -61,7 +67,7 @@ struct MediaPane: View {
     var body: some View {
         if let track = media.track {
             ZStack {
-                if showingLyrics {
+                if showingLyrics.wrappedValue {
                     // The Liquid Glass entrance: blur, scale and opacity settle
                     // together, so the stage materializes rather than pops.
                     LyricsStage(
@@ -77,7 +83,7 @@ struct MediaPane: View {
                             editingCandidate = candidate
                         }
                     ) {
-                        showingLyrics = false
+                        showingLyrics.wrappedValue = false
                     }
                     .transition(reduceMotion ? AnyTransition.opacity : .materialize)
                 } else {
@@ -85,23 +91,16 @@ struct MediaPane: View {
                         .transition(reduceMotion ? AnyTransition.opacity : .materialize)
                 }
             }
-            .animation(Theme.paneAnimation, value: showingLyrics)
+            .animation(Theme.paneAnimation, value: showingLyrics.wrappedValue)
             // Leaving the track folds the stage: the next song starts on the
             // player, and a stage left open for a track without lyrics would
             // open onto its own empty state.
-            .onChange(of: track.key) { _, _ in showingLyrics = false }
+            .onChange(of: track.key) { _, _ in showingLyrics.wrappedValue = false }
             .onAppear {
                 media.refreshPlaybackModes()
                 if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
-                    DebugTrail.note("MediaPane track=\(track.title) showingLyrics=\(showingLyrics)")
+                    DebugTrail.note("MediaPane track=\(track.title) showingLyrics=\(showingLyrics.wrappedValue)")
                 }
-            }
-            // Verification hook, environment-gated: launching the binary with
-            // DI_OPEN_LYRICS=1 opens the stage without a pointer, which is how
-            // an agent without Accessibility permission can screenshot it. An
-            // app launched normally never has the variable.
-            .onAppear {
-                if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" { showingLyrics = true }
             }
             .sheet(item: $editingCandidate) { candidate in
                 if let localLibrary {
@@ -467,7 +466,7 @@ struct MediaPane: View {
                 // becomes the full scrolling lyrics. A chevron surfaces on
                 // hover so the door reads as one — a bare line of text gives
                 // no hint that it goes anywhere.
-                Button { showingLyrics = true } label: {
+                Button { showingLyrics.wrappedValue = true } label: {
                     HStack(spacing: 5) {
                         KaraokeText(
                             text: line.text,
@@ -525,7 +524,7 @@ struct MediaPane: View {
     }
 
     private var compactLyricsStatus: some View {
-        Button { showingLyrics = true } label: {
+        Button { showingLyrics.wrappedValue = true } label: {
             HStack(spacing: 5) {
                 if case .findingLocalLyrics = lyrics.availability {
                     ProgressView().controlSize(.mini).tint(Theme.tertiary)

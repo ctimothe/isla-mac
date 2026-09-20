@@ -177,6 +177,45 @@ struct SettingsPane: View {
                         title: localized("Word Karaoke"),
                         isOn: $lyrics.wordKaraokeEnabled
                     )
+                    // The correction that moves every song at once.
+                    //
+                    // The per-track nudge on the lyrics page fixes one bad
+                    // master; this fixes a catalogue — or a pair of AirPods,
+                    // or a Bluetooth speaker, which delay the audio and leave
+                    // every lyric on the Mac running early by the same amount.
+                    // It existed in the store and had no writer anywhere in the
+                    // interface, so the only fix for "all my lyrics run fast"
+                    // was to nudge every track one at a time.
+                    HStack(spacing: 8) {
+                        Image(systemName: SettingsIcon.lyricTiming)
+                            .islandFont(.body)
+                            .foregroundStyle(Theme.secondary)
+                            .frame(width: 16)
+                        Text(localized("Lyric Delay"))
+                            .islandFont(.body)
+                            .foregroundStyle(.white)
+                        Slider(value: $lyrics.userOffset, in: -3...3)
+                            .controlSize(.mini)
+                            .tint(Theme.secondary)
+                        Text(localized("%+.2fs", lyrics.userOffset))
+                            .font(Theme.TypeRole.caption.font().monospacedDigit())
+                            .foregroundStyle(Theme.tertiary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(localized("Lyric Delay"))
+                    .accessibilityValue(localized("%+.2fs", lyrics.userOffset))
+                    if abs(lyrics.userOffset) > 0.01 {
+                        actionRow(
+                            symbol: SettingsIcon.resetTiming,
+                            title: localized("Reset Lyric Delay")
+                        ) {
+                            lyrics.userOffset = 0
+                        }
+                    }
+                    noteRow(localized("Negative shows lyrics earlier; positive, later."))
                     noteRow(localized("Lyrics stay on this Mac."))
                     noteRow(localized("Local Lyrics Library"))
                     actionRow(symbol: SettingsIcon.importLyrics, title: localized("Import LRC…")) {

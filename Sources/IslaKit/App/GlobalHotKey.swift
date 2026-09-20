@@ -110,4 +110,7 @@ extension GlobalHotKey {
 
     /// ⌥⌘T translates whatever is on the clipboard.
     static let translateKeyCode = UInt32(kVK_ANSI_T)
+    /// ⌥⌘L: straight to the words. L for lyrics, and free — macOS itself
+    /// binds ⌥⌘L in no system-wide context.
+    static let lyricsKeyCode = UInt32(kVK_ANSI_L)
 }

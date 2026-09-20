@@ -329,6 +329,16 @@ struct LyricsStage: View {
         withAnimation(Theme.lyricScroll(reduceMotion: reduceMotion)) { reading = id }
     }
 
+    /// The song as somebody would paste it: the sung lines, in order, one per
+    /// line, with the credits left out — they are metadata the app inferred,
+    /// not words anybody sang.
+    static func plainText(_ lines: [LyricsStore.Line]) -> String {
+        lines.filter { !$0.isCredit }
+            .map(\.text)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n")
+    }
+
     /// How far the page may drift before the way back is worth offering: the
     /// stage shows about three lines, so one line either side of the sung one
     /// is still in view and needs no rescuing.
@@ -401,7 +411,8 @@ struct LyricsStage: View {
                 // follows again from there rather than stranding the reader one
                 // tap away from a stage that no longer moves.
                 following = true
-            }
+            },
+            allText: Self.plainText(lines)
         )
         .frame(maxHeight: .infinity, alignment: .center)
         .animation(reduceMotion ? nil : Theme.contentAnimation, value: isCurrent)

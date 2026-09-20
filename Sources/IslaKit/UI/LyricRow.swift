@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// One line of a lyric, drawn the one way.
@@ -36,6 +37,9 @@ struct LyricRow: View {
     var wordTimingEnabled = false
     /// Choosing a line is choosing the song's place in it.
     var seek: (() -> Void)?
+    /// The whole song's text, when the surface has it. Present means the
+    /// right-click menu can offer to copy all of it as well as this line.
+    var allText: String?
 
     /// The dimmest a context line may go.
     ///
@@ -66,8 +70,27 @@ struct LyricRow: View {
         }
         .buttonStyle(PanelButtonStyle())
         .disabled(seek == nil)
+        // Right-click, because copying a line is what a lyric is *for* and the
+        // panel had no way to do it at all — the words were readable and not
+        // quotable. A context menu rather than a control: it costs no pixels on
+        // a surface that has none to give, and it is where a Mac user already
+        // looks for "copy this".
+        .contextMenu {
+            Button(localized("Copy Line")) { Self.copy(line.text) }
+            if let allText, !allText.isEmpty {
+                Button(localized("Copy All Lyrics")) { Self.copy(allText) }
+            }
+        }
         .accessibilityLabel(line.text)
         .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
+    }
+
+    /// Plain text, and the pasteboard cleared first — without the clear, a copy
+    /// leaves whatever richer flavour the last one wrote sitting underneath,
+    /// and the paste takes that instead.
+    static func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     @MainActor

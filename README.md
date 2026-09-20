@@ -44,7 +44,8 @@ Prefer to compile it yourself? See [Build from source](#build-from-source).
   and an island that unfolded every time would interrupt what is under it.
   **Open on Hover** in Settings restores the old behavior, off by default.
 - **⌥⌘I** opens it from the keyboard and keeps it open until a command closes it;
-  **⌥⌘T** translates the clipboard.
+  **⌥⌘T** translates the clipboard; **⌥⌘L** goes straight to the lyrics page,
+  and folds it back to the player when pressed again.
 - Over the **lock screen** the island shows what is playing and answers nothing:
   hovering brightens it, clicking shakes it off. It never opens there.
 - The island **is** the whole app — no Dock icon, no menu-bar item, no window.

@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: NotchController?
     private var hotKey: GlobalHotKey?
     private var translateHotKey: GlobalHotKey?
+    private var lyricsHotKey: GlobalHotKey?
 
     /// The browser returns from Spotify's consent page through the app's URL
     /// scheme; the account object finishes the token exchange.
@@ -52,6 +53,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] in
             guard let text = NSPasteboard.general.string(forType: .string) else { return }
             self?.controller?.translate(text)
+        }
+        // Straight to the words, from anywhere, without a pointer. The panel
+        // opens on the Music tab with the lyrics page already up; pressing it
+        // again folds the page back to the player.
+        lyricsHotKey = GlobalHotKey(
+            keyCode: GlobalHotKey.lyricsKeyCode,
+            modifiers: GlobalHotKey.defaultModifiers
+        ) { [weak self] in
+            self?.controller?.toggleLyrics()
         }
         NSApp.servicesProvider = self
 
@@ -106,8 +116,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // waiting for the first rebinding to expose it.
         hotKey?.unregister()
         translateHotKey?.unregister()
+        lyricsHotKey?.unregister()
         hotKey = nil
         translateHotKey = nil
+        lyricsHotKey = nil
     }
 
     // MARK: - Menu bar item
