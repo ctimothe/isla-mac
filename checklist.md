@@ -311,13 +311,25 @@ Shipped:
   localized; three strings joined the Title Case convention and two gained
   their full stop.
 
+- [x] **Lyrics are instant and turn on the beat** (2026-09-20, second
+  commit of this pass). No lyric surface waits for `positionSettled` any
+  more — the "Syncing playback…" spinner that met every open of the panel is
+  gone, and the line shown is the one the clock points at, corrected when a
+  reading lands. The clock wakes on the frame a line is due
+  (`MediaController.setLyricBoundaries`) instead of on its 250 ms grid, and
+  both leads drop from 0.25 s to 0.20 s now that the grid no longer has to be
+  covered. `Scripts/measure-sync.sh` has **not** been re-run since; it is the
+  arbiter and is owed a run against live Spotify. Amended in
+  `docs/superpowers/specs/2026-09-14-line-synced-lyrics-design.md`.
+- [x] **The Solid lock card is one surface.** `glassSurface(solid:)` routes
+  it through the opaque panel Reduce Transparency already draws; the
+  `.ultraThinMaterial` and black scrim that sat *under* the drawn glass are
+  gone (`GlassRoutingTests`).
+
 Open, for the owner — each is a design decision, not a defect:
 
-- [ ] `LockScreenCard` carries 22 white/black literals, its own material
-  stack for the Solid style (`.ultraThinMaterial` + a black scrim *under* the
-  drawn glass), and a scrim over real glass on macOS 26 — a second, untracked
-  theme. The fix is a `.solid` elevation on `GlassSurface`, which changes how
-  the Solid card looks.
+- [ ] `LockScreenCard` still carries 22 white/black literals and a scrim over
+  real glass on macOS 26 — a second, untracked theme.
 - [ ] `SettingsPane.choiceRow` is a hand-rolled segmented control; a native
   `Picker(.segmented)` would restore arrow keys and radio-group VoiceOver but
   look like AppKit on a dark pane.

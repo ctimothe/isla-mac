@@ -522,11 +522,7 @@ struct LyricsStage: View {
 
     private var unavailable: some View {
         VStack(spacing: 8) {
-            if case .settlingPlayback = lyrics.availability {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-            } else if case .findingLocalLyrics = lyrics.availability {
+            if case .findingLocalLyrics = lyrics.availability {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)

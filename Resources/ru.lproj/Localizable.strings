@@ -128,7 +128,6 @@
 "This LRC file is invalid." = "Этот LRC-файл недействителен.";
 "Choose local lyrics…" = "Выберите локальный текст…";
 "No lyrics for this track." = "Для этого трека нет текста.";
-"Syncing playback…" = "Синхронизация воспроизведения…";
 "Finding lyrics…" = "Ищем текст песни…";
 "Jumps the song to this line" = "Перематывает песню к этой строке";
 "Opens the full lyrics" = "Открывает полный текст";

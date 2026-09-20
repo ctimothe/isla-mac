@@ -6,11 +6,23 @@ import XCTest
 @MainActor
 final class GlassRoutingTests: XCTestCase {
 
-    private func style(samplesBackdrop: Bool, preferDrawn: Bool = false) -> GlassSurfaceStyle {
+    private func style(
+        samplesBackdrop: Bool, preferDrawn: Bool = false, solid: Bool = false
+    ) -> GlassSurfaceStyle {
         GlassSurfaceStyle(
             cornerRadius: 30, elevation: .card, tint: nil, light: nil,
-            samplesBackdrop: samplesBackdrop, preferDrawn: preferDrawn
+            samplesBackdrop: samplesBackdrop, preferDrawn: preferDrawn, solid: solid
         )
+    }
+
+    /// A caller can ask for the opaque panel outright — the lock card's Solid
+    /// style — and then neither the system material nor the drawn recipe is
+    /// used, whatever the OS and whatever the setting.
+    func testSolidIsTheOpaquePanelByChoice() {
+        let solid = style(samplesBackdrop: true, solid: true)
+        XCTAssertFalse(solid.usesSystemGlass)
+        XCTAssertTrue(solid.isOpaque)
+        XCTAssertFalse(style(samplesBackdrop: true).isOpaque, "and it is off unless asked for")
     }
 
     /// A surface with something behind it takes Apple's material on macOS 26.

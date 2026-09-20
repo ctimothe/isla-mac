@@ -91,7 +91,7 @@ final class LyricsStore: ObservableObject {
             timingGranularity = nil
             switch availability {
             case .disabled: state = .idle
-            case .settlingPlayback, .findingLocalLyrics: state = .loading
+            case .findingLocalLyrics: state = .loading
             case .noLocalLyrics, .invalidLocalFile: state = .none
             case .ready: preconditionFailure("handled above")
             }
