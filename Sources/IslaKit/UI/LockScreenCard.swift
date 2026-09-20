@@ -176,7 +176,7 @@ struct LockScreenCard: View {
                     .lineLimit(1)
                 Text(track.artist)
                     .islandFont(.subhead, weight: .regular)
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(Theme.cardSecondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -193,14 +193,14 @@ struct LockScreenCard: View {
                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
                 } else {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(.white.opacity(0.08))
+                        .fill(Theme.cardFill)
                         .overlay(
                             Image(systemName: "music.note")
                                 // A third of the cover's side, at either cover
                                 // size — a proportion, not a size, so no role
                                 // can name it.
                                 .font(.system(size: side / 3, weight: .light))
-                                .foregroundStyle(.white.opacity(0.4))
+                                .foregroundStyle(Theme.cardTertiary)
                         )
                 }
             }
@@ -244,7 +244,7 @@ struct LockScreenCard: View {
                 .foregroundStyle(.white)
                 .frame(width: 17, height: 17)
                 .background(Circle().fill(.black.opacity(0.75)))
-                .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
+                .overlay(Circle().strokeBorder(Theme.cardHairline, lineWidth: 0.5))
                 .accessibilityLabel(source)
         }
     }
@@ -310,7 +310,7 @@ struct LockScreenCard: View {
                     // line below it is empty for that state by design.
                     Text(lyricsStatus)
                         .islandFont(.subhead, weight: .regular)
-                        .foregroundStyle(.white.opacity(0.45))
+                        .foregroundStyle(Theme.cardTertiary)
                     if LyricsPresentation.canRetry(lyrics.availability) {
                         Button(localized("Retry"), action: retryLyrics)
                             .buttonStyle(NotchButtonStyle(size: 24))
@@ -402,14 +402,14 @@ struct LockScreenCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(localized("Output"))
                         .islandFont(.body, weight: .semibold)
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(Theme.cardTertiary)
                         .padding(.horizontal, 12)
                         .padding(.bottom, 4)
 
                     if outputs.isEmpty {
                         Text(localized("No output devices."))
                             .islandFont(.subhead, weight: .regular)
-                            .foregroundStyle(.white.opacity(0.45))
+                            .foregroundStyle(Theme.cardTertiary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                     } else {
@@ -468,7 +468,7 @@ struct LockScreenCard: View {
                 // selected-state vocabulary in Control Center.
                 ZStack {
                     Circle()
-                        .fill(selected ? Color(nsColor: .controlAccentColor) : Color.white.opacity(0.12))
+                        .fill(selected ? Color(nsColor: .controlAccentColor) : Theme.cardFill)
                         .frame(width: 26, height: 26)
                     Image(systemName: device.symbol)
                         .islandFont(.subhead)
@@ -524,7 +524,7 @@ struct LockScreenCard: View {
             GeometryReader { geo in
                 let width = geo.size.width
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.22)).frame(height: 5)
+                    Capsule().fill(Theme.cardTrack).frame(height: 5)
                     Capsule().fill(accent.opacity(0.95)).frame(width: width * fraction, height: 5)
                 }
                 .frame(maxHeight: .infinity)
@@ -573,7 +573,7 @@ struct LockScreenCard: View {
             }
             .font(Theme.TypeRole.body.font(weight: .semibold).monospacedDigit())
             .tracking(Theme.tracking(forSize: Theme.TypeRole.body.size))
-            .foregroundStyle(.white.opacity(0.55))
+            .foregroundStyle(Theme.cardSecondary)
         }
     }
 
@@ -590,7 +590,7 @@ struct LockScreenCard: View {
                 let width = geo.size.width
                 let level = Double(draggingVolume ?? volume ?? 0)
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.22)).frame(height: 5)
+                    Capsule().fill(Theme.cardTrack).frame(height: 5)
                     Capsule().fill(.white.opacity(0.85)).frame(width: width * level, height: 5)
                 }
                 .frame(maxHeight: .infinity)
@@ -630,7 +630,7 @@ struct LockScreenCard: View {
             }
             Image(systemName: "speaker.wave.3.fill").islandFont(.caption, weight: .regular)
         }
-        .foregroundStyle(.white.opacity(0.6))
+        .foregroundStyle(Theme.cardSecondary)
     }
 
     private var transport: some View {
@@ -718,7 +718,7 @@ struct LockScreenCard: View {
         } label: {
             Image(systemName: symbol)
                 .islandFont(.title, weight: .medium)
-                .foregroundStyle(open ? .white : .white.opacity(0.62))
+                .foregroundStyle(open ? Color.white : Theme.cardSecondary)
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                 .frame(width: 26, height: 22)
                 .contentShape(Rectangle())
