@@ -1046,7 +1046,7 @@ final class NotchController {
             // Grow the interactive area first so the pointer never falls
             // through a region the animation has not covered yet.
             applyActiveRect(open: true)
-            withAnimation(Theme.openAnimation) { vm.isOpen = true }
+            withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = true }
             vm.media.setActive(true)
         } else {
             // The keyboard goes first and the fold goes second — one run-loop
@@ -1099,7 +1099,7 @@ final class NotchController {
         // swap is what made the card and the pill slide in from the notch's
         // old position, at the old size, instead of simply being there.
         if deferRectShrink {
-            withAnimation(Theme.openAnimation) { vm.isOpen = false }
+            withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = false }
         } else {
             var instant = Transaction()
             instant.disablesAnimations = true

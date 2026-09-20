@@ -210,12 +210,9 @@ struct LyricsStage: View {
     // MARK: - Stage
 
     /// Every row occupies the same fixed slot, which is what makes the motion
-    /// exact: the whole column's offset is plain arithmetic on the current
-    /// index, animated as one value. No scroll view — the song is the only
-    /// thing that moves this surface, and a scroll view's own machinery
-    /// (which additionally refuses to render at all inside this panel's
-    /// hosting configuration) had nothing to offer but ways to disagree
-    /// with the clock.
+    /// exact: the song's position maps to a row by plain arithmetic, and the
+    /// `ScrollView` below is driven to that row through `scrollPosition` as
+    /// one value — the clock moves the page, and a hand may move it too.
     static let slotHeight: CGFloat = 40
     static let slotSpacing: CGFloat = 8
 
@@ -366,7 +363,7 @@ struct LyricsStage: View {
             // inside an opaque panel, so there is nothing behind it to sample.
             .glassSurface(cornerRadius: 999, elevation: .pill, samplesBackdrop: false)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .accessibilityLabel(localized("Back to the current line"))
         .help(localized("Back to the current line"))
     }
@@ -433,6 +430,7 @@ struct LyricsStage: View {
                     .islandFont(.caption, weight: .semibold)
             }
             .buttonStyle(NotchButtonStyle(size: 24))
+            .help(localized("Back to Player"))
             .accessibilityLabel(localized("Back to Player"))
 
             Spacer(minLength: 0)
@@ -445,15 +443,15 @@ struct LyricsStage: View {
                 HStack(spacing: 4) {
                 Button { lyrics.nudgeTrackOffset(by: -0.25) } label: {
                     Image(systemName: "minus")
-                        // Fitted to the 20pt well, not set as type: a caption
+                        // Fitted to the 22pt well, not set as type: a caption
                         // glyph would crowd a button this small.
                         .font(.system(size: 8, weight: .bold))
                 }
-                .buttonStyle(NotchButtonStyle(size: 20))
+                .buttonStyle(NotchButtonStyle(size: 22))
                 .disabled(!canNudgeTrack)
                 .accessibilityLabel(localized("Lyrics Earlier"))
                 if abs(lyrics.trackOffset) > 0.01 {
-                    Text(String(format: "%+.2fs", lyrics.trackOffset))
+                    Text(localized("%+.2fs", lyrics.trackOffset))
                         .font(Theme.TypeRole.caption.font().monospacedDigit())
                         .foregroundStyle(Theme.secondary)
                         .frame(minWidth: 40)
@@ -469,7 +467,7 @@ struct LyricsStage: View {
                         // Same fitted glyph as the minus beside it.
                         .font(.system(size: 8, weight: .bold))
                 }
-                .buttonStyle(NotchButtonStyle(size: 20))
+                .buttonStyle(NotchButtonStyle(size: 22))
                 .disabled(!canNudgeTrack)
                 .accessibilityLabel(localized("Lyrics Later"))
                 }
@@ -550,7 +548,7 @@ struct LyricsStage: View {
                                 .islandFont(.caption, weight: .regular)
                                 .lineLimit(1)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PanelButtonStyle())
                         .accessibilityLabel(candidateLabel(candidate))
                     }
                 }

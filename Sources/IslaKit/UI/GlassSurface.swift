@@ -137,7 +137,7 @@ struct GlassSurface: View {
 
     /// A small tile of noise, made once and reused. Deterministic, so the
     /// surface looks the same every launch and a test can say what it is.
-    nonisolated(unsafe) static let grain: NSImage = grainTile(side: 96)
+    static let grain: NSImage = grainTile(side: 96)
 
     /// Plain value noise from a fixed seed — no Foundation randomness, so this
     /// is the same tile on every machine and in every run.

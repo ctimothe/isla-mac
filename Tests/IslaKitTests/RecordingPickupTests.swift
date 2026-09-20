@@ -90,7 +90,7 @@ final class RecordingPickupTests: XCTestCase {
 
         XCTAssertNil(RecordingPickup.screencaptureLocation(preferencesFile: plist))
         XCTAssertEqual(
-            RecordingPickup.captureFolder().lastPathComponent, "Desktop",
+            RecordingPickup.captureFolder(preferencesFile: plist).lastPathComponent, "Desktop",
             "no configured location means where the system saves by default"
         )
     }

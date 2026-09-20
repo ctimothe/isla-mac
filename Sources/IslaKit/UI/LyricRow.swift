@@ -64,7 +64,7 @@ struct LyricRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .disabled(seek == nil)
         .accessibilityLabel(line.text)
         .accessibilityAddTraits(isCurrent ? [.isSelected] : [])

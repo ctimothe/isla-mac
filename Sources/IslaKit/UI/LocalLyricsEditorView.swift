@@ -48,7 +48,7 @@ struct LocalLyricsEditorView: View {
                         .foregroundStyle(Theme.tertiary)
                     metadataFields
 
-                    Text(localized("Local lyrics"))
+                    Text(localized("Local Lyrics"))
                         .islandFont(.caption, weight: .semibold)
                         .foregroundStyle(Theme.tertiary)
                         .padding(.top, 4)
@@ -71,18 +71,18 @@ struct LocalLyricsEditorView: View {
                             }
                             .buttonStyle(NotchButtonStyle(size: 22))
                             .disabled(draft.lines.count == 1)
-                            .accessibilityLabel(localized("Remove lyric line"))
+                            .accessibilityLabel(localized("Remove Lyric Line"))
                         }
                     }
                     Button {
                         let timestamp = (draft.lines.last?.at ?? 0) + 1
                         draft.lines.append(LyricsStore.Line(at: timestamp, text: ""))
                     } label: {
-                        Label(localized("Add lyric line"), systemImage: "plus.circle")
+                        Label(localized("Add Lyric Line"), systemImage: "plus.circle")
                             .islandFont(.caption, weight: .medium)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(localized("Add lyric line"))
+                    .buttonStyle(PanelButtonStyle())
+                    .accessibilityLabel(localized("Add Lyric Line"))
                 }
                 .padding(.vertical, 2)
             }
@@ -97,6 +97,10 @@ struct LocalLyricsEditorView: View {
             HStack {
                 Button(localized("Cancel"), action: onDismiss)
                     .buttonStyle(NotchButtonStyle(size: 24))
+                    // The sheet is a real modal window, so Escape reaches it —
+                    // and without this it did nothing, while Escape on the panel
+                    // behind closes the whole island.
+                    .keyboardShortcut(.cancelAction)
                     .accessibilityLabel(localized("Cancel"))
                 Spacer()
                 Button(localized("Export LRC"), action: export)
@@ -104,6 +108,7 @@ struct LocalLyricsEditorView: View {
                     .accessibilityLabel(localized("Export LRC"))
                 Button(localized("Save Copy"), action: save)
                     .buttonStyle(NotchButtonStyle(size: 72, prominent: true))
+                    .keyboardShortcut(.defaultAction)
                     .accessibilityLabel(localized("Save Copy"))
             }
         }
@@ -145,19 +150,22 @@ struct LocalLyricsEditorView: View {
             let saved = try editor.saveOwnedCopy(draft, binding: binding)
             onSaved(saved)
         } catch {
-            errorMessage = localized("This LRC file is invalid")
+            errorMessage = localized("This LRC file is invalid.")
         }
     }
 
     private func export() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "lrc")!]
+        // A registry lookup, not a constant: `.lrc` is usually claimed by some
+        // app, but a Mac where nothing has ever registered it returns nil, and
+        // a save panel is no place to crash.
+        panel.allowedContentTypes = [UTType(filenameExtension: "lrc") ?? .plainText]
         panel.nameFieldStringValue = "lyrics.lrc"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try editor.export(draft, to: url)
         } catch {
-            errorMessage = localized("This LRC file is invalid")
+            errorMessage = localized("This LRC file is invalid.")
         }
     }
 }

@@ -63,8 +63,7 @@ struct MediaPane: View {
             ZStack {
                 if showingLyrics {
                     // The Liquid Glass entrance: blur, scale and opacity settle
-                    // together, so the stage materializes rather than pops. The
-                    // exit is faster than the entry, as every pane swap here is.
+                    // together, so the stage materializes rather than pops.
                     LyricsStage(
                         media: media,
                         lyrics: lyrics,
@@ -356,12 +355,7 @@ struct MediaPane: View {
         .foregroundStyle(Theme.tertiary)
     }
 
-    /// Bubble width is fixed rather than measured: formatTime yields "m:ss"
-    /// through "mm:ss" in the 10 pt monospaced ramp, which all fit in 44 pt,
-    /// and a constant keeps ScrubPreview's clamping deterministic.
-
-    /// Floating time preview above the bar. Drag wins over hover: while a
-    /// drag is in flight the bubble follows the thumb, not the cursor.
+    /// The transport row: shuffle, previous, play/pause, next, repeat.
     @ViewBuilder
     private var controls: some View {
         // Spread edge to edge, the same five-slot grammar the lock card uses:
@@ -373,6 +367,7 @@ struct MediaPane: View {
             Group {
                 if let shuffle = media.shuffleEnabled {
                     ModeToggle(symbol: "shuffle", isOn: shuffle) { media.toggleShuffle() }
+                        .help(localized("Shuffle"))
                         .accessibilityLabel(localized("Shuffle"))
                         .accessibilityValue(shuffle ? localized("On") : localized("Off"))
                 }
@@ -385,6 +380,7 @@ struct MediaPane: View {
             .buttonStyle(TransportGlyphStyle(size: 30))
             .disabled(!media.canSkip)
             .opacity(media.canSkip ? 1 : 0.35)
+            .help(localized("Previous Track"))
             .accessibilityLabel(localized("Previous Track"))
             Spacer(minLength: 0)
             Button { media.togglePlayPause() } label: {
@@ -397,6 +393,7 @@ struct MediaPane: View {
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
+            .help(media.isPlaying ? localized("Pause") : localized("Play"))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Spacer(minLength: 0)
             Button { media.next() } label: {
@@ -405,6 +402,7 @@ struct MediaPane: View {
             .buttonStyle(TransportGlyphStyle(size: 30))
             .disabled(!media.canSkip)
             .opacity(media.canSkip ? 1 : 0.35)
+            .help(localized("Next Track"))
             .accessibilityLabel(localized("Next Track"))
             Spacer(minLength: 0)
             Group {
@@ -414,6 +412,7 @@ struct MediaPane: View {
                         isOn: mode != .off,
                         reduceMotion: reduceMotion
                     ) { media.cycleRepeat() }
+                        .help(localized("Repeat"))
                         .accessibilityLabel(localized("Repeat"))
                         .accessibilityValue(repeatValueLabel(mode))
                 }
@@ -421,7 +420,7 @@ struct MediaPane: View {
             .frame(width: 26)
         }
         .frame(maxWidth: .infinity)
-        .animation(.easeInOut(duration: 0.15), value: media.canSkip)
+        .animation(Theme.contentAnimation, value: media.canSkip)
         .animation(Theme.contentAnimation, value: media.shuffleEnabled == nil)
         .animation(Theme.contentAnimation, value: media.repeatMode == nil)
     }
@@ -488,20 +487,23 @@ struct MediaPane: View {
                         // glyph-by-glyph in place.
                         .id(line.at)
                         .transition(.opacity)
-                        if captionHover {
-                            Image(systemName: "chevron.right")
-                                // A glyph fitted to its row, not type: it sizes
-                                // the chevron against the caption's cap height,
-                                // and the caption floor has nothing to say about it.
-                                .font(.system(size: 8, weight: .semibold))
-                                .foregroundStyle(Theme.tertiary)
-                                .transition(.opacity)
-                        }
+                        Image(systemName: "chevron.right")
+                            // A glyph fitted to its row, not type: it sizes
+                            // the chevron against the caption's cap height,
+                            // and the caption floor has nothing to say about it.
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(Theme.tertiary)
+                            // Always in the row, faded rather than inserted. A
+                            // chevron that arrived on hover took its width from
+                            // the lyric beside it, so the line re-truncated
+                            // under the pointer that had just reached it.
+                            .opacity(captionHover ? 1 : 0)
+                            .accessibilityHidden(true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PanelButtonStyle())
                 .onHover { captionHover = $0 }
                 .animation(Theme.contentAnimation, value: line.at)
                 .animation(Theme.contentAnimation, value: captionHover)
@@ -530,17 +532,16 @@ struct MediaPane: View {
                     .islandFont(.body, weight: .regular)
                     .foregroundStyle(Theme.secondary)
                     .lineLimit(1)
-                if captionHover {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(Theme.tertiary)
-                        .transition(.opacity)
-                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(Theme.tertiary)
+                    .opacity(captionHover ? 1 : 0)
+                    .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .onHover { captionHover = $0 }
         .animation(Theme.contentAnimation, value: captionHover)
         .accessibilityLabel(localized("Lyrics"))
@@ -575,7 +576,7 @@ struct MediaPane: View {
                             .background(Theme.surface, in: Capsule())
                             .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PanelButtonStyle())
                 }
             }
         }
