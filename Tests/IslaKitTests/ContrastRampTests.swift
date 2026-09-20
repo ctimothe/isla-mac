@@ -70,4 +70,44 @@ final class ContrastRampTests: XCTestCase {
             )
         }
     }
+
+    /// Increase Contrast reaches the lock card too.
+    ///
+    /// The card carried twenty-two raw literals, so the setting moved every
+    /// label in the panel and nothing at all on the one surface a person reads
+    /// from across a room. It keeps its own values — it floats over a wallpaper
+    /// rather than the panel's black, so its type runs brighter — but they are
+    /// functions of the setting now, like everything else.
+    func testTheLockCardAnswersIncreaseContrast() {
+        for pair in [
+            (Theme.cardSecondaryOpacity(increaseContrast: false), Theme.cardSecondaryOpacity(increaseContrast: true)),
+            (Theme.cardTertiaryOpacity(increaseContrast: false), Theme.cardTertiaryOpacity(increaseContrast: true)),
+            (Theme.cardFillOpacity(increaseContrast: false), Theme.cardFillOpacity(increaseContrast: true)),
+            (Theme.cardTrackOpacity(increaseContrast: false), Theme.cardTrackOpacity(increaseContrast: true)),
+            (Theme.cardHairlineOpacity(increaseContrast: false), Theme.cardHairlineOpacity(increaseContrast: true)),
+        ] {
+            XCTAssertGreaterThan(pair.1, pair.0, "every card token must rise with the setting")
+        }
+    }
+
+    /// The card's type is brighter than the panel's, on purpose: the panel sits
+    /// on its own black and the card sits on whatever wallpaper is behind it.
+    func testTheCardRunsBrighterThanThePanel() {
+        XCTAssertGreaterThan(
+            Theme.cardTertiaryOpacity(increaseContrast: false),
+            Theme.tertiaryOpacity(increaseContrast: false)
+        )
+        XCTAssertGreaterThan(
+            Theme.cardSecondaryOpacity(increaseContrast: false),
+            Theme.secondaryOpacity(increaseContrast: false)
+        )
+    }
+
+    /// And a filled shape on the card reads as a filled shape. 0.08 white was
+    /// 1.14:1 over black — the artwork well and the unselected output dot were
+    /// not visible as shapes at all.
+    func testTheCardsFilledShapesClearTheShapeFloor() {
+        XCTAssertGreaterThan(ratioOverBlack(whiteOpacity: Theme.cardFillOpacity(increaseContrast: false)), 1.4)
+        XCTAssertGreaterThan(ratioOverBlack(whiteOpacity: Theme.cardTrackOpacity(increaseContrast: false)), 1.6)
+    }
 }

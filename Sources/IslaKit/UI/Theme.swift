@@ -296,6 +296,71 @@ enum Theme {
     @MainActor static var selectedChipBorder: Color {
         Color.white.opacity(selectedChipBorderOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
     }
+    // MARK: - The lock card's own ramp
+    //
+    // The card is not the panel and does not share its numbers. The panel is
+    // white on its own black, where 0.46 is a readable label; the card floats
+    // over whatever wallpaper is behind the shield, so its type runs brighter
+    // to survive a pale one. That much was always deliberate.
+    //
+    // What was not deliberate is that the card carried those numbers as
+    // literals — twenty-two of them — so Increase Contrast reached every label
+    // in the panel and nothing at all here, on the one surface a person reads
+    // from across a room. These are the same three roles the panel has, at the
+    // card's own values, as functions of the setting like everything else.
+    //
+    // Where a literal fell between two roles it was rounded *up*, never down:
+    // nothing on the card is dimmer than it was.
+
+    /// Titles and the labels beside them. Was 0.55–0.62 in four places.
+    static func cardSecondaryOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.85 : 0.62
+    }
+
+    /// Supporting text: the lyric status, the picker's rows, the volume
+    /// glyphs. Was 0.40–0.50 in five places, and 0.40 over a bright wallpaper
+    /// is barely there.
+    static func cardTertiaryOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.75 : 0.50
+    }
+
+    /// A filled shape that has to read as one: the artwork well, the unselected
+    /// output dot. 0.08 was 1.14:1 over black — the same invisible-shape bug
+    /// the panel's `surface` had, still sitting here.
+    static func cardFillOpacity(increaseContrast: Bool) -> Double {
+        // 0.16 rather than a tidier 0.14 for the same reason `surfaceOpacity`
+        // is 0.16: it is the smallest round value clearing the 1.4 floor that
+        // `ContrastRampTests` holds. 0.14 computes to 1.35:1 and is a shape
+        // you cannot quite see.
+        increaseContrast ? 0.28 : 0.16
+    }
+
+    /// The empty half of a bar — the seek track, the volume track.
+    static func cardTrackOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.36 : 0.22
+    }
+
+    /// A 1pt edge on the card, not a fill.
+    static func cardHairlineOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.55 : 0.25
+    }
+
+    @MainActor static var cardSecondary: Color {
+        .white.opacity(cardSecondaryOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var cardTertiary: Color {
+        .white.opacity(cardTertiaryOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var cardFill: Color {
+        .white.opacity(cardFillOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var cardTrack: Color {
+        .white.opacity(cardTrackOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var cardHairline: Color {
+        .white.opacity(cardHairlineOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
     /// Only for an action that destroys something, and only once it is armed.
     static let danger = Color(red: 1.0, green: 0.45, blue: 0.40)
     /// A copy that landed, a tick that means done. The system green, named so

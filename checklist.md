@@ -431,15 +431,29 @@ started; each is the owner's call.
 
 Owed on the lyric path, in order:
 
-- [ ] **Re-run `Scripts/measure-performance.sh`.** The position ticker went
-  from 4 Hz to 10 Hz while the panel is open — six extra wake-ups a second,
-  bounded to an open panel. Small, and unmeasured against the approved CPU
-  gates, which were already blocked at `0.3%` vs Cyclop's `0.0%`.
-- [ ] **Word karaoke is gated on a *measured* clock, which today means Spotify
-  alone** (`LyricsPresentation.usesWordTiming` requires `precisionMeasured`).
-  An Apple Music listener with a word-timed LRC never sees the sweep, even
-  though the MediaRemote helper's clock may well be good enough. Deciding that
-  needs the probe pointed at Music, not a guess.
+- [x] **The faster ticker costs nothing while the panel is shut** (measured
+  2026-09-21). `updateTicker` guards on `isActive`, which is panel-open, so
+  the 10 Hz clock does not exist in the state the CPU gate measures. Sampled
+  with a track playing and the panel closed: **mean 0.12%, peak 0.30%** over
+  20 seconds, helper RSS 19.61 MiB — the same neighbourhood as the blocked
+  gate's 0.3% / 19.05 MiB, and not made worse by this change.
+- [ ] **A full `Scripts/measure-performance.sh` run is still owed**, because
+  the approved gates are a *comparison* against a Cyclop 0.6.5 build from
+  `Scripts/build-reference.sh`, which this has not produced. What is measured
+  above is Isla alone, which answers whether the ticker hurt and not whether
+  parity holds.
+- [x] **Word karaoke is not Spotify-only** — checked 2026-09-21, having
+  claimed otherwise. `MediaController.precisionPlayer` resolves to
+  `displayedPlayerApp`, which is Music *or* Spotify, and
+  `PlayerBridge.precisePosition` scripts either by bundle id. So an Apple
+  Music listener with a word-timed LRC and the switch on does get the sweep.
+  What genuinely has no measured clock is a browser tab or any non-scriptable
+  player, and there the line-level highlight is the honest answer.
+- [ ] **Fetched lyrics never animate word by word**, which is a *source*
+  question rather than a gate one: LRCLIB carries line-level LRC only. Word
+  timing today means an enhanced LRC imported by hand. Closing that means
+  either a word-level catalogue — which is what the removed QQ/KRC providers
+  were — or accepting that karaoke is for files you bring.
 - [ ] **Per-source bias** (`LyricSource.bias`, all zeros) — item 2 of the same
   investigation, and the amplifier behind "certain songs run fast".
 
