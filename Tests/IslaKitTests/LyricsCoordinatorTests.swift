@@ -211,6 +211,49 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertEqual(timeline.granularity, .line, "never a word sweep from a line timeline")
     }
 
+    /// A length that arrives after the title corrects the identity.
+    ///
+    /// The player publishes the title before it knows the length, so the first
+    /// reconcile carries the *previous* track's duration. Keyed on the title
+    /// alone that stale value stuck for the whole song, and duration is what
+    /// identifies a recording to both the local matcher and the catalogue — so
+    /// the song had no lyrics until it was played again.
+    func testALateArrivingDurationReopensTheLookup() async throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        var asked: [LocalTrackIdentity] = []
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true },
+            isOnlineEnabled: { true },
+            onlineCache: OnlineLyricsCache(directory: root),
+            onlineLookUp: { identity in asked.append(identity); return .none }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        var snapshot = playingSnapshot()
+        snapshot.title = "Dragon Eyes"
+        snapshot.duration = 250          // the previous song's length
+        media.apply(snapshot)
+
+        var corrected = snapshot
+        corrected.duration = 191         // what this one actually is
+        corrected.takenAt = Date()
+        media.apply(corrected)
+
+        // The lookup is a task; give it the hops it needs to land.
+        for _ in 0..<50 {
+            if asked.last?.duration == 191 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(
+            asked.last?.duration, 191,
+            "the corrected length must re-open the lookup, not be ignored as the same track"
+        )
+    }
+
     private func writeLRC() throws -> URL {
         let url = root.appendingPathComponent("song.lrc")
         try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Local opening".utf8)

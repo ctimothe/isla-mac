@@ -91,8 +91,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
             DebugTrail.note("launch hook armed")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                DebugTrail.note("pinning panel open")
-                self?.togglePanel()
+                DebugTrail.note("pinning panel open on the lyrics page")
+                // Through the same route ⌥⌘L takes. This used to be a
+                // `togglePanel()` here plus an `onAppear` inside `MediaPane`
+                // that flipped its own `@State` — and when that state moved to
+                // the view model the `onAppear` went with it, leaving the hook
+                // opening the panel on the player and nothing to say so.
+                self?.controller?.toggleLyrics()
             }
         }
     }
