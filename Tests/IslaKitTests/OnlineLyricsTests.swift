@@ -99,7 +99,7 @@ final class OnlineLyricsTests: XCTestCase {
     }
 
     /// A hit and a miss are both remembered; a failure never is.
-    func testTheCacheRemembersAnswersAndNotFailures() throws {
+    func testTheCacheRemembersAnswersAndNotFailures() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -120,6 +120,9 @@ final class OnlineLyricsTests: XCTestCase {
         XCTAssertEqual(cache.cached(track)??.lines.first?.text, "One")
 
         // And it survives a relaunch, which is the whole point of a file.
+        // Flushed first: writes coalesce off the main thread so a run of fast
+        // skips costs one write rather than one per answer.
+        await cache.flushForTests()
         XCTAssertEqual(OnlineLyricsCache(directory: directory).cached(track)??.lines.count, 1)
 
         cache.forget(track)

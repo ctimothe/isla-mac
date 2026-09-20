@@ -136,6 +136,7 @@ final class OnlineLyricsCache {
 
     private let directory: URL?
     private var entries: [String: Entry] = [:]
+    private var flush: Task<Void, Never>?
 
     /// How long a "LRCLIB does not have this" is believed. The catalogue is
     /// community-contributed and grows, so a miss is a fact with a shelf life.
@@ -199,11 +200,37 @@ final class OnlineLyricsCache {
         entries = decoded
     }
 
+    /// Encoded on the main actor, because that is where the dictionary lives,
+    /// and written off it.
+    ///
+    /// This used to encode and write synchronously on every answer. A run of
+    /// fast skips is a run of answers, so it was a main-thread file write per
+    /// skip — on the one thread the panel, the scrubber and the lyric sweep all
+    /// draw from. Coalesced too: several answers inside a second cost one
+    /// write, and the last one wins because each carries the whole dictionary.
     private func save() {
         guard let file, let data = try? JSONEncoder().encode(entries) else { return }
-        try? FileManager.default.createDirectory(
-            at: file.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try? data.write(to: file, options: .atomic)
+        flush?.cancel()
+        flush = Task { [file] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            await Self.write(data, to: file)
+        }
+    }
+
+    private static func write(_ data: Data, to file: URL) async {
+        await Task.detached(priority: .utility) {
+            try? FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try? data.write(to: file, options: .atomic)
+        }.value
+    }
+
+    /// Writes what is pending right now, for a test that must observe the file.
+    func flushForTests() async {
+        flush?.cancel()
+        guard let file, let data = try? JSONEncoder().encode(entries) else { return }
+        await Self.write(data, to: file)
     }
 }

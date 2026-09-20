@@ -399,6 +399,29 @@ started; each is the owner's call.
   harness had been unrunnable for as long as that toolchain has been in use,
   which is why "re-run the probe" had stayed owed.
 
+### Track changes — 2026-09-21
+
+- [x] **A skip draws no loading state while the answer is quick.** Every track
+  change used to publish "Finding lyrics…" at once, so a cached hit flashed a
+  spinner for a frame and a run of skips strobed. `LyricsAvailability.resolving`
+  is drawn as nothing — the slot already holds its height — and is promoted to
+  `findingLocalLyrics` only after `LyricsCoordinator.quietGrace` (0.35 s).
+- [x] **A skip cancels the request the skip before it started.** Ten fast skips
+  used to leave ten requests running against a free service for nine answers
+  nobody would see. The generation counter only discarded the *results*.
+- [x] **The cache write left the main thread.** It encoded and wrote
+  synchronously on every answer, which during a run of skips was a file write
+  per skip on the thread the panel, the scrubber and the lyric sweep draw from.
+  Coalesced to one write per 400 ms, written off-main.
+- [ ] **Prefetching the *next* track is not possible today, and is not
+  pretended to be.** Spotify's `next track` is a command, not a readable
+  property; MediaRemote publishes now-playing only, with no queue. The one real
+  route is Spotify's Web API `/v1/me/player/queue`, which needs the
+  `user-read-playback-state` scope — Isla currently requests only
+  `user-library-read`/`user-library-modify` — and a connected account, so it
+  would help only those who have one. Worth doing behind the existing account
+  connection; it would make a skip inside a known queue genuinely pre-warmed.
+
 Owed on the lyric path, in order:
 
 - [ ] **Re-run `Scripts/measure-performance.sh`.** The position ticker went

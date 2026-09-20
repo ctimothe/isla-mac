@@ -1,6 +1,14 @@
 import XCTest
 @testable import IslaKit
 
+/// A count a cancelled task may safely bump from wherever it is torn down.
+private final class CancelCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func bump() { lock.lock(); count += 1; lock.unlock() }
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
 @MainActor
 final class LyricsCoordinatorTests: XCTestCase {
     nonisolated(unsafe) private let fileManager = FileManager.default
@@ -252,6 +260,106 @@ final class LyricsCoordinatorTests: XCTestCase {
             asked.last?.duration, 191,
             "the corrected length must re-open the lookup, not be ignored as the same track"
         )
+    }
+
+    /// A skip shows no loading state at all while the answer is quick.
+    ///
+    /// Every track change used to publish "Finding lyrics…" immediately, so a
+    /// cached hit flashed a spinner for one frame and a run of skips strobed.
+    /// The slot holds its height either way, so staying quiet for a moment is
+    /// invisible — and an answer inside the grace is simply instant.
+    func testAQuickAnswerNeverDrawsALoadingState() async throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true },
+            isOnlineEnabled: { true },
+            onlineCache: OnlineLyricsCache(directory: root),
+            onlineLookUp: { _ in
+                .found(LyricTimeline(
+                    lines: [LyricsStore.Line(at: 1, text: "Quick")], granularity: .line
+                ))
+            }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        media.apply(playingSnapshot())
+        XCTAssertEqual(
+            coordinator.availability, .resolving,
+            "a track change is quiet until the wait is worth admitting to"
+        )
+
+        for _ in 0..<50 {
+            if case .ready = coordinator.availability { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        guard case .ready = coordinator.availability else {
+            return XCTFail("and then the words arrive, with no spinner in between")
+        }
+    }
+
+    /// A wait that is real is admitted to, rather than leaving a blank slot
+    /// that reads as broken.
+    func testAWaitThatLastsIsAdmittedTo() async throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        LyricsCoordinator.quietGrace = 0.05
+        defer { LyricsCoordinator.quietGrace = 0.35 }
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true },
+            isOnlineEnabled: { true },
+            onlineCache: OnlineLyricsCache(directory: root),
+            onlineLookUp: { _ in
+                try? await Task.sleep(for: .seconds(5))
+                return .none
+            }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        media.apply(playingSnapshot())
+        for _ in 0..<50 {
+            if coordinator.availability == .findingLocalLyrics { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(coordinator.availability, .findingLocalLyrics)
+    }
+
+    /// A skip cancels the request the last one started, so a run of skips does
+    /// not leave a run of requests against a free service.
+    func testASkipCancelsTheRequestBeforeIt() async throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        let cancelled = CancelCount()
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true },
+            isOnlineEnabled: { true },
+            onlineCache: OnlineLyricsCache(directory: root),
+            onlineLookUp: { _ in
+                do { try await Task.sleep(for: .seconds(5)) } catch { cancelled.bump() }
+                return .none
+            }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        var first = playingSnapshot(); first.title = "One"
+        media.apply(first)
+        var second = playingSnapshot(); second.title = "Two"; second.takenAt = Date()
+        media.apply(second)
+
+        for _ in 0..<50 {
+            if cancelled.value > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(cancelled.value, 0, "the superseded request must be cancelled, not merely ignored")
     }
 
     private func writeLRC() throws -> URL {
