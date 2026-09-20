@@ -455,6 +455,40 @@ final class NotchController {
         panel?.orderOut(nil)
     }
 
+    /// Opens on the Music tab with the lyrics page already up.
+    ///
+    /// The same shape as `translate(_:)` and for the same reasons: refused over
+    /// the shield before anything is touched, and pinned open because the
+    /// pointer that asked for it is on the keyboard rather than on the notch.
+    /// Pressing it again folds the page back to the player rather than doing
+    /// nothing, so one key is the whole round trip.
+    func toggleLyrics() {
+        guard let vm = viewModel else { return }
+        guard vm.verdictForDeliberateOpen() == .proceed else {
+            vm.nudgeLockedIsland()
+            return
+        }
+        // Pressed again with the page already up, it folds the page back to
+        // the player rather than doing nothing: one key is the whole round
+        // trip, and the panel is left open on the music it was opened for.
+        if vm.isOpen, vm.tab == .media, vm.isShowingLyrics {
+            vm.isShowingLyrics = false
+            return
+        }
+        peekWork?.cancel()
+        vm.isPeeking = false
+        vm.select(.media)
+        vm.isShowingLyrics = true
+        // Pinned, like ⌥⌘I and for the same reason: the hand that pressed it is
+        // on the keyboard, not on the notch, and an unpinned panel nobody is
+        // hovering folds a third of a second after it appears. Lyrics are read
+        // for the length of a song, which is the longest any of these stays up.
+        vm.isPinnedOpen = true
+        setOpen(true)
+        pointer.setInside(true)
+        updatePinnedClickMonitor()
+    }
+
     /// Opens on the translate tab with this text already in it.
     func translate(_ text: String) {
         guard let vm = viewModel else { return }

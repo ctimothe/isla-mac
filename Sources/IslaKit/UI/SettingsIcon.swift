@@ -41,6 +41,9 @@ enum SettingsIcon {
     static let rescan = "arrow.clockwise"
     /// Dismissing a leftover timing correction sets it aside; it deletes no file.
     static let dismiss = "xmark.circle"
+    /// The whole catalogue moved in time, as opposed to one track's nudge.
+    static let lyricTiming = "metronome"
+    static let resetTiming = "arrow.counterclockwise"
     /// A brief look at the track that just started.
     static let peek = "eye"
     static let lockScreen = "lock.display"
@@ -67,7 +70,7 @@ enum SettingsIcon {
         launchAtLogin, openOnHover, hoverDelay, panelWidth,
         saveScreenshots, importRecordings, showFolder, clear,
         lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, dismiss,
-        peek, lockScreen, cardStyle,
+        lyricTiming, resetTiming, peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, translate, hideFromRecording,
         about, quit,

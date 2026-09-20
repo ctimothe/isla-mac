@@ -59,8 +59,23 @@ final class NotchViewModel: ObservableObject {
             if tab == .shelf { shelf.refreshFromDisk() }
             // Leaving the tab that types gives the keyboard straight back.
             if !tab.needsKeyboard { wantsKeyboard = false }
+            // And leaving Music folds the stage, so coming back to the tab
+            // lands on the player rather than on a page of words left open
+            // three songs ago.
+            if tab != .media { isShowingLyrics = false }
         }
     }
+
+    /// Whether the Music tab is showing the full lyrics page instead of the
+    /// player.
+    ///
+    /// It lives here rather than inside `MediaPane` because it is a place the
+    /// app can be *sent*, not just a toggle the pane owns: ⌥⌘L opens the panel
+    /// straight onto it, and the verification hook does the same without a
+    /// pointer. State that only the view holds is state nothing else can ask
+    /// for — which is what made the hook an `onAppear` reading an environment
+    /// variable rather than a route like every other way in.
+    @Published var isShowingLyrics = false
 
     /// Whether the panel must stay open with no pointer on it.
     ///

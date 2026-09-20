@@ -334,6 +334,37 @@ deeper lyric offsets, Downloads progress and Quick Look in the Shelf, and a
 calendar next-event (which would reverse a 2026-08-20 removal). None is
 started; each is the owner's call.
 
+### Lyrics UX — 2026-09-21
+
+- [x] **⌥⌘L opens the lyrics page** and folds it back to the player when
+  pressed again. The page's state moved from `MediaPane`'s own `@State` to
+  `NotchViewModel.isShowingLyrics`, so it is a place the app can be *sent*
+  rather than a toggle only the pane can flip — which is also what the
+  `DI_OPEN_LYRICS` hook now uses instead of an `onAppear` reading an
+  environment variable. Leaving the Music tab folds it.
+- [x] **The global lyric delay has a writer at last** (Settings → Music,
+  ±3 s). It existed in `LyricsStore` and no interface wrote to it, so the only
+  cure for a catalogue that ran early — or for the delay a pair of AirPods
+  adds — was nudging every track one at a time. Named *delay* to keep it
+  distinct from the lyrics page's per-track *timing* nudge. Closes item 3 of
+  `docs/audits/2026-09-13-…-lyric-sync-investigation.md` §3.4.
+- [x] **A lyric can be copied.** Right-click any line on the page: Copy Line,
+  or Copy All Lyrics, which leaves out the credits the app inferred. The words
+  were readable and not quotable, which for a lyric is most of the point.
+
+Owed on the lyric path, in order:
+
+- [ ] **Re-run `Scripts/measure-sync.sh`.** The leads moved to 0.20 s and line
+  changes are now scheduled on their own boundary; neither has been measured
+  against live Spotify. The harness is this repo's arbiter for any sync claim.
+- [ ] **Word karaoke is gated on a *measured* clock, which today means Spotify
+  alone** (`LyricsPresentation.usesWordTiming` requires `precisionMeasured`).
+  An Apple Music listener with a word-timed LRC never sees the sweep, even
+  though the MediaRemote helper's clock may well be good enough. Deciding that
+  needs the probe pointed at Music, not a guess.
+- [ ] **Per-source bias** (`LyricSource.bias`, all zeros) — item 2 of the same
+  investigation, and the amplifier behind "certain songs run fast".
+
 Open, for the owner — each is a design decision, not a defect:
 
 - [ ] `LockScreenCard` still carries 22 white/black literals and a scrim over

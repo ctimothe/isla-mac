@@ -170,3 +170,10 @@
 "%.2fs" = "%.2fs";
 "%+.2fs" = "%+.2fs";
 "%d pt" = "%d pt";
+
+/* Lyric timing and copying */
+"Lyric Delay" = "Lyric Delay";
+"Reset Lyric Delay" = "Reset Lyric Delay";
+"Negative shows lyrics earlier; positive, later." = "Negative shows lyrics earlier; positive, later.";
+"Copy Line" = "Copy Line";
+"Copy All Lyrics" = "Copy All Lyrics";
