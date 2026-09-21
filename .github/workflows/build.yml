@@ -1,14 +1,41 @@
 name: Build and verify
 
+# A push to a feature branch that already has a pull request used to run this
+# twice — once for the push and once for the pull request — so every commit
+# paid for two full builds. Pull requests cover the branches under review;
+# a push runs only where work lands.
 on:
   push:
+    branches: [main, dynamic-island-parity]
   pull_request:
+  workflow_dispatch:
+
+# A newer push to the same ref makes the older run's answer obsolete.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   release-candidate:
-    runs-on: macos-15
+    # macOS 26, not 15. The app is built against the macOS 26 SDK on purpose:
+    # Translate uses FoundationModels and the panel uses `glassEffect`, both
+    # behind `#available(macOS 26, *)` so the app still *runs* on 15 — but
+    # neither symbol exists in the macOS 15 SDK, so a macos-15 runner could not
+    # *compile* it. Every run on that runner failed at `import FoundationModels`
+    # from 2026-08-28 on, which is to say CI tested a configuration that never
+    # ships and reported nothing else for three weeks. This image is macOS
+    # 26.6.2 (25G83), the same build the release was validated on by hand.
+    runs-on: macos-26
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      # v5 runs on Node 24; v4 targets Node 20, which the runners now force
+      # onto 24 with a deprecation warning on every run.
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
       - name: Run parity and packaging gates
         run: |
           swift test
@@ -16,8 +43,8 @@ jobs:
           bash Scripts/test-branding.sh
           bash Scripts/test-localizations.sh
           bash Scripts/bundle.sh release
-          bash Scripts/test-helper.sh
           bash Scripts/test-identity.sh
+          bash Scripts/test-helper.sh
           bash Scripts/test-package.sh
           bash Scripts/test-gatekeeper.sh
           bash Scripts/test-lifecycle.sh
