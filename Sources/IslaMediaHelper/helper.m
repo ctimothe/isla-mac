@@ -96,7 +96,12 @@ static void emitPayload(NSDictionary *payload, BOOL forced) {
     // notifications cannot be relied on — and every repeat used to wake the
     // app to parse a snapshot it already held. Repeated anyway on a slow
     // heartbeat, so silence still means something is wrong.
-    NSTimeInterval now = NSDate.timeIntervalSinceReferenceDate;
+    //
+    // Counted in awake time, the clock the app's silence watchdog counts in.
+    // On the wall clock, a clock set back by a minute suppressed every
+    // unchanged payload for that minute plus the heartbeat — long enough for
+    // the app to read a healthy helper as a dead one and restart it.
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
     // An explicit `get` is always answered: the app asks for one when the panel
     // opens, precisely to re-sync, and "you already know this" is not an answer
     // it can use.
@@ -475,9 +480,15 @@ static void startFeed(void) {
         // drains either: everything the poll autoreleased — the service client
         // and player path fetched through `performSelector` on every publish —
         // accumulated for the whole life of the helper.
-        [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *timer) {
+        NSTimer *poll = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *timer) {
             @autoreleasepool { publish(); }
         }];
+        // A tenth of the interval, the slack Apple's energy guidance recommends
+        // for a repeating timer: the poll is a backstop for notifications that
+        // may not come, not a beat anything is synchronised to, and without
+        // tolerance the system could never fold this wake-up — every two
+        // seconds, for as long as the app runs — into another one.
+        poll.tolerance = 0.2;
 
         @autoreleasepool { publish(); }
         [NSRunLoop.currentRunLoop addPort:[NSMachPort port] forMode:NSDefaultRunLoopMode];
