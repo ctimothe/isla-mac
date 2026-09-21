@@ -888,6 +888,11 @@ private struct Rail: View {
             vm.chooseTab(tab)
         } label: {
             Image(systemName: tab.symbol)
+                // Filled when chosen, outlined otherwise — the tab bar's own
+                // grammar — and the swap is the system's replace effect rather
+                // than a cut, riding the pane change's animation.
+                .symbolVariant(vm.tab == tab ? .fill : .none)
+                .contentTransition(.symbolEffect(.replace))
                 .islandFont(.subhead)
                 .frame(width: 30, height: vm.geometry.railIconHeight)
                 .background(

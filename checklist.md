@@ -527,3 +527,10 @@ notch in a single frame, "too intense, too raw".
 - [x] **The stage's follow is a real spring** — measured, not assumed: a
   `ScrollView` driven through `scrollPosition` inside `withAnimation` honours
   the spring on macOS 27 (a 0.4-damped probe overshot 76 → 88 pt and settled).
+- [x] **The rail wears its own glyphs.** Its five were, glyph for glyph, the
+  upstream project's (`music.note`, `tray.full.fill`, `list.clipboard.fill`,
+  `translate`, `gearshape.fill`). Now `play.circle`, `rectangle.stack`,
+  `doc.on.clipboard`, `character.bubble` and `slider.horizontal.3`, filled when
+  chosen with the system's replace effect, as a tab bar does; the Settings
+  privacy rows and the two empty states follow. `TabContractTests` keeps the old
+  set out.
