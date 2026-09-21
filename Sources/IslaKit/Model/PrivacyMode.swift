@@ -89,16 +89,10 @@ final class PrivacyMode: ObservableObject {
         sections.contains(section)
     }
 
-    var coversAll: Bool { sections.count == Section.allCases.count }
     var coversAny: Bool { !sections.isEmpty }
 
     func setCovering(_ section: Section, _ on: Bool) {
         if on { sections.insert(section) } else { sections.remove(section) }
-        persist()
-    }
-
-    func setCoveringAll(_ on: Bool) {
-        sections = on ? Set(Section.allCases) : []
         persist()
     }
 
