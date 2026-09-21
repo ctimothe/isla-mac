@@ -83,6 +83,74 @@ final class LocalLyricsLibraryTests: XCTestCase {
         XCTAssertEqual(candidate.timeline.lines.first?.text, "Changed")
     }
 
+    /// A rescan that finds what was already there changes nothing. Every
+    /// folder-watcher event lands here — any file added, renamed or removed at
+    /// a folder's top level, `.lrc` or not — and each one rewrote the index and
+    /// advanced the revision, which sends the track on screen back through
+    /// resolution and can re-send its online lookup.
+    func testARescanThatFindsNothingNewLeavesTheRevisionAlone() throws {
+        let folder = try makeFolder(named: "Library")
+        let url = try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: folder.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        let settled = library.revision
+
+        try write("not lyrics", to: folder.appendingPathComponent("notes.txt"))
+        try library.rescanFolders()
+        XCTAssertEqual(library.revision, settled, "nothing the library holds changed")
+
+        try write("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Changed", to: url)
+        try library.rescanFolders()
+        XCTAssertGreaterThan(library.revision, settled, "a changed document is news")
+    }
+
+    /// A folder that cannot be reached — a disk unplugged, a share not mounted —
+    /// must not cost the others. Its bookmark throws, and the rescan used to
+    /// throw with it: every folder after the missing one went unread for the
+    /// session. It keeps the documents it had, so a track bound to one of them
+    /// is bound to the same one when the folder comes back.
+    func testAMissingFolderDoesNotHideTheOthersAndKeepsItsDocuments() throws {
+        // Symlinks resolved, so the folder's stored path and the path its
+        // bookmark resolves to are the same string, as they are in ~/Music.
+        let base = root.resolvingSymlinksInPath()
+        let away = base.appendingPathComponent("Away", isDirectory: true)
+        let kept = base.appendingPathComponent("Kept", isDirectory: true)
+        try fileManager.createDirectory(at: away, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: kept, withIntermediateDirectories: true)
+        let awayLRC = "[ti:Other]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Away"
+        try write(awayLRC, to: away.appendingPathComponent("other.lrc"))
+        let song = try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: kept.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(away)
+        try library.addFolder(kept)
+        let other = identity(title: "Other")
+        guard case .ready(let before) = library.lookup(identity: other) else {
+            return XCTFail("the folder's document should resolve while it is there")
+        }
+
+        try fileManager.removeItem(at: away)
+        try write("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Changed", to: song)
+        XCTAssertNoThrow(try library.rescanFolders(), "one missing folder must not abandon the rescan")
+        guard case .ready(let current) = library.lookup(identity: identity()) else {
+            return XCTFail("the reachable folder is still read")
+        }
+        XCTAssertEqual(current.timeline.lines.first?.text, "Changed")
+
+        try fileManager.createDirectory(at: away, withIntermediateDirectories: true)
+        try write(awayLRC, to: away.appendingPathComponent("other.lrc"))
+        try library.rescanFolders()
+        guard case .ready(let after) = library.lookup(identity: other) else {
+            return XCTFail("the folder's document is back with the folder")
+        }
+        XCTAssertEqual(after.id, before.id, "the document keeps its id across the absence")
+    }
+
     func testAmbiguousLookupUsesAnExplicitChooseCaption() {
         let caption = LyricsPresentation.compactCaption(
             for: .noLocalLyrics,
