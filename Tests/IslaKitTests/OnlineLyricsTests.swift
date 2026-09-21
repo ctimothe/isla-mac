@@ -105,10 +105,10 @@ final class OnlineLyricsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let cache = OnlineLyricsCache(directory: directory)
 
-        XCTAssertNil(cache.cached(track), "nothing asked yet means ask")
+        XCTAssertTrue(cache.cached(track) == nil, "nothing asked yet means ask")
 
         cache.remember(.failed, for: track)
-        XCTAssertNil(cache.cached(track), "a failure is not an answer; the next play asks again")
+        XCTAssertTrue(cache.cached(track) == nil, "a failure is not an answer; the next play asks again")
 
         cache.remember(.none, for: track)
         XCTAssertEqual(cache.cached(track), .some(nil), "a remembered miss stays a miss")
@@ -126,7 +126,7 @@ final class OnlineLyricsTests: XCTestCase {
         XCTAssertEqual(OnlineLyricsCache(directory: directory).cached(track)??.lines.count, 1)
 
         cache.forget(track)
-        XCTAssertNil(cache.cached(track), "Retry must mean retry")
+        XCTAssertTrue(cache.cached(track) == nil, "Retry must mean retry")
     }
 
     /// The same recording from two players is one lookup, not two.
