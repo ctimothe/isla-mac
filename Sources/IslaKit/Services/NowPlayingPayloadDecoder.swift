@@ -41,6 +41,9 @@ enum NowPlayingPayloadDecoder {
             snapshot.playerPID = pid_t(pid)
             snapshot.source = sourceName(pid_t(pid))
         }
+        if let mediaType = object["mediaType"] as? String, !mediaType.isEmpty {
+            snapshot.mediaType = mediaType
+        }
         if let commands = object["commands"] as? [Int] {
             snapshot.commands = Set(commands)
         }

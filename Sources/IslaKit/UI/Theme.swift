@@ -174,6 +174,29 @@ enum Theme {
         }
     }
 
+    /// The resting island's bottom corners, larger than the hardware notch's
+    /// own so the curve stays inside the cutout rather than poking a black nub
+    /// past it at each corner. Inside the cutout nothing is visible, which is
+    /// the point: at rest the island *is* the notch.
+    static let restingNotchBottomRadius: CGFloat = 12
+
+    /// The island waking under the pointer when it rests hidden in the notch.
+    ///
+    /// The one other animation here allowed to overshoot, and asked for by the
+    /// owner on 2026-09-21: a hidden island has to say "I am here" the moment
+    /// the pointer arrives, and a small bounce is what says it — the way the
+    /// iPhone's island bumps when touched. It is deliberately *not* the
+    /// `RefusalShake`: over the lock screen that shake already means "this will
+    /// not open", and the same motion here would say "no" to a click that is
+    /// about to work. 0.72 is a single visible bump that settles, not a wobble;
+    /// `MotionValuesTests` holds that.
+    static let hoverNudgeDamping: Double = 0.72
+    static let hoverNudge = Animation.spring(response: 0.34, dampingFraction: hoverNudgeDamping)
+
+    static func hoverNudge(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : hoverNudge
+    }
+
     static let collapsedTopRadius: CGFloat = 6
     static let collapsedBottomRadius: CGFloat = 9
     static let openTopRadius: CGFloat = 12

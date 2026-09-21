@@ -181,3 +181,8 @@
 /* Online lyrics */
 "Look Up Lyrics Online" = "Look Up Lyrics Online";
 "Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you." = "Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you.";
+
+/* Music Only */
+"Music Only" = "Music Only";
+"Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show." = "Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show.";
+"Anything playing shows on the island, videos included." = "Anything playing shows on the island, videos included.";
