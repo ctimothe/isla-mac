@@ -595,9 +595,9 @@ struct LyricsStage: View {
     /// the jump before the line's timestamp. And a strongly negative offset
     /// near the end of the track must not clamp into the final second — that
     /// is a skip, not a seek.
-    static let clickMargin: TimeInterval = 0.12
+    nonisolated static let clickMargin: TimeInterval = 0.12
 
-    static func clickTarget(lineAt: TimeInterval, lead: TimeInterval, duration: TimeInterval) -> TimeInterval {
+    nonisolated static func clickTarget(lineAt: TimeInterval, lead: TimeInterval, duration: TimeInterval) -> TimeInterval {
         var target = max(0, lineAt - lead + clickMargin)
         if duration > 2 { target = min(target, duration - 1) }
         return target

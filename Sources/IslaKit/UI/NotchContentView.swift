@@ -969,7 +969,7 @@ struct PillPresence: ViewModifier {
         var opacity: Double
     }
 
-    static func appearance(shown: Bool, reduceMotion: Bool) -> Appearance {
+    nonisolated static func appearance(shown: Bool, reduceMotion: Bool) -> Appearance {
         if shown { return Appearance(blur: 0, scale: 1, opacity: 1) }
         // Reduce Motion keeps the change and drops the travel: a fade, with no
         // shrinking and no softening.
