@@ -35,6 +35,7 @@ struct SettingsPane: View {
     @State private var lockCardStyle = NotchViewModel.lockCardStyle
     @State private var showLyrics = NotchViewModel.showLyricsEnabled
     @State private var onlineLyrics = NotchViewModel.onlineLyricsEnabled
+    @State private var musicOnly = NotchViewModel.musicOnlyEnabled
     /// Observed, not snapshotted: the connect flow completes in the browser
     /// long after this pane rendered, and a one-shot copy of isConnected sat
     /// on "Connect" forever while the tokens were already in the keychain.
@@ -161,6 +162,23 @@ struct SettingsPane: View {
                 }
 
                 section(localized("Music")) {
+                    // First in the section because it decides what reaches the
+                    // island at all; everything below it is about the music
+                    // that does.
+                    toggleRow(
+                        symbol: SettingsIcon.musicOnly,
+                        title: localized("Music Only"),
+                        isOn: Binding(
+                            get: { musicOnly },
+                            set: { wants in
+                                musicOnly = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.musicOnlyKey)
+                            }
+                        )
+                    )
+                    noteRow(musicOnly
+                        ? localized("Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show.")
+                        : localized("Anything playing shows on the island, videos included."))
                     toggleRow(
                         symbol: SettingsIcon.lyrics,
                         title: localized("Show Lyrics"),
