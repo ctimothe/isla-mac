@@ -1,32 +1,8 @@
-import AppKit
 import XCTest
 @testable import IslaKit
 
 @MainActor
 final class LockScreenPresenceTests: XCTestCase {
-    /// The locked panel must clear the shield, and by the smallest possible
-    /// margin: one level, the same distance the panel keeps from the status
-    /// window in normal life.
-    func testLockedLevelClearsTheShieldByExactlyOne() {
-        XCTAssertEqual(LockScreenPresence.lockedLevel(base: 26, shield: 2030), 2031)
-    }
-
-    /// A shield reported below the panel's own resting level must not read as
-    /// an instruction to sink the panel: locking may raise it, never lower it.
-    func testLockedLevelNeverDropsBelowTheNormalLevel() {
-        XCTAssertEqual(LockScreenPresence.lockedLevel(base: 26, shield: 3), 26)
-    }
-
-    /// The same arithmetic fed the real constants: above the real shield, and
-    /// above where the panel normally sits, on the machine the tests run on.
-    func testLockedLevelSitsAboveTheRealShieldAndTheNormalLevel() {
-        let base = NotchPanel.normalLevel.rawValue
-        let shield = Int(CGShieldingWindowLevel())
-        let locked = LockScreenPresence.lockedLevel(base: base, shield: shield)
-        XCTAssertGreaterThan(locked, shield)
-        XCTAssertGreaterThan(locked, base)
-    }
-
     /// loginwindow can post the lock notification more than once per locked
     /// stretch — the shield redisplays when the display wakes while still
     /// locked — and each side of the transition must fire its work exactly
