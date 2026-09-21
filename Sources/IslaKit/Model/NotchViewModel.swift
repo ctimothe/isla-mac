@@ -15,15 +15,21 @@ final class NotchViewModel: ObservableObject {
         /// one the upstream project ships — `music.note`, `tray.full.fill`,
         /// `list.clipboard.fill`, `translate`, `gearshape.fill` — so the rail
         /// read as somebody else's island. Each of these is the system's own
-        /// word for its tab: a run of notes, a stack of held things, the
-        /// pasteboard glyph macOS puts on Paste, a speech bubble with a letter
-        /// in it (localized by the system to the reader's script), and the
-        /// controls sliders. Music first wore `play.circle`, which read as a
-        /// button rather than a place and was changed the same day at the
-        /// owner's word. `TabContractTests` keeps the old set out.
+        /// word for its tab: the note, a stack of held things, the pasteboard
+        /// glyph macOS puts on Paste, a speech bubble with a letter in it
+        /// (localized by the system to the reader's script), and the controls
+        /// sliders.
+        ///
+        /// Music keeps the plain note on purpose. It was tried as `play.circle`,
+        /// which read as a button rather than a place, and as
+        /// `music.quarternote.3`, which read as busy; the owner asked on the
+        /// same day for the simple one back. It is the system's own glyph for
+        /// music, free to every Mac app, and with the other four changed the
+        /// rail as a whole is no longer anybody else's. `TabContractTests`
+        /// keeps those four out.
         var symbol: String {
             switch self {
-            case .media: return "music.quarternote.3"
+            case .media: return "music.note"
             case .shelf: return "rectangle.stack"
             case .clipboard: return "doc.on.clipboard"
             case .translate: return "character.bubble"
@@ -31,10 +37,11 @@ final class NotchViewModel: ObservableObject {
             }
         }
 
-        /// The glyphs the rail wore until 2026-09-21: the upstream project's
-        /// own set, kept here only so a test can keep it from coming back.
+        /// Four of the glyphs the rail wore until 2026-09-21, from the upstream
+        /// project's own set, kept here only so a test can keep them from
+        /// coming back. The fifth, `music.note`, stayed: see `symbol`.
         static let retiredSymbols: Set<String> = [
-            "music.note", "tray.full.fill", "list.clipboard.fill", "translate", "gearshape.fill",
+            "tray.full.fill", "list.clipboard.fill", "translate", "gearshape.fill",
         ]
 
         var title: String {

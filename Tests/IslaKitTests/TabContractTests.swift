@@ -40,10 +40,10 @@ final class TabContractTests: XCTestCase {
         )
     }
 
-    /// Every rail glyph resolves, in both the outline the rail draws and the
-    /// fill it draws for the chosen tab — a name macOS does not know draws
-    /// nothing at all — and none of them is one of the set the rail wore until
-    /// 2026-09-21, which was the upstream project's own.
+    /// Every rail glyph resolves — a name macOS does not know draws nothing at
+    /// all — and none of the four retired on 2026-09-21 comes back. Music
+    /// keeps the system's plain note by the owner's choice; with the other four
+    /// changed, the rail as a whole is no longer the upstream project's.
     func testTheRailGlyphsResolveAndAreTheIslandsOwn() {
         for tab in NotchViewModel.Tab.allCases {
             XCTAssertNotNil(NSImage(systemSymbolName: tab.symbol, accessibilityDescription: nil),
