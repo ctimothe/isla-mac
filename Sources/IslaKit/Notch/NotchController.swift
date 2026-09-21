@@ -81,6 +81,11 @@ final class NotchController {
                 self.pointer.setInside(false)
                 self.pointer.stop()
                 self.stores.suspendForIdleScreen()
+                // The watchdog too. It was the one repeating timer a dark
+                // display left running — thirty wake-ups a minute, all night,
+                // checking the frame of a window nobody could see. The wake
+                // handler starts it again before anything is on screen.
+                self.stopGeometryWatchdog()
             }
         })
         observerTokens.append(NSWorkspace.shared.notificationCenter.addObserver(
@@ -92,6 +97,9 @@ final class NotchController {
                 guard let self else { return }
                 self.screensAreAsleep = false
                 self.geometryTrace("screens awake locked=\(self.lockPresence.isLocked ? 1 : 0)")
+                // Before the early returns below: the card over a locked Mac is
+                // exactly what the watchdog keeps in place.
+                self.startGeometryWatchdog()
                 // Only once it is clear the Mac is not still locked — the
                 // checks below decide that.
                 if !self.lockPresence.isLocked { self.stores.resumeFromIdleScreen() }
@@ -164,6 +172,22 @@ final class NotchController {
         pointer.setInside(false)
     }
 
+    /// Whether a lock starts the media clock for the card. Not while the
+    /// display is dark.
+    ///
+    /// With any "require password after" delay above zero, the display sleeps
+    /// first and the lock arrives later; with "immediately" the two race. Either
+    /// way the sleep handler had already stopped the clock, and the lock turned
+    /// it straight back on — with a song playing, the ten-a-second ticker and
+    /// the once-a-second Apple event into the player — for a card nobody could
+    /// see, for as long as the display stayed dark. Music keeps a Mac awake
+    /// with its display off, so that was hours. The wake handler starts the
+    /// clock the moment the card can be seen. Pure, so `LockedClockTests` can
+    /// hold the rule without a controller.
+    static func lockKeepsMediaRunning(screensAsleep: Bool) -> Bool {
+        !screensAsleep
+    }
+
     /// The lock screen is display-only for the panel: the compact pill keeps
     /// rendering — `MediaController` never stops with the shield up, so
     /// artwork, equalizer and the playing/paused state stay current — but
@@ -214,7 +238,8 @@ final class NotchController {
         // the locked pill.
         withTransaction(Self.cut) { viewModel?.isLockedPresentation = true }
         geometryTrace("locked")
-        viewModel?.media.setActive(true)
+        let keepsMediaRunning = Self.lockKeepsMediaRunning(screensAsleep: screensAreAsleep)
+        if keepsMediaRunning { viewModel?.media.setActive(true) }
         // Nobody can copy anything at a locked Mac, and Universal Clipboard
         // arrivals from a phone are not something to record behind a shield.
         // This used to happen only on the branch where the card is switched
@@ -223,7 +248,7 @@ final class NotchController {
         //
         // The media clock stays running: the card is about to be presented, and
         // it draws a scrubber and a moving lyric that both depend on it.
-        stores.suspendForIdleScreen(keepingMediaRunning: true)
+        stores.suspendForIdleScreen(keepingMediaRunning: keepsMediaRunning)
         applyLockedActiveRect()
         lockPresence.apply(to: panel, locked: true)
         // And the card, in its own window, at the centre of the notch's own
@@ -439,9 +464,15 @@ final class NotchController {
         geometryWatchdog = timer
     }
 
+    private func stopGeometryWatchdog() {
+        geometryWatchdog?.invalidate()
+        geometryWatchdog = nil
+    }
+
     func teardown() {
         lockPresence.stop()
         pointer.stop()
+        stopGeometryWatchdog()
         if let pinnedClickMonitor {
             NSEvent.removeMonitor(pinnedClickMonitor)
             self.pinnedClickMonitor = nil
@@ -937,7 +968,11 @@ final class NotchController {
             // pointer, and lifting its whole surface would be answering twice.
             vm.isHovering = hovering && !vm.isOpen
         }
-        pointer.start()
+        // Not in the dark. A rebuild can land while the display sleeps — an
+        // external display that drops off the bus with it moves the notch
+        // display's frame — and this restarted the sampler the sleep handler
+        // had stopped, for the rest of the night. The wake handler starts it.
+        if !screensAreAsleep { pointer.start() }
 
         // Switching tabs can change how far down the panel reaches, and both
         // the clickable region and the region the pointer counts as "on the
@@ -1035,7 +1070,9 @@ final class NotchController {
             .collapsedHoverRect(for: vm.bodySize.width)
             .contains(NSEvent.mouseLocation)
         let pointerOnBody = geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation)
-        if pointerOnTarget || (wasOpen && pointerOnBody) {
+        // And nothing opens on a dark display: an open panel starts the media
+        // clock, and a cursor left resting on the notch is not somebody asking.
+        if !screensAreAsleep, pointerOnTarget || (wasOpen && pointerOnBody) {
             pointer.setInside(true)
             setOpen(true)
         }
