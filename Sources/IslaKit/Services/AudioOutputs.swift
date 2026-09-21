@@ -186,10 +186,17 @@ enum AudioOutputs {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var name: CFString = "" as CFString
-        var size = UInt32(MemoryLayout<CFString>.size)
-        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &name) == noErr else { return nil }
-        let string = name as String
+        // Unmanaged, because CoreAudio hands back a string the caller owns
+        // (+1), written through a raw pointer Swift cannot see. Read into a
+        // `CFString` variable, it balanced only by accident — the placeholder
+        // overwritten without a release, and Swift's release at the end of the
+        // scope happening to consume CoreAudio's — and the compiler said as
+        // much. Taken retained, the ownership is stated rather than assumed.
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &name) == noErr,
+              let name else { return nil }
+        let string = name.takeRetainedValue() as String
         return string.isEmpty ? nil : string
     }
 

@@ -1638,7 +1638,11 @@ final class MediaController: ObservableObject {
     /// JPEG decoding on the main thread is what makes a track change stutter,
     /// so it happens off it and the finished image is handed back.
     private func decodeArtwork(_ data: Data, for key: String) {
-        DispatchQueue.global(qos: .userInitiated).async {
+        // Weak from the outermost closure. The hops back below asked for a weak
+        // `self`, but to hand them one the decoding closure had to capture it
+        // first, and without a list of its own it captured it strongly: the
+        // `weak` never covered the decode, and the compiler said so.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let rep = NSBitmapImageRep(data: data), let cgImage = rep.cgImage else {
                 // An undecodable payload must not leave the previous track's
                 // cover standing: the deferred blank was already cancelled on
