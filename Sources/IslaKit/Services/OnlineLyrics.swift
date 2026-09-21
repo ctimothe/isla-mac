@@ -295,6 +295,7 @@ final class OnlineLyricsCache {
     }
 
     private let directory: URL?
+    private let capacity: Int
     private var entries: [String: Entry] = [:]
     private var flush: Task<Void, Never>?
 
@@ -302,8 +303,18 @@ final class OnlineLyricsCache {
     /// community-contributed and grows, so a miss is a fact with a shelf life.
     static let missLifetime: TimeInterval = 60 * 60 * 24 * 14
 
-    init(directory: URL? = AppPaths.live.supportFile("lyrics-online")) {
+    /// Answers kept, newest by when they were checked. A hit carries the song's
+    /// whole timeline, and nothing used to leave: every song ever looked up
+    /// stayed in memory and in the file for the life of the install. A song
+    /// pushed out is only asked again the next time it plays.
+    nonisolated static let defaultCapacity = 1000
+
+    init(
+        directory: URL? = AppPaths.live.supportFile("lyrics-online"),
+        capacity: Int = OnlineLyricsCache.defaultCapacity
+    ) {
         self.directory = directory
+        self.capacity = capacity
         load()
     }
 
@@ -336,6 +347,7 @@ final class OnlineLyricsCache {
         case .failed:
             return
         }
+        trim()
         save()
     }
 
@@ -345,42 +357,56 @@ final class OnlineLyricsCache {
         save()
     }
 
-    func clear() {
-        entries = [:]
-        save()
-    }
-
-    var count: Int { entries.count }
-
     private var file: URL? { directory?.appendingPathComponent("cache.json") }
 
+    /// Misses past their lifetime, and misses from before the search existed,
+    /// are left behind: `cached` would ask again for either, so all they kept
+    /// was their room.
     private func load() {
         guard let file, let data = try? Data(contentsOf: file),
               let decoded = try? JSONDecoder().decode([String: Entry].self, from: data)
         else { return }
-        entries = decoded
+        let now = Date()
+        entries = decoded.filter { _, entry in
+            entry.lines != nil
+                || (entry.searched == true && now.timeIntervalSince(entry.checkedAt) < Self.missLifetime)
+        }
+        trim()
     }
 
-    /// Encoded on the main actor, because that is where the dictionary lives,
-    /// and written off it.
+    /// Down to capacity, the answers checked longest ago first.
+    private func trim() {
+        guard entries.count > capacity else { return }
+        let oldest = entries
+            .sorted { $0.value.checkedAt < $1.value.checkedAt }
+            .prefix(entries.count - capacity)
+        for (key, _) in oldest { entries.removeValue(forKey: key) }
+    }
+
+    /// Written off the main actor, and encoded there too.
     ///
     /// This used to encode and write synchronously on every answer. A run of
     /// fast skips is a run of answers, so it was a main-thread file write per
     /// skip — on the one thread the panel, the scrubber and the lyric sweep all
     /// draw from. Coalesced too: several answers inside a second cost one
     /// write, and the last one wins because each carries the whole dictionary.
+    /// The encode stayed behind on the main actor, once per answer and over
+    /// every song ever cached, until it moved into the write: what leaves here
+    /// is a copy of the dictionary, which costs nothing until it is changed.
     private func save() {
-        guard let file, let data = try? JSONEncoder().encode(entries) else { return }
+        guard let file else { return }
+        let snapshot = entries
         flush?.cancel()
         flush = Task { [file] in
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
-            await Self.write(data, to: file)
+            await Self.write(snapshot, to: file)
         }
     }
 
-    private static func write(_ data: Data, to file: URL) async {
+    private static func write(_ entries: [String: Entry], to file: URL) async {
         await Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(entries) else { return }
             try? FileManager.default.createDirectory(
                 at: file.deletingLastPathComponent(), withIntermediateDirectories: true
             )
@@ -391,7 +417,7 @@ final class OnlineLyricsCache {
     /// Writes what is pending right now, for a test that must observe the file.
     func flushForTests() async {
         flush?.cancel()
-        guard let file, let data = try? JSONEncoder().encode(entries) else { return }
-        await Self.write(data, to: file)
+        guard let file else { return }
+        await Self.write(entries, to: file)
     }
 }
