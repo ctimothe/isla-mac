@@ -540,12 +540,14 @@ notch in a single frame, "too intense, too raw".
   the spring on macOS 27 (a 0.4-damped probe overshot 76 → 88 pt and settled).
 - [x] **The rail wears its own glyphs.** Its five were, glyph for glyph, the
   upstream project's (`music.note`, `tray.full.fill`, `list.clipboard.fill`,
-  `translate`, `gearshape.fill`). Now `play.circle`, `rectangle.stack`,
+  `translate`, `gearshape.fill`). Now `music.note`, `rectangle.stack`,
   `doc.on.clipboard`, `character.bubble` and `slider.horizontal.3`, filled when
   chosen, as a tab bar does; the Settings privacy rows and the two empty states
-  follow. `TabContractTests` keeps the old set out. Music moved to
-  `music.quarternote.3` the same day — `play.circle` read as a button — and the
-  replace effect on the fill went too: a third of a second behind every click.
+  follow. `TabContractTests` keeps the old four out. Music tried `play.circle`
+  (read as a button) and `music.quarternote.3` (read as busy), and at the
+  owner's word keeps the plain `music.note` — the system's own glyph, and the
+  rail as a whole is no longer the upstream's. The replace effect on the fill
+  went too: a third of a second behind every click.
 - [x] **The rail changes tabs on a click only**, and its well and selection
   land on the frame they happen. The 150 ms hover dwell is withdrawn (design
   amendment 2026-09-21) and `NotchMetrics.tabDwell` with it.
