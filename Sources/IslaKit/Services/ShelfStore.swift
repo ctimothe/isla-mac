@@ -28,12 +28,20 @@ struct ShelfItem: Identifiable, Equatable {
     /// so a card never reads half in one and half in the other.
     static func age(of date: Date, now: Date = Date()) -> String {
         guard now.timeIntervalSince(date) >= 60 else { return localized("Just now") }
+        return ageFormatter.localizedString(for: date, relativeTo: now)
+    }
+
+    /// One formatter for every card. Each card draws its age on every pass of
+    /// the shelf — every thirty seconds, and on every change — and used to
+    /// build and configure a formatter of its own each time. The app's language
+    /// is settled for the life of the process, so the locale is too.
+    private static let ageFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = Locale(identifier: appLanguage)
         formatter.unitsStyle = .short
         formatter.dateTimeStyle = .named
-        return formatter.localizedString(for: date, relativeTo: now)
-    }
+        return formatter
+    }()
 }
 
 /// Drop zone contents. Files are referenced, never copied — the shelf is a
@@ -54,6 +62,22 @@ final class ShelfStore: ObservableObject {
     /// deleted behind the user's back. Cards past the limit leave the shelf,
     /// but their files stay in the folder.
     private let limit = 60
+
+    /// Each card's bookmark, made once — when the card arrived, or read back
+    /// with it at launch — and reused until the card leaves.
+    ///
+    /// `persist` runs on every change to the shelf, and making a bookmark reads
+    /// the file's and the volume's metadata. It used to bookmark the whole
+    /// shelf on every save: one copied screenshot meant up to sixty such reads
+    /// on the main thread with the panel shut — touching files in Desktop and
+    /// Downloads that `load()` goes out of its way not to touch — and the
+    /// system log carried hundreds of bookmark creations per session.
+    private var bookmarks: [URL: Data] = [:]
+
+    /// Makes one card's bookmark. A seam so `ShelfStoreTests` can count them.
+    var makeBookmark: (URL) -> Data? = {
+        try? $0.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -84,7 +108,12 @@ final class ShelfStore: ObservableObject {
         // the ids it holds now name nothing. Kept, they showed as a phantom
         // "Selected: N" in the footer with no card marked (#10).
         selection.removeAll()
-        let urls = Self.storedURLs(in: defaults, key: defaultsKey)
+        let stored = Self.storedURLs(in: defaults, key: defaultsKey)
+        let urls = stored.map(\.url)
+        bookmarks = Dictionary(
+            stored.compactMap { entry in entry.bookmark.map { (entry.url, $0) } },
+            uniquingKeysWith: { first, _ in first }
+        )
         let stamps = defaults.array(forKey: defaultsKey + ".dates") as? [Double]
         items = urls.enumerated().compactMap { index, url in
             // A path check, not a disk read: a card whose file went to the
@@ -107,10 +136,14 @@ final class ShelfStore: ObservableObject {
     /// that as "the files were deleted" and erased the whole shelf, files still
     /// sitting where they always were. A bookmark follows the file instead.
     /// Paths are still read so an existing shelf survives the upgrade.
-    private static func storedURLs(in defaults: UserDefaults, key: String) -> [URL] {
+    ///
+    /// Each card comes back with the bookmark worth keeping: one that resolved
+    /// and is not stale. A stale one is made again at the next save, which is
+    /// what the system asks of a stale bookmark.
+    private static func storedURLs(in defaults: UserDefaults, key: String) -> [(url: URL, bookmark: Data?)] {
         let paths = (defaults.stringArray(forKey: key) ?? []).map(URL.init(fileURLWithPath:))
         guard let bookmarks = defaults.array(forKey: key + ".bookmarks") as? [Data],
-              bookmarks.count == paths.count else { return paths }
+              bookmarks.count == paths.count else { return paths.map { ($0, nil) } }
         return zip(bookmarks, paths).map { data, path in
             var stale = false
             guard !data.isEmpty, let url = try? URL(
@@ -121,9 +154,9 @@ final class ShelfStore: ObservableObject {
                 // No bookmark, or one that no longer resolves: the stored path
                 // is still the best answer, and `refreshFromDisk` decides
                 // whether the file is really gone.
-                return path
+                return (path, nil)
             }
-            return url
+            return (url, stale ? nil : data)
         }
     }
 
@@ -133,6 +166,10 @@ final class ShelfStore: ObservableObject {
         return NSWorkspace.shared.icon(for: type)
     }
 
+    /// How many passes `refreshFromDisk` has made — each one a reachability
+    /// check and a QuickLook request per card. Counted for `FirstRunTests`.
+    private(set) var refreshesForTests = 0
+
     /// Called when the shelf comes into view, and only then.
     ///
     /// This is where the disk is finally touched: missing files leave, real
@@ -141,6 +178,7 @@ final class ShelfStore: ObservableObject {
     /// being asked, which is the difference between a question and an
     /// interruption.
     func refreshFromDisk() {
+        refreshesForTests += 1
         importNewRecordings()
         guard !items.isEmpty else { return }
         let gone = Set(items.filter { Self.isGone($0.url) }.map(\.id))
@@ -381,10 +419,17 @@ final class ShelfStore: ObservableObject {
         // the failures instead misaligned the two lists, and since the loader
         // prefers bookmarks whenever the key exists, a single unbookmarkable
         // file silently deleted its own card at the next launch.
-        let bookmarks = urls.map {
-            (try? $0.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)) ?? Data()
+        //
+        // Made once per card and reused — see `bookmarks`. A failure is not
+        // kept, so that card is tried again at the next save, as it always was.
+        var kept: [URL: Data] = [:]
+        let stored = urls.map { url -> Data in
+            guard let data = bookmarks[url] ?? makeBookmark(url), !data.isEmpty else { return Data() }
+            kept[url] = data
+            return data
         }
-        defaults.set(bookmarks, forKey: defaultsKey + ".bookmarks")
+        bookmarks = kept
+        defaults.set(stored, forKey: defaultsKey + ".bookmarks")
         defaults.set(items.map { $0.date?.timeIntervalSince1970 ?? 0 }, forKey: defaultsKey + ".dates")
     }
 }
