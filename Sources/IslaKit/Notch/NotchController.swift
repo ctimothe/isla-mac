@@ -7,6 +7,11 @@ final class NotchController {
     private var panel: NotchPanel?
     private var rootView: NotchRootView?
     private var viewModel: NotchViewModel?
+
+    /// The live model, for App Intents. Read-only and optional on purpose: the
+    /// panel builds its model in `install()`, so an intent that launched the app
+    /// can arrive before there is one, and "not ready yet" is an honest answer.
+    var intentModel: NotchViewModel? { viewModel }
     private let pointer = PointerWatcher()
     private let lockPresence = LockScreenPresence()
     /// The lock screen's player, in a window of its own — see `LockCardWindow`.
@@ -227,7 +232,14 @@ final class NotchController {
         // primary one, which is a different display whenever the notch is not
         // on it.
         if let vm = viewModel, let screen = vm.geometry.screen as NSScreen? {
-            lockCard.present(media: vm.media, lyrics: vm.lyrics, on: screen, presence: lockPresence)
+            lockCard.present(
+                media: vm.media,
+                lyrics: vm.lyrics,
+                localLookup: { vm.lyricsCoordinator.localLookup },
+                retryLyrics: vm.lyricsCoordinator.retry,
+                on: screen,
+                presence: lockPresence
+            )
         }
     }
 
@@ -448,9 +460,53 @@ final class NotchController {
         panel?.orderOut(nil)
     }
 
+    /// Opens on the Music tab with the lyrics page already up.
+    ///
+    /// The same shape as `translate(_:)` and for the same reasons: refused over
+    /// the shield before anything is touched, and pinned open because the
+    /// pointer that asked for it is on the keyboard rather than on the notch.
+    /// Pressing it again folds the page back to the player rather than doing
+    /// nothing, so one key is the whole round trip.
+    func toggleLyrics() {
+        guard let vm = viewModel else { return }
+        guard vm.verdictForDeliberateOpen() == .proceed else {
+            vm.nudgeLockedIsland()
+            return
+        }
+        // Pressed again with the page already up, it folds the page back to
+        // the player rather than doing nothing: one key is the whole round
+        // trip, and the panel is left open on the music it was opened for.
+        if vm.isOpen, vm.tab == .media, vm.isShowingLyrics {
+            vm.isShowingLyrics = false
+            return
+        }
+        peekWork?.cancel()
+        vm.isPeeking = false
+        vm.select(.media)
+        vm.isShowingLyrics = true
+        // Pinned, like ⌥⌘I and for the same reason: the hand that pressed it is
+        // on the keyboard, not on the notch, and an unpinned panel nobody is
+        // hovering folds a third of a second after it appears. Lyrics are read
+        // for the length of a song, which is the longest any of these stays up.
+        vm.isPinnedOpen = true
+        setOpen(true)
+        pointer.setInside(true)
+        updatePinnedClickMonitor()
+    }
+
     /// Opens on the translate tab with this text already in it.
     func translate(_ text: String) {
         guard let vm = viewModel else { return }
+        // Refused over the shield, before the translator, the tab or `setOpen`
+        // is touched: this route would open the panel over the password field
+        // and then make it key through `select(.translate)` — a window the lock
+        // presentation deliberately lifted above the shield, holding the
+        // keyboard in front of the password field, the exact hazard
+        // `panel.onPress` refuses for the same reason.
+        guard vm.verdictForDeliberateOpen() == .proceed else {
+            vm.nudgeLockedIsland()
+            return
+        }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         peekWork?.cancel()
@@ -485,36 +541,49 @@ final class NotchController {
         rebuild()
     }
 
-    /// The collapsed island was clicked.
+    /// The island was clicked — the collapsed pill, or the header strip that is
+    /// all of the island that shows while the panel is open.
     ///
-    /// Open, normally. Refused with a shake while the Mac is locked: the island
-    /// stays visible over the shield on purpose, and a click there has to say
-    /// *not here* rather than either opening over the password field or doing
-    /// nothing at all, which reads as a dead app rather than a decision.
+    /// A toggle: open, then shut again by the same gesture on the same surface.
+    /// Refused with a shake while the Mac is locked: the island stays visible
+    /// over the shield on purpose, and a click there has to say *not here*
+    /// rather than either opening over the password field or doing nothing at
+    /// all, which reads as a dead app rather than a decision.
     private func islandClicked() {
         guard let vm = viewModel else { return }
+        // Diagnostic, behind DI_GEOM=1: the third line of the click trail, so
+        // a gesture that fired reads here as refused, closed, or opened.
+        geometryTrace("click open=\(vm.isOpen ? 1 : 0) locked=\(vm.isLockedPresentation ? 1 : 0)")
         if vm.isLockedPresentation {
             vm.nudgeLockedIsland()
             return
         }
-        guard !vm.isOpen else { return }
+        // A second click closes. The click that opens and the click that closes
+        // are the same gesture on the same surface — guarding the open state
+        // here meant the island could be opened by clicking it and then not
+        // closed by clicking it, which reads as the app having stopped
+        // listening. Walking away closes it too; see `clickOpened`.
+        if vm.isOpen {
+            // `setOpen(false)` drops the pin and retires the click monitor with
+            // it, and it cannot early-return here — `vm.isOpen` was just read as
+            // true. Writing either again would be a third copy of an invariant
+            // that only needs two.
+            setOpen(false)
+            // Not a plain `setInside(false)`. `openRect` is still cut for the
+            // open body until `collapse()` shrinks it a moment later, so the
+            // pointer that just clicked sits inside it: with Open on Hover on,
+            // the next sample read an arrival, waited `openDelay`, and reopened
+            // the panel ~50 ms after this click shut it — click to close did
+            // nothing but make the island fold and unfold.
+            pointer.closedByHand()
+            return
+        }
 
         // Everything the hover route used to do, in the same order, so a click
         // opens the panel the way a hover did rather than by a second path that
-        // merely ends up open too.
-        //
-        // The tab first. A hover always landed on Music — the island is for
-        // glancing at a track, and the other tabs are somewhere to go once it is
-        // open, not somewhere to arrive. Skipping it meant a click opened
-        // whatever had been left behind and then swapped panes *during* the
-        // expansion, which is most of what read as an unsmooth open.
-        vm.select(.media)
-        // The hover lift goes out with the same animation that opens the panel,
-        // rather than snapping off the instant `isOpen` flips.
-        vm.isHovering = false
-        // Pinned, like the hotkey: a panel opened deliberately should not close
-        // because the pointer was never technically inside the hover rect.
-        vm.isPinnedOpen = true
+        // merely ends up open too. The tab, the lift and the pin are the view
+        // model's — `clickOpened` — and the panel's own machinery is here.
+        vm.clickOpened(pointerIsOnPanel: pointerIsOnOpenPanel)
         // Before `setOpen`, not after. Telling the watcher afterwards let it
         // re-enter `onChange` mid-expansion and re-run the open path against a
         // panel that was already opening.
@@ -523,16 +592,46 @@ final class NotchController {
         updatePinnedClickMonitor()
     }
 
+    /// Whether the cursor is standing where the open panel holds itself open
+    /// from.
+    ///
+    /// The same rect the watcher closes on, asked the same way
+    /// `scheduleCollapseIfPointerAway` asks it, so the answer cannot drift from
+    /// the rule it stands in for. `hoverRect(for: openBodySize)` contains the
+    /// whole collapsed island — the pill is never wider than the body it opens
+    /// into (`CompactMediaActivity.bodySize` caps it) and never deeper than the
+    /// notch — so a click delivered by the mouse always answers true, and only
+    /// a click from assistive tech, with the cursor left elsewhere, answers
+    /// false.
+    private var pointerIsOnOpenPanel: Bool {
+        guard let vm = viewModel else { return false }
+        return vm.geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation)
+    }
+
     func refreshPointerTuning() {
         pointer.openDelay = NotchViewModel.hoverOpenDelay
     }
 
-    /// The hotkey and the menu item. Opens until something closes it — the
-    /// same command again, Escape, or a click outside — rather than until the
-    /// next pointer sample, which is what folded it a third of a second after
-    /// it appeared and made the keyboard route to the panel unusable.
+    /// The ⌥⌘I hotkey, `presentWelcome()` on a fresh account, and the
+    /// `DI_OPEN_LYRICS` verification hook. (The Translate service opens through
+    /// `translate(_:)`, which sets its own tab and its own grace, not here.)
+    ///
+    /// Opens until something closes it — the same command again, Escape, or a
+    /// click outside — rather than until the next pointer sample, which is what
+    /// folded it a third of a second after it appeared and made the keyboard
+    /// route to the panel unusable.
     func toggle() {
         guard let viewModel else { return }
+        // Refused over the shield, before the pin or `setOpen` is touched: an
+        // open there would grow the clickable region from the deliberate
+        // pill-sized locked rect to the open body, over the password field. The
+        // shake is the same refusal the island's own click gives — and
+        // `presentWelcome()` keeps its own silent guard, so the welcome never
+        // reaches here while locked.
+        guard viewModel.verdictForDeliberateOpen() == .proceed else {
+            viewModel.nudgeLockedIsland()
+            return
+        }
         // `setOpen`'s close path defers the `isOpen` mutation to the next run
         // loop pass, so reading `viewModel.isOpen` right after calling it would
         // read the stale, pre-close value. Capture the intended target state
@@ -540,13 +639,55 @@ final class NotchController {
         let opening = !viewModel.isOpen
         viewModel.isPinnedOpen = opening
         setOpen(opening)
-        pointer.setInside(opening)
+        if opening {
+            pointer.setInside(true)
+        } else {
+            // The same hazard as the second click on the island: ⌥⌘I can be
+            // pressed with the pointer standing on the panel, and the rect an
+            // arrival is measured against is still the open body's while the
+            // panel folds. See `PointerWatcher.closedByHand()`.
+            pointer.closedByHand()
+        }
         updatePinnedClickMonitor()
     }
 
+    /// The one visible moment on a fresh account: the body shows the welcome and
+    /// the panel opens itself to show it.
+    ///
+    /// Here rather than in `AppDelegate` because the view model belongs to the
+    /// panel — it is built inside `build()` and replaced by every rebuild — so
+    /// the delegate holds the controller, not what the controller made.
+    ///
+    /// Through `toggle()`, which pins: the pointer is wherever the user left it
+    /// at launch, and an unpinned panel nobody is hovering folds a third of a
+    /// second after appearing, which is the same as never having opened. Pinned,
+    /// it closes the way every commanded open closes — Escape, a second click on
+    /// the island, or a click in another app.
+    func presentWelcome() {
+        guard let viewModel else { return }
+        // Not over the shield. The island is deliberately inert while the Mac is
+        // locked, so a welcome there could neither be read nor dismissed —
+        // better to spend the moment on the next launch, which is what leaving
+        // the flag unset does.
+        guard !viewModel.isLockedPresentation else { return }
+        // Only onto a panel this opens itself. A drag onto the island, or a click
+        // on it, can have opened the panel inside the 0.8 s delay this is called
+        // after, and the flag is the welcome: raising it over that panel drew the
+        // welcome on top of whatever it had been opened for — a file dropped on
+        // the island half a second after login lost `ShelfPane`'s drop highlight
+        // mid-drag to a pane nobody had asked for. Skipping only the `toggle()`
+        // left exactly that, which is the same defect `71d414f` fixed in the
+        // other ordering. Unset, the moment is spent on the next launch instead:
+        // `hasCompletedFirstRun` is still false, so it is still owed.
+        guard !viewModel.isOpen else { return }
+        viewModel.isShowingWelcome = true
+        toggle()
+    }
+
     /// Keeps the outside-click watch alive exactly while the panel is holding
-    /// itself open — the ⌥⌘I pin *or* a running teleprompter. Both are states
-    /// the pointer cannot end, and both promise a click outside will end them.
+    /// itself open — which since the teleprompter went on 2026-08-22 means the
+    /// pin and nothing else (`holdsOpen` is now just `isPinnedOpen`). It is a
+    /// state the pointer cannot end, and it promises a click outside will.
     private func updatePinnedClickMonitor() {
         let wanted = viewModel?.holdsOpen == true
         if wanted, pinnedClickMonitor == nil {
@@ -560,7 +701,11 @@ final class NotchController {
                     // holding the panel open is over.
                     self.viewModel?.isPinnedOpen = false
                     self.setOpen(false)
-                    self.pointer.setInside(false)
+                    // Deliberate, like the other two closes: the click landed in
+                    // another app, but `openRect` reaches past the region this
+                    // panel takes clicks in, so the pointer that made it can be
+                    // inside the rect an arrival is measured against.
+                    self.pointer.closedByHand()
                     self.updatePinnedClickMonitor()
                 }
             }
@@ -579,6 +724,7 @@ final class NotchController {
         // only the panel's own state.
         let previousTab = viewModel?.tab
         let wasOpen = viewModel?.isOpen ?? false
+        let wasShowingWelcome = viewModel?.isShowingWelcome ?? false
         // The pin belongs to the panel being torn down; the monitor watching
         // for its exit has to go with it, or it outlives every rebuild.
         viewModel?.isPinnedOpen = false
@@ -594,10 +740,14 @@ final class NotchController {
         panel = nil
         rootView = nil
         viewModel = nil
-        build(restoring: previousTab, wasOpen: wasOpen)
+        build(restoring: previousTab, wasOpen: wasOpen, showingWelcome: wasShowingWelcome)
     }
 
-    private func build(restoring restoredTab: NotchViewModel.Tab? = nil, wasOpen: Bool = false) {
+    private func build(
+        restoring restoredTab: NotchViewModel.Tab? = nil,
+        wasOpen: Bool = false,
+        showingWelcome: Bool = false
+    ) {
         guard let geometry = NotchGeometry.current() else { return }
         let vm = NotchViewModel(geometry: geometry, stores: stores)
         // Before any rect is cut. The tab decides how far down the panel
@@ -606,6 +756,23 @@ final class NotchController {
         // 400 pt with a close rect drawn for 208, and folded under a pointer
         // resting in the lower half of the pane.
         if let restoredTab { vm.tab = restoredTab }
+        // Carried across for the same reason as the tab, and it is the more
+        // fragile of the two: the welcome is shown once per account, so dropping
+        // it here did not merely lose a pane — it spent the account's one moment
+        // on nothing at all. Plugging in a display mid-read is the obvious way
+        // in; the one that actually bit is a fresh login, where the display
+        // arrangement is still settling in the same second `presentWelcome()`
+        // fires, so a rebuild lands just after the flag is raised and the
+        // welcome is gone before anybody could have read it.
+        //
+        // Not in tension with `setOpen(false)` lowering it: that is the panel
+        // *ending* — Escape, a click in another app, the screen sleeping — and
+        // the moment ends with it. A rebuild is the same panel made again, so
+        // whatever it was showing is still owed. If the reopen at the bottom of
+        // this method does not fire, because the pin went with the old panel and
+        // the pointer is elsewhere, the welcome waits for the next open of this
+        // launch rather than being silently spent.
+        vm.isShowingWelcome = showingWelcome
         vm.onIslandClick = { [weak self] in self?.islandClicked() }
         viewModel = vm
 
@@ -630,7 +797,11 @@ final class NotchController {
         }
         root.onDragEntered = { [weak self] in
             guard let self, let vm = self.viewModel else { return }
-            vm.tab = .shelf
+            // `showShelfForDrag()`, not a bare `tab = .shelf`: the welcome is
+            // drawn over the pane switch, and `setOpen(true)` below has nothing
+            // to do on a panel the welcome already opened, so a drag during the
+            // first launch used to change nothing visible whatsoever.
+            vm.showShelfForDrag()
             vm.isDropTargeted = true
             self.setOpen(true)
         }
@@ -716,42 +887,38 @@ final class NotchController {
         // destination callbacks, so the panel counted the pointer as away,
         // folded 0.32 s in, and tore down the very view the drag session was
         // still running from.
+        //
+        // Knowing about the outgoing drag was only half the fix, and this comment
+        // claimed the whole one until 2026-09-10. The watcher closes down two
+        // paths and only the already-outside one asked this question; the
+        // departure from `closeRect` — the path a drag out actually takes — folded
+        // the panel regardless, and became reachable the moment a click stopped
+        // pinning. Both ask now: see `PointerWatcher.tick`.
         pointer.isDragging = { [weak root] in
             (root?.isReceivingDrag ?? false) || ShelfDragSource.isDraggingOut
         }
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
         pointer.onChange = { [weak self] inside in
-            guard let self else { return }
+            guard let self, let vm = self.viewModel else { return }
             // The edge is drawn from the shape's own `.onHover`, not from
             // here: this rect is padded for a forgiving open, and an edge lit
             // from it appears while the cursor is beside the island.
             //
-            // Unless hover-to-open is switched on, a hover does nothing here.
-            // Leaving still closes — a panel opened by a click is still left by
-            // walking away from it, which is the gesture everyone already has.
-            if inside, !NotchViewModel.opensOnHoverEnabled { return }
-            // The pointer arriving takes the panel back from whatever opened
-            // it without one; from here on the ordinary rule applies again.
-            if inside {
-                self.viewModel?.isPinnedOpen = false
-                self.updatePinnedClickMonitor()
-                // A hover always lands on Music.
-                //
-                // This is what the island is for: the other tabs are somewhere
-                // to go once it is open, not somewhere to arrive. Leaving the
-                // last-used tab selected meant that opening it to glance at a
-                // track showed whatever had been left behind — the shelf, or
-                // settings — and cost a second move to get to the thing the
-                // panel exists for. Deliberate routes still choose their own
-                // tab: ⌥⌘T lands on Translate, a drag lands on the Shelf.
-                self.viewModel?.select(.media)
+            // What the crossing means is the view model's — `pointerCrossed`,
+            // where it can be tested without a pointer. What it does to the
+            // panel is this closure's. An arrival lands on Music: the island is
+            // for glancing at a track, and the other tabs are somewhere to go
+            // once it is open, not somewhere to arrive. Deliberate routes still
+            // choose their own tab — ⌥⌘T lands on Translate, and a drag stays on
+            // the Shelf, which is what `dragging` is for.
+            switch vm.pointerCrossed(inside: inside, dragging: self.pointer.isDragging()) {
+            case .opens: self.setOpen(true)
+            case .closes: self.setOpen(false)
+            case .standsAsItIs: break
             }
-            // The one place the pointer does not decide — see `holdsOpen`.
-            // Guarded here rather than inside `setOpen` so that the reasons
-            // that are not the pointer, like the screen going to sleep, still
-            // close a running teleprompter.
-            if !inside, self.viewModel?.holdsOpen == true { return }
-            self.setOpen(inside)
+            // An arrival may have dropped the pin, and the monitor watching for
+            // the click that would otherwise have ended it goes with it.
+            self.updatePinnedClickMonitor()
         }
         // Everything outside the visible panel must reach the app underneath:
         // a `nil` from hitTest only discards the event, it does not forward it.
@@ -883,15 +1050,18 @@ final class NotchController {
     /// is a second rule to learn for a panel that has exactly one. What was
     /// typed is kept, so coming back finds it where it was left.
     ///
-    /// The teleprompter is the single exception, and it is one because it
-    /// cannot be anything else: a script is read while looking at the camera,
-    /// which is precisely the moment nobody is touching the trackpad. The
-    /// exception is held as narrow as it goes — one tab, and only while the
-    /// script is actually moving — and it is enforced where the pointer is
-    /// read, not here. Everything else that closes the panel still closes it:
-    /// the screen sleeping, the space changing, the display arrangement
-    /// changing. A pinned teleprompter surviving any of those would be a panel
-    /// stuck open on a screen nobody is looking at.
+    /// The pin is the single exception, and it is enforced where the pointer is
+    /// read rather than here — see `NotchViewModel.holdsOpen`. It exists for
+    /// the routes that open the panel with the pointer nowhere near it: ⌥⌘I,
+    /// the Translate service, and VoiceOver firing the island's accessibility
+    /// action. A click on the island only pins when the pointer would land
+    /// outside the open panel, which it normally does not.
+    ///
+    /// The teleprompter used to be the exception here and went on 2026-08-22.
+    /// Everything else that closes the panel still closes it: the screen
+    /// sleeping, the space changing, the display arrangement changing. A pinned
+    /// panel surviving any of those would be one stuck open on a screen nobody
+    /// is looking at.
     private func setOpen(_ open: Bool) {
         guard let vm = viewModel, vm.isOpen != open else { return }
         // Closing for any reason drops the pin: a panel that is shut is not
@@ -899,6 +1069,14 @@ final class NotchController {
         if !open {
             vm.isPinnedOpen = false
             updatePinnedClickMonitor()
+            // The welcome lives exactly as long as the panel it opened. Left
+            // standing, it would be waiting inside the *next* open too — click
+            // the island to glance at a track and get the welcome again — for
+            // the whole launch, since only Get Started or a tab retires it.
+            // The flag is deliberately not set here: closing the panel is not
+            // an answer, and the reasons a panel closes include the screen
+            // going to sleep. Unanswered, the next launch asks again.
+            vm.isShowingWelcome = false
         }
         openGeneration += 1
         closeActiveRectWork?.cancel()
@@ -907,7 +1085,7 @@ final class NotchController {
             // Grow the interactive area first so the pointer never falls
             // through a region the animation has not covered yet.
             applyActiveRect(open: true)
-            withAnimation(Theme.openAnimation) { vm.isOpen = true }
+            withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = true }
             vm.media.setActive(true)
         } else {
             // The keyboard goes first and the fold goes second — one run-loop
@@ -960,7 +1138,7 @@ final class NotchController {
         // swap is what made the card and the pill slide in from the notch's
         // old position, at the old size, instead of simply being there.
         if deferRectShrink {
-            withAnimation(Theme.openAnimation) { vm.isOpen = false }
+            withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = false }
         } else {
             var instant = Transaction()
             instant.disablesAnimations = true
@@ -994,7 +1172,7 @@ final class NotchController {
             // Resync either way. A pointer that is still on the panel has to be
             // recorded as inside, or hover tracking stays convinced it left and
             // the panel hangs open until the notch is touched again.
-            let away = !vm.geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation)
+            let away = !self.pointerIsOnOpenPanel
             self.pointer.setInside(!away)
             if away, !vm.holdsOpen { self.setOpen(false) }
         }
@@ -1059,12 +1237,14 @@ final class NotchController {
 
     private func applyActiveRect(open: Bool) {
         guard let vm = viewModel, let rootView else { return }
-        // Collapsed, the panel claims only its target strip — on a synthetic
-        // notch that is deliberately shallower than the menu bar, so clicks on
-        // status items underneath reach them instead of a panel nobody can see.
-        // The open size is the current tab's, not a constant: the teleprompter
-        // is taller, and a rect cut for 208 would leave the bottom half of it
-        // visible but untouchable.
+        // Collapsed, the panel claims the island as drawn — the full notch
+        // height on every display, synthetic or not. It used to stop 8 pt down
+        // on a synthetic notch so that menu-bar status items underneath kept
+        // their clicks; since `NotchShape` fills black unconditionally there,
+        // that left most of a permanently visible island dead, and the trade
+        // was reversed on 2026-09-10. The open size is the current tab's, not a
+        // constant: the teleprompter is taller, and a rect cut for 208 would
+        // leave the bottom half of it visible but untouchable.
         let size: CGSize
         if open {
             size = vm.openBodySize
@@ -1074,9 +1254,9 @@ final class NotchController {
             // and only a trip to the notch could reopen it.
             pointer.openRect = vm.geometry.hoverRect(for: vm.openBodySize)
         } else {
-            // A synthetic notch still claims only the top strip so menu-bar
-            // items underneath remain clickable, but the strip spans the full
-            // width of the visible compact activity.
+            // The full drawn depth, and the full width of the visible compact
+            // activity — the pill widens with what is playing, and every point
+            // of what is drawn has to open the panel.
             size = CGSize(width: vm.bodySize.width, height: vm.geometry.collapsedDepth)
             pointer.openRect = vm.geometry.collapsedHoverRect(for: vm.bodySize.width)
         }

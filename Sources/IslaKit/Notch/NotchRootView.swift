@@ -86,7 +86,23 @@ final class NotchRootView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         // While a drag is in flight the whole window must stay a valid target,
         // otherwise AppKit drops us as the destination mid-animation.
-        guard isReceivingDrag || activeRect.contains(point) else { return nil }
+        let hit = isReceivingDrag || activeRect.contains(point)
+        // Diagnostic, behind DI_GEOM=1 like the geometry trail: a click that
+        // never reaches the panel leaves no other trace, so a dead spot on the
+        // island — the physical cutout in particular, where the cursor itself
+        // disappears — cannot be told apart from a gesture that fired and was
+        // thrown away without knowing which layer ate it. Clicks are rare, so
+        // logging every one costs nothing; a normal run never has the variable.
+        if ProcessInfo.processInfo.environment["DI_GEOM"] == "1" {
+            DebugTrail.note(String(
+                format: "CLICK pt=(%.1f,%.1f) active=(%.1f,%.1f,%.1f,%.1f) drag=%d hit=%d ignores=%d",
+                point.x, point.y,
+                activeRect.minX, activeRect.minY, activeRect.width, activeRect.height,
+                isReceivingDrag ? 1 : 0, hit ? 1 : 0,
+                (window?.ignoresMouseEvents ?? true) ? 1 : 0
+            ))
+        }
+        guard hit else { return nil }
         return super.hitTest(point)
     }
 
@@ -227,17 +243,33 @@ final class NotchRootView: NSView {
         let queue = OperationQueue()
         queue.qualityOfService = .userInitiated
         for receiver in receivers {
-            receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: queue) { url, error in
-                MainActor.assumeIsolated {
-                    guard error == nil else {
-                        NSLog("Isla: promised file failed: \(error?.localizedDescription ?? "")")
-                        return
-                    }
-                    self.enqueuePromisedFile(url)
-                }
+            receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: queue) { [weak self] url, error in
+                self?.promisedFileArrived(url, error: error)
             }
         }
         return true
+    }
+
+    /// Where a promised file lands, called by `NSFilePromiseReceiver` on the
+    /// queue handed to it above — never on the main queue.
+    ///
+    /// This used to be `MainActor.assumeIsolated`, which is an assertion, not a
+    /// hop: it traps when it is wrong, and here it was wrong every single time.
+    /// Dragging a Mail attachment or a Photos item — the two sources the whole
+    /// promise path exists for — killed the process the moment the first file
+    /// was written. `Task { @MainActor }` is the hop the code always meant.
+    ///
+    /// `nonisolated` on purpose: `NSView` is main-actor isolated, and the
+    /// compiler has to be told this one entry point is not.
+    nonisolated func promisedFileArrived(_ url: URL?, error: Error?) {
+        if let error {
+            NSLog("Isla: promised file failed: \(error.localizedDescription)")
+            return
+        }
+        guard let url else { return }
+        Task { @MainActor [weak self] in
+            self?.enqueuePromisedFile(url)
+        }
     }
 
     /// Files received so far that have not been handed over yet.

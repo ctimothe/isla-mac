@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# ./scripts/check — the one verification gate for Isla: what every change owes.
+# The packaging gates (bundle, identity, helper, package, gatekeeper, lifecycle,
+# dmg) belong to a release candidate and live in docs/runbook.md §2.
+#
+# Run by humans, coding agents (Claude Code, Codex, OpenCode), git hooks, and CI.
+# Passing this is what "done" means here. Nothing else counts as evidence.
+#
+#   ./scripts/check                 run every step, report every failure
+#   ./scripts/check test branding   run only the named steps
+#   CHECK_TIMEOUT=300 ./scripts/check   per-step timeout in seconds (default 900)
+#
+# Every step runs even after an earlier one fails, so one pass shows everything
+# that is broken. Full output per step lands in .check-logs/<step>.log.
+
+STEPS=(
+  "test|swift test"
+  "provenance|bash Scripts/test-provenance.sh"
+  "branding|bash Scripts/test-branding.sh"
+  "localizations|bash Scripts/test-localizations.sh"
+)
+
+# ---------------------------------------------------------------------------
+# Runner. Identical in every repository — edit STEPS above, not this block.
+# ---------------------------------------------------------------------------
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 1
+
+LOGDIR=.check-logs
+: "${CHECK_TIMEOUT:=900}"
+
+TIMEOUT_BIN=""
+if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN=timeout
+elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_BIN=gtimeout
+fi
+
+if [ -t 1 ]; then B=$(printf '\033[1m'); G=$(printf '\033[32m'); R=$(printf '\033[31m'); Y=$(printf '\033[33m'); N=$(printf '\033[0m')
+else B=""; G=""; R=""; Y=""; N=""; fi
+
+if [ "${#STEPS[@]}" -eq 0 ]; then
+  printf '%sNO CHECKS DEFINED%s in %s/scripts/check.\n' "$Y" "$N" "$(basename "$PWD")"
+  printf 'This repository declares no verifiable steps yet, so a green result here proves nothing.\n'
+  printf 'Add steps to STEPS in scripts/check before treating this repo as verified.\n'
+  exit 0
+fi
+
+# Preflight: a missing dependency tree is a setup problem, not a failing check.
+if [ -f package.json ] && [ ! -d node_modules ]; then
+  printf '%sdependencies not installed%s — run `npm install` first (no node_modules).\n' "$R" "$N"
+  exit 2
+fi
+
+WANT=" $* "
+want() {
+  [ "$WANT" = "  " ] && return 0
+  case "$WANT" in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+rm -rf "$LOGDIR"; mkdir -p "$LOGDIR"
+passed=""; failed=""
+started=$(date +%s)
+
+for entry in ${STEPS[@]+"${STEPS[@]}"}; do
+  name=${entry%%|*}
+  cmd=${entry#*|}
+  want "$name" || continue
+  printf '%s==> %-16s%s %s\n' "$B" "$name" "$N" "$cmd"
+  t0=$(date +%s)
+  if [ -n "$TIMEOUT_BIN" ]; then
+    "$TIMEOUT_BIN" "$CHECK_TIMEOUT" bash -c "$cmd" >"$LOGDIR/$name.log" 2>&1
+  else
+    bash -c "$cmd" >"$LOGDIR/$name.log" 2>&1
+  fi
+  rc=$?
+  dt=$(( $(date +%s) - t0 ))
+  if [ "$rc" -eq 0 ]; then
+    printf '    %sok%s  %ss\n' "$G" "$N" "$dt"
+    passed="$passed $name"
+  else
+    if [ "$rc" -eq 124 ]; then
+      printf '    %sTIMEOUT%s after %ss (CHECK_TIMEOUT=%s)\n' "$R" "$N" "$dt" "$CHECK_TIMEOUT"
+    else
+      printf '    %sFAIL%s exit %s, %ss — last 20 lines, full log in %s/%s.log\n' "$R" "$N" "$rc" "$dt" "$LOGDIR" "$name"
+    fi
+    tail -n 20 "$LOGDIR/$name.log" | sed 's/^/    | /'
+    failed="$failed $name"
+  fi
+done
+
+elapsed=$(( $(date +%s) - started ))
+np=$(printf '%s' "$passed" | wc -w | tr -d ' ')
+nf=$(printf '%s' "$failed" | wc -w | tr -d ' ')
+printf '\n'
+if [ -n "$failed" ]; then
+  printf '%scheck FAILED%s — %s passed, %s failed in %ss:%s\n' "$R" "$N" "$np" "$nf" "$elapsed" "$failed"
+  exit 1
+fi
+printf '%scheck passed%s — %s steps in %ss\n' "$G" "$N" "$np" "$elapsed"

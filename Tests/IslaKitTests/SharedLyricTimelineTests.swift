@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import IslaKit
 
@@ -47,14 +48,51 @@ final class SharedLyricTimelineTests: XCTestCase {
         let timed = LyricsStore.Line(
             at: 0, text: "one two",
             words: [
-                WordSyncedLyrics.Word(at: 0, text: "one", end: 1),
-                WordSyncedLyrics.Word(at: 1, text: "two", end: 2),
+                LyricWord(at: 0, text: "one", end: 1),
+                LyricWord(at: 1, text: "two", end: 2),
             ]
         )
         XCTAssertEqual(
             LyricSweep.fraction(line: timed, at: 1, end: 2),
-            WordSyncedLyrics.wordFraction(words: timed.words, at: 1, lineEnd: 2),
+            LyricSweep.wordFraction(words: timed.words, at: 1, lineEnd: 2),
             accuracy: 0.0001
         )
+    }
+
+    func testEveryLocalAvailabilityHasCaptionAndLocalRecoveryAction() {
+        let timeline = LyricTimeline(
+            lines: [LyricsStore.Line(at: 1, text: "One")],
+            granularity: .line
+        )
+        let states: [LyricsAvailability] = [
+            .disabled,
+            .findingLocalLyrics,
+            .ready(timeline),
+            .noLocalLyrics,
+            .invalidLocalFile(.malformed),
+        ]
+
+        for state in states {
+            XCTAssertFalse(LyricsPresentation.compactCaption(for: state, currentLine: nil).isEmpty)
+        }
+        XCTAssertTrue(LyricsPresentation.canOpenLocalActions(.noLocalLyrics))
+        XCTAssertTrue(LyricsPresentation.canOpenLocalActions(.invalidLocalFile(.malformed)))
+    }
+
+    func testWordKaraokeDefaultsOffAndPersistsAnExplicitSelection() {
+        UserDefaults.standard.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey)
+        defer { UserDefaults.standard.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey) }
+
+        let lyrics = LyricsStore()
+        XCTAssertFalse(lyrics.wordKaraokeEnabled)
+        lyrics.wordKaraokeEnabled = true
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: LyricsStore.wordKaraokeEnabledKey))
+    }
+
+    func testWordKaraokeRequiresPreferenceWordTimelineAndMeasuredClock() {
+        XCTAssertFalse(LyricsPresentation.usesWordTiming(.word, precisionMeasured: true, wordKaraokeEnabled: false))
+        XCTAssertFalse(LyricsPresentation.usesWordTiming(.line, precisionMeasured: true, wordKaraokeEnabled: true))
+        XCTAssertFalse(LyricsPresentation.usesWordTiming(.word, precisionMeasured: false, wordKaraokeEnabled: true))
+        XCTAssertTrue(LyricsPresentation.usesWordTiming(.word, precisionMeasured: true, wordKaraokeEnabled: true))
     }
 }

@@ -136,7 +136,7 @@ private struct Splitmix64 {
 struct SpoilerText: View {
     let text: String
     let hidden: Bool
-    var font: Font = .system(size: 11)
+    var font: Font = Theme.TypeRole.body.font(weight: .regular)
     var color: Color = .white
     /// Height of the field that stands in for the text, so a covered row is
     /// exactly as tall as an uncovered one.
@@ -163,7 +163,7 @@ struct SpoilerText: View {
                 .font(font)
                 .foregroundStyle(color)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.tail)
         }
     }
 }
@@ -171,16 +171,23 @@ struct SpoilerText: View {
 /// The eye that uncovers one row. Sits where a row's other controls sit and
 /// appears on hover with them.
 struct RevealEye: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let hidden: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: hidden ? "eye" : "eye.slash")
-                .font(.system(size: 9, weight: .semibold))
+                .islandFont(.caption, weight: .semibold)
                 .foregroundStyle(Theme.secondary)
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                // A 10pt glyph is a 10pt target; the row's own background is a
+                // control, so a near miss does something else.
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .help(hidden ? Text(localized("Show")) : Text(localized("Hide")))
+        .accessibilityLabel(hidden ? localized("Show") : localized("Hide"))
     }
 }

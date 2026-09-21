@@ -2,5 +2,5 @@
 .build/
 build/
 .parity/
-.DS_Store
+.check-logs/
 .DS_Store

@@ -5,18 +5,60 @@ import XCTest
 @MainActor
 final class LyricSweepTests: XCTestCase {
 
-    /// The caption used to read the lead without the listener's own correction
-    /// and the lock card hardcoded `+ 0.25`, consulting neither the correction
-    /// nor the precision flag. So nudging Sync on the stage moved the stage and
-    /// left the other two pointing at the line before.
-    func testTheListenerCorrectionAndThePrecisionFlagReachEverySurface() {
-        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.45, accuracy: 0.0001)
-        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.25, accuracy: 0.0001)
-        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: -0.4), -0.15, accuracy: 0.0001)
-        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 1.2), 1.65, accuracy: 0.0001)
+    /// Two measured terms and no grid. The live Spotify probe put the clock
+    /// 0.10s behind the audio; the other 0.10s is the anticipation every
+    /// karaoke surface carries. The quarter-second the lead used to hold in
+    /// reserve for the ticker's grid is gone with the grid: the clock now
+    /// wakes on the frame a line is due (`MediaControllerTests`).
+    func testTheMeasuredClockLagCalibratesTheSharedDefaultLead() {
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.20, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.20, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: -0.4), -0.20, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 1.2), 1.40, accuracy: 0.0001)
         XCTAssertEqual(
-            LyricSweep.position(10, precisionSync: true, userOffset: 0.5), 10.75, accuracy: 0.0001
+            LyricSweep.position(10, precisionSync: true, userOffset: 0.5), 10.70, accuracy: 0.0001
         )
+    }
+
+    /// The listener's global correction and the local track nudge sum at read.
+    func testLeadSumsTheLocalOffsetLayers() {
+        XCTAssertEqual(
+            LyricSweep.lead(precisionSync: false, userOffset: 1.0, trackOffset: 0.25),
+            1.45, accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            LyricSweep.lead(precisionSync: true, userOffset: -0.5, trackOffset: -0.1),
+            -0.40, accuracy: 0.0001
+        )
+    }
+
+    /// The defaulted layers keep every caller on the calibrated shared clock.
+    func testLeadDefaultsUseTheCalibratedValues() {
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.20, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), 0.20, accuracy: 0.0001)
+    }
+
+    func testPositionCarriesBothLocalOffsetLayers() {
+        XCTAssertEqual(
+            LyricSweep.position(10, precisionSync: true, userOffset: 0.5, trackOffset: -0.25),
+            10.45, accuracy: 0.0001
+        )
+    }
+
+    func testLocalTrackOffsetPersistsByBoundIdentity() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let identity = LocalTrackIdentity(
+            playerID: "test", title: "Song", artist: "Artist", album: "Album",
+            duration: 180, recordingID: nil
+        )
+        let store = LyricsStore(offsetsDirectory: root)
+        store.activateTrackOffset(for: identity)
+        store.nudgeTrackOffset(by: 0.25)
+
+        let reloaded = LyricsStore(offsetsDirectory: root)
+
+        XCTAssertEqual(reloaded.trackOffset(for: identity), 0.25, accuracy: 0.001)
     }
 
     /// Word timing wins wherever a source carried it; the singing-speed estimate
@@ -26,13 +68,13 @@ final class LyricSweepTests: XCTestCase {
             at: 0,
             text: "one two",
             words: [
-                WordSyncedLyrics.Word(at: 0, text: "one", end: 1),
-                WordSyncedLyrics.Word(at: 1, text: "two", end: 2),
+                LyricWord(at: 0, text: "one", end: 1),
+                LyricWord(at: 1, text: "two", end: 2),
             ]
         )
         XCTAssertEqual(
             LyricSweep.fraction(line: timed, at: 1, end: 2),
-            WordSyncedLyrics.wordFraction(words: timed.words, at: 1, lineEnd: 2),
+            LyricSweep.wordFraction(words: timed.words, at: 1, lineEnd: 2),
             accuracy: 0.0001
         )
 

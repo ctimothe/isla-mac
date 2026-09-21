@@ -44,4 +44,28 @@ if ! grep -q 'com.apple.security.automation.apple-events' <<<"$ENTITLEMENTS"; th
     exit 1
 fi
 
+# App Intents metadata. Without it the app still runs and still works, and is
+# invisible to Shortcuts, Spotlight and Siri — a whole surface gone with no
+# symptom anywhere in the app itself. `Scripts/bundle.sh` generates it and only
+# warns when the tool is missing, deliberately; a release is where that stops
+# being acceptable.
+INTENTS="$APP/Contents/Resources/Metadata.appintents"
+if [ ! -s "$INTENTS/extract.actionsdata" ]; then
+    echo "App Intents metadata is missing; Shortcuts cannot see Isla" >&2
+    echo "  (bundle.sh skips it when only the Command Line Tools are installed)" >&2
+    exit 1
+fi
+# And that it describes this app's verbs rather than an empty shell: the
+# processor exits 0 on a source list that matched nothing at all.
+for INTENT in ShowLyricsIntent CurrentLyricIntent SetLyricDelayIntent; do
+    if ! grep -q "$INTENT" "$INTENTS/extract.actionsdata"; then
+        echo "App Intents metadata does not list $INTENT" >&2
+        exit 1
+    fi
+done
+if ! grep -q 'autoShortcuts' "$INTENTS/extract.actionsdata"; then
+    echo "App Intents metadata carries no App Shortcuts; Spotlight has no phrases" >&2
+    exit 1
+fi
+
 echo "  ✓ Isla bundle contract is complete"

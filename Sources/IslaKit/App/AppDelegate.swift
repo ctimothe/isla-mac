@@ -2,9 +2,12 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var controller: NotchController?
+    /// Readable so `IslaIntents` can reach the live panel the way `SettingsPane`
+    /// already reaches this delegate. Still only ever set here.
+    private(set) var controller: NotchController?
     private var hotKey: GlobalHotKey?
     private var translateHotKey: GlobalHotKey?
+    private var lyricsHotKey: GlobalHotKey?
 
     /// The browser returns from Spotify's consent page through the app's URL
     /// scheme; the account object finishes the token exchange.
@@ -53,7 +56,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let text = NSPasteboard.general.string(forType: .string) else { return }
             self?.controller?.translate(text)
         }
+        // Straight to the words, from anywhere, without a pointer. The panel
+        // opens on the Music tab with the lyrics page already up; pressing it
+        // again folds the page back to the player.
+        lyricsHotKey = GlobalHotKey(
+            keyCode: GlobalHotKey.lyricsKeyCode,
+            modifiers: GlobalHotKey.defaultModifiers
+        ) { [weak self] in
+            self?.controller?.toggleLyrics()
+        }
         NSApp.servicesProvider = self
+
+        // One visible moment on a fresh account, and only one. Everything about
+        // this app is invisible by design — `.accessory`, no Dock icon, no
+        // menu-bar item, no window — which on a first launch is
+        // indistinguishable from the app having failed to start. The delay lets
+        // the panel finish placing itself before it unfolds.
+        //
+        // Read here and not inside the controller so that the flag is asked
+        // exactly once, at launch: `presentWelcome` is also what a rebuild would
+        // reach if it ever wanted the pane back, and a check inside it would make
+        // "once" depend on when it happened to be called.
+        if !NotchViewModel.hasCompletedFirstRun {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.controller?.presentWelcome()
+            }
+        }
 
         // Verification hook, environment-gated: DI_OPEN_LYRICS=1 pins the
         // panel open shortly after launch, so an agent without Accessibility
@@ -63,8 +91,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
             DebugTrail.note("launch hook armed")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                DebugTrail.note("pinning panel open")
-                self?.togglePanel()
+                DebugTrail.note("pinning panel open on the lyrics page")
+                // Through the same route ⌥⌘L takes. This used to be a
+                // `togglePanel()` here plus an `onAppear` inside `MediaPane`
+                // that flipped its own `@State` — and when that state moved to
+                // the view model the `onAppear` went with it, leaving the hook
+                // opening the panel on the player and nothing to say so.
+                self?.controller?.toggleLyrics()
             }
         }
     }
@@ -90,8 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // waiting for the first rebinding to expose it.
         hotKey?.unregister()
         translateHotKey?.unregister()
+        lyricsHotKey?.unregister()
         hotKey = nil
         translateHotKey = nil
+        lyricsHotKey = nil
     }
 
     // MARK: - Menu bar item

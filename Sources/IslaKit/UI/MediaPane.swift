@@ -3,6 +3,28 @@ import SwiftUI
 struct MediaPane: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    var localLookup: LocalLyricsLookup? = nil
+    var retryLyrics: () -> Void = {}
+    var importLocalFile: () -> Void = {}
+    var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
+    var removeLocalBinding: () -> Void = {}
+    var localLibrary: LocalLyricsLibrary?
+    var currentLocalTrackIdentity: () -> LocalTrackIdentity? = { nil }
+    /// The namespace the cover travels in, when this pane is inside the panel.
+    ///
+    /// Optional because the pane is also rendered on its own — by the layout
+    /// tests, with no pill above it and nothing to travel from. `nil` means
+    /// "draw the cover where it lands and nothing else", which is what a pane
+    /// with no island around it should do.
+    var morph: Namespace.ID?
+    /// Whether the pane is showing the lyrics page.
+    ///
+    /// A binding rather than this pane's own `@State`, because the page is a
+    /// place the app can be *sent* and not just a toggle the pane owns: ⌥⌘L
+    /// opens the panel straight onto it. It defaults to a constant so the pane
+    /// still renders standalone in the layout tests, where there is no panel
+    /// to route anything and nowhere for the request to go.
+    var showingLyrics: Binding<Bool> = .constant(false)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var scrubHover = false
@@ -25,8 +47,7 @@ struct MediaPane: View {
     /// is evidently not coming. Some sources never publish a cover, and a
     /// shimmer that promises one forever reads as stuck, not loading.
     @State private var artworkWaitExpired = false
-    /// True while the pane shows the full lyrics stage instead of the player.
-    @State private var showingLyrics = false
+    @State private var editingCandidate: LocalLyricsCandidate?
     /// Hover on the caption, which surfaces its chevron.
     @State private var captionHover = false
 
@@ -46,12 +67,23 @@ struct MediaPane: View {
     var body: some View {
         if let track = media.track {
             ZStack {
-                if showingLyrics {
+                if showingLyrics.wrappedValue {
                     // The Liquid Glass entrance: blur, scale and opacity settle
-                    // together, so the stage materializes rather than pops. The
-                    // exit is faster than the entry, as every pane swap here is.
-                    LyricsStage(media: media, lyrics: lyrics) {
-                        showingLyrics = false
+                    // together, so the stage materializes rather than pops.
+                    LyricsStage(
+                        media: media,
+                        lyrics: lyrics,
+                        localLookup: localLookup,
+                        retry: retryLyrics,
+                        importLocalFile: importLocalFile,
+                        selectLocalCandidate: selectLocalCandidate,
+                        removeLocalBinding: removeLocalBinding,
+                        editLocalLyrics: { candidate in
+                            guard localLibrary != nil else { return }
+                            editingCandidate = candidate
+                        }
+                    ) {
+                        showingLyrics.wrappedValue = false
                     }
                     .transition(reduceMotion ? AnyTransition.opacity : .materialize)
                 } else {
@@ -59,39 +91,27 @@ struct MediaPane: View {
                         .transition(reduceMotion ? AnyTransition.opacity : .materialize)
                 }
             }
-            .animation(Theme.paneAnimation, value: showingLyrics)
+            .animation(Theme.paneAnimation, value: showingLyrics.wrappedValue)
             // Leaving the track folds the stage: the next song starts on the
             // player, and a stage left open for a track without lyrics would
             // open onto its own empty state.
-            .onChange(of: track.key) { _, _ in showingLyrics = false }
+            .onChange(of: track.key) { _, _ in showingLyrics.wrappedValue = false }
             .onAppear {
                 media.refreshPlaybackModes()
                 if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
-                    DebugTrail.note("MediaPane track=\(track.title) showingLyrics=\(showingLyrics)")
+                    DebugTrail.note("MediaPane track=\(track.title) showingLyrics=\(showingLyrics.wrappedValue)")
                 }
             }
-            // Verification hook, environment-gated: launching the binary with
-            // DI_OPEN_LYRICS=1 opens the stage without a pointer, which is how
-            // an agent without Accessibility permission can screenshot it. An
-            // app launched normally never has the variable.
-            .onAppear {
-                if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" { showingLyrics = true }
-            }
-            // The Spotify id rides in the task identity: it arrives a beat
-            // after the metadata, and its arrival is what unlocks the
-            // word-synced database, so it must re-fire the load.
-            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")") {
-                guard NotchViewModel.showLyricsEnabled else {
-                    lyrics.clear()
-                    return
+            .sheet(item: $editingCandidate) { candidate in
+                if let localLibrary {
+                    LocalLyricsEditorView(
+                        document: candidate.document,
+                        editor: LocalLyricsEditor(library: localLibrary),
+                        binding: currentLocalTrackIdentity(),
+                        onSaved: { _ in editingCandidate = nil },
+                        onDismiss: { editingCandidate = nil }
+                    )
                 }
-                lyrics.load(
-                    title: track.title,
-                    artist: track.artist,
-                    album: track.album,
-                    duration: media.duration,
-                    spotifyID: media.spotifyTrackID
-                )
             }
         } else {
             emptyState
@@ -108,11 +128,11 @@ struct MediaPane: View {
                 artwork(for: track)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(track.title)
-                        .islandFont(16, weight: .semibold)
+                        .islandFont(.title)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Text(subtitle(for: track))
-                        .font(.system(size: 11.5))
+                        .islandFont(.body, weight: .regular)
                         .foregroundStyle(Theme.secondary)
                         .lineLimit(1)
                         .padding(.top, 3)
@@ -132,6 +152,9 @@ struct MediaPane: View {
                         lyricsLine
                     }
                     .frame(height: Self.captionHeight)
+                    // The line turn travels inside the slot and nowhere else:
+                    // a line lifting out must not cross the artist above it.
+                    .clipped()
                     .padding(.top, 4)
                     Spacer(minLength: 6)
                     // A live stream has no duration, and a scrubber with no
@@ -161,36 +184,58 @@ struct MediaPane: View {
 
     // MARK: - Artwork
 
+    /// The far end of the cover's travel from the pill.
+    ///
+    /// Both the size and the corner come from `Theme.artworkMetrics` rather than
+    /// from numbers written here: this end hardcoded 118 pt at radius 14 while
+    /// the pill hardcoded 22 pt at radius 6, in another file, and one object
+    /// described twice is how it came to be drawn twice.
+    ///
+    /// Modifier order matters more than usual, and the base of the stack is
+    /// `Color.clear` for a reason. The cover has to *accept* whatever size it is
+    /// offered — the morph offers it the pill's size on the way in — and a view
+    /// that states its own size is a view the effect cannot resize, which leaves
+    /// a cover that slides into place without ever growing. `Color.clear` takes
+    /// the proposal exactly; the picture rides above it in an overlay, where it
+    /// is free to overflow and be clipped. `.frame(maxWidth: .infinity)` looks
+    /// like it would do the same job and does not: it grows to whatever the
+    /// child reports, so a 16:9 cover took the clip out to 164 pt with it.
     private func artwork(for track: MediaController.Track) -> some View {
-        ZStack {
-            if let image = media.artwork {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .transition(.opacity)
-            } else if artworkWaitExpired {
-                // Quiet placeholder, not a shimmer: the wait is over and the
-                // cover is not coming for this track.
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Theme.surface)
-                    .overlay(
-                        Image(systemName: "music.note")
-                            .font(.system(size: 26, weight: .light))
-                            .foregroundStyle(Theme.tertiary)
-                    )
-                    .transition(.opacity)
-            } else {
-                SkeletonBox(cornerRadius: 14)
+        let metrics = Theme.artworkMetrics(isOpen: true)
+        return Color.clear
+            .overlay {
+                if let image = media.artwork {
+                    // No `.transition(.opacity)` here any more. This view is one
+                    // end of a travelling object, and a travelling object that
+                    // fades while it travels is the crossfade the morph was
+                    // added to replace. The album-to-album crossfade it used to
+                    // spell out is the default transition anyway, under the same
+                    // `Theme.artworkAnimation` below.
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else if artworkWaitExpired {
+                    // Quiet placeholder, not a shimmer: the wait is over and the
+                    // cover is not coming for this track.
+                    RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                        .fill(Theme.surface)
+                        .overlay(
+                            Image(systemName: "music.note")
+                                .islandFont(.hero, weight: .light)
+                                .foregroundStyle(Theme.tertiary)
+                        )
+                        .transition(.opacity)
+                } else {
+                    SkeletonBox(cornerRadius: metrics.cornerRadius)
+                }
             }
-        }
         .task(id: track.key) {
             artworkWaitExpired = false
             try? await Task.sleep(for: .seconds(2.5))
             guard !Task.isCancelled else { return }
             artworkWaitExpired = true
         }
-        .frame(width: 118, height: 118)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
         // The same shape again, this time for the pointer. `clipShape` hides
         // the overflow but does not stop it being touched, and `.fill` on a
         // cover that is not square overflows a long way: a 16:9 thumbnail —
@@ -198,12 +243,17 @@ struct MediaPane: View {
         // this 118 pt box, so 46 pt of invisible picture hangs over each side.
         // The left side is the tab rail, and the four icons behind that
         // overhang stopped answering the pointer (#22).
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
                 .strokeBorder(Theme.hairline, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.5), radius: 12, y: 5)
+        .morph(NotchContentView.MorphID.artwork, in: morph)
+        // Outside the morph, so the pane's layout keeps reserving 118 pt no
+        // matter where the cover is on its way to. Inside it, the frame would
+        // be the thing refusing the pill's size.
+        .frame(width: metrics.side, height: metrics.side)
         .animation(Theme.artworkAnimation, value: media.artwork)
     }
 
@@ -223,7 +273,7 @@ struct MediaPane: View {
             // to cover the lyric line above the bar.
             Text(formatTime((previewFraction ?? progress) * media.duration))
                 .foregroundStyle(previewFraction == nil ? Theme.tertiary : Color.white.opacity(0.9))
-                .frame(width: 32, alignment: .leading)
+                .frame(width: media.duration >= 3600 ? 52 : 32, alignment: .leading)
 
             GeometryReader { geo in
                 let width = geo.size.width
@@ -301,18 +351,13 @@ struct MediaPane: View {
             }
 
             Text(formatTime(media.duration))
-                .frame(width: 32, alignment: .trailing)
+                .frame(width: media.duration >= 3600 ? 52 : 32, alignment: .trailing)
         }
-        .font(.system(size: 10, weight: .medium).monospacedDigit())
+        .font(Theme.TypeRole.caption.font().monospacedDigit())
         .foregroundStyle(Theme.tertiary)
     }
 
-    /// Bubble width is fixed rather than measured: formatTime yields "m:ss"
-    /// through "mm:ss" in the 10 pt monospaced ramp, which all fit in 44 pt,
-    /// and a constant keeps ScrubPreview's clamping deterministic.
-
-    /// Floating time preview above the bar. Drag wins over hover: while a
-    /// drag is in flight the bubble follows the thumb, not the cursor.
+    /// The transport row: shuffle, previous, play/pause, next, repeat.
     @ViewBuilder
     private var controls: some View {
         // Spread edge to edge, the same five-slot grammar the lock card uses:
@@ -324,6 +369,7 @@ struct MediaPane: View {
             Group {
                 if let shuffle = media.shuffleEnabled {
                     ModeToggle(symbol: "shuffle", isOn: shuffle) { media.toggleShuffle() }
+                        .help(localized("Shuffle"))
                         .accessibilityLabel(localized("Shuffle"))
                         .accessibilityValue(shuffle ? localized("On") : localized("Off"))
                 }
@@ -331,34 +377,44 @@ struct MediaPane: View {
             .frame(width: 26)
             Spacer(minLength: 0)
             Button { media.previous() } label: {
-                Image(systemName: "backward.fill").font(.system(size: 16, weight: .medium))
+                Image(systemName: "backward.fill").islandFont(.title, weight: .medium)
             }
             .buttonStyle(TransportGlyphStyle(size: 30))
             .disabled(!media.canSkip)
             .opacity(media.canSkip ? 1 : 0.35)
+            .help(localized("Previous Track"))
             .accessibilityLabel(localized("Previous Track"))
             Spacer(minLength: 0)
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 22, weight: .medium))
+                    .islandFont(.display)
+                    // The glyph is replaced, not swapped. A hard cut on the one
+                    // control the eye is already resting on is the most visible
+                    // non-native moment in the app; `.replace` is what every
+                    // Apple transport control does.
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
+            .help(media.isPlaying ? localized("Pause") : localized("Play"))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Spacer(minLength: 0)
             Button { media.next() } label: {
-                Image(systemName: "forward.fill").font(.system(size: 16, weight: .medium))
+                Image(systemName: "forward.fill").islandFont(.title, weight: .medium)
             }
             .buttonStyle(TransportGlyphStyle(size: 30))
             .disabled(!media.canSkip)
             .opacity(media.canSkip ? 1 : 0.35)
+            .help(localized("Next Track"))
             .accessibilityLabel(localized("Next Track"))
             Spacer(minLength: 0)
             Group {
                 if let mode = media.repeatMode {
                     ModeToggle(
                         symbol: mode == .one ? "repeat.1" : "repeat",
-                        isOn: mode != .off
+                        isOn: mode != .off,
+                        reduceMotion: reduceMotion
                     ) { media.cycleRepeat() }
+                        .help(localized("Repeat"))
                         .accessibilityLabel(localized("Repeat"))
                         .accessibilityValue(repeatValueLabel(mode))
                 }
@@ -366,7 +422,7 @@ struct MediaPane: View {
             .frame(width: 26)
         }
         .frame(maxWidth: .infinity)
-        .animation(.easeInOut(duration: 0.15), value: media.canSkip)
+        .animation(Theme.contentAnimation, value: media.canSkip)
         .animation(Theme.contentAnimation, value: media.shuffleEnabled == nil)
         .animation(Theme.contentAnimation, value: media.repeatMode == nil)
     }
@@ -385,14 +441,21 @@ struct MediaPane: View {
     /// the music, not a document.
     @ViewBuilder
     private var lyricsLine: some View {
-        if media.positionSettled, case .synced(let lines) = lyrics.state {
+        if case .ready = lyrics.availability,
+           case .synced(let lines) = lyrics.state {
             let at = LyricSweep.position(
                 media.position,
                 precisionSync: media.precisionSync,
-                userOffset: lyrics.userOffset
+                userOffset: lyrics.userOffset,
+                trackOffset: lyrics.trackOffset
             )
             if let shown = LyricSweep.displayed(lines: lines, at: at) {
                 let line = shown.line
+                let wordTimingEnabled = LyricsPresentation.usesWordTiming(
+                    lyrics.timingGranularity,
+                    precisionMeasured: media.precisionSync,
+                    wordKaraokeEnabled: lyrics.wordKaraokeEnabled
+                )
                 // Where the voice stands inside this line, 0...1. The catalogue
                 // carries line timestamps, not word ones, so within a line the
                 // sweep is linear time — even pacing, which is what singing
@@ -403,7 +466,7 @@ struct MediaPane: View {
                 // becomes the full scrolling lyrics. A chevron surfaces on
                 // hover so the door reads as one — a bare line of text gives
                 // no hint that it goes anywhere.
-                Button { showingLyrics = true } label: {
+                Button { showingLyrics.wrappedValue = true } label: {
                     HStack(spacing: 5) {
                         KaraokeText(
                             text: line.text,
@@ -412,47 +475,94 @@ struct MediaPane: View {
                             // voice is there, which it is not.
                             fraction: line.isCredit || !shown.swept
                                 ? 0
-                                : LyricSweep.fraction(line: line, at: at, end: end),
+                                : wordTimingEnabled
+                                    ? LyricSweep.fraction(line: line, at: at, end: end)
+                                    : 1,
                             reduceMotion: reduceMotion,
-                            // The caption sits at 11pt, where SF opens tracking
+                            // The caption sits at the body size, where SF opens tracking
                             // up slightly rather than tightening it.
-                            tracking: Theme.tracking(forSize: 11)
+                            tracking: Theme.tracking(forSize: Theme.TypeRole.body.size)
                         )
                         .italic(line.isCredit)
-                        // Keyed so a line change crossfades instead of morphing
-                        // glyph-by-glyph in place.
+                        // Keyed so a line change is a change of line — not a
+                        // morph glyph-by-glyph in place — and the change is a
+                        // turn, not a crossfade: see `AnyTransition.lyricLine`.
                         .id(line.at)
-                        .transition(.opacity)
-                        if captionHover {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 8, weight: .semibold))
-                                .foregroundStyle(Theme.tertiary)
-                                .transition(.opacity)
-                        }
+                        .transition(.lyricLine(reduceMotion: reduceMotion))
+                        Image(systemName: "chevron.right")
+                            // A glyph fitted to its row, not type: it sizes
+                            // the chevron against the caption's cap height,
+                            // and the caption floor has nothing to say about it.
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(Theme.tertiary)
+                            // Always in the row, faded rather than inserted. A
+                            // chevron that arrived on hover took its width from
+                            // the lyric beside it, so the line re-truncated
+                            // under the pointer that had just reached it.
+                            .opacity(captionHover ? 1 : 0)
+                            .accessibilityHidden(true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PanelButtonStyle())
                 .onHover { captionHover = $0 }
-                .animation(Theme.contentAnimation, value: line.at)
+                // On the lyric spring, like the page and the row: the song
+                // carries this motion, so it is allowed the momentum the
+                // 0.16 s content ease was refusing it.
+                .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: line.at)
                 .animation(Theme.contentAnimation, value: captionHover)
                 .accessibilityLabel(localized("Lyrics"))
                 .accessibilityValue(line.text)
                 .accessibilityHint(localized("Opens the full lyrics"))
+            } else {
+                compactLyricsStatus
             }
+        } else {
+            compactLyricsStatus
         }
+    }
+
+    private var compactLyricsStatus: some View {
+        Button { showingLyrics.wrappedValue = true } label: {
+            HStack(spacing: 5) {
+                if case .findingLocalLyrics = lyrics.availability {
+                    ProgressView().controlSize(.mini).tint(Theme.tertiary)
+                }
+                Text(LyricsPresentation.compactCaption(
+                    for: lyrics.availability, currentLine: nil, localLookup: localLookup
+                ))
+                    .islandFont(.body, weight: .regular)
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(Theme.tertiary)
+                    .opacity(captionHover ? 1 : 0)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PanelButtonStyle())
+        .onHover { captionHover = $0 }
+        .animation(Theme.contentAnimation, value: captionHover)
+        .accessibilityLabel(localized("Lyrics"))
+        .accessibilityValue(LyricsPresentation.compactCaption(
+            for: lyrics.availability, currentLine: nil, localLookup: localLookup
+        ))
+        .accessibilityHint(localized("Opens the full lyrics"))
     }
 
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "music.note.list")
-                .font(.system(size: 22, weight: .light))
+                .islandFont(.display, weight: .light)
                 .foregroundStyle(Theme.tertiary)
             // Status, not instruction: an empty pane on its own would not say
             // whether nothing is playing or nothing could be read.
-            Text(localized("Nothing is playing"))
-                .font(.system(size: 12, weight: .medium))
+            Text(localized("Nothing is playing."))
+                .islandFont(.subhead)
                 .foregroundStyle(Theme.secondary)
             // And an affordance, because a dead end teaches people not to
             // open the tab. One button per player that is actually installed.
@@ -462,14 +572,14 @@ struct MediaPane: View {
                         NSWorkspace.shared.open(URL(fileURLWithPath: Self.applicationPath(for: app) ?? ""))
                     } label: {
                         Text(localized("Open %@", app.displayName))
-                            .font(.system(size: 10.5, weight: .medium))
+                            .islandFont(.body)
                             .foregroundStyle(.white)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
                             .background(Theme.surface, in: Capsule())
                             .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PanelButtonStyle())
                 }
             }
         }

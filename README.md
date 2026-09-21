@@ -44,13 +44,19 @@ Prefer to compile it yourself? See [Build from source](#build-from-source).
   and an island that unfolded every time would interrupt what is under it.
   **Open on Hover** in Settings restores the old behavior, off by default.
 - **⌥⌘I** opens it from the keyboard and keeps it open until a command closes it;
-  **⌥⌘T** translates the clipboard.
+  **⌥⌘T** translates the clipboard; **⌥⌘L** goes straight to the lyrics page,
+  and folds it back to the player when pressed again.
 - Over the **lock screen** the island shows what is playing and answers nothing:
   hovering brightens it, clicking shakes it off. It never opens there.
 - The island **is** the whole app — no Dock icon, no menu-bar item, no window.
   Settings inside the panel carries Open Panel, About and Quit.
 - One rail carries **Music, Shelf, Clipboard, and Translate**, with **Settings**
   at its foot. Settings sets how wide the panel opens (480–620 pt).
+- **Shortcuts, Spotlight and Siri** reach the same verbs: Show Lyrics, Get
+  Current Lyric, Get Current Track, Set Lyric Delay, and play/next/previous.
+  Nothing to turn on, no permission, no network — the delay one exists because
+  Bluetooth headphones put every lyric early, and an automation can correct it
+  when they connect.
 - Translucent surfaces use the system's own material where macOS has it, and a
   hand-drawn recipe otherwise. **Reduce Transparency** replaces them with opaque
   panels and **Increase Contrast** gives them a border, both followed live.
@@ -62,19 +68,28 @@ because each sends something you own somewhere you cannot see.
 
 - **Save clipboard screenshots** writes a copy of every image that reaches the
   pasteboard to `~/Pictures/Isla` (most recent 200; clearing goes to the Trash).
-- **Lyrics** sends the current title, artist, album and — for Spotify — the track
-  id to `lrclib.net`, `raw.githubusercontent.com` and `lyrics.kugou.com` to look
-  words up. That is listening history leaving the Mac, so it is asked for rather
-  than assumed. Results are cached on disk, capped at 500 tracks.
+- **Lyrics** is opt-in. Isla reads LRC files you import and files in folders
+  you explicitly select; imported copies, bindings, and timing corrections stay
+  on this Mac. Enhanced LRC word timestamps animate only when the active player
+  has a measured precision clock; other players highlight complete lines.
+- **Look Up Lyrics Online** is a second switch, also off by default, and the
+  only part of Isla that asks the internet for anything. With it on, a track
+  that no local file matches is looked up at
+  [LRCLIB](https://lrclib.net) — a free community catalogue needing no account
+  and no key. What leaves the Mac is the title, artist, album and length of the
+  track. Nothing identifies you, nothing is uploaded, and answers are cached so
+  a song is asked about once. A file you chose always wins over the catalogue.
 - **Connecting a Spotify account** (Settings → Spotify) authorizes Isla through
   Spotify's own PKCE flow in the browser, for one feature the local APIs do not
   expose: Liked Songs. There is **no client secret**; tokens live in the keychain
   (`WhenUnlockedThisDeviceOnly`), and Disconnect deletes them. Translation itself
   is on-device and never uses the network.
 
-Isla claims exactly one entitlement,
+Isla claims one entitlement,
 `com.apple.security.automation.apple-events` — what lets the scripting fallback
-drive Music or Spotify when the MediaRemote helper is unavailable. macOS asks for
+drive Music or Spotify when the MediaRemote helper is unavailable. A signed
+Developer ID build also carries a keychain access group, which is what lets
+the Spotify tokens live in the data-protection keychain described below. macOS asks for
 that consent the first time it is used; refusing it costs only that fallback.
 
 Isla never asks for your login password, in any build. Spotify tokens go to the
@@ -112,6 +127,7 @@ bash Scripts/bundle.sh release
 bash Scripts/test-identity.sh
 bash Scripts/test-helper.sh
 bash Scripts/test-package.sh
+bash Scripts/test-gatekeeper.sh
 bash Scripts/test-lifecycle.sh
 bash Scripts/dmg.sh
 ```

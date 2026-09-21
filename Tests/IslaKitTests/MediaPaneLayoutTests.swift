@@ -81,14 +81,7 @@ final class MediaPaneLayoutTests: XCTestCase {
 
     /// Rows of the rendered pane, each holding the number of lit pixels in it.
     private func inkProfile(withLyrics: Bool) async throws -> [Int] {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        // Rendering the pane runs its own `.task`, which clears the store when
-        // lyrics are switched off — and off is the default, because lyrics are
-        // this app's only network use. Without this the harness compared two
-        // identical empty renders and passed whatever the layout did.
+        // Rendering the pane reads the local-only Show Lyrics preference.
         let defaults = UserDefaults.standard
         let hadLyrics = defaults.object(forKey: NotchViewModel.showLyricsKey)
         defaults.set(true, forKey: NotchViewModel.showLyricsKey)
@@ -100,25 +93,15 @@ final class MediaPaneLayoutTests: XCTestCase {
             }
         }
 
-        let lyrics = LyricsStore(cacheDirectory: root)
+        let lyrics = LyricsStore()
         if withLyrics {
-            let key = LyricsStore.cacheKey(
-                title: "Test Song", artist: "Test Artist", album: "", duration: 180
-            )
-            let cached: [String: Any] = [
-                "times": [1.0, 4.0, 8.0, 12.0],
-                "texts": ["First line", "Second line", "Third line", "Fourth line"],
-            ]
-            try JSONSerialization.data(withJSONObject: cached)
-                .write(to: root.appendingPathComponent("\(key).lrc3.json"))
-            lyrics.load(title: "Test Song", artist: "Test Artist", album: "", duration: 180)
-            for _ in 0..<50 {
-                if case .synced = lyrics.state { break }
-                try await Task.sleep(for: .milliseconds(20))
-            }
-            guard case .synced = lyrics.state else {
-                throw XCTSkip("the cached lyric did not load; nothing to compare against")
-            }
+            lyrics.present(.ready(LyricTimeline(
+                lines: [
+                    .init(at: 1, text: "First line"), .init(at: 4, text: "Second line"),
+                    .init(at: 8, text: "Third line"), .init(at: 12, text: "Fourth line"),
+                ],
+                granularity: .line
+            )))
         }
         // Left `.idle` otherwise, which is the same gate a track with no words at
         // all fails: the caption produces no view.
@@ -136,7 +119,7 @@ final class MediaPaneLayoutTests: XCTestCase {
         snapshot.playerPID = 999
         media.apply(snapshot)
 
-        let pane = MediaPane(media: media, lyrics: lyrics)
+        let pane = MediaPane(media: media, lyrics: lyrics, morph: nil)
             .frame(width: NotchMetrics.standardBody.width, height: 162)
             .background(Color.black)
         let renderer = ImageRenderer(content: pane)

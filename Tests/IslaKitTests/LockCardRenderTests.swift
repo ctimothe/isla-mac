@@ -13,10 +13,6 @@ final class LockCardRenderTests: XCTestCase {
     /// never resized, so a pane that asked for more room would simply be cut
     /// off there with nothing to say so. Set `SHOT_OUT` to keep the render.
     func testEveryPaneFitsTheFixedCard() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
         let defaults = UserDefaults.standard
         // Solid for the photograph only. The glass style puts an
         // NSVisualEffectView behind the card, and ImageRenderer cannot snapshot
@@ -35,25 +31,19 @@ final class LockCardRenderTests: XCTestCase {
             else { defaults.removeObject(forKey: NotchViewModel.showLyricsKey) }
         }
 
-        let lyrics = LyricsStore(cacheDirectory: root)
-        let key = LyricsStore.cacheKey(title: "Test Song", artist: "Test Artist", album: "", duration: 240)
-        try JSONSerialization.data(withJSONObject: [
-            "times": [2.0, 12.0, 22.0, 32.0, 42.0, 52.0, 62.0],
-            "texts": [
-                "The line the song already passed",
-                "The line just before this one",
-                "The line being sung right now",
-                "The line that comes next",
-                "And the one after that",
-                "Something further along",
-                "The last one here",
+        let lyrics = LyricsStore()
+        lyrics.present(.ready(LyricTimeline(
+            lines: [
+                .init(at: 2, text: "The line the song already passed"),
+                .init(at: 12, text: "The line just before this one"),
+                .init(at: 22, text: "The line being sung right now"),
+                .init(at: 32, text: "The line that comes next"),
+                .init(at: 42, text: "And the one after that"),
+                .init(at: 52, text: "Something further along"),
+                .init(at: 62, text: "The last one here"),
             ],
-        ]).write(to: root.appendingPathComponent("\(key).lrc3.json"))
-        lyrics.load(title: "Test Song", artist: "Test Artist", album: "", duration: 240)
-        for _ in 0..<60 {
-            if case .synced = lyrics.state { break }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
+            granularity: .line
+        )))
 
         let media = MediaController()
         var snap = NowPlayingFeed.Snapshot()

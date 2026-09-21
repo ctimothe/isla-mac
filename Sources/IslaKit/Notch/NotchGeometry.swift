@@ -29,17 +29,13 @@ struct NotchGeometry {
     /// only one known to leave every rect consistent.
     let expandedSize = NotchMetrics.body(width: NotchViewModel.bodyWidth)
 
-    /// Body for the teleprompter, the one tab that asks for more.
+    /// The tallest body the window is cut for.
     ///
-    /// Same width, so the panel does not change shape sideways — only the
-    /// bottom edge moves, and it moves away from the notch rather than around
-    /// it. The height is the smallest that fits a paragraph at a size readable
-    /// without focusing: below this the tab shows the current line and the next
-    /// one, which is a countdown, not a script.
-    static let tallBodyHeight = NotchMetrics.teleprompterBody.height
-    var tallExpandedSize: CGSize {
-        CGSize(width: expandedSize.width, height: Self.tallBodyHeight)
-    }
+    /// No tab asks for it any more — the teleprompter that did was removed on
+    /// 2026-08-22 — but the window is still cut to it, because the window is
+    /// never resized and every rect below is written against that height.
+    /// Same width as the standard body, so nothing ever changed shape sideways.
+    static let tallBodyHeight = NotchMetrics.tallestBody.height
     /// Tallest body any tab can ask for. The window is cut to this once and
     /// never resized: it is transparent outside the visible panel, and what is
     /// clickable is decided separately by the active rect.
@@ -261,6 +257,30 @@ struct NotchGeometry {
     }
 
     /// Rect the content occupies inside the window, in AppKit window coordinates.
+    /// The compact island's rect in the coordinate space a SwiftUI gesture
+    /// reports its clicks in.
+    ///
+    /// The same rect `NotchController.applyActiveRect` hands to
+    /// `NotchRootView.activeRect`, expressed the other way up. It exists because
+    /// the two layers disagreed and one of them was silently wrong: the panel's
+    /// click gesture is attached to a view that fills the whole window, so its
+    /// `.local` space is the window — and the rect it tested against was pinned
+    /// at that window's origin while the island is centred in it. The overlap
+    /// was the island's left edge. With a track playing on a 185 pt notch, the
+    /// left 34 % opened the panel and the right 66 % did nothing; with nothing
+    /// playing there was no overlap at all and the island was dead everywhere.
+    /// `activeRect` was right the whole time, which is why it let the clicks
+    /// through to be thrown away here, and why hovering — which goes through
+    /// `PointerWatcher` instead — never showed it.
+    ///
+    /// `contentRect` measures up from the bottom, the way AppKit does. SwiftUI
+    /// measures down from the top, and the island is pinned to the top edge, so
+    /// only the horizontal half of that rect carries over.
+    func compactGestureRect(for bodySize: CGSize, topRadius: CGFloat) -> CGRect {
+        let rect = contentRect(for: bodySize).insetBy(dx: -topRadius, dy: 0)
+        return CGRect(x: rect.minX, y: 0, width: rect.width, height: bodySize.height)
+    }
+
     func contentRect(for size: CGSize) -> CGRect {
         CGRect(
             x: (windowSize.width - size.width) / 2,
@@ -272,15 +292,31 @@ struct NotchGeometry {
 
     /// Depth of the collapsed target, measured down from the top edge.
     ///
-    /// A real notch is a hole: the whole of it can be claimed, because there is
-    /// nothing underneath to claim it from. A synthetic one is cut out of a
-    /// working menu bar — and the middle of the bar is where status items pile
-    /// up once there are a few (measured on a 13" M1: they start at x≈757 while
-    /// the synthetic notch spans 630…810). Claiming the full bar height there
-    /// puts the panel in front of icons the user is aiming at. A strip along the
-    /// very top edge is reached by throwing the pointer up — the same gesture as
-    /// ever — while a pointer travelling to an icon stays below it.
-    var collapsedDepth: CGFloat { isPhysical ? notchSize.height : 8 }
+    /// The drawn depth, on every display. `NotchShape` fills black
+    /// unconditionally (`NotchContentView.swift:74`) — when nothing is playing
+    /// it is the *header* that falls back to `Color.clear`, not the shape — so
+    /// the pill is visible at all times and all of it has to answer a click.
+    ///
+    /// This was `8` on synthetic notches, for a real reason: the middle of a
+    /// working menu bar is where status items pile up once there are a few
+    /// (measured on a 13" M1: they start at x≈757 while the synthetic notch
+    /// spans 630…810), and claiming the full bar height there takes their
+    /// clicks. The trade was made the other way on 2026-09-10: those items are
+    /// already *covered* by the black shape, so what the 8 pt strip preserved
+    /// was a status item you cannot see but can click, at the price of an
+    /// island you can see but mostly cannot. A visible target that works beats
+    /// an invisible one that does.
+    var collapsedDepth: CGFloat { notchSize.height }
+
+    /// The depth the collapsed target used to claim on a synthetic notch, kept
+    /// as a record of the number the trade above was made against — 8 pt of menu
+    /// bar left to whatever sits under the island.
+    ///
+    /// Nothing reads it. It is not a switch, and reversing the trade is not one
+    /// either: that means editing `collapsedDepth` to branch on `isPhysical`
+    /// again, and re-cutting the two rects below with it. This comment used to
+    /// claim the reversal was a one-line change here, which was never true.
+    static let idleStripDepth: CGFloat = 8
 
     /// Size of the collapsed target: the notch itself, or the strip above.
     var collapsedSize: CGSize { CGSize(width: notchSize.width, height: collapsedDepth) }

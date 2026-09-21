@@ -104,6 +104,78 @@ clang -dynamiclib -fobjc-arc -O2 \
     -o "$APP/Contents/Resources/libislamedia.dylib" \
     "$ROOT/Sources/IslaMediaHelper/helper.m"
 
+# App Intents: what Shortcuts, Spotlight and Siri read to find Isla's verbs.
+#
+# Shortcuts does not read the binary. It reads `Metadata.appintents`, a small
+# bundle of JSON that Xcode normally produces in a build phase this project does
+# not have — there is no Xcode project here, only SwiftPM and this script. The
+# generator ships inside Xcode, and it needs two inputs: the module's sources,
+# and the "const values" the compiler extracts from the types that conform to
+# App Intents protocols.
+#
+# The const values are extracted here, by one type-check pass with the flags
+# spelled out, rather than scavenged from SwiftPM's build directory. That used
+# to be a `find` over `.build`, and it only ever worked on one toolchain: Swift
+# 6.4's SwiftPM passes `-emit-const-values` and a protocol list by itself when
+# a target imports AppIntents, and writes them into its new build layout.
+# Xcode 26.6's SwiftPM does neither, so on the CI image the search found
+# nothing and the release gate failed with "no .swiftconstvalues found". Asked
+# for explicitly, it works on either: `-const-gather-protocols-file` is the
+# original frontend spelling, still accepted by 6.4. A type check is about six
+# seconds and links nothing.
+#
+# The protocol list is the fixed set the toolchain gathers for App Intents,
+# copied verbatim from what Swift 6.4's SwiftPM writes. The output carries no
+# bundle id and no path; it is derived from the compiled Swift, so this is
+# equivalent to what Xcode would have produced. It must land *before* the
+# signature, because adding a file to a signed bundle invalidates it.
+#
+# Skipped, loudly but without failing, when only the Command Line Tools are
+# installed: the processor ships with full Xcode. `Scripts/test-package.sh` is
+# where a release insists on it.
+TOOLCHAIN_DIR="$(xcode-select -p 2>/dev/null)/Toolchains/XcodeDefault.xctoolchain"
+INTENTS_TOOL="$TOOLCHAIN_DIR/usr/bin/appintentsmetadataprocessor"
+if [ -x "$INTENTS_TOOL" ]; then
+    echo "==> generating App Intents metadata"
+    INTENTS_WORK="$ROOT/build/appintents"
+    rm -rf "$INTENTS_WORK"
+    mkdir -p "$INTENTS_WORK"
+    SDK_ROOT="$(xcrun --sdk macosx --show-sdk-path)"
+    TRIPLE="$(uname -m)-apple-macosx15.0"
+    printf '%s' '["AnyResolverProviding","AppEntity","AppEnum","AppExtension","AppIntent","AppIntentsPackage","AppShortcutProviding","AppShortcutsProvider","AppUnionValue","AppUnionValueCasesProviding","DynamicOptionsProvider","EntityQuery","ExtensionPointDefining","IntentValueQuery","Resolver","TransientEntity","_AssistantIntentsProvider","_GenerativeFunctionExtractable","_IntentValueRepresentable"]' \
+        > "$INTENTS_WORK/protocols.json"
+    find "$ROOT/Sources/IslaKit" -name '*.swift' > "$INTENTS_WORK/kit-sources.txt"
+    # IslaKit is where the intents live. `-swift-version 5` matches the
+    # package's language mode, so the pass sees the code as the build did.
+    if swiftc -typecheck -wmo -parse-as-library -swift-version 5 \
+        -module-name IslaKit \
+        -target "$TRIPLE" \
+        -sdk "$SDK_ROOT" \
+        -emit-const-values-path "$INTENTS_WORK/IslaKit.swiftconstvalues" \
+        -Xfrontend -const-gather-protocols-file -Xfrontend "$INTENTS_WORK/protocols.json" \
+        @"$INTENTS_WORK/kit-sources.txt" \
+        && [ -s "$INTENTS_WORK/IslaKit.swiftconstvalues" ]; then
+        find "$ROOT/Sources/Isla" "$ROOT/Sources/IslaKit" -name '*.swift' > "$INTENTS_WORK/sources.txt"
+        echo "$INTENTS_WORK/IslaKit.swiftconstvalues" > "$INTENTS_WORK/constvalues.txt"
+        "$INTENTS_TOOL" \
+            --output "$APP/Contents/Resources" \
+            --toolchain-dir "$TOOLCHAIN_DIR" \
+            --module-name Isla \
+            --sdk-root "$SDK_ROOT" \
+            --xcode-version "$(xcodebuild -version 2>/dev/null | sed -n 's/Build version //p')" \
+            --platform-family macOS \
+            --deployment-target 15.0 \
+            --target-triple "$TRIPLE" \
+            --source-file-list "$INTENTS_WORK/sources.txt" \
+            --swift-const-vals-list "$INTENTS_WORK/constvalues.txt" \
+            || echo "!!! App Intents metadata failed — Shortcuts will not see Isla" >&2
+    else
+        echo "!!! could not extract App Intents const values — Shortcuts will not see Isla" >&2
+    fi
+else
+    echo "==> skipping App Intents metadata (needs full Xcode, not just the CLT)"
+fi
+
 # SwiftPM's release executable still contains local symbols. They add more than
 # the entire UI payload to a direct-download bundle and have no runtime value;
 # strip before signing, because changing a Mach-O afterwards invalidates it.

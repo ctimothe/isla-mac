@@ -5,34 +5,78 @@ import AppKit
 ///
 /// Runs the REAL pipeline — NowPlayingFeed spawning the shipped helper,
 /// MediaController's anchor/adopt/tick logic — in-process, and samples it
-/// against Spotify's own player position read over AppleScript, which is the
-/// clock Spotify's UI renders. Scripted events hit the edges: pause, resume,
+/// against the selected scriptable player's position read over AppleScript,
+/// which is the clock Apple Music or Spotify renders. Scripted events hit the edges: pause, resume,
 /// forward seek, large backward seek, and a sub-threshold backward seek.
+///
+/// Word columns sample the explicit enhanced LRC fixture for the playing track
+/// at the same 5Hz.
+/// `werr` is the word-edge error — how far apart the two clocks' current words
+/// start — so the gate speaks in lyric units, not just seconds of clock delta.
 @MainActor
 final class Probe {
     let controller = MediaController()
-    var out: [String] = ["t,ours,truth,delta,event"]
+    let player: PlayerApp = ProcessInfo.processInfo.environment["SYNC_PLAYER"] == "music" ? .music : .spotify
+    var out: [String] = ["t,ours,truth,delta,surfaceDelta,event,wordOurs,wordTruth,fracOurs,fracTruth,werr"]
     var event = ""
     var start = Date()
+    /// Flat word starts of the fixture, sorted. A word owns its start;
+    /// the next start (or the fixture end) closes it.
+    var wordStarts: [TimeInterval] = []
+    var fixtureEnd: TimeInterval = 0
 
-    func truthPosition() -> (position: TimeInterval, latency: TimeInterval)? {
-        let t0 = Date()
+    func runAppleScript(_ source: String) -> String? {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        task.arguments = ["-e", "tell application \"Spotify\" to player position"]
+        task.arguments = ["-e", source]
         let pipe = Pipe()
         task.standardOutput = pipe
         try? task.run()
         task.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let value = TimeInterval(String(data: data, encoding: .utf8)!.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        guard task.terminationStatus == 0 else { return nil }
+        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func truthPosition() -> (position: TimeInterval, latency: TimeInterval)? {
+        let t0 = Date()
+        guard let raw = runAppleScript("tell application id \"\(player.bundleID)\" to player position"),
+              let value = TimeInterval(raw) else { return nil }
         return (value, Date().timeIntervalSince(t0))
     }
 
-    func spotify(_ command: String) {
+    func resolveFixture() {
+        guard let path = ProcessInfo.processInfo.environment["SYNC_LRC_FIXTURE"],
+              let raw = try? String(contentsOfFile: path, encoding: .utf8),
+              let document = try? LocalLyricsDocument.parse(raw),
+              document.granularity == .word
+        else {
+            FileHandle.standardError.write(Data("sync-probe: invalid enhanced LRC fixture\n".utf8))
+            exit(2)
+        }
+        wordStarts = Array(Set(document.lines.flatMap { $0.words.map(\.at) })).sorted()
+        fixtureEnd = document.duration ?? (document.lines.last?.at ?? 0) + 6
+        print("fixture: local LRC (\(document.lines.count) lines, \(wordStarts.count) edges)")
+    }
+
+    /// The word owning `pos`: the last start at or before it, and how far
+    /// through that word it stands. Before the first start there is no word.
+    func wordCursor(at pos: TimeInterval) -> (index: Int, fraction: Double) {
+        var index = -1
+        for (i, start) in wordStarts.enumerated() {
+            if start <= pos { index = i } else { break }
+        }
+        guard index >= 0 else { return (-1, 0) }
+        let start = wordStarts[index]
+        let end = index + 1 < wordStarts.count ? wordStarts[index + 1] : fixtureEnd
+        guard end > start else { return (index, 1) }
+        return (index, min(max((pos - start) / (end - start), 0), 1))
+    }
+
+    func playerCommand(_ command: String) {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        task.arguments = ["-e", "tell application \"Spotify\" to \(command)"]
+        task.arguments = ["-e", "tell application id \"\(player.bundleID)\" to \(command)"]
         try? task.run()
         task.waitUntilExit()
     }
@@ -44,16 +88,30 @@ final class Probe {
         let ours = controller.position
         let t = Date().timeIntervalSince(start)
         let delta = ours - truth.position
-        out.append(String(format: "%.2f,%.3f,%.3f,%+.3f,%@", t, ours, truth.position, delta, event))
+        // Words are read against the same lead the lyric surfaces use, so the
+        // columns say what the screen would show, not what the raw clock says.
+        let lead = LyricSweep.lead(precisionSync: controller.precisionSync, userOffset: 0)
+        let surfaceDelta = ours + lead - truth.position
+        let oursCursor = wordCursor(at: ours + lead)
+        let truthCursor = wordCursor(at: truth.position + lead)
+        let oursEdge = oursCursor.index >= 0 ? wordStarts[oursCursor.index] : 0
+        let truthEdge = truthCursor.index >= 0 ? wordStarts[truthCursor.index] : 0
+        let werr = abs(oursEdge - truthEdge)
+        out.append(String(format: "%.2f,%.3f,%.3f,%+.3f,%+.3f,%@,%d,%d,%.3f,%.3f,%.3f",
+                          t, ours, truth.position, delta, surfaceDelta, event,
+                          oursCursor.index, truthCursor.index,
+                          oursCursor.fraction, truthCursor.fraction, werr))
         event = ""
     }
 
     func run() async {
         controller.start()
+        controller.precisionPlayerForTests = player
         controller.setActive(true)  // ticker on, like an open panel
-        spotify("play")
+        playerCommand("play")
         try? await Task.sleep(for: .seconds(3))  // pipeline warm-up
         start = Date()
+        resolveFixture()
 
         // 45 seconds, 5Hz sampling, events at fixed offsets.
         var fired: Set<Int> = []
@@ -62,7 +120,7 @@ final class Probe {
             for (at, name, cmd) in events where Int(at) == Int(t) && !fired.contains(Int(at)) {
                 fired.insert(Int(at))
                 event = name
-                spotify(cmd)
+                playerCommand(cmd)
             }
             sample()
             try? await Task.sleep(for: .milliseconds(200))

@@ -52,6 +52,12 @@ bash Scripts/bundle.sh release
 bash Scripts/test-identity.sh
 bash Scripts/test-helper.sh
 bash Scripts/test-package.sh
+# The only gate that looks at the app from outside. It skips itself on an
+# ad-hoc build, which is why it belongs here rather than only in CI: by this
+# point DEVELOPER_ID_APPLICATION is required (see require_env above), so here
+# it always has teeth. Before this line existed the gate's own skip message
+# promised that a release had to pass through it, and no release path called it.
+bash Scripts/test-gatekeeper.sh
 # Both of these were documented as gates and run by nothing: the orphan-helper
 # regression test-lifecycle exists to catch could ship in a release that had
 # just run every scripted gate green.

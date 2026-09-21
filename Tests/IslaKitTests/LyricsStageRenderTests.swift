@@ -17,22 +17,15 @@ final class LyricsStageRenderTests: XCTestCase {
     /// filled to the pane's width it is as tall as it is wide, and a ZStack
     /// takes the tallest child however hard the drawing is clipped afterwards.
     func testStageDoesNotOutgrowItsBodyWhenTheCoverIsSquare() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let lyrics = LyricsStore(cacheDirectory: root)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let key = LyricsStore.cacheKey(title: "Test Song", artist: "Test Artist", album: "", duration: 180)
-        let cached: [String: Any] = [
-            "times": [1.0, 4.0, 8.0, 12.0, 16.0],
-            "texts": ["First line", "Second line", "Third line", "Fourth line", "Fifth line"],
-        ]
-        try JSONSerialization.data(withJSONObject: cached)
-            .write(to: root.appendingPathComponent("\(key).lrc3.json"))
-        lyrics.load(title: "Test Song", artist: "Test Artist", album: "", duration: 180)
-        for _ in 0..<50 {
-            if case .synced = lyrics.state { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        let lyrics = LyricsStore()
+        lyrics.present(.ready(LyricTimeline(
+            lines: [
+                .init(at: 1, text: "First line"), .init(at: 4, text: "Second line"),
+                .init(at: 8, text: "Third line"), .init(at: 12, text: "Fourth line"),
+                .init(at: 16, text: "Fifth line"),
+            ],
+            granularity: .line
+        )))
 
         let media = MediaController()
         var snapshot = NowPlayingFeed.Snapshot()
@@ -67,31 +60,20 @@ final class LyricsStageRenderTests: XCTestCase {
         )
     }
 
-    func testStageRendersLinesFromTheCache() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let lyrics = LyricsStore(cacheDirectory: root)
-
-        // A cached word-synced payload, planted where the store will find it.
-        let key = LyricsStore.cacheKey(title: "Test Song", artist: "Test Artist", album: "", duration: 180)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let cached: [String: Any] = [
-            "times": [1.0, 4.0, 8.0, 12.0, 16.0],
-            "texts": ["First line of the song", "Second line arrives", "The current line sweeping now", "A later line waiting", "The final line"],
-            "wordTimes": [[1.0, 1.5], [4.0, 4.6], [8.0, 8.5, 9.0, 9.5], [12.0], [16.0]],
-            "wordTexts": [["First line", " of the song"], ["Second", " line arrives"], ["The", " current", " line", " sweeping now"], ["A later line waiting"], ["The final line"]],
-        ]
-        let data = try JSONSerialization.data(withJSONObject: cached)
-        try data.write(to: root.appendingPathComponent("\(key).lrc3.json"))
-
-        lyrics.load(title: "Test Song", artist: "Test Artist", album: "", duration: 180)
-        // The cache read hops off the main actor; give it a beat.
-        for _ in 0..<50 {
-            if case .synced = lyrics.state { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
+    func testStageRendersLinesFromLocalTimeline() async throws {
+        let lyrics = LyricsStore()
+        lyrics.present(.ready(LyricTimeline(
+            lines: [
+                .init(at: 1, text: "First line of the song", words: [.init(at: 1, text: "First"), .init(at: 1.5, text: "line")]),
+                .init(at: 4, text: "Second line arrives", words: [.init(at: 4, text: "Second"), .init(at: 4.6, text: "line")]),
+                .init(at: 8, text: "The current line sweeping now", words: [.init(at: 8, text: "The"), .init(at: 8.5, text: "current")]),
+                .init(at: 12, text: "A later line waiting", words: [.init(at: 12, text: "later")]),
+                .init(at: 16, text: "The final line", words: [.init(at: 16, text: "final")]),
+            ],
+            granularity: .word
+        )))
         guard case .synced(let lines) = lyrics.state else {
-            return XCTFail("cached lyrics did not load: \(lyrics.state)")
+            return XCTFail("local timeline did not load: \(lyrics.state)")
         }
         XCTAssertEqual(lines.count, 5)
 
