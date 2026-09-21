@@ -202,6 +202,73 @@ final class HeldSongTests: XCTestCase {
         XCTAssertNil(controller.track)
     }
 
+    /// Music Only switched on while a film is what the island shows: the film
+    /// is not a song to hold. It used to be kept, because holding asked only
+    /// whether the displayed player was still running — and the film's own
+    /// browser was.
+    func testTurningMusicOnlyOnDoesNotHoldTheFilmItself() {
+        let controller = controller(running: [1, 2])
+        var musicOnly = false
+        controller.musicOnly = { musicOnly }
+        controller.receive(snapshot(pid: 2, title: "Some Film", playing: true))
+        XCTAssertEqual(controller.track?.title, "Some Film", "the fixture: Music Only off shows the film")
+
+        musicOnly = true
+        controller.receive(snapshot(pid: 2, title: "Some Film", playing: true))
+        XCTAssertNil(controller.track)
+        XCTAssertFalse(controller.isHolding)
+    }
+
+    /// A report with nothing in it — the helper caught between two sessions,
+    /// or a film's tab closed — is no reason to drop a song still loaded in a
+    /// running player. It cleared the island to "Nothing is playing", and the
+    /// song came back on the next report as a new track, lyrics and all.
+    func testAnEmptyReportDoesNotDropASongWhosePlayerRuns() {
+        let controller = controller(running: [1, 2])
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        controller.receive(NowPlayingFeed.Snapshot())
+        XCTAssertEqual(controller.track?.title, "Song")
+    }
+
+    /// Only a song whose player can be asked is kept over an empty report. A
+    /// Tidal song held there could never be checked again: its pill kept
+    /// animating after the music stopped, until Tidal quit.
+    func testAnEmptyReportDoesNotHoldASongNothingCanCheck() {
+        let controller = MediaController()
+        controller.isolateFromPlayers()
+        controller.musicOnly = { true }
+        controller.bundleIdentifierForPID = { _ in "com.tidal.desktop" }
+        controller.isProcessRunning = { _ in true }
+        controller.receive(snapshot(pid: 7, title: "Song", playing: true))
+        XCTAssertEqual(controller.track?.title, "Song", "the fixture: Tidal is a music source")
+        controller.receive(NowPlayingFeed.Snapshot())
+        XCTAssertNil(controller.track)
+        XCTAssertFalse(controller.isHolding)
+    }
+
+    /// With the player gone, an empty report is nothing playing, as before.
+    func testAnEmptyReportAfterThePlayerQuitClears() {
+        let controller = controller(running: [2])
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        controller.receive(NowPlayingFeed.Snapshot())
+        XCTAssertNil(controller.track)
+    }
+
+    /// A film starting under Music Only is announced, so a paused song's pill
+    /// can fold at once instead of lingering over the film; a film that is
+    /// paused, or a music source, is not.
+    func testAFilmStartingIsAnnounced() {
+        let controller = controller(running: [1, 2])
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        XCTAssertFalse(controller.otherMediaIsPlaying)
+        controller.receive(snapshot(pid: 2, title: "Some Film", playing: false))
+        XCTAssertFalse(controller.otherMediaIsPlaying, "a paused film is not news")
+        controller.receive(snapshot(pid: 2, title: "Some Film", playing: true))
+        XCTAssertTrue(controller.otherMediaIsPlaying)
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        XCTAssertFalse(controller.otherMediaIsPlaying, "the song taking Now Playing back ends it")
+    }
+
     /// And the song coming back — resumed, or a new one — takes over at once.
     func testTheSongResumingTakesOverAgain() {
         let controller = controller(running: [1, 2])
@@ -340,6 +407,36 @@ final class HeldSongTruthTests: XCTestCase {
         ])
     }
 
+    /// A report `apply` refuses — a paused stranger, held off for a while —
+    /// must not end the hold on the song still on screen. It used to: Music
+    /// taking Now Playing with a paused song dropped the hold, and the next
+    /// play tap for the Spotify song went through the helper, which handed it
+    /// to Music.
+    func testARefusedReportKeepsTapsOnTheSongOnScreen() {
+        let paused = PlayerState(
+            app: .spotify, isPlaying: false, title: "Song", artist: "Artist",
+            album: "Album", duration: 248, position: 10
+        )
+        let (controller, _) = controller(held: .loaded(paused))
+        controller.bundleIdentifierForPID = {
+            switch $0 {
+            case 1: return "com.spotify.client"
+            case 3: return "com.apple.Music"
+            default: return "org.mozilla.firefox"
+            }
+        }
+        var sent: [String] = []
+        controller.sendToPlayer = { action, app in sent.append("\(app.rawValue) \(action)") }
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        controller.receive(snapshot(pid: 3, title: "Other Song", playing: false))
+
+        XCTAssertEqual(controller.track?.title, "Song", "the fixture: the stranger is held off")
+        XCTAssertTrue(controller.isHolding)
+        controller.togglePlayPause()
+        XCTAssertEqual(sent, ["spotify play"])
+    }
+
     /// With no film in the way, the helper carries the command as before.
     func testASongThatOwnsNowPlayingIsNotScripted() {
         let (controller, _) = controller(held: .unknown)
@@ -350,6 +447,17 @@ final class HeldSongTruthTests: XCTestCase {
         controller.next()
         XCTAssertFalse(controller.isHolding)
         XCTAssertEqual(sent, [])
+    }
+
+    /// Spotify and Music announce every play, pause and track change the
+    /// moment it happens, while the helper only notices on its two-second
+    /// poll. An announcement asks the helper for a fresh report at once.
+    func testAPlayerAnnouncementAsksForAFreshReport() {
+        let (controller, _) = controller(held: .unknown)
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        let before = controller.freshReportsAskedForTests
+        controller.playerAnnouncedChange(.spotify)
+        XCTAssertGreaterThan(controller.freshReportsAskedForTests, before)
     }
 
     /// Accepting a music source again ends the hold, so the next takeover asks

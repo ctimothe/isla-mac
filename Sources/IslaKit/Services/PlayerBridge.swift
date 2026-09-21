@@ -274,6 +274,7 @@ enum PlayerBridge {
                 return """
                 \(separator)
                 tell application id "com.spotify.client"
+                    if it is not running then return "error" & fieldSeparator & "-600"
                     try
                         set playerStateText to player state as text
                         set currentTrackRef to current track
@@ -292,6 +293,7 @@ enum PlayerBridge {
                 return """
                 \(separator)
                 tell application id "com.apple.Music"
+                    if it is not running then return "error" & fieldSeparator & "-600"
                     try
                         set playerStateText to player state as text
                         set currentTrackRef to current track
@@ -384,6 +386,9 @@ enum PlayerBridge {
 
     /// errAENoSuchObject: `current track` asked of a player with none loaded.
     private static let noSuchObject = -1728
+    /// procNotFound: the player quit. The script checks before it asks, since
+    /// an Apple event sent to a player that has just quit launches it again.
+    private static let notRunning = -600
 
     /// Reads a state script's answer. The script reports its own failure as
     /// "error" and the AppleScript error number, so the one error that means
@@ -392,7 +397,8 @@ enum PlayerBridge {
     static func interpret(_ raw: String, app: PlayerApp) -> StateReply {
         let parts = raw.components(separatedBy: "\u{1}")
         if parts.first == "error" {
-            return parts.count > 1 && Int(parts[1]) == noSuchObject ? .empty : .unknown
+            let code = parts.count > 1 ? Int(parts[1]) : nil
+            return code == noSuchObject || code == notRunning ? .empty : .unknown
         }
         guard parts.count >= 6 else { return .unknown }
         guard !parts[1].isEmpty else { return .empty }

@@ -192,78 +192,116 @@ static void refreshCommands(int ownerPID, id path) {
 /// that field running: it is a reading from the last change of state, and a
 /// session that has been playing for three minutes still reports the second it
 /// started at. What advances is the clock beside it, so both have to travel.
-static void publishSnapshot(int ownerPID, id path, BOOL forced) {
-    refreshCommands(ownerPID, path);
+static void publishAttempt(BOOL forced, int attempt);
+
+/// Whether the Now Playing app is still the one a record was read for.
+///
+/// A record is four separate reads — the owner's pid, its player path, the
+/// playing flag and the info — and nothing ties them to one app. When macOS
+/// hands Now Playing from one app to another between them, the record mixes
+/// the two: Spotify's pid and title with a film's playing flag, which the app
+/// can only read as Spotify playing. The owner is read again after the rest,
+/// and a record whose owner changed underneath it is read again from scratch.
+/// Once only: a second record is emitted whatever it finds, so an owner that
+/// keeps changing can delay the feed by one read and never starve it.
+///
+/// Asked flat on the queue, not from inside the info callback that wants the
+/// answer: a MediaRemote call made from inside another's callback once never
+/// answered at all and silenced the feed (see `refreshCommands`).
+static void confirmOwner(int ownerPID, int attempt, void (^then)(BOOL unchanged)) {
+    if (!sGetPID || attempt > 0) { then(YES); return; }
+    dispatch_async(sQueue, ^{
+        sGetPID(sQueue, ^(int ownerNow) { then(ownerNow == ownerPID); });
+    });
+}
+
+static void publishSnapshot(int ownerPID, id path, BOOL forced, int attempt) {
     // Here too, not only inside refreshCommands: that early-returns when the
     // supported-commands symbol is missing, which would leave the caches — and
     // their stale-pid hazard — unpruned for the whole session.
     evictStaleCaches();
     sGetIsPlaying(sQueue, ^(Boolean playing) {
         sGetInfo(sQueue, ^(CFDictionaryRef raw) {
+            // Strong, so the record outlives this callback while the owner is
+            // confirmed; nothing shared is touched until it is.
             NSDictionary *info = (__bridge NSDictionary *)raw;
-            NSString *title = info[@"kMRMediaRemoteNowPlayingInfoTitle"] ?: @"";
+            confirmOwner(ownerPID, attempt, ^(BOOL unchanged) {
+                if (!unchanged) {
+                    publishAttempt(forced, attempt + 1);
+                    return;
+                }
+                // Only now, with the owner confirmed, are the commands asked
+                // of this path cached against this pid — and flat, like the
+                // owner check, since this block may itself be running inside
+                // a MediaRemote callback. The record below reads the last
+                // answer rather than waiting for this one, as it always has.
+                dispatch_async(sQueue, ^{ refreshCommands(ownerPID, path); });
+                NSString *title = info[@"kMRMediaRemoteNowPlayingInfoTitle"] ?: @"";
 
-            if (ownerPID > 0 && path) {
-                sPlayerPathsByPID[@(ownerPID)] = path;
-            }
+                if (ownerPID > 0 && path) {
+                    sPlayerPathsByPID[@(ownerPID)] = path;
+                }
 
-            NSMutableDictionary *out = [NSMutableDictionary dictionary];
-            // `playing ? @YES : @NO`, not `@(playing ? YES : NO)`: in C the
-            // ternary promotes both branches to `int`, so the boxed number came
-            // out an integer and the field serialised as 1 rather than true.
-            // Swift read it correctly either way, but the wire format was
-            // describing a flag as a count.
-            out[@"playing"] = playing ? @YES : @NO;
-            out[@"title"] = title;
-            out[@"artist"] = info[@"kMRMediaRemoteNowPlayingInfoArtist"] ?: @"";
-            out[@"album"] = info[@"kMRMediaRemoteNowPlayingInfoAlbum"] ?: @"";
-            out[@"duration"] = info[@"kMRMediaRemoteNowPlayingInfoDuration"] ?: @0;
-            out[@"elapsed"] = info[@"kMRMediaRemoteNowPlayingInfoElapsedTime"] ?: @0;
-            out[@"rate"] = info[@"kMRMediaRemoteNowPlayingInfoPlaybackRate"] ?: @0;
-            out[@"pid"] = @(ownerPID);
-            // What kind of thing is playing, as the player itself labels it.
-            // The owning app alone cannot tell a Telegram song from a Telegram
-            // video, or music in a browser from a film in one; this can, when
-            // the player says. Passed through raw and only when present — a
-            // missing key means the player did not say, not that it is video.
-            id mediaType = info[@"kMRMediaRemoteNowPlayingInfoMediaType"];
-            if ([mediaType isKindOfClass:NSString.class]) out[@"mediaType"] = mediaType;
-            id isMusicApp = info[@"kMRMediaRemoteNowPlayingInfoIsMusicApp"];
-            if ([isMusicApp isKindOfClass:NSNumber.class]) out[@"isMusicApp"] = isMusicApp;
+                NSMutableDictionary *out = [NSMutableDictionary dictionary];
+                // `playing ? @YES : @NO`, not `@(playing ? YES : NO)`: in C the
+                // ternary promotes both branches to `int`, so the boxed number came
+                // out an integer and the field serialised as 1 rather than true.
+                // Swift read it correctly either way, but the wire format was
+                // describing a flag as a count.
+                out[@"playing"] = playing ? @YES : @NO;
+                out[@"title"] = title;
+                out[@"artist"] = info[@"kMRMediaRemoteNowPlayingInfoArtist"] ?: @"";
+                out[@"album"] = info[@"kMRMediaRemoteNowPlayingInfoAlbum"] ?: @"";
+                out[@"duration"] = info[@"kMRMediaRemoteNowPlayingInfoDuration"] ?: @0;
+                out[@"elapsed"] = info[@"kMRMediaRemoteNowPlayingInfoElapsedTime"] ?: @0;
+                out[@"rate"] = info[@"kMRMediaRemoteNowPlayingInfoPlaybackRate"] ?: @0;
+                out[@"pid"] = @(ownerPID);
+                // What kind of thing is playing, as the player itself labels it.
+                // The owning app alone cannot tell a Telegram song from a Telegram
+                // video, or music in a browser from a film in one; this can, when
+                // the player says. Passed through raw and only when present — a
+                // missing key means the player did not say, not that it is video.
+                id mediaType = info[@"kMRMediaRemoteNowPlayingInfoMediaType"];
+                if ([mediaType isKindOfClass:NSString.class]) out[@"mediaType"] = mediaType;
+                id isMusicApp = info[@"kMRMediaRemoteNowPlayingInfoIsMusicApp"];
+                if ([isMusicApp isKindOfClass:NSNumber.class]) out[@"isMusicApp"] = isMusicApp;
 
-            id stamp = info[@"kMRMediaRemoteNowPlayingInfoTimestamp"];
-            out[@"timestamp"] = [stamp isKindOfClass:NSDate.class]
-                ? @([(NSDate *)stamp timeIntervalSince1970])
-                : @0;
+                id stamp = info[@"kMRMediaRemoteNowPlayingInfoTimestamp"];
+                out[@"timestamp"] = [stamp isKindOfClass:NSDate.class]
+                    ? @([(NSDate *)stamp timeIntervalSince1970])
+                    : @0;
 
-            // The owner pid rides along with the identifier: two different
-            // players can report the same title|artist|album (or the same
-            // opaque artwork identifier), and without the pid a switch
-            // between them would look like no change at all — the new
-            // player's artwork would never publish because it matched the
-            // previous player's cached identity.
-            NSString *rawArtworkID = info[@"kMRMediaRemoteNowPlayingInfoArtworkIdentifier"] ?: title;
-            NSString *artworkID = [NSString stringWithFormat:@"%d|%@", ownerPID, rawArtworkID];
-            NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
-            if (artwork.length > 0 && ![artworkID isEqualToString:sArtworkID]) {
-                out[@"artwork"] = [artwork base64EncodedStringWithOptions:0];
-                sArtworkID = artworkID;
-            }
-            if (title.length == 0) sArtworkID = nil;
+                // The owner pid rides along with the identifier: two different
+                // players can report the same title|artist|album (or the same
+                // opaque artwork identifier), and without the pid a switch
+                // between them would look like no change at all — the new
+                // player's artwork would never publish because it matched the
+                // previous player's cached identity.
+                NSString *rawArtworkID = info[@"kMRMediaRemoteNowPlayingInfoArtworkIdentifier"] ?: title;
+                NSString *artworkID = [NSString stringWithFormat:@"%d|%@", ownerPID, rawArtworkID];
+                NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
+                if (artwork.length > 0 && ![artworkID isEqualToString:sArtworkID]) {
+                    out[@"artwork"] = [artwork base64EncodedStringWithOptions:0];
+                    sArtworkID = artworkID;
+                }
+                if (title.length == 0) sArtworkID = nil;
 
-            // Left out entirely until an answer has arrived for this player:
-            // absent is not the same as empty, and "unknown" must not read as
-            // "accepts nothing" and dim every button — nor should it borrow
-            // the previous player's answer.
-            NSArray *commands = ownerPID > 0 ? sCommandsByPID[@(ownerPID)] : nil;
-            if (commands) out[@"commands"] = commands;
+                // Left out entirely until an answer has arrived for this player:
+                // absent is not the same as empty, and "unknown" must not read as
+                // "accepts nothing" and dim every button — nor should it borrow
+                // the previous player's answer.
+                NSArray *commands = ownerPID > 0 ? sCommandsByPID[@(ownerPID)] : nil;
+                if (commands) out[@"commands"] = commands;
 
-            emitPayload(out, forced);
+                emitPayload(out, forced);
+            });
         });
     });
 }
 
-static void publishForced(BOOL forced) {
+static void publishForced(BOOL forced) { publishAttempt(forced, 0); }
+
+static void publishAttempt(BOOL forced, int attempt) {
     if (!atomic_load(&sFeedReady)) return;
     if (!sGetInfo || !sGetIsPlaying) {
         // Say so, rather than going quiet. A helper that stays alive and
@@ -274,15 +312,21 @@ static void publishForced(BOOL forced) {
         emitPayload(@{@"error": @"mediaremote-symbols-missing"}, forced);
         return;
     }
-    id path = activePlayerPath();
     if (sGetPID) {
-        sGetPID(sQueue, ^(int pid) { publishSnapshot(pid, path, forced); });
+        // The path is read after the owner's pid, not before, so the owner
+        // check at the end brackets it too. That narrows the window for a
+        // path read for the previous owner being cached against the new one's
+        // pid — every command addressed to that pid would reach the wrong
+        // player — without closing it: the path is the service client's own
+        // cached answer, not a read tied to this pid.
+        sGetPID(sQueue, ^(int pid) { publishSnapshot(pid, activePlayerPath(), forced, attempt); });
     } else {
+        id path = activePlayerPath();
         // Onto the queue explicitly. Called straight through, this ran
         // `publishSnapshot` — and the cache eviction inside it — on whichever
         // thread happened to call `publish`, mutating dictionaries the queue
         // otherwise owns.
-        dispatch_async(sQueue, ^{ publishSnapshot(0, path, forced); });
+        dispatch_async(sQueue, ^{ publishSnapshot(0, path, forced, attempt); });
     }
 }
 
@@ -411,7 +455,10 @@ static void startFeed(void) {
         // A poll, not just a subscription: on macOS 26 the notifications above
         // were measured arriving zero times across 30-second windows that
         // included real track changes (#23), so a client that only reacted to
-        // them would go stale silently. Cheap enough at this interval to run
+        // them would go stale silently. On macOS 27 they do arrive — a
+        // browser's play and pause were published 1.5s and 0.26s off the poll
+        // grid, i.e. at once (2026-09-21) — but one OS release already took
+        // them away, so the poll stays. Cheap enough at this interval to run
         // unconditionally rather than gate it on whether anything is playing —
         // an idle session publishes the same empty record it already would.
         //

@@ -66,6 +66,7 @@ final class PlayerScriptTests: XCTestCase {
         XCTAssertEqual(state.duration, 248, accuracy: 0.001)
 
         guard case .empty = reply("error\(s)-1728") else { return XCTFail("no current track is nothing loaded") }
+        guard case .empty = reply("error\(s)-600") else { return XCTFail("a player that quit has nothing loaded") }
         guard case .empty = reply(["stopped", "", "", "", "0", "0", ""].joined(separator: s)) else {
             return XCTFail("a track with no name is nothing loaded")
         }
