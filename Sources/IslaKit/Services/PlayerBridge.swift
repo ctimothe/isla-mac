@@ -51,25 +51,35 @@ enum PlayerBridge {
 
     // MARK: - State
 
+    /// What a player said when asked for its state.
+    ///
+    /// "Nothing loaded" and "could not be asked" are different answers. The
+    /// first means there is no song; the second — Automation consent withheld,
+    /// a player that did not answer — says nothing about the song at all, and
+    /// treating it as the first blanked a paused song the island was holding.
+    enum StateReply {
+        case loaded(PlayerState)
+        case empty
+        case unknown
+    }
+
+    static func stateReply(of app: PlayerApp, completion: @escaping (StateReply) -> Void) {
+        guard app.isRunning else { return completion(.empty) }
+        runScript(Script.state(for: app)) { descriptor in
+            completion(descriptor?.stringValue.map { interpret($0, app: app) } ?? .unknown)
+        }
+    }
+
     static func state(of app: PlayerApp, completion: @escaping (PlayerState?) -> Void) {
-        guard app.isRunning else { return completion(nil) }
-        runScript(stateScript(for: app)) { descriptor in
-            guard let raw = descriptor?.stringValue, !raw.isEmpty else { return completion(nil) }
-            completion(parse(raw, app: app))
+        stateReply(of: app) { reply in
+            if case let .loaded(state) = reply { completion(state) } else { completion(nil) }
         }
     }
 
     /// The Spotify catalogue id of the current track ("spotify:track:…" →
     /// the bare id). The licensed broker can use it to refine a match.
     static func spotifyTrackID(completion: @escaping @MainActor (String?) -> Void) {
-        let script = """
-        tell application id "\(PlayerApp.spotify.bundleID)"
-            if it is running then
-                return (id of current track as text)
-            end if
-        end tell
-        """
-        runScript(script) { result in
+        runScript(Script.spotifyTrackID) { result in
             MainActor.assumeIsolated {
                 let raw = result?.stringValue ?? ""
                 completion(raw.hasPrefix("spotify:track:") ? String(raw.dropFirst("spotify:track:".count)) : nil)
@@ -83,14 +93,7 @@ enum PlayerBridge {
         of app: PlayerApp,
         completion: @escaping @MainActor (TimeInterval?) -> Void
     ) {
-        let script = """
-        tell application id "\(app.bundleID)"
-            if it is running then
-                return (player position as text)
-            end if
-        end tell
-        """
-        runScript(script, priority: .pollable) { result in
+        runScript(Script.position(of: app), priority: .pollable) { result in
             MainActor.assumeIsolated {
                 completion(result?.stringValue.flatMap { TimeInterval($0.replacingOccurrences(of: ",", with: ".")) })
             }
@@ -137,26 +140,7 @@ enum PlayerBridge {
             Task { @MainActor in completion(nil) }
             return
         }
-        let script: String
-        switch app {
-        case .music:
-            script = """
-            tell application id "\(app.bundleID)"
-                set s to shuffle enabled
-                set r to song repeat
-                return (s as text) & "|" & (r as text)
-            end tell
-            """
-        case .spotify:
-            script = """
-            tell application id "\(app.bundleID)"
-                set s to shuffling
-                set r to repeating
-                return (s as text) & "|" & (r as text)
-            end tell
-            """
-        }
-        runScript(script, priority: .pollable) { result in
+        runScript(Script.playbackModes(of: app), priority: .pollable) { result in
             MainActor.assumeIsolated {
                 guard let raw = result?.stringValue else { return completion(nil) }
                 let parts = raw.split(separator: "|").map(String.init)
@@ -173,46 +157,50 @@ enum PlayerBridge {
         }
     }
 
-    static func setShuffle(_ app: PlayerApp, enabled: Bool) {
-        switch app {
-        case .music: command("set shuffle enabled to \(enabled)", on: app)
-        case .spotify: command("set shuffling to \(enabled)", on: app)
-        }
-    }
-
-    static func setRepeat(_ app: PlayerApp, mode: RepeatMode) {
-        switch app {
-        case .music:
-            command("set song repeat to \(mode.rawValue)", on: app)
-        case .spotify:
-            // Scripting has only the boolean; `.one` maps to on, matching how
-            // Spotify itself degrades the state over this interface.
-            command("set repeating to \(mode != .off)", on: app)
-        }
-    }
+    static func setShuffle(_ app: PlayerApp, enabled: Bool) { send(.shuffle(enabled), to: app) }
+    static func setRepeat(_ app: PlayerApp, mode: RepeatMode) { send(.repeatMode(mode), to: app) }
 
     // MARK: - Transport
 
-    static func playPause(_ app: PlayerApp) { command("playpause", on: app) }
-    static func next(_ app: PlayerApp) { command("next track", on: app) }
-    static func previous(_ app: PlayerApp) {
-        // Spotify's `previous track` restarts the current song first, matching
-        // its own UI; Music behaves the same way. Seeking to 0 first is what
-        // users expect from a "skip back" button.
-        command(app == .spotify ? "set player position to 0\n    previous track" : "back track", on: app)
+    /// What the transport can ask a player to do, rendered per player.
+    enum Transport {
+        case play, pause, next, previous
+        case seek(seconds: Int)
+        case shuffle(Bool)
+        case repeatMode(RepeatMode)
+
+        func body(for app: PlayerApp) -> String {
+            switch (self, app) {
+            case (.play, _): return "play"
+            case (.pause, _): return "pause"
+            case (.next, _): return "next track"
+            // Spotify's `previous track` restarts the current song first,
+            // matching its own UI; Music behaves the same way. Seeking to 0
+            // first is what users expect from a "skip back" button.
+            case (.previous, .spotify): return "set player position to 0\n    previous track"
+            case (.previous, .music): return "back track"
+            case let (.seek(seconds), _): return "set player position to \(seconds)"
+            case let (.shuffle(enabled), .music): return "set shuffle enabled to \(enabled)"
+            case let (.shuffle(enabled), .spotify): return "set shuffling to \(enabled)"
+            case let (.repeatMode(mode), .music): return "set song repeat to \(mode.rawValue)"
+            // Scripting has only the boolean; `.one` maps to on, matching how
+            // Spotify itself degrades the state over this interface.
+            case let (.repeatMode(mode), .spotify): return "set repeating to \(mode != .off)"
+            }
+        }
+
+        /// One of every kind, so the compile test covers each body.
+        static let everyKind: [Transport] = [
+            .play, .pause, .next, .previous, .seek(seconds: 0),
+            .shuffle(true), .repeatMode(.one), .repeatMode(.off),
+        ]
     }
 
-    static func seek(_ app: PlayerApp, to seconds: TimeInterval) {
-        command("set player position to \(Int(seconds))", on: app)
-    }
-
-    private static func command(_ body: String, on app: PlayerApp) {
+    /// Play and pause travel as explicit states, never as a toggle: a toggle
+    /// sent against a state the island misread lands backwards.
+    static func send(_ action: Transport, to app: PlayerApp) {
         guard app.isRunning else { return }
-        runScript("""
-        tell application id "\(app.bundleID)"
-            \(body)
-        end tell
-        """, priority: .transport) { _ in }
+        runScript(Script.command(action.body(for: app), on: app), priority: .transport) { _ in }
     }
 
     /// System-wide media key, used when no scriptable player is running.
@@ -256,12 +244,7 @@ enum PlayerBridge {
                 DispatchQueue.main.async { completion(image) }
             }.resume()
         case .music:
-            runScript("""
-            tell application id "com.apple.Music"
-                if (count of artworks of current track) is 0 then return missing value
-                return raw data of artwork 1 of current track
-            end tell
-            """) { descriptor in
+            runScript(Script.musicArtwork) { descriptor in
                 guard let data = descriptor?.data, !data.isEmpty else { return completion(nil) }
                 completion(NSImage(data: data))
             }
@@ -270,52 +253,150 @@ enum PlayerBridge {
 
     // MARK: - Scripts
 
-    private static func stateScript(for app: PlayerApp) -> String {
-        let sep = "set sep to character id 1"
-        switch app {
-        case .spotify:
-            return """
-            \(sep)
-            tell application id "com.spotify.client"
-                try
-                    set st to player state as text
-                    set t to current track
+    /// Every AppleScript the bridge sends, as source, in one place.
+    ///
+    /// They live together so `PlayerScriptTests` can compile each one against
+    /// the players installed on the machine. A script that fails to compile
+    /// answers exactly like a player with nothing to say, so the failure is
+    /// silent: no crash, only a log line nobody reads.
+    enum Script {
+        /// Joins the fields of a state answer. Character 1 cannot occur in a
+        /// title, where a printable separator such as "|" can.
+        private static let separator = "set fieldSeparator to character id 1"
+
+        /// The variable names are long on purpose. The script once named its
+        /// state `st`, and macOS 27's AppleScript reserves the ordinal
+        /// suffixes — `st`, `nd`, `rd`, `th` — as words, so every call failed
+        /// to compile. A short name is what the next reserved word looks like.
+        static func state(for app: PlayerApp) -> String {
+            switch app {
+            case .spotify:
+                return """
+                \(separator)
+                tell application id "com.spotify.client"
                     try
-                        set pos to (round ((player position) * 1000))
-                    on error
-                        set pos to 0
+                        set playerStateText to player state as text
+                        set currentTrackRef to current track
+                        try
+                            set positionMs to (round ((player position) * 1000))
+                        on error
+                            set positionMs to 0
+                        end try
+                        return playerStateText & fieldSeparator & (name of currentTrackRef) & fieldSeparator & (artist of currentTrackRef) & fieldSeparator & (album of currentTrackRef) & fieldSeparator & (duration of currentTrackRef) & fieldSeparator & positionMs & fieldSeparator & (artwork url of currentTrackRef)
+                    on error number errorNumber
+                        return "error" & fieldSeparator & errorNumber
                     end try
-                    return st & sep & (name of t) & sep & (artist of t) & sep & (album of t) & sep & (duration of t) & sep & pos & sep & (artwork url of t)
-                on error
-                    return ""
-                end try
-            end tell
+                end tell
+                """
+            case .music:
+                return """
+                \(separator)
+                tell application id "com.apple.Music"
+                    try
+                        set playerStateText to player state as text
+                        set currentTrackRef to current track
+                        try
+                            set positionMs to (round ((player position) * 1000))
+                        on error
+                            set positionMs to 0
+                        end try
+                        return playerStateText & fieldSeparator & (name of currentTrackRef) & fieldSeparator & (artist of currentTrackRef) & fieldSeparator & (album of currentTrackRef) & fieldSeparator & (round ((duration of currentTrackRef) * 1000)) & fieldSeparator & positionMs & fieldSeparator & ""
+                    on error number errorNumber
+                        return "error" & fieldSeparator & errorNumber
+                    end try
+                end tell
+                """
+            }
+        }
+
+        static let spotifyTrackID = """
+        tell application id "\(PlayerApp.spotify.bundleID)"
+            if it is running then
+                return (id of current track as text)
+            end if
+        end tell
+        """
+
+        static func position(of app: PlayerApp) -> String {
             """
-        case .music:
-            return """
-            \(sep)
-            tell application id "com.apple.Music"
-                try
-                    set st to player state as text
-                    set t to current track
-                    try
-                        set pos to (round ((player position) * 1000))
-                    on error
-                        set pos to 0
-                    end try
-                    return st & sep & (name of t) & sep & (artist of t) & sep & (album of t) & sep & (round ((duration of t) * 1000)) & sep & pos & sep & ""
-                on error
-                    return ""
-                end try
+            tell application id "\(app.bundleID)"
+                if it is running then
+                    return (player position as text)
+                end if
             end tell
             """
         }
+
+        static func playbackModes(of app: PlayerApp) -> String {
+            switch app {
+            case .music:
+                return """
+                tell application id "\(app.bundleID)"
+                    set s to shuffle enabled
+                    set r to song repeat
+                    return (s as text) & "|" & (r as text)
+                end tell
+                """
+            case .spotify:
+                return """
+                tell application id "\(app.bundleID)"
+                    set s to shuffling
+                    set r to repeating
+                    return (s as text) & "|" & (r as text)
+                end tell
+                """
+            }
+        }
+
+        static let musicArtwork = """
+        tell application id "com.apple.Music"
+            if (count of artworks of current track) is 0 then return missing value
+            return raw data of artwork 1 of current track
+        end tell
+        """
+
+        static func command(_ body: String, on app: PlayerApp) -> String {
+            """
+            tell application id "\(app.bundleID)"
+                \(body)
+            end tell
+            """
+        }
+
+        /// Every source the bridge can send to `app`, named, built by the same
+        /// functions the bridge calls, for the compile test.
+        static func everySource(for app: PlayerApp) -> [(name: String, source: String)] {
+            var sources: [(name: String, source: String)] = [
+                ("state", state(for: app)),
+                ("position", position(of: app)),
+                ("playback modes", playbackModes(of: app)),
+            ]
+            switch app {
+            case .spotify: sources.append(("track id", spotifyTrackID))
+            case .music: sources.append(("artwork", musicArtwork))
+            }
+            for action in Transport.everyKind {
+                sources.append(("\(action)", command(action.body(for: app), on: app)))
+            }
+            return sources
+        }
     }
 
-    private static func parse(_ raw: String, app: PlayerApp) -> PlayerState? {
+    /// errAENoSuchObject: `current track` asked of a player with none loaded.
+    private static let noSuchObject = -1728
+
+    /// Reads a state script's answer. The script reports its own failure as
+    /// "error" and the AppleScript error number, so the one error that means
+    /// "nothing loaded" can be told from the ones that mean "not asked" —
+    /// -1743 is a withheld Automation consent, -1712 a player that timed out.
+    static func interpret(_ raw: String, app: PlayerApp) -> StateReply {
         let parts = raw.components(separatedBy: "\u{1}")
-        guard parts.count >= 6, !parts[1].isEmpty else { return nil }
-        return PlayerState(
+        if parts.first == "error" {
+            return parts.count > 1 && Int(parts[1]) == noSuchObject ? .empty : .unknown
+        }
+        guard parts.count >= 6 else { return .unknown }
+        guard !parts[1].isEmpty else { return .empty }
+        return .loaded(PlayerState(
             app: app,
             isPlaying: parts[0].lowercased() == "playing",
             title: parts[1],
@@ -324,7 +405,7 @@ enum PlayerBridge {
             duration: (Double(parts[4]) ?? 0) / 1000,
             position: (Double(parts[5]) ?? 0) / 1000,
             artworkURL: parts.count > 6 ? URL(string: parts[6]) : nil
-        )
+        ))
     }
 
     /// Compiled scripts, keyed by source.

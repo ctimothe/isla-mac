@@ -1,5 +1,27 @@
+import AppKit
 import XCTest
 @testable import IslaKit
+
+extension MediaController {
+    /// Cuts every line from the controller to a real player.
+    ///
+    /// Holding a song under a film asks the song's player what it is doing, and
+    /// finding one asks every running player. Left at their defaults, those
+    /// questions went to whatever Spotify was running on the machine running
+    /// the tests — and on CI, where Spotify is not installed, the bridge
+    /// answered "nothing loaded" at once, let the held song go, and failed
+    /// `testAFilmOverAPausedSongKeepsTheSong` on the runner only. Each seam
+    /// answers "not asked" here unless a test says otherwise, and the Spotify
+    /// track-id lookup is switched off, since the fixtures name Spotify.
+    func isolateFromPlayers() {
+        heldPlayerState = { (_: PlayerApp, reply: @escaping (PlayerBridge.StateReply) -> Void) in reply(.unknown) }
+        loadedSong = { (reply: @escaping (PlayerState?) -> Void) in reply(nil) }
+        heldArtwork = { (_: PlayerState, reply: @escaping (NSImage?) -> Void) in reply(nil) }
+        sendToPlayer = { _, _ in }
+        pidForPlayer = { _ in nil }
+        spotifyDisplayForTests = false
+    }
+}
 
 /// What reaches the island when Music Only is on.
 ///
@@ -85,6 +107,7 @@ final class MediaSourcePolicyTests: XCTestCase {
     /// empty snapshot, which clears the track and folds the island to the notch.
     func testAFilteredSourceReachesApplyAsNothingPlaying() {
         let controller = MediaController()
+        controller.isolateFromPlayers()
         controller.musicOnly = { true }
         controller.bundleIdentifierForPID = { $0 == 1 ? "com.google.Chrome" : "com.spotify.client" }
 
@@ -101,6 +124,7 @@ final class MediaSourcePolicyTests: XCTestCase {
     /// Off means everything, as before.
     func testWithMusicOnlyOffEverythingIsShown() {
         let controller = MediaController()
+        controller.isolateFromPlayers()
         controller.musicOnly = { false }
         controller.bundleIdentifierForPID = { _ in "com.google.Chrome" }
         XCTAssertEqual(controller.admission(for: snapshot(pid: 1)), .accept)
@@ -141,6 +165,7 @@ final class HeldSongTests: XCTestCase {
 
     private func controller(running: Set<pid_t>) -> MediaController {
         let controller = MediaController()
+        controller.isolateFromPlayers()
         controller.musicOnly = { true }
         controller.bundleIdentifierForPID = { $0 == 1 ? "com.spotify.client" : "com.google.Chrome" }
         controller.isProcessRunning = { running.contains($0) }
@@ -185,5 +210,240 @@ final class HeldSongTests: XCTestCase {
         controller.receive(snapshot(pid: 1, title: "Song", playing: true))
         XCTAssertEqual(controller.track?.title, "Song")
         XCTAssertTrue(controller.isPlaying)
+    }
+}
+
+/// A held song learns its player's real state, because MediaRemote no longer
+/// reports it.
+///
+/// Filmed by the owner on 2026-09-21: Spotify paused under a film in Firefox,
+/// panel open, and the paused song's clock ran forward to 1:23 and snapped back
+/// to 1:21 every two seconds, the lyric line and the play button flipping with
+/// it. While the film owned Now Playing the helper described only the film, so
+/// the pause was never seen: the song stayed "playing", the ticker ran it
+/// forward, and the precision poll — which asks Spotify directly — kept
+/// dragging it back to the real, paused position.
+@MainActor
+final class HeldSongTruthTests: XCTestCase {
+    private func snapshot(pid: pid_t, title: String, playing: Bool, elapsed: TimeInterval = 40) -> NowPlayingFeed.Snapshot {
+        var s = NowPlayingFeed.Snapshot()
+        s.title = title
+        s.artist = "Artist"
+        s.album = "Album"
+        s.duration = 248
+        s.elapsed = elapsed
+        s.isPlaying = playing
+        s.rate = playing ? 1 : 0
+        s.takenAt = Date()
+        s.playerPID = pid
+        return s
+    }
+
+    private func controller(held: PlayerBridge.StateReply) -> (MediaController, () -> Int) {
+        let controller = MediaController()
+        controller.isolateFromPlayers()
+        controller.musicOnly = { true }
+        controller.bundleIdentifierForPID = { $0 == 1 ? "com.spotify.client" : "org.mozilla.firefox" }
+        controller.isProcessRunning = { _ in true }
+        var asked = 0
+        controller.heldPlayerState = { (_: PlayerApp, reply: @escaping (PlayerBridge.StateReply) -> Void) in
+            asked += 1
+            reply(held)
+        }
+        return (controller, { asked })
+    }
+
+    /// The owner's case: the song was playing when the film took over, then
+    /// was paused where MediaRemote could not see it. Asking Spotify settles it.
+    func testTakingOverAsksTheHeldPlayerForItsRealState() {
+        let paused = PlayerState(
+            app: .spotify, isPlaying: false, title: "Child Psychology", artist: "Artist",
+            album: "Album", duration: 248, position: 80.8
+        )
+        let (controller, asked) = controller(held: .loaded(paused))
+        controller.receive(snapshot(pid: 1, title: "Child Psychology", playing: true))
+        XCTAssertTrue(controller.isPlaying, "the fixture: it was playing")
+
+        controller.receive(snapshot(pid: 2, title: "Watch The Count of Monte Cristo", playing: true))
+
+        XCTAssertEqual(asked(), 1, "the takeover asks the held player once")
+        XCTAssertFalse(controller.isPlaying, "and learns it is paused, so the clock stops")
+        XCTAssertEqual(controller.position, 80.8, accuracy: 0.05, "at the position the player reports")
+        XCTAssertEqual(controller.track?.title, "Child Psychology")
+    }
+
+    /// Once asked, the film's heartbeat every two seconds does not ask again;
+    /// only the player's own change announcement does.
+    func testTheFilmsHeartbeatDoesNotKeepAsking() {
+        let paused = PlayerState(
+            app: .spotify, isPlaying: false, title: "Song", artist: "Artist",
+            album: "Album", duration: 248, position: 10
+        )
+        let (controller, asked) = controller(held: .loaded(paused))
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        for _ in 0..<5 {
+            controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        }
+        XCTAssertEqual(asked(), 1)
+
+        controller.heldPlayerChanged(.spotify)
+        XCTAssertEqual(asked(), 2, "the held player announcing a change is worth asking about")
+
+        controller.heldPlayerChanged(.music)
+        XCTAssertEqual(asked(), 2, "another player's announcement is not about the held song")
+    }
+
+    /// The held player answering that it has nothing loaded — its queue
+    /// emptied, or it stopped — means there is no song to hold.
+    func testAHeldPlayerWithNothingLoadedIsLetGo() {
+        let (controller, _) = controller(held: .empty)
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        XCTAssertNil(controller.track)
+    }
+
+    /// A player that cannot be asked — Automation consent withheld — has said
+    /// nothing about the song. Letting it go on that would put "Nothing is
+    /// playing" over a song sitting paused, the very report this work fixes.
+    func testAHeldPlayerThatCannotBeAskedKeepsTheSong() {
+        let (controller, asked) = controller(held: .unknown)
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false, elapsed: 61))
+        controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        XCTAssertEqual(asked(), 1)
+        XCTAssertEqual(controller.track?.title, "Song")
+        XCTAssertTrue(controller.isHolding)
+        XCTAssertEqual(controller.position, 61, accuracy: 0.05, "as it was last known")
+    }
+
+    /// The helper reaches the song's player only if it has seen that player
+    /// own Now Playing; otherwise a tap lands on the film. A held song in a
+    /// scriptable player takes its commands directly.
+    func testAHeldSongsTransportGoesToItsOwnPlayer() {
+        let paused = PlayerState(
+            app: .spotify, isPlaying: false, title: "Song", artist: "Artist",
+            album: "Album", duration: 248, position: 10
+        )
+        let (controller, _) = controller(held: .loaded(paused))
+        var sent: [String] = []
+        controller.sendToPlayer = { action, app in sent.append("\(app.rawValue) \(action)") }
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        XCTAssertTrue(controller.isHolding)
+
+        controller.togglePlayPause()
+        controller.next()
+        controller.previous()
+        controller.seek(to: 30)
+
+        XCTAssertEqual(sent, [
+            "spotify play", "spotify next", "spotify previous", "spotify seek(seconds: 30)",
+        ])
+    }
+
+    /// With no film in the way, the helper carries the command as before.
+    func testASongThatOwnsNowPlayingIsNotScripted() {
+        let (controller, _) = controller(held: .unknown)
+        var sent: [String] = []
+        controller.sendToPlayer = { action, app in sent.append("\(app.rawValue) \(action)") }
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        controller.togglePlayPause()
+        controller.next()
+        XCTAssertFalse(controller.isHolding)
+        XCTAssertEqual(sent, [])
+    }
+
+    /// Accepting a music source again ends the hold, so the next takeover asks
+    /// afresh rather than trusting an answer from before.
+    func testEndingTheHoldMeansTheNextTakeoverAsksAgain() {
+        let paused = PlayerState(
+            app: .spotify, isPlaying: false, title: "Song", artist: "Artist",
+            album: "Album", duration: 248, position: 10
+        )
+        let (controller, asked) = controller(held: .loaded(paused))
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        XCTAssertEqual(asked(), 2)
+    }
+}
+
+/// Isla never having seen the song is not the same as there being none.
+@MainActor
+final class LoadedSongSearchTests: XCTestCase {
+    private func film() -> NowPlayingFeed.Snapshot {
+        var s = NowPlayingFeed.Snapshot()
+        s.title = "Watch The Count of Monte Cristo"
+        s.duration = 9000
+        s.elapsed = 1626
+        s.isPlaying = true
+        s.rate = 1
+        s.takenAt = Date()
+        s.playerPID = 2
+        return s
+    }
+
+    private func controller(found: PlayerState?) -> (MediaController, () -> Int) {
+        let controller = MediaController()
+        controller.isolateFromPlayers()
+        controller.musicOnly = { true }
+        controller.bundleIdentifierForPID = { $0 == 1 ? "com.spotify.client" : "org.mozilla.firefox" }
+        controller.isProcessRunning = { _ in true }
+        controller.pidForPlayer = { $0 == .spotify ? 1 : nil }
+        controller.heldArtwork = { (_: PlayerState, reply: @escaping (NSImage?) -> Void) in reply(nil) }
+        var searches = 0
+        controller.loadedSong = { (reply: @escaping (PlayerState?) -> Void) in
+            searches += 1
+            reply(found)
+        }
+        controller.heldPlayerState = { (_: PlayerApp, reply: @escaping (PlayerBridge.StateReply) -> Void) in
+            reply(found.map { .loaded($0) } ?? .empty)
+        }
+        return (controller, { searches })
+    }
+
+    /// The owner's first report, after a relaunch: a song paused in Spotify, a
+    /// film in a tab, and the island said "Nothing is playing".
+    func testAFilmWithASongPausedInSpotifyShowsTheSong() {
+        let paused = PlayerState(
+            app: .spotify, isPlaying: false, title: "Child Psychology", artist: "Black Box Recorder",
+            album: "England Made Me", duration: 248, position: 80.8
+        )
+        let (controller, _) = controller(found: paused)
+        controller.receive(film())
+
+        XCTAssertEqual(controller.track?.title, "Child Psychology")
+        XCTAssertFalse(controller.isPlaying)
+        XCTAssertEqual(controller.position, 80.8, accuracy: 0.05)
+        XCTAssertTrue(controller.isHolding, "and it is now held, with its player as the source of truth")
+    }
+
+    /// The case that made direct commands necessary: the helper has never seen
+    /// Spotify own Now Playing in this run, so it has no way to reach it, and
+    /// play would have gone to the film.
+    func testPlayOnAFoundSongGoesToItsPlayer() {
+        let paused = PlayerState(
+            app: .spotify, isPlaying: false, title: "Child Psychology", artist: "Black Box Recorder",
+            album: "England Made Me", duration: 248, position: 80.8
+        )
+        let (controller, _) = controller(found: paused)
+        var sent: [String] = []
+        controller.sendToPlayer = { action, app in sent.append("\(app.rawValue) \(action)") }
+        controller.receive(film())
+        controller.togglePlayPause()
+        XCTAssertEqual(sent, ["spotify play"])
+    }
+
+    /// Once per film: its heartbeat does not send the players a question every
+    /// two seconds when none of them has anything loaded.
+    func testTheSearchRunsOncePerFilm() {
+        let (controller, searches) = controller(found: nil)
+        for _ in 0..<5 { controller.receive(film()) }
+        XCTAssertNil(controller.track)
+        XCTAssertEqual(searches(), 1)
+
+        // A player changing under the film is worth one more look.
+        controller.heldPlayerChanged(.spotify)
+        XCTAssertEqual(searches(), 2)
     }
 }
