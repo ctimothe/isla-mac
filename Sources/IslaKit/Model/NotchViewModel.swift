@@ -320,6 +320,15 @@ final class NotchViewModel: ObservableObject {
         .sink { [weak self] _ in self?.objectWillChange.send() }
         .store(in: &cancellables)
 
+        // A pause that settles folds the island into the notch; playing again,
+        // or a different track, brings it back.
+        media.$isPlaying.removeDuplicates()
+            .combineLatest(media.$track.map { $0?.key }.removeDuplicates())
+            .sink { [weak self] isPlaying, key in
+                self?.playbackChanged(isPlaying: isPlaying, hasTrack: key != nil)
+            }
+            .store(in: &cancellables)
+
         // The remaining stores have nothing to paint while collapsed.
         for child in [
             shelf.objectWillChange,
@@ -440,7 +449,30 @@ final class NotchViewModel: ObservableObject {
 
 
     var compactMediaActivity: CompactMediaActivity {
-        CompactMediaActivity(hasTrack: media.track != nil, isPlaying: media.isPlaying)
+        CompactMediaActivity(
+            hasTrack: media.track != nil,
+            isPlaying: media.isPlaying,
+            pauseHasSettled: pauseHasSettled
+        )
+    }
+
+    /// True once playback has been paused for `NotchMetrics.pausedLinger`.
+    /// Reset the moment it plays again or the track changes, so resuming brings
+    /// the pill straight back.
+    @Published private(set) var pauseHasSettled = false
+    private var pauseSettleTask: Task<Void, Never>?
+
+    /// Starts or cancels the countdown to folding a paused track into the notch.
+    func playbackChanged(isPlaying: Bool, hasTrack: Bool) {
+        pauseSettleTask?.cancel()
+        pauseSettleTask = nil
+        if pauseHasSettled { pauseHasSettled = false }
+        guard hasTrack, !isPlaying else { return }
+        pauseSettleTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(NotchMetrics.pausedLinger))
+            guard !Task.isCancelled, let self else { return }
+            self.pauseHasSettled = true
+        }
     }
 
     /// Size of the visible body for the current state.

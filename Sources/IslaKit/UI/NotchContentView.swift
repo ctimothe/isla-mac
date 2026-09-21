@@ -38,6 +38,64 @@ struct NotchContentView: View {
     private var compactActivity: CompactMediaActivity { vm.compactMediaActivity }
     private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : Theme.collapsedTopRadius }
 
+    // MARK: - Resting in the notch
+
+    /// Nothing playing, the panel shut, on a Mac with a real notch.
+    ///
+    /// The island used to stay drawn whenever it was idle: the notch's own
+    /// width, plus a 6pt concave shoulder each side and its own bottom curve.
+    /// Those shoulders and corners fall *outside* the hardware cutout, so an
+    /// idle Mac carried two small black ears on the menu bar beside the notch —
+    /// an island with nothing to say, still saying it. At rest it now sits just
+    /// inside the cutout, where no pixel exists to draw, and is indistinguishable
+    /// from the notch itself. On an external display there is no cutout to hide
+    /// in, so the synthetic notch stays drawn as before.
+    private var restsInNotch: Bool {
+        !isOpen && !compactActivity.isVisible && vm.geometry.isPhysical
+    }
+
+    /// The pointer is on the island, or a press is under way.
+    private var isAwake: Bool { vm.isHovering || isPressed }
+
+    /// Hidden at rest, awake under the pointer, and everything else as before.
+    private var shapeTopRadius: CGFloat {
+        restsInNotch && !isAwake ? 0 : topRadius
+    }
+
+    private var shapeBottomRadius: CGFloat {
+        if isOpen { return Theme.openBottomRadius }
+        if restsInNotch && !isAwake { return Theme.restingNotchBottomRadius }
+        return Theme.collapsedBottomRadius
+    }
+
+    private var shapeSize: CGSize {
+        guard restsInNotch else {
+            return CGSize(width: size.width + 2 * topRadius, height: size.height)
+        }
+        return isAwake
+            ? Self.awakeShape(notch: size, shoulder: topRadius)
+            : Self.restingShape(notch: size)
+    }
+
+    /// The resting island: a point inside the cutout on every visible edge,
+    /// so nothing of it lands on a pixel. Pure, so the "invisible at rest"
+    /// promise is a test rather than a hope — `RestingNotchTests`.
+    static func restingShape(notch: CGSize) -> CGSize {
+        CGSize(
+            width: notch.width - 2 * NotchMetrics.restingInset,
+            height: notch.height - NotchMetrics.restingInset
+        )
+    }
+
+    /// Awake under the pointer: out past the notch on both sides and a little
+    /// below, with the shoulders back, so the notch visibly becomes the island.
+    static func awakeShape(notch: CGSize, shoulder: CGFloat) -> CGSize {
+        CGSize(
+            width: notch.width + 2 * (shoulder + NotchMetrics.hoverNudgeWidth),
+            height: notch.height + NotchMetrics.hoverNudgeDepth
+        )
+    }
+
     var body: some View {
         if vm.isLockedPresentation {
             // Two layers with the shield up: the pill where it always lives —
@@ -119,14 +177,13 @@ struct NotchContentView: View {
         // The shape is wider than the body by `topRadius` on each side: that
         // slack is where the concave shoulders live, so it must not be clipped.
         ZStack(alignment: .top) {
-            NotchShape(
-                topRadius: topRadius,
-                bottomRadius: isOpen ? Theme.openBottomRadius : Theme.collapsedBottomRadius
-            )
+            NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
             .fill(Color.black)
-            .frame(width: size.width + 2 * topRadius, height: size.height)
+            .frame(width: shapeSize.width, height: shapeSize.height)
             .shadow(
-                color: .black.opacity(isOpen ? 0.5 : (compactActivity.isVisible ? 0.28 : 0)),
+                color: .black.opacity(
+                    isOpen ? 0.5 : (compactActivity.isVisible || (restsInNotch && isAwake) ? 0.28 : 0)
+                ),
                 radius: isOpen ? 18 : 5,
                 y: isOpen ? 8 : 2
             )
@@ -154,7 +211,10 @@ struct NotchContentView: View {
             // it showed was the one place it must never show: the wing surface
             // is opaque and leaves the cutout clear, so the lift appeared as a
             // lighter square inside the physical notch and nowhere else.
-            if !isOpen { hoverLift }
+            // Not while resting in the notch: there the island growing out of
+            // the cutout *is* the answer to the pointer, and a lift painted in
+            // the old pill's outline would sit on the wrong shape.
+            if !isOpen, !restsInNotch { hoverLift }
 
             VStack(spacing: 0) {
                 header
@@ -252,10 +312,13 @@ struct NotchContentView: View {
                 }
         )
         .animation(Theme.open(reduceMotion: reduceMotion), value: isOpen)
-        // The lift is a brightening, not a travel: it answers the pointer on
-        // the content ease, not the open spring. On the spring it took 0.34 s
-        // to arrive, which read as the island noticing the pointer late.
-        .animation(Theme.contentAnimation, value: vm.isHovering)
+        // The pointer arriving. Over a playing island that is a brightening on
+        // a quick ease; over one resting hidden in the notch it is the island
+        // growing out of the cutout with a single small bump — see
+        // `Theme.hoverNudge`. One curve for both: the brightening has no
+        // geometry to overshoot, so the bump only ever shows where it means
+        // something.
+        .animation(Theme.hoverNudge(reduceMotion: reduceMotion), value: vm.isHovering)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: compactActivity)
         .animation(Theme.compact(reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.paneAnimation, value: vm.tab)
