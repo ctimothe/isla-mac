@@ -640,16 +640,45 @@ final class NotchViewModel: ObservableObject {
     /// wallpapers glass cannot win against — a bright, busy photograph behind
     /// small white text — and for anybody who simply wants the panel to be a
     /// panel.
+    /// How much glass the lock card is, in the three steps macOS itself offers
+    /// for its own glass — the most see-through, a tinted pane, and the opaque
+    /// panel Reduce Transparency draws — so the card answers to the same idea
+    /// the rest of the system does. Stored values are kept from when there
+    /// were two: "glass" is Tinted, the card's look since the cover lit it.
     enum LockCardStyle: String, CaseIterable, Identifiable {
-        case glass, solid
+        case clear
+        case glass
+        case solid
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .glass: return localized("Glass")
+            case .clear: return localized("Transparent")
+            case .glass: return localized("Tinted")
             case .solid: return localized("Solid")
             }
         }
+    }
+
+    /// How much room the lock card takes: the full player, or a shorter one
+    /// with three lines of words rather than five.
+    enum LockCardSize: String, CaseIterable, Identifiable {
+        case standard
+        case compact
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .standard: return localized("Standard")
+            case .compact: return localized("Compact")
+            }
+        }
+    }
+
+    static let lockCardSizeKey = "lockCardSize"
+
+    static var lockCardSize: LockCardSize {
+        LockCardSize(rawValue: UserDefaults.standard.string(forKey: lockCardSizeKey) ?? "") ?? .standard
     }
 
     static let lockCardStyleKey = "lockCardStyle"
