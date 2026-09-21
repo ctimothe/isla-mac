@@ -42,6 +42,32 @@ final class LockedClockTests: XCTestCase {
         )
     }
 
+    /// A lock that lands after the display went dark — any "require password
+    /// after" delay above zero orders them that way — used to start the clock
+    /// the sleep handler had just stopped, and keep it ticking, with an Apple
+    /// event into the player every second, until the display woke. The card
+    /// cannot be seen before then, and the wake handler starts the clock itself.
+    func testALockAfterTheDisplaySleptLeavesTheClockStopped() async {
+        XCTAssertTrue(NotchController.lockKeepsMediaRunning(screensAsleep: false))
+        XCTAssertFalse(NotchController.lockKeepsMediaRunning(screensAsleep: true))
+
+        let stores = playingStores()
+        let media = stores.media
+        // The display sleeps, then the lock arrives.
+        stores.suspendForIdleScreen()
+        stores.suspendForIdleScreen(
+            keepingMediaRunning: NotchController.lockKeepsMediaRunning(screensAsleep: true)
+        )
+
+        try? await Task.sleep(for: .milliseconds(200))
+        let settled = media.position
+        try? await Task.sleep(for: .milliseconds(700))
+        XCTAssertEqual(
+            media.position, settled, accuracy: 0.001,
+            "a lock on a dark display must not start the ticker for a card nobody can see"
+        )
+    }
+
     /// With the card switched off there is nothing on screen driven by the
     /// clock, and a shielded Mac has no use for a four-times-a-second timer.
     func testTheClockStopsWhenNothingIsShowing() async {
