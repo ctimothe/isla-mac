@@ -13,11 +13,23 @@
 # Every step runs even after an earlier one fails, so one pass shows everything
 # that is broken. Full output per step lands in .check-logs/<step>.log.
 
+# The full release-candidate order, the same list CI runs — because CI runs
+# this file. It used to run four of these eleven while the workflow carried its
+# own copy of all eleven, so a change could pass here and fail there on a step
+# that had never been run locally. For a quick pass while iterating, name the
+# steps: `./scripts/check test`.
 STEPS=(
   "test|swift test"
   "provenance|bash Scripts/test-provenance.sh"
   "branding|bash Scripts/test-branding.sh"
   "localizations|bash Scripts/test-localizations.sh"
+  "bundle|bash Scripts/bundle.sh release"
+  "identity|bash Scripts/test-identity.sh"
+  "helper|bash Scripts/test-helper.sh"
+  "package|bash Scripts/test-package.sh"
+  "gatekeeper|bash Scripts/test-gatekeeper.sh"
+  "lifecycle|bash Scripts/test-lifecycle.sh"
+  "dmg|SKIP_BUNDLE=1 bash Scripts/dmg.sh"
 )
 
 # ---------------------------------------------------------------------------
