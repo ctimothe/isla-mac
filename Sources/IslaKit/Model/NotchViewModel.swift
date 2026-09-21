@@ -15,14 +15,15 @@ final class NotchViewModel: ObservableObject {
         /// one the upstream project ships — `music.note`, `tray.full.fill`,
         /// `list.clipboard.fill`, `translate`, `gearshape.fill` — so the rail
         /// read as somebody else's island. Each of these is the system's own
-        /// word for its tab: the Now Playing play mark, a stack of held
-        /// things, the pasteboard glyph macOS puts on Paste, a speech bubble
-        /// with a letter in it (localized by the system to the reader's
-        /// script), and the controls sliders. `TabContractTests` keeps the old
-        /// set out.
+        /// word for its tab: a run of notes, a stack of held things, the
+        /// pasteboard glyph macOS puts on Paste, a speech bubble with a letter
+        /// in it (localized by the system to the reader's script), and the
+        /// controls sliders. Music first wore `play.circle`, which read as a
+        /// button rather than a place and was changed the same day at the
+        /// owner's word. `TabContractTests` keeps the old set out.
         var symbol: String {
             switch self {
-            case .media: return "play.circle"
+            case .media: return "music.quarternote.3"
             case .shelf: return "rectangle.stack"
             case .clipboard: return "doc.on.clipboard"
             case .translate: return "character.bubble"

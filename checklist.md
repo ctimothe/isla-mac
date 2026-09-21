@@ -481,10 +481,13 @@ Open, for the owner — each is a design decision, not a defect:
 - [ ] `SettingsPane.choiceRow` is a hand-rolled segmented control; a native
   `Picker(.segmented)` would restore arrow keys and radio-group VoiceOver but
   look like AppKit on a dark pane.
-- [ ] Hovering the rail for 150 ms switches tabs. macOS does not navigate on
+- [x] Hovering the rail for 150 ms switches tabs. macOS does not navigate on
   hover outside menus; kept because it is documented and cheap to cancel.
-- [ ] The rail icon scales 1.15× on hover on top of the chip fill. macOS fills
-  a well and does not grow the glyph.
+  **Decided by the owner, 2026-09-21: a click only.** A fast pass across the
+  rail flipped panes and replayed each glyph's fill behind the cursor.
+- [x] The rail icon scales 1.15× on hover on top of the chip fill. macOS fills
+  a well and does not grow the glyph. **Gone with the hover switch,
+  2026-09-21:** a hover draws the well and nothing else.
 - [ ] No focus rings and no keyboard shortcuts inside the panel (⌘, ⌘W,
   Return-to-confirm). Escape is handled at the window. An `.accessory` app
   has no menu bar to carry these, so it is a per-panel binding while key.
@@ -539,9 +542,13 @@ notch in a single frame, "too intense, too raw".
   upstream project's (`music.note`, `tray.full.fill`, `list.clipboard.fill`,
   `translate`, `gearshape.fill`). Now `play.circle`, `rectangle.stack`,
   `doc.on.clipboard`, `character.bubble` and `slider.horizontal.3`, filled when
-  chosen with the system's replace effect, as a tab bar does; the Settings
-  privacy rows and the two empty states follow. `TabContractTests` keeps the old
-  set out.
+  chosen, as a tab bar does; the Settings privacy rows and the two empty states
+  follow. `TabContractTests` keeps the old set out. Music moved to
+  `music.quarternote.3` the same day — `play.circle` read as a button — and the
+  replace effect on the fill went too: a third of a second behind every click.
+- [x] **The rail changes tabs on a click only**, and its well and selection
+  land on the frame they happen. The 150 ms hover dwell is withdrawn (design
+  amendment 2026-09-21) and `NotchMetrics.tabDwell` with it.
 - [x] **Translate chooses its languages.** Sixteen, in the column headings as
   menus: the source detects (Uzbek by its own letters and words, since Apple's
   recognizer does not know it — `LanguageDetectionTests`) or is told; a swap
