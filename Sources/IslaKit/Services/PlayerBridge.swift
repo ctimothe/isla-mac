@@ -165,7 +165,7 @@ enum PlayerBridge {
     /// What the transport can ask a player to do, rendered per player.
     enum Transport {
         case play, pause, next, previous
-        case seek(seconds: Int)
+        case seek(seconds: Double)
         case shuffle(Bool)
         case repeatMode(RepeatMode)
 
@@ -179,7 +179,10 @@ enum PlayerBridge {
             // first is what users expect from a "skip back" button.
             case (.previous, .spotify): return "set player position to 0\n    previous track"
             case (.previous, .music): return "back track"
-            case let (.seek(seconds), _): return "set player position to \(seconds)"
+            // Fractional, as the players accept: a whole second sent a lyric
+            // click up to a second early, onto the line before (see
+            // `NowPlayingFeed.seekWireLine`).
+            case let (.seek(seconds), _): return "set player position to " + String(format: "%.3f", max(0, seconds))
             case let (.shuffle(enabled), .music): return "set shuffle enabled to \(enabled)"
             case let (.shuffle(enabled), .spotify): return "set shuffling to \(enabled)"
             case let (.repeatMode(mode), .music): return "set song repeat to \(mode.rawValue)"
