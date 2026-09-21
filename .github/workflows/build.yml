@@ -43,11 +43,20 @@ jobs:
       # single run reports everything that is broken.
       - name: ./scripts/check
         run: ./scripts/check
-      # Each step's full output, for when the summary is not enough.
+      # The summary keeps a failing step's last twenty lines, and an XCTest
+      # failure is printed where it happens, far above them: a red run said
+      # "1 failure" and named nothing. These are the lines that name it.
+      - name: Failing test lines
+        if: failure()
+        run: grep -hE "error:|' failed \(" .check-logs/*.log | head -80 || true
+      # Each step's full output, for when the summary is not enough. The folder
+      # is hidden, and upload-artifact skips hidden files unless told not to:
+      # until 2026-09-21 this uploaded nothing, on every run, with a warning.
       - name: Keep step logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: check-logs
           path: .check-logs/
+          include-hidden-files: true
           retention-days: 14
