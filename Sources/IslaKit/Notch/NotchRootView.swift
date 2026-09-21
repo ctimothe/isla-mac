@@ -202,9 +202,20 @@ final class NotchRootView: NSView {
         return dropRect.contains(convert(sender.draggingLocation, from: nil))
     }
 
+    /// Asked once per drag. `draggingUpdated` arrives on every move of the
+    /// pointer, and periodically while it rests, and each call read the dragged
+    /// items back off the drag pasteboard — a URL object per file, or promise
+    /// objects for Mail and Photos — to learn an answer that cannot change
+    /// within one drag. The sequence number is the drag session's own identity.
+    private var carriesFilesAnswer: (sequence: Int, answer: Bool)?
+
     private func carriesFiles(_ sender: NSDraggingInfo) -> Bool {
-        if !urls(from: sender).isEmpty { return true }
-        return !promiseReceivers(from: sender).isEmpty
+        if let known = carriesFilesAnswer, known.sequence == sender.draggingSequenceNumber {
+            return known.answer
+        }
+        let answer = !urls(from: sender).isEmpty || !promiseReceivers(from: sender).isEmpty
+        carriesFilesAnswer = (sender.draggingSequenceNumber, answer)
+        return answer
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
