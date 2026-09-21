@@ -138,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lyricsHotKey = nil
     }
 
-    // MARK: - Menu bar item
+    // MARK: - Panel hooks
 
     /// Settings changed something the pointer machinery holds a copy of.
     func refreshPointerTuning() {

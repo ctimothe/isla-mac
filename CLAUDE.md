@@ -167,8 +167,11 @@ decision D7), the parity app *does* draw a centered synthetic notch on
 unnotched displays.
 
 **Lock screen.** `LockScreenPresence` watches the undocumented-but-stable
-`com.apple.screenIsLocked`/`…Unlocked` distributed notifications, raises the
-panel past `CGShieldingWindowLevel()` and sets `canBecomeVisibleWithoutLogin`.
+`com.apple.screenIsLocked`/`…Unlocked` distributed notifications and lifts the
+panel into a SkyLight space of its own at absolute level 400, one above the
+lock screen's — private SPI resolved with `dlsym`, so a macOS that drops a
+symbol degrades to a pill hidden while locked. Raising the window level past
+`CGShieldingWindowLevel()` was tried first and lost the physical test.
 Over the shield the island is visible but inert; the card is a separate window
 and is the only thing that answers clicks.
 

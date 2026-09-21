@@ -123,7 +123,6 @@ final class NotchStores {
         localLyricsLibrary.stopWatchingFolders()
         media.stop()
         clipboard.stop()
-        // Whatever was typed makes it to disk even when quitting mid-thought.
     }
 
     /// Paused while nobody can see or reach the panel — the display asleep, or
