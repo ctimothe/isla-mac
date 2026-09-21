@@ -88,13 +88,14 @@ final class MediaSourcePolicyTests: XCTestCase {
         controller.musicOnly = { true }
         controller.bundleIdentifierForPID = { $0 == 1 ? "com.google.Chrome" : "com.spotify.client" }
 
-        XCTAssertTrue(controller.admitted(snapshot(pid: 1)).isEmpty, "a browser video is filtered out")
-        XCTAssertEqual(controller.admitted(snapshot(pid: 2)).title, "Title", "Spotify is let through untouched")
+        controller.isProcessRunning = { _ in false }
+        XCTAssertEqual(controller.admission(for: snapshot(pid: 1)), .clear, "a browser video is filtered out")
+        XCTAssertEqual(controller.admission(for: snapshot(pid: 2)), .accept, "Spotify is let through untouched")
 
-        controller.apply(controller.admitted(snapshot(pid: 2)))
+        controller.receive(snapshot(pid: 2))
         XCTAssertNotNil(controller.track)
-        controller.apply(controller.admitted(snapshot(pid: 1)))
-        XCTAssertNil(controller.track, "switching to a video clears the island rather than showing it")
+        controller.receive(snapshot(pid: 1))
+        XCTAssertNil(controller.track, "with Spotify gone, a video is nothing playing")
     }
 
     /// Off means everything, as before.
@@ -102,7 +103,7 @@ final class MediaSourcePolicyTests: XCTestCase {
         let controller = MediaController()
         controller.musicOnly = { false }
         controller.bundleIdentifierForPID = { _ in "com.google.Chrome" }
-        XCTAssertEqual(controller.admitted(snapshot(pid: 1)).title, "Title")
+        XCTAssertEqual(controller.admission(for: snapshot(pid: 1)), .accept)
     }
 
     /// On by default: the island is a music surface.
@@ -118,5 +119,71 @@ final class MediaSourcePolicyTests: XCTestCase {
             return XCTFail("a well-formed line decodes to a snapshot")
         }
         XCTAssertEqual(decoded.mediaType, MediaSourcePolicy.audioType)
+    }
+}
+
+/// The session the owner hit on 2026-09-21: a song paused in Spotify, then a
+/// film started in a browser tab. The island must keep the paused song.
+@MainActor
+final class HeldSongTests: XCTestCase {
+    private func snapshot(pid: pid_t, title: String, playing: Bool) -> NowPlayingFeed.Snapshot {
+        var s = NowPlayingFeed.Snapshot()
+        s.title = title
+        s.artist = "Artist"
+        s.duration = 200
+        s.elapsed = 40
+        s.isPlaying = playing
+        s.rate = playing ? 1 : 0
+        s.takenAt = Date()
+        s.playerPID = pid
+        return s
+    }
+
+    private func controller(running: Set<pid_t>) -> MediaController {
+        let controller = MediaController()
+        controller.musicOnly = { true }
+        controller.bundleIdentifierForPID = { $0 == 1 ? "com.spotify.client" : "com.google.Chrome" }
+        controller.isProcessRunning = { running.contains($0) }
+        return controller
+    }
+
+    /// Pause Spotify, start a film: the film owns Now Playing now, and Music
+    /// Only rightly keeps it off the island — but it used to clear the paused
+    /// song too, so opening the panel said "Nothing is playing" while a song
+    /// sat paused in Spotify.
+    func testAFilmOverAPausedSongKeepsTheSong() {
+        let controller = controller(running: [1, 2])
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        controller.receive(snapshot(pid: 2, title: "Some Film", playing: true))
+
+        XCTAssertEqual(controller.track?.title, "Song", "the paused song is still what the island is about")
+        XCTAssertFalse(controller.isPlaying, "and it is still paused")
+    }
+
+    /// But a song whose player has quit is not held: there is nothing to go
+    /// back to, and a stale title would be a lie.
+    func testASongWhosePlayerQuitIsNotHeld() {
+        let controller = controller(running: [2])
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        controller.receive(snapshot(pid: 2, title: "Some Film", playing: true))
+        XCTAssertNil(controller.track)
+    }
+
+    /// With nothing held, a film is simply nothing playing.
+    func testAFilmWithNoSongHeldIsNothingPlaying() {
+        let controller = controller(running: [2])
+        controller.receive(snapshot(pid: 2, title: "Some Film", playing: true))
+        XCTAssertNil(controller.track)
+    }
+
+    /// And the song coming back — resumed, or a new one — takes over at once.
+    func testTheSongResumingTakesOverAgain() {
+        let controller = controller(running: [1, 2])
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        controller.receive(snapshot(pid: 2, title: "Some Film", playing: true))
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        XCTAssertEqual(controller.track?.title, "Song")
+        XCTAssertTrue(controller.isPlaying)
     }
 }
