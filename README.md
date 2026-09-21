@@ -1,153 +1,94 @@
 # Isla
 
-**A Dynamic Island–style companion for the Mac notch.** Isla expands from your
-MacBook's camera notch into music, a drop shelf, clipboard history, and
-translation — free and open source.
+A Dynamic Island–style panel for the Mac notch: what's playing, synced lyrics,
+a file shelf, clipboard history and translation. Click the notch to open it.
 
-> "Dynamic Island" is Apple's term, used here only to describe what Isla is like.
-> Isla is an independent project, not affiliated with or endorsed by Apple.
+Requires macOS 15 or later. On a display without a notch, Isla draws one.
 
-- **macOS 15+** (Sequoia), Apple Silicon or Intel.
-- Free and **MIT-licensed** — every feature you see is open source.
-- Site: `islamac.app` *(coming soon)*
+"Dynamic Island" is Apple's term and is used here only to describe the idea.
+Isla is an independent project and is not affiliated with Apple.
 
 ## Install
 
-Isla is distributed directly — **no App Store**.
-
-1. Download `Isla.dmg` from the
+1. Download `Isla-<version>.dmg` from the
    [latest release](https://github.com/ctimothe/isla-mac/releases/latest).
-2. Open the DMG and drag **Isla** into your Applications folder.
-3. The build is **not yet notarized by Apple**, so macOS quarantines it on first
-   download. Clear that once (Isla is open source — you can read or build every
-   line in this repo):
+2. Open it and drag **Isla** to **Applications**.
+3. The build is not notarized, so remove the download quarantine once:
 
    ```bash
    xattr -dr com.apple.quarantine /Applications/Isla.app
    ```
 
-   Then open **Isla** from Applications. That's it.
+4. Open Isla from Applications.
 
-*(A notarized, one-click-to-open build may come later. Until then the command
-above, or right-click → Open, is the way in.)*
+Isla has no Dock icon, menu bar item or window: it lives in the notch. Click the
+notch to open it. **Settings** in the panel has Launch at Login, About and Quit.
 
-Prefer to compile it yourself? See [Build from source](#build-from-source).
+To update, repeat the steps with the new release.
 
-## What Isla does
+## Features
 
-- **Click the island** — at the physical notch, or the centered synthetic notch
-  on a display without one — to open the panel. Anywhere on it works: the artwork
-  side, the cutout between, the equalizer side, both shoulders. The compact island
-  carries no controls at all; opening is the only thing it does.
-- **Hovering does not open it.** The surface brightens slightly under the pointer
-  and nothing else, because the cursor crosses the top of the screen constantly
-  and an island that unfolded every time would interrupt what is under it.
-  **Open on Hover** in Settings restores the old behavior, off by default.
-- **⌥⌘I** opens it from the keyboard and keeps it open until a command closes it;
-  **⌥⌘T** translates the clipboard; **⌥⌘L** goes straight to the lyrics page,
-  and folds it back to the player when pressed again.
-- Over the **lock screen** the island shows what is playing and answers nothing:
-  hovering brightens it, clicking shakes it off. It never opens there.
-- The island **is** the whole app — no Dock icon, no menu-bar item, no window.
-  Settings inside the panel carries Open Panel, About and Quit.
-- One rail carries **Music, Shelf, Clipboard, and Translate**, with **Settings**
-  at its foot. Settings sets how wide the panel opens (480–620 pt).
-- **Shortcuts, Spotlight and Siri** reach the same verbs: Show Lyrics, Get
-  Current Lyric, Get Current Track, Set Lyric Delay, and play/next/previous.
-  Nothing to turn on, no permission, no network — the delay one exists because
-  Bluetooth headphones put every lyric early, and an automation can correct it
-  when they connect.
-- Translucent surfaces use the system's own material where macOS has it, and a
-  hand-drawn recipe otherwise. **Reduce Transparency** replaces them with opaque
-  panels and **Increase Contrast** gives them a border, both followed live.
+- **Music.** The current track from any Now Playing source, with controls,
+  artwork and a scrubber. Music and Spotify also get shuffle, repeat and, with
+  a connected Spotify account, Liked Songs.
+- **Lyrics.** Time-synced lyrics from LRC files you import or keep in a folder,
+  and optionally from [LRCLIB](https://lrclib.net). Click a line to jump to it.
+- **Lock screen.** While the Mac is locked, a player card with lyrics, volume
+  and audio output.
+- **Shelf.** Drop files onto the notch to keep them at hand and drag them out
+  again. Screenshots and screen recordings appear here too.
+- **Clipboard.** The last 40 items copied while Isla runs. Click one to copy
+  it again.
+- **Translate.** Sixteen languages, translated on the Mac by Apple's
+  Translation framework or Apple Intelligence (macOS 26 or later). Uzbek and
+  Kazakh need Translate Online.
+- **Shortcuts.** ⌥⌘I opens Isla, ⌥⌘T translates the clipboard, ⌥⌘L opens the
+  lyrics. Shortcuts, Spotlight and Siri can read the current track and lyric.
 
-## Privacy — what leaves the machine, and when
+## Privacy
 
-Nothing, until a switch in Settings is turned on. Each is **off by default**,
-because each sends something you own somewhere you cannot see.
+Nothing leaves the Mac unless you turn it on in Settings. Each of these is off
+by default:
 
-- **Save clipboard screenshots** writes a copy of every image that reaches the
-  pasteboard to `~/Pictures/Isla` (most recent 200; clearing goes to the Trash).
-- **Lyrics** is opt-in. Isla reads LRC files you import and files in folders
-  you explicitly select; imported copies, bindings, and timing corrections stay
-  on this Mac. Enhanced LRC word timestamps animate only when the active player
-  has a measured precision clock; other players highlight complete lines.
-- **Look Up Lyrics Online** is a second switch, also off by default, and the
-  only part of Isla that asks the internet for anything. With it on, a track
-  that no local file matches is looked up at
-  [LRCLIB](https://lrclib.net) — a free community catalogue needing no account
-  and no key. What leaves the Mac is the title, artist, album and length of the
-  track. Nothing identifies you, nothing is uploaded, and answers are cached so
-  a song is asked about once. A file you chose always wins over the catalogue.
-- **Connecting a Spotify account** (Settings → Spotify) authorizes Isla through
-  Spotify's own PKCE flow in the browser, for one feature the local APIs do not
-  expose: Liked Songs. There is **no client secret**; tokens live in the keychain
-  (`WhenUnlockedThisDeviceOnly`), and Disconnect deletes them. Translation itself
-  is on-device and never uses the network.
+| Setting | What is sent | Where |
+| --- | --- | --- |
+| Look Up Lyrics Online | Track title, artist, album and length | [LRCLIB](https://lrclib.net) |
+| Translate Online | The text and its two languages, only for languages the Mac cannot translate itself | [MyMemory](https://mymemory.translated.net) |
+| Connect Spotify Account | Spotify sign-in, to read and change Liked Songs | Spotify |
 
-Isla claims one entitlement,
-`com.apple.security.automation.apple-events` — what lets the scripting fallback
-drive Music or Spotify when the MediaRemote helper is unavailable. A signed
-Developer ID build also carries a keychain access group, which is what lets
-the Spotify tokens live in the data-protection keychain described below. macOS asks for
-that consent the first time it is used; refusing it costs only that fallback.
-
-Isla never asks for your login password, in any build. Spotify tokens go to the
-data-protection keychain in a **signed & notarized** build (scoped to the team
-identity) and to a `0600` file under `~/Library/Application Support/Isla` in an
-**unsigned** build (including today's direct-download releases), because an
-ad-hoc signature has no stable identity a keychain ACL could trust. Settings
-states which is in use. See
-[`Sources/IslaKit/Services/TokenStore.swift`](Sources/IslaKit/Services/TokenStore.swift).
+Spotify tokens are stored in a file readable only by your user account in
+`~/Library/Application Support/Isla`. Signed builds use the Keychain instead.
+macOS asks before Isla controls Music or Spotify through Apple Events, the
+fallback used when Now Playing is unavailable.
 
 ## Build from source
 
-Install the Xcode Command Line Tools, then from the repository root:
+Needs Xcode 26 or later.
 
 ```bash
-swift test                    # unit tests
-bash Scripts/bundle.sh release  # assemble + ad-hoc-sign build/Isla.app
-open "build/Isla.app"
+git clone https://github.com/ctimothe/isla-mac.git
+cd isla-mac
+bash Scripts/bundle.sh release   # builds and ad-hoc signs the app
+bash Scripts/install.sh          # installs it to /Applications and opens it
 ```
 
-The local bundle is ad-hoc signed with the hardened runtime, so local testing
-exercises what ships. It runs on the machine that built it; a build for another
-Mac needs Developer ID signing and notarization, described in
-[the runbook](docs/runbook.md).
+`./scripts/check` runs the unit tests and every release check, the same way CI
+does. There is no Xcode project: SwiftPM builds the binary and
+`Scripts/bundle.sh` assembles the app. [docs/runbook.md](docs/runbook.md)
+covers signing, releases and troubleshooting.
 
-There is no Xcode project — SwiftPM builds the binary and `Scripts/bundle.sh`
-assembles the `.app` around it. The full release-gate order:
+Isla reads Now Playing through a small helper library loaded into
+`/usr/bin/perl`, because macOS 15.4 closed the MediaRemote read path to
+ordinary apps. The App Store does not allow this, so Isla is distributed here.
 
-```bash
-swift test
-bash Scripts/test-provenance.sh
-bash Scripts/test-branding.sh
-bash Scripts/test-localizations.sh
-bash Scripts/bundle.sh release
-bash Scripts/test-identity.sh
-bash Scripts/test-helper.sh
-bash Scripts/test-package.sh
-bash Scripts/test-gatekeeper.sh
-bash Scripts/test-lifecycle.sh
-bash Scripts/dmg.sh
-```
+## Uninstall
 
-`Scripts/release.sh` runs exactly this list before it tags anything. Manual and
-performance checks are tracked in [checklist.md](checklist.md) and
-[docs/release-checklist.md](docs/release-checklist.md).
+Quit Isla from Settings, then delete `/Applications/Isla.app` and
+`~/Library/Application Support/Isla`. If you turned on screenshot saving, also
+delete `~/Pictures/Isla`.
 
-## Why direct download, not the App Store
+## License
 
-Isla reads Now Playing through a small helper loaded into a platform binary,
-because MediaRemote's read path is closed to ordinary apps since macOS 15.4 and
-its entitlement is restricted. That approach is incompatible with the App Store,
-so Isla is distributed as a direct download instead. The MediaRemote framework is
-never linked into the app itself.
-
-## License and attribution
-
-Isla is **MIT-licensed** — see [LICENSE](LICENSE). Its foundation derives from
-MIT-licensed **Cyclop 0.6.5** at the commit pinned in
-[UPSTREAM_CYCLOP_VERSION](UPSTREAM_CYCLOP_VERSION); the required attribution is
-kept in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Isla uses its own name,
-bundle identity, filesystem paths, interface copy, and app icon.
+MIT, see [LICENSE](LICENSE). Isla began from
+[Cyclop](https://github.com/akalikbergenov/cyclop) 0.6.5, also MIT; its notice is
+in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
