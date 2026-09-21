@@ -641,6 +641,17 @@ final class NotchViewModel: ObservableObject {
         UserDefaults.standard.bool(forKey: onlineLyricsKey)
     }
 
+    static let onlineTranslationKey = "translate.onlineEnabled"
+
+    /// Defaults to **off**, and is the only way Translate sends text anywhere.
+    ///
+    /// On, a pair no engine on this Mac can translate — Uzbek and Kazakh,
+    /// always — is sent to `OnlineTranslation`'s one service. Every pair the
+    /// Mac can do itself still stays on it, switch or no switch.
+    static var onlineTranslationEnabled: Bool {
+        UserDefaults.standard.bool(forKey: onlineTranslationKey)
+    }
+
     static let sneakPeekKey = "sneakPeek"
 
     /// Defaults to on: it is the one thing a notch panel can do that a menu

@@ -58,6 +58,12 @@ enum NotchMetrics {
     /// still short enough that a translation walked away from is gone.
     static let translateReadDelay: TimeInterval = 6
 
+    /// How long the pointer has to come back after a menu closes. A language
+    /// list hangs well below the panel, and the row just chosen is where the
+    /// pointer was left — outside. Long enough to move back up; short enough
+    /// that walking away from a closed menu still folds the panel.
+    static let menuReturnGrace: TimeInterval = 1.2
+
     /// How long a new track shows itself before folding back. Long enough to
     /// read a title at a glance, short enough that it is over before it can
     /// become an interruption.

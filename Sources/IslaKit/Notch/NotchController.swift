@@ -894,8 +894,17 @@ final class NotchController {
         // the panel regardless, and became reachable the moment a click stopped
         // pinning. Both ask now: see `PointerWatcher.tick`.
         pointer.isDragging = { [weak root] in
-            (root?.isReceivingDrag ?? false) || ShelfDragSource.isDraggingOut
+            (root?.isReceivingDrag ?? false) || ShelfDragSource.isDraggingOut || MenuTracking.shared.isOpen
         }
+        // A menu held the panel open while it tracked; once it closes, the row
+        // that was chosen may have hung below the panel, so the pointer is
+        // given a moment to come back before its absence counts — the same
+        // grace a translation summoned from the keyboard gets, only shorter.
+        MenuTracking.shared.onAllClosed = { [weak self] in
+            guard let self, self.viewModel?.isOpen == true else { return }
+            self.pointer.setInside(true, grace: NotchMetrics.menuReturnGrace)
+        }
+        MenuTracking.shared.start()
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
         pointer.onChange = { [weak self] inside in
             guard let self, let vm = self.viewModel else { return }
