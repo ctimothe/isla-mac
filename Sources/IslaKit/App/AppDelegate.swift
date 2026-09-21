@@ -88,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // permission — unable to click or reliably synthesize a hover — can
         // still photograph the real, running panel. Normal launches never
         // carry the variable.
-        if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+        if DebugTrail.openLyrics {
             DebugTrail.note("launch hook armed")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                 DebugTrail.note("pinning panel open on the lyrics page")
@@ -103,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The same, on the player rather than the lyrics page: the artwork, the
         // title and the caption, which is what a skip changes and what has to be
         // watched frame by frame to see whether it changes cleanly.
-        if ProcessInfo.processInfo.environment["DI_OPEN_PANEL"] == "1" {
+        if DebugTrail.openPanel {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                 DebugTrail.note("pinning panel open on the player")
                 self?.togglePanel()

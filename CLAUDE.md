@@ -96,9 +96,10 @@ Two harnesses are run by hand, never as gates:
 against a live Spotify, using `Scripts/sync-probe/`).
 
 Verification-only environment hooks, all off unless set to `1` — a normal run
-never touches disk for them:
+never touches disk for them. `DebugTrail` reads each one once, at launch; ask it
+(`DebugTrail.geometry`, …) rather than the environment:
 
-- `DI_GEOM=1` — geometry trail plus the active watchdog, appended to `/tmp/di-debug.log`.
+- `DI_GEOM=1` — geometry trail, the watchdog's samples included, appended to `/tmp/di-debug.log`.
 - `DI_LOCK_PREVIEW=1` — present the lock card without locking the Mac.
 - `DI_OPEN_LYRICS=1` — open the lyrics stage without a pointer; also writes the trail.
 - `DI_OPEN_PANEL=1` — open the panel on the player without a pointer, to film a skip.

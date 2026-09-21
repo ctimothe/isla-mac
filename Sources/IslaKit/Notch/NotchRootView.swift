@@ -105,7 +105,7 @@ final class NotchRootView: NSView {
         // disappears — cannot be told apart from a gesture that fired and was
         // thrown away without knowing which layer ate it. Clicks are rare, so
         // logging every one costs nothing; a normal run never has the variable.
-        if ProcessInfo.processInfo.environment["DI_GEOM"] == "1" {
+        if DebugTrail.geometry {
             DebugTrail.note(String(
                 format: "CLICK pt=(%.1f,%.1f) active=(%.1f,%.1f,%.1f,%.1f) drag=%d hit=%d ignores=%d",
                 point.x, point.y,

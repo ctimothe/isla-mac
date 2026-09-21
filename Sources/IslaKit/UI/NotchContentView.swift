@@ -332,7 +332,7 @@ struct NotchContentView: View {
                     // Diagnostic, behind DI_GEOM=1: pairs with the CLICK line in
                     // `NotchRootView.hitTest`, so a dead spot reads as
                     // hit-but-cancelled here versus never-delivered there.
-                    if ProcessInfo.processInfo.environment["DI_GEOM"] == "1" {
+                    if DebugTrail.geometry {
                         DebugTrail.note(String(
                             format: "GESTURE loc=(%.1f,%.1f) island=(%.1f,%.1f,%.1f,%.1f) inside=%d",
                             value.location.x, value.location.y,
