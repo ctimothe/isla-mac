@@ -65,6 +65,20 @@ final class LyricsCoordinator: ObservableObject {
     private var lookUpTask: Task<Void, Never>?
     /// Promotes `resolving` to `findingLocalLyrics` once the wait is real.
     private var admitWaitTask: Task<Void, Never>?
+    /// The last lookup for this track could not reach the catalogue. The card
+    /// says what a miss says, quietly, and asks again on its own.
+    ///
+    /// A failure was never remembered and never retried, so it left the
+    /// spinner up for as long as the song played; and the only way on was a
+    /// Retry button the lock card could not even fit — "R…", filmed on
+    /// 2026-09-21. Apple's players have no such button. The app asks again
+    /// itself, after `retryDelays`, while the same song is playing.
+    private var onlineFailed = false
+    private var retryAttempt = 0
+    private var retryTask: Task<Void, Never>?
+    /// When a failed lookup is asked again: soon, then less often, then left
+    /// for the song's next play.
+    static var retryDelays: [TimeInterval] = [5, 30, 120]
     /// False until `quietGrace` has passed with no answer. Reset by every
     /// track change, so each skip gets its own quiet moment.
     private var waitIsWorthAdmitting = false
@@ -135,11 +149,33 @@ final class LyricsCoordinator: ObservableObject {
         lookUpTask = nil
         admitWaitTask?.cancel()
         admitWaitTask = nil
+        resetRetries()
         localLookup = nil
         hasLocalOverride = false
         presentation?.presentLocalOverride(false)
         availability = .disabled
         presentation?.present(.disabled)
+    }
+
+    private func resetRetries() {
+        onlineFailed = false
+        retryAttempt = 0
+        retryTask?.cancel()
+        retryTask = nil
+    }
+
+    /// Asks again after the next delay, if one is left and the song has not
+    /// changed in the meantime.
+    private func scheduleRetry(for identity: LocalTrackIdentity, generation: Int) {
+        guard retryAttempt < Self.retryDelays.count else { return }
+        let delay = Self.retryDelays[retryAttempt]
+        retryAttempt += 1
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self, self.lookUpGeneration == generation else { return }
+            self.lookUpOnlineIfNeeded(for: identity)
+        }
     }
 
     func refreshVisibility() {
@@ -221,6 +257,7 @@ final class LyricsCoordinator: ObservableObject {
         lookUpGeneration += 1
         lookUpTask?.cancel()
         lookUpTask = nil
+        resetRetries()
         waitIsWorthAdmitting = false
         currentIdentity = LocalTrackIdentity(
             playerID: media.lyricPlayerID,
@@ -274,6 +311,8 @@ final class LyricsCoordinator: ObservableObject {
             guard !Task.isCancelled, self.lookUpGeneration == generation else { return }
             self.onlineCache.remember(outcome, for: identity)
             if case .found(let timeline) = outcome { self.onlineTimeline = timeline }
+            self.onlineFailed = outcome == .failed
+            if outcome == .failed { self.scheduleRetry(for: identity, generation: generation) }
             self.publishAvailability()
         }
         // And start the clock on admitting to the wait, if it becomes one.
@@ -310,7 +349,9 @@ final class LyricsCoordinator: ObservableObject {
                 // scan, so no surface needs a new state to render.
                 // Quiet at first: an answer landing inside the grace never
                 // draws a loading state at all.
-                availability = onlineCache.cached(identity) == nil
+                // A lookup that could not reach the catalogue reads as a
+                // miss while the retry waits, not as a spinner that never ends.
+                availability = onlineCache.cached(identity) == nil && !onlineFailed
                     ? (waitIsWorthAdmitting ? .findingLocalLyrics : .resolving)
                     : .noLocalLyrics
             } else {
