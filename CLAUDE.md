@@ -61,9 +61,8 @@ worktree the change lives in).
 ./scripts/check test                # just the unit tests, for a quick pass while iterating
 swift test                          # unit tests
 swift test --filter <TestName>      # single test or test case
-bash Scripts/bundle.sh release      # assemble + ad-hoc-sign build/Isla.app
-open "build/Isla.app"
-pkill -x Isla              # kill a stale instance
+bash Scripts/bundle.sh release      # assemble + ad-hoc-sign build/app.noindex/Isla.app
+bash Scripts/install.sh             # replace /Applications/Isla.app and open it
 ```
 
 There is no Xcode project — SwiftPM builds the binary and `Scripts/bundle.sh`
@@ -120,10 +119,15 @@ running app behind the code:
    ```bash
    bash Scripts/bundle.sh release
    ```
-3. **Relaunch it**, replacing the stale instance:
+3. **Install and relaunch it** from `/Applications`, replacing the stale
+   instance:
    ```bash
-   pkill -x Isla; open "build/Isla.app"
+   bash Scripts/install.sh
    ```
+   Never `open` the bundle in `build/`: every launch from there registered a
+   second Isla with LaunchServices — three showed in Spotlight on 2026-09-21,
+   and any of them could catch the Spotify sign-in callback. The build lives in
+   `build/app.noindex/` so Spotlight skips it, and `install.sh` unregisters it.
 
 Steps 2–3 exist for code changes; a docs-only change has nothing to rebuild or
 relaunch and stops at the commit. The point is that the dev app is never left

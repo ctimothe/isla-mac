@@ -2,15 +2,23 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="$ROOT/build/Isla.app"
+APP="$ROOT/build/app.noindex/Isla.app"
 BINARY="$APP/Contents/MacOS/Isla"
 HELPER="$APP/Contents/Resources/libislamedia.dylib"
 
 test -x "$BINARY"
 test -f "$HELPER"
 
+# Launching the built binary registers its bundle with LaunchServices, which
+# left a second Isla behind every gate run — one a URL callback could open in
+# place of the installed app. The registration goes when the test does.
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 APP_PID=""
-trap '[ -n "$APP_PID" ] && kill "$APP_PID" 2>/dev/null || true' EXIT
+cleanup() {
+    if [ -n "$APP_PID" ]; then kill "$APP_PID" 2>/dev/null || true; fi
+    "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
 "$BINARY" >/dev/null 2>&1 &
 APP_PID=$!

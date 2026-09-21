@@ -5,7 +5,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="$ROOT/build/Isla.app"
+APP="$ROOT/build/app.noindex/Isla.app"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" 2>/dev/null || true)"
 # Пустая версия проходила все проверки ниже: sed на файле без строки VERSION=
 # завершается успешно и печатает пустоту, так что запасной вариант не срабатывал

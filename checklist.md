@@ -584,3 +584,14 @@ notch in a single frame, "too intense, too raw".
   "Russian is translated online"; it names Uzbek.
 - [x] **Choosing a language clears the answer in the old one** at once, rather
   than leaving it under the new heading for the debounce and the engine's time.
+
+### One Isla on the Mac — 2026-09-21
+
+- [x] **Spotlight listed three Isla apps.** Builds in `build/`, an old copy in
+  `~/Applications` and a stale temporary build were all registered. Removed,
+  leaving `/Applications/Isla.app` as the only registration. The bundle is now
+  assembled in `build/app.noindex/` (Spotlight skips a folder named `.noindex`;
+  `.metadata_never_index` was tried and is ignored), `Scripts/install.sh` is the
+  one way to install and relaunch and unregisters the built copy, and
+  `test-lifecycle.sh` unregisters the copy it launches when it exits.
+
