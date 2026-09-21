@@ -252,18 +252,11 @@ struct TranslatePane: View {
                 set: { if $0 { choose { translator.choose(source: nil) } } }
             ))
             Divider()
-            Picker(selection: Binding(
-                get: { translator.source?.code ?? "" },
-                set: { code in choose { translator.choose(source: TranslationLanguage.withCode(code)) } }
-            )) {
-                ForEach(TranslationLanguage.all) { language in
-                    Text(menuTitle(language)).tag(language.code)
+            ForEach(TranslationLanguage.all) { language in
+                languageItem(language, isChosen: translator.source == language) {
+                    translator.choose(source: language)
                 }
-            } label: {
-                EmptyView()
             }
-            .pickerStyle(.inline)
-            .labelsHidden()
         } label: {
             heading(sourceTitle(route: route))
         }
@@ -278,27 +271,30 @@ struct TranslatePane: View {
     /// heading that kept the choice would name a language nothing is in.
     private func targetMenu(route: Translator.Route) -> some View {
         Menu {
-            Picker(selection: Binding(
-                get: { translator.target.code },
-                set: { code in
-                    guard let language = TranslationLanguage.withCode(code) else { return }
-                    choose { translator.choose(target: language) }
+            ForEach(TranslationLanguage.all) { language in
+                languageItem(language, isChosen: translator.target == language) {
+                    translator.choose(target: language)
                 }
-            )) {
-                ForEach(TranslationLanguage.all) { language in
-                    Text(menuTitle(language)).tag(language.code)
-                }
-            } label: {
-                EmptyView()
             }
-            .pickerStyle(.inline)
-            .labelsHidden()
         } label: {
             heading(route.target.name)
         }
         .languageMenuStyle()
         .accessibilityLabel(localized("Translate To"))
         .accessibilityValue(route.target.name)
+    }
+
+    /// One row of a language menu: a toggle, because a menu draws a toggle as
+    /// the native checkmarked item. An inline picker drew the same checkmark
+    /// but had no row to tick while the source detects, and said so in the
+    /// console on every open.
+    private func languageItem(
+        _ language: TranslationLanguage, isChosen: Bool, choose change: @escaping () -> Void
+    ) -> some View {
+        Toggle(menuTitle(language), isOn: Binding(
+            get: { isChosen },
+            set: { wants in if wants { choose(change) } }
+        ))
     }
 
     /// A language this Mac can only translate online says so in the list,
