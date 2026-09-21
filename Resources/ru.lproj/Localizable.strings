@@ -82,6 +82,7 @@
 "Lyrics stay on this Mac." = "Тексты песен остаются на этом Mac.";
 "Local Lyrics Library" = "Библиотека локальных текстов";
 "No local lyrics." = "Нет локального текста.";
+"No lyrics found." = "Текст не найден.";
 "Import LRC…" = "Импортировать LRC…";
 "Add Lyrics Folder…" = "Добавить папку с текстами…";
 "Remove %@" = "Удалить %@";

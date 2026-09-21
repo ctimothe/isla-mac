@@ -83,6 +83,7 @@
 "Lyrics stay on this Mac." = "Lyrics stay on this Mac.";
 "Local Lyrics Library" = "Local Lyrics Library";
 "No local lyrics." = "No local lyrics.";
+"No lyrics found." = "No lyrics found.";
 "Import LRC…" = "Import LRC…";
 "Add Lyrics Folder…" = "Add Lyrics Folder…";
 "Remove %@" = "Remove %@";

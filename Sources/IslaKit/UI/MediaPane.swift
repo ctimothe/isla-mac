@@ -28,6 +28,14 @@ struct MediaPane: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var scrubHover = false
+    /// Set once the pointer has rested on the bar for a moment.
+    ///
+    /// The elapsed label reads the time under the pointer while it is on the
+    /// bar. Filmed on 2026-09-21: a pointer only crossing the bar on its way to
+    /// the skip button flashed 1:42, 1:55, 2:14 over the time playing, and it
+    /// read as the clock jumping about. A crossing is too quick to arm it.
+    @State private var previewArmed = false
+    @State private var previewArmTask: Task<Void, Never>?
     /// Set while dragging, so the bar follows the finger instead of the clock.
     @State private var scrubbing: Double?
     /// Cursor x inside the bar while hovering, and the bar's own width, so the
@@ -40,7 +48,7 @@ struct MediaPane: View {
     /// where the song actually is.
     private var previewFraction: Double? {
         if let scrubbing { return scrubbing }
-        guard scrubHover, let hoverX else { return nil }
+        guard scrubHover, previewArmed, let hoverX else { return nil }
         return ScrubPreview.fraction(x: hoverX, width: scrubWidth, duration: media.duration)
     }
     /// Set once the current track has waited long enough for artwork that it
@@ -150,6 +158,14 @@ struct MediaPane: View {
                     ZStack(alignment: .leading) {
                         Color.clear
                         lyricsLine
+                            // One caption per song. A new song's first line
+                            // arrives with its title, in the column's
+                            // crossfade — not on the line-turn spring, which
+                            // carried the last song's line out under the new
+                            // title for up to a fifth of a second (filmed on
+                            // 2026-09-21). Lines within a song still turn.
+                            .id(track.key)
+                            .transition(.opacity)
                     }
                     .frame(height: Self.captionHeight)
                     // The line turn travels inside the slot and nowhere else:
@@ -298,7 +314,19 @@ struct MediaPane: View {
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
-                .onHover { scrubHover = $0 }
+                .onHover { inside in
+                    scrubHover = inside
+                    previewArmTask?.cancel()
+                    guard inside else {
+                        previewArmed = false
+                        return
+                    }
+                    previewArmTask = Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(ScrubPreview.dwell))
+                        guard !Task.isCancelled else { return }
+                        previewArmed = true
+                    }
+                }
                 .onContinuousHover { phase in
                     scrubWidth = width
                     switch phase {
@@ -530,7 +558,8 @@ struct MediaPane: View {
                     ProgressView().controlSize(.mini).tint(Theme.tertiary)
                 }
                 Text(LyricsPresentation.compactCaption(
-                    for: lyrics.availability, currentLine: nil, localLookup: localLookup
+                    for: lyrics.availability, currentLine: nil, localLookup: localLookup,
+                    onlineEnabled: NotchViewModel.onlineLyricsEnabled
                 ))
                     .islandFont(.body, weight: .regular)
                     .foregroundStyle(Theme.secondary)
@@ -549,7 +578,8 @@ struct MediaPane: View {
         .animation(Theme.contentAnimation, value: captionHover)
         .accessibilityLabel(localized("Lyrics"))
         .accessibilityValue(LyricsPresentation.compactCaption(
-            for: lyrics.availability, currentLine: nil, localLookup: localLookup
+            for: lyrics.availability, currentLine: nil, localLookup: localLookup,
+            onlineEnabled: NotchViewModel.onlineLyricsEnabled
         ))
         .accessibilityHint(localized("Opens the full lyrics"))
     }

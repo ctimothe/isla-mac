@@ -324,7 +324,8 @@ struct LockScreenCard: View {
 
     private var lyricsStatus: String {
         LyricsPresentation.compactCaption(
-            for: lyrics.availability, currentLine: nil, localLookup: localLookup()
+            for: lyrics.availability, currentLine: nil, localLookup: localLookup(),
+            onlineEnabled: NotchViewModel.onlineLyricsEnabled
         )
     }
 
