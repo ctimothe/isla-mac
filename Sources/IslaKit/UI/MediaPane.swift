@@ -287,7 +287,10 @@ struct MediaPane: View {
             // pointer*, not the time playing — the same trick every scrubber
             // worth using does, and it replaces the floating bubble that used
             // to cover the lyric line above the bar.
-            Text(formatTime((previewFraction ?? progress) * media.duration))
+            // The time playing reads `labelPosition`, which never steps back a
+            // second for a small correction; the preview reads the pointer.
+            Text(formatTime(previewFraction.map { $0 * media.duration }
+                            ?? min(media.labelPosition, media.duration)))
                 .foregroundStyle(previewFraction == nil ? Theme.tertiary : Color.white.opacity(0.9))
                 .frame(width: media.duration >= 3600 ? 52 : 32, alignment: .leading)
 

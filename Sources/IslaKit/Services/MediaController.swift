@@ -18,7 +18,40 @@ final class MediaController: ObservableObject {
     @Published private(set) var artwork: NSImage?
     @Published private(set) var isPlaying = false
     @Published private(set) var duration: TimeInterval = 0
-    @Published private(set) var position: TimeInterval = 0
+    @Published private(set) var position: TimeInterval = 0 {
+        didSet { holdLabelSecond() }
+    }
+
+    /// The whole second the elapsed label last showed, and for which song.
+    private var shownSecond: (key: String, second: Int)?
+
+    /// The elapsed time a label shows: the position, except that while playing
+    /// it never steps back a second for a correction under a second and a half.
+    ///
+    /// Filmed on 2026-09-21: 0:51, then 0:50, a quarter-second after a seek
+    /// landed — the clock had run on from the target while the player was
+    /// still resuming, and the correction pulled it back across a second.
+    /// The bar and the lyrics keep the exact position; only the numerals, the
+    /// one thing that reads as the clock running backwards, hold.
+    var labelPosition: TimeInterval {
+        guard let shown = shownSecond, shown.key == track?.key, isPlaying,
+              Double(shown.second) > position.rounded(),
+              Double(shown.second) - position < 1.5 else { return position }
+        return Double(shown.second)
+    }
+
+    private func holdLabelSecond() {
+        guard let key = track?.key else {
+            shownSecond = nil
+            return
+        }
+        let second = Int(position.rounded())
+        if let shown = shownSecond, shown.key == key, isPlaying,
+           second < shown.second, Double(shown.second) - position < 1.5 {
+            return
+        }
+        shownSecond = (key, second)
+    }
     @Published private(set) var sourceName: String?
     /// The icon of the app the sound is coming from.
     ///
@@ -896,7 +929,10 @@ final class MediaController: ObservableObject {
         newDuration: TimeInterval
     ) -> Bool {
         if newDuration > 0, reported >= newDuration - 0.5 { return true }
-        return previousPosition >= 3 && abs(reported - previousPosition) < 1.5
+        // At any position: skipped two seconds in, the next song still
+        // arrived at 0:02 and then stepped back to 0:00 (filmed 2026-09-21).
+        // Near the start both readings are close to 0, and 0 is then right.
+        return abs(reported - previousPosition) < 1.5
     }
 
     func seek(to seconds: TimeInterval) {
@@ -1303,6 +1339,7 @@ final class MediaController: ObservableObject {
     func apply(_ snapshot: NowPlayingFeed.Snapshot) {
         guard !snapshot.isEmpty else { return clear() }
         let positionBefore = position
+        let previousTrack = track
 
         // macOS's "active" session follows app focus, not audio: focusing a
         // browser holding a paused video displaces the player that is
@@ -1525,6 +1562,18 @@ final class MediaController: ObservableObject {
         ) {
             artworkRequestedFor.insert(key)
             feed.requestArtwork()
+        } else if artworkKey != key, artwork != nil, !playerChanged, let previousTrack,
+                  !snapshot.album.isEmpty, previousTrack.album == snapshot.album,
+                  previousTrack.artist == snapshot.artist {
+            // The next song on the same album: its cover is the one on screen.
+            // Blanking it while the report caught up dropped the picture to the
+            // placeholder and brought the same one back half a second later
+            // (filmed 2026-09-21). Kept, and replaced if the song's own
+            // cover arrives different.
+            blankArtwork?.cancel()
+            blankArtwork = nil
+            artworkKey = key
+            artworkRequestedFor = []
         } else if artworkKey != key {
             artworkKey = key
             // A different track: it has not been asked about, and the set is
