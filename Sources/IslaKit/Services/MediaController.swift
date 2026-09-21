@@ -1386,15 +1386,23 @@ final class MediaController: ObservableObject {
             spotifyISRC = nil
             spotifyExactDuration = nil
         }
-        let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
-        if track != fresh { track = fresh }
         // Adopted *before* the Spotify id is asked for. Asking first tested the
         // player the last snapshot came from: switching Music → Spotify skipped
         // the lookup for the first Spotify track, so its word-synced lyrics
         // silently degraded, and switching the other way asked Spotify what it
         // was playing and then pinned that id to a Music track, keying its
         // lyrics to the wrong song entirely.
+        //
+        // And before the track is published, for the reason the metadata above
+        // is cleared first: `@Published` tells subscribers before it stores,
+        // and the lyrics coordinator builds its identity from the player
+        // during that very call. Adopted after, a song moving from Music to
+        // Spotify was keyed to Music — and with its length unchanged, nothing
+        // rebuilt the identity, so a nudge or a binding made while it played
+        // in Spotify was saved under the other player.
         displayedPlayerPID = snapshot.playerPID
+        let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
+        if track != fresh { track = fresh }
         if trackChanged || playerChanged {
             // A new song is a new line for the regression too.
             correctionWindow = []
