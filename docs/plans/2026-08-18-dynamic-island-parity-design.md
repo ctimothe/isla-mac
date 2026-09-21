@@ -242,6 +242,13 @@ transitions.
 - Accept screenshots copied to the pasteboard and optionally save durable PNGs.
 - Load previews lazily and avoid eager reads for every stored file.
 
+> **Amended 2026-09-21.** Cards read newest first by the moment each belongs
+> to — when a capture was taken, or when a file was dropped — not by the order
+> they arrived, since a capture is found when the Shelf opens rather than when
+> it is taken. Each card shows its age under its name ("Just now", "5 min.
+> ago"), in the app's language, with the full date on hover. A file moved to a
+> Trash counts as removed, and its card leaves.
+
 ### Clipboard
 
 - Keep the latest 40 entries for the running session.
