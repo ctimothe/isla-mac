@@ -102,6 +102,7 @@ never touches disk for them:
 - `DI_GEOM=1` — geometry trail plus the active watchdog, appended to `/tmp/di-debug.log`.
 - `DI_LOCK_PREVIEW=1` — present the lock card without locking the Mac.
 - `DI_OPEN_LYRICS=1` — open the lyrics stage without a pointer; also writes the trail.
+- `DI_OPEN_PANEL=1` — open the panel on the player without a pointer, to film a skip.
 - `DI_TEST_CLICK=next` — drive a lyric click from a test.
 
 ## After each change
