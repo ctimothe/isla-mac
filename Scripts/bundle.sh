@@ -5,7 +5,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${1:-release}"
-APP="$ROOT/build/Isla.app"
+# In a folder whose name ends in .noindex, which Spotlight never indexes: a
+# bundle sitting in build/ used to show up in Spotlight and Launchpad beside
+# the installed app — three "Isla" results, on 2026-09-21, and a URL callback
+# can land in whichever copy LaunchServices prefers. The built app is an
+# intermediate; the one people open is the copy Scripts/install.sh puts in
+# /Applications. (`.metadata_never_index` was tried first and is ignored.)
+APP="$ROOT/build/app.noindex/Isla.app"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" 2>/dev/null || true)"
 # An existing file with no VERSION= line makes sed succeed with empty output, so
 # the `|| echo` fallback never fired: the bundle got empty version keys, and

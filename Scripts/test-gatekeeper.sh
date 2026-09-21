@@ -14,7 +14,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="${1:-$ROOT/build/Isla.app}"
+APP="${1:-$ROOT/build/app.noindex/Isla.app}"
 DYLIB="$APP/Contents/Resources/libislamedia.dylib"
 
 fail() { echo "!!! $1" >&2; exit 1; }
