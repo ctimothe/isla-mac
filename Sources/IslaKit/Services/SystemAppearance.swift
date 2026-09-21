@@ -46,6 +46,25 @@ final class SystemAppearance: ObservableObject {
         }
     }
 
+    /// Pins the settings a test describes, instead of reading them from
+    /// whichever Mac runs it. `resetForTests()` hands them back to the system.
+    ///
+    /// The glass routing tests asserted the Reduce-Transparency-*off* branch
+    /// while reading the live setting, so they passed on a desk and failed on
+    /// the CI image, which runs with Reduce Transparency on — the same host
+    /// dependence `RecordingPickup.captureFolder(preferencesFile:)` was given a
+    /// parameter to escape. A test that means "with the setting off" should say
+    /// so, and then it also gets to say what happens with it on.
+    func overrideForTests(
+        reduceTransparency: Bool? = nil, increaseContrast: Bool? = nil, reduceMotion: Bool? = nil
+    ) {
+        if let reduceTransparency { self.reduceTransparency = reduceTransparency }
+        if let increaseContrast { self.increaseContrast = increaseContrast }
+        if let reduceMotion { self.reduceMotion = reduceMotion }
+    }
+
+    func resetForTests() { refresh() }
+
     private func refresh() {
         let workspace = NSWorkspace.shared
         // Assigned only when different: `@Published` never compares, and this

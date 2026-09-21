@@ -46,6 +46,7 @@ final class MotionValuesTests: XCTestCase {
     /// the slot's edge, so a travel past half the slot would have the arriving
     /// line cut off mid-glyph before it settled; and it is a real travel, not a
     /// crossfade wearing an offset — under 3 pt reads as a shiver.
+    @MainActor
     func testTheLineTurnTravelsWithinTheCaptionSlot() {
         XCTAssertLessThan(LyricLineTurn.travel, MediaPane.captionHeight / 2,
                           "the turn must settle before the clip takes it")
