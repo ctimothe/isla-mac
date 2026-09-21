@@ -166,6 +166,14 @@ transitions.
 > stretched its window-server snapshot, and is why the lock card was given a
 > window of its own.
 
+> **Amended 2026-09-21.** The tab-hover dwell in the table above is withdrawn:
+> the rail changes tabs on a **click** only. Switching after a 150 ms hover made
+> the rail react to a pointer passing through it, and each switch replayed the
+> chosen glyph's fill, so a fast pass read as the rail lagging behind the
+> cursor. A hover now draws a faint well under the glyph and does nothing else,
+> the same division the island itself made on 2026-08-26 — a click is a
+> decision, a hover is traffic.
+
 ## Feature parity contract
 
 > **Amended 2026-08-20.** The Snippets and Calendar sections below are

@@ -829,11 +829,16 @@ struct NotchContentView: View {
 
 /// Tab switcher.
 ///
-/// Hovering switches tabs, but only after the pointer has stopped: a pointer
-/// crossing the rail on its way somewhere else is gone in a few dozen
-/// milliseconds, while one that came to choose stays put. The same dwell
-/// threshold is what separates "the mouse was flung across the top of the
-/// screen" from "the mouse came to the notch" in `PointerWatcher`.
+/// A click changes the tab, and nothing else does. Hovering used to switch
+/// after a 150 ms dwell, which made the rail react to a pointer passing
+/// through it: moving across it on the way somewhere flipped panes, and each
+/// flip replayed the chosen glyph's fill, so a fast pass read as the rail
+/// stuttering behind the cursor (owner, 2026-09-21). macOS does not navigate
+/// on hover outside menus; a sidebar changes when it is clicked.
+///
+/// A hover draws a faint well under the glyph and nothing more, and both the
+/// well and the selection land on the frame they happen — no fade to wait
+/// out, no glyph growing, nothing to lag behind a fast pointer.
 private struct Rail: View {
     @ObservedObject var vm: NotchViewModel
     /// The run of content tabs people move between.
@@ -843,11 +848,6 @@ private struct Rail: View {
     var footer: [NotchViewModel.Tab] = []
 
     @State private var hovered: NotchViewModel.Tab?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// Long enough to swallow a pass-through, short enough that a deliberate
-    /// hover still feels like it answered instantly.
-    private let dwell = Duration.seconds(NotchMetrics.tabDwell)
 
     var body: some View {
         VStack(spacing: NotchGeometry.railSpacing) {
@@ -862,21 +862,6 @@ private struct Rail: View {
         // top, settings held to the bottom by the gap between them.
         .frame(height: vm.geometry.standardContentHeight, alignment: .center)
         .frame(maxHeight: .infinity, alignment: .top)
-        .animation(Theme.contentAnimation, value: hovered)
-        // Moving to another icon cancels the pending switch along with the
-        // task, so only the icon actually rested on ever wins.
-        .task(id: hovered) {
-            // A hover does not answer the welcome. The Get Started button sits
-            // at the bottom of the pane, immediately right of the rail, so the
-            // pointer travelling to it passes over the rail — and a pause on the
-            // way would otherwise have thrown the welcome away and landed the
-            // panel on whichever icon the hand happened to stop over. A click
-            // still goes wherever it was aimed; see `chooseTab`.
-            guard let hovered, hovered != vm.tab, !vm.isShowingWelcome else { return }
-            try? await Task.sleep(for: dwell)
-            guard !Task.isCancelled else { return }
-            vm.select(hovered)
-        }
     }
 
     @ViewBuilder
@@ -889,10 +874,11 @@ private struct Rail: View {
         } label: {
             Image(systemName: tab.symbol)
                 // Filled when chosen, outlined otherwise — the tab bar's own
-                // grammar — and the swap is the system's replace effect rather
-                // than a cut, riding the pane change's animation.
+                // grammar — swapped on the frame of the click. The system's
+                // replace effect was tried and withdrawn the same day: it takes
+                // a third of a second, and a rail that answers a click a third
+                // of a second late reads as a rail catching up.
                 .symbolVariant(vm.tab == tab ? .fill : .none)
-                .contentTransition(.symbolEffect(.replace))
                 .islandFont(.subhead)
                 .frame(width: 30, height: vm.geometry.railIconHeight)
                 .background(
@@ -913,11 +899,11 @@ private struct Rail: View {
                 )
                 .foregroundStyle(vm.tab == tab ? Color.white : Theme.tertiary)
                 .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                // A render-time transform. Growing the frame instead would
-                // re-lay out the rail on every hover, and layout that runs on
-                // pointer movement is exactly the kind that shows up as a
-                // stutter.
-                .scaleEffect(reduceMotion ? 1 : (hovered == tab ? 1.15 : 1))
+                // Nothing the shell animates reaches the glyph and its well: the
+                // pane change rides the shell's pane curve, and this would
+                // otherwise fade the chip along with it. The press dim is the
+                // button style's own and still answers on press-down.
+                .transaction { $0.animation = nil }
         }
         .buttonStyle(PanelButtonStyle())
         .help(tab.title)
