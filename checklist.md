@@ -493,3 +493,37 @@ Open, for the owner — each is a design decision, not a defect:
 - [ ] `scripts/check` is tracked in lowercase while every other script is
   under `Scripts/`; one directory on this Mac's case-insensitive disk, two on
   a case-sensitive one.
+
+### Native motion — 2026-09-21
+
+Filmed on 2026-09-21 over the lock screen: a pause folded the pill into the
+notch in a single frame, "too intense, too raw".
+
+- [x] **The pill folds into the notch and grows back out, locked or not.** The
+  locked branch refuses every animation from outside, and the pill was mounted
+  only while something played, so a pause removed it in one frame. It now stays
+  mounted for the whole lock and answers its own change on its own curve. The
+  wings contract on `Theme.pillFold` (0.5 s, critically damped) and grow on
+  `Theme.pillUnfold` (0.42 s), where every pill resize used to share 0.28 s.
+- [x] **The cover and the bars ride the wings and dissolve ahead of the edge.**
+  Unlocked, the header left the tree the moment the pill folded and kept its
+  old width, so the contracting clip swept across a cover that sat still. It
+  now stays laid out while the panel is shut and fades, blurs and shrinks on
+  `Theme.pillContentOut` (0.22 s); arriving, it waits 0.07 s for a wing to
+  exist. `PillFoldTests` holds both halves against the springs' closed forms.
+- [x] **No flash of "playing" on the way in.** A settled pause is `.hidden`, and
+  only `.paused` drew the badge, so every fold began by brightening the cover.
+- [x] **No fading outline at the start of a fold.** A second black layer over
+  the wings faded on its own 0.12 s at the old width; it was plain black by
+  then and went.
+- [x] **A peek ends on the fold curve**, not the 0.16 s content ease.
+- [x] **The lock card's lyrics glide a line at a time.** The window of lines
+  jumped a slot per line; the leaving line now goes up and out and the next
+  rises in from below on the lyric spring, one row each way
+  (`LockCardLyricGlideTests`). A seek is still a cut.
+- [x] **Scrolling the lyrics by hand lifts every line to reading brightness**
+  (0.46, still under the sung line's 0.5), and they settle back to depth when
+  the page follows the song again.
+- [x] **The stage's follow is a real spring** — measured, not assumed: a
+  `ScrollView` driven through `scrollPosition` inside `withAnimation` honours
+  the spring on macOS 27 (a 0.4-damped probe overshot 76 → 88 pt and settled).

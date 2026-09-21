@@ -1227,7 +1227,13 @@ final class NotchController {
                 vm.isPeeking = false
                 return
             }
-            withAnimation(Theme.contentAnimation) { vm.isPeeking = false }
+            // The pill's own fold, not the 0.16 s content ease: a peek ending
+            // takes some 200 pt of title back in, and at that speed it read as
+            // the pill snapping shut. The shell declares the same curve for
+            // `isPeeking`; stating it here keeps the two from drifting apart.
+            withAnimation(Theme.pill(appearing: false, reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                vm.isPeeking = false
+            }
         }
         peekWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.sneakPeekDuration, execute: work)
