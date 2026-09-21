@@ -25,6 +25,7 @@ enum OnlineLyrics {
     /// LRCLIB asks clients to identify themselves so it can tell traffic apart.
     static let userAgent = "Isla/\(ProductIdentity.version) (\(ProductIdentity.homepage))"
     static let endpoint = "https://lrclib.net/api/get"
+    static let searchEndpoint = "https://lrclib.net/api/search"
 
     /// What the endpoint answers with. Only the fields Isla reads are decoded;
     /// LRCLIB is free to add others.
@@ -104,6 +105,15 @@ enum OnlineLyrics {
     /// The whole round trip. The transport is a parameter so the tests never
     /// touch the network — and so a test can prove the request is shaped right
     /// without one.
+    ///
+    /// The exact query first, then a search. The exact query matches title,
+    /// artist, album and duration together, and a streaming service's
+    /// metadata rarely agrees with the catalogue on all four: checked against
+    /// LRCLIB on 2026-09-21, "waltz", "We Say Goodbye" and "Spit" all have
+    /// timed lyrics there, filed under albums Spotify does not name, and each
+    /// came back "No lyrics found". The search matches on title and main
+    /// artist, and holds the duration to three seconds so a live version or a
+    /// different edit is never taken for the recording playing.
     static func lookUp(
         _ identity: LocalTrackIdentity,
         transport: @Sendable (URLRequest) async throws -> (Data, URLResponse) = { request in
@@ -111,13 +121,158 @@ enum OnlineLyrics {
         }
     ) async -> Outcome {
         guard let request = request(for: identity) else { return .none }
+        let exact: Outcome
         do {
             let (data, response) = try await transport(request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return timeline(from: data, status: status)
+            // An instrumental is an answer, and the search would only find the
+            // same record again.
+            if (200..<300).contains(status),
+               (try? JSONDecoder().decode(Response.self, from: data))?.instrumental == true {
+                return .none
+            }
+            exact = timeline(from: data, status: status)
         } catch {
             return .failed
         }
+        if case .found = exact { return exact }
+        if exact == .failed { return .failed }
+
+        var searchFailed = false
+        for query in searchQueries(for: identity) {
+            guard let search = searchRequest(title: query.title, artist: query.artist) else { continue }
+            do {
+                let (data, response) = try await transport(search)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                guard (200..<300).contains(status),
+                      let rows = try? JSONDecoder().decode([SearchRow].self, from: data) else {
+                    searchFailed = true
+                    continue
+                }
+                if let match = bestMatch(in: rows, for: identity) { return .found(match) }
+            } catch {
+                searchFailed = true
+            }
+        }
+        // A search that could not be asked says nothing about the catalogue,
+        // so it is a failure to retry, not a miss to remember.
+        return searchFailed ? .failed : .none
+    }
+
+    // MARK: - Search
+
+    /// One row of a search answer. Only what the match reads is decoded.
+    struct SearchRow: Decodable, Equatable, Sendable {
+        var trackName: String?
+        var artistName: String?
+        var albumName: String?
+        var duration: Double?
+        var instrumental: Bool?
+        var syncedLyrics: String?
+    }
+
+    /// How far a candidate's length may be from the recording playing. Wide
+    /// enough for two services rounding the same file differently, narrow
+    /// enough to refuse an edit or a live take.
+    static let durationTolerance: TimeInterval = 3
+
+    static func searchRequest(title: String, artist: String) -> URLRequest? {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              var components = URLComponents(string: searchEndpoint) else { return nil }
+        components.queryItems = [
+            URLQueryItem(name: "track_name", value: title),
+            URLQueryItem(name: "artist_name", value: artist),
+        ]
+        guard let url = components.url else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 8
+        return request
+    }
+
+    /// The title and artist as the player names them, then — if different —
+    /// the title without its edition and the artist without the company:
+    /// "Child Psychology - 2023 Remaster" by "Black Box Recorder, Someone" is
+    /// searched as "Child Psychology" by "Black Box Recorder" as well.
+    static func searchQueries(for identity: LocalTrackIdentity) -> [(title: String, artist: String)] {
+        let exact = (title: identity.title, artist: identity.artist)
+        let bare = (title: baseTitle(identity.title), artist: primaryArtist(identity.artist))
+        if bare.title.caseInsensitiveCompare(exact.title) == .orderedSame,
+           bare.artist.caseInsensitiveCompare(exact.artist) == .orderedSame {
+            return [exact]
+        }
+        return [exact, bare]
+    }
+
+    /// The timed candidate that is this recording, if one is: the same title
+    /// once editions are set aside, the main artist among its artists, and the
+    /// length within tolerance — the closest length winning.
+    static func bestMatch(in rows: [SearchRow], for identity: LocalTrackIdentity) -> LyricTimeline? {
+        let wantTitle = comparable(baseTitle(identity.title))
+        let wantArtist = comparable(primaryArtist(identity.artist))
+        guard !wantTitle.isEmpty, !wantArtist.isEmpty else { return nil }
+        var best: (difference: TimeInterval, timeline: LyricTimeline)?
+        for row in rows where row.instrumental != true {
+            guard let synced = row.syncedLyrics,
+                  !synced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let name = row.trackName, comparable(baseTitle(name)) == wantTitle,
+                  let artist = row.artistName, comparable(artist).contains(wantArtist)
+            else { continue }
+            var difference: TimeInterval = 0
+            if identity.duration > 0 {
+                guard let length = row.duration,
+                      abs(length - identity.duration) <= durationTolerance else { continue }
+                difference = abs(length - identity.duration)
+            }
+            guard best.map({ difference < $0.difference }) ?? true,
+                  let document = try? LocalLyricsDocument.parse(synced) else { continue }
+            best = (difference, document.timeline(documentID: nil))
+        }
+        return best?.timeline
+    }
+
+    /// A title without the edition a service appends to it: a bracketed
+    /// "(feat. …)" or "[Live]", and a trailing " - 2011 Remaster",
+    /// " - Demo - September 1996", " - Radio Edit".
+    static func baseTitle(_ title: String) -> String {
+        var text = title
+        while let range = text.range(of: #"\s*[\(\[][^\)\]]*[\)\]]"#, options: .regularExpression) {
+            text.removeSubrange(range)
+        }
+        let editions = [
+            "remaster", "live", "demo", "version", "edit", "mix", "mono", "stereo",
+            "acoustic", "radio", "single", "deluxe", "bonus", "session", "take",
+            "recorded", "anniversary", "explicit", "clean", "instrumental",
+        ]
+        if let dash = text.range(of: " - ") {
+            let tail = text[dash.upperBound...].lowercased()
+            if editions.contains(where: { tail.contains($0) }) {
+                text = String(text[..<dash.lowerBound])
+            }
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The first-named artist: before a comma, an ampersand, or a "feat.".
+    static func primaryArtist(_ artist: String) -> String {
+        var text = artist
+        for separator in [",", " & ", " feat. ", " feat ", " ft. ", " featuring ", " x ", " and "] {
+            if let range = text.range(of: separator, options: .caseInsensitive) {
+                text = String(text[..<range.lowerBound])
+            }
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Case, accents and punctuation set aside, so "Don’t" and "Dont" agree.
+    static func comparable(_ text: String) -> String {
+        let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+            // An apostrophe joins a word rather than ending one: "Don’t" is
+            // "dont", not "don t".
+            .replacingOccurrences(of: #"['’‘`´ʼ]"#, with: "", options: .regularExpression)
+        let kept = folded.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? Character($0) : " " }
+        return String(kept).split(separator: " ").joined(separator: " ")
     }
 }
 
@@ -132,6 +287,11 @@ final class OnlineLyricsCache {
     private struct Entry: Codable {
         var lines: [LyricsStore.Line]?
         var checkedAt: Date
+        /// Whether the miss was the search's too. A miss remembered from the
+        /// exact query alone, before the search existed, is asked again —
+        /// otherwise the songs it would now find stayed "No lyrics found" for
+        /// the rest of the miss's two-week life.
+        var searched: Bool?
     }
 
     private let directory: URL?
@@ -162,7 +322,8 @@ final class OnlineLyricsCache {
         if let lines = entry.lines {
             return .some(LyricTimeline(lines: lines, granularity: .line, documentID: nil))
         }
-        guard Date().timeIntervalSince(entry.checkedAt) < Self.missLifetime else { return nil }
+        guard entry.searched == true,
+              Date().timeIntervalSince(entry.checkedAt) < Self.missLifetime else { return nil }
         return .some(nil)
     }
 
@@ -171,7 +332,7 @@ final class OnlineLyricsCache {
         case .found(let timeline):
             entries[Self.key(identity)] = Entry(lines: timeline.lines, checkedAt: Date())
         case .none:
-            entries[Self.key(identity)] = Entry(lines: nil, checkedAt: Date())
+            entries[Self.key(identity)] = Entry(lines: nil, checkedAt: Date(), searched: true)
         case .failed:
             return
         }

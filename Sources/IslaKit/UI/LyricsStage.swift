@@ -585,14 +585,19 @@ struct LyricsStage: View {
     /// time: `now` reads the position through the lead and the listener's
     /// offset, so the jump subtracts them back out — or the line that lands
     /// as current is not the one that was clicked whenever the offset
-    /// outweighs the line gap. The 0.02 nudge is for a paused player: seeking
-    /// to exactly `line.at - lead` leaves `now` one floating-point rounding
-    /// away from the line's own timestamp, and with no ticker running to
-    /// cross it the previous line could stay highlighted. And a strongly
-    /// negative offset near the end of the track must not clamp into the
-    /// final second — that is a skip, not a seek.
+    /// outweighs the line gap. The margin past the line's start is for where
+    /// the player really lands. It was 0.02s, enough for floating-point
+    /// rounding and nothing else, and a player that lands a few hundredths
+    /// short — as they do — lit the line before the one clicked: forward, back,
+    /// forward, filmed on 2026-09-21. `clickMargin` holds against that and
+    /// still starts the audio ahead of the voice, since the lead already puts
+    /// the jump before the line's timestamp. And a strongly negative offset
+    /// near the end of the track must not clamp into the final second — that
+    /// is a skip, not a seek.
+    static let clickMargin: TimeInterval = 0.12
+
     static func clickTarget(lineAt: TimeInterval, lead: TimeInterval, duration: TimeInterval) -> TimeInterval {
-        var target = max(0, lineAt - lead + 0.02)
+        var target = max(0, lineAt - lead + clickMargin)
         if duration > 2 { target = min(target, duration - 1) }
         return target
     }

@@ -46,10 +46,15 @@ final class OfflineLyricsIsolationTests: XCTestCase {
         }
     }
 
-    /// One service, named in one place, over TLS.
-    func testTheOneEndpointIsTheDocumentedOne() {
+    /// One service, named in one place, over TLS — its exact query and, since
+    /// 2026-09-21, its search, which asks the same host with less.
+    func testTheOneServiceIsTheDocumentedOne() {
         XCTAssertEqual(OnlineLyrics.endpoint, "https://lrclib.net/api/get")
-        XCTAssertTrue(OnlineLyrics.endpoint.hasPrefix("https://"))
+        XCTAssertEqual(OnlineLyrics.searchEndpoint, "https://lrclib.net/api/search")
+        for endpoint in [OnlineLyrics.endpoint, OnlineLyrics.searchEndpoint] {
+            XCTAssertEqual(URL(string: endpoint)?.host, "lrclib.net", endpoint)
+            XCTAssertEqual(URL(string: endpoint)?.scheme, "https", endpoint)
+        }
     }
 
     /// The local library is still forbidden the network outright: the exception

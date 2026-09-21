@@ -187,6 +187,49 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertEqual(timeline.lines.first?.text, "Local opening")
     }
 
+    /// A lookup that could not reach the catalogue reads as a quiet miss and
+    /// asks again by itself. It used to leave "Finding lyrics…" up for the
+    /// whole song, with a Retry button the lock card could not fit.
+    func testAFailedLookupShowsAMissAndAsksAgainByItself() async throws {
+        LyricsCoordinator.retryDelays = [0.05]
+        defer { LyricsCoordinator.retryDelays = [5, 30, 120] }
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        let fetched = LyricTimeline(
+            lines: [LyricsStore.Line(at: 2, text: "Found on the second ask")], granularity: .line
+        )
+        var asked = 0
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true },
+            isOnlineEnabled: { true },
+            onlineCache: OnlineLyricsCache(directory: root),
+            onlineLookUp: { _ in
+                asked += 1
+                return asked == 1 ? .failed : .found(fetched)
+            }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        media.apply(playingSnapshot())
+        for _ in 0..<50 where asked < 1 || coordinator.availability == .resolving {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(coordinator.availability, .noLocalLyrics, "a quiet miss, not a spinner")
+
+        for _ in 0..<100 {
+            if case .ready = coordinator.availability { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        guard case .ready(let timeline) = coordinator.availability else {
+            return XCTFail("the retry found the words")
+        }
+        XCTAssertEqual(timeline.lines.first?.text, "Found on the second ask")
+        XCTAssertEqual(asked, 2)
+    }
+
     /// And with nothing local and the switch on, the words arrive from LRCLIB.
     func testWithNoLocalFileTheWordsComeFromTheService() async throws {
         let library = LocalLyricsLibrary(directory: root)
