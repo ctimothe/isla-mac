@@ -16,8 +16,16 @@ import XCTest
 final class PlayerScriptTests: XCTestCase {
     func testEveryBridgeScriptCompilesAgainstTheInstalledPlayers() throws {
         var compiled = 0
+        var unreadable: [String] = []
         for app in PlayerApp.allCases {
             guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleID) != nil else { continue }
+            // A machine that cannot read the player's dictionary — a headless
+            // runner, say — cannot judge our scripts either; every one would
+            // fail for a reason that has nothing to do with them.
+            if let reason = dictionaryUnreadable(for: app) {
+                unreadable.append("\(app.displayName): \(reason)")
+                continue
+            }
             for (name, source) in PlayerBridge.Script.everySource(for: app) {
                 let script = try XCTUnwrap(NSAppleScript(source: source), "\(app) \(name)")
                 var error: NSDictionary?
@@ -29,7 +37,19 @@ final class PlayerScriptTests: XCTestCase {
                 compiled += 1
             }
         }
-        if compiled == 0 { throw XCTSkip("neither Music nor Spotify is installed") }
+        if compiled == 0 {
+            throw XCTSkip("no player's dictionary could be read here. \(unreadable.joined(separator: "; "))")
+        }
+    }
+
+    /// Why a script made of nothing but the player's own terminology fails to
+    /// compile here, or nil when it compiles. Nothing of ours is in it — no
+    /// variables — so a failure is the machine's, not the bridge's.
+    private func dictionaryUnreadable(for app: PlayerApp) -> String? {
+        var error: NSDictionary?
+        let probe = NSAppleScript(source: "tell application id \"\(app.bundleID)\" to get player state")
+        if probe?.compileAndReturnError(&error) == true { return nil }
+        return "\(error?[NSAppleScript.errorMessage] ?? "unknown error")"
     }
 
     /// The state script's answer keeps "nothing loaded" apart from "could not
