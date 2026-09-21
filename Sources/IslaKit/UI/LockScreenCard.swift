@@ -74,11 +74,33 @@ struct LockScreenCard: View {
         NotchViewModel.LockCardStyle(rawValue: styleRaw) ?? .glass
     }
 
-    static let size = CGSize(width: 460, height: 300)
+    @AppStorage(NotchViewModel.lockCardSizeKey) private var sizeRaw = NotchViewModel.LockCardSize.standard.rawValue
+
+    private var cardSize: NotchViewModel.LockCardSize {
+        NotchViewModel.LockCardSize(rawValue: sizeRaw) ?? .standard
+    }
+
+    /// The size the lock window is cut to, read when it is made. A setting
+    /// changed mid-lock applies at the next lock: the window is never resized
+    /// while it stands.
+    static var size: CGSize { size(for: NotchViewModel.lockCardSize) }
+
+    static func size(for cardSize: NotchViewModel.LockCardSize) -> CGSize {
+        switch cardSize {
+        case .standard: return CGSize(width: 460, height: 300)
+        case .compact: return CGSize(width: 420, height: 244)
+        }
+    }
+
+    private var dimensions: CGSize { Self.size(for: cardSize) }
 
     /// How many lyric lines the middle shows. Odd, so the line being sung sits
     /// in the centre with the same amount of song either side of it.
     static let visibleLyricLines = 5
+
+    static func visibleLyricLines(for cardSize: NotchViewModel.LockCardSize) -> Int {
+        cardSize == .compact ? 3 : visibleLyricLines
+    }
 
     /// How far above the card's foot the output list stops.
     ///
@@ -110,16 +132,18 @@ struct LockScreenCard: View {
                 rail
                     .padding(.top, 14)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 22)
-            .padding(.bottom, 18)
+            .padding(.horizontal, cardSize == .compact ? 20 : 24)
+            .padding(.top, cardSize == .compact ? 18 : 22)
+            .padding(.bottom, cardSize == .compact ? 14 : 18)
             // Every mark on the card carries its own shadow on glass. That is
             // how white type survives a bright wallpaper without a scrim
             // painting the wallpaper out — the system does the same on its own
             // lock screen, and it is why the clock there is readable over
             // anything.
-            .shadow(color: .black.opacity(style == .glass ? 0.35 : 0), radius: 3, y: 1)
-            .frame(width: Self.size.width, height: Self.size.height)
+            // More of the wallpaper shows through Transparent, so its type
+            // carries more shadow to stay legible over it.
+            .shadow(color: .black.opacity(style == .solid ? 0 : (style == .clear ? 0.5 : 0.35)), radius: 3, y: 1)
+            .frame(width: dimensions.width, height: dimensions.height)
             .overlay { outputPicker }
             .background { coverLight }
             .glassSurface(
@@ -128,7 +152,7 @@ struct LockScreenCard: View {
                 // No tint from the cover either. The glass takes its character
                 // from the wallpaper it is actually over, which is the point of
                 // it being glass.
-                samplesBackdrop: style == .glass && media.artwork == nil,
+                samplesBackdrop: style != .solid && media.artwork == nil,
                 // Solid is the panel Reduce Transparency draws, chosen on
                 // purpose. It used to be the drawn glass laid over an
                 // `.ultraThinMaterial` and a black scrim — three surfaces for
@@ -182,25 +206,30 @@ struct LockScreenCard: View {
     /// cover the glass falls back to sampling what it can.
     @ViewBuilder
     private var coverLight: some View {
-        if style == .glass, let image = media.artwork {
+        if style != .solid, let image = media.artwork {
             ZStack {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: Self.size.width, height: Self.size.height)
+                    .frame(width: dimensions.width, height: dimensions.height)
                     // Oversized before the blur, so the blur has no soft,
                     // darker rim to show at the card's edge.
                     .scaleEffect(1.5)
                     .blur(radius: 44, opaque: true)
                     .saturation(1.3)
-                Color.black.opacity(appearance.increaseContrast ? 0.56 : 0.34)
+                Color.black.opacity(appearance.increaseContrast ? 0.56 : (style == .clear ? 0.2 : 0.34))
                 LinearGradient(
                     colors: [.clear, .black.opacity(0.22)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             }
-            .frame(width: Self.size.width, height: Self.size.height)
+            .frame(width: dimensions.width, height: dimensions.height)
+            // Transparent lets the wallpaper through the cover's light, the
+            // most glass a card above the login shield can be: no window up
+            // there is given a backdrop to blur. Increase Contrast keeps it
+            // opaque — see-through is exactly what that setting asks against.
+            .opacity(style == .clear && !appearance.increaseContrast ? 0.62 : 1)
             .clipped()
             .animation(reduceMotion ? nil : Theme.artworkAnimation, value: media.artwork)
         }
@@ -232,7 +261,9 @@ struct LockScreenCard: View {
 
     /// The cover shrinks when a pane needs the room, and the card does not.
     private var artwork: some View {
-        let side: CGFloat = pane == .player ? 76 : 44
+        let side: CGFloat = cardSize == .compact
+            ? (pane == .player ? 58 : 38)
+            : (pane == .player ? 76 : 44)
         return ZStack(alignment: .bottomTrailing) {
             Group {
                 if let image = media.artwork {
@@ -338,7 +369,7 @@ struct LockScreenCard: View {
                     trackOffset: lyrics.trackOffset
                 )
                 let centre = LyricSweep.centreIndex(in: lines, at: at)
-                let window = Self.window(around: centre, count: lines.count, size: Self.visibleLyricLines)
+                let window = Self.window(around: centre, count: lines.count, size: Self.visibleLyricLines(for: cardSize))
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(window, id: \.self) { index in
                         lyricRow(lines: lines, index: index, centre: centre, at: at)

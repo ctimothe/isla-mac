@@ -150,7 +150,12 @@
 "Sound Output" = "Sound Output";
 "Glass" = "Glass";
 "Solid" = "Solid";
-"Card Style" = "Card Style";
+"Lock Screen" = "Lock Screen";
+"Transparent" = "Transparent";
+"Tinted" = "Tinted";
+"Card Size" = "Card Size";
+"Standard" = "Standard";
+"Compact" = "Compact";
 
 /* Lock card panes */
 "Lyrics are switched off in Settings." = "Lyrics are switched off in Settings.";

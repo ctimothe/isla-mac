@@ -52,6 +52,7 @@ enum SettingsIcon {
     /// A brief look at the track that just started.
     static let peek = "eye"
     static let lockScreen = "lock.display"
+    static let cardSize = "rectangle.compress.vertical"
     /// Glass or solid is an appearance choice, and this is the system's
     /// appearance glyph.
     static let cardStyle = "circle.lefthalf.filled"
