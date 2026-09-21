@@ -307,7 +307,7 @@ final class LyricsCoordinatorTests: XCTestCase {
         let library = LocalLyricsLibrary(directory: root)
         let media = MediaController()
         LyricsCoordinator.quietGrace = 0.05
-        defer { LyricsCoordinator.quietGrace = 0.35 }
+        defer { LyricsCoordinator.quietGrace = 0.6 }
         let coordinator = LyricsCoordinator(
             media: media, library: library, isEnabled: { true },
             isOnlineEnabled: { true },

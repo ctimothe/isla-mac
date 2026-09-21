@@ -138,13 +138,29 @@ private struct ShelfCard: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 68, height: 40)
-            Text(item.name)
-                .islandFont(.caption, weight: .regular)
-                .foregroundStyle(Theme.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
-                .multilineTextAlignment(.center)
-                .frame(height: 24, alignment: .top)
+            // The name, then how long ago. A capture's name already carries
+            // its date, but "Screenshot 2026-09-21 at 15.43.23" has to be read
+            // and worked out; "5 min. ago" is known at a glance, and it is what
+            // tells two captures of the same minute's session apart.
+            VStack(spacing: 1) {
+                Text(item.name)
+                    .islandFont(.caption, weight: .regular)
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let date = item.date {
+                    // Re-read twice a minute, so "Just now" does not linger
+                    // into the afternoon on a shelf left open.
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        Text(ShelfItem.age(of: date, now: context.date))
+                            .islandFont(.caption, weight: .regular)
+                            .foregroundStyle(Theme.tertiary)
+                            .lineLimit(1)
+                    }
+                    .help(date.formatted(date: .abbreviated, time: .shortened))
+                }
+            }
+            .frame(height: 24, alignment: .top)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 8)

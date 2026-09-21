@@ -75,7 +75,12 @@ final class LyricsCoordinator: ObservableObject {
     /// instant, because it is. Over it, silence would read as broken, so the
     /// spinner and "Finding lyrics…" appear. It sits just past a warm
     /// catalogue answer and well under the point a person starts to wonder.
-    static var quietGrace: TimeInterval = 0.35
+    ///
+    /// 0.35s was just short of it. Filmed on 2026-09-21, two catalogue answers
+    /// landed 0.38s and 0.44s after their skips, so the spinner flashed for
+    /// 67ms and 100ms and was gone — a loading state nobody could read. 0.6s
+    /// clears both with room to spare.
+    static var quietGrace: TimeInterval = 0.6
     private weak var presentation: LyricsStore?
     private var observers = Set<AnyCancellable>()
     private var logicalTrackKey: String?
