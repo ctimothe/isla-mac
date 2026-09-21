@@ -47,6 +47,76 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertEqual(store.items.first?.date?.timeIntervalSinceNow ?? -99, 0, accuracy: 5)
     }
 
+    /// Each card is bookmarked once, when it arrives — not on every save.
+    /// `persist` runs on every change, and it used to bookmark the whole shelf
+    /// each time: up to sixty reads of file and volume metadata on the main
+    /// thread for one copied screenshot, with the panel shut.
+    func testEachCardIsBookmarkedOnceNotOnEverySave() {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ShelfStore(defaults: defaults)
+        var made: [String] = []
+        store.makeBookmark = { url in
+            made.append(url.lastPathComponent)
+            return Data(url.path.utf8)
+        }
+        let first = URL(fileURLWithPath: "/tmp/first.png")
+        let second = URL(fileURLWithPath: "/tmp/second.png")
+
+        store.add([first])
+        store.add([second])
+        if let card = store.items.first(where: { $0.url == second }) { store.remove(card) }
+
+        XCTAssertEqual(made, ["first.png", "second.png"], "one bookmark per card, however often the shelf is saved")
+        XCTAssertEqual(
+            defaults.array(forKey: "shelf.urls.bookmarks") as? [Data], [Data(first.path.utf8)],
+            "the saved list still holds one bookmark per card, in order"
+        )
+    }
+
+    /// A card that could not be bookmarked is asked again at the next save,
+    /// as before — a failure is not remembered as an answer.
+    func testAFailedBookmarkIsTriedAgain() {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ShelfStore(defaults: defaults)
+        var attempts = 0
+        store.makeBookmark = { _ in
+            attempts += 1
+            return nil
+        }
+        store.add([URL(fileURLWithPath: "/tmp/unbookmarkable.png")])
+        store.add([URL(fileURLWithPath: "/tmp/other.png")])
+
+        XCTAssertEqual(attempts, 3, "the failed card is tried again on the second save")
+        XCTAssertEqual(defaults.array(forKey: "shelf.urls.bookmarks") as? [Data], [Data(), Data()])
+    }
+
+    /// A reloaded shelf reuses the bookmarks it saved rather than making them
+    /// all again on its first save.
+    func testAReloadedShelfReusesItsBookmarks() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("shelf-\(UUID()).png")
+        try Data([1]).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        ShelfStore(defaults: defaults).add([file])
+
+        let reloaded = ShelfStore(defaults: defaults)
+        reloaded.load()
+        var made: [String] = []
+        reloaded.makeBookmark = { url in
+            made.append(url.lastPathComponent)
+            return Data(url.path.utf8)
+        }
+        reloaded.add([URL(fileURLWithPath: "/tmp/new.png")])
+
+        XCTAssertEqual(made, ["new.png"], "the card that came back from disk keeps its bookmark")
+    }
+
     /// Dates survive a relaunch, and with them the order.
     func testDatesSurviveAReload() {
         let suite = "ShelfStoreTests.\(UUID())"
