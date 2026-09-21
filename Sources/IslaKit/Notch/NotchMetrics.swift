@@ -63,6 +63,27 @@ enum NotchMetrics {
     /// become an interruption.
     static let sneakPeekDuration: TimeInterval = 2.2
 
+    /// How long a paused track keeps its pill before folding into the notch.
+    ///
+    /// Long enough that pausing to answer someone and resuming never makes the
+    /// island collapse and re-expand under the eye; short enough that a paused
+    /// song does not sit on the menu bar after the listener has moved on.
+    @MainActor static var pausedLinger: TimeInterval = 5
+
+    /// How far inside the hardware cutout the island rests when nothing plays.
+    ///
+    /// The cutout is not display — there is no pixel inside it to light — so a
+    /// shape drawn wholly within it cannot be seen at all. Drawn exactly to its
+    /// edge, anti-aliasing paints a half-pixel line on the far side of the
+    /// edge, and the island shows as a faint outline round the notch. One point
+    /// in is enough to leave nothing outside.
+    static let restingInset: CGFloat = 1
+    /// How far the resting island grows past the notch when the pointer finds
+    /// it, on each side and below: enough to be unmistakable, small enough to
+    /// read as the notch waking rather than as the panel opening.
+    static let hoverNudgeWidth: CGFloat = 8
+    static let hoverNudgeDepth: CGFloat = 3
+
     /// How much wider the pill goes while peeking, over the compact width.
     /// Enough for a title beside the artwork without reaching the full body.
     static let sneakPeekExtension: CGFloat = 300

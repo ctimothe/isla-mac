@@ -10,12 +10,23 @@ enum CompactMediaActivity: Equatable {
     case paused
     case playing
 
-    init(hasTrack: Bool, isPlaying: Bool) {
+    /// - Parameter pauseHasSettled: the track has been paused long enough that
+    ///   it is no longer "just paused" — see `NotchMetrics.pausedLinger`. A
+    ///   paused island used to stay drawn for as long as the player kept a
+    ///   track loaded, which for Spotify is forever: an idle Mac with nothing
+    ///   playing still carried a pill, a placeholder cover and a still
+    ///   equalizer across its menu bar. Now a settled pause folds into the
+    ///   notch, the same as nothing loaded at all.
+    init(hasTrack: Bool, isPlaying: Bool, pauseHasSettled: Bool = false) {
         guard hasTrack else {
             self = .hidden
             return
         }
-        self = isPlaying ? .playing : .paused
+        if isPlaying {
+            self = .playing
+        } else {
+            self = pauseHasSettled ? .hidden : .paused
+        }
     }
 
     var isVisible: Bool { self != .hidden }
