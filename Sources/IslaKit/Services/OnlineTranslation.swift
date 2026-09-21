@@ -46,6 +46,14 @@ enum OnlineTranslation {
         components.queryItems = [
             URLQueryItem(name: "q", value: text),
             URLQueryItem(name: "langpair", value: "\(serviceCode(for: source))|\(serviceCode(for: target))"),
+            // Machine translation only. The service's default answer is its
+            // best match from a public, crowd-filled translation memory, and
+            // that memory holds junk: "salom" came back as "Google TRANSLEÓN",
+            // ranked 0.98 above the right "Привет" (2026-09-21). With no
+            // private memory to consult, `onlyprivate` leaves the machine
+            // translation as the only answer — "salom" is "привет".
+            URLQueryItem(name: "onlyprivate", value: "1"),
+            URLQueryItem(name: "mt", value: "1"),
         ]
         guard let url = components.url else { return nil }
         var request = URLRequest(url: url, timeoutInterval: 12)

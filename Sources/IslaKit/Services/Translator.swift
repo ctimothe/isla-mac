@@ -151,6 +151,8 @@ final class Translator: ObservableObject {
     /// Chosen as the source. Choosing the language already on the other side
     /// swaps the two rather than translating a language into itself.
     func choose(source newSource: TranslationLanguage?) {
+        guard newSource != source else { return }
+        clearAnswer()
         if let newSource, newSource == target {
             // The old source takes the target's place — a detected one as the
             // language it was detected as.
@@ -162,6 +164,8 @@ final class Translator: ObservableObject {
     }
 
     func choose(target newTarget: TranslationLanguage) {
+        guard newTarget != target else { return }
+        clearAnswer()
         if newTarget == source {
             source = target
         }
@@ -184,6 +188,17 @@ final class Translator: ObservableObject {
             engine = nil
         }
         remember()
+    }
+
+    /// A new language makes the answer on screen an answer in the old one,
+    /// under a heading that already names the new. It goes at once rather than
+    /// sitting there for the debounce and the engine's time.
+    private func clearAnswer() {
+        output = ""
+        outputSource = nil
+        engine = nil
+        failure = nil
+        remedies = []
     }
 
     private func remember() {
@@ -232,6 +247,10 @@ final class Translator: ObservableObject {
         /// the framework only translates outside SwiftUI from 26 on, and the
         /// model only exists there.
         var belowMinimumSystem = false
+        /// Which side of the pair no engine on this Mac knows, when one does
+        /// not — so the message names that language and not its partner.
+        var sourceOffDevice = false
+        var targetOffDevice = false
 
         /// Whether the pair is this Mac's to translate — ready or not. Such a
         /// pair is never sent online, whatever the switch says.
@@ -258,9 +277,18 @@ final class Translator: ObservableObject {
     /// Why no engine can do the pair, naming the language that is missing.
     static func obstacle(for route: Route, given capabilities: Capabilities) -> Obstacle {
         if capabilities.belowMinimumSystem { return .needsNewerSystem }
-        // The language to name is the one that is not English: English is on
-        // every engine, so it is never the reason.
-        let missing = route.target == .english ? route.source : route.target
+        // The language to name is the one this Mac lacks. It used to be
+        // whichever side was not English, which named Russian for Uzbek into
+        // Russian — the one of the two the Mac translates perfectly well.
+        // Without that knowledge, English is still never the reason.
+        let missing: TranslationLanguage
+        if capabilities.targetOffDevice {
+            missing = route.target
+        } else if capabilities.sourceOffDevice {
+            missing = route.source
+        } else {
+            missing = route.target == .english ? route.source : route.target
+        }
         if capabilities.systemSupported { return .needsDownload(missing) }
         if capabilities.modelSupportsPair, let obstacle = capabilities.modelObstacle { return obstacle }
         return .needsOnline(missing)
@@ -314,6 +342,9 @@ final class Translator: ObservableObject {
         capabilities.systemInstalled = status == .installed
         capabilities.modelSupportsPair = Self.modelHandles(route.source) && Self.modelHandles(route.target)
         capabilities.modelObstacle = modelObstacle
+        if onDeviceLanguages == nil { onDeviceLanguages = await Self.languagesOnThisMac() }
+        capabilities.sourceOffDevice = isOnlineOnly(route.source)
+        capabilities.targetOffDevice = isOnlineOnly(route.target)
         return capabilities
     }
 

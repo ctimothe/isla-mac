@@ -308,19 +308,6 @@ struct NotchGeometry {
     /// an invisible one that does.
     var collapsedDepth: CGFloat { notchSize.height }
 
-    /// The depth the collapsed target used to claim on a synthetic notch, kept
-    /// as a record of the number the trade above was made against — 8 pt of menu
-    /// bar left to whatever sits under the island.
-    ///
-    /// Nothing reads it. It is not a switch, and reversing the trade is not one
-    /// either: that means editing `collapsedDepth` to branch on `isPhysical`
-    /// again, and re-cutting the two rects below with it. This comment used to
-    /// claim the reversal was a one-line change here, which was never true.
-    static let idleStripDepth: CGFloat = 8
-
-    /// Size of the collapsed target: the notch itself, or the strip above.
-    var collapsedSize: CGSize { CGSize(width: notchSize.width, height: collapsedDepth) }
-
     /// Hover target while collapsed, in global screen coordinates. Slightly
     /// taller than the notch so the panel opens just before the pointer lands.
     var hoverRect: CGRect {
@@ -390,12 +377,10 @@ struct NotchGeometry {
         )
     }
 
-    /// Area that keeps the panel open while expanded, in global screen coordinates.
-    var expandedHoverRect: CGRect { hoverRect(for: expandedSize) }
-
-    /// Taken for the body actually on screen, not for the standard one: on the
-    /// teleprompter the panel reaches 400 pt down, and a rect cut for 208 would
-    /// call the pointer "away" halfway through the tab it is resting on.
+    /// Area that keeps the panel open while expanded, in global screen
+    /// coordinates. Taken for the body actually on screen, not for the standard
+    /// one: the body's width is a setting, and a rect cut for another body
+    /// would call the pointer "away" while it rests on the panel's edge.
     func hoverRect(for body: CGSize) -> CGRect {
         includingTopEdge(CGRect(
             x: notchCenterX - body.width / 2 - 12,
