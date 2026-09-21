@@ -74,6 +74,95 @@ final class LockCardCoverLightTests: XCTestCase {
     }
 }
 
+extension LockCardCoverLightTests {
+    /// Every glass level at every size renders at the size its window is cut
+    /// to. Set `SHOT_GRID_OUT` (and `COVER_IN`) to keep a photograph of all six.
+    func testEveryGlassAndSizeRendersAtItsSize() async throws {
+        let defaults = UserDefaults.standard
+        let hadStyle = defaults.object(forKey: NotchViewModel.lockCardStyleKey)
+        let hadSize = defaults.object(forKey: NotchViewModel.lockCardSizeKey)
+        defer {
+            if let hadStyle { defaults.set(hadStyle, forKey: NotchViewModel.lockCardStyleKey) }
+            else { defaults.removeObject(forKey: NotchViewModel.lockCardStyleKey) }
+            if let hadSize { defaults.set(hadSize, forKey: NotchViewModel.lockCardSizeKey) }
+            else { defaults.removeObject(forKey: NotchViewModel.lockCardSizeKey) }
+        }
+        let media = MediaController()
+        media.isolateFromPlayers()
+        var snap = NowPlayingFeed.Snapshot()
+        snap.title = "Waiting Room"; snap.artist = "Phoebe Bridgers"; snap.album = "Vol. 08"
+        snap.duration = 238; snap.elapsed = 84; snap.rate = 1; snap.isPlaying = true
+        snap.takenAt = Date(); snap.playerPID = 4242
+        if let path = ProcessInfo.processInfo.environment["COVER_IN"],
+           let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
+            snap.artwork = data
+        } else {
+            let cover = NSImage(size: NSSize(width: 300, height: 300))
+            cover.lockFocus()
+            NSGradient(starting: .systemOrange, ending: .systemPink)?
+                .draw(in: NSRect(x: 0, y: 0, width: 300, height: 300), angle: 60)
+            cover.unlockFocus()
+            snap.artwork = NSBitmapImageRep(data: cover.tiffRepresentation!)!
+                .representation(using: .png, properties: [:])
+        }
+        media.apply(snap)
+        for _ in 0..<80 where media.artwork == nil {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        let lyrics = LyricsStore()
+
+        var shots: [(String, NSImage)] = []
+        for size in NotchViewModel.LockCardSize.allCases {
+            for style in NotchViewModel.LockCardStyle.allCases {
+                defaults.set(style.rawValue, forKey: NotchViewModel.lockCardStyleKey)
+                defaults.set(size.rawValue, forKey: NotchViewModel.lockCardSizeKey)
+                let renderer = ImageRenderer(content: LockScreenCard(media: media, lyrics: lyrics))
+                renderer.scale = 2
+                let image = try XCTUnwrap(renderer.nsImage, "\(style.rawValue) \(size.rawValue)")
+                XCTAssertEqual(image.size, LockScreenCard.size(for: size), "\(style.rawValue) \(size.rawValue)")
+                shots.append(("\(style.rawValue) \(size.rawValue)", image))
+            }
+        }
+
+        if let out = ProcessInfo.processInfo.environment["SHOT_GRID_OUT"] {
+            let sheet = ImageRenderer(content: GridSheet(shots: shots))
+            sheet.scale = 1
+            if let image = sheet.nsImage, let tiff = image.tiffRepresentation,
+               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                try png.write(to: URL(fileURLWithPath: out))
+                print("SHOT written to \(out)")
+            }
+        }
+    }
+}
+
+private struct GridSheet: View {
+    let shots: [(String, NSImage)]
+
+    var body: some View {
+        ZStack {
+            // A wallpaper with detail in it, so what shows through is visible.
+            LinearGradient(
+                colors: [Color(red: 0.30, green: 0.45, blue: 0.70), Color(red: 0.85, green: 0.55, blue: 0.40)],
+                startPoint: .topLeading, endPoint: .bottomTrailing)
+            VStack(spacing: 24) {
+                ForEach(0..<2, id: \.self) { row in
+                    HStack(spacing: 24) {
+                        ForEach(0..<3, id: \.self) { column in
+                            let shot = shots[row * 3 + column]
+                            VStack(spacing: 6) {
+                                Image(nsImage: shot.1)
+                                Text(shot.0).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 1560, height: 760)
+    }
+}
+
 private struct CoverSheet: View {
     let media: MediaController
     let lyrics: LyricsStore

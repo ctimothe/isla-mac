@@ -269,7 +269,7 @@ final class NotchController {
             height: pill.height
         )
         rootView.lockedHoverRect = rect
-        rootView.activeRect = rect
+        rootView.activeRect = NotchRootView.reachingTopEdge(rect, windowHeight: panel.frame.height)
     }
 
     /// Unconditional, unlike the lock side: the toggle may have been flipped
@@ -868,7 +868,7 @@ final class NotchController {
 
         pointer.openRect = geometry.collapsedHoverRect(for: vm.bodySize.width)
         // The drawn shape, not the padded target: what lights is what you are on.
-        pointer.hoverRect = geometry.collapsedIslandRect(for: vm.bodySize.width)
+        pointer.hoverRect = geometry.collapsedIslandHoverRect(for: vm.bodySize.width)
         pointer.warmZone = geometry.warmZone
         pointer.coolZone = geometry.coolZone
         // Cut for the tab that will be showing, not for the standard body: a
@@ -1274,7 +1274,7 @@ final class NotchController {
         // Follows the pill, which changes width with what is playing and widens
         // again for a peek. Left at the width it was built with, the lift would
         // stop short of the artwork the moment a track started.
-        pointer.hoverRect = vm.geometry.collapsedIslandRect(for: vm.bodySize.width)
+        pointer.hoverRect = vm.geometry.collapsedIslandHoverRect(for: vm.bodySize.width)
         // The shape is drawn `topRadius` wider than the body on each side —
         // that slack is where the concave shoulders live — so the clickable
         // rect is grown to match it. Every point of the compact island opens
@@ -1291,7 +1291,7 @@ final class NotchController {
         // invisible and the menu bar's are not.
         let slack = open ? Theme.openTopRadius : Theme.collapsedTopRadius
         let rect = vm.geometry.contentRect(for: size).insetBy(dx: -slack, dy: 0)
-        rootView.activeRect = rect
+        rootView.activeRect = NotchRootView.reachingTopEdge(rect, windowHeight: vm.geometry.windowSize.height)
         geometryTrace(String(format: "activeRect open=%d w=%.0f h=%.0f", open ? 1 : 0, rect.width, rect.height))
         // Drags are aimed by hand and land wide, so the target is the visible
         // island generously grown — but nothing like the whole 700×444 window,

@@ -469,9 +469,6 @@ final class NotchViewModel: ObservableObject {
     /// Whether the last state this saw was a track playing — the only state a
     /// pause can be seen happening from.
     private var lastSawPlaying = false
-    /// The title of the last track this saw, to tell a different song arriving
-    /// paused from the same one described again.
-    private var lastTitle: String?
 
     /// Decides whether a paused track shows its pill, and for how long.
     ///
@@ -485,17 +482,12 @@ final class NotchViewModel: ObservableObject {
     /// already running is left alone, so re-describing the same pause cannot
     /// cut it short or restart it.
     ///
-    /// A different song arriving paused — a skip made while paused — is news
-    /// too, and gets the same glance: it used to, and the sneak peek has
-    /// nothing to widen while the pill is folded. It is told apart by title
-    /// from a track that was only adopted (there was none before) or described
-    /// again (the same title).
+    /// A different song arriving paused rests too. It used to get a glance,
+    /// but with the linger now only a skip's breath long a glance would be a
+    /// flicker, and the owner asked for a paused island to stay out of the way.
     func playbackChanged(isPlaying: Bool, hasTrack: Bool, title: String? = nil) {
         let sawPlaying = lastSawPlaying
-        let previousTitle = lastTitle
         lastSawPlaying = isPlaying && hasTrack
-        lastTitle = hasTrack ? title : nil
-        let newSongWhilePaused = previousTitle != nil && title != nil && title != previousTitle
         guard hasTrack, !isPlaying else {
             pauseSettleTask?.cancel()
             pauseSettleTask = nil
@@ -503,7 +495,7 @@ final class NotchViewModel: ObservableObject {
             DebugTrail.note("island: playing=\(isPlaying ? 1 : 0) track=\(hasTrack ? 1 : 0)")
             return
         }
-        if sawPlaying || newSongWhilePaused {
+        if sawPlaying {
             pauseSettleTask?.cancel()
             pauseSettleTask = nil
             // Paused while a film plays: the pill has nothing to linger for,
@@ -648,16 +640,45 @@ final class NotchViewModel: ObservableObject {
     /// wallpapers glass cannot win against — a bright, busy photograph behind
     /// small white text — and for anybody who simply wants the panel to be a
     /// panel.
+    /// How much glass the lock card is, in the three steps macOS itself offers
+    /// for its own glass — the most see-through, a tinted pane, and the opaque
+    /// panel Reduce Transparency draws — so the card answers to the same idea
+    /// the rest of the system does. Stored values are kept from when there
+    /// were two: "glass" is Tinted, the card's look since the cover lit it.
     enum LockCardStyle: String, CaseIterable, Identifiable {
-        case glass, solid
+        case clear
+        case glass
+        case solid
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .glass: return localized("Glass")
+            case .clear: return localized("Transparent")
+            case .glass: return localized("Tinted")
             case .solid: return localized("Solid")
             }
         }
+    }
+
+    /// How much room the lock card takes: the full player, or a shorter one
+    /// with three lines of words rather than five.
+    enum LockCardSize: String, CaseIterable, Identifiable {
+        case standard
+        case compact
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .standard: return localized("Standard")
+            case .compact: return localized("Compact")
+            }
+        }
+    }
+
+    static let lockCardSizeKey = "lockCardSize"
+
+    static var lockCardSize: LockCardSize {
+        LockCardSize(rawValue: UserDefaults.standard.string(forKey: lockCardSizeKey) ?? "") ?? .standard
     }
 
     static let lockCardStyleKey = "lockCardStyle"

@@ -148,8 +148,13 @@
 "Back to the current line" = "Вернуться к текущей строке";
 "Sound Output" = "Вывод звука";
 "Glass" = "Стекло";
-"Solid" = "Плотный";
-"Card Style" = "Стиль карточки";
+"Solid" = "Сплошное";
+"Lock Screen" = "Экран блокировки";
+"Transparent" = "Прозрачное";
+"Tinted" = "Тонированное";
+"Card Size" = "Размер карточки";
+"Standard" = "Стандартный";
+"Compact" = "Компактный";
 
 /* Lock card panes */
 "Lyrics are switched off in Settings." = "Тексты выключены в настройках.";

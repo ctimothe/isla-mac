@@ -65,10 +65,13 @@ enum NotchMetrics {
 
     /// How long a paused track keeps its pill before folding into the notch.
     ///
-    /// Long enough that pausing to answer someone and resuming never makes the
-    /// island collapse and re-expand under the eye; short enough that a paused
-    /// song does not sit on the menu bar after the listener has moved on.
-    @MainActor static var pausedLinger: TimeInterval = 5
+    /// Only long enough to ride out the pause a skip passes through — a player
+    /// reports "paused" for a moment between two songs, and folding for that
+    /// would flicker the pill on every skip. It was five seconds, meant to
+    /// spare a quick resume; the owner asked on 2026-09-21 for a pause to go
+    /// straight under the notch, "without affecting or interrupting the
+    /// user", and a paused song has nothing to say on the menu bar.
+    @MainActor static var pausedLinger: TimeInterval = 0.4
 
     /// How far inside the hardware cutout the island rests when nothing plays.
     ///

@@ -71,8 +71,9 @@ are the exception the design did not anticipate:
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain.
-- **Lock-screen card** (Settings, default on) presents the player over
-  the shield, in a window of its own, finished as Glass or Solid. The
+- **Lock-screen card** (Settings › Lock Screen, default on) presents the
+  player over the shield, in a window of its own, finished as Transparent,
+  Tinted or Solid and sized Standard or Compact. The
   shield is protected content and no window above it is given a backdrop
   to blur, so the glass is a drawn recipe rather than a sample — the
   system's own lock-screen widgets work the same way. Since 2026-09-21
