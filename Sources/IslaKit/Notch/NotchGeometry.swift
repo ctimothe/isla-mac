@@ -341,6 +341,16 @@ struct NotchGeometry {
         )
     }
 
+    /// The drawn island for the hover lift: exactly as drawn, grown only past
+    /// the top edge. Without that, a pointer thrown to the top of the display
+    /// — parked on `screen.frame.maxY`, which `contains` excludes — sat under
+    /// the notch and the island never noticed it; the nudge came only a few
+    /// points lower. The owner, 2026-09-21: "it's not noticing when the
+    /// cursor is in the edges".
+    func collapsedIslandHoverRect(for width: CGFloat) -> CGRect {
+        includingTopEdge(collapsedIslandRect(for: width))
+    }
+
     func collapsedHoverRect(for width: CGFloat) -> CGRect {
         includingTopEdge(CGRect(
             x: notchCenterX - width / 2 - 6,
