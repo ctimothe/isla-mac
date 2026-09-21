@@ -70,6 +70,21 @@ final class TranslatorTests: XCTestCase {
         XCTAssertEqual(translator.target, .uzbek)
     }
 
+    /// A new language clears the answer on screen at once: it was an answer
+    /// in the old language, under a heading that already names the new one.
+    func testChoosingALanguageClearsTheAnswerInTheOldOne() {
+        let translator = Translator(defaults: defaults)
+        translator.choose(target: .russian)
+        translator.input = "salom"
+        translator.received("привет", for: "salom", by: .online)
+        translator.choose(target: .russian)
+        XCTAssertEqual(translator.output, "привет", "choosing the same language changes nothing")
+        translator.choose(target: .english)
+        XCTAssertEqual(translator.output, "")
+        XCTAssertNil(translator.engine)
+        XCTAssertEqual(translator.input, "salom", "what was typed stays")
+    }
+
     /// A detected source is swapped as the language it was detected as.
     func testSwapTurnsADetectedSourceIntoTheTarget() {
         let translator = Translator(defaults: defaults)
@@ -136,6 +151,13 @@ final class TranslatorTests: XCTestCase {
         let reversed = Translator.Route(source: .uzbek, target: .english)
         XCTAssertEqual(Translator.obstacle(for: reversed, given: uzbek), .needsOnline(.uzbek),
                        "English is never the reason, so it is never the one named")
+
+        // Uzbek into Russian names Uzbek, the side the Mac lacks — not Russian,
+        // which it translates perfectly well.
+        var uzbekSource = Translator.Capabilities()
+        uzbekSource.sourceOffDevice = true
+        XCTAssertEqual(Translator.obstacle(for: .init(source: .uzbek, target: .russian), given: uzbekSource),
+                       .needsOnline(.uzbek))
 
         let notDownloaded = Translator.Capabilities(systemInstalled: false, systemSupported: true)
         let ukrainian = Translator.obstacle(for: .init(source: .english, target: .ukrainian), given: notDownloaded)

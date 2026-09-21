@@ -160,9 +160,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 }
-
-extension Bundle {
-    var shortVersion: String {
-        (infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
-    }
-}

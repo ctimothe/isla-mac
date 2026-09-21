@@ -186,12 +186,6 @@ final class PointerWatcher {
         awaitsDeparture = true
     }
 
-    /// Ends the grace early — the pointer arriving on the panel is a better
-    /// signal than any timer, and a deliberate close must not have to wait.
-    func endGrace() {
-        graceUntil = nil
-    }
-
     private var graceUntil: Date?
 
     /// True while an automatic close is still held off.

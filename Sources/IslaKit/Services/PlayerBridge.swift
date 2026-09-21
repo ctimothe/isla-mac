@@ -100,11 +100,6 @@ enum PlayerBridge {
         }
     }
 
-    /// Compatibility entry point for existing Spotify-specific callers.
-    static func preciseSpotifyPosition(completion: @escaping @MainActor (TimeInterval?) -> Void) {
-        precisePosition(of: .spotify, completion: completion)
-    }
-
     /// Never launches a player: only already-running ones are queried, and a
     /// playing app wins over a merely-open one.
     static func currentState(completion: @escaping (PlayerState?) -> Void) {

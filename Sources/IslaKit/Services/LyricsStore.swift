@@ -126,12 +126,6 @@ final class LyricsStore: ObservableObject {
         setLocalTrackOffset(0, for: activeLocalTrackIdentity)
     }
 
-    func removeTrackOffset(for identity: LocalTrackIdentity) {
-        localTrackOffsets.removeValue(forKey: Self.localOffsetKey(identity))
-        persistLocalOffsets()
-        if activeLocalTrackIdentity == identity { trackOffset = trackOffset(for: identity) }
-    }
-
     func clearLocalTrackOffsets() {
         localTrackOffsets.removeAll()
         trackOffset = 0

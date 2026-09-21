@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="$ROOT/build/Isla.app"
+APP="$ROOT/build/app.noindex/Isla.app"
 PLIST="$APP/Contents/Info.plist"
 
 test -x "$APP/Contents/MacOS/Isla"

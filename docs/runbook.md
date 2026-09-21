@@ -47,15 +47,20 @@ and nothing that packages.
 Expected artifacts:
 
 ```text
-build/Isla.app
+build/app.noindex/Isla.app
 build/Isla-<version>.dmg   # <version> from Scripts/version
 ```
 
-Launch the verified bundle:
+The app is built inside a `.noindex` folder so Spotlight does not list it
+beside the installed copy. Install and open it:
 
 ```bash
-open "build/Isla.app"
+bash Scripts/install.sh
 ```
+
+This replaces `/Applications/Isla.app` and unregisters the built copy, so
+macOS only knows one Isla. Opening the built app directly registers a second
+copy that can intercept the Spotify sign-in callback.
 
 The app has no Dock icon, no menu-bar item and no window. If the panel is not
 visible, press ⌥⌘I — that shortcut is the only route in that needs no pointer.
@@ -228,7 +233,7 @@ Build the pinned reference and product, then run:
 bash Scripts/build-reference.sh
 bash Scripts/measure-performance.sh \
   "build/reference/Cyclop.app" \
-  "build/Isla.app" \
+  "build/app.noindex/Isla.app" \
   "docs/performance/2026-08-18-cyclop-0.6.5-baseline.md"
 ```
 

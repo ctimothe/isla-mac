@@ -570,3 +570,39 @@ notch in a single frame, "too intense, too raw".
   panel, and moving down it read as the pointer leaving. An open menu now holds
   the panel the way a drag does, and closing it gives the pointer 1.2 s to come
   back (`MenuTrackingTests`). The lyric and shelf context menus get the same.
+
+### Translate, as used — 2026-09-21
+
+- [x] **"salom" no longer comes back as "Google TRANSLEÓN".** MyMemory's
+  default answer is the best match from its public translation memory, which
+  held that entry at 0.98, above the right "Привет". Requests now ask for
+  machine translation only (`onlyprivate=1`): "salom" → "привет", verified live.
+- [x] **One Uzbek word is recognised on its own** when only Uzbek writes it —
+  "salom", "rahmat", "yaxshimisiz" — where it used to fall back to English.
+  Words Uzbek shares with English ("men", "ham") still need company.
+- [x] **The message names the language the Mac lacks.** Uzbek into Russian said
+  "Russian is translated online"; it names Uzbek.
+- [x] **Choosing a language clears the answer in the old one** at once, rather
+  than leaving it under the new heading for the debounce and the engine's time.
+
+### One Isla on the Mac — 2026-09-21
+
+- [x] **Spotlight listed three Isla apps.** Builds in `build/`, an old copy in
+  `~/Applications` and a stale temporary build were all registered. Removed,
+  leaving `/Applications/Isla.app` as the only registration. The bundle is now
+  assembled in `build/app.noindex/` (Spotlight skips a folder named `.noindex`;
+  `.metadata_never_index` was tried and is ignored), `Scripts/install.sh` is the
+  one way to install and relaunch and unregisters the built copy, and
+  `test-lifecycle.sh` unregisters the copy it launches when it exits.
+
+### 0.2.0 — 2026-09-21
+
+- [x] Released ad-hoc signed through `ISLA_ADHOC=1 ISLA_RELEASE_REMOTE=github
+  bash Scripts/release.sh`: every gate runs, only Developer ID signing and
+  notarization are skipped, and the release notes carry the one quarantine
+  command a downloaded build needs. The tag must name a commit already on the
+  remote, checked against the remote's branches rather than an upstream, so a
+  release can be cut from a detached checkout of the merge commit.
+- [x] README rewritten for people installing it: install, features, privacy,
+  building, uninstalling. Release notes in `docs/releases/0.2.0.md`.
+

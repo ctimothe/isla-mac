@@ -95,7 +95,7 @@ fi
 swiftc -parse-as-library -enable-testing "$ROOT/Scripts/sync-probe/SyncProbe.swift" \
   -I "$MODULE_PATH" "${OBJECTS[@]}" \
   -framework Carbon -o "$OUT/sync-probe"
-cp "$ROOT/build/Isla.app/Contents/Resources/libislamedia.dylib" "$OUT/" 2>/dev/null \
+cp "$ROOT/build/app.noindex/Isla.app/Contents/Resources/libislamedia.dylib" "$OUT/" 2>/dev/null \
   || { echo "run Scripts/bundle.sh first (needs the helper dylib)"; exit 1; }
 
 osascript -e "tell application id \"$PLAYER_BUNDLE_ID\" to play" >/dev/null
