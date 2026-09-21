@@ -595,3 +595,14 @@ notch in a single frame, "too intense, too raw".
   one way to install and relaunch and unregisters the built copy, and
   `test-lifecycle.sh` unregisters the copy it launches when it exits.
 
+### 0.2.0 — 2026-09-21
+
+- [x] Released ad-hoc signed through `ISLA_ADHOC=1 ISLA_RELEASE_REMOTE=github
+  bash Scripts/release.sh`: every gate runs, only Developer ID signing and
+  notarization are skipped, and the release notes carry the one quarantine
+  command a downloaded build needs. The tag must name a commit already on the
+  remote, checked against the remote's branches rather than an upstream, so a
+  release can be cut from a detached checkout of the merge commit.
+- [x] README rewritten for people installing it: install, features, privacy,
+  building, uninstalling. Release notes in `docs/releases/0.2.0.md`.
+
