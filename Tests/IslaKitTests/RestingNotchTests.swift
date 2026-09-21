@@ -68,6 +68,7 @@ final class PausedFoldTests: XCTestCase {
         defer { NotchMetrics.pausedLinger = 5 }
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
 
+        vm.playbackChanged(isPlaying: true, hasTrack: true)
         vm.playbackChanged(isPlaying: false, hasTrack: true)
         XCTAssertFalse(vm.pauseHasSettled, "not at once")
         for _ in 0..<50 where !vm.pauseHasSettled {
@@ -77,6 +78,134 @@ final class PausedFoldTests: XCTestCase {
 
         vm.playbackChanged(isPlaying: true, hasTrack: true)
         XCTAssertFalse(vm.pauseHasSettled, "resuming brings the pill straight back")
+    }
+
+    /// A paused song the island only learned about — adopted after a relaunch,
+    /// or re-described while a film owns Now Playing — has nothing to announce.
+    /// It used to wake the island for the whole linger each time.
+    func testAPausedTrackNobodyWasSeenPausingRestsAtOnce() {
+        guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
+        let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
+        vm.playbackChanged(isPlaying: false, hasTrack: true)
+        XCTAssertTrue(vm.pauseHasSettled)
+        XCTAssertEqual(vm.compactMediaActivity, .hidden)
+    }
+
+    /// A pause re-described mid-linger — the same song's key rebuilt from
+    /// another source — neither restarts the linger nor cuts it short.
+    func testALingerSurvivesTheSamePauseBeingDescribedAgain() async {
+        guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
+        NotchMetrics.pausedLinger = 0.15
+        defer { NotchMetrics.pausedLinger = 5 }
+        let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
+        vm.playbackChanged(isPlaying: true, hasTrack: true)
+        vm.playbackChanged(isPlaying: false, hasTrack: true)
+        try? await Task.sleep(for: .milliseconds(60))
+        vm.playbackChanged(isPlaying: false, hasTrack: true)
+        XCTAssertFalse(vm.pauseHasSettled, "not cut short")
+        for _ in 0..<40 where !vm.pauseHasSettled {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(vm.pauseHasSettled, "and it still settles")
+    }
+
+    /// Pausing the song and starting a film: the pill has nothing left to say
+    /// once the film plays, so it folds into the notch then and there. It used
+    /// to hang over the film for the rest of its five seconds.
+    func testAFilmStartingFoldsALingeringPause() {
+        guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
+        let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
+        vm.playbackChanged(isPlaying: true, hasTrack: true)
+        vm.playbackChanged(isPlaying: false, hasTrack: true)
+        XCTAssertFalse(vm.pauseHasSettled, "the fixture: a fresh pause lingers")
+        vm.otherMediaStartedPlaying()
+        XCTAssertTrue(vm.pauseHasSettled)
+    }
+
+    /// Pausing the song while a film is already playing: nothing starts, so
+    /// the fold above never fires — and the pill hung over the film for the
+    /// whole linger. A pause made while other media plays rests at once.
+    func testAPauseWhileAFilmPlaysRestsAtOnce() {
+        guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
+        let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
+        let media = vm.media
+        media.isolateFromPlayers()
+        media.musicOnly = { true }
+        media.bundleIdentifierForPID = { $0 == 1 ? "com.spotify.client" : "org.mozilla.firefox" }
+        media.isProcessRunning = { _ in true }
+        func report(pid: pid_t, title: String) -> NowPlayingFeed.Snapshot {
+            var s = NowPlayingFeed.Snapshot()
+            s.title = title
+            s.duration = 200
+            s.elapsed = 40
+            s.isPlaying = true
+            s.rate = 1
+            s.takenAt = Date()
+            s.playerPID = pid
+            return s
+        }
+        media.receive(report(pid: 1, title: "Song"))
+        media.receive(report(pid: 2, title: "Film"))
+        XCTAssertTrue(media.otherMediaIsPlaying, "the fixture: a film plays over the song")
+
+        vm.playbackChanged(isPlaying: true, hasTrack: true)
+        vm.playbackChanged(isPlaying: false, hasTrack: true)
+        XCTAssertTrue(vm.pauseHasSettled)
+    }
+
+    /// The same, in the order the reports really arrive: the film's report
+    /// first, and the song's pause learned from its own player after it.
+    func testASongPausedUnderAPlayingFilmRestsAtOnceThroughTheFeed() {
+        guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
+        let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
+        let media = vm.media
+        media.isolateFromPlayers()
+        media.musicOnly = { true }
+        media.isProcessRunning = { _ in true }
+        media.bundleIdentifierForPID = { $0 == 1 ? "com.spotify.client" : "com.google.Chrome" }
+        media.heldPlayerState = { (_: PlayerApp, reply: @escaping (PlayerBridge.StateReply) -> Void) in
+            reply(.loaded(PlayerState(
+                app: .spotify, isPlaying: false, title: "Song", artist: "",
+                album: "", duration: 200, position: 41
+            )))
+        }
+        func report(pid: pid_t, title: String) -> NowPlayingFeed.Snapshot {
+            var s = NowPlayingFeed.Snapshot()
+            s.title = title
+            s.duration = 200
+            s.elapsed = 40
+            s.isPlaying = true
+            s.rate = 1
+            s.takenAt = Date()
+            s.playerPID = pid
+            return s
+        }
+        media.receive(report(pid: 1, title: "Song"))
+        media.receive(report(pid: 2, title: "Film"))
+        XCTAssertFalse(media.isPlaying, "the fixture: the song's player says it is paused")
+        XCTAssertTrue(vm.pauseHasSettled)
+    }
+
+    /// A different song arriving paused — a skip made while paused — gets the
+    /// glance a fresh pause gets. The same song described again does not.
+    func testANewSongArrivingPausedLingersAndTheSameOneDoesNot() {
+        guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
+        let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
+        vm.playbackChanged(isPlaying: false, hasTrack: true, title: "One")
+        XCTAssertTrue(vm.pauseHasSettled, "adopted: nothing to announce")
+        vm.playbackChanged(isPlaying: false, hasTrack: true, title: "One")
+        XCTAssertTrue(vm.pauseHasSettled, "described again: still nothing")
+        vm.playbackChanged(isPlaying: false, hasTrack: true, title: "Two")
+        XCTAssertFalse(vm.pauseHasSettled, "a skip while paused shows the new song")
+    }
+
+    /// A playing song is not folded by a film starting alongside it.
+    func testAFilmStartingLeavesAPlayingSongAlone() {
+        guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
+        let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
+        vm.playbackChanged(isPlaying: true, hasTrack: true)
+        vm.otherMediaStartedPlaying()
+        XCTAssertFalse(vm.pauseHasSettled)
     }
 
     /// Nothing loaded at all never starts a countdown — it is already hidden.
