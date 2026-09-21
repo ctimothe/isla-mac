@@ -337,7 +337,7 @@ final class MediaController: ObservableObject {
                 self?.applySpotifyBroadcast(note)
                 // And, for a song held under a film, the only report that the
                 // song paused or resumed: MediaRemote is describing the film.
-                self?.heldPlayerChanged(.spotify)
+                self?.playerAnnouncedChange(.spotify)
             }
         }
         musicStateObserver = DistributedNotificationCenter.default().addObserver(
@@ -345,7 +345,7 @@ final class MediaController: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.heldPlayerChanged(.music) }
+            MainActor.assumeIsolated { self?.playerAnnouncedChange(.music) }
         }
     }
 
@@ -883,30 +883,109 @@ final class MediaController: ObservableObject {
     }
 
     func admission(for snapshot: NowPlayingFeed.Snapshot) -> Admission {
-        guard musicOnly(), !snapshot.isEmpty else { return .accept }
-        let bundle = snapshot.playerPID.flatMap(bundleIdentifierForPID)
-        if MediaSourcePolicy.allows(
-            bundleIdentifier: bundle, mediaType: snapshot.mediaType, artist: snapshot.artist
-        ) { return .accept }
+        guard musicOnly() else { return .accept }
+        // An empty report — the helper caught between two sessions, or a
+        // film's tab closed — used to clear the island to "Nothing is playing"
+        // over a song still loaded, which then came back on the next report as
+        // a brand-new track, lyrics and cover reloaded.
+        //
+        // Only for a song whose player can be asked what it is doing. Held on
+        // an empty report, a song from any other player — Tidal, a browser —
+        // could never be checked again: a playing pill kept animating after
+        // the music stopped, until the app quit.
+        if snapshot.isEmpty {
+            return holdsASong(against: snapshot) && displayedPlayerApp != nil ? .keep : .accept
+        }
+        if isMusic(snapshot) { return .accept }
         // A film has taken the Now Playing session — macOS reports only the
         // latest one. It used to be turned straight into "nothing playing",
         // which cleared the song paused a moment earlier: pause Spotify, start
         // a film in a tab, open the island, and it said "Nothing is playing"
         // with a song sitting paused in Spotify. The song is still what the
         // island is about, for as long as the player holding it is running.
-        if track != nil, let pid = displayedPlayerPID, isProcessRunning(pid) { return .keep }
-        return .clear
+        return holdsASong(against: snapshot) ? .keep : .clear
+    }
+
+    /// Whether a report is music by the Music Only rules.
+    private func isMusic(_ snapshot: NowPlayingFeed.Snapshot) -> Bool {
+        MediaSourcePolicy.allows(
+            bundleIdentifier: snapshot.playerPID.flatMap(bundleIdentifierForPID),
+            mediaType: snapshot.mediaType,
+            artist: snapshot.artist
+        )
+    }
+
+    /// Whether the displayed song outlives a report that does not describe it.
+    ///
+    /// Only a song does. Holding once asked nothing but whether the displayed
+    /// player still ran — so switching Music Only on while a film was showing
+    /// held the film itself, its browser very much running. And only against
+    /// another app: the displayed player now reporting something filtered has
+    /// replaced its own song.
+    private func holdsASong(against snapshot: NowPlayingFeed.Snapshot) -> Bool {
+        guard track != nil, displayedIsMusic,
+              let pid = displayedPlayerPID, isProcessRunning(pid) else { return false }
+        return snapshot.playerPID != pid
+    }
+
+    /// Whether what the island shows passed the Music Only rules — a song, not
+    /// a film shown while the filter was off.
+    private var displayedIsMusic = false
+
+    /// A source Music Only keeps off the island is playing. `NotchViewModel`
+    /// folds a paused song's lingering pill the moment this turns true: once a
+    /// film is playing, the pill has nothing left to say.
+    @Published private(set) var otherMediaIsPlaying = false
+
+    /// Fresh reports asked of the helper after a player's own announcement.
+    private(set) var freshReportsAskedForTests = 0
+
+    /// A player announced a change of its own — play, pause, a new track.
+    ///
+    /// Spotify and Music post these the moment anything happens, from their
+    /// own window, a media key or Control Center alike. The helper hears
+    /// MediaRemote's own notifications only sometimes — on macOS 26 they were
+    /// measured arriving not at all; on macOS 27 a browser's play and pause
+    /// arrived within milliseconds (2026-09-21) — and otherwise notices on its
+    /// two-second poll, so a change the notifications missed reached the
+    /// island up to two seconds late. The player's announcement is reliable,
+    /// so the helper is asked at once, and once more a moment later, since
+    /// MediaRemote can trail the player's own announcement.
+    func playerAnnouncedChange(_ app: PlayerApp) {
+        heldPlayerChanged(app)
+        guard feedAvailable else { return }
+        askForFreshReport()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            MainActor.assumeIsolated { self?.askForFreshReport() }
+        }
+    }
+
+    private func askForFreshReport() {
+        freshReportsAskedForTests += 1
+        feed.refresh()
     }
 
     /// Where the live feed arrives. Filtering happens here and not inside
     /// `apply`, which every test drives directly with made-up pids that no
     /// real app owns.
     func receive(_ snapshot: NowPlayingFeed.Snapshot) {
-        switch admission(for: snapshot) {
+        let verdict = admission(for: snapshot)
+        traceFeed(snapshot, verdict)
+        let otherPlaying = verdict != .accept && !snapshot.isEmpty
+            && (snapshot.isPlaying || snapshot.rate > 0)
+        if otherMediaIsPlaying != otherPlaying { otherMediaIsPlaying = otherPlaying }
+        switch verdict {
         case .accept:
+            apply(snapshot)
+            // Only once the report is what the island shows. `apply` holds a
+            // paused stranger off for a while, and dropping the hold for a
+            // report it refused left the held song on screen with its taps
+            // going through the helper — which, not knowing the song's player,
+            // hands them to whoever owns Now Playing.
+            guard snapshot.isEmpty || displayedPlayerPID == snapshot.playerPID else { return }
             isHolding = false
             searchedUnder = nil
-            apply(snapshot)
+            displayedIsMusic = !snapshot.isEmpty && isMusic(snapshot)
         case .clear:
             isHolding = false
             apply(NowPlayingFeed.Snapshot())
@@ -930,6 +1009,26 @@ final class MediaController: ObservableObject {
             isHolding = true
             syncHeldPlayer()
         }
+    }
+
+    /// The last raw snapshot the trail described, so the helper's two-second
+    /// heartbeat writes a line only when something in it changed.
+    private var lastFeedTrace: String?
+
+    /// Every change in what the helper reports, before any judgement: owner,
+    /// playing flag, rate, title and the admission verdict. Verification only.
+    private func traceFeed(_ snapshot: NowPlayingFeed.Snapshot, _ verdict: Admission) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["DI_OPEN_LYRICS"] == "1" || env["DI_MEDIA"] == "1" else { return }
+        let bundle = snapshot.playerPID.flatMap(bundleIdentifierForPID) ?? "-"
+        let line = String(
+            format: "feed: pid=%d %@ playing=%d rate=%.2f el=%.2f \"%@\" -> %@",
+            snapshot.playerPID ?? 0, bundle, snapshot.isPlaying ? 1 : 0, snapshot.rate,
+            snapshot.elapsed, snapshot.title, "\(verdict)"
+        )
+        guard line != lastFeedTrace else { return }
+        lastFeedTrace = line
+        DebugTrail.note(line)
     }
 
     // MARK: - Holding a song under a film
@@ -1013,6 +1112,7 @@ final class MediaController: ObservableObject {
             self.trace(String(format: "adopt: %@ from %@ playing=%d at %.2f",
                               state.title, state.app.displayName, state.isPlaying ? 1 : 0, state.position))
             self.isHolding = true
+            self.displayedIsMusic = true
             self.apply(snapshot)
             self.fetchHeldArtwork(state)
         }
@@ -1426,6 +1526,12 @@ final class MediaController: ObservableObject {
     private func switchToScriptingFallback() {
         guard feedAvailable else { return }
         feedAvailable = false
+        // The hold and the search describe the helper's view of Now Playing,
+        // which this route no longer has. Left set, taps kept going to a held
+        // song the fallback was no longer showing.
+        isHolding = false
+        searchedUnder = nil
+        if otherMediaIsPlaying { otherMediaIsPlaying = false }
         // Nothing reports supported commands on this route, and the two apps it
         // drives both skip — so the arrows come back rather than staying dim
         // on a state no longer being refreshed.
