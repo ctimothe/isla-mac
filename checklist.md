@@ -68,6 +68,14 @@ are the exception the design did not anticipate:
   from it are line-level, so the word sweep stays off for them. The design
   doc carries the dated amendment and `OfflineLyricsIsolationTests` bounds
   the exception to one file and one service.
+- **Translate Online** (Settings › Translate, default off, added 2026-09-21)
+  sends a pair no engine on this Mac can translate to MyMemory
+  (translated.net) — free, no account, no key — and nothing else: the text and
+  its two language codes. Uzbek and Kazakh always need it; every pair Apple's
+  Translation framework has installed, or the on-device model supports, stays
+  on the Mac whether the switch is on or not. An answer that came from the
+  network carries a globe in its heading. `OnlineTranslationTests` bounds the
+  exception to `OnlineTranslation.swift` and the one host.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain.
@@ -534,3 +542,19 @@ notch in a single frame, "too intense, too raw".
   chosen with the system's replace effect, as a tab bar does; the Settings
   privacy rows and the two empty states follow. `TabContractTests` keeps the old
   set out.
+- [x] **Translate chooses its languages.** Sixteen, in the column headings as
+  menus: the source detects (Uzbek by its own letters and words, since Apple's
+  recognizer does not know it — `LanguageDetectionTests`) or is told; a swap
+  exchanges languages and text; the choice is remembered. Engines by pair:
+  Apple's Translation framework when installed (en↔ru, en→tr, en→ko measured at
+  0.3–1.2 s on this Mac, and it translates "Delete all my files", which the
+  model refused), the on-device model for its own languages, MyMemory only with
+  Translate Online on. Uzbek verified live both ways ("Bugungi yordamingiz
+  uchun katta rahmat."); `TRANSLATOR_LIVE=1` reruns the whole matrix.
+- [x] **The model can no longer run away.** Uncapped, one English sentence into
+  Uzbek generated for 218 s until the 8,192-token context was full. Responses
+  are capped at three tokens per source character (128–4,096).
+- [x] **A menu no longer folds the panel.** A language list hangs below the
+  panel, and moving down it read as the pointer leaving. An open menu now holds
+  the panel the way a drag does, and closing it gives the pointer 1.2 s to come
+  back (`MenuTrackingTests`). The lyric and shelf context menus get the same.

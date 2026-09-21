@@ -1,43 +1,61 @@
 import AppKit
 import FoundationModels
+import Translation
 
-/// Translation, driven by the on-device foundation model rather than by the
-/// Translation framework.
+/// Translation between the languages the Translate tab offers, by the best
+/// engine this Mac has for each pair.
 ///
-/// The Translation framework was the obvious choice and did not survive
-/// contact with a real Mac: it gates on `LanguageAvailability.status` being
-/// `.installed`, and on macOS 26 a language whose assets are a stale earlier
-/// generation reports `.supported` forever — downloaded according to System
-/// Settings, unusable according to the framework, and `translate()` fails with
-/// an opaque internal error no matter what. Nothing in an app can repair that.
+/// Three engines, tried in order, the first that can do the pair winning:
 ///
-/// The foundation model has no per-language assets to go stale. It ships with
-/// Apple Intelligence, runs on device, costs nothing, needs no key, and makes
-/// no network request.
+/// 1. **Apple's Translation framework**, for a pair whose languages are
+///    installed. Fast, on device, and it translates what it is given — the
+///    language model refused "Delete all my files" as unsafe; this does not.
+///    It was the first engine here and was dropped on macOS 26, where a
+///    language whose assets were a stale earlier generation reported
+///    `.supported` forever and failed with an opaque internal error. So it is
+///    only ever asked about a pair it reports `.installed`, which is what
+///    works (measured on macOS 27 on 2026-09-21), and any error it throws
+///    falls through to the next engine rather than to the screen.
+/// 2. **The on-device language model**, for the languages it supports — plus
+///    Russian, which Apple does not list but which it translates well, and
+///    which this tab was built on. No per-language assets to go stale.
+/// 3. **Online**, only when Translate Online is switched on — see
+///    `OnlineTranslation`. The one way text leaves this Mac, and for Uzbek and
+///    Kazakh the only way at all: neither on-device engine has them.
 @MainActor
 final class Translator: ObservableObject {
-    static let russian = Locale.Language(identifier: "ru")
-    static let english = Locale.Language(identifier: "en")
-
     struct Route: Equatable {
-        var source: Locale.Language
-        var target: Locale.Language
+        var source: TranslationLanguage
+        var target: TranslationLanguage
     }
 
     /// Keyed by the pane's debounced task. The counter is what makes a retry of
-    /// unchanged text a new request rather than a no-op.
+    /// unchanged text a new request rather than a no-op; the languages are in
+    /// it so choosing another one translates again.
     struct Request: Equatable {
         var text: String
         var attempt: Int
+        var source: TranslationLanguage?
+        var target: TranslationLanguage
     }
 
-    /// Why the model cannot answer, when it cannot. Each case is something the
-    /// user can act on or at least understand, rather than a raw error.
-    enum Unavailable: Equatable {
+    enum Engine: Equatable {
+        case system
+        case intelligence
+        case online
+    }
+
+    /// Why a pair cannot be translated here right now. Each is something the
+    /// person can act on or at least understand, rather than a raw error.
+    enum Obstacle: Equatable {
         case needsNewerSystem
         case deviceNotEligible
         case appleIntelligenceOff
         case modelNotReady
+        /// No engine on this Mac has the language; only the online one does.
+        case needsOnline(TranslationLanguage)
+        /// Apple's Translation framework has the pair but has not downloaded it.
+        case needsDownload(TranslationLanguage)
 
         var message: String {
             switch self {
@@ -49,20 +67,40 @@ final class Translator: ObservableObject {
                 return localized("Turn on Apple Intelligence to translate.")
             case .modelNotReady:
                 return localized("The on-device model is still downloading.")
+            case .needsOnline(let language):
+                return localized("%@ is translated online. Turn on Translate Online to use it.", language.name)
+            case .needsDownload(let language):
+                return localized("%@ is not downloaded for translation on this Mac.", language.name)
             }
         }
-
-        /// Only the switch the user owns is worth offering a button for.
-        var isSettable: Bool { self == .appleIntelligenceOff }
     }
+
+    /// The buttons a failure offers, in the order they are drawn.
+    enum Remedy: Equatable, Hashable {
+        case appleIntelligenceSettings
+        case translationLanguages
+        case turnOnOnline
+        case retry
+    }
+
+    static let sourceKey = "translate.source"
+    static let targetKey = "translate.target"
 
     @Published var input = ""
     @Published private(set) var output = ""
     @Published private(set) var failure: String?
-    /// Set when the failure is one System Settings can fix, so the pane can
-    /// offer the button that goes there.
-    @Published private(set) var needsSettings = false
+    @Published private(set) var remedies: [Remedy] = []
     @Published private(set) var isTranslating = false
+    /// The engine behind what is on screen — the pane marks an online answer.
+    @Published private(set) var engine: Engine?
+
+    /// `nil` detects the language from the text.
+    @Published private(set) var source: TranslationLanguage?
+    @Published private(set) var target: TranslationLanguage
+
+    /// The base codes some engine on this Mac can translate, once known. The
+    /// menus mark every other language as an online one.
+    @Published private(set) var onDeviceLanguages: Set<String>?
 
     /// Bumped per request, so a late-finishing cancelled run can tell that it
     /// is no longer the one on screen.
@@ -70,40 +108,145 @@ final class Translator: ObservableObject {
 
     private var attempt = 0
 
-    var request: Request { Request(text: input, attempt: attempt) }
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        source = defaults.string(forKey: Self.sourceKey).flatMap(TranslationLanguage.withCode)
+        target = defaults.string(forKey: Self.targetKey).flatMap(TranslationLanguage.withCode) ?? .russian
+        if source == target { source = nil }
+        Task { [weak self] in
+            let codes = await Self.languagesOnThisMac()
+            self?.onDeviceLanguages = codes
+        }
+    }
+
+    var request: Request { Request(text: input, attempt: attempt, source: source, target: target) }
     var trimmed: String { input.trimmingCharacters(in: .whitespacesAndNewlines) }
-    var route: Route { Self.route(for: trimmed) }
+    var route: Route { Self.route(for: trimmed, source: source, target: target) }
 
-    /// Russian goes out to English, everything else comes in to Russian.
+    // MARK: - Choosing languages
+
+    /// Chosen as the source. Choosing the language already on the other side
+    /// swaps the two rather than translating a language into itself.
+    func choose(source newSource: TranslationLanguage?) {
+        if let newSource, newSource == target {
+            // The old source takes the target's place — a detected one as the
+            // language it was detected as.
+            let previous = source ?? route.source
+            target = previous == newSource ? Self.alternative(to: newSource) : previous
+        }
+        source = newSource
+        remember()
+    }
+
+    func choose(target newTarget: TranslationLanguage) {
+        if newTarget == source {
+            source = target
+        }
+        target = newTarget
+        remember()
+    }
+
+    /// Exchanges the two sides, and the text with them: what was the answer
+    /// becomes the question, the way every translator's swap behaves. A
+    /// detected source is swapped as the language it was detected as.
+    func swap() {
+        let from = source ?? route.source
+        source = target
+        target = from
+        if source == target { source = nil }
+        if !output.isEmpty {
+            input = output
+            output = ""
+            engine = nil
+        }
+        remember()
+    }
+
+    private func remember() {
+        defaults.set(source?.code ?? "auto", forKey: Self.sourceKey)
+        defaults.set(target.code, forKey: Self.targetKey)
+    }
+
+    /// The pair a text is actually translated along.
     ///
-    /// Decided by script rather than by language detection: a single word is
-    /// far too short to identify reliably, and "привет" comes back as Bulgarian
-    /// often enough to matter.
-    static func route(for text: String) -> Route {
-        let cyrillic = text.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) }
-        return cyrillic
-            ? Route(source: russian, target: english)
-            : Route(source: english, target: russian)
+    /// A detected source that turns out to be the target language is turned
+    /// around rather than translated into itself: Russian typed at a tab set to
+    /// Russian goes to English, and English typed at a tab set to English goes
+    /// to Russian — which is exactly the rule this tab ran on when those were
+    /// its only two languages.
+    static func route(for text: String, source: TranslationLanguage?, target: TranslationLanguage) -> Route {
+        guard let source else {
+            let detected = text.isEmpty ? alternative(to: target) : LanguageDetection.language(of: text)
+            return detected == target
+                ? Route(source: detected, target: alternative(to: target))
+                : Route(source: detected, target: target)
+        }
+        return Route(source: source, target: target)
     }
 
-    func retry() {
-        attempt += 1
+    static func alternative(to language: TranslationLanguage) -> TranslationLanguage {
+        language == .english ? .russian : .english
     }
 
-    func clear() {
-        output = ""
-        failure = nil
-        needsSettings = false
-        isTranslating = false
+    // MARK: - Engines
+
+    /// What this Mac can do for one pair, gathered before a translation.
+    struct Capabilities: Equatable {
+        /// Apple's Translation framework has the pair downloaded.
+        var systemInstalled = false
+        /// It offers the pair at all, downloaded or not.
+        var systemSupported = false
+        var modelSupportsPair = false
+        /// Why the model cannot answer, or nil when it can.
+        var modelObstacle: Obstacle?
+        var onlineEnabled = false
     }
 
-    func reset() {
-        input = ""
-        clear()
+    /// The engines to try, best first. Empty means nothing here can do it —
+    /// see `obstacle(for:given:)`.
+    static func engines(given capabilities: Capabilities) -> [Engine] {
+        var engines: [Engine] = []
+        if capabilities.systemInstalled { engines.append(.system) }
+        if capabilities.modelSupportsPair, capabilities.modelObstacle == nil { engines.append(.intelligence) }
+        if capabilities.onlineEnabled { engines.append(.online) }
+        return engines
+    }
+
+    /// Why no engine can do the pair, naming the language that is missing.
+    static func obstacle(for route: Route, given capabilities: Capabilities) -> Obstacle {
+        // The language to name is the one that is not English: English is on
+        // every engine, so it is never the reason.
+        let missing = route.target == .english ? route.source : route.target
+        if capabilities.systemSupported { return .needsDownload(missing) }
+        if capabilities.modelSupportsPair, let obstacle = capabilities.modelObstacle { return obstacle }
+        return .needsOnline(missing)
+    }
+
+    static func remedies(for obstacle: Obstacle, onlineEnabled: Bool) -> [Remedy] {
+        var remedies: [Remedy] = []
+        switch obstacle {
+        case .appleIntelligenceOff: remedies.append(.appleIntelligenceSettings)
+        case .needsDownload: remedies.append(.translationLanguages)
+        case .needsOnline, .needsNewerSystem, .deviceNotEligible, .modelNotReady: break
+        }
+        // Online is the way round every one of these, so it is offered with
+        // each — as a switch the person flips, never as something done for them.
+        if !onlineEnabled { remedies.append(.turnOnOnline) }
+        return remedies
+    }
+
+    /// Whether the on-device model is trusted with a language: what it lists,
+    /// and Russian.
+    static func modelHandles(_ language: TranslationLanguage) -> Bool {
+        guard #available(macOS 26.0, *) else { return false }
+        if language == .russian { return true }
+        return SystemLanguageModel.default.supportsLocale(Locale(identifier: language.code))
     }
 
     /// Why the model is not answering, or nil when it is ready.
-    var unavailable: Unavailable? {
+    var modelObstacle: Obstacle? {
         guard #available(macOS 26.0, *) else { return .needsNewerSystem }
         switch SystemLanguageModel.default.availability {
         case .available:
@@ -119,19 +262,62 @@ final class Translator: ObservableObject {
         }
     }
 
+    private func capabilities(for route: Route) async -> Capabilities {
+        var capabilities = Capabilities()
+        capabilities.onlineEnabled = defaults.bool(forKey: NotchViewModel.onlineTranslationKey)
+        let status = await LanguageAvailability().status(from: route.source.locale, to: route.target.locale)
+        capabilities.systemSupported = status != .unsupported
+        if #available(macOS 26.0, *) {
+            capabilities.systemInstalled = status == .installed
+        }
+        capabilities.modelSupportsPair = Self.modelHandles(route.source) && Self.modelHandles(route.target)
+        capabilities.modelObstacle = modelObstacle
+        return capabilities
+    }
+
+    private static func languagesOnThisMac() async -> Set<String> {
+        var codes = Set(await LanguageAvailability().supportedLanguages.compactMap { $0.languageCode?.identifier })
+        for language in TranslationLanguage.all where modelHandles(language) {
+            codes.insert(language.baseCode)
+        }
+        return codes
+    }
+
+    /// Whether choosing this language means going online on this Mac. Unknown
+    /// until the device's languages have been read, and unknown reads as no.
+    func isOnlineOnly(_ language: TranslationLanguage) -> Bool {
+        guard let onDeviceLanguages else { return false }
+        return !onDeviceLanguages.contains(language.baseCode)
+    }
+
+    // MARK: - Translating
+
+    func retry() {
+        attempt += 1
+    }
+
+    /// Switches Translate Online on from the pane's own button, and asks again.
+    func turnOnOnline() {
+        defaults.set(true, forKey: NotchViewModel.onlineTranslationKey)
+        retry()
+    }
+
+    func clear() {
+        output = ""
+        failure = nil
+        remedies = []
+        engine = nil
+        isTranslating = false
+    }
+
+    func reset() {
+        input = ""
+        clear()
+    }
+
     func translate() async {
         let text = trimmed
         guard !text.isEmpty else { clear(); return }
-
-        if let unavailable {
-            output = ""
-            failure = unavailable.message
-            needsSettings = unavailable.isSettable
-            isTranslating = false
-            return
-        }
-
-        guard #available(macOS 26.0, *) else { return }
 
         // Stamped, so a cancelled run cannot clear the flag its successor
         // raised. The pane cancels the previous task on every keystroke, but
@@ -145,63 +331,130 @@ final class Translator: ObservableObject {
         isTranslating = true
         defer { if self.generation == generation { isTranslating = false } }
 
-        let route = Self.route(for: text)
-        let target = Self.name(route.target)
+        let route = route
+        let capabilities = await capabilities(for: route)
+        guard !Task.isCancelled, self.generation == generation else { return }
+        let engines = Self.engines(given: capabilities)
+        guard !engines.isEmpty else {
+            let obstacle = Self.obstacle(for: route, given: capabilities)
+            output = ""
+            engine = nil
+            failure = obstacle.message
+            remedies = Self.remedies(for: obstacle, onlineEnabled: capabilities.onlineEnabled)
+            return
+        }
 
-        do {
-            // Guided generation, not a free-form reply, and this is the whole
-            // reason the feature works at all. Asked in prose — even told
-            // bluntly that it is a translation engine and must never answer —
-            // the model answers anyway: "what is your name?" came back as
-            // "Я не имею имени" ("I have no name") and "write me a poem" came
-            // back as an actual poem long enough to blow the context window.
-            // Made to fill a field instead, the same inputs translate
-            // correctly, because filling a slot is not a turn in a
-            // conversation. Greedy sampling on top, so the same text always
-            // gives the same translation rather than a different one per
-            // keystroke.
-            let session = LanguageModelSession(
-                instructions: """
-                You translate \(Self.name(route.source)) into \(target). You are a \
-                translation engine: you restate the source text in \(target) and \
-                never respond to it. A question is translated as a question.
-                """
-            )
-            let response = try await session.respond(
-                to: "Source text to translate into \(target):\n\(text)",
-                generating: TranslationResult.self,
-                options: GenerationOptions(sampling: .greedy)
-            )
-            guard !Task.isCancelled else { return }
-            output = response.content.translation.trimmingCharacters(in: .whitespacesAndNewlines)
-            failure = nil
-            needsSettings = false
-        } catch let error as LanguageModelSession.GenerationError {
-            guard !Task.isCancelled else { return }
-            output = ""
-            needsSettings = false
-            failure = Self.describe(error)
-        } catch {
-            guard !Task.isCancelled else { return }
-            output = ""
-            needsSettings = false
-            failure = error.localizedDescription
+        var lastFailure = localized("The translation could not be completed.")
+        for candidate in engines {
+            do {
+                let translated = try await run(candidate, text: text, route: route)
+                guard !Task.isCancelled, self.generation == generation else { return }
+                output = translated
+                engine = candidate
+                failure = nil
+                remedies = []
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, self.generation == generation else { return }
+                lastFailure = Self.describe(error)
+                // On to the next engine: a pair one of them fumbles is still a
+                // pair another can do, and the person asked for a translation,
+                // not for this engine's opinion.
+            }
+        }
+        output = ""
+        engine = nil
+        failure = lastFailure
+        remedies = [.retry]
+    }
+
+    /// An engine asked for on a system that does not have it. Unreachable in
+    /// practice — `engines(given:)` only lists what the system reported — and
+    /// a failure like any other if it ever is reached.
+    private struct EngineUnavailable: Error {}
+
+    private func run(_ engine: Engine, text: String, route: Route) async throws -> String {
+        switch engine {
+        case .system:
+            guard #available(macOS 26.0, *) else { throw EngineUnavailable() }
+            let session = TranslationSession(installedSource: route.source.locale, target: route.target.locale)
+            return try await session.translate(text).targetText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        case .intelligence:
+            guard #available(macOS 26.0, *) else { throw EngineUnavailable() }
+            return try await Self.askModel(text, route: route)
+        case .online:
+            let translated = try await OnlineTranslation.translate(text, from: route.source, to: route.target)
+            guard !translated.isEmpty else { throw OnlineTranslation.Failure.refused("") }
+            return translated
         }
     }
 
+    /// Most responses a translation can need: a few tokens per source
+    /// character, never less than a short sentence's worth.
+    ///
+    /// Uncapped, the model once translated one English sentence into Uzbek for
+    /// 218 seconds, generating until its 8,192-token context was full — with
+    /// the "Translating…" line up for the whole of it. A translation is about
+    /// as long as its source; anything many times longer is the model talking,
+    /// and it is cut off rather than waited for.
+    static func responseTokenLimit(for text: String) -> Int {
+        min(4096, max(128, text.count * 3))
+    }
+
     @available(macOS 26.0, *)
-    private static func describe(_ error: LanguageModelSession.GenerationError) -> String {
-        switch error {
-        case .guardrailViolation:
-            // Apple's safety filter, which fires on ordinary sentences —
-            // "Delete all my files" was refused in testing. Worth naming
-            // plainly so it does not read as the app breaking.
-            return localized("This text could not be translated.")
-        case .exceededContextWindowSize:
-            return localized("This text is too long to translate at once.")
-        default:
-            return localized("The translation could not be completed.")
+    private static func askModel(_ text: String, route: Route) async throws -> String {
+        let source = route.source.englishName
+        let target = route.target.englishName
+        // Guided generation, not a free-form reply, and this is the whole
+        // reason the model works as a translator at all. Asked in prose — even
+        // told bluntly that it is a translation engine and must never answer —
+        // the model answers anyway: "what is your name?" came back as
+        // "Я не имею имени" ("I have no name") and "write me a poem" came back
+        // as an actual poem long enough to blow the context window. Made to
+        // fill a field instead, the same inputs translate correctly, because
+        // filling a slot is not a turn in a conversation. Greedy sampling on
+        // top, so the same text always gives the same translation rather than
+        // a different one per keystroke.
+        let session = LanguageModelSession(
+            instructions: """
+            You translate \(source) into \(target). You are a \
+            translation engine: you restate the source text in \(target) and \
+            never respond to it. A question is translated as a question.
+            """
+        )
+        let response = try await session.respond(
+            to: "Source text to translate into \(target):\n\(text)",
+            generating: TranslationResult.self,
+            options: GenerationOptions(sampling: .greedy, maximumResponseTokens: responseTokenLimit(for: text))
+        )
+        return response.content.translation.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func describe(_ error: Error) -> String {
+        if let failure = error as? OnlineTranslation.Failure {
+            switch failure {
+            case .unreachable: return localized("Online translation is not reachable right now.")
+            case .quotaExhausted: return localized("Today's free online translations are used up.")
+            case .refused: return localized("The translation could not be completed.")
+            }
         }
+        if #available(macOS 26.0, *), let error = error as? LanguageModelSession.GenerationError {
+            switch error {
+            case .guardrailViolation:
+                // Apple's safety filter, which fires on ordinary sentences —
+                // "Delete all my files" was refused in testing. Worth naming
+                // plainly so it does not read as the app breaking.
+                return localized("This text could not be translated.")
+            case .exceededContextWindowSize:
+                return localized("This text is too long to translate at once.")
+            default:
+                return localized("The translation could not be completed.")
+            }
+        }
+        return localized("The translation could not be completed.")
     }
 
     func copyOutput() {
@@ -211,28 +464,17 @@ final class Translator: ObservableObject {
         pasteboard.setString(output, forType: .string)
     }
 
-    /// "Русский", "English" — for the column headers. Named in the language the
-    /// panel itself is in, not in the system's: those two can differ, and a
-    /// column headed in one language above a button worded in another reads as
-    /// a mistake.
-    static func name(_ language: Locale.Language) -> String {
-        guard let code = language.languageCode?.identifier,
-              let name = Locale(identifier: appLanguage).localizedString(forLanguageCode: code) else {
-            return language.languageCode?.identifier.uppercased() ?? "?"
-        }
-        return name.prefix(1).uppercased() + name.dropFirst()
-    }
-
-    /// Short code for the header badge — "EN → RU" reads at a glance where a
-    /// spelled-out name would not fit in the strip.
-    static func code(_ language: Locale.Language) -> String {
-        language.languageCode?.identifier.uppercased() ?? "?"
-    }
-
     /// System Settings → Apple Intelligence, the switch behind every
     /// `appleIntelligenceOff` failure.
-    static func openLanguageSettings() {
+    static func openAppleIntelligenceSettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.AppleIntelligence") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// System Settings → General → Language & Region, where Translation
+    /// Languages are downloaded.
+    static func openTranslationLanguages() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension") else { return }
         NSWorkspace.shared.open(url)
     }
 }

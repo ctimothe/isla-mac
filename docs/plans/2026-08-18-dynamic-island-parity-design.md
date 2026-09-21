@@ -277,6 +277,28 @@ transitions.
 - Infer direction from the presence of Cyrillic text.
 - Explain when a required language pack is missing rather than failing silently.
 
+> **Amended 2026-09-21.** The tab translates between sixteen languages, chosen
+> in its two column headings: English, Russian, Uzbek, Kazakh, Turkish,
+> Ukrainian, German, French, Spanish, Italian, Portuguese, Arabic, Hindi,
+> Chinese, Japanese and Korean. The source detects by default and can be told;
+> a swap exchanges the languages and the text; the choice is remembered.
+> Inferring direction from Cyrillic survives as the default rather than the
+> whole rule: with the source on Detect and the target on Russian, Russian goes
+> to English and everything else to Russian, as before.
+>
+> Each pair goes to the best engine the Mac has, first that can: Apple's
+> Translation framework for a pair it reports installed; the on-device language
+> model for the languages it supports, plus Russian; and, only when **Translate
+> Online** is switched on in Settings — off by default — MyMemory, for
+> everything else. English and Russian therefore still translate offline. Uzbek
+> and Kazakh have no on-device engine at all — measured on 2026-09-21, the
+> framework does not offer them and the model answered with nonsense — so for
+> them the tab says the language is translated online and offers the switch.
+> The online path is the exception recorded in `checklist.md` §"Scope divergence
+> from Cyclop 0.6.5", bounded to one file and one service by
+> `OnlineTranslationTests`. A pair the framework offers but has not downloaded
+> names its language and opens System Settings' Translation Languages.
+
 ### Notes and Teleprompter
 
 > **Withdrawn 2026-08-22.** Both features were removed from the product by

@@ -43,9 +43,10 @@ enum SettingsIcon {
     static let rescan = "arrow.clockwise"
     /// Dismissing a leftover timing correction sets it aside; it deletes no file.
     static let dismiss = "xmark.circle"
-    /// The one lyric switch that reaches the network. A globe says so at a
-    /// glance, which is the point of it being the only one.
-    static let onlineLyrics = "globe"
+    /// A switch that reaches the network. The globe is kept for those and only
+    /// those — lyrics looked up online, text translated online — so the rows
+    /// that can send something off this Mac say so at a glance.
+    static let online = "globe"
     /// The whole catalogue moved in time, as opposed to one track's nudge.
     static let lyricTiming = "metronome"
     static let resetTiming = "arrow.counterclockwise"
@@ -78,7 +79,7 @@ enum SettingsIcon {
         launchAtLogin, openOnHover, hoverDelay, panelWidth,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, dismiss,
-        onlineLyrics, lyricTiming, resetTiming, peek, lockScreen, cardStyle,
+        online, lyricTiming, resetTiming, peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, translate, hideFromRecording,
         about, quit,

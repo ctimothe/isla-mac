@@ -63,6 +63,24 @@
 "The translation could not be completed." = "Не удалось выполнить перевод.";
 "Hide from Screen Recording" = "Скрыть от записи экрана";
 "Translating…" = "Перевод…";
+
+/* Translate: languages, the swap, and the online engine (2026-09-21). */
+"Detect Language" = "Определить язык";
+"%@ (Detected)" = "%@ (определён)";
+"%@ (Online)" = "%@ (онлайн)";
+"Swap Languages" = "Поменять языки местами";
+"Translate From" = "Исходный язык";
+"Translate To" = "Язык перевода";
+"%@ is translated online. Turn on Translate Online to use it." = "%@: перевод есть только онлайн. Включите «Переводить онлайн».";
+"%@ is not downloaded for translation on this Mac." = "%@: язык не загружен для перевода на этом Mac.";
+"Online translation is not reachable right now." = "Онлайн-перевод сейчас недоступен.";
+"Today's free online translations are used up." = "Бесплатный онлайн-перевод на сегодня исчерпан.";
+"Apple Intelligence Settings…" = "Настройки Apple Intelligence…";
+"Turn On Translate Online" = "Включить «Переводить онлайн»";
+"Translated online by MyMemory" = "Переведено онлайн через MyMemory";
+"Translate Online" = "Переводить онлайн";
+"Languages this Mac cannot translate itself, such as Uzbek, go to MyMemory: only the text and its two languages." = "Языки, которые этот Mac не переводит сам, например узбекский, отправляются в MyMemory — только текст и его два языка.";
+"Translations stay on this Mac." = "Переводы остаются на этом Mac.";
 "Clear Everything" = "Очистить всё";
 "Delete These Files" = "Удалить эти файлы";
 "Quit Isla" = "Выйти из Isla";
