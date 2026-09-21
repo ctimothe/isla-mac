@@ -23,7 +23,6 @@ struct LockScreenCard: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
     var localLookup: () -> LocalLyricsLookup? = { nil }
-    var retryLyrics: () -> Void = {}
     /// The machine's audio state, followed while the card is up. The window
     /// starts it before the card exists and stops it at dismiss; a render
     /// without one gets a bare watch, which reads the machine on demand and
@@ -48,19 +47,20 @@ struct LockScreenCard: View {
         media: MediaController,
         lyrics: LyricsStore,
         localLookup: @escaping () -> LocalLyricsLookup? = { nil },
-        retryLyrics: @escaping () -> Void = {},
         audio: AudioWatch? = nil,
         initialPane: Pane = .player
     ) {
         self.media = media
         self.lyrics = lyrics
         self.localLookup = localLookup
-        self.retryLyrics = retryLyrics
         _audio = ObservedObject(wrappedValue: audio ?? AudioWatch())
         _pane = State(initialValue: initialPane)
     }
 
     @State private var scrubbing: Double?
+    /// The line the words were centred on at the last draw, to tell a line
+    /// sung into from a line jumped to.
+    @State private var lastCentre: Int?
     @State private var outputs: [AudioOutputs.Output] = []
     @State private var currentOutput: AudioDeviceID?
     @State private var volume: Float?
@@ -345,6 +345,20 @@ struct LockScreenCard: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // A jump is a cut. When a seek moves the words more than a line,
+                // every row is replaced at once, and each one's own crossfade
+                // laid the old line and the new one over each other in the same
+                // slot — two lyrics legible at once, filmed on 2026-09-21. A
+                // line reached by singing still lights up on the lyric spring;
+                // a line reached by clicking is simply there.
+                .transaction { transaction in
+                    if Self.isJump(from: lastCentre, to: centre) {
+                        transaction.animation = nil
+                        transaction.disablesAnimations = true
+                    }
+                }
+                .onChange(of: centre) { _, now in lastCentre = now }
+                .onAppear { lastCentre = centre }
             } else {
                 VStack(spacing: 8) {
                     if case .findingLocalLyrics = lyrics.availability {
@@ -352,14 +366,13 @@ struct LockScreenCard: View {
                     }
                     // `.resolving` draws neither spinner nor text: the status
                     // line below it is empty for that state by design.
+                    // The status, and nothing to press. A Retry button here
+                    // could not even fit its word — "R…" — and a lock screen's
+                    // player never offers one; a failed lookup asks again by
+                    // itself (see `LyricsCoordinator.retryDelays`).
                     Text(lyricsStatus)
                         .islandFont(.subhead, weight: .regular)
                         .foregroundStyle(Theme.cardTertiary)
-                    if LyricsPresentation.canRetry(lyrics.availability) {
-                        Button(localized("Retry"), action: retryLyrics)
-                            .buttonStyle(NotchButtonStyle(size: 24))
-                            .accessibilityLabel(localized("Retry"))
-                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -802,6 +815,12 @@ struct LockScreenCard: View {
     }
 
     // MARK: - Pure layout arithmetic
+
+    /// Whether the centre moved by more than one line: a seek, not singing.
+    static func isJump(from previous: Int?, to centre: Int) -> Bool {
+        guard let previous else { return false }
+        return abs(centre - previous) > 1
+    }
 
     /// A window of `size` indices centred on `centre`, slid inside the song
     /// rather than clipped at its ends — so the first and last lines still show
