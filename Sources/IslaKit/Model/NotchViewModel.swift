@@ -506,6 +506,19 @@ final class NotchViewModel: ObservableObject {
         UserDefaults.standard.bool(forKey: showLyricsKey)
     }
 
+    static let musicOnlyKey = "media.musicOnly"
+
+    /// Defaults to **on**. The island is a music surface — artwork, an
+    /// equalizer, lyrics — and a YouTube video or a film drawn there as if it
+    /// were a song is noise. With it on, only music and podcast apps, and
+    /// anything a player itself labels as audio, reach the island; see
+    /// `MediaSourcePolicy`. Off restores every Now Playing session.
+    static var musicOnlyEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: musicOnlyKey) != nil else { return true }
+        return defaults.bool(forKey: musicOnlyKey)
+    }
+
     static let onlineLyricsKey = "lyrics.onlineEnabled"
 
     /// Defaults to **off**, and is the only thing in the lyric path that ever

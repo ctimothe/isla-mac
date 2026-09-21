@@ -27,6 +27,8 @@ enum SettingsIcon {
     static let clear = "trash"
 
     // Music
+    /// What reaches the island at all: music, and not a film.
+    static let musicOnly = "music.note"
     /// Apple Music's own glyph for lyrics.
     static let lyrics = "quote.bubble"
     /// Word-by-word, as opposed to the line: the glyph is about the words.
@@ -72,7 +74,7 @@ enum SettingsIcon {
     static let all: [String] = [
         launchAtLogin, openOnHover, hoverDelay, panelWidth,
         saveScreenshots, importRecordings, showFolder, clear,
-        lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, dismiss,
+        musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, dismiss,
         onlineLyrics, lyricTiming, resetTiming, peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, translate, hideFromRecording,

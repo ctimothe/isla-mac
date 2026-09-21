@@ -315,7 +315,10 @@ final class MediaController: ObservableObject {
     // MARK: - Lifecycle
 
     func start() {
-        feed.onUpdate = { [weak self] snapshot in self?.apply(snapshot) }
+        feed.onUpdate = { [weak self] snapshot in
+            guard let self else { return }
+            self.apply(self.admitted(snapshot))
+        }
         feed.onUnavailable = { [weak self] in self?.switchToScriptingFallback() }
         feed.start()
 
@@ -816,6 +819,31 @@ final class MediaController: ObservableObject {
     /// Not private: the feed hands snapshots to this one entry point, and
     /// tests drive it the same way rather than standing up the real helper
     /// process.
+    /// Whether the island shows only music. Read per snapshot so the switch in
+    /// Settings takes effect on the next update, with nothing to restart.
+    var musicOnly: () -> Bool = { NotchViewModel.musicOnlyEnabled }
+    /// The bundle identifier behind a pid. Injectable so a test does not depend
+    /// on which apps happen to be running on the Mac that runs it.
+    var bundleIdentifierForPID: (pid_t) -> String? = {
+        NSRunningApplication(processIdentifier: $0)?.bundleIdentifier
+    }
+
+    /// The live feed's snapshot, or an empty one when Music Only filters it out.
+    ///
+    /// Empty rather than dropped, on purpose: a film playing is *the same as
+    /// nothing playing* as far as the island is concerned, so it takes the same
+    /// path — `apply` clears the track and the island folds to the notch. Done
+    /// here, where the live feed arrives, and not inside `apply`, which every
+    /// test drives directly with made-up pids that no real app owns.
+    func admitted(_ snapshot: NowPlayingFeed.Snapshot) -> NowPlayingFeed.Snapshot {
+        guard musicOnly(), !snapshot.isEmpty else { return snapshot }
+        let bundle = snapshot.playerPID.flatMap(bundleIdentifierForPID)
+        guard MediaSourcePolicy.allows(
+            bundleIdentifier: bundle, mediaType: snapshot.mediaType, artist: snapshot.artist
+        ) else { return NowPlayingFeed.Snapshot() }
+        return snapshot
+    }
+
     func apply(_ snapshot: NowPlayingFeed.Snapshot) {
         guard !snapshot.isEmpty else { return clear() }
 

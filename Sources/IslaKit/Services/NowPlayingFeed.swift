@@ -33,6 +33,11 @@ final class NowPlayingFeed {
             commands?.contains(command.rawValue) ?? true
         }
 
+        /// What the player says it is playing, raw from MediaRemote — e.g.
+        /// `kMRMediaRemoteNowPlayingInfoTypeAudio`. Nil when the player did not
+        /// say, which is common: a browser video reports nothing. Nil is
+        /// "unknown", never "video". See `MediaSourcePolicy`.
+        var mediaType: String?
         var isEmpty: Bool { title.isEmpty }
     }
 

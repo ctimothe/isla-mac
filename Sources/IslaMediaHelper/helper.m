@@ -221,6 +221,15 @@ static void publishSnapshot(int ownerPID, id path, BOOL forced) {
             out[@"elapsed"] = info[@"kMRMediaRemoteNowPlayingInfoElapsedTime"] ?: @0;
             out[@"rate"] = info[@"kMRMediaRemoteNowPlayingInfoPlaybackRate"] ?: @0;
             out[@"pid"] = @(ownerPID);
+            // What kind of thing is playing, as the player itself labels it.
+            // The owning app alone cannot tell a Telegram song from a Telegram
+            // video, or music in a browser from a film in one; this can, when
+            // the player says. Passed through raw and only when present — a
+            // missing key means the player did not say, not that it is video.
+            id mediaType = info[@"kMRMediaRemoteNowPlayingInfoMediaType"];
+            if ([mediaType isKindOfClass:NSString.class]) out[@"mediaType"] = mediaType;
+            id isMusicApp = info[@"kMRMediaRemoteNowPlayingInfoIsMusicApp"];
+            if ([isMusicApp isKindOfClass:NSNumber.class]) out[@"isMusicApp"] = isMusicApp;
 
             id stamp = info[@"kMRMediaRemoteNowPlayingInfoTimestamp"];
             out[@"timestamp"] = [stamp isKindOfClass:NSDate.class]
