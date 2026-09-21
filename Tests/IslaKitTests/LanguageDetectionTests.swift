@@ -21,6 +21,18 @@ final class LanguageDetectionTests: XCTestCase {
         }
     }
 
+    /// One word is enough when only Uzbek writes it — the words a person
+    /// types first to try the tab.
+    func testASingleUnmistakableUzbekWordIsUzbek() {
+        for word in ["salom", "Rahmat", "yaxshimisiz", "Qalaysiz?", "xayr"] {
+            XCTAssertEqual(LanguageDetection.language(of: word), .uzbek, word)
+        }
+        // Words Uzbek shares with English stay English on their own.
+        for word in ["men", "ham", "sen"] {
+            XCTAssertEqual(LanguageDetection.language(of: word), .english, word)
+        }
+    }
+
     func testEnglishThatLooksUzbekStaysEnglish() {
         for text in [
             "Tell O'Brien the meeting moved to four o'clock.",
