@@ -21,6 +21,10 @@ final class TranslatorLiveTests: XCTestCase {
             ("Thank you very much for your help today.", .english, .korean),
             ("Thank you very much for your help today.", .english, .uzbek),
             ("Men ertaga ertalab ishga boraman.", nil, .english),
+            // What the owner typed on 2026-09-21, with the source detecting.
+            ("salom", nil, .russian),
+            ("yaxshimisiz", nil, .russian),
+            ("yaxshimisiz jigar!!!", .uzbek, .russian),
         ]
         for online in [false, true] {
             defaults.set(online, forKey: NotchViewModel.onlineTranslationKey)

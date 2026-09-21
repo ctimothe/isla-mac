@@ -100,8 +100,13 @@ enum LanguageDetection {
         if !confidentlyEnglish {
             let marks = uzbekDigraphCount(sample)
             let words = uzbekWordCount(lower)
+            let turkish = lower.contains(where: { "çşğıöü".contains($0) })
             if marks >= 2 || (marks == 1 && words >= 1) { return .uzbek }
-            if words >= 2, !lower.contains(where: { "çşğıöü".contains($0) }) { return .uzbek }
+            if words >= 2, !turkish { return .uzbek }
+            // One word is enough when it could only be Uzbek: "salom" alone
+            // used to fall through to the English fallback and come back as
+            // itself, which is most of what a person types to try the tab.
+            if unmistakablyUzbekWordCount(lower) >= 1, !turkish { return .uzbek }
         }
         let words = sample.split { !$0.isLetter }.count
         let needed = words < shortTextWords ? shortTextConfidence : confidence
@@ -183,8 +188,25 @@ enum LanguageDetection {
     ]
 
     private static func uzbekWordCount(_ lower: String) -> Int {
-        let words = lower.split { !$0.isLetter && !apostrophes.contains($0) }.map(String.init)
-        return Set(words).intersection(uzbekWords).count
+        Set(words(of: lower)).intersection(uzbekWords).count
+    }
+
+    /// The subset no offered language also writes as a word of its own —
+    /// unlike "men", "ham" or "sen", which English and Turkish do.
+    private static let unmistakablyUzbekWords: Set<String> = [
+        "salom", "assalomu", "alaykum", "rahmat", "raxmat", "yaxshi", "yaxshimisiz",
+        "qalaysiz", "qalaysan", "qalay", "xayr", "iltimos", "kerak", "qanday",
+        "qayerda", "qachon", "ertaga", "bugun", "kecha", "sizning", "mening",
+        "uchun", "bilan", "emas", "lekin", "juda", "bormi", "yoʻq", "yo'q",
+        "xush", "kelibsiz",
+    ]
+
+    private static func unmistakablyUzbekWordCount(_ lower: String) -> Int {
+        Set(words(of: lower)).intersection(unmistakablyUzbekWords).count
+    }
+
+    private static func words(of lower: String) -> [String] {
+        lower.split { !$0.isLetter && !apostrophes.contains($0) }.map(String.init)
     }
 
     private static func recognized(_ text: String) -> (language: TranslationLanguage, confidence: Double)? {

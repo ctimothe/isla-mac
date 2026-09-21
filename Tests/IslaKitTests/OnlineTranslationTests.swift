@@ -12,9 +12,12 @@ final class OnlineTranslationTests: XCTestCase {
         XCTAssertEqual(url.scheme, "https")
         XCTAssertEqual(url.host, "api.mymemory.translated.net")
         let items = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
-        XCTAssertEqual(Set(items.map(\.name)), ["q", "langpair"])
+        XCTAssertEqual(Set(items.map(\.name)), ["q", "langpair", "onlyprivate", "mt"])
         XCTAssertEqual(items.first { $0.name == "q" }?.value, "Yo'q, rahmat")
         XCTAssertEqual(items.first { $0.name == "langpair" }?.value, "uz|en")
+        // Machine translation only: the public memory answered "salom" with
+        // "Google TRANSLEÓN".
+        XCTAssertEqual(items.first { $0.name == "onlyprivate" }?.value, "1")
         XCTAssertEqual(OnlineTranslation.serviceCode(for: .chinese), "zh-CN")
     }
 
@@ -82,5 +85,8 @@ final class OnlineTranslationTests: XCTestCase {
         let uzbek = try await OnlineTranslation.translate("Thank you very much for your help today.",
                                                           from: .english, to: .uzbek)
         XCTAssertTrue(uzbek.localizedCaseInsensitiveContains("rahmat"), uzbek)
+        // The word the public memory had poisoned.
+        let hello = try await OnlineTranslation.translate("salom", from: .uzbek, to: .russian)
+        XCTAssertEqual(hello.lowercased(), "привет", hello)
     }
 }
