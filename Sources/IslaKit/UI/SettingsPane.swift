@@ -381,7 +381,7 @@ struct SettingsPane: View {
                         )
                     )
                     if onlineTranslation {
-                        noteRow(localized("Languages this Mac cannot translate itself, such as Uzbek, go to MyMemory: only the text and its two languages."))
+                        noteRow(localized("Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet."))
                     } else {
                         noteRow(localized("Translations stay on this Mac."))
                     }

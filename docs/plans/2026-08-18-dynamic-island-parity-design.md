@@ -297,8 +297,10 @@ transitions.
 > Each pair goes to the best engine the Mac has, first that can: Apple's
 > Translation framework for a pair it reports installed; the on-device language
 > model for the languages it supports, plus Russian; and, only when **Translate
-> Online** is switched on in Settings — off by default — MyMemory, for
-> everything else. English and Russian therefore still translate offline. Uzbek
+> Online** is switched on in Settings — off by default — MyMemory, for a pair
+> neither of those offers at all. A pair the Mac offers is never sent, even
+> when it cannot run right now; it is reported instead. English and Russian
+> therefore still translate offline. Uzbek
 > and Kazakh have no on-device engine at all — measured on 2026-09-21, the
 > framework does not offer them and the model answered with nonsense — so for
 > them the tab says the language is translated online and offers the switch.

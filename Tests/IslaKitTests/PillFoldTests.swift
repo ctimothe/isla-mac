@@ -100,3 +100,19 @@ private extension Theme {
     /// The response every pill resize used to share, for the comparison above.
     static var compactResponseForComparison: Double { 0.28 }
 }
+
+/// The folded pill keeps its views but gives up its end of the travel.
+final class FoldedMorphTests: XCTestCase {
+    /// Shown, the pill's cover and bars answer to the names the open panel's
+    /// do, so opening carries them. Folded they answer to none: opening on a
+    /// settled pause must not grow the cover out of the notch's edge.
+    @MainActor
+    func testAFoldedPillHasNoEndOfTheTravel() {
+        typealias ID = NotchContentView.MorphID
+        XCTAssertEqual(ID.compact(ID.artwork, folded: false), ID.artwork)
+        XCTAssertEqual(ID.compact(ID.equalizer, folded: false), ID.equalizer)
+        XCTAssertNotEqual(ID.compact(ID.artwork, folded: true), ID.artwork)
+        XCTAssertNotEqual(ID.compact(ID.equalizer, folded: true), ID.equalizer)
+        XCTAssertNotEqual(ID.compact(ID.artwork, folded: true), ID.compact(ID.equalizer, folded: true))
+    }
+}

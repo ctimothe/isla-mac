@@ -1147,6 +1147,8 @@ final class NotchController {
     /// The visual half of closing, one pass after the keyboard was let go.
     private func collapse(deferRectShrink: Bool = true) {
         guard let vm = viewModel, vm.isOpen else { return }
+        // Nothing counted open outlives the panel it was opened from.
+        MenuTracking.shared.reset()
         // Whatever was uncovered by hand goes back under cover with the panel.
         // The next hover is the one nobody planned, and it must not open onto
         // a row somebody revealed ten minutes ago.
@@ -1224,6 +1226,10 @@ final class NotchController {
         // the shield.
         guard !vm.isLockedPresentation else { return }
         guard !pointer.isInside else { return }
+        // A track that arrives folded — paused, or behind a film — has no pill
+        // to widen. Peeking anyway drew its title into a wing of no width,
+        // which under a real notch is invisible and beside a drawn one is not.
+        guard vm.compactMediaActivity.isVisible else { return }
 
         peekWork?.cancel()
         vm.isPeeking = true

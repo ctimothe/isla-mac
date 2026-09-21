@@ -85,30 +85,48 @@ final class TranslatorTests: XCTestCase {
 
     // MARK: - Engines
 
-    /// The best engine the Mac has, in order, and online only when switched on.
-    func testEnginesAreTriedBestFirstAndOnlineOnlyWhenAskedFor() {
+    /// The best engine the Mac has, in order, and online only for a pair the
+    /// Mac does not offer at all.
+    func testEnginesAreTriedBestFirst() {
         var mac = Translator.Capabilities(systemInstalled: true, systemSupported: true,
-                                          modelSupportsPair: true, modelObstacle: nil, onlineEnabled: false)
+                                          modelSupportsPair: true, modelObstacle: nil, onlineEnabled: true)
         XCTAssertEqual(Translator.engines(given: mac), [.system, .intelligence])
 
         mac.systemInstalled = false
         XCTAssertEqual(Translator.engines(given: mac), [.intelligence])
 
-        mac.modelObstacle = .appleIntelligenceOff
-        XCTAssertEqual(Translator.engines(given: mac), [], "nothing leaves the Mac unless asked")
+        // Uzbek: neither on-device engine offers it.
+        var uzbek = Translator.Capabilities()
+        XCTAssertEqual(Translator.engines(given: uzbek), [], "nothing leaves the Mac unless asked")
+        uzbek.onlineEnabled = true
+        XCTAssertEqual(Translator.engines(given: uzbek), [.online])
+    }
 
-        mac.onlineEnabled = true
-        XCTAssertEqual(Translator.engines(given: mac), [.online])
-
-        // Uzbek: neither on-device engine has it.
-        let uzbek = Translator.Capabilities(systemInstalled: false, systemSupported: false,
-                                            modelSupportsPair: false, modelObstacle: nil, onlineEnabled: false)
-        XCTAssertEqual(Translator.engines(given: uzbek), [])
+    /// The privacy promise, exhaustively: a pair either on-device engine
+    /// offers is never sent online — not when its language is not downloaded,
+    /// not with Apple Intelligence off, and not as the next try after an
+    /// on-device engine failed or refused, which the list's order would
+    /// otherwise make it (found in review, 2026-09-21).
+    func testAPairTheMacOffersNeverListsTheOnlineEngine() {
+        let obstacles: [Translator.Obstacle?] = [nil, .appleIntelligenceOff, .modelNotReady, .deviceNotEligible]
+        for installed in [false, true] {
+            for supported in [false, true] where supported || !installed {
+                for model in [false, true] where supported || model {
+                    for obstacle in obstacles {
+                        let mac = Translator.Capabilities(
+                            systemInstalled: installed, systemSupported: supported, modelSupportsPair: model,
+                            modelObstacle: obstacle, onlineEnabled: true
+                        )
+                        XCTAssertFalse(Translator.engines(given: mac).contains(.online), "\(mac)")
+                    }
+                }
+            }
+        }
     }
 
     /// When nothing can, the failure names the language that is missing and
-    /// offers the way round it.
-    func testAnImpossiblePairSaysWhichLanguageAndOffersOnline() {
+    /// offers only the way round that would actually be taken.
+    func testAnImpossiblePairSaysWhichLanguageAndOffersTheRightWayRound() {
         let route = Translator.Route(source: .english, target: .uzbek)
         let uzbek = Translator.Capabilities()
         let obstacle = Translator.obstacle(for: route, given: uzbek)
@@ -122,13 +140,47 @@ final class TranslatorTests: XCTestCase {
         let notDownloaded = Translator.Capabilities(systemInstalled: false, systemSupported: true)
         let ukrainian = Translator.obstacle(for: .init(source: .english, target: .ukrainian), given: notDownloaded)
         XCTAssertEqual(ukrainian, .needsDownload(.ukrainian))
-        XCTAssertEqual(Translator.remedies(for: ukrainian, onlineEnabled: false),
-                       [.translationLanguages, .turnOnOnline])
+        XCTAssertEqual(Translator.remedies(for: ukrainian, onlineEnabled: false), [.translationLanguages],
+                       "a pair the Mac offers is downloaded, not sent")
 
         let intelligenceOff = Translator.Capabilities(modelSupportsPair: true, modelObstacle: .appleIntelligenceOff)
         let off = Translator.obstacle(for: .init(source: .english, target: .korean), given: intelligenceOff)
         XCTAssertEqual(off, .appleIntelligenceOff)
-        XCTAssertEqual(Translator.remedies(for: off, onlineEnabled: true), [.appleIntelligenceSettings])
+        XCTAssertEqual(Translator.remedies(for: off, onlineEnabled: false), [.appleIntelligenceSettings])
+    }
+
+    /// Below macOS 26 neither on-device engine is reachable from here: the
+    /// message says so — not "Russian is not downloaded" — and the only way
+    /// round is the online one, for every pair.
+    func testBelowMacOS26TheMessageIsTheSystem() {
+        var old = Translator.Capabilities(belowMinimumSystem: true)
+        let route = Translator.Route(source: .english, target: .russian)
+        XCTAssertEqual(Translator.obstacle(for: route, given: old), .needsNewerSystem)
+        XCTAssertEqual(Translator.remedies(for: .needsNewerSystem, onlineEnabled: false), [.turnOnOnline])
+        old.onlineEnabled = true
+        XCTAssertEqual(Translator.engines(given: old), [.online])
+    }
+
+    /// The answer on screen belongs to the text it answered. For the length of
+    /// the debounce it is still the previous text's, and a swap then must not
+    /// replace what was just typed with it.
+    func testSwapOnlyMovesAnAnswerThatAnswersTheField() {
+        let translator = Translator(defaults: defaults)
+        translator.choose(source: .english)
+        translator.choose(target: .uzbek)
+        translator.input = "Good morning"
+        translator.received("Xayrli tong", for: "Good morning", by: .online)
+
+        translator.input = "Good morning, everyone"
+        translator.swap()
+        XCTAssertEqual(translator.input, "Good morning, everyone", "a stale answer does not replace typing")
+        XCTAssertEqual(translator.source, .uzbek)
+
+        translator.swap()
+        translator.received("Xayrli tong, hammaga", for: "Good morning, everyone", by: .online)
+        translator.swap()
+        XCTAssertEqual(translator.input, "Xayrli tong, hammaga")
+        XCTAssertEqual(translator.output, "")
     }
 
     /// The model once translated one sentence for 218 seconds until its

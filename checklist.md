@@ -69,13 +69,16 @@ are the exception the design did not anticipate:
   doc carries the dated amendment and `OfflineLyricsIsolationTests` bounds
   the exception to one file and one service.
 - **Translate Online** (Settings › Translate, default off, added 2026-09-21)
-  sends a pair no engine on this Mac can translate to MyMemory
-  (translated.net) — free, no account, no key — and nothing else: the text and
-  its two language codes. Uzbek and Kazakh always need it; every pair Apple's
-  Translation framework has installed, or the on-device model supports, stays
-  on the Mac whether the switch is on or not. An answer that came from the
-  network carries a globe in its heading. `OnlineTranslationTests` bounds the
-  exception to `OnlineTranslation.swift` and the one host.
+  sends a pair no engine on this Mac offers at all — Uzbek and Kazakh — to
+  MyMemory (translated.net): free, no account, no key. It receives the text and
+  its two language codes, over an ordinary web request. A pair Apple's
+  Translation framework or the on-device model offers is never sent, even when
+  it cannot run right now — not downloaded, Apple Intelligence off, or a
+  refusal — and is reported instead (fixed in review the same day: online had
+  been the fallback for all three). An answer that came from the network
+  carries a globe in its heading. `OnlineTranslationTests` bounds the exception
+  to `OnlineTranslation.swift` and the one host; `TranslatorTests` holds that no
+  on-device pair ever lists the online engine.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain.

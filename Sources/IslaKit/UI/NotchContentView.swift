@@ -24,6 +24,21 @@ struct NotchContentView: View {
     enum MorphID {
         static let artwork = "island.artwork"
         static let equalizer = "island.equalizer"
+
+        /// The pill's end of a travel, while it is showing — and a name nothing
+        /// else answers to while it is folded.
+        ///
+        /// The compact header stays mounted when the pill folds into the notch,
+        /// so without this its hidden cover, 22 pt at the notch's left edge,
+        /// was still the near end of the cover's travel: opening the panel on a
+        /// settled pause grew the cover out of the notch's edge and slid the
+        /// bars in from the other, where before a folded pill had no end at all
+        /// and both simply faded in with the pane (found in review,
+        /// 2026-09-21). Renamed rather than unmounted, so the view keeps its
+        /// identity and the fold keeps its motion.
+        static func compact(_ id: String, folded: Bool) -> String {
+            folded ? id + ".folded" : id
+        }
     }
 
     /// The space the pill and the panel share. Declared here because this view
@@ -176,7 +191,10 @@ struct NotchContentView: View {
         // one shake for both.
         .contentShape(Rectangle())
         .onTapGesture { vm.onIslandClick?() }
-        .refusalShake(trigger: vm.lockedHoverNudges)
+        // Folded, the shape sits one point inside the cutout, and an 11 pt
+        // swing would carry ten of them out onto the wallpaper beside it. There
+        // is no pill to shake, so nothing shakes.
+        .refusalShake(trigger: vm.lockedHoverNudges, amplitude: shown ? RefusalShake.standardAmplitude : 0)
         // Folded, there is nothing here to answer: the notch is only a notch.
         .allowsHitTesting(shown)
         .animation(Theme.pill(appearing: shown, reduceMotion: reduceMotion), value: compactActivity)
@@ -459,7 +477,11 @@ struct NotchContentView: View {
                             .lineLimit(1)
                     }
                     // The title materializes rather than fading flat: the
-                    // same blur-and-settle the cover makes arriving.
+                    // same blur-and-settle the cover makes arriving. And it
+                    // dissolves with the cover when the pill folds — a pause
+                    // settling mid-peek used to fold the wing in over a title
+                    // still at full strength, slicing it.
+                    .pillPresence(shown, reduceMotion: reduceMotion)
                     .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
                     Spacer(minLength: 0)
                 }
@@ -651,7 +673,7 @@ struct NotchContentView: View {
                 RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
                     .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
             )
-            .morph(MorphID.artwork, in: morph)
+            .morph(MorphID.compact(MorphID.artwork, folded: !compactActivity.isVisible), in: morph)
             .frame(width: metrics.side, height: metrics.side)
             .animation(Theme.contentAnimation, value: showsPausedCover)
     }
@@ -680,7 +702,7 @@ struct NotchContentView: View {
             isAnimating: compactActivity.animatesEqualizer,
             opacity: compactActivity == .playing ? 0.82 : 0.58
         )
-        .morph(MorphID.equalizer, in: morph)
+        .morph(MorphID.compact(MorphID.equalizer, folded: !compactActivity.isVisible), in: morph)
     }
 
     private var compactAccessibilityLabel: String {
@@ -699,13 +721,14 @@ struct NotchContentView: View {
                     // were in the pill's right wing a moment ago, not a second
                     // set switched on in their place.
                     //
-                    // The compact end is mounted on `track != nil`; this end
-                    // additionally needs the Media tab and no welcome pane, so
-                    // the pair can be half-present — open the panel on Shelf and
-                    // only the pill's bars exist. That is safe rather than
-                    // accidental: both ends are sources, so a lone member plays
-                    // its own transition instead of collapsing onto a frame that
-                    // is not there.
+                    // The compact end answers to this name only while the pill
+                    // shows (`MorphID.compact`); this end additionally needs a
+                    // track, the Media tab and no welcome pane, so the pair can
+                    // be half-present — open the panel on Shelf and only the
+                    // pill's bars exist. That is safe rather than accidental:
+                    // both ends are sources, so a lone member plays its own
+                    // transition instead of collapsing onto a frame that is not
+                    // there.
                     EqualizerBars(isAnimating: vm.media.isPlaying)
                         .morph(MorphID.equalizer, in: morph)
                 }
@@ -874,7 +897,9 @@ private struct Rail: View {
         } label: {
             Image(systemName: tab.symbol)
                 // Filled when chosen, outlined otherwise — the tab bar's own
-                // grammar — swapped on the frame of the click. The system's
+                // grammar — swapped on the frame of the click. The note and the
+                // sliders have no filled form, so for Music and Settings the
+                // chip alone says which is chosen. The system's
                 // replace effect was tried and withdrawn the same day: it takes
                 // a third of a second, and a rail that answers a click a third
                 // of a second late reads as a rail catching up.
