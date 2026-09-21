@@ -1,5 +1,27 @@
+import AppKit
 import XCTest
 @testable import IslaKit
+
+extension MediaController {
+    /// Cuts every line from the controller to a real player.
+    ///
+    /// Holding a song under a film asks the song's player what it is doing, and
+    /// finding one asks every running player. Left at their defaults, those
+    /// questions went to whatever Spotify was running on the machine running
+    /// the tests — and on CI, where Spotify is not installed, the bridge
+    /// answered "nothing loaded" at once, let the held song go, and failed
+    /// `testAFilmOverAPausedSongKeepsTheSong` on the runner only. Each seam
+    /// answers "not asked" here unless a test says otherwise, and the Spotify
+    /// track-id lookup is switched off, since the fixtures name Spotify.
+    func isolateFromPlayers() {
+        heldPlayerState = { (_: PlayerApp, reply: @escaping (PlayerBridge.StateReply) -> Void) in reply(.unknown) }
+        loadedSong = { (reply: @escaping (PlayerState?) -> Void) in reply(nil) }
+        heldArtwork = { (_: PlayerState, reply: @escaping (NSImage?) -> Void) in reply(nil) }
+        sendToPlayer = { _, _ in }
+        pidForPlayer = { _ in nil }
+        spotifyDisplayForTests = false
+    }
+}
 
 /// What reaches the island when Music Only is on.
 ///
@@ -85,6 +107,7 @@ final class MediaSourcePolicyTests: XCTestCase {
     /// empty snapshot, which clears the track and folds the island to the notch.
     func testAFilteredSourceReachesApplyAsNothingPlaying() {
         let controller = MediaController()
+        controller.isolateFromPlayers()
         controller.musicOnly = { true }
         controller.bundleIdentifierForPID = { $0 == 1 ? "com.google.Chrome" : "com.spotify.client" }
 
@@ -101,6 +124,7 @@ final class MediaSourcePolicyTests: XCTestCase {
     /// Off means everything, as before.
     func testWithMusicOnlyOffEverythingIsShown() {
         let controller = MediaController()
+        controller.isolateFromPlayers()
         controller.musicOnly = { false }
         controller.bundleIdentifierForPID = { _ in "com.google.Chrome" }
         XCTAssertEqual(controller.admission(for: snapshot(pid: 1)), .accept)
@@ -141,6 +165,7 @@ final class HeldSongTests: XCTestCase {
 
     private func controller(running: Set<pid_t>) -> MediaController {
         let controller = MediaController()
+        controller.isolateFromPlayers()
         controller.musicOnly = { true }
         controller.bundleIdentifierForPID = { $0 == 1 ? "com.spotify.client" : "com.google.Chrome" }
         controller.isProcessRunning = { running.contains($0) }
@@ -216,6 +241,7 @@ final class HeldSongTruthTests: XCTestCase {
 
     private func controller(held: PlayerBridge.StateReply) -> (MediaController, () -> Int) {
         let controller = MediaController()
+        controller.isolateFromPlayers()
         controller.musicOnly = { true }
         controller.bundleIdentifierForPID = { $0 == 1 ? "com.spotify.client" : "org.mozilla.firefox" }
         controller.isProcessRunning = { _ in true }
@@ -359,6 +385,7 @@ final class LoadedSongSearchTests: XCTestCase {
 
     private func controller(found: PlayerState?) -> (MediaController, () -> Int) {
         let controller = MediaController()
+        controller.isolateFromPlayers()
         controller.musicOnly = { true }
         controller.bundleIdentifierForPID = { $0 == 1 ? "com.spotify.client" : "org.mozilla.firefox" }
         controller.isProcessRunning = { _ in true }
