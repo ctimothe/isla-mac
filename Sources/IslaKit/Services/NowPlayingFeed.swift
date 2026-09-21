@@ -68,7 +68,15 @@ final class NowPlayingFeed {
     private var terminationToken: NSObjectProtocol?
     /// Fires when the helper has gone quiet for too long.
     private var watchdog: Timer?
-    private var lastLineAt = Date()
+    /// When the helper last spoke, on the clock that stops while the Mac
+    /// sleeps. It used to be a `Date`, and a wall clock keeps running through
+    /// sleep: a lid closed for ten minutes read as ten minutes of silence, so
+    /// whenever the watchdog's first tick after waking beat the helper's first
+    /// line, a perfectly healthy helper was killed, charged a failure against
+    /// the restart budget, and the island went blank for the restart delay.
+    /// A clock step (NTP, or the user setting the time) did the same. Awake
+    /// time is also what the helper's own heartbeat counts in.
+    private var lastLineAt = ProcessInfo.processInfo.systemUptime
     /// Identifies the helper generation a chunk belongs to.
     ///
     /// The readability handler runs on a dispatch thread and hops to the main
@@ -114,7 +122,7 @@ final class NowPlayingFeed {
                 queue: .main
             ) { [weak self] note in
                 guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-                MainActor.assumeIsolated { self?.appNames.removeValue(forKey: app.processIdentifier) }
+                MainActor.assumeIsolated { _ = self?.appNames.removeValue(forKey: app.processIdentifier) }
             }
         }
         launch()
@@ -148,7 +156,7 @@ final class NowPlayingFeed {
     /// the helper looks up.
     private func startWatchdog() {
         stopWatchdog()
-        lastLineAt = Date()
+        lastLineAt = ProcessInfo.processInfo.systemUptime
         let timer = Timer(timeInterval: Self.silenceTimeout / 3, repeats: true) { [weak self] timer in
             guard let self else {
                 timer.invalidate()
@@ -168,7 +176,7 @@ final class NowPlayingFeed {
 
     private func checkForSilence() {
         guard !stopped, process != nil else { return }
-        guard Date().timeIntervalSince(lastLineAt) > Self.silenceTimeout else { return }
+        guard ProcessInfo.processInfo.systemUptime - lastLineAt > Self.silenceTimeout else { return }
         NSLog("Isla: helper went silent; restarting")
         // Treated exactly like a crash, so the same budget and backoff apply
         // and a helper that is reliably mute eventually hands over to scripting.
@@ -346,7 +354,7 @@ final class NowPlayingFeed {
         guard epoch == self.epoch else { return }
         // Any byte from the helper counts as a sign of life, whether or not it
         // completes a line.
-        lastLineAt = Date()
+        lastLineAt = ProcessInfo.processInfo.systemUptime
         for line in buffer.append(chunk) {
             handle(line: line)
         }
