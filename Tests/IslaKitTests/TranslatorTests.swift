@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 final class TranslatorTests: XCTestCase {
-    private var defaults: UserDefaults!
+    nonisolated(unsafe) private var defaults: UserDefaults!
     private let suite = "TranslatorTests"
 
     override func setUp() {
