@@ -190,12 +190,6 @@ final class LyricsCoordinator: ObservableObject {
         recheckCurrentTrack()
     }
 
-    func importLocalOverride(_ lrc: String) throws {
-        guard let currentIdentity else { return }
-        _ = try library.importDocument(lrc, binding: currentIdentity)
-        markLocalOverride()
-    }
-
     func importLocalFile(at url: URL) throws {
         guard let currentIdentity else { return }
         _ = try library.importDocument(at: url, binding: currentIdentity)
