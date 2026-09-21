@@ -81,7 +81,8 @@ struct ShelfPane: View {
                     .fill(isTargeted ? Theme.surface : .clear)
             )
             .overlay(
-                Image(systemName: "tray.and.arrow.down.fill")
+                // Something arriving on the stack the tab is drawn as.
+                Image(systemName: "square.and.arrow.down.on.square")
                     .islandFont(.display, weight: .light)
                     .foregroundStyle(isTargeted ? .white : Theme.tertiary)
             )

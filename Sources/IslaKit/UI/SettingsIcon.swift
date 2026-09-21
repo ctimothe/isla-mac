@@ -63,8 +63,10 @@ enum SettingsIcon {
     static let importFromKeychain = "key"
 
     // Privacy
-    static let clipboard = "list.clipboard.fill"
-    static let translate = "translate"
+    /// The same glyphs as the Clipboard and Translate tabs, so each feature
+    /// reads as the same feature here.
+    static let clipboard = "doc.on.clipboard"
+    static let translate = "character.bubble"
     /// About recording, not about whether a person can see the panel.
     static let hideFromRecording = "video.slash"
 

@@ -8,15 +8,33 @@ final class NotchViewModel: ObservableObject {
         case media, shelf, clipboard, translate, settings
         var id: String { rawValue }
 
+        /// The rail's glyph, in its outline form; the rail fills the selected
+        /// one, the way a system tab bar does.
+        ///
+        /// Chosen on 2026-09-21 to replace a set that was, glyph for glyph, the
+        /// one the upstream project ships — `music.note`, `tray.full.fill`,
+        /// `list.clipboard.fill`, `translate`, `gearshape.fill` — so the rail
+        /// read as somebody else's island. Each of these is the system's own
+        /// word for its tab: the Now Playing play mark, a stack of held
+        /// things, the pasteboard glyph macOS puts on Paste, a speech bubble
+        /// with a letter in it (localized by the system to the reader's
+        /// script), and the controls sliders. `TabContractTests` keeps the old
+        /// set out.
         var symbol: String {
             switch self {
-            case .media: return "music.note"
-            case .shelf: return "tray.full.fill"
-            case .clipboard: return "list.clipboard.fill"
-            case .translate: return "translate"
-            case .settings: return "gearshape.fill"
+            case .media: return "play.circle"
+            case .shelf: return "rectangle.stack"
+            case .clipboard: return "doc.on.clipboard"
+            case .translate: return "character.bubble"
+            case .settings: return "slider.horizontal.3"
             }
         }
+
+        /// The glyphs the rail wore until 2026-09-21: the upstream project's
+        /// own set, kept here only so a test can keep it from coming back.
+        static let retiredSymbols: Set<String> = [
+            "music.note", "tray.full.fill", "list.clipboard.fill", "translate", "gearshape.fill",
+        ]
 
         var title: String {
             switch self {
