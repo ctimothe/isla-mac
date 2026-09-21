@@ -7,14 +7,16 @@ import Foundation
 /// the one that asked for it: Apple's Translation framework does not offer it,
 /// and the on-device language model, tried on 2026-09-21, answered English with
 /// Uzbek-looking nonsense, refused ordinary sentences as unsafe, and once ran
-/// for 218 seconds until it blew its context window. Every pair a Mac *can* do
-/// itself still stays on it; see `Translator.engine`.
+/// for 218 seconds until it blew its context window. A pair either engine on
+/// this Mac offers is never sent here, whether or not that engine can run right
+/// now; see `Translator.engines(given:)`.
 ///
 /// The service is MyMemory (translated.net): free, no account, no key, and it
 /// published its terms for exactly this — anonymous use up to a daily character
 /// allowance. It receives the text being translated and the two language codes,
-/// and nothing about the person. Google's free endpoint was tried first and
-/// answered this Mac with a bot check.
+/// over an ordinary web request, so also the Mac's address and a user agent
+/// naming the app. Google's free endpoint was tried first and answered this Mac
+/// with a bot check.
 enum OnlineTranslation {
     static let endpoint = "https://api.mymemory.translated.net/get"
 

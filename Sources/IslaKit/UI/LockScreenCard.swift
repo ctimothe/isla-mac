@@ -387,7 +387,10 @@ struct LockScreenCard: View {
                 // spring the stage scrolls with, clipped to the window so
                 // neither is drawn over the title above or the rail below.
                 .clipped()
-                .animation(jump ? nil : Theme.lyricScroll(reduceMotion: reduceMotion), value: centre)
+                // Reduce Motion keeps the old cut: with the travel refused the
+                // leaving line only faded while the rest still slid a row, so
+                // for a moment two lines shared one slot.
+                .animation(jump || reduceMotion ? nil : Theme.lyricScroll, value: centre)
                 // A jump is a cut. When a seek moves the words more than a line,
                 // every row is replaced at once, and each one's own crossfade
                 // laid the old line and the new one over each other in the same

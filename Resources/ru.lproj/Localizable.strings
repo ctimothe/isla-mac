@@ -79,7 +79,7 @@
 "Turn On Translate Online" = "Включить «Переводить онлайн»";
 "Translated online by MyMemory" = "Переведено онлайн через MyMemory";
 "Translate Online" = "Переводить онлайн";
-"Languages this Mac cannot translate itself, such as Uzbek, go to MyMemory: only the text and its two languages." = "Языки, которые этот Mac не переводит сам, например узбекский, отправляются в MyMemory — только текст и его два языка.";
+"Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet." = "Языки, которые этот Mac не переводит сам, например узбекский, отправляются в MyMemory через интернет.";
 "Translations stay on this Mac." = "Переводы остаются на этом Mac.";
 "Clear Everything" = "Очистить всё";
 "Delete These Files" = "Удалить эти файлы";

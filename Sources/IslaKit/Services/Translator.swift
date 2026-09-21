@@ -19,9 +19,11 @@ import Translation
 /// 2. **The on-device language model**, for the languages it supports — plus
 ///    Russian, which Apple does not list but which it translates well, and
 ///    which this tab was built on. No per-language assets to go stale.
-/// 3. **Online**, only when Translate Online is switched on — see
-///    `OnlineTranslation`. The one way text leaves this Mac, and for Uzbek and
-///    Kazakh the only way at all: neither on-device engine has them.
+/// 3. **Online**, only when Translate Online is switched on, and only for a
+///    pair neither engine above offers at all — see `OnlineTranslation`. For
+///    Uzbek and Kazakh it is the only way. It is never the next try after an
+///    on-device engine failed, refused or is switched off: the text a model
+///    refuses as sensitive is exactly the text that must not then leave.
 @MainActor
 final class Translator: ObservableObject {
     struct Route: Equatable {
@@ -102,6 +104,16 @@ final class Translator: ObservableObject {
     /// menus mark every other language as an online one.
     @Published private(set) var onDeviceLanguages: Set<String>?
 
+    /// The text `output` is the translation of. Swapping moves the answer into
+    /// the field only when it answers what the field holds: for the length of
+    /// the debounce the answer on screen is still the previous text's, and a
+    /// swap then would replace what was just typed with a stale translation.
+    private var outputSource: String?
+
+    /// The last detection, so the recognizer runs once per text rather than
+    /// once per read — the pane reads the route on every keystroke's render.
+    private var detection: (text: String, language: TranslationLanguage)?
+
     /// Bumped per request, so a late-finishing cancelled run can tell that it
     /// is no longer the one on screen.
     private var generation = 0
@@ -123,7 +135,16 @@ final class Translator: ObservableObject {
 
     var request: Request { Request(text: input, attempt: attempt, source: source, target: target) }
     var trimmed: String { input.trimmingCharacters(in: .whitespacesAndNewlines) }
-    var route: Route { Self.route(for: trimmed, source: source, target: target) }
+    var route: Route {
+        let text = trimmed
+        guard source == nil, !text.isEmpty else { return Self.route(for: text, source: source, target: target) }
+        if let detection, detection.text == text {
+            return Self.route(detected: detection.language, target: target)
+        }
+        let detected = LanguageDetection.language(of: text)
+        detection = (text, detected)
+        return Self.route(detected: detected, target: target)
+    }
 
     // MARK: - Choosing languages
 
@@ -156,9 +177,10 @@ final class Translator: ObservableObject {
         source = target
         target = from
         if source == target { source = nil }
-        if !output.isEmpty {
+        if !output.isEmpty, outputSource == trimmed {
             input = output
             output = ""
+            outputSource = nil
             engine = nil
         }
         remember()
@@ -179,11 +201,15 @@ final class Translator: ObservableObject {
     static func route(for text: String, source: TranslationLanguage?, target: TranslationLanguage) -> Route {
         guard let source else {
             let detected = text.isEmpty ? alternative(to: target) : LanguageDetection.language(of: text)
-            return detected == target
-                ? Route(source: detected, target: alternative(to: target))
-                : Route(source: detected, target: target)
+            return route(detected: detected, target: target)
         }
         return Route(source: source, target: target)
+    }
+
+    private static func route(detected: TranslationLanguage, target: TranslationLanguage) -> Route {
+        detected == target
+            ? Route(source: detected, target: alternative(to: target))
+            : Route(source: detected, target: target)
     }
 
     static func alternative(to language: TranslationLanguage) -> TranslationLanguage {
@@ -202,20 +228,36 @@ final class Translator: ObservableObject {
         /// Why the model cannot answer, or nil when it can.
         var modelObstacle: Obstacle?
         var onlineEnabled = false
+        /// Below macOS 26 neither on-device engine can be reached from here:
+        /// the framework only translates outside SwiftUI from 26 on, and the
+        /// model only exists there.
+        var belowMinimumSystem = false
+
+        /// Whether the pair is this Mac's to translate — ready or not. Such a
+        /// pair is never sent online, whatever the switch says.
+        var offeredOnDevice: Bool { systemSupported || modelSupportsPair }
     }
 
     /// The engines to try, best first. Empty means nothing here can do it —
     /// see `obstacle(for:given:)`.
+    ///
+    /// Online is listed only for a pair nothing on this Mac offers, so a
+    /// failure on device can never fall through to it. It used to be appended
+    /// whenever the switch was on: a sentence the model refused, a pair whose
+    /// language was not yet downloaded, or any pair with Apple Intelligence
+    /// switched off all went to the service, which is not what the switch
+    /// promises (found in review, 2026-09-21).
     static func engines(given capabilities: Capabilities) -> [Engine] {
         var engines: [Engine] = []
         if capabilities.systemInstalled { engines.append(.system) }
         if capabilities.modelSupportsPair, capabilities.modelObstacle == nil { engines.append(.intelligence) }
-        if capabilities.onlineEnabled { engines.append(.online) }
+        if capabilities.onlineEnabled, !capabilities.offeredOnDevice { engines.append(.online) }
         return engines
     }
 
     /// Why no engine can do the pair, naming the language that is missing.
     static func obstacle(for route: Route, given capabilities: Capabilities) -> Obstacle {
+        if capabilities.belowMinimumSystem { return .needsNewerSystem }
         // The language to name is the one that is not English: English is on
         // every engine, so it is never the reason.
         let missing = route.target == .english ? route.source : route.target
@@ -224,17 +266,15 @@ final class Translator: ObservableObject {
         return .needsOnline(missing)
     }
 
+    /// The buttons an obstacle offers. Online is offered only where online is
+    /// what would be used — never as a way round a pair the Mac owns.
     static func remedies(for obstacle: Obstacle, onlineEnabled: Bool) -> [Remedy] {
-        var remedies: [Remedy] = []
         switch obstacle {
-        case .appleIntelligenceOff: remedies.append(.appleIntelligenceSettings)
-        case .needsDownload: remedies.append(.translationLanguages)
-        case .needsOnline, .needsNewerSystem, .deviceNotEligible, .modelNotReady: break
+        case .appleIntelligenceOff: return [.appleIntelligenceSettings]
+        case .needsDownload: return [.translationLanguages]
+        case .needsOnline, .needsNewerSystem: return onlineEnabled ? [] : [.turnOnOnline]
+        case .deviceNotEligible, .modelNotReady: return []
         }
-        // Online is the way round every one of these, so it is offered with
-        // each — as a switch the person flips, never as something done for them.
-        if !onlineEnabled { remedies.append(.turnOnOnline) }
-        return remedies
     }
 
     /// Whether the on-device model is trusted with a language: what it lists,
@@ -265,18 +305,35 @@ final class Translator: ObservableObject {
     private func capabilities(for route: Route) async -> Capabilities {
         var capabilities = Capabilities()
         capabilities.onlineEnabled = defaults.bool(forKey: NotchViewModel.onlineTranslationKey)
-        let status = await LanguageAvailability().status(from: route.source.locale, to: route.target.locale)
-        capabilities.systemSupported = status != .unsupported
-        if #available(macOS 26.0, *) {
-            capabilities.systemInstalled = status == .installed
+        guard #available(macOS 26.0, *) else {
+            capabilities.belowMinimumSystem = true
+            return capabilities
         }
+        let status = await Self.systemStatus(from: route.source, to: route.target)
+        capabilities.systemSupported = status != .unsupported
+        capabilities.systemInstalled = status == .installed
         capabilities.modelSupportsPair = Self.modelHandles(route.source) && Self.modelHandles(route.target)
         capabilities.modelObstacle = modelObstacle
         return capabilities
     }
 
+    /// Asked off the main actor, where the framework's availability object is
+    /// made and used, so nothing that is not `Sendable` crosses an actor.
+    nonisolated private static func systemStatus(
+        from source: TranslationLanguage, to target: TranslationLanguage
+    ) async -> LanguageAvailability.Status {
+        await LanguageAvailability().status(from: source.locale, to: target.locale)
+    }
+
+    nonisolated private static func systemLanguages() async -> Set<String> {
+        Set(await LanguageAvailability().supportedLanguages.compactMap { $0.languageCode?.identifier })
+    }
+
+    /// The base codes this Mac translates itself. Below macOS 26 that is none:
+    /// every language there is an online one.
     private static func languagesOnThisMac() async -> Set<String> {
-        var codes = Set(await LanguageAvailability().supportedLanguages.compactMap { $0.languageCode?.identifier })
+        guard #available(macOS 26.0, *) else { return [] }
+        var codes = await systemLanguages()
         for language in TranslationLanguage.all where modelHandles(language) {
             codes.insert(language.baseCode)
         }
@@ -304,6 +361,7 @@ final class Translator: ObservableObject {
 
     func clear() {
         output = ""
+        outputSource = nil
         failure = nil
         remedies = []
         engine = nil
@@ -338,6 +396,7 @@ final class Translator: ObservableObject {
         guard !engines.isEmpty else {
             let obstacle = Self.obstacle(for: route, given: capabilities)
             output = ""
+            outputSource = nil
             engine = nil
             failure = obstacle.message
             remedies = Self.remedies(for: obstacle, onlineEnabled: capabilities.onlineEnabled)
@@ -349,10 +408,7 @@ final class Translator: ObservableObject {
             do {
                 let translated = try await run(candidate, text: text, route: route)
                 guard !Task.isCancelled, self.generation == generation else { return }
-                output = translated
-                engine = candidate
-                failure = nil
-                remedies = []
+                received(translated, for: text, by: candidate)
                 return
             } catch is CancellationError {
                 return
@@ -365,9 +421,21 @@ final class Translator: ObservableObject {
             }
         }
         output = ""
+        outputSource = nil
         engine = nil
         failure = lastFailure
         remedies = [.retry]
+    }
+
+    /// The one place an answer lands: the text, what it answers, and which
+    /// engine gave it — kept together so the swap and the globe can never
+    /// describe a different answer from the one on screen.
+    func received(_ translated: String, for text: String, by engine: Engine) {
+        output = translated
+        outputSource = text
+        self.engine = engine
+        failure = nil
+        remedies = []
     }
 
     /// An engine asked for on a system that does not have it. Unreachable in

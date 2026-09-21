@@ -55,13 +55,13 @@ struct TranslationLanguage: Hashable, Identifiable, Sendable {
 
     /// Every language on offer, in the order the menus list them: the panel's
     /// alphabet, so the list reads the way the reader's own language sorts.
-    static var all: [TranslationLanguage] {
-        [
-            english, russian, uzbek, kazakh, turkish, ukrainian, german, french,
-            spanish, italian, portuguese, arabic, hindi, chinese, japanese, korean,
-        ]
-        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
+    /// Sorted once — the panel's language is settled for the life of the
+    /// process, and this is read on every render of both menus.
+    static let all: [TranslationLanguage] = [
+        english, russian, uzbek, kazakh, turkish, ukrainian, german, french,
+        spanish, italian, portuguese, arabic, hindi, chinese, japanese, korean,
+    ]
+    .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
     static func withCode(_ code: String) -> TranslationLanguage? {
         all.first { $0.code == code }
@@ -72,14 +72,25 @@ struct TranslationLanguage: Hashable, Identifiable, Sendable {
 ///
 /// Apple's recognizer does the heavy lifting and does not know Uzbek at all:
 /// Latin Uzbek comes back as Swedish or Indonesian, and Cyrillic Uzbek as
-/// Russian — measured on this Mac on 2026-09-21. Uzbek is therefore recognised
-/// first, by what only Uzbek writes; everything else goes to the recognizer,
-/// held to the languages on offer; and text too short to call falls back to
-/// the rule this tab always used — Cyrillic is Russian, anything else English.
+/// Kazakh at full confidence — measured on this Mac on 2026-09-21. So the
+/// letters that settle a language go first, then the scripts only one offered
+/// language writes, then Uzbek's Latin signs, and only then the recognizer,
+/// held to the languages on offer. A word or two is too little for it: it
+/// called "Друг" Ukrainian at 0.60 and "Hi" Turkish at 0.65, while real short
+/// phrases — "Guten Morgen", "Merci beaucoup" — come back at 0.97 and above.
+/// Short text therefore needs that certainty, and without it falls back to the
+/// rule this tab always used: Cyrillic is Russian, anything else English.
 enum LanguageDetection {
+    /// Fewer words than this is too little for the recognizer to be trusted
+    /// at its ordinary confidence.
+    static let shortTextWords = 3
+    static let shortTextConfidence = 0.95
+    static let confidence = 0.5
+
     static func language(of text: String) -> TranslationLanguage {
         let sample = String(text.prefix(400))
         if let certain = byLetters(sample) { return certain }
+        if let script = byScript(sample) { return script }
         let hypothesis = recognized(sample)
         // The Latin signs come after the letters because they are weaker
         // evidence, and each gives way to a recognizer sure it is reading
@@ -92,7 +103,9 @@ enum LanguageDetection {
             if marks >= 2 || (marks == 1 && words >= 1) { return .uzbek }
             if words >= 2, !lower.contains(where: { "çşğıöü".contains($0) }) { return .uzbek }
         }
-        if let hypothesis, hypothesis.confidence >= 0.5 { return hypothesis.language }
+        let words = sample.split { !$0.isLetter }.count
+        let needed = words < shortTextWords ? shortTextConfidence : confidence
+        if let hypothesis, hypothesis.confidence >= needed { return hypothesis.language }
         return containsCyrillic(sample) ? .russian : .english
     }
 
@@ -100,13 +113,40 @@ enum LanguageDetection {
     ///
     /// Cyrillic Uzbek writes ў and ҳ, which no other language on offer does;
     /// Kazakh writes ә ө ү ұ ң һ, which Uzbek does not. Қ and ғ are shared by
-    /// the two, so they count as Uzbek only when nothing Kazakh is present. І
-    /// is Kazakh *and* Ukrainian, so it decides nothing on its own — the
-    /// recognizer tells those two apart well.
+    /// the two, and there і and ы decide: Kazakh writes both constantly, and
+    /// Uzbek Cyrillic has neither ("Сіз қалайсыз?" is Kazakh, "Қаерга
+    /// борасиз?" Uzbek). І alone is also Ukrainian, so without қ or ғ it
+    /// decides nothing — the recognizer tells those two apart well.
     static func byLetters(_ text: String) -> TranslationLanguage? {
         let lower = text.lowercased()
         if lower.contains(where: { "әөүұңһ".contains($0) }) { return .kazakh }
-        if lower.contains(where: { "ўҳқғ".contains($0) }) { return .uzbek }
+        if lower.contains(where: { "ўҳ".contains($0) }) { return .uzbek }
+        if lower.contains(where: { "қғ".contains($0) }) {
+            return lower.contains(where: { "іы".contains($0) }) ? .kazakh : .uzbek
+        }
+        return nil
+    }
+
+    /// Scripts only one offered language writes, which settle it at any
+    /// length — a two-character greeting included, where the recognizer is
+    /// least sure. Kana means Japanese even beside kanji; Han alone, Chinese.
+    static func byScript(_ text: String) -> TranslationLanguage? {
+        var kana = false, hangul = false, han = false, arabic = false, devanagari = false
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x3040...0x30FF, 0x31F0...0x31FF: kana = true
+            case 0xAC00...0xD7AF, 0x1100...0x11FF, 0x3130...0x318F: hangul = true
+            case 0x3400...0x4DBF, 0x4E00...0x9FFF: han = true
+            case 0x0600...0x06FF, 0x0750...0x077F: arabic = true
+            case 0x0900...0x097F: devanagari = true
+            default: break
+            }
+        }
+        if kana { return .japanese }
+        if hangul { return .korean }
+        if han { return .chinese }
+        if arabic { return .arabic }
+        if devanagari { return .hindi }
         return nil
     }
 
