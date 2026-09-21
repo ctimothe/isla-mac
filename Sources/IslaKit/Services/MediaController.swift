@@ -775,12 +775,12 @@ final class MediaController: ObservableObject {
 
     func next() {
         trace("cmd next")
-        dispatch(feed: .next, script: { PlayerBridge.next($0) }, key: .next)
+        dispatch(feed: .next, transport: .next, key: .next)
     }
 
     func previous() {
         trace("cmd previous")
-        dispatch(feed: .previous, script: { PlayerBridge.previous($0) }, key: .previous)
+        dispatch(feed: .previous, transport: .previous, key: .previous)
     }
 
     func seek(to seconds: TimeInterval) {
@@ -798,22 +798,44 @@ final class MediaController: ObservableObject {
         correctionWindow = []
         pendingSeek = (clamped, Date(), origin)
         lastSeek = (clamped, Date(), origin)
-        if feedAvailable {
+        if let held = heldScriptablePlayer {
+            sendToPlayer(.seek(seconds: Int(clamped)), held)
+        } else if feedAvailable {
             feed.seek(to: clamped, playerPID: displayedPlayerPID)
         } else if let activeApp {
-            PlayerBridge.seek(activeApp, to: clamped)
+            sendToPlayer(.seek(seconds: Int(clamped)), activeApp)
         }
+    }
+
+    /// Sends a command to a scriptable player directly. Injectable so a test
+    /// can see where a tap went without a real player receiving it.
+    var sendToPlayer: (PlayerBridge.Transport, PlayerApp) -> Void = { action, app in
+        PlayerBridge.send(action, to: app)
+    }
+
+    /// The player a command must go to directly, around MediaRemote.
+    ///
+    /// The helper addresses a command to the shown player by pid, but it can
+    /// reach only a player it has seen own Now Playing in its lifetime; for any
+    /// other pid it hands the command to whoever owns Now Playing now. Under a
+    /// film, that is the film: after a relaunch with a film playing, the song
+    /// the island found paused in Spotify would have sent its play tap to the
+    /// film. So a held song whose player can be scripted is driven through it.
+    private var heldScriptablePlayer: PlayerApp? {
+        isHolding ? displayedPlayerApp : nil
     }
 
     private func dispatch(
         feed command: NowPlayingFeed.Command,
-        script: (PlayerApp) -> Void,
+        transport action: PlayerBridge.Transport,
         key: PlayerBridge.MediaKey
     ) {
-        if feedAvailable {
+        if let held = heldScriptablePlayer {
+            sendToPlayer(action, held)
+        } else if feedAvailable {
             feed.send(command, playerPID: displayedPlayerPID)
         } else if let activeApp {
-            script(activeApp)
+            sendToPlayer(action, activeApp)
         } else {
             PlayerBridge.postMediaKey(key.rawValue)
         }
@@ -824,7 +846,7 @@ final class MediaController: ObservableObject {
         // desired state travels explicitly.
         dispatch(
             feed: playing ? .play : .pause,
-            script: { PlayerBridge.playPause($0) },
+            transport: playing ? .play : .pause,
             key: .playPause
         )
     }

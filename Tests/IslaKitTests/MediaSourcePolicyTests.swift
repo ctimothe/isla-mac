@@ -289,6 +289,43 @@ final class HeldSongTruthTests: XCTestCase {
         XCTAssertEqual(controller.position, 61, accuracy: 0.05, "as it was last known")
     }
 
+    /// The helper reaches the song's player only if it has seen that player
+    /// own Now Playing; otherwise a tap lands on the film. A held song in a
+    /// scriptable player takes its commands directly.
+    func testAHeldSongsTransportGoesToItsOwnPlayer() {
+        let paused = PlayerState(
+            app: .spotify, isPlaying: false, title: "Song", artist: "Artist",
+            album: "Album", duration: 248, position: 10
+        )
+        let (controller, _) = controller(held: .loaded(paused))
+        var sent: [String] = []
+        controller.sendToPlayer = { action, app in sent.append("\(app.rawValue) \(action)") }
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+        controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        XCTAssertTrue(controller.isHolding)
+
+        controller.togglePlayPause()
+        controller.next()
+        controller.previous()
+        controller.seek(to: 30)
+
+        XCTAssertEqual(sent, [
+            "spotify play", "spotify next", "spotify previous", "spotify seek(seconds: 30)",
+        ])
+    }
+
+    /// With no film in the way, the helper carries the command as before.
+    func testASongThatOwnsNowPlayingIsNotScripted() {
+        let (controller, _) = controller(held: .unknown)
+        var sent: [String] = []
+        controller.sendToPlayer = { action, app in sent.append("\(app.rawValue) \(action)") }
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        controller.togglePlayPause()
+        controller.next()
+        XCTAssertFalse(controller.isHolding)
+        XCTAssertEqual(sent, [])
+    }
+
     /// Accepting a music source again ends the hold, so the next takeover asks
     /// afresh rather than trusting an answer from before.
     func testEndingTheHoldMeansTheNextTakeoverAsksAgain() {
@@ -352,6 +389,22 @@ final class LoadedSongSearchTests: XCTestCase {
         XCTAssertFalse(controller.isPlaying)
         XCTAssertEqual(controller.position, 80.8, accuracy: 0.05)
         XCTAssertTrue(controller.isHolding, "and it is now held, with its player as the source of truth")
+    }
+
+    /// The case that made direct commands necessary: the helper has never seen
+    /// Spotify own Now Playing in this run, so it has no way to reach it, and
+    /// play would have gone to the film.
+    func testPlayOnAFoundSongGoesToItsPlayer() {
+        let paused = PlayerState(
+            app: .spotify, isPlaying: false, title: "Child Psychology", artist: "Black Box Recorder",
+            album: "England Made Me", duration: 248, position: 80.8
+        )
+        let (controller, _) = controller(found: paused)
+        var sent: [String] = []
+        controller.sendToPlayer = { action, app in sent.append("\(app.rawValue) \(action)") }
+        controller.receive(film())
+        controller.togglePlayPause()
+        XCTAssertEqual(sent, ["spotify play"])
     }
 
     /// Once per film: its heartbeat does not send the players a question every

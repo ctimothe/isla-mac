@@ -164,14 +164,15 @@ enum PlayerBridge {
 
     /// What the transport can ask a player to do, rendered per player.
     enum Transport {
-        case playPause, next, previous
+        case play, pause, next, previous
         case seek(seconds: Int)
         case shuffle(Bool)
         case repeatMode(RepeatMode)
 
         func body(for app: PlayerApp) -> String {
             switch (self, app) {
-            case (.playPause, _): return "playpause"
+            case (.play, _): return "play"
+            case (.pause, _): return "pause"
             case (.next, _): return "next track"
             // Spotify's `previous track` restarts the current song first,
             // matching its own UI; Music behaves the same way. Seeking to 0
@@ -190,20 +191,14 @@ enum PlayerBridge {
 
         /// One of every kind, so the compile test covers each body.
         static let everyKind: [Transport] = [
-            .playPause, .next, .previous, .seek(seconds: 0),
+            .play, .pause, .next, .previous, .seek(seconds: 0),
             .shuffle(true), .repeatMode(.one), .repeatMode(.off),
         ]
     }
 
-    static func playPause(_ app: PlayerApp) { send(.playPause, to: app) }
-    static func next(_ app: PlayerApp) { send(.next, to: app) }
-    static func previous(_ app: PlayerApp) { send(.previous, to: app) }
-
-    static func seek(_ app: PlayerApp, to seconds: TimeInterval) {
-        send(.seek(seconds: Int(seconds)), to: app)
-    }
-
-    private static func send(_ action: Transport, to app: PlayerApp) {
+    /// Play and pause travel as explicit states, never as a toggle: a toggle
+    /// sent against a state the island misread lands backwards.
+    static func send(_ action: Transport, to app: PlayerApp) {
         guard app.isRunning else { return }
         runScript(Script.command(action.body(for: app), on: app), priority: .transport) { _ in }
     }
