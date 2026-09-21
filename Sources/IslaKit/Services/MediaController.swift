@@ -187,6 +187,10 @@ final class MediaController: ObservableObject {
     private var lyricLead: @MainActor () -> TimeInterval = { 0 }
     private var boundaryTimer: Timer?
 
+    /// When the next lyric wake is scheduled for, if one is. Read from the
+    /// armed timer rather than recomputed, so a test sees what was scheduled.
+    var lyricWakeDateForTests: Date? { boundaryTimer?.fireDate }
+
     func setLyricBoundaries(_ boundaries: [TimeInterval], lead: @escaping @MainActor () -> TimeInterval) {
         lyricBoundaries = boundaries.sorted()
         lyricLead = lead

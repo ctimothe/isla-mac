@@ -57,7 +57,8 @@ All commands below run from the repository root (or the root of whichever
 worktree the change lives in).
 
 ```bash
-./scripts/check                     # the gate: swift test + provenance + branding + localizations
+./scripts/check                     # the gate — all eleven release steps, exactly what CI runs
+./scripts/check test                # just the unit tests, for a quick pass while iterating
 swift test                          # unit tests
 swift test --filter <TestName>      # single test or test case
 bash Scripts/bundle.sh release      # assemble + ad-hoc-sign build/Isla.app
