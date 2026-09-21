@@ -24,6 +24,21 @@ struct NotchContentView: View {
     enum MorphID {
         static let artwork = "island.artwork"
         static let equalizer = "island.equalizer"
+
+        /// The pill's end of a travel, while it is showing — and a name nothing
+        /// else answers to while it is folded.
+        ///
+        /// The compact header stays mounted when the pill folds into the notch,
+        /// so without this its hidden cover, 22 pt at the notch's left edge,
+        /// was still the near end of the cover's travel: opening the panel on a
+        /// settled pause grew the cover out of the notch's edge and slid the
+        /// bars in from the other, where before a folded pill had no end at all
+        /// and both simply faded in with the pane (found in review,
+        /// 2026-09-21). Renamed rather than unmounted, so the view keeps its
+        /// identity and the fold keeps its motion.
+        static func compact(_ id: String, folded: Bool) -> String {
+            folded ? id + ".folded" : id
+        }
     }
 
     /// The space the pill and the panel share. Declared here because this view
@@ -98,43 +113,10 @@ struct NotchContentView: View {
 
     var body: some View {
         if vm.isLockedPresentation {
-            // Two layers with the shield up: the pill where it always lives —
-            // visible, never hoverable, the island refusing to disappear just
-            // because the desktop did — and the player at the true center of
-            // the display, where a locked laptop is actually looked at.
-            ZStack(alignment: .top) {
-                if compactActivity.isVisible {
-                    ZStack(alignment: .top) {
-                        NotchShape(
-                            topRadius: Theme.collapsedTopRadius,
-                            bottomRadius: Theme.collapsedBottomRadius
-                        )
-                        .fill(Color.black)
-                        .frame(
-                            width: size.width + 2 * Theme.collapsedTopRadius,
-                            height: vm.geometry.notchSize.height
-                        )
-                        // No namespace over the shield, on purpose. This pill
-                        // and the unlocked one are two branches of `body` that
-                        // swap in a single transaction, so sharing an identity
-                        // would hand the lock a travelling cover to interpolate
-                        // — and the rule this whole branch is built around is
-                        // that the lock screen is a cut, not a transition.
-                        compactMediaHeader(morph: nil)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .top)
-                    // The same lift as unlocked, and the same exclusion: the
-                    // cutout is a hole and nothing may be drawn in it.
-                    .overlay { hoverLift }
-                    .animation(Theme.contentAnimation, value: vm.isHovering)
-                    // The edge says the island is there; the shake says it is
-                    // not opening here. Two different answers to two different
-                    // gestures, rather than one shake for both.
-                    .contentShape(Rectangle())
-                    .onTapGesture { vm.onIslandClick?() }
-                    .refusalShake(trigger: vm.lockedHoverNudges)
-                }
-            }
+            // One layer with the shield up: the pill where it always lives —
+            // visible, never opening, the island refusing to disappear just
+            // because the desktop did. The player is a window of its own.
+            lockedPill
             // Held to the whole panel, top-aligned. The panel is anchored to
             // the notch, so the top of this window *is* the cutout — and a
             // stack left to hug a 32 pt pill gets centred in 444 pt instead,
@@ -148,12 +130,74 @@ struct NotchContentView: View {
             // interpolate the card and the pill *from* the old 700×444 notch
             // window — visibly sliding in from the left, at the wrong size, for
             // the length of that animation. The lock screen is a cut, not a
-            // transition.
+            // transition. The one motion allowed in here is the pill's own fold,
+            // and it is declared inside `lockedPill`, beneath this refusal, so it
+            // can answer a pause without ever animating the lock.
             .animation(nil, value: vm.isLockedPresentation)
             .transaction { $0.animation = nil }
         } else {
             shell
         }
+    }
+
+    /// The pill over the shield: the same pill, and the same fold.
+    ///
+    /// It was mounted only while something played, and that made the fold a
+    /// cut. This branch refuses every animation that reaches it from outside —
+    /// the lock is a cut, see `body` — and an `if` around the whole pill is
+    /// decided out there, so a pause removed the island in a single frame:
+    /// filmed on 2026-09-21, the one motion on the lock screen with no motion
+    /// in it. The pill now stays mounted for the whole lock and answers its own
+    /// change with its own curve, declared beneath the refusal, so the wings
+    /// contract into the cutout and the cover dissolves ahead of the edge
+    /// exactly as they do unlocked. The lock itself still arrives as a cut:
+    /// the controller flips it with animations disabled, which an `.animation`
+    /// in here cannot re-enable.
+    private var lockedPill: some View {
+        let shown = compactActivity.isVisible
+        let notch = vm.geometry.notchSize
+        let shape = shown
+            ? CGSize(width: size.width + 2 * Theme.collapsedTopRadius, height: notch.height)
+            : Self.restingShape(notch: notch)
+        return ZStack(alignment: .top) {
+            NotchShape(
+                topRadius: shown ? Theme.collapsedTopRadius : 0,
+                bottomRadius: shown ? Theme.collapsedBottomRadius : Theme.restingNotchBottomRadius
+            )
+            .fill(Color.black)
+            .frame(width: shape.width, height: shape.height)
+            // A display with no cutout has nowhere to fold into, so there the
+            // shape itself goes; over a real notch it ends inside the hole,
+            // where there is no pixel left to hide.
+            .opacity(shown || vm.geometry.isPhysical ? 1 : 0)
+            // No namespace over the shield, on purpose. This pill and the
+            // unlocked one are two branches of `body` that swap in a single
+            // transaction, so sharing an identity would hand the lock a
+            // travelling cover to interpolate — and the lock is a cut.
+            compactMediaHeader(morph: nil)
+                // Held inside the wings the way the unlocked shell holds it,
+                // so the last blurred trace of the cover can never be drawn on
+                // the wallpaper beside a shape that has already moved in.
+                .frame(width: size.width, alignment: .center)
+                .clipped()
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+        // The same lift as unlocked, and the same exclusion: the cutout is a
+        // hole and nothing may be drawn in it. Only on a pill that is there.
+        .overlay { if shown { hoverLift } }
+        .animation(Theme.contentAnimation, value: vm.isHovering)
+        // The edge says the island is there; the shake says it is not opening
+        // here. Two different answers to two different gestures, rather than
+        // one shake for both.
+        .contentShape(Rectangle())
+        .onTapGesture { vm.onIslandClick?() }
+        // Folded, the shape sits one point inside the cutout, and an 11 pt
+        // swing would carry ten of them out onto the wallpaper beside it. There
+        // is no pill to shake, so nothing shakes.
+        .refusalShake(trigger: vm.lockedHoverNudges, amplitude: shown ? RefusalShake.standardAmplitude : 0)
+        // Folded, there is nothing here to answer: the notch is only a notch.
+        .allowsHitTesting(shown)
+        .animation(Theme.pill(appearing: shown, reduceMotion: reduceMotion), value: compactActivity)
     }
 
     /// The part of the shell gesture that acts: the drawn collapsed island,
@@ -188,29 +232,18 @@ struct NotchContentView: View {
                 y: isOpen ? 8 : 2
             )
 
-            if !isOpen, compactActivity.isVisible {
-                // Asymmetric, for the same reason `Theme` states for panes: the
-                // thing that is leaving has to be gone before the shape it was
-                // drawn on stops being that shape. This surface is clipped to
-                // the *collapsed* `NotchShape`, so on a symmetric fade it was
-                // still at half alpha while the panel had already grown past a
-                // pill — a graphite band sitting across the top of an opening
-                // panel, in the outline of a pill that was no longer there.
-                // Out on `paneOut` (0.12s) it has gone before that can show; in
-                // on `paneIn` it arrives just after the collapse has given it a
-                // pill to sit on, and what shows underneath in the meantime is
-                // the black `NotchShape` these wings are painted over anyway.
-                compactWingSurface
-                    .transition(.asymmetric(
-                        insertion: .opacity.animation(Theme.paneIn),
-                        removal: .opacity.animation(Theme.paneOut)
-                    ))
-            }
+            // The shape is the only black. A second black layer used to sit
+            // over the wings, faded out on its own 0.12 s while the shape
+            // contracted — and a removed view keeps the frame it had, so for
+            // the first tenth of every fold the pill's full outline stayed on
+            // screen, dimming, over a shape already moving in. A fold that
+            // begins as a fade is not a fold. Both layers were plain black by
+            // then, so the one that could not move is the one that went.
 
-            // Above the wings, never beneath them. Underneath, the only place
-            // it showed was the one place it must never show: the wing surface
-            // is opaque and leaves the cutout clear, so the lift appeared as a
-            // lighter square inside the physical notch and nowhere else.
+            // Above the shape, never beneath it. Under the old opaque wing
+            // layer the only place it showed was the one place it must never
+            // show — that layer left the cutout clear, so the lift appeared as
+            // a lighter square inside the physical notch and nowhere else.
             // Not while resting in the notch: there the island growing out of
             // the cutout *is* the answer to the pointer, and a lift painted in
             // the old pill's outline would sit on the wrong shape.
@@ -319,8 +352,11 @@ struct NotchContentView: View {
         // geometry to overshoot, so the bump only ever shows where it means
         // something.
         .animation(Theme.hoverNudge(reduceMotion: reduceMotion), value: vm.isHovering)
-        .animation(Theme.compact(reduceMotion: reduceMotion), value: compactActivity)
-        .animation(Theme.compact(reduceMotion: reduceMotion), value: vm.isPeeking)
+        // Out of the notch and back into it, by direction — see `Theme.pill`.
+        // The peek is the same gesture made wider, so it rides the same pair.
+        .animation(Theme.pill(appearing: compactActivity.isVisible, reduceMotion: reduceMotion),
+                   value: compactActivity)
+        .animation(Theme.pill(appearing: vm.isPeeking, reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.paneAnimation, value: vm.tab)
         // The welcome ending is a pane change like any other, and it arrives
         // from a `Button` — which animates nothing by itself, so without this
@@ -341,7 +377,14 @@ struct NotchContentView: View {
     private var header: some View {
         if isOpen {
             openHeader
-        } else if compactActivity.isVisible {
+        } else {
+            // Mounted whenever the panel is shut — folded into the notch too,
+            // drawn at nothing there. A pill that was only in the tree while it
+            // showed could not fold: removed, a view keeps the frame it had,
+            // so its cover sat still at the old width while the edge swept in
+            // over it and sliced it. Kept, it rides the wings as they contract
+            // and dissolves on its own curve; see `compactMediaHeader`.
+            //
             // This transition is load-bearing, and not for the reason it looks
             // like. A removed view with a transition stays in the tree until the
             // transition ends; a removed view with `.identity` is gone the
@@ -352,9 +395,6 @@ struct NotchContentView: View {
             // break loudly — it silently goes back to being a crossfade.
             compactMediaHeader(morph: morph)
                 .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
-        } else {
-            Color.clear
-                .frame(width: vm.geometry.notchSize.width, height: vm.geometry.notchSize.height)
         }
     }
 
@@ -403,8 +443,16 @@ struct NotchContentView: View {
     /// - Parameter morph: the namespace the cover and the equalizer travel in,
     ///   or `nil` where there is nowhere for them to travel to — over the lock
     ///   screen, where this pill is the only thing on screen.
+    ///
+    /// Both wing objects stay laid out while the pill is folded, each centred
+    /// in a wing whose width follows the shape. That is what makes a fold read
+    /// as the island taking them in: as the wings contract the cover and the
+    /// bars travel inward with their edges, and `pillPresence` dissolves them
+    /// — blur, scale and fade together — on a curve that finishes before the
+    /// edge arrives.
     private func compactMediaHeader(morph: Namespace.ID?) -> some View {
         let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2)
+        let shown = compactActivity.isVisible
         return HStack(spacing: 0) {
             // Resting, each wing centres its content the way it always did —
             // pinning to the edges put the artwork and equalizer flush against
@@ -413,6 +461,7 @@ struct NotchContentView: View {
             // an inset with it so nothing touches the curve.
             HStack(spacing: 7) {
                 compactArtwork(morph: morph)
+                    .pillPresence(shown, reduceMotion: reduceMotion)
                 // Only while peeking, and only on the left wing: the title is
                 // what the peek exists to show, and the right wing keeps the
                 // equalizer so the pill still says whether audio is moving.
@@ -427,7 +476,13 @@ struct NotchContentView: View {
                             .foregroundStyle(Theme.secondary)
                             .lineLimit(1)
                     }
-                    .transition(.opacity)
+                    // The title materializes rather than fading flat: the
+                    // same blur-and-settle the cover makes arriving. And it
+                    // dissolves with the cover when the pill folds — a pause
+                    // settling mid-peek used to fold the wing in over a title
+                    // still at full strength, slicing it.
+                    .pillPresence(shown, reduceMotion: reduceMotion)
+                    .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
                     Spacer(minLength: 0)
                 }
             }
@@ -438,6 +493,7 @@ struct NotchContentView: View {
                 .frame(width: vm.geometry.notchSize.width, height: 1)
 
             compactPlaybackState(morph: morph)
+                .pillPresence(shown, reduceMotion: reduceMotion)
                 .padding(.trailing, vm.isPeeking ? 12 : 0)
                 .frame(width: wingWidth, alignment: vm.isPeeking ? .trailing : .center)
                 // No gesture here, deliberately.
@@ -456,6 +512,8 @@ struct NotchContentView: View {
         .frame(width: size.width, height: vm.geometry.notchSize.height)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(compactAccessibilityLabel)
+        // Folded, there is nothing on screen to describe.
+        .accessibilityHidden(!shown)
         // The same single purpose assistive tech gets: opening. A Pause action
         // here would be a button the compact island does not have, reachable
         // only by people who cannot see that it has none.
@@ -546,33 +604,6 @@ struct NotchContentView: View {
         endPoint: .bottom
     )
 
-    /// The display can never reproduce the physical cutout's zero-light black
-    /// at every brightness. The software-only wings therefore fade from an
-    /// intentional graphite surface into true black at the hardware edges.
-    /// That makes the difference read as depth rather than a failed colour
-    /// match, while the centre remains visually continuous with the camera.
-    private var compactWingSurface: some View {
-        let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2 + topRadius)
-        return HStack(spacing: 0) {
-            CompactWingSurface(side: .left)
-                .frame(width: wingWidth)
-
-            Color.clear
-                .frame(width: vm.geometry.notchSize.width)
-
-            CompactWingSurface(side: .right)
-                .frame(width: wingWidth)
-        }
-        .frame(width: size.width + 2 * topRadius, height: size.height)
-        .clipShape(
-            NotchShape(
-                topRadius: Theme.collapsedTopRadius,
-                bottomRadius: Theme.collapsedBottomRadius
-            )
-        )
-        .allowsHitTesting(false)
-    }
-
     /// The near end of the cover's travel.
     ///
     /// It used to be a second cover: 22 pt here, 118 pt in `MediaPane`, each
@@ -616,10 +647,10 @@ struct NotchContentView: View {
                             .background(Theme.surface)
                     }
                 }
-                .opacity(compactActivity.showsArtworkPlayBadge ? 0.58 : 1)
+                .opacity(showsPausedCover ? 0.58 : 1)
             }
             .overlay {
-                if compactActivity.showsArtworkPlayBadge {
+                if showsPausedCover {
                     Circle()
                         .fill(Color.black.opacity(0.72))
                         .frame(width: 15, height: 15)
@@ -642,9 +673,23 @@ struct NotchContentView: View {
                 RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
                     .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
             )
-            .morph(MorphID.artwork, in: morph)
+            .morph(MorphID.compact(MorphID.artwork, folded: !compactActivity.isVisible), in: morph)
             .frame(width: metrics.side, height: metrics.side)
-            .animation(Theme.contentAnimation, value: compactActivity.showsArtworkPlayBadge)
+            .animation(Theme.contentAnimation, value: showsPausedCover)
+    }
+
+    /// The paused cover, kept through the fold.
+    ///
+    /// `.paused` is the only state that draws the badge, and a settled pause is
+    /// `.hidden` — so every fold began by brightening the cover back to full
+    /// and popping its badge off: a flash of "playing" on the way into the
+    /// notch. Paused is what the player says, not what the pill is doing.
+    private var showsPausedCover: Bool {
+        Self.showsPausedCover(activity: compactActivity, isPlaying: vm.media.isPlaying)
+    }
+
+    static func showsPausedCover(activity: CompactMediaActivity, isPlaying: Bool) -> Bool {
+        activity.showsArtworkPlayBadge || (!activity.isVisible && !isPlaying)
     }
 
     /// The equalizer travels too, and it is the easier half: both ends are the
@@ -657,7 +702,7 @@ struct NotchContentView: View {
             isAnimating: compactActivity.animatesEqualizer,
             opacity: compactActivity == .playing ? 0.82 : 0.58
         )
-        .morph(MorphID.equalizer, in: morph)
+        .morph(MorphID.compact(MorphID.equalizer, folded: !compactActivity.isVisible), in: morph)
     }
 
     private var compactAccessibilityLabel: String {
@@ -676,13 +721,14 @@ struct NotchContentView: View {
                     // were in the pill's right wing a moment ago, not a second
                     // set switched on in their place.
                     //
-                    // The compact end is mounted on `track != nil`; this end
-                    // additionally needs the Media tab and no welcome pane, so
-                    // the pair can be half-present — open the panel on Shelf and
-                    // only the pill's bars exist. That is safe rather than
-                    // accidental: both ends are sources, so a lone member plays
-                    // its own transition instead of collapsing onto a frame that
-                    // is not there.
+                    // The compact end answers to this name only while the pill
+                    // shows (`MorphID.compact`); this end additionally needs a
+                    // track, the Media tab and no welcome pane, so the pair can
+                    // be half-present — open the panel on Shelf and only the
+                    // pill's bars exist. That is safe rather than accidental:
+                    // both ends are sources, so a lone member plays its own
+                    // transition instead of collapsing onto a frame that is not
+                    // there.
                     EqualizerBars(isAnimating: vm.media.isPlaying)
                         .morph(MorphID.equalizer, in: morph)
                 }
@@ -804,30 +850,18 @@ struct NotchContentView: View {
     }
 }
 
-private struct CompactWingSurface: View {
-    enum Side { case left, right }
-
-    let side: Side
-
-    private var outer: UnitPoint { side == .left ? .leading : .trailing }
-    private var inner: UnitPoint { side == .left ? .trailing : .leading }
-
-    var body: some View {
-        // Solid black, no graphite and no sheen: the wings sit flush against
-        // the physical cutout, and on hardware the cutout is zero-light black —
-        // any lighter surface reads as a grey strip glued to the notch rather
-        // than the notch itself. Content on the wings carries the contrast.
-        Color.black
-    }
-}
-
 /// Tab switcher.
 ///
-/// Hovering switches tabs, but only after the pointer has stopped: a pointer
-/// crossing the rail on its way somewhere else is gone in a few dozen
-/// milliseconds, while one that came to choose stays put. The same dwell
-/// threshold is what separates "the mouse was flung across the top of the
-/// screen" from "the mouse came to the notch" in `PointerWatcher`.
+/// A click changes the tab, and nothing else does. Hovering used to switch
+/// after a 150 ms dwell, which made the rail react to a pointer passing
+/// through it: moving across it on the way somewhere flipped panes, and each
+/// flip replayed the chosen glyph's fill, so a fast pass read as the rail
+/// stuttering behind the cursor (owner, 2026-09-21). macOS does not navigate
+/// on hover outside menus; a sidebar changes when it is clicked.
+///
+/// A hover draws a faint well under the glyph and nothing more, and both the
+/// well and the selection land on the frame they happen — no fade to wait
+/// out, no glyph growing, nothing to lag behind a fast pointer.
 private struct Rail: View {
     @ObservedObject var vm: NotchViewModel
     /// The run of content tabs people move between.
@@ -837,11 +871,6 @@ private struct Rail: View {
     var footer: [NotchViewModel.Tab] = []
 
     @State private var hovered: NotchViewModel.Tab?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// Long enough to swallow a pass-through, short enough that a deliberate
-    /// hover still feels like it answered instantly.
-    private let dwell = Duration.seconds(NotchMetrics.tabDwell)
 
     var body: some View {
         VStack(spacing: NotchGeometry.railSpacing) {
@@ -856,21 +885,6 @@ private struct Rail: View {
         // top, settings held to the bottom by the gap between them.
         .frame(height: vm.geometry.standardContentHeight, alignment: .center)
         .frame(maxHeight: .infinity, alignment: .top)
-        .animation(Theme.contentAnimation, value: hovered)
-        // Moving to another icon cancels the pending switch along with the
-        // task, so only the icon actually rested on ever wins.
-        .task(id: hovered) {
-            // A hover does not answer the welcome. The Get Started button sits
-            // at the bottom of the pane, immediately right of the rail, so the
-            // pointer travelling to it passes over the rail — and a pause on the
-            // way would otherwise have thrown the welcome away and landed the
-            // panel on whichever icon the hand happened to stop over. A click
-            // still goes wherever it was aimed; see `chooseTab`.
-            guard let hovered, hovered != vm.tab, !vm.isShowingWelcome else { return }
-            try? await Task.sleep(for: dwell)
-            guard !Task.isCancelled else { return }
-            vm.select(hovered)
-        }
     }
 
     @ViewBuilder
@@ -882,6 +896,14 @@ private struct Rail: View {
             vm.chooseTab(tab)
         } label: {
             Image(systemName: tab.symbol)
+                // Filled when chosen, outlined otherwise — the tab bar's own
+                // grammar — swapped on the frame of the click. The note and the
+                // sliders have no filled form, so for Music and Settings the
+                // chip alone says which is chosen. The system's
+                // replace effect was tried and withdrawn the same day: it takes
+                // a third of a second, and a rail that answers a click a third
+                // of a second late reads as a rail catching up.
+                .symbolVariant(vm.tab == tab ? .fill : .none)
                 .islandFont(.subhead)
                 .frame(width: 30, height: vm.geometry.railIconHeight)
                 .background(
@@ -902,11 +924,11 @@ private struct Rail: View {
                 )
                 .foregroundStyle(vm.tab == tab ? Color.white : Theme.tertiary)
                 .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                // A render-time transform. Growing the frame instead would
-                // re-lay out the rail on every hover, and layout that runs on
-                // pointer movement is exactly the kind that shows up as a
-                // stutter.
-                .scaleEffect(reduceMotion ? 1 : (hovered == tab ? 1.15 : 1))
+                // Nothing the shell animates reaches the glyph and its well: the
+                // pane change rides the shell's pane curve, and this would
+                // otherwise fade the chip along with it. The press dim is the
+                // button style's own and still answers on press-down.
+                .transaction { $0.animation = nil }
         }
         .buttonStyle(PanelButtonStyle())
         .help(tab.title)
@@ -925,5 +947,50 @@ private struct Rail: View {
     private func fill(for tab: NotchViewModel.Tab) -> Color {
         if vm.tab == tab { return Theme.selectedChip }
         return hovered == tab ? Theme.surface : .clear
+    }
+}
+
+/// The pill's content arriving out of the notch and leaving back into it.
+///
+/// Blur, scale and opacity together — the way the system's own island
+/// dissolves what it shows — rather than a flat fade, and on a curve of its
+/// own (`Theme.pillContent`), scoped to these three effects. The frame the
+/// content sits in is left to the shape's spring; only how present it is
+/// moves on this one, which is what lets the content leave ahead of the edge.
+struct PillPresence: ViewModifier {
+    let shown: Bool
+    let reduceMotion: Bool
+
+    /// How the content looks at either end. Pure, so "folded means nothing
+    /// drawn" is a test rather than a hope — `PillFoldTests`.
+    struct Appearance: Equatable {
+        var blur: CGFloat
+        var scale: CGFloat
+        var opacity: Double
+    }
+
+    static func appearance(shown: Bool, reduceMotion: Bool) -> Appearance {
+        if shown { return Appearance(blur: 0, scale: 1, opacity: 1) }
+        // Reduce Motion keeps the change and drops the travel: a fade, with no
+        // shrinking and no softening.
+        return reduceMotion
+            ? Appearance(blur: 0, scale: 1, opacity: 0)
+            : Appearance(blur: 5, scale: 0.72, opacity: 0)
+    }
+
+    func body(content: Content) -> some View {
+        let look = Self.appearance(shown: shown, reduceMotion: reduceMotion)
+        return content.animation(Theme.pillContent(shown: shown, reduceMotion: reduceMotion)) { view in
+            view
+                .blur(radius: look.blur)
+                .scaleEffect(look.scale)
+                .opacity(look.opacity)
+        }
+    }
+}
+
+extension View {
+    func pillPresence(_ shown: Bool, reduceMotion: Bool) -> some View {
+        modifier(PillPresence(shown: shown, reduceMotion: reduceMotion))
     }
 }

@@ -7,7 +7,7 @@ struct ClipboardPane: View {
     var body: some View {
         VStack(spacing: 0) {
             if clipboard.items.isEmpty {
-                Image(systemName: "list.clipboard")
+                Image(systemName: NotchViewModel.Tab.clipboard.symbol)
                     .islandFont(.display, weight: .light)
                     .foregroundStyle(Theme.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

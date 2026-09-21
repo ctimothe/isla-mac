@@ -894,8 +894,17 @@ final class NotchController {
         // the panel regardless, and became reachable the moment a click stopped
         // pinning. Both ask now: see `PointerWatcher.tick`.
         pointer.isDragging = { [weak root] in
-            (root?.isReceivingDrag ?? false) || ShelfDragSource.isDraggingOut
+            (root?.isReceivingDrag ?? false) || ShelfDragSource.isDraggingOut || MenuTracking.shared.isOpen
         }
+        // A menu held the panel open while it tracked; once it closes, the row
+        // that was chosen may have hung below the panel, so the pointer is
+        // given a moment to come back before its absence counts — the same
+        // grace a translation summoned from the keyboard gets, only shorter.
+        MenuTracking.shared.onAllClosed = { [weak self] in
+            guard let self, self.viewModel?.isOpen == true else { return }
+            self.pointer.setInside(true, grace: NotchMetrics.menuReturnGrace)
+        }
+        MenuTracking.shared.start()
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
         pointer.onChange = { [weak self] inside in
             guard let self, let vm = self.viewModel else { return }
@@ -1138,6 +1147,8 @@ final class NotchController {
     /// The visual half of closing, one pass after the keyboard was let go.
     private func collapse(deferRectShrink: Bool = true) {
         guard let vm = viewModel, vm.isOpen else { return }
+        // Nothing counted open outlives the panel it was opened from.
+        MenuTracking.shared.reset()
         // Whatever was uncovered by hand goes back under cover with the panel.
         // The next hover is the one nobody planned, and it must not open onto
         // a row somebody revealed ten minutes ago.
@@ -1215,6 +1226,10 @@ final class NotchController {
         // the shield.
         guard !vm.isLockedPresentation else { return }
         guard !pointer.isInside else { return }
+        // A track that arrives folded — paused, or behind a film — has no pill
+        // to widen. Peeking anyway drew its title into a wing of no width,
+        // which under a real notch is invisible and beside a drawn one is not.
+        guard vm.compactMediaActivity.isVisible else { return }
 
         peekWork?.cancel()
         vm.isPeeking = true
@@ -1227,7 +1242,13 @@ final class NotchController {
                 vm.isPeeking = false
                 return
             }
-            withAnimation(Theme.contentAnimation) { vm.isPeeking = false }
+            // The pill's own fold, not the 0.16 s content ease: a peek ending
+            // takes some 200 pt of title back in, and at that speed it read as
+            // the pill snapping shut. The shell declares the same curve for
+            // `isPeeking`; stating it here keeps the two from drifting apart.
+            withAnimation(Theme.pill(appearing: false, reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                vm.isPeeking = false
+            }
         }
         peekWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.sneakPeekDuration, execute: work)

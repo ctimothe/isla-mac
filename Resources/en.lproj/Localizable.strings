@@ -64,6 +64,24 @@
 "The translation could not be completed." = "The translation could not be completed.";
 "Hide from Screen Recording" = "Hide from Screen Recording";
 "Translating…" = "Translating…";
+
+/* Translate: languages, the swap, and the online engine (2026-09-21). */
+"Detect Language" = "Detect Language";
+"%@ (Detected)" = "%@ (Detected)";
+"%@ (Online)" = "%@ (Online)";
+"Swap Languages" = "Swap Languages";
+"Translate From" = "Translate From";
+"Translate To" = "Translate To";
+"%@ is translated online. Turn on Translate Online to use it." = "%@ is translated online. Turn on Translate Online to use it.";
+"%@ is not downloaded for translation on this Mac." = "%@ is not downloaded for translation on this Mac.";
+"Online translation is not reachable right now." = "Online translation is not reachable right now.";
+"Today's free online translations are used up." = "Today's free online translations are used up.";
+"Apple Intelligence Settings…" = "Apple Intelligence Settings…";
+"Turn On Translate Online" = "Turn On Translate Online";
+"Translated online by MyMemory" = "Translated online by MyMemory";
+"Translate Online" = "Translate Online";
+"Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet." = "Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet.";
+"Translations stay on this Mac." = "Translations stay on this Mac.";
 "Clear Everything" = "Clear Everything";
 "Delete These Files" = "Delete These Files";
 "Quit Isla" = "Quit Isla";

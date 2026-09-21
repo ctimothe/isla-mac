@@ -18,6 +18,50 @@ enum Theme {
     /// The pill resizing around a track that just started. Also nothing anybody
     /// threw, so also critically damped.
     static let compactAnimation = Animation.spring(response: 0.28, dampingFraction: 1.0)
+
+    /// The pill growing out of the notch, and folding back into it.
+    ///
+    /// These used to be `compactAnimation` too, and on the lock screen they
+    /// were not animations at all: a pause folded the pill away in a single
+    /// frame, filmed on 2026-09-21 — "too intense, too raw". A fold is the
+    /// island's largest idle motion, 52 pt of wing on each side going into a
+    /// hole in the display, and at 0.28 s it read as a snap even where it did
+    /// animate. Apple's own reposition is 0.4; the fold sits a little past it
+    /// because nobody asked for it and it should not pull the eye, and the
+    /// unfold a little under the fold because a song starting is news.
+    /// Both critically damped — neither was thrown.
+    static let pillUnfoldResponse: Double = 0.42
+    static let pillFoldResponse: Double = 0.5
+    static let pillUnfold = Animation.spring(response: pillUnfoldResponse, dampingFraction: 1.0)
+    static let pillFold = Animation.spring(response: pillFoldResponse, dampingFraction: 1.0)
+
+    /// The fold or the unfold, by where the pill is going.
+    static func pill(appearing: Bool, reduceMotion: Bool) -> Animation {
+        guard !reduceMotion else { return .easeOut(duration: 0.15) }
+        return appearing ? pillUnfold : pillFold
+    }
+
+    /// The pill's own content — the cover and the equalizer — arriving and
+    /// leaving, on a curve of its own rather than the shape's.
+    ///
+    /// Out faster than the wing it sits on: the content has to be gone before
+    /// the contracting edge reaches it, or the edge slices through the cover
+    /// on its way into the notch. In behind a short delay, so there is a wing
+    /// under it before it materializes — content drawn ahead of its surface is
+    /// content floating on the wallpaper. `PillFoldTests` holds both halves
+    /// against the shape's own springs.
+    static let pillContentOutResponse: Double = 0.22
+    static let pillContentInResponse: Double = 0.36
+    static let pillContentInDelay: Double = 0.07
+    static let pillContentOut = Animation.spring(response: pillContentOutResponse, dampingFraction: 1.0)
+    static let pillContentIn = Animation.spring(response: pillContentInResponse, dampingFraction: 1.0)
+        .delay(pillContentInDelay)
+
+    static func pillContent(shown: Bool, reduceMotion: Bool) -> Animation {
+        guard !reduceMotion else { return .easeOut(duration: 0.15) }
+        return shown ? pillContentIn : pillContentOut
+    }
+
     static let contentAnimation = Animation.easeOut(duration: 0.16)
     /// Pane switching: the outgoing pane leaves faster than the incoming one
     /// arrives, so the two are never both half-visible for long.
@@ -30,7 +74,9 @@ enum Theme {
     /// Listed rather than inferred so the guard is a list somebody has to
     /// deliberately edit. It used to be hardcoded inside the test, which meant
     /// a fourth spring at 0.7 would have passed it without anyone noticing.
-    static let criticallyDampedSprings: [Animation] = [openAnimation, compactAnimation]
+    static let criticallyDampedSprings: [Animation] = [
+        openAnimation, compactAnimation, pillUnfold, pillFold, pillContentOut, pillContentIn,
+    ]
 
     /// The lyrics page moving to the next line.
     ///

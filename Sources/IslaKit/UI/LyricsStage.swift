@@ -398,6 +398,7 @@ struct LyricsStage: View {
             accent: accent,
             reduceMotion: reduceMotion,
             wordTimingEnabled: wordTimingEnabled,
+            reading: !following,
             seek: {
                 if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
                     DebugTrail.note(String(

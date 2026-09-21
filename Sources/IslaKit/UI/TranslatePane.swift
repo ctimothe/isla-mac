@@ -4,6 +4,11 @@ import SwiftUI
 /// result on the right. The left one sits on a surface — that is the whole
 /// signal that it can be typed into, since a caret only shows up once there
 /// is something in it.
+///
+/// Each column's heading is its language, and a menu: the source can detect
+/// or be told, the target is chosen, and the swap between them exchanges the
+/// languages and the text the way every translator's swap does. It was English
+/// and Russian, decided by the script typed, until 2026-09-21.
 struct TranslatePane: View {
     @ObservedObject var translator: Translator
     /// ⌥⌘T fills the source field with whatever was on the clipboard, so this
@@ -32,9 +37,10 @@ struct TranslatePane: View {
 
     var body: some View {
         let font = fontSize(in: paneSize)
+        let route = translator.route
         HStack(alignment: .top, spacing: 10) {
-            source(font)
-            result(font)
+            source(font, route: route)
+            result(font, route: route)
         }
         // Measured from a background layer rather than by wrapping the content
         // in a GeometryReader. Wrapped, the type size depends on a measurement
@@ -59,8 +65,10 @@ struct TranslatePane: View {
 
     // MARK: - Left
 
-    private func source(_ font: CGFloat) -> some View {
-        column(Translator.name(translator.route.source)) {
+    private func source(_ font: CGFloat, route: Translator.Route) -> some View {
+        column {
+            sourceMenu(route: route)
+        } accessory: {
             if !translator.input.isEmpty {
                 Button { translator.reset() } label: {
                     Image(systemName: "xmark")
@@ -122,8 +130,21 @@ struct TranslatePane: View {
 
     // MARK: - Right
 
-    private func result(_ font: CGFloat) -> some View {
-        column(Translator.name(translator.route.target)) {
+    private func result(_ font: CGFloat, route: Translator.Route) -> some View {
+        column {
+            HStack(spacing: 6) {
+                swapButton
+                targetMenu(route: route)
+            }
+        } accessory: {
+            if translator.engine == .online, !translator.output.isEmpty {
+                // Said where it happened: this answer left the Mac.
+                Image(systemName: SettingsIcon.online)
+                    .islandFont(.caption, weight: .semibold)
+                    .foregroundStyle(Theme.tertiary)
+                    .help(localized("Translated online by MyMemory"))
+                    .accessibilityLabel(localized("Translated online by MyMemory"))
+            }
             if !translator.output.isEmpty {
                 CopyButton { translator.copyOutput() }
             }
@@ -142,10 +163,9 @@ struct TranslatePane: View {
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 10) {
-                    if translator.needsSettings {
-                        Button("Translation Languages…") { Translator.openLanguageSettings() }
+                    ForEach(translator.remedies, id: \.self) { remedy in
+                        remedyButton(remedy)
                     }
-                    Button("Retry") { translator.retry() }
                 }
                 .buttonStyle(PanelButtonStyle())
                 .islandFont(.caption)
@@ -215,19 +235,135 @@ struct TranslatePane: View {
         return ladder.first { count <= usable / (0.76 * $0 * $0) } ?? ladder[ladder.count - 1]
     }
 
+    // MARK: - Languages
+
+    /// The source's heading: what it was told, or what it heard.
+    private func sourceTitle(route: Translator.Route) -> String {
+        guard translator.source == nil else { return route.source.name }
+        return translator.trimmed.isEmpty
+            ? localized("Detect Language")
+            : localized("%@ (Detected)", route.source.name)
+    }
+
+    private func sourceMenu(route: Translator.Route) -> some View {
+        Menu {
+            Toggle(localized("Detect Language"), isOn: Binding(
+                get: { translator.source == nil },
+                set: { if $0 { choose { translator.choose(source: nil) } } }
+            ))
+            Divider()
+            ForEach(TranslationLanguage.all) { language in
+                languageItem(language, isChosen: translator.source == language) {
+                    translator.choose(source: language)
+                }
+            }
+        } label: {
+            heading(sourceTitle(route: route))
+        }
+        .languageMenuStyle()
+        .accessibilityLabel(localized("Translate From"))
+        .accessibilityValue(sourceTitle(route: route))
+    }
+
+    /// The target's heading is the language the text is actually going into:
+    /// when the source turns out to be the chosen target, the tab turns the
+    /// pair around rather than translating a language into itself, and a
+    /// heading that kept the choice would name a language nothing is in.
+    private func targetMenu(route: Translator.Route) -> some View {
+        Menu {
+            ForEach(TranslationLanguage.all) { language in
+                languageItem(language, isChosen: translator.target == language) {
+                    translator.choose(target: language)
+                }
+            }
+        } label: {
+            heading(route.target.name)
+        }
+        .languageMenuStyle()
+        .accessibilityLabel(localized("Translate To"))
+        .accessibilityValue(route.target.name)
+    }
+
+    /// One row of a language menu: a toggle, because a menu draws a toggle as
+    /// the native checkmarked item. An inline picker drew the same checkmark
+    /// but had no row to tick while the source detects, and said so in the
+    /// console on every open.
+    private func languageItem(
+        _ language: TranslationLanguage, isChosen: Bool, choose change: @escaping () -> Void
+    ) -> some View {
+        Toggle(menuTitle(language), isOn: Binding(
+            get: { isChosen },
+            set: { wants in if wants { choose(change) } }
+        ))
+    }
+
+    /// A language this Mac can only translate online says so in the list,
+    /// before it is picked rather than after.
+    private func menuTitle(_ language: TranslationLanguage) -> String {
+        translator.isOnlineOnly(language) ? localized("%@ (Online)", language.name) : language.name
+    }
+
+    private var swapButton: some View {
+        Button {
+            choose { translator.swap() }
+        } label: {
+            Image(systemName: "arrow.left.arrow.right")
+                .islandFont(.caption, weight: .semibold)
+                .foregroundStyle(Theme.secondary)
+                .frame(width: 18, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PanelButtonStyle())
+        .help(localized("Swap Languages"))
+        .accessibilityLabel(localized("Swap Languages"))
+    }
+
+    /// A language change is a content change like a pane change: the headings
+    /// and the text settle on the same short ease rather than cutting.
+    private func choose(_ change: () -> Void) {
+        withAnimation(Theme.contentAnimation) { change() }
+    }
+
+    @ViewBuilder
+    private func remedyButton(_ remedy: Translator.Remedy) -> some View {
+        switch remedy {
+        case .appleIntelligenceSettings:
+            Button(localized("Apple Intelligence Settings…")) { Translator.openAppleIntelligenceSettings() }
+        case .translationLanguages:
+            Button(localized("Translation Languages…")) { Translator.openTranslationLanguages() }
+        case .turnOnOnline:
+            Button(localized("Turn On Translate Online")) { translator.turnOnOnline() }
+        case .retry:
+            Button(localized("Retry")) { translator.retry() }
+        }
+    }
+
     // MARK: - Shared
 
-    private func column<Accessory: View, Content: View>(
-        _ title: String,
+    /// A column heading: the language, set the way every header in the panel
+    /// is set, with the small chevron that says it opens.
+    private func heading(_ title: String) -> some View {
+        HStack(spacing: 3) {
+            Text(title.uppercased())
+                .islandFont(.caption, weight: .semibold)
+                .tracking(Theme.capsTracking)
+                .lineLimit(1)
+            Image(systemName: "chevron.down")
+                // A glyph fitted to the caption line, not type.
+                .font(.system(size: 7, weight: .bold))
+        }
+        .foregroundStyle(Theme.tertiary)
+        .contentShape(Rectangle())
+    }
+
+    private func column<Heading: View, Accessory: View, Content: View>(
+        @ViewBuilder heading: () -> Heading,
         @ViewBuilder accessory: () -> Accessory,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text(title.uppercased())
-                    .islandFont(.caption, weight: .semibold)
-                    .tracking(Theme.capsTracking)
-                    .foregroundStyle(Theme.tertiary)
+                heading()
                 Spacer(minLength: 4)
                 accessory()
             }
@@ -252,5 +388,16 @@ struct TranslatePane: View {
         guard !Task.isCancelled else { return }
 
         await translator.translate()
+    }
+}
+
+private extension View {
+    /// A menu drawn as its own label and nothing else — no bezel, no system
+    /// arrow — so the heading reads as a heading until it is pressed.
+    func languageMenuStyle() -> some View {
+        menuStyle(.button)
+            .buttonStyle(PanelButtonStyle())
+            .menuIndicator(.hidden)
+            .fixedSize()
     }
 }
