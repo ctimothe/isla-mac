@@ -30,6 +30,7 @@ struct LockScreenCard: View {
     /// never installs listeners.
     @ObservedObject private var audio: AudioWatch
     @ObservedObject private var spotify = SpotifyAccount.shared
+    @ObservedObject private var appearance = SystemAppearance.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Which middle is showing. One value rather than a pair of bools, so two
@@ -101,31 +102,33 @@ struct LockScreenCard: View {
         if let track = media.track {
             VStack(spacing: 0) {
                 header(track)
-                Spacer(minLength: 12)
+                Spacer(minLength: 10)
                 middle
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Spacer(minLength: 12)
+                Spacer(minLength: 10)
                 transport
-                footer
-                    .padding(.top, 10)
+                rail
+                    .padding(.top, 14)
             }
-            .padding(.horizontal, 22)
-            .padding(.vertical, 20)
+            .padding(.horizontal, 24)
+            .padding(.top, 22)
+            .padding(.bottom, 18)
             // Every mark on the card carries its own shadow on glass. That is
             // how white type survives a bright wallpaper without a scrim
             // painting the wallpaper out — the system does the same on its own
             // lock screen, and it is why the clock there is readable over
             // anything.
-            .shadow(color: .black.opacity(style == .glass ? 0.55 : 0), radius: 4, y: 1)
+            .shadow(color: .black.opacity(style == .glass ? 0.35 : 0), radius: 3, y: 1)
             .frame(width: Self.size.width, height: Self.size.height)
             .overlay { outputPicker }
+            .background { coverLight }
             .glassSurface(
                 cornerRadius: 30,
                 elevation: .card,
                 // No tint from the cover either. The glass takes its character
                 // from the wallpaper it is actually over, which is the point of
                 // it being glass.
-                samplesBackdrop: style == .glass,
+                samplesBackdrop: style == .glass && media.artwork == nil,
                 // Solid is the panel Reduce Transparency draws, chosen on
                 // purpose. It used to be the drawn glass laid over an
                 // `.ultraThinMaterial` and a black scrim — three surfaces for
@@ -142,11 +145,12 @@ struct LockScreenCard: View {
             // dark rectangle behind the corners, and given room to fall they
             // were simply a halo Apple does not draw.
             .environment(\.colorScheme, .dark)
-            // A new song puts the card back on the player. Words and a device
-            // list both belong to the track that was showing when they were
-            // opened, and leaving either up across a change shows one song's
-            // pane over another song's title.
-            .onChange(of: track.key) { _, _ in pane = .player }
+            // A new song leaves the card where it was. It used to put the card
+            // back on the player, on the reasoning that words belong to the
+            // song that was showing — but the words pane follows the song, and
+            // Apple Music's lyrics stay up from one song to the next. Filmed on
+            // 2026-09-21: lyrics opened, a skip, and the card closed them, so
+            // every new song had to be opened again by hand.
             .onAppear { readAudio() }
             .onChange(of: pane) { _, _ in readAudio() }
             // The machine moves on its own while the card stands here — a
@@ -161,6 +165,44 @@ struct LockScreenCard: View {
                 volume = newValue
             }
             .transition(.opacity)
+        }
+    }
+
+    // MARK: - Cover light
+
+    /// The cover, lighting the card from behind — blurred past recognition,
+    /// saturated a little, and dimmed so white type holds over the palest one.
+    ///
+    /// The card used to be glass lit by nothing. Above the login shield a
+    /// material has nothing to sample, so what arrived was a grey slab laid on
+    /// the wallpaper — "more like a fake one", the owner said on 2026-09-21,
+    /// next to the players Apple ships. Apple Music's player and the lock
+    /// screen's own since iOS 26 put the music behind the controls, and so does
+    /// this. Glass only: Solid stays the neutral panel it promises, and with no
+    /// cover the glass falls back to sampling what it can.
+    @ViewBuilder
+    private var coverLight: some View {
+        if style == .glass, let image = media.artwork {
+            ZStack {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: Self.size.width, height: Self.size.height)
+                    // Oversized before the blur, so the blur has no soft,
+                    // darker rim to show at the card's edge.
+                    .scaleEffect(1.5)
+                    .blur(radius: 44, opaque: true)
+                    .saturation(1.3)
+                Color.black.opacity(appearance.increaseContrast ? 0.56 : 0.34)
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.22)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .frame(width: Self.size.width, height: Self.size.height)
+            .clipped()
+            .animation(reduceMotion ? nil : Theme.artworkAnimation, value: media.artwork)
         }
     }
 
@@ -180,13 +222,17 @@ struct LockScreenCard: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            // Beside the title, the way a player keeps its love button with
+            // the song — not stamped on the cover's corner, where it read as
+            // part of the artwork.
+            heart
         }
         .animation(reduceMotion ? nil : Theme.contentAnimation, value: pane)
     }
 
     /// The cover shrinks when a pane needs the room, and the card does not.
     private var artwork: some View {
-        let side: CGFloat = pane == .player ? 62 : 42
+        let side: CGFloat = pane == .player ? 76 : 44
         return ZStack(alignment: .bottomTrailing) {
             Group {
                 if let image = media.artwork {
@@ -205,9 +251,10 @@ struct LockScreenCard: View {
                 }
             }
             .frame(width: side, height: side)
-            .clipShape(RoundedRectangle(cornerRadius: side / 5.5, style: .continuous))
-            .shadow(color: .black.opacity(0.45), radius: 10, y: 4)
-            .overlay(alignment: .topTrailing) { heart.padding(3) }
+            // A cover's corner, not an app icon's: Apple rounds artwork gently,
+            // about a seventh of its side, and a deeper curve reads as a tile.
+            .clipShape(RoundedRectangle(cornerRadius: side / 7, style: .continuous))
+            .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
 
             // The source badge on the artwork corner — instant context, no text.
             //
@@ -227,16 +274,14 @@ struct LockScreenCard: View {
     @ViewBuilder
     private var sourceBadge: some View {
         if let icon = media.sourceIcon {
+            // The icon as the app draws it, the way Control Center badges its
+            // Now Playing cover — not cut into a circle with a ring around it,
+            // which made every app's icon into the same foreign badge.
             Image(nsImage: icon)
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 17, height: 17)
-                .clipShape(Circle())
-                // A hairline so a light icon still has an edge against a light
-                // cover, and a shadow so it reads as sitting on the artwork
-                // rather than punched out of it.
-                .overlay(Circle().strokeBorder(.black.opacity(0.35), lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
+                .frame(width: 20, height: 20)
+                .shadow(color: .black.opacity(0.45), radius: 2, y: 1)
                 .accessibilityLabel(media.sourceName ?? localized("Sound Output"))
         } else if let source = media.sourceName, !source.isEmpty {
             Text(String(source.prefix(1)))
@@ -268,10 +313,9 @@ struct LockScreenCard: View {
     }
 
     private var playerPane: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 0) {
             Spacer(minLength: 0)
             seekBar
-            if volume != nil { volumeBar }
             Spacer(minLength: 0)
         }
     }
@@ -520,13 +564,21 @@ struct LockScreenCard: View {
         return min(max(media.position / media.duration, 0), 1)
     }
 
+    /// The elapsed time for the labels: the finger while dragging, otherwise
+    /// the clock's steady label position, which never steps back a second
+    /// for a small correction.
+    private var shownElapsed: TimeInterval {
+        if let scrubbing { return scrubbing * media.duration }
+        return min(media.labelPosition, media.duration)
+    }
+
     private var seekBar: some View {
         VStack(spacing: 5) {
             GeometryReader { geo in
                 let width = geo.size.width
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.cardTrack).frame(height: 5)
-                    Capsule().fill(accent.opacity(0.95)).frame(width: width * fraction, height: 5)
+                    Capsule().fill(Theme.cardTrack).frame(height: 6)
+                    Capsule().fill(accent.opacity(0.9)).frame(width: width * fraction, height: 6)
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -566,15 +618,18 @@ struct LockScreenCard: View {
                 }
             }
             HStack {
-                Text(formatTime(fraction * media.duration))
+                Text(formatTime(shownElapsed))
                 Spacer()
                 // What is left, which is the question a lock screen gets asked:
                 // how long until this is over.
-                Text("-" + formatTime(max(0, media.duration - fraction * media.duration)))
+                Text("-" + formatTime(max(0, media.duration - shownElapsed)))
             }
-            .font(Theme.TypeRole.body.font(weight: .semibold).monospacedDigit())
+            // Small and quiet, as the system sets a player's times: they are
+            // read in passing, and bold numerals at the body size shouted over
+            // the song they belong to.
+            .font(Theme.TypeRole.body.font(weight: .medium).monospacedDigit())
             .tracking(Theme.tracking(forSize: Theme.TypeRole.body.size))
-            .foregroundStyle(Theme.cardSecondary)
+            .foregroundStyle(Theme.cardTertiary)
         }
     }
 
@@ -585,14 +640,14 @@ struct LockScreenCard: View {
     /// The system's output volume. Absent entirely for a device that has none
     /// to give, rather than a slider that moves and changes nothing.
     private var volumeBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: "speaker.fill").islandFont(.caption, weight: .regular)
             GeometryReader { geo in
                 let width = geo.size.width
                 let level = Double(draggingVolume ?? volume ?? 0)
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.cardTrack).frame(height: 5)
-                    Capsule().fill(.white.opacity(0.85)).frame(width: width * level, height: 5)
+                    Capsule().fill(Theme.cardTrack).frame(height: 4)
+                    Capsule().fill(.white.opacity(0.8)).frame(width: width * level, height: 4)
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -634,10 +689,15 @@ struct LockScreenCard: View {
         .foregroundStyle(Theme.cardSecondary)
     }
 
+    /// Previous, play and next, centred — and nothing else.
+    ///
+    /// A lock screen's player carries the three and leaves shuffle and repeat
+    /// to the app: they are settings, not transport, and Apple's own lock
+    /// players have never set them from there. Pinned to the card's two ends
+    /// they made the row read as an app's toolbar rather than the system's
+    /// player. They stay in the panel, where the rest of the app is.
     private var transport: some View {
-        HStack(spacing: 0) {
-            shuffle
-            Spacer(minLength: 0)
+        HStack(spacing: 44) {
             Button { media.previous() } label: {
                 Image(systemName: "backward.fill").islandFont(.display)
             }
@@ -646,7 +706,6 @@ struct LockScreenCard: View {
             .opacity(media.canSkip ? 1 : 0.35)
             .help(localized("Previous Track"))
             .accessibilityLabel(localized("Previous Track"))
-            Spacer(minLength: 0)
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
                     .islandFont(.hero)
@@ -655,7 +714,6 @@ struct LockScreenCard: View {
             .buttonStyle(TransportGlyphStyle(size: 34))
             .help(media.isPlaying ? localized("Pause") : localized("Play"))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
-            Spacer(minLength: 0)
             Button { media.next() } label: {
                 Image(systemName: "forward.fill").islandFont(.display)
             }
@@ -664,49 +722,25 @@ struct LockScreenCard: View {
             .opacity(media.canSkip ? 1 : 0.35)
             .help(localized("Next Track"))
             .accessibilityLabel(localized("Next Track"))
-            Spacer(minLength: 0)
-            repeatToggle
         }
+        .frame(maxWidth: .infinity)
         .frame(height: 34)
     }
 
-    /// Shuffle and repeat keep their places whether or not the source has the
-    /// idea, so the row does not change shape between one player and the next.
-    private var shuffle: some View {
-        ModeToggle(
-            symbol: "shuffle",
-            isOn: media.shuffleEnabled == true,
-            accent: accent,
-            size: 32,
-            glyphSize: Theme.TypeRole.title.size
-        ) { media.toggleShuffle() }
-        .disabled(media.shuffleEnabled == nil)
-        .opacity(media.shuffleEnabled == nil ? 0.3 : 1)
-        .help(localized("Shuffle"))
-        .accessibilityLabel(localized("Shuffle"))
-        .accessibilityValue(media.shuffleEnabled == true ? localized("On") : localized("Off"))
-    }
-
-    private var repeatToggle: some View {
-        ModeToggle(
-            symbol: media.repeatMode == .one ? "repeat.1" : "repeat",
-            isOn: media.repeatMode != nil && media.repeatMode != .off,
-            accent: accent,
-            size: 32,
-            glyphSize: Theme.TypeRole.title.size,
-            reduceMotion: reduceMotion
-        ) { media.cycleRepeat() }
-        .disabled(media.repeatMode == nil)
-        .opacity(media.repeatMode == nil ? 0.3 : 1)
-        .help(localized("Repeat"))
-        .accessibilityLabel(localized("Repeat"))
-    }
-
-    /// The two doors, and the way back out of either.
-    private var footer: some View {
-        HStack {
+    /// The foot rail: the words, the level, and where the sound goes.
+    ///
+    /// The Music app's player keeps its lyrics door and its output picker at
+    /// its foot, with the volume between them, and so does this. The volume
+    /// used to sit between the scrubber and the transport, where no Apple
+    /// player puts it.
+    private var rail: some View {
+        HStack(spacing: 14) {
             paneButton(.lyrics, symbol: "quote.bubble", label: localized("Lyrics"))
-            Spacer()
+            if volume != nil {
+                volumeBar
+            } else {
+                Spacer(minLength: 0)
+            }
             paneButton(.output, symbol: outputSymbol, label: localized("Sound Output"))
         }
         .frame(height: 22)
@@ -718,7 +752,7 @@ struct LockScreenCard: View {
             pane = open ? .player : target
         } label: {
             Image(systemName: symbol)
-                .islandFont(.title, weight: .medium)
+                .islandFont(.subhead, weight: .medium)
                 .foregroundStyle(open ? Color.white : Theme.cardSecondary)
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                 .frame(width: 26, height: 22)
@@ -750,12 +784,12 @@ struct LockScreenCard: View {
                 let isSaved = known ?? false
                 Button { spotify.toggleSaved(trackID: id) } label: {
                         Image(systemName: isSaved ? "heart.fill" : "heart")
-                        .islandFont(.body, weight: .semibold)
-                        .foregroundStyle(.white)
+                        .islandFont(.title, weight: .medium)
+                        .foregroundStyle(isSaved ? Color.white : Theme.cardSecondary)
                         .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                         .opacity(known == nil ? 0.45 : 1)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(.black.opacity(0.45)))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
                 }
                 .disabled(known == nil)
                 .buttonStyle(PanelButtonStyle())

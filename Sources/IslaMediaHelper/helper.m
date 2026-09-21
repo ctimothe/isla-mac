@@ -277,8 +277,16 @@ static void publishSnapshot(int ownerPID, id path, BOOL forced, int attempt) {
                 // between them would look like no change at all — the new
                 // player's artwork would never publish because it matched the
                 // previous player's cached identity.
+                //
+                // And the title rides along too. Every song on one album
+                // shares its artwork identifier, so a skip within the album
+                // sent no cover at all; the app, seeing a new song with none,
+                // blanked the picture while it waited and got the same one back
+                // half a second later — filmed on 2026-09-21, "dragon eyes" to
+                // "my angel". Each song now carries its cover on its own first
+                // report; the cost is one image per song change.
                 NSString *rawArtworkID = info[@"kMRMediaRemoteNowPlayingInfoArtworkIdentifier"] ?: title;
-                NSString *artworkID = [NSString stringWithFormat:@"%d|%@", ownerPID, rawArtworkID];
+                NSString *artworkID = [NSString stringWithFormat:@"%d|%@|%@", ownerPID, rawArtworkID, title];
                 NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
                 if (artwork.length > 0 && ![artworkID isEqualToString:sArtworkID]) {
                     out[@"artwork"] = [artwork base64EncodedStringWithOptions:0];
