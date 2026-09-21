@@ -14,9 +14,26 @@ struct ShelfItem: Identifiable, Equatable {
     /// QuickLook renders one — a shelf of identical PNG icons is useless when
     /// what it holds is screenshots.
     var icon: NSImage
+    /// The moment the card belongs to: when a capture was taken, or when a
+    /// file was dropped. The shelf reads newest first by it. Nil only for a
+    /// card from before dates were kept, until the shelf is next opened and
+    /// the file itself can be asked.
+    var date: Date?
     var name: String { url.lastPathComponent }
 
     static func == (lhs: ShelfItem, rhs: ShelfItem) -> Bool { lhs.url == rhs.url }
+
+    /// How long ago, the way a person says it: "Just now", "5 min. ago",
+    /// "2 hr. ago", "yesterday". In the app's own language, not the system's,
+    /// so a card never reads half in one and half in the other.
+    static func age(of date: Date, now: Date = Date()) -> String {
+        guard now.timeIntervalSince(date) >= 60 else { return localized("Just now") }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: appLanguage)
+        formatter.unitsStyle = .short
+        formatter.dateTimeStyle = .named
+        return formatter.localizedString(for: date, relativeTo: now)
+    }
 }
 
 /// Drop zone contents. Files are referenced, never copied — the shelf is a
@@ -67,8 +84,19 @@ final class ShelfStore: ObservableObject {
         // the ids it holds now name nothing. Kept, they showed as a phantom
         // "Selected: N" in the footer with no card marked (#10).
         selection.removeAll()
-        items = Self.storedURLs(in: defaults, key: defaultsKey)
-            .map { ShelfItem(url: $0, icon: Self.icon(forName: $0)) }
+        let urls = Self.storedURLs(in: defaults, key: defaultsKey)
+        let stamps = defaults.array(forKey: defaultsKey + ".dates") as? [Double]
+        items = urls.enumerated().compactMap { index, url in
+            // A path check, not a disk read: a card whose file went to the
+            // Trash is a deleted card. The shelf used to follow a trashed
+            // recording's bookmark into ~/.Trash and keep offering it.
+            guard !Self.isInTrash(url) else { return nil }
+            var item = ShelfItem(url: url, icon: Self.icon(forName: url))
+            if let stamps, stamps.count == urls.count, stamps[index] > 0 {
+                item.date = Date(timeIntervalSince1970: stamps[index])
+            }
+            return item
+        }
     }
 
     /// Bookmarks first, raw paths second.
@@ -116,9 +144,23 @@ final class ShelfStore: ObservableObject {
         importNewRecordings()
         guard !items.isEmpty else { return }
         let gone = Set(items.filter { Self.isGone($0.url) }.map(\.id))
+        var changed = !gone.isEmpty
         if !gone.isEmpty {
             items.removeAll { gone.contains($0.id) }
             selection.subtract(gone)
+        }
+        // Cards from before dates were kept learn theirs from the file, now
+        // that the file may be asked.
+        for index in items.indices where items[index].date == nil {
+            let values = try? items[index].url.resourceValues(
+                forKeys: [.creationDateKey, .contentModificationDateKey])
+            if let date = values?.creationDate ?? values?.contentModificationDate {
+                items[index].date = date
+                changed = true
+            }
+        }
+        if changed {
+            sortNewestFirst()
             persist()
         }
         items.forEach(loadThumbnail)
@@ -145,7 +187,7 @@ final class ShelfStore: ObservableObject {
         // keeps them settled, and a denied folder simply reports nothing.
         defaults.set(Array(result.seen.suffix(RecordingPickup.seenLimit)), forKey: RecordingPickup.seenKey)
         guard !result.urls.isEmpty else { return }
-        add(result.urls)
+        add(result.urls, dates: result.dates)
     }
 
     /// Whether the file is actually gone, as opposed to merely out of reach.
@@ -155,7 +197,8 @@ final class ShelfStore: ObservableObject {
     /// just refused access to should stay exactly where it is. Treating them
     /// alike meant a single "Don't Allow" silently emptied the shelf of
     /// everything kept in Downloads, with the files still sitting there.
-    private static func isGone(_ url: URL) -> Bool {
+    static func isGone(_ url: URL) -> Bool {
+        if isInTrash(url) { return true }
         do {
             return try !url.checkResourceIsReachable()
         } catch let error as NSError {
@@ -163,16 +206,45 @@ final class ShelfStore: ObservableObject {
         }
     }
 
-    func add(_ urls: [URL]) {
+    /// - Parameter dates: when each capture was taken, where known. A file
+    ///   without one — a drop, a picture saved from the clipboard — is dated
+    ///   now, which is when it happened.
+    func add(_ urls: [URL], dates: [URL: Date] = [:]) {
+        let now = Date()
         // Reversed, so that inserting each at the front leaves the drop in the
         // order it was made: A, B, C dropped together used to land C, B, A.
         for url in urls.reversed() where !items.contains(where: { $0.url == url }) {
-            let item = ShelfItem(url: url, icon: NSWorkspace.shared.icon(forFile: url.path))
+            var item = ShelfItem(url: url, icon: NSWorkspace.shared.icon(forFile: url.path))
+            item.date = dates[url] ?? now
             items.insert(item, at: 0)
             loadThumbnail(item)
         }
+        sortNewestFirst()
+        // After sorting, so the cards past the limit are the oldest, not the
+        // ones that happened to arrive first.
         if items.count > limit { items.removeLast(items.count - limit) }
         persist()
+    }
+
+    /// Newest first, by when each card's moment was.
+    ///
+    /// Cards used to sit in the order they arrived, and a capture is found
+    /// when the shelf opens rather than when it is taken: a recording made at
+    /// 14:47 but first seen at 16:40 sat above the one made at 16:37, filmed
+    /// on 2026-09-21. Stable, so cards of the same moment keep their order,
+    /// and undated ones wait at the end until the file can be asked.
+    private func sortNewestFirst() {
+        items = items.enumerated().sorted { lhs, rhs in
+            let left = lhs.element.date ?? .distantPast
+            let right = rhs.element.date ?? .distantPast
+            return left != right ? left > right : lhs.offset < rhs.offset
+        }.map(\.element)
+    }
+
+    /// Whether a file sits in a Trash — the user's, or a volume's.
+    static func isInTrash(_ url: URL) -> Bool {
+        let components = url.standardizedFileURL.pathComponents
+        return components.contains(".Trash") || components.contains(".Trashes")
     }
 
     private func loadThumbnail(_ item: ShelfItem) {
@@ -313,5 +385,6 @@ final class ShelfStore: ObservableObject {
             (try? $0.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)) ?? Data()
         }
         defaults.set(bookmarks, forKey: defaultsKey + ".bookmarks")
+        defaults.set(items.map { $0.date?.timeIntervalSince1970 ?? 0 }, forKey: defaultsKey + ".dates")
     }
 }
