@@ -35,6 +35,11 @@ struct LyricRow: View {
     /// A line timeline, or an unmeasured player clock, highlights the whole
     /// current line. It must never animate a made-up word progression.
     var wordTimingEnabled = false
+    /// The reader has scrolled away by hand. Every line on screen is then
+    /// something being read rather than context around the voice, so none is
+    /// dimmed to depth — the way the system's own lyrics clear as soon as a
+    /// finger moves them, and settle back once the page follows the song again.
+    var reading = false
     /// Choosing a line is choosing the song's place in it.
     var seek: (() -> Void)?
     /// The whole song's text, when the surface has it. Present means the
@@ -60,6 +65,14 @@ struct LyricRow: View {
     /// than the far ones, depth inside out. 0.44 keeps it between floor and song.
     static func neighbourOpacity(increaseContrast: Bool) -> Double {
         increaseContrast ? 0.44 : 0.34
+    }
+
+    /// Every line while the reader scrolls by hand: bright enough to read as
+    /// text rather than as depth — 0.46 is the panel's own tertiary label at
+    /// 4.58:1 — and still under the 0.5 the sung line's unsung words sit at,
+    /// so the line being sung is never the dimmer one even then.
+    static func readingOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.48 : 0.46
     }
 
     var body: some View {
@@ -158,6 +171,7 @@ struct LyricRow: View {
     @MainActor
     private var falloffOpacity: Double {
         let increaseContrast = SystemAppearance.shared.increaseContrast
+        if reading { return Self.readingOpacity(increaseContrast: increaseContrast) }
         guard distance != 1 else { return Self.neighbourOpacity(increaseContrast: increaseContrast) }
         return Self.falloffFloor(increaseContrast: increaseContrast)
     }
