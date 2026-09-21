@@ -107,7 +107,11 @@ enum RecordingPickup {
     /// asked for first, with the English defaults kept as well for a Mac whose
     /// language changed after the captures were taken.
     static func capturePrefixes(customName: String? = customCaptureName()) -> [String] {
-        var prefixes = ["Screenshot", "Screen Recording"]
+        // "LWScreenShot" is what the login window names a screenshot taken on
+        // the lock screen, whatever the capture name or language — and it is
+        // why those never reached the shelf (filmed 2026-09-21: two lock-screen
+        // captures sitting in the save folder, offered nowhere).
+        var prefixes = ["Screenshot", "Screen Recording", "LWScreenShot"]
         if let customName, !customName.isEmpty { prefixes.insert(customName, at: 0) }
         let localized = Bundle(identifier: "com.apple.ScreenCaptureKit")?
             .localizedString(forKey: "Screenshot", value: nil, table: nil)
