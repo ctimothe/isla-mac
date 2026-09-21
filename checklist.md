@@ -71,7 +71,11 @@ are the exception the design did not anticipate:
   the shield, in a window of its own, finished as Glass or Solid. The
   shield is protected content and no window above it is given a backdrop
   to blur, so the glass is a drawn recipe rather than a sample — the
-  system's own lock-screen widgets work the same way.
+  system's own lock-screen widgets work the same way. Since 2026-09-21
+  the Glass card is lit by the song's own cover, blurred and dimmed, the
+  way Apple Music's player is; lit by nothing it read as a grey slab. It
+  carries previous, play and next only, the volume in its foot rail, and
+  its lyrics stay open from one song to the next.
 - **Sound output** (lock card, no setting) lists the Mac's output devices
   and switches the system default. It changes a system-wide setting, so
   it is recorded here even though it needs no permission and no network.
