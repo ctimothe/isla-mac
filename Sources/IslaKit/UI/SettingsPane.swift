@@ -33,6 +33,7 @@ struct SettingsPane: View {
     @State private var sneakPeek = NotchViewModel.sneakPeekEnabled
     @State private var showOnLockScreen = NotchViewModel.showOnLockScreenEnabled
     @State private var lockCardStyle = NotchViewModel.lockCardStyle
+    @State private var lockCardSize = NotchViewModel.lockCardSize
     @State private var showLyrics = NotchViewModel.showLyricsEnabled
     @State private var onlineLyrics = NotchViewModel.onlineLyricsEnabled
     @State private var musicOnly = NotchViewModel.musicOnlyEnabled
@@ -313,6 +314,12 @@ struct SettingsPane: View {
                             }
                         )
                     )
+                }
+
+                // The card that stands over the lock screen, in a section of its
+                // own: it is a surface in its own right, with its own glass and
+                // its own size, not a detail of the music settings.
+                section(localized("Lock Screen")) {
                     toggleRow(
                         symbol: SettingsIcon.lockScreen,
                         title: localized("Show on Lock Screen"),
@@ -328,13 +335,26 @@ struct SettingsPane: View {
                     if showOnLockScreen {
                         choiceRow(
                             symbol: SettingsIcon.cardStyle,
-                            title: localized("Card Style"),
+                            title: localized("Glass"),
                             options: NotchViewModel.LockCardStyle.allCases,
                             selection: Binding(
                                 get: { lockCardStyle },
                                 set: { style in
                                     lockCardStyle = style
                                     UserDefaults.standard.set(style.rawValue, forKey: NotchViewModel.lockCardStyleKey)
+                                }
+                            ),
+                            title: { $0.title }
+                        )
+                        choiceRow(
+                            symbol: SettingsIcon.cardSize,
+                            title: localized("Card Size"),
+                            options: NotchViewModel.LockCardSize.allCases,
+                            selection: Binding(
+                                get: { lockCardSize },
+                                set: { size in
+                                    lockCardSize = size
+                                    UserDefaults.standard.set(size.rawValue, forKey: NotchViewModel.lockCardSizeKey)
                                 }
                             ),
                             title: { $0.title }

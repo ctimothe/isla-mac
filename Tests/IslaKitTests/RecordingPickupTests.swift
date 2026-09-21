@@ -169,4 +169,11 @@ final class RecordingPickupTests: XCTestCase {
             "no configured location means where the system saves by default"
         )
     }
+
+    /// A screenshot taken on the lock screen is named by the login window,
+    /// "LWScreenShot …", whatever the capture name — and it is a capture.
+    func testALockScreenScreenshotIsACapture() {
+        XCTAssertTrue(RecordingPickup.isCapture(
+            URL(fileURLWithPath: "/tmp/LWScreenShot 2026-09-21 at 19.25.00.png")))
+    }
 }
