@@ -33,7 +33,6 @@ enum NotchMetrics {
     static let compactMediaExtension: CGFloat = 104
     static let openDelay: TimeInterval = 0.05
     static let closeDelay: TimeInterval = 0.32
-    static let tabDwell: TimeInterval = 0.15
     static let fastPointerInterval: TimeInterval = 1.0 / 60.0
     static let idlePointerInterval: TimeInterval = 1.0 / 8.0
     static let restThreshold: TimeInterval = 3.0
@@ -57,6 +56,12 @@ enum NotchMetrics {
     /// immediately. Long enough to read a sentence and reach for the mouse;
     /// still short enough that a translation walked away from is gone.
     static let translateReadDelay: TimeInterval = 6
+
+    /// How long the pointer has to come back after a menu closes. A language
+    /// list hangs well below the panel, and the row just chosen is where the
+    /// pointer was left — outside. Long enough to move back up; short enough
+    /// that walking away from a closed menu still folds the panel.
+    static let menuReturnGrace: TimeInterval = 1.2
 
     /// How long a new track shows itself before folding back. Long enough to
     /// read a title at a glance, short enough that it is over before it can

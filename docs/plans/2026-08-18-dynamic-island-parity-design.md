@@ -166,6 +166,14 @@ transitions.
 > stretched its window-server snapshot, and is why the lock card was given a
 > window of its own.
 
+> **Amended 2026-09-21.** The tab-hover dwell in the table above is withdrawn:
+> the rail changes tabs on a **click** only. Switching after a 150 ms hover made
+> the rail react to a pointer passing through it, and each switch replayed the
+> chosen glyph's fill, so a fast pass read as the rail lagging behind the
+> cursor. A hover now draws a faint well under the glyph and does nothing else,
+> the same division the island itself made on 2026-08-26 — a click is a
+> decision, a hover is traffic.
+
 ## Feature parity contract
 
 > **Amended 2026-08-20.** The Snippets and Calendar sections below are
@@ -276,6 +284,30 @@ transitions.
   assets.
 - Infer direction from the presence of Cyrillic text.
 - Explain when a required language pack is missing rather than failing silently.
+
+> **Amended 2026-09-21.** The tab translates between sixteen languages, chosen
+> in its two column headings: English, Russian, Uzbek, Kazakh, Turkish,
+> Ukrainian, German, French, Spanish, Italian, Portuguese, Arabic, Hindi,
+> Chinese, Japanese and Korean. The source detects by default and can be told;
+> a swap exchanges the languages and the text; the choice is remembered.
+> Inferring direction from Cyrillic survives as the default rather than the
+> whole rule: with the source on Detect and the target on Russian, Russian goes
+> to English and everything else to Russian, as before.
+>
+> Each pair goes to the best engine the Mac has, first that can: Apple's
+> Translation framework for a pair it reports installed; the on-device language
+> model for the languages it supports, plus Russian; and, only when **Translate
+> Online** is switched on in Settings — off by default — MyMemory, for a pair
+> neither of those offers at all. A pair the Mac offers is never sent, even
+> when it cannot run right now; it is reported instead. English and Russian
+> therefore still translate offline. Uzbek
+> and Kazakh have no on-device engine at all — measured on 2026-09-21, the
+> framework does not offer them and the model answered with nonsense — so for
+> them the tab says the language is translated online and offers the switch.
+> The online path is the exception recorded in `checklist.md` §"Scope divergence
+> from Cyclop 0.6.5", bounded to one file and one service by
+> `OnlineTranslationTests`. A pair the framework offers but has not downloaded
+> names its language and opens System Settings' Translation Languages.
 
 ### Notes and Teleprompter
 

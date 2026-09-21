@@ -68,6 +68,17 @@ are the exception the design did not anticipate:
   from it are line-level, so the word sweep stays off for them. The design
   doc carries the dated amendment and `OfflineLyricsIsolationTests` bounds
   the exception to one file and one service.
+- **Translate Online** (Settings › Translate, default off, added 2026-09-21)
+  sends a pair no engine on this Mac offers at all — Uzbek and Kazakh — to
+  MyMemory (translated.net): free, no account, no key. It receives the text and
+  its two language codes, over an ordinary web request. A pair Apple's
+  Translation framework or the on-device model offers is never sent, even when
+  it cannot run right now — not downloaded, Apple Intelligence off, or a
+  refusal — and is reported instead (fixed in review the same day: online had
+  been the fallback for all three). An answer that came from the network
+  carries a globe in its heading. `OnlineTranslationTests` bounds the exception
+  to `OnlineTranslation.swift` and the one host; `TranslatorTests` holds that no
+  on-device pair ever lists the online engine.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain.
@@ -473,10 +484,13 @@ Open, for the owner — each is a design decision, not a defect:
 - [ ] `SettingsPane.choiceRow` is a hand-rolled segmented control; a native
   `Picker(.segmented)` would restore arrow keys and radio-group VoiceOver but
   look like AppKit on a dark pane.
-- [ ] Hovering the rail for 150 ms switches tabs. macOS does not navigate on
+- [x] Hovering the rail for 150 ms switches tabs. macOS does not navigate on
   hover outside menus; kept because it is documented and cheap to cancel.
-- [ ] The rail icon scales 1.15× on hover on top of the chip fill. macOS fills
-  a well and does not grow the glyph.
+  **Decided by the owner, 2026-09-21: a click only.** A fast pass across the
+  rail flipped panes and replayed each glyph's fill behind the cursor.
+- [x] The rail icon scales 1.15× on hover on top of the chip fill. macOS fills
+  a well and does not grow the glyph. **Gone with the hover switch,
+  2026-09-21:** a hover draws the well and nothing else.
 - [ ] No focus rings and no keyboard shortcuts inside the panel (⌘, ⌘W,
   Return-to-confirm). Escape is handled at the window. An `.accessory` app
   has no menu bar to carry these, so it is a per-panel binding while key.
@@ -493,3 +507,66 @@ Open, for the owner — each is a design decision, not a defect:
 - [ ] `scripts/check` is tracked in lowercase while every other script is
   under `Scripts/`; one directory on this Mac's case-insensitive disk, two on
   a case-sensitive one.
+
+### Native motion — 2026-09-21
+
+Filmed on 2026-09-21 over the lock screen: a pause folded the pill into the
+notch in a single frame, "too intense, too raw".
+
+- [x] **The pill folds into the notch and grows back out, locked or not.** The
+  locked branch refuses every animation from outside, and the pill was mounted
+  only while something played, so a pause removed it in one frame. It now stays
+  mounted for the whole lock and answers its own change on its own curve. The
+  wings contract on `Theme.pillFold` (0.5 s, critically damped) and grow on
+  `Theme.pillUnfold` (0.42 s), where every pill resize used to share 0.28 s.
+- [x] **The cover and the bars ride the wings and dissolve ahead of the edge.**
+  Unlocked, the header left the tree the moment the pill folded and kept its
+  old width, so the contracting clip swept across a cover that sat still. It
+  now stays laid out while the panel is shut and fades, blurs and shrinks on
+  `Theme.pillContentOut` (0.22 s); arriving, it waits 0.07 s for a wing to
+  exist. `PillFoldTests` holds both halves against the springs' closed forms.
+- [x] **No flash of "playing" on the way in.** A settled pause is `.hidden`, and
+  only `.paused` drew the badge, so every fold began by brightening the cover.
+- [x] **No fading outline at the start of a fold.** A second black layer over
+  the wings faded on its own 0.12 s at the old width; it was plain black by
+  then and went.
+- [x] **A peek ends on the fold curve**, not the 0.16 s content ease.
+- [x] **The lock card's lyrics glide a line at a time.** The window of lines
+  jumped a slot per line; the leaving line now goes up and out and the next
+  rises in from below on the lyric spring, one row each way
+  (`LockCardLyricGlideTests`). A seek is still a cut.
+- [x] **Scrolling the lyrics by hand lifts every line to reading brightness**
+  (0.46, still under the sung line's 0.5), and they settle back to depth when
+  the page follows the song again.
+- [x] **The stage's follow is a real spring** — measured, not assumed: a
+  `ScrollView` driven through `scrollPosition` inside `withAnimation` honours
+  the spring on macOS 27 (a 0.4-damped probe overshot 76 → 88 pt and settled).
+- [x] **The rail wears its own glyphs.** Its five were, glyph for glyph, the
+  upstream project's (`music.note`, `tray.full.fill`, `list.clipboard.fill`,
+  `translate`, `gearshape.fill`). Now `music.note`, `rectangle.stack`,
+  `doc.on.clipboard`, `character.bubble` and `slider.horizontal.3`, filled when
+  chosen, as a tab bar does; the Settings privacy rows and the two empty states
+  follow. `TabContractTests` keeps the old four out. Music tried `play.circle`
+  (read as a button) and `music.quarternote.3` (read as busy), and at the
+  owner's word keeps the plain `music.note` — the system's own glyph, and the
+  rail as a whole is no longer the upstream's. The replace effect on the fill
+  went too: a third of a second behind every click.
+- [x] **The rail changes tabs on a click only**, and its well and selection
+  land on the frame they happen. The 150 ms hover dwell is withdrawn (design
+  amendment 2026-09-21) and `NotchMetrics.tabDwell` with it.
+- [x] **Translate chooses its languages.** Sixteen, in the column headings as
+  menus: the source detects (Uzbek by its own letters and words, since Apple's
+  recognizer does not know it — `LanguageDetectionTests`) or is told; a swap
+  exchanges languages and text; the choice is remembered. Engines by pair:
+  Apple's Translation framework when installed (en↔ru, en→tr, en→ko measured at
+  0.3–1.2 s on this Mac, and it translates "Delete all my files", which the
+  model refused), the on-device model for its own languages, MyMemory only with
+  Translate Online on. Uzbek verified live both ways ("Bugungi yordamingiz
+  uchun katta rahmat."); `TRANSLATOR_LIVE=1` reruns the whole matrix.
+- [x] **The model can no longer run away.** Uncapped, one English sentence into
+  Uzbek generated for 218 s until the 8,192-token context was full. Responses
+  are capped at three tokens per source character (128–4,096).
+- [x] **A menu no longer folds the panel.** A language list hangs below the
+  panel, and moving down it read as the pointer leaving. An open menu now holds
+  the panel the way a drag does, and closing it gives the pointer 1.2 s to come
+  back (`MenuTrackingTests`). The lyric and shelf context menus get the same.

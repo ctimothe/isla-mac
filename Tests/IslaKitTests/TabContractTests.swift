@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import IslaKit
 
@@ -37,5 +38,22 @@ final class TabContractTests: XCTestCase {
             PrivacyMode.Section.allCases.map(\.rawValue).sorted(),
             ["clipboard", "translate"]
         )
+    }
+
+    /// Every rail glyph resolves — a name macOS does not know draws nothing at
+    /// all — and none of the four retired on 2026-09-21 comes back. Music
+    /// keeps the system's plain note by the owner's choice; with the other four
+    /// changed, the rail as a whole is no longer the upstream project's.
+    func testTheRailGlyphsResolveAndAreTheIslandsOwn() {
+        for tab in NotchViewModel.Tab.allCases {
+            XCTAssertNotNil(NSImage(systemSymbolName: tab.symbol, accessibilityDescription: nil),
+                            "\(tab.symbol) does not resolve")
+            XCTAssertFalse(NotchViewModel.Tab.retiredSymbols.contains(tab.symbol),
+                           "\(tab) is wearing a retired glyph again: \(tab.symbol)")
+        }
+        XCTAssertEqual(Set(NotchViewModel.Tab.allCases.map(\.symbol)).count,
+                       NotchViewModel.Tab.allCases.count, "two tabs share a glyph")
+        XCTAssertFalse(NotchViewModel.Tab.retiredSymbols.contains(SettingsIcon.clipboard))
+        XCTAssertFalse(NotchViewModel.Tab.retiredSymbols.contains(SettingsIcon.translate))
     }
 }

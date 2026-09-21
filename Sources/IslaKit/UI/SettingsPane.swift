@@ -36,6 +36,7 @@ struct SettingsPane: View {
     @State private var lockCardSize = NotchViewModel.lockCardSize
     @State private var showLyrics = NotchViewModel.showLyricsEnabled
     @State private var onlineLyrics = NotchViewModel.onlineLyricsEnabled
+    @State private var onlineTranslation = NotchViewModel.onlineTranslationEnabled
     @State private var musicOnly = NotchViewModel.musicOnlyEnabled
     /// Observed, not snapshotted: the connect flow completes in the browser
     /// long after this pane rendered, and a one-shot copy of isConnected sat
@@ -240,7 +241,7 @@ struct SettingsPane: View {
                     // network, and the note under it says so before it is
                     // flipped rather than in a policy nobody opens.
                     toggleRow(
-                        symbol: SettingsIcon.onlineLyrics,
+                        symbol: SettingsIcon.online,
                         title: localized("Look Up Lyrics Online"),
                         isOn: Binding(
                             get: { onlineLyrics },
@@ -359,6 +360,30 @@ struct SettingsPane: View {
                             ),
                             title: { $0.title }
                         )
+                    }
+                }
+
+                section(localized("Translate")) {
+                    // The one switch in Translate that reaches the network. Off,
+                    // every language this Mac can translate still works; on,
+                    // the ones it cannot — Uzbek above all — go to the one
+                    // service `OnlineTranslation` names, and the note says so
+                    // before it is flipped.
+                    toggleRow(
+                        symbol: SettingsIcon.online,
+                        title: localized("Translate Online"),
+                        isOn: Binding(
+                            get: { onlineTranslation },
+                            set: { wants in
+                                onlineTranslation = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.onlineTranslationKey)
+                            }
+                        )
+                    )
+                    if onlineTranslation {
+                        noteRow(localized("Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet."))
+                    } else {
+                        noteRow(localized("Translations stay on this Mac."))
                     }
                 }
 

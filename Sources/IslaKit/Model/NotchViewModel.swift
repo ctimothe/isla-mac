@@ -8,15 +8,41 @@ final class NotchViewModel: ObservableObject {
         case media, shelf, clipboard, translate, settings
         var id: String { rawValue }
 
+        /// The rail's glyph, in its outline form; the rail fills the selected
+        /// one, the way a system tab bar does.
+        ///
+        /// Chosen on 2026-09-21 to replace a set that was, glyph for glyph, the
+        /// one the upstream project ships — `music.note`, `tray.full.fill`,
+        /// `list.clipboard.fill`, `translate`, `gearshape.fill` — so the rail
+        /// read as somebody else's island. Each of these is the system's own
+        /// word for its tab: the note, a stack of held things, the pasteboard
+        /// glyph macOS puts on Paste, a speech bubble with a letter in it
+        /// (localized by the system to the reader's script), and the controls
+        /// sliders.
+        ///
+        /// Music keeps the plain note on purpose. It was tried as `play.circle`,
+        /// which read as a button rather than a place, and as
+        /// `music.quarternote.3`, which read as busy; the owner asked on the
+        /// same day for the simple one back. It is the system's own glyph for
+        /// music, free to every Mac app, and with the other four changed the
+        /// rail as a whole is no longer anybody else's. `TabContractTests`
+        /// keeps those four out.
         var symbol: String {
             switch self {
             case .media: return "music.note"
-            case .shelf: return "tray.full.fill"
-            case .clipboard: return "list.clipboard.fill"
-            case .translate: return "translate"
-            case .settings: return "gearshape.fill"
+            case .shelf: return "rectangle.stack"
+            case .clipboard: return "doc.on.clipboard"
+            case .translate: return "character.bubble"
+            case .settings: return "slider.horizontal.3"
             }
         }
+
+        /// Four of the glyphs the rail wore until 2026-09-21, from the upstream
+        /// project's own set, kept here only so a test can keep them from
+        /// coming back. The fifth, `music.note`, stayed: see `symbol`.
+        static let retiredSymbols: Set<String> = [
+            "tray.full.fill", "list.clipboard.fill", "translate", "gearshape.fill",
+        ]
 
         var title: String {
             switch self {
@@ -621,6 +647,17 @@ final class NotchViewModel: ObservableObject {
     /// listener, and nothing is uploaded. See `OnlineLyrics`.
     static var onlineLyricsEnabled: Bool {
         UserDefaults.standard.bool(forKey: onlineLyricsKey)
+    }
+
+    static let onlineTranslationKey = "translate.onlineEnabled"
+
+    /// Defaults to **off**, and is the only way Translate sends text anywhere.
+    ///
+    /// On, a pair no engine on this Mac can translate — Uzbek and Kazakh,
+    /// always — is sent to `OnlineTranslation`'s one service. Every pair the
+    /// Mac can do itself still stays on it, switch or no switch.
+    static var onlineTranslationEnabled: Bool {
+        UserDefaults.standard.bool(forKey: onlineTranslationKey)
     }
 
     static let sneakPeekKey = "sneakPeek"

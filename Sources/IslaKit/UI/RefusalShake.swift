@@ -13,7 +13,8 @@ struct RefusalShake: ViewModifier {
     /// Sideways travel at the first swing. Was 7, which on a 32pt pill at the
     /// top of a locked screen was too small to register as a refusal — it read
     /// as a rendering wobble, if it read at all.
-    var amplitude: CGFloat = 11
+    static let standardAmplitude: CGFloat = 11
+    var amplitude: CGFloat = standardAmplitude
     /// Full swings. Three reads as a shake; more reads as a wobble toy.
     var shakes: CGFloat = 3
 
@@ -55,8 +56,9 @@ private struct ShakeOffset: GeometryEffect {
 }
 
 extension View {
-    /// Plays a refusal wobble whenever `trigger` changes.
-    func refusalShake(trigger: Int) -> some View {
-        modifier(RefusalShake(trigger: trigger))
+    /// Plays a refusal wobble whenever `trigger` changes. An amplitude of
+    /// zero keeps the modifier — and the view's identity — without moving.
+    func refusalShake(trigger: Int, amplitude: CGFloat = RefusalShake.standardAmplitude) -> some View {
+        modifier(RefusalShake(trigger: trigger, amplitude: amplitude))
     }
 }

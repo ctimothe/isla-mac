@@ -370,12 +370,27 @@ struct LockScreenCard: View {
                 )
                 let centre = LyricSweep.centreIndex(in: lines, at: at)
                 let window = Self.window(around: centre, count: lines.count, size: Self.visibleLyricLines(for: cardSize))
+                let jump = Self.isJump(from: lastCentre, to: centre)
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(window, id: \.self) { index in
                         lyricRow(lines: lines, index: index, centre: centre, at: at)
+                            .transition(Self.lineTransition(reduceMotion: reduceMotion))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // The page moves when the song moves a line. It used to jump:
+                // nothing here animated the window sliding, so every row leapt
+                // a slot at once while only the highlight crossfaded — the one
+                // lyric surface on the Mac whose words did not travel. Now the
+                // line leaving goes up and out with the rest of the page and
+                // the next one rises in from under the bottom, on the same
+                // spring the stage scrolls with, clipped to the window so
+                // neither is drawn over the title above or the rail below.
+                .clipped()
+                // Reduce Motion keeps the old cut: with the travel refused the
+                // leaving line only faded while the rest still slid a row, so
+                // for a moment two lines shared one slot.
+                .animation(jump || reduceMotion ? nil : Theme.lyricScroll, value: centre)
                 // A jump is a cut. When a seek moves the words more than a line,
                 // every row is replaced at once, and each one's own crossfade
                 // laid the old line and the new one over each other in the same
@@ -846,6 +861,20 @@ struct LockScreenCard: View {
     }
 
     // MARK: - Pure layout arithmetic
+
+    /// How far a line travels entering or leaving the window: one row of the
+    /// title role plus the stack's spacing, so the leaving line moves exactly
+    /// as far as the lines behind it and the arriving one starts where the
+    /// next row would have been. The page moves as one.
+    static let lineTravel: CGFloat = 26
+
+    static func lineTransition(reduceMotion: Bool) -> AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: lineTravel)),
+            removal: .opacity.combined(with: .offset(y: -lineTravel))
+        )
+    }
 
     /// Whether the centre moved by more than one line: a seek, not singing.
     static func isJump(from previous: Int?, to centre: Int) -> Bool {
