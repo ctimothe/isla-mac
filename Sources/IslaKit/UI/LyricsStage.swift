@@ -547,7 +547,8 @@ struct LyricsStage: View {
                     .islandFont(.display, weight: .light)
                     .foregroundStyle(Theme.tertiary)
                 Text(LyricsPresentation.compactCaption(
-                    for: lyrics.availability, currentLine: nil, localLookup: localLookup
+                    for: lyrics.availability, currentLine: nil, localLookup: localLookup,
+                    onlineEnabled: NotchViewModel.onlineLyricsEnabled
                 ))
                     .islandFont(.body)
                     .foregroundStyle(Theme.secondary)

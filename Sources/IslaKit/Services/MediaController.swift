@@ -350,9 +350,39 @@ final class MediaController: ObservableObject {
     }
 
     private func applySpotifyBroadcast(_ note: Notification) {
+        receiveSpotifyBroadcast(note.userInfo ?? [:])
+    }
+
+    /// Whether a Spotify announcement is about a song other than the one on
+    /// screen. On a skip it arrives before any report names the new song, and
+    /// anchoring the old title to its position is what showed 0:00 under it.
+    private func broadcastNamesAnotherSong(_ info: [AnyHashable: Any]) -> Bool {
+        if let id = info["Track ID"] as? String, let known = spotifyTrackID, !id.hasSuffix(known) {
+            return true
+        }
+        if let name = (info["Name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty, let title = track?.title,
+           name.caseInsensitiveCompare(title) != .orderedSame {
+            return true
+        }
+        return false
+    }
+
+    /// Spotify's own announcement, as its fields. Internal so a test can hand
+    /// one in without Spotify.
+    func receiveSpotifyBroadcast(_ info: [AnyHashable: Any]) {
         guard displayedPlayerIsSpotify,
-              let position = note.userInfo?["Playback Position"] as? Double else { return }
+              let position = info["Playback Position"] as? Double else { return }
         guard pendingSeek == nil else { return }
+        if broadcastNamesAnotherSong(info) {
+            beginAwaitingTrackChange("Spotify announced another song")
+            return
+        }
+        if isAwaitingTrackChange() { return }
+        if readingLooksLikeAnotherSong(position) {
+            beginAwaitingTrackChange(String(format: "Spotify back at %.2f", position))
+            return
+        }
         // Delivery is unordered with the seek's own application: a broadcast
         // describing the pre-seek moment can arrive after the pending guard
         // has cleared, and anchoring on it replays the jump backwards. Only
@@ -727,6 +757,13 @@ final class MediaController: ObservableObject {
             let nowMono = self.monotonicNow()
             let latency = nowMono - askedMono
             let corrected = self.isPlaying ? value + latency / 2 : value
+            // The player may already be on the next song while the island
+            // still names this one; its position is not this song's.
+            if self.isAwaitingTrackChange() { return }
+            if self.readingLooksLikeAnotherSong(corrected) {
+                self.beginAwaitingTrackChange(String(format: "player back at %.2f", corrected))
+                return
+            }
             let delta = corrected - self.position
             self.trace(String(format: "pc val=%.2f lat=%.2f delta=%.2f pos=%.2f", value, latency, delta, self.position))
 
@@ -775,12 +812,91 @@ final class MediaController: ObservableObject {
 
     func next() {
         trace("cmd next")
+        beginAwaitingTrackChange("cmd next")
         dispatch(feed: .next, transport: .next, key: .next)
     }
 
     func previous() {
         trace("cmd previous")
+        // A few seconds in, most players answer "previous" by restarting the
+        // song, and the start of the same song is then the right thing to show
+        // at once. Isla's own Spotify route seeks to 0 before stepping back, so
+        // there it always changes the song.
+        if position > 3, heldScriptablePlayer != .spotify {
+            restartExpectedUntil = Date().addingTimeInterval(1.5)
+        } else {
+            beginAwaitingTrackChange("cmd previous")
+        }
         dispatch(feed: .previous, transport: .previous, key: .previous)
+    }
+
+    // MARK: - A skip the island has not caught up with
+
+    /// Since when the player has evidently left the song on screen while the
+    /// report naming the next one has not arrived.
+    ///
+    /// Filmed on 2026-09-21, frame by frame: on eleven skips the new song's
+    /// clock ran under the old song's title — 0:00, sometimes 0:01, and the
+    /// old song's first lyric line — for 50 to 700ms. Three sources carried the
+    /// new song's position before any report carried its name: Spotify's own
+    /// announcement, the one-second precision poll, and a Now Playing report
+    /// updated in two steps. While this is set, readings for the song on screen
+    /// are not adopted; the report with the next song ends it, and so does the
+    /// grace running out, since then it was a restart after all.
+    private var awaitingTrackChangeSince: Date?
+    /// A restart asked for, so the player back at the start of the same song
+    /// is expected rather than a skip half-reported.
+    private var restartExpectedUntil: Date?
+    /// How long a skip may take to be named before the start of the same song
+    /// is believed. The slowest filmed took 700ms.
+    static var trackChangeGrace: TimeInterval = 1.2
+
+    private func beginAwaitingTrackChange(_ reason: String) {
+        guard awaitingTrackChangeSince == nil else { return }
+        awaitingTrackChangeSince = Date()
+        trace("await track change: \(reason)")
+    }
+
+    /// Whether readings for the song on screen are being held back, ending
+    /// the wait once its grace has run out.
+    private func isAwaitingTrackChange() -> Bool {
+        guard let since = awaitingTrackChangeSince else { return false }
+        guard Date().timeIntervalSince(since) < Self.trackChangeGrace else {
+            awaitingTrackChangeSince = nil
+            // No new name came, so it was a restart; the readings now held are
+            // believed, rather than each one opening a fresh wait.
+            restartExpectedUntil = Date().addingTimeInterval(1.5)
+            trace("await track change: none came; a restart")
+            return false
+        }
+        return true
+    }
+
+    /// Whether a reading for the song on screen puts the player back at its
+    /// very start with nothing here having asked for that — the shape of a
+    /// skip whose name has not been reported yet.
+    private func readingLooksLikeAnotherSong(_ reading: TimeInterval) -> Bool {
+        guard pendingSeek == nil, position >= 3, reading < 1.5 else { return false }
+        if let until = restartExpectedUntil, Date() < until { return false }
+        // A song that ran to its end starting over is repeat-one, not a skip.
+        if duration > 0, position >= duration - 3 { return false }
+        return true
+    }
+
+    /// Whether a new song's first report carries the elapsed time of the song
+    /// before it.
+    ///
+    /// Filmed on 2026-09-21: a skip from 3:12 into a 2:15 song showed the new
+    /// title at 2:15 of 2:15 — the old position, clamped — with its last
+    /// lyric line, for 1.2s. A reading past the new song's end, or matching
+    /// where the old one stood, belongs to the old one.
+    static func elapsedBelongsToPreviousSong(
+        reported: TimeInterval,
+        previousPosition: TimeInterval,
+        newDuration: TimeInterval
+    ) -> Bool {
+        if newDuration > 0, reported >= newDuration - 0.5 { return true }
+        return previousPosition >= 3 && abs(reported - previousPosition) < 1.5
     }
 
     func seek(to seconds: TimeInterval) {
@@ -1186,6 +1302,7 @@ final class MediaController: ObservableObject {
 
     func apply(_ snapshot: NowPlayingFeed.Snapshot) {
         guard !snapshot.isEmpty else { return clear() }
+        let positionBefore = position
 
         // macOS's "active" session follows app focus, not audio: focusing a
         // browser holding a paused video displaces the player that is
@@ -1280,7 +1397,14 @@ final class MediaController: ObservableObject {
         // Same reason as `track` above: unconditional writes to @Published are
         // what turned a quiet 2s poll into a full SwiftUI invalidation.
         if isPlaying != playbackIntent.desired { isPlaying = playbackIntent.desired }
-        if duration != snapshot.duration { duration = snapshot.duration }
+        // Spotify reports a song's length twice, a few hundred milliseconds
+        // apart and a fraction of a second different — 247.4, then 247.6 — and
+        // the label rounded them to 4:07 and then 4:08. Within one song, a
+        // change under a second and a half keeps the length already shown.
+        let steadyDuration = !trackChanged && !playerChanged && duration > 0
+            && snapshot.duration > 0 && abs(snapshot.duration - duration) < 1.5
+            ? duration : snapshot.duration
+        if duration != steadyDuration { duration = steadyDuration }
         if sourceName != snapshot.source { sourceName = snapshot.source }
         refreshSourceIcon(for: snapshot.playerPID)
         // Both directions travel together: no player has ever offered one
@@ -1289,7 +1413,24 @@ final class MediaController: ObservableObject {
         let skippable = snapshot.offers(.next) && snapshot.offers(.previous)
         if canSkip != skippable { canSkip = skippable }
 
-        let reported = reportedPosition(from: snapshot, isPlaying: reportedPlaying)
+        var reported = reportedPosition(from: snapshot, isPlaying: reportedPlaying)
+        var heldForTrackChange = false
+        if trackChanged || playerChanged {
+            if awaitingTrackChangeSince != nil { trace("await track change: arrived") }
+            awaitingTrackChangeSince = nil
+            restartExpectedUntil = nil
+            if trackChanged, !playerChanged, Self.elapsedBelongsToPreviousSong(
+                reported: reported, previousPosition: positionBefore, newDuration: snapshot.duration
+            ) {
+                trace(String(format: "new song reported at %.2f, the old one's position; starting at 0", reported))
+                reported = 0
+            }
+        } else if isAwaitingTrackChange() {
+            heldForTrackChange = true
+        } else if readingLooksLikeAnotherSong(reported) {
+            beginAwaitingTrackChange(String(format: "report back at %.2f with no new name", reported))
+            heldForTrackChange = true
+        }
 
         // A player needs a moment to act on a seek, and until it does it keeps
         // reporting the old position. Accepting that would yank the bar back.
@@ -1360,8 +1501,11 @@ final class MediaController: ObservableObject {
                 // exact yank this whole path exists to avoid.
                 if !stale { adopt(reported, mayRewindAtOnce: trackChanged || playerChanged) }
             }
-        } else if !stale {
-            adopt(reported, mayRewindAtOnce: trackChanged || playerChanged)
+        } else if !stale, !heldForTrackChange {
+            // A restart asked for, or confirmed by the grace running out, is
+            // taken at once rather than waiting for a second reading to agree.
+            let restartExpected = restartExpectedUntil.map { Date() < $0 } ?? false
+            adopt(reported, mayRewindAtOnce: trackChanged || playerChanged || restartExpected)
         }
         if !stale, let takenAt = snapshot.takenAt { lastReadingAt = takenAt }
         updateTicker()
