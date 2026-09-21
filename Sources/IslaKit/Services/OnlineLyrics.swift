@@ -31,7 +31,6 @@ enum OnlineLyrics {
     /// LRCLIB is free to add others.
     struct Response: Decodable, Equatable, Sendable {
         var syncedLyrics: String?
-        var plainLyrics: String?
         var instrumental: Bool?
         var duration: Double?
     }
@@ -165,7 +164,6 @@ enum OnlineLyrics {
     struct SearchRow: Decodable, Equatable, Sendable {
         var trackName: String?
         var artistName: String?
-        var albumName: String?
         var duration: Double?
         var instrumental: Bool?
         var syncedLyrics: String?
