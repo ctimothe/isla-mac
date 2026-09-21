@@ -133,7 +133,7 @@ final class NotchController {
         // DI_LOCK_PREVIEW=1 the app presents the card as though locked, over
         // the ordinary desktop, so its glass can be seen against a real
         // wallpaper. An app launched normally never has the variable.
-        if ProcessInfo.processInfo.environment["DI_LOCK_PREVIEW"] == "1" {
+        if DebugTrail.lockPreview {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                 MainActor.assumeIsolated { self?.screenLocked() }
             }
@@ -361,7 +361,7 @@ final class NotchController {
     /// out of place is a state, not an event, so the watchdog samples as well
     /// as narrating each notification that could have caused it.
     private func geometryTrace(_ message: @autoclosure () -> String) {
-        guard ProcessInfo.processInfo.environment["DI_GEOM"] == "1" else { return }
+        guard DebugTrail.geometry else { return }
         DebugTrail.note("GEOM \(message())")
     }
 
@@ -376,8 +376,6 @@ final class NotchController {
         )
     }
 
-    /// Samples where the panel actually is against where the geometry says it
-    /// belongs. Armed only under DI_GEOM=1.
     /// Watches where the panel actually is against where it belongs — and puts
     /// it back when the two disagree.
     ///
@@ -411,7 +409,7 @@ final class NotchController {
                 let hostedFits = hosted.map {
                     abs($0.frame.width - have.width) < 1 && abs($0.frame.height - have.height) < 1
                 } ?? true
-                if ProcessInfo.processInfo.environment["DI_GEOM"] == "1" {
+                if DebugTrail.geometry {
                     DebugTrail.note(String(
                         format: "GEOM watch panel=%.0fx%.0f@%.0f,%.0f want=%.0fx%.0f@%.0f,%.0f %@ content=%.0fx%.0f hosted=%.0fx%.0f%@%@ locked=%d card=%d %@",
                         have.width, have.height, have.origin.x, have.origin.y,

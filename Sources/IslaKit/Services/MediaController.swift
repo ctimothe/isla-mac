@@ -1170,8 +1170,7 @@ final class MediaController: ObservableObject {
     /// Every change in what the helper reports, before any judgement: owner,
     /// playing flag, rate, title and the admission verdict. Verification only.
     private func traceFeed(_ snapshot: NowPlayingFeed.Snapshot, _ verdict: Admission) {
-        let env = ProcessInfo.processInfo.environment
-        guard env["DI_OPEN_LYRICS"] == "1" || env["DI_MEDIA"] == "1" else { return }
+        guard DebugTrail.openLyrics || DebugTrail.media else { return }
         let bundle = snapshot.playerPID.flatMap(bundleIdentifierForPID) ?? "-"
         let line = String(
             format: "feed: pid=%d %@ playing=%d rate=%.2f el=%.2f \"%@\" -> %@",
@@ -1864,8 +1863,7 @@ final class MediaController: ObservableObject {
     /// `DI_MEDIA=1` alone — the one that can be left running on a Mac somebody
     /// is using, because it draws nothing.
     private func trace(_ message: @autoclosure () -> String) {
-        let env = ProcessInfo.processInfo.environment
-        guard env["DI_OPEN_LYRICS"] == "1" || env["DI_MEDIA"] == "1" else { return }
+        guard DebugTrail.openLyrics || DebugTrail.media else { return }
         DebugTrail.note(message())
     }
 
