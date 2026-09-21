@@ -100,6 +100,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.controller?.toggleLyrics()
             }
         }
+        // The same, on the player rather than the lyrics page: the artwork, the
+        // title and the caption, which is what a skip changes and what has to be
+        // watched frame by frame to see whether it changes cleanly.
+        if ProcessInfo.processInfo.environment["DI_OPEN_PANEL"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                DebugTrail.note("pinning panel open on the player")
+                self?.togglePanel()
+            }
+        }
     }
 
     /// Entry point for the "Translate in Isla" service, named in the
