@@ -25,7 +25,9 @@ struct TranslatePane: View {
     @State private var paneSize: CGSize = .zero
 
     /// Largest first. Four rungs, far enough apart that a change is always a
-    /// deliberate-looking drop rather than a wobble.
+    /// deliberate-looking drop rather than a wobble. Raw points, not roles: a
+    /// rung is a fit calculation against the measured pane, and rounding it to
+    /// the nearest role would move where every paragraph wraps.
     private let ladder: [CGFloat] = [27, 20, 15, 11]
 
     var body: some View {
@@ -62,10 +64,14 @@ struct TranslatePane: View {
             if !translator.input.isEmpty {
                 Button { translator.reset() } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .islandFont(.caption, weight: .semibold)
                         .foregroundStyle(Theme.secondary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PanelButtonStyle())
+                .help(localized("Clear"))
+                .accessibilityLabel(localized("Clear"))
             }
         } content: {
             // A `TextField(axis: .vertical)` grows to fit its text, and growing
@@ -89,6 +95,7 @@ struct TranslatePane: View {
                 .textEditorStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .scrollIndicators(.hidden)
+                // The ladder's rung for this text, not a role: see `ladder`.
                 .font(.system(size: font))
                 .foregroundStyle(.white)
                 // Grey rather than the system accent: the caret has to say
@@ -101,10 +108,10 @@ struct TranslatePane: View {
                 .padding(.leading, -5)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .contentShape(Rectangle())
-                .onKeyPress(.escape) {
-                    translator.reset()
-                    return .handled
-                }
+                // No Escape handler here: `NotchPanel.sendEvent` takes every
+                // Escape before it reaches the responder chain, and the reset
+                // lives in `NotchViewModel.consumeEscape`. A handler here was
+                // dead code that looked like the behaviour.
         }
         .padding(10)
         .background(
@@ -131,7 +138,7 @@ struct TranslatePane: View {
         if let failure = translator.failure {
             VStack(alignment: .leading, spacing: 6) {
                 Text(failure)
-                    .font(.system(size: 11))
+                    .islandFont(.body, weight: .regular)
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 10) {
@@ -140,14 +147,15 @@ struct TranslatePane: View {
                     }
                     Button("Retry") { translator.retry() }
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 10, weight: .medium))
+                .buttonStyle(PanelButtonStyle())
+                .islandFont(.caption)
                 .foregroundStyle(.white)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if !translator.output.isEmpty {
             ScrollView(showsIndicators: false) {
                 Text(translator.output)
+                    // The ladder's rung for this text, not a role: see `ladder`.
                     .font(.system(size: font))
                     .foregroundStyle(.white)
                     .textSelection(.enabled)
@@ -164,7 +172,7 @@ struct TranslatePane: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(localized("Translating…"))
-                    .font(.system(size: 11))
+                    .islandFont(.body, weight: .regular)
                     .foregroundStyle(Theme.tertiary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -217,8 +225,8 @@ struct TranslatePane: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text(title.uppercased())
-                    .font(.system(size: 9, weight: .semibold))
-                    .tracking(0.8)
+                    .islandFont(.caption, weight: .semibold)
+                    .tracking(Theme.capsTracking)
                     .foregroundStyle(Theme.tertiary)
                 Spacer(minLength: 4)
                 accessory()

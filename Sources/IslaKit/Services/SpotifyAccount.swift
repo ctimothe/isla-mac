@@ -56,7 +56,12 @@ final class SpotifyAccount: ObservableObject {
     /// They used to be three unordered detached tasks per store, which could
     /// interleave with a concurrent disconnect and leave a connected-looking
     /// account over an empty keychain.
-    private let credentials = CredentialStore(service: "com.ctimothe.isla.spotify")
+    private let credentials: CredentialStore
+
+    /// The session Web-API calls go through. `URLSession.shared` in
+    /// production — the same call pattern as the saved-state lookup below —
+    /// substituted in tests so the whole request path runs without a network.
+    private let session: URLSession
 
     /// True when an older build left an account in the login keychain that
     /// this build cannot see. Offered in Settings as a one-press import —
@@ -67,17 +72,26 @@ final class SpotifyAccount: ObservableObject {
     /// guessed at. See `TokenStore`.
     @Published private(set) var storage: TokenStore.Backing = .keychain
 
-    private init() {
+    /// Internal, not private, so tests can stand up an isolated account —
+    /// throwaway service, temporary directory, stubbed session — instead of
+    /// touching the real one. Production always arrives through `shared`.
+    init(
+        credentials: CredentialStore? = nil,
+        session: URLSession = .shared
+    ) {
+        let store = credentials ?? CredentialStore(service: "com.ctimothe.isla.spotify")
+        self.credentials = store
+        self.session = session
         // Read straight away, on every launch, with no flag guarding it —
         // because neither place this build can store a token asks the user
         // anything. The data-protection keychain answers the app that owns the
         // item, and a `0600` file answers its owner. The only store that ever
         // prompted was the legacy login keychain, and nothing reaches for that
         // unless somebody presses Import.
-        Task { [credentials] in
-            let connected = await credentials.read("refreshToken") != nil
-            let backing = await credentials.backing()
-            let legacy = connected ? false : await credentials.legacyAccountExists()
+        Task { [store] in
+            let connected = await store.read("refreshToken") != nil
+            let backing = await store.backing()
+            let legacy = connected ? false : await store.legacyAccountExists()
             self.isConnected = connected
             self.storage = backing
             self.canImportLegacyAccount = legacy
@@ -193,7 +207,7 @@ final class SpotifyAccount: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(body.utf8)
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await session.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return try? JSONDecoder().decode(Tokens.self, from: data)
     }
@@ -238,7 +252,9 @@ final class SpotifyAccount: ObservableObject {
     /// callers arriving together — a heart tap in the same beat as a track
     /// change — both saw no task in flight and both spent the same rotating
     /// refresh token, which invalidates the account.
-    private func freshAccessToken() async -> String? {
+    /// Internal, not private: the media controller authenticates its catalogue
+    /// lookup with this, and tests prove the cached-token path through it.
+    func freshAccessToken() async -> String? {
         if let existing = refreshTask { return await existing.value }
 
         let generation = credentialGeneration
@@ -350,6 +366,71 @@ final class SpotifyAccount: ObservableObject {
             }
         }
     }
+
+    // MARK: - Track identity
+
+    /// The catalogue's exact identity for one track: ISRC plus precise duration.
+    ///
+    /// Decoded straight from `GET /v1/tracks/{id}`, which needs no scope
+    /// beyond the library ones the account already holds. `isrc` is nil when
+    /// the entry carries no `external_ids` — unknown, not absent — so callers
+    /// fall back to text matching rather than treating nil as "no ISRC".
+    struct TrackMetadata: Decodable, Equatable {
+        let isrc: String?
+        /// Milliseconds, exactly as the catalogue reports them.
+        let durationMs: Int
+
+        private enum CodingKeys: String, CodingKey {
+            case durationMs = "duration_ms"
+            case externalIDs = "external_ids"
+        }
+
+        private struct ExternalIDs: Decodable {
+            let isrc: String?
+        }
+
+        init(isrc: String?, durationMs: Int) {
+            self.isrc = isrc
+            self.durationMs = durationMs
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            durationMs = try container.decode(Int.self, forKey: .durationMs)
+            isrc = try container.decodeIfPresent(ExternalIDs.self, forKey: .externalIDs)?.isrc
+        }
+    }
+
+    /// The catalogue's exact identity for a track, for lyric matching to join on.
+    ///
+    /// Gated like every other Web-API call: disconnected or blocked answers
+    /// nil without touching the network, and a missing token hides the
+    /// dependent features rather than raising anything. Never throws —
+    /// network failure, a refused status, or an unrecognised payload all mean
+    /// "unknown", and the caller falls back to title/artist matching.
+    func trackMetadata(id: String) async -> TrackMetadata? {
+        guard isConnected, !apiBlocked else { return nil }
+        guard let token = await freshAccessToken() else {
+            // Same contract as the saved-state lookup: without a usable
+            // token the features that need the id hide rather than sit dead.
+            tokenUnavailable = true
+            return nil
+        }
+        tokenUnavailable = false
+        guard let url = URL(string: "https://api.spotify.com/v1/tracks/\(id)") else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (data, response) = try? await session.data(for: request) else { return nil }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 403 {
+            apiBlocked = true
+            return nil
+        }
+        guard status == 200,
+              let metadata = try? JSONDecoder().decode(TrackMetadata.self, from: data) else { return nil }
+        apiBlocked = false
+        return metadata
+    }
 }
 
 /// Serializes every keychain touch onto one actor, off the main thread.
@@ -379,8 +460,8 @@ actor CredentialStore {
     /// stays off until they connect it again by hand.
     private var refused = false
 
-    init(service: String) {
-        self.tokens = TokenStore(service: service)
+    init(service: String, paths: AppPaths = .live) {
+        self.tokens = TokenStore(service: service, paths: paths)
     }
 
     /// Where this build can actually keep credentials — see `TokenStore`.

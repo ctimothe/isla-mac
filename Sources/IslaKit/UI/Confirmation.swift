@@ -21,6 +21,7 @@ func flash(_ flag: Binding<Bool>) {
 /// see. Turning the icon into a tick for a moment is the whole feedback, which
 /// is why it is worth having in one place rather than four.
 struct CopyButton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let copy: () -> Void
 
     @State private var copied = false
@@ -31,11 +32,15 @@ struct CopyButton: View {
             flash($copied)
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(copied ? Color.green : Theme.secondary)
+                .islandFont(.caption, weight: .semibold)
+                .foregroundStyle(copied ? Theme.success : Theme.secondary)
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .help(localized("Copy"))
+        .accessibilityLabel(localized("Copy"))
         .animation(Theme.contentAnimation, value: copied)
     }
 }
@@ -71,10 +76,10 @@ struct ConfirmTextButton: View {
             }
         } label: {
             Text(armed ? armedTitle : title)
-                .font(.system(size: 10, weight: .medium))
+                .islandFont(.caption)
                 .foregroundStyle(armed ? Theme.danger : Theme.secondary)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .accessibilityLabel(armed ? armedTitle : title)
         .accessibilityHint(armed ? "" : localized("Asks for confirmation before acting."))
         .animation(Theme.contentAnimation, value: armed)
@@ -84,6 +89,7 @@ struct ConfirmTextButton: View {
 
 /// The settings-row shape of `ConfirmTextButton`.
 struct ConfirmRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let symbol: String
     let title: String
     let armedTitle: String
@@ -110,11 +116,12 @@ struct ConfirmRow: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: armed ? "exclamationmark.triangle.fill" : symbol)
-                    .font(.system(size: 11, weight: .medium))
+                    .islandFont(.body)
                     .foregroundStyle(armed ? Theme.danger : Theme.secondary)
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                     .frame(width: 16)
                 Text(armed ? armedTitle : title)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .islandFont(.body)
                     .foregroundStyle(armed ? Theme.danger : .white)
                 Spacer(minLength: 8)
             }
@@ -122,7 +129,7 @@ struct ConfirmRow: View {
             .frame(height: 26)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .disabled(disabled)
         .opacity(disabled ? 0.4 : 1)
         .accessibilityLabel(armed ? armedTitle : title)

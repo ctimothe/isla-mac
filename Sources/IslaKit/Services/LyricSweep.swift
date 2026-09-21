@@ -15,26 +15,49 @@ import Foundation
 /// are separate clocks, and the only fix for separate clocks is one clock.
 @MainActor
 enum LyricSweep {
-    /// Three real delays stack between the singer and the screen: the position
-    /// ticks four times a second, so a line lands up to 250ms after its
-    /// timestamp; the crossfade spends another 160ms arriving; and the
-    /// pipeline's own readings run slightly behind the audio. Leading by roughly
-    /// their sum is what karaoke has always done — the line appears as the voice
-    /// does, not noticeably after it.
-    static let standardLead: TimeInterval = 0.45
-    /// With the position corrected against the player's own clock the pipeline's
-    /// share of the lag is gone; what remains is display cost.
-    static let precisionLead: TimeInterval = 0.25
+    /// How far ahead of the clock a line is shown.
+    ///
+    /// Two terms, both measured or conventional, and one that used to be here
+    /// and is not any more. The live Spotify probe (`Scripts/measure-sync.sh`,
+    /// 2026-09-13) found the clock about 0.10s behind the audio in steady
+    /// play; that is the first term. The second is the anticipation every
+    /// karaoke surface carries on purpose — the system's own lyrics light a
+    /// line a beat before the voice reaches it, so the eye is already there —
+    /// and 0.10s is the small end of that. The term that is gone is the
+    /// ticker's quarter-second grid: `MediaController` now wakes on the frame
+    /// a line is due, so the lead no longer has to over-shoot to cover a
+    /// change that might land 250ms late. It was 0.25 when it did, and 0.45
+    /// before the probe measured anything, and both read as ahead of the
+    /// singing on the tracks the sources had timed well.
+    ///
+    /// The probe stays the arbiter: re-run it after any change here and read
+    /// the word-edge column before believing the number.
+    static let standardLead: TimeInterval = 0.20
+    /// Precision sync corrects against the player's own clock, and the probe
+    /// still measured the same 0.10s behind through cross-process sampling
+    /// and rendering — so the same two terms apply. Kept as its own constant
+    /// so the two paths can be re-measured apart.
+    static let precisionLead: TimeInterval = 0.20
 
-    static func lead(precisionSync: Bool, userOffset: TimeInterval) -> TimeInterval {
-        (precisionSync ? precisionLead : standardLead) + userOffset
+    static func lead(
+        precisionSync: Bool, userOffset: TimeInterval, trackOffset: TimeInterval = 0
+    ) -> TimeInterval {
+        // Three layers, summed at read and clamped nowhere here: the global
+        // correction clamps at ±3s and the track layer at ±1.5s where each is
+        // written, in LyricsStore. Clamping the sum instead would let one
+        // layer steal another's range — a global +3 with a track −0.5 must
+        // still read +2.5, not a clamped +1.5.
+        (precisionSync ? precisionLead : standardLead) + userOffset + trackOffset
     }
 
     /// The moment the lyric should be read against: the clock, plus the lead.
     static func position(
-        _ position: TimeInterval, precisionSync: Bool, userOffset: TimeInterval
+        _ position: TimeInterval, precisionSync: Bool, userOffset: TimeInterval,
+        trackOffset: TimeInterval = 0
     ) -> TimeInterval {
-        position + lead(precisionSync: precisionSync, userOffset: userOffset)
+        position + lead(
+            precisionSync: precisionSync, userOffset: userOffset, trackOffset: trackOffset
+        )
     }
 
     /// The line to show right now, which is not always the line being sung.
@@ -100,9 +123,32 @@ enum LyricSweep {
     /// lines that never got any.
     static func fraction(line: LyricsStore.Line, at: TimeInterval, end: TimeInterval) -> Double {
         guard line.words.isEmpty else {
-            return WordSyncedLyrics.wordFraction(words: line.words, at: at, lineEnd: end)
+            return wordFraction(words: line.words, at: at, lineEnd: end)
         }
         let span = LyricsStore.sweepSpan(text: line.text, slot: end - line.at)
         return min(max((at - line.at) / span, 0), 1)
+    }
+
+    static func wordFraction(words: [LyricWord], at position: TimeInterval, lineEnd: TimeInterval) -> Double {
+        guard !words.isEmpty else { return 0 }
+        let counts = words.map { Double($0.text.count) }
+        let total = counts.reduce(0, +)
+        guard total > 0 else { return 0 }
+
+        var sung: Double = 0
+        for (index, word) in words.enumerated() {
+            let nextStart = index + 1 < words.count ? words[index + 1].at : lineEnd
+            let wordEnd = min(word.end ?? nextStart, nextStart)
+            if position >= wordEnd {
+                sung += counts[index]
+            } else if position > word.at {
+                let span = max(wordEnd - word.at, 0.05)
+                sung += counts[index] * min((position - word.at) / span, 1)
+                break
+            } else {
+                break
+            }
+        }
+        return min(max(sung / total, 0), 1)
     }
 }

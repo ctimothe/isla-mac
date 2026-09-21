@@ -49,4 +49,28 @@ final class AccessibilityDisplayTests: XCTestCase {
     func testASurfaceWithNoBackdropIsUnaffected() {
         XCTAssertFalse(style(samplesBackdrop: false).usesSystemGlass)
     }
+
+    /// The selected rail chip and the lyric floor answer the setting too.
+    ///
+    /// The chip used to borrow `surfaceHover`, so the selected tab and a
+    /// hovered tab were one colour with no edge on either; it now carries its
+    /// own fill plus a border, following `ShelfPane`'s selected tile. The
+    /// lyric floor lifts the old 0.18 context lines for everyone, not only
+    /// under Increase Contrast.
+    func testTheSelectedChipAndLyricFloorAnswerContrast() {
+        XCTAssertGreaterThan(
+            Theme.selectedChipOpacity(increaseContrast: true),
+            Theme.selectedChipOpacity(increaseContrast: false),
+            "Increase Contrast must raise the selected chip"
+        )
+        XCTAssertGreaterThan(
+            LyricRow.falloffFloor(increaseContrast: true),
+            LyricRow.falloffFloor(increaseContrast: false),
+            "Increase Contrast must raise the lyric floor"
+        )
+        XCTAssertGreaterThanOrEqual(
+            LyricRow.falloffFloor(increaseContrast: false), 0.18,
+            "the floor lifts the old context lines at every setting"
+        )
+    }
 }

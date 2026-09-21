@@ -17,6 +17,7 @@
 "Launch at Login" = "Launch at Login";
 "Screenshots" = "Screenshots";
 "Save Clipboard Screenshots" = "Save Clipboard Screenshots";
+"Show Screen Captures" = "Show Screen Captures";
 "Show Screenshots Folder" = "Show Screenshots Folder";
 "Clear Screenshots Folder" = "Clear Screenshots Folder";
 "Clear Screenshots Folder (%@)" = "Clear Screenshots Folder (%@)";
@@ -25,7 +26,7 @@
 "About %@" = "About %@";
 
 /* Shelf */
-"Selected: %d" = "Selected: %d";
+"%d selected" = "%d selected";
 "Deselect" = "Deselect";
 "Clear" = "Clear";
 "Copy" = "Copy";
@@ -34,18 +35,11 @@
 "Remove from Shelf" = "Remove from Shelf";
 
 /* Media */
-"Nothing is playing" = "Nothing is playing";
-
-/* Shared row actions */
-"Delete" = "Delete";
-
+"Nothing is playing." = "Nothing is playing.";
 
 /* Translate */
 "Translation Languages…" = "Translation Languages…";
 "Retry" = "Retry";
-
-/* Shared confirmations */
-"Done" = "Done";
 
 /* Countdown, lower-case: the capital is added where the label is built.
    Abbreviated on purpose: a panel header has room for "in 12 min"
@@ -55,28 +49,23 @@
    the parts in its own order. */
 
 /* Privacy mode: the panel covers what it holds with a field of dots. */
-"Hide Contents" = "Hide Contents";
 "Hidden" = "Hidden";
 "Show" = "Show";
 "Hide" = "Hide";
-"All" = "All";
-
-"Done" = "Done";
 "Playing" = "Playing";
 "Paused" = "Paused";
 "Translation needs macOS 26 or newer." = "Translation needs macOS 26 or newer.";
 "This Mac does not support Apple Intelligence." = "This Mac does not support Apple Intelligence.";
 "Turn on Apple Intelligence to translate." = "Turn on Apple Intelligence to translate.";
 "The on-device model is still downloading." = "The on-device model is still downloading.";
-"macOS refused to translate this text." = "macOS refused to translate this text.";
+"This text could not be translated." = "This text could not be translated.";
 "This text is too long to translate at once." = "This text is too long to translate at once.";
 "The translation could not be completed." = "The translation could not be completed.";
-"Hide From Screen Recording" = "Hide From Screen Recording";
+"Hide from Screen Recording" = "Hide from Screen Recording";
 "Translating…" = "Translating…";
-"notes.json cannot be read, so nothing is being saved." = "notes.json cannot be read, so nothing is being saved.";
-"Clear Everything?" = "Clear Everything?";
-"Delete These Files?" = "Delete These Files?";
-"Quit Isla?" = "Quit Isla?";
+"Clear Everything" = "Clear Everything";
+"Delete These Files" = "Delete These Files";
+"Quit Isla" = "Quit Isla";
 "Asks for confirmation before acting." = "Asks for confirmation before acting.";
 "Previous Track" = "Previous Track";
 "Next Track" = "Next Track";
@@ -84,28 +73,35 @@
 "Pause" = "Pause";
 "Playback Position" = "Playback Position";
 "%@ of %@" = "%@ of %@";
-"Scroll Speed" = "Scroll Speed";
 "Remove Entry" = "Remove Entry";
 "Copy Entry" = "Copy Entry";
 "Peek at New Tracks" = "Peek at New Tracks";
 "Show Lyrics" = "Show Lyrics";
 "Lyrics" = "Lyrics";
 "Show on Lock Screen" = "Show on Lock Screen";
-"Clear Lyrics Cache" = "Clear Lyrics Cache";
+"Word Karaoke" = "Word Karaoke";
+"Lyrics stay on this Mac." = "Lyrics stay on this Mac.";
+"Local Lyrics Library" = "Local Lyrics Library";
+"No local lyrics." = "No local lyrics.";
+"Import LRC…" = "Import LRC…";
+"Add Lyrics Folder…" = "Add Lyrics Folder…";
+"Remove %@" = "Remove %@";
+"Rescan Local Lyrics" = "Rescan Local Lyrics";
+"Open Lyrics Folder" = "Open Lyrics Folder";
+"Clear Imported Lyrics" = "Clear Imported Lyrics";
+"Clear Bindings and Timing Corrections" = "Clear Bindings and Timing Corrections";
+"Unassigned timing corrections" = "Unassigned timing corrections";
+"Dismiss %@" = "Dismiss %@";
 "Add to Liked Songs" = "Add to Liked Songs";
 "Remove from Liked Songs" = "Remove from Liked Songs";
 "Connect Spotify Account…" = "Connect Spotify Account…";
 "Disconnect Spotify Account" = "Disconnect Spotify Account";
-"Connect Spotify" = "Connect Spotify";
-"Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI isla://spotify-callback)." = "Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI isla://spotify-callback).";
-"Continue" = "Continue";
-"Cancel" = "Cancel";
 "Spotify" = "Spotify";
 
 /* Spotify credential storage */
-"Import Account From Keychain…" = "Import Account From Keychain…";
+"Import Account from Keychain…" = "Import Account from Keychain…";
 "Stored in your keychain." = "Stored in your keychain.";
-"Stored in an owner-only file, because this build is unsigned." = "Stored in an owner-only file, because this build is unsigned.";
+"Stored in a file only you can read." = "Stored in a file only you can read.";
 "Cannot be stored on this Mac." = "Cannot be stored on this Mac.";
 
 /* Lyrics stage */
@@ -113,9 +109,27 @@
 "Lyrics Earlier" = "Lyrics Earlier";
 "Lyrics Later" = "Lyrics Later";
 "Lyric Timing" = "Lyric Timing";
-"Search Lyrics Again" = "Search Lyrics Again";
-"Wrong lyrics? Search again" = "Wrong lyrics? Search again";
-"No lyrics for this track" = "No lyrics for this track";
+"Reset lyric timing" = "Reset lyric timing";
+"Import Local LRC" = "Import Local LRC";
+"Remove Local Binding" = "Remove Local Binding";
+"Edit Lyrics" = "Edit Lyrics";
+"Save Copy" = "Save Copy";
+"Cancel" = "Cancel";
+"Lyrics Metadata" = "Lyrics Metadata";
+"Local Lyrics" = "Local Lyrics";
+"Timestamp" = "Timestamp";
+"Title" = "Title";
+"Artist" = "Artist";
+"Album" = "Album";
+"Version" = "Version";
+"Duration" = "Duration";
+"Add Lyric Line" = "Add Lyric Line";
+"Remove Lyric Line" = "Remove Lyric Line";
+"Export LRC" = "Export LRC";
+"This LRC file is invalid." = "This LRC file is invalid.";
+"Choose local lyrics…" = "Choose local lyrics…";
+"No lyrics for this track." = "No lyrics for this track.";
+"Finding lyrics…" = "Finding lyrics…";
 "Jumps the song to this line" = "Jumps the song to this line";
 "Opens the full lyrics" = "Opens the full lyrics";
 
@@ -131,7 +145,6 @@
 "Open %@" = "Open %@";
 "Sync" = "Sync";
 "Back to the current line" = "Back to the current line";
-"Playing on this Mac" = "Playing on this Mac";
 "Sound Output" = "Sound Output";
 "Glass" = "Glass";
 "Solid" = "Solid";
@@ -139,9 +152,32 @@
 
 /* Lock card panes */
 "Lyrics are switched off in Settings." = "Lyrics are switched off in Settings.";
-"Looking for the words…" = "Looking for the words…";
-"No words for this track." = "No words for this track.";
 "No output devices." = "No output devices.";
-"+%d more in Sound Settings" = "+%d more in Sound Settings";
 "Open on Hover" = "Open on Hover";
 "Output" = "Output";
+
+/* First run */
+"Isla is running." = "Isla is running.";
+"It lives at the notch. Click it to open." = "It lives at the notch. Click it to open.";
+"Open the panel" = "Open the panel";
+"Translate the clipboard" = "Translate the clipboard";
+"Quit and everything else lives in Settings, at the bottom left." = "Quit and everything else lives in Settings, at the bottom left.";
+"Get Started" = "Get Started";
+
+"Volume" = "Volume";
+
+/* Unit readouts */
+"%.2fs" = "%.2fs";
+"%+.2fs" = "%+.2fs";
+"%d pt" = "%d pt";
+
+/* Lyric timing and copying */
+"Lyric Delay" = "Lyric Delay";
+"Reset Lyric Delay" = "Reset Lyric Delay";
+"Negative shows lyrics earlier; positive, later." = "Negative shows lyrics earlier; positive, later.";
+"Copy Line" = "Copy Line";
+"Copy All Lyrics" = "Copy All Lyrics";
+
+/* Online lyrics */
+"Look Up Lyrics Online" = "Look Up Lyrics Online";
+"Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you." = "Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you.";

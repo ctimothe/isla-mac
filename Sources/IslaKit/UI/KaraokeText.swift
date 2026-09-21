@@ -74,7 +74,7 @@ struct KaraokeText: View {
     let fraction: Double
     var reduceMotion: Bool = false
     var accent: Color = Color.white.opacity(0.92)
-    var font: Font = .system(size: 11, weight: .medium)
+    var font: Font = Theme.TypeRole.body.font()
     /// Matched to the neighbouring lines. A swept line tracked differently from
     /// the ones above and below it shifts sideways as the song moves through it,
     /// which reads as the text twitching rather than as the voice arriving.

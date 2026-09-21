@@ -380,6 +380,7 @@ final class MediaControllerTests: XCTestCase {
     func testPositionSettlesOnlyOnARealReading() {
         let controller = MediaController()
         controller.setActive(true)
+        defer { controller.setActive(false) }
         XCTAssertFalse(controller.positionSettled, "opening the panel must unsettle the position")
 
         var playing = NowPlayingFeed.Snapshot()
@@ -397,11 +398,11 @@ final class MediaControllerTests: XCTestCase {
         XCTAssertTrue(controller.positionSettled, "a real reading settles it")
     }
 
-    /// Opening the panel on a paused track must not hide the lyrics.
+    /// Opening the panel on a paused track must not unsettle the clock.
     ///
-    /// `positionSettled` gates every lyric surface: it means "an authoritative
-    /// reading has landed", and it is cleared whenever the panel opens so a
-    /// stale extrapolation cannot flash the wrong line. But while paused
+    /// `positionSettled` means "an authoritative reading has landed" (it no
+    /// longer gates any lyric surface, but the trail and the precision loop
+    /// still read it), and it is cleared whenever the panel opens. But while paused
     /// nothing can set it again — MediaRemote republishes the reading it
     /// already gave, which is judged stale, and the precision loop runs only
     /// while playing. So the panel opened on a paused song and the lyric never
@@ -409,6 +410,7 @@ final class MediaControllerTests: XCTestCase {
     /// "the lyrics come back if I pause and play".
     func testOpeningOnAPausedTrackKeepsTheSettledPosition() {
         let controller = MediaController()
+        defer { controller.setActive(false) }
         var playing = NowPlayingFeed.Snapshot()
         playing.title = "Track"
         playing.artist = "Artist"
@@ -435,6 +437,66 @@ final class MediaControllerTests: XCTestCase {
         )
     }
 
+    // MARK: - Lyric boundaries
+
+    /// The clock wakes on the frame a line is due, not on its quarter-second
+    /// grid. The arithmetic is pure: given the boundaries, the lead and where
+    /// the clock stands, the next wake is the first boundary ahead, less the
+    /// lead, scaled by the rate.
+    func testTheNextLyricWakeIsTheFirstBoundaryAheadLessTheLead() {
+        let boundaries: [TimeInterval] = [10, 12.5, 20]
+        XCTAssertEqual(
+            MediaController.nextLyricWake(boundaries: boundaries, lead: 0.2, position: 11, rate: 1)!,
+            1.3, accuracy: 0.0001, "12.5 less the lead, from 11"
+        )
+        XCTAssertEqual(
+            MediaController.nextLyricWake(boundaries: boundaries, lead: 0.2, position: 11, rate: 2)!,
+            0.65, accuracy: 0.0001, "double speed halves the wait"
+        )
+        XCTAssertNil(
+            MediaController.nextLyricWake(boundaries: boundaries, lead: 0.2, position: 19.8, rate: 1),
+            "past the last boundary there is nothing left to wake for"
+        )
+        XCTAssertNil(
+            MediaController.nextLyricWake(boundaries: boundaries, lead: 0.2, position: 11, rate: 0),
+            "a paused clock never wakes"
+        )
+        // A wake that fired exactly on a boundary must arm the one after it,
+        // not itself again.
+        XCTAssertEqual(
+            MediaController.nextLyricWake(boundaries: boundaries, lead: 0.2, position: 12.3, rate: 1)!,
+            7.5, accuracy: 0.0001
+        )
+    }
+
+    /// End to end: with a line due 120ms out, the position is republished on
+    /// that boundary — well inside the 250ms the grid alone would have taken.
+    func testTheClockPublishesOnALyricBoundaryAheadOfItsGrid() async {
+        let controller = MediaController()
+        controller.setActive(true)
+        defer { controller.setActive(false) }
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.duration = 200
+        playing.elapsed = 50
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 7
+        controller.apply(playing)
+        let start = controller.position
+
+        var published: [TimeInterval] = []
+        let observer = controller.$position.dropFirst().sink { published.append($0) }
+        defer { observer.cancel() }
+        controller.setLyricBoundaries([start + 0.14], lead: { 0.02 })
+
+        try? await Task.sleep(for: .milliseconds(180))
+        XCTAssertFalse(published.isEmpty, "the boundary wake must publish before the 250ms grid tick")
+        XCTAssertEqual(published[0], start + 0.12, accuracy: 0.03, "…and publish the position the line is due at")
+    }
+
     /// And a player that publishes nothing at all still gives up its lyrics.
     ///
     /// The reset is right while playing — the position really may have moved
@@ -442,6 +504,7 @@ final class MediaControllerTests: XCTestCase {
     /// on a player that never answers.
     func testAnUnansweredPlayingTrackSettlesOnItsOwn() async throws {
         let controller = MediaController()
+        defer { controller.setActive(false) }
         var playing = NowPlayingFeed.Snapshot()
         playing.title = "Track"
         playing.artist = "Artist"
@@ -464,5 +527,399 @@ final class MediaControllerTests: XCTestCase {
             controller.positionSettled,
             "no player answered, and the extrapolated position is what there is"
         )
+    }
+
+    /// A new track must not wear the previous track's catalogue identity.
+    /// Published via the real adoption path, then cleared by a track change
+    /// driven through `apply` like every other controller test.
+    func testTrackChangeClearsPublishedSpotifyMetadata() async {
+        let controller = MediaController()
+        controller.spotifyMetadataProvider = { _ in
+            SpotifyAccount.TrackMetadata(isrc: "USRC12345678", durationMs: 213456)
+        }
+
+        var first = NowPlayingFeed.Snapshot()
+        first.title = "First"
+        first.artist = "Artist"
+        first.album = "Album"
+        first.isPlaying = true
+        first.playerPID = 111
+        controller.apply(first)
+        guard let key = controller.track?.key else {
+            return XCTFail("apply must publish a track")
+        }
+        controller.setSpotifyTrackIDForTests("track-one")
+        await controller.requestSpotifyMetadata(trackID: "track-one", forKey: key)
+        XCTAssertEqual(controller.spotifyISRC, "USRC12345678")
+        XCTAssertEqual(controller.spotifyExactDuration ?? -1, 213.456, accuracy: 0.001)
+
+        var second = first
+        second.title = "Second"
+        controller.apply(second)
+
+        XCTAssertNil(
+            controller.spotifyISRC,
+            "a new track must not wear the previous track's ISRC"
+        )
+        XCTAssertNil(
+            controller.spotifyExactDuration,
+            "a new track must not wear the previous track's exact duration"
+        )
+    }
+
+    /// An empty snapshot clears the session — the published identity, which
+    /// only ever describes the displayed track, goes with it.
+    func testClearResetsPublishedSpotifyMetadata() async {
+        let controller = MediaController()
+        controller.spotifyMetadataProvider = { _ in
+            SpotifyAccount.TrackMetadata(isrc: "USRC12345678", durationMs: 213456)
+        }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.isPlaying = true
+        playing.playerPID = 111
+        controller.apply(playing)
+        guard let key = controller.track?.key else {
+            return XCTFail("apply must publish a track")
+        }
+        controller.setSpotifyTrackIDForTests("track-one")
+        await controller.requestSpotifyMetadata(trackID: "track-one", forKey: key)
+        XCTAssertEqual(controller.spotifyISRC, "USRC12345678")
+
+        controller.apply(NowPlayingFeed.Snapshot())
+
+        XCTAssertNil(controller.spotifyISRC)
+        XCTAssertNil(controller.spotifyExactDuration)
+    }
+
+    /// The lookup is a network round-trip: the track may have moved on before
+    /// the answer lands, and a late answer must not pin the previous song's
+    /// identity onto the new one.
+    func testStaleSpotifyMetadataAnswerIsDropped() async {
+        let controller = MediaController()
+        controller.spotifyMetadataProvider = { _ in
+            SpotifyAccount.TrackMetadata(isrc: "USRC12345678", durationMs: 213456)
+        }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.isPlaying = true
+        playing.playerPID = 111
+        controller.apply(playing)
+
+        await controller.requestSpotifyMetadata(trackID: "track-one", forKey: "a-track-no-longer-shown")
+
+        XCTAssertNil(controller.spotifyISRC, "an answer for a departed track must not publish")
+        XCTAssertNil(controller.spotifyExactDuration)
+    }
+
+    /// C2: same key, different catalogue IDs. A late answer for the departed
+    /// ID must not publish onto the track the new ID now owns.
+    func testStaleMetadataWithSameKeyButNewIDIsDropped() async {
+        let controller = MediaController()
+        controller.spotifyMetadataProvider = { id in
+            if id == "id-old" {
+                try? await Task.sleep(for: .milliseconds(200))
+                return SpotifyAccount.TrackMetadata(isrc: "USRC-OLD", durationMs: 100000)
+            }
+            return SpotifyAccount.TrackMetadata(isrc: "USRC-NEW", durationMs: 200000)
+        }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.isPlaying = true
+        playing.playerPID = 111
+        controller.apply(playing)
+        guard let key = controller.track?.key else {
+            return XCTFail("apply must publish a track")
+        }
+        // The old ID resolves first, its metadata fetch starts; before it
+        // lands the catalogue resolves a different ID for the same key.
+        controller.setSpotifyTrackIDForTests("id-old")
+        async let old: Void = controller.requestSpotifyMetadata(trackID: "id-old", forKey: key)
+        controller.setSpotifyTrackIDForTests("id-new")
+        await controller.requestSpotifyMetadata(trackID: "id-new", forKey: key)
+        await old
+        XCTAssertEqual(
+            controller.spotifyISRC, "USRC-NEW",
+            "the departed ID's late answer must not overwrite the current ID"
+        )
+        XCTAssertEqual(controller.spotifyExactDuration ?? -1, 200, accuracy: 0.001)
+    }
+
+    /// I3: a rate change discontinues the regression line. Origins measured
+    /// at 1× recomputed at 2× lean the mean, so the window must flush when
+    /// the value changes — and only then.
+    func testRateChangeFlushesCorrectionWindow() {
+        let controller = MediaController()
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 50
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        controller.correctionWindow = [
+            (atMono: 1000, position: 50),
+            (atMono: 1001, position: 51),
+            (atMono: 1002, position: 52),
+        ]
+        var faster = playing
+        faster.rate = 2
+        faster.takenAt = Date()
+        controller.apply(faster)
+        XCTAssertTrue(
+            controller.correctionWindow.isEmpty,
+            "a rate change must flush the regression window built at the old rate"
+        )
+
+        controller.correctionWindow = [
+            (atMono: 2000, position: 60),
+            (atMono: 2001, position: 62),
+        ]
+        var sameRate = playing
+        sameRate.rate = 2
+        sameRate.takenAt = Date()
+        sameRate.elapsed = 60
+        controller.apply(sameRate)
+        XCTAssertEqual(
+            controller.correctionWindow.count, 2,
+            "the same rate is no discontinuity and must keep the window"
+        )
+    }
+
+    /// The catalogue does not always carry an ISRC for a track it otherwise
+    /// knows — the exact duration is still worth publishing for the
+    /// duration-gated matching the lyric tiers do.
+    func testSpotifyMetadataWithoutISRCStillPublishesDuration() async {
+        let controller = MediaController()
+        controller.spotifyMetadataProvider = { _ in
+            SpotifyAccount.TrackMetadata(isrc: nil, durationMs: 180000)
+        }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.isPlaying = true
+        playing.playerPID = 111
+        controller.apply(playing)
+        guard let key = controller.track?.key else {
+            return XCTFail("apply must publish a track")
+        }
+
+        controller.setSpotifyTrackIDForTests("track-one")
+        await controller.requestSpotifyMetadata(trackID: "track-one", forKey: key)
+
+        XCTAssertNil(controller.spotifyISRC)
+        XCTAssertEqual(controller.spotifyExactDuration ?? -1, 180.0, accuracy: 0.001)
+    }
+
+    // MARK: - Precision clock (Task 3: 1s monotonic regression clock)
+
+    /// The correction loop polls Spotify's own clock every second, not every
+    /// two: the 2s cadence stair-stepped the lyric sweep on the beat of the
+    /// poll. The tolerance stays tight so a coalesced timer cannot reintroduce it.
+    func testPrecisionPollCadenceIsOneSecond() {
+        XCTAssertEqual(MediaController.precisionPollInterval, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(MediaController.precisionPollTolerance, 0.1, accuracy: 0.0001)
+    }
+
+    /// Apple Music is scriptable too.  Its measured player clock earns the
+    /// same precision path as Spotify; browser and other MediaRemote sessions
+    /// must remain line-only because they have no equivalent reading.
+    func testAppleMusicStartsPrecisionPolling() async {
+        let controller = MediaController()
+        controller.precisionPlayerForTests = .music
+        controller.precisionPositionFetcher = { next in
+            Task { @MainActor in next(42.3) }
+        }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 40
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+        controller.setActive(true)
+
+        for _ in 0..<200 {
+            if controller.positionSettled { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(controller.precisionSync,
+                      "Apple Music must use its own measured playback position")
+        XCTAssertTrue(controller.positionSettled,
+                      "the Apple Music correction must settle the lyric clock")
+        controller.setActive(false)
+    }
+
+    /// Five RTT-aged corrections, not one snap: a single AppleScript answer
+    /// carries ±80ms of scheduling jitter, and anchoring on it whole moved the
+    /// sweep by that jitter on every poll. The mean origin converges.
+    func testDriftRegressionConvergesUnderJitter() {
+        let rate = 1.0
+        // Truth: position = 100 + t. Each correction carries fixed jitter.
+        let jitter: [TimeInterval] = [0.08, -0.08, 0.05, -0.05, 0.03]
+        let corrections = jitter.enumerated().map { index, j in
+            (atMono: TimeInterval(index), position: 100 + TimeInterval(index) * rate + j)
+        }
+        let regressed = MediaController.regressedAnchorPosition(
+            corrections: corrections, rate: rate, nowMono: 4
+        )
+        XCTAssertEqual(regressed, 104, accuracy: 0.04,
+                       "five jittered corrections must average out to near-truth")
+        // One sample is a snap, by construction: the regression only helps
+        // once there is a window to regress over.
+        let single = MediaController.regressedAnchorPosition(
+            corrections: [(atMono: 0, position: 100.08)], rate: rate, nowMono: 0
+        )
+        XCTAssertEqual(single, 100.08, accuracy: 0.0001)
+    }
+
+    /// The anchor runs on a monotonic clock, not the wall: an NTP step or a
+    /// sleep/wake that moves `Date` by seconds must not move the position.
+    func testMonotonicAnchorIgnoresWallClockJump() {
+        let controller = MediaController()
+        controller.monotonicNow = { 1_000 }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 50
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        controller.monotonicNow = { 1_005 }
+        controller.tick()
+        XCTAssertEqual(controller.position, 55, accuracy: 0.5,
+                       "the position must follow the monotonic clock")
+
+        // The wall kept moving under the frozen monotonic clock (the NTP
+        // step); the position must not follow it.
+        Thread.sleep(forTimeInterval: 0.1)
+        controller.tick()
+        XCTAssertEqual(controller.position, 55, accuracy: 0.02,
+                       "a wall-clock jump with the monotonic clock frozen must not move the bar")
+    }
+
+    /// A Spotify play/pause/track-change broadcast re-anchors at once: the
+    /// reading is unsettled until the authoritative correction lands, and the
+    /// correction is asked for immediately rather than on the next poll.
+    func testSpotifyNotificationReanchorsAndUnsettles() async {
+        let controller = MediaController()
+        controller.monotonicNow = { 2_000 }
+        controller.spotifyDisplayForTests = true
+        // Far past the settle grace, so only the fresh correction — never the
+        // watchdog — can settle what the notification below unsettles.
+        MediaController.settleGrace = 30
+        defer { MediaController.settleGrace = 1.2 }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 40
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+
+        var fetches = 0
+        controller.precisionPositionFetcher = { next in
+            fetches += 1
+            Task { @MainActor in next(42.3) }
+        }
+        controller.setActive(true)
+
+        // Let the loop-start correction the panel-open above triggered land
+        // first: it holds the in-flight flag, and the notification's own
+        // correction would rightly yield to it.
+        for _ in 0..<200 {
+            if controller.positionSettled { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        fetches = 0
+
+        controller.handleSpotifyPlaybackState(position: 42)
+
+        XCTAssertEqual(controller.position, 42, accuracy: 0.0001,
+                       "the broadcast's millisecond reading anchors immediately")
+        XCTAssertFalse(controller.positionSettled,
+                       "the position is unsettled until the fresh correction lands")
+        XCTAssertTrue(fetches == 1, "the notification must trigger a correction at once")
+
+        // Suspended, never blocked: the delivery above needs the main actor,
+        // which `wait(for:)` would hold.
+        for _ in 0..<200 {
+            if controller.positionSettled { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(controller.positionSettled,
+                      "the fresh reading settles the position")
+        // Leave no timers or watchdogs running into the next test: the panel
+        // is closed, so the loop and the ticker stop with it.
+        controller.setActive(false)
+    }
+
+    /// Five corrections are regressed, not one snapped: the window the
+    /// estimator keeps is exactly five deep.
+    func testCorrectionWindowHoldsFiveSamples() {
+        XCTAssertEqual(MediaController.correctionWindowSize, 5)
+    }
+
+    /// An event-scale correction is a seek, not drift: it snaps at once
+    /// instead of dragging the old line through the window for five polls.
+    func testEventScaleCorrectionSnapsInsteadOfRegressing() async {
+        let controller = MediaController()
+        controller.monotonicNow = { 3_000 }
+        controller.spotifyDisplayForTests = true
+        MediaController.settleGrace = 30
+        defer { MediaController.settleGrace = 1.2 }
+
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.album = "Album"
+        playing.duration = 300
+        playing.elapsed = 40
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 1
+        controller.apply(playing)
+        controller.precisionPositionFetcher = { next in
+            Task { @MainActor in next(70) }
+        }
+        controller.setActive(true)
+
+        for _ in 0..<200 {
+            if controller.positionSettled, controller.position > 60 { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(controller.position, 70, accuracy: 0.5,
+                       "a +30s correction is a seek in the player and must land at once")
+        controller.setActive(false)
     }
 }

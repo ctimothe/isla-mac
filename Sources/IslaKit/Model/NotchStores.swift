@@ -19,7 +19,9 @@ final class NotchStores {
     let clipboard = ClipboardStore()
     let screenshotVault = ScreenshotVault()
     let translator = Translator()
-    let lyrics = LyricsStore()
+    let lyrics: LyricsStore
+    let localLyricsLibrary: LocalLyricsLibrary
+    let lyricsCoordinator: LyricsCoordinator
     /// Shared by every pane that shows something worth not showing.
     let privacy = PrivacyMode()
 
@@ -30,10 +32,47 @@ final class NotchStores {
 
     private var started = false
 
+    init(
+        lyricsEnabled: (() -> Bool)? = nil,
+        localLyricsDirectory: URL = AppPaths.live.supportDirectory
+    ) {
+        // Import a listener's old local override and timing correction before
+        // the retired cache helper gets a chance to prune its cache files.
+        // The local library is now the coordinator's only lyric authority.
+        let library = LocalLyricsLibrary(directory: localLyricsDirectory)
+        localLyricsLibrary = library
+        lyrics = LyricsStore(offsetsDirectory: library.storageDirectory)
+        lyricsCoordinator = LyricsCoordinator(
+            media: media,
+            library: library,
+            isEnabled: lyricsEnabled ?? { NotchViewModel.showLyricsEnabled },
+            isOnlineEnabled: { NotchViewModel.onlineLyricsEnabled },
+            presentation: lyrics
+        )
+    }
+
+    func clearImportedLyrics() {
+        localLyricsLibrary.clearImportedDocuments()
+    }
+
+    func clearBindingsAndTimingCorrections() {
+        localLyricsLibrary.clearBindings()
+        lyrics.clearLocalTrackOffsets()
+    }
+
     func start() {
         guard !started else { return }
         started = true
+        // Baselines the recording pickup: the scan offers what finished after
+        // this stamp, so stamping at the first shelf open instead would miss a
+        // recording made between install and that open. Stamped once — the key
+        // existing is what makes it once — and never moved again.
+        if UserDefaults.standard.object(forKey: RecordingPickup.sinceKey) == nil {
+            UserDefaults.standard.set(Date(), forKey: RecordingPickup.sinceKey)
+        }
         media.start()
+        lyricsCoordinator.start()
+        localLyricsLibrary.startWatchingFolders()
         shelf.load()
         // Drop folders from previous sessions, once, off the main thread.
         DispatchQueue.global(qos: .utility).async { AppPaths.pruneDropInbox() }
@@ -55,12 +94,33 @@ final class NotchStores {
                 self.onScreenshot?(url)
             }
         }
+        // A captured recording lands on the shelf the way a screenshot does.
+        // Copied bytes go through the vault — they exist only in memory, like
+        // a screenshot to the clipboard — and answer to the same capture
+        // switch, which is what keeps a disk-filling copy off the disk. A
+        // copied file is already on disk, so the shelf references it directly
+        // and no switch is asked: nothing is written, only remembered.
+        clipboard.onMovieData = { [weak self] data, ext in
+            guard let self else { return }
+            self.screenshotVault.saveMovie(data, fileExtension: ext) { [weak self] url in
+                guard let self, let url else { return }
+                self.shelf.add([url])
+                self.onScreenshot?(url)
+            }
+        }
+        clipboard.onMovieFile = { [weak self] url in
+            guard let self else { return }
+            self.shelf.add([url])
+            self.onScreenshot?(url)
+        }
         clipboard.start()
     }
 
     func stop() {
         guard started else { return }
         started = false
+        lyricsCoordinator.stop()
+        localLyricsLibrary.stopWatchingFolders()
         media.stop()
         clipboard.stop()
         // Whatever was typed makes it to disk even when quitting mid-thought.

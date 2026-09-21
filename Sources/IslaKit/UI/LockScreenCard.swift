@@ -22,6 +22,13 @@ import SwiftUI
 struct LockScreenCard: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    var localLookup: () -> LocalLyricsLookup? = { nil }
+    var retryLyrics: () -> Void = {}
+    /// The machine's audio state, followed while the card is up. The window
+    /// starts it before the card exists and stops it at dismiss; a render
+    /// without one gets a bare watch, which reads the machine on demand and
+    /// never installs listeners.
+    @ObservedObject private var audio: AudioWatch
     @ObservedObject private var spotify = SpotifyAccount.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -36,9 +43,19 @@ struct LockScreenCard: View {
 
     /// Which pane the card opens on. Always `.player` in the app; the parameter
     /// exists so a render can photograph the other two without a click.
-    init(media: MediaController, lyrics: LyricsStore, initialPane: Pane = .player) {
+    init(
+        media: MediaController,
+        lyrics: LyricsStore,
+        localLookup: @escaping () -> LocalLyricsLookup? = { nil },
+        retryLyrics: @escaping () -> Void = {},
+        audio: AudioWatch? = nil,
+        initialPane: Pane = .player
+    ) {
         self.media = media
         self.lyrics = lyrics
+        self.localLookup = localLookup
+        self.retryLyrics = retryLyrics
+        _audio = ObservedObject(wrappedValue: audio ?? AudioWatch())
         _pane = State(initialValue: initialPane)
     }
 
@@ -108,19 +125,15 @@ struct LockScreenCard: View {
                 // No tint from the cover either. The glass takes its character
                 // from the wallpaper it is actually over, which is the point of
                 // it being glass.
-                samplesBackdrop: style == .glass
+                samplesBackdrop: style == .glass,
+                // Solid is the panel Reduce Transparency draws, chosen on
+                // purpose. It used to be the drawn glass laid over an
+                // `.ultraThinMaterial` and a black scrim — three surfaces for
+                // one card, and above the shield the material had nothing to
+                // sample anyway, so what it added was a muddier version of the
+                // recipe already on top of it. One surface, one rule.
+                solid: style == .solid
             )
-            .background {
-                if style == .solid {
-                    RoundedRectangle(cornerRadius: 30, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .environment(\.colorScheme, .dark)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                                .fill(.black.opacity(0.45))
-                        }
-                }
-            }
             // No drop shadow. The system's own lock player has none — the
             // material defines its own edge, and a card floating on a drawn
             // shadow reads as a sticker laid on the wallpaper rather than a
@@ -136,13 +149,16 @@ struct LockScreenCard: View {
             .onChange(of: track.key) { _, _ in pane = .player }
             .onAppear { readAudio() }
             .onChange(of: pane) { _, _ in readAudio() }
-            .task(id: "\(track.key)|\(media.spotifyTrackID ?? "")") {
-                guard NotchViewModel.showLyricsEnabled else { return }
-                lyrics.load(
-                    title: track.title, artist: track.artist,
-                    album: track.album, duration: media.duration,
-                    spotifyID: media.spotifyTrackID
-                )
+            // The machine moves on its own while the card stands here — a
+            // device connecting mid-lock, the volume keys — and the card used
+            // to miss every bit of it until a pane switch re-read. The watch's
+            // listeners speak for the card now; a finger on the bar owns the
+            // level until release, so its mirror stands down while one drags.
+            .onReceive(audio.$outputs) { outputs = $0 }
+            .onReceive(audio.$current) { currentOutput = $0 }
+            .onReceive(audio.$volume) { newValue in
+                guard draggingVolume == nil else { return }
+                volume = newValue
             }
             .transition(.opacity)
         }
@@ -155,12 +171,12 @@ struct LockScreenCard: View {
             artwork
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title)
-                    .islandFont(pane == .player ? 18 : 15, weight: .semibold)
+                    .islandFont(.title)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(track.artist)
-                    .islandFont(pane == .player ? 14 : 12.5)
-                    .foregroundStyle(.white.opacity(0.62))
+                    .islandFont(.subhead, weight: .regular)
+                    .foregroundStyle(Theme.cardSecondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -177,11 +193,14 @@ struct LockScreenCard: View {
                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
                 } else {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(.white.opacity(0.08))
+                        .fill(Theme.cardFill)
                         .overlay(
                             Image(systemName: "music.note")
+                                // A third of the cover's side, at either cover
+                                // size — a proportion, not a size, so no role
+                                // can name it.
                                 .font(.system(size: side / 3, weight: .light))
-                                .foregroundStyle(.white.opacity(0.4))
+                                .foregroundStyle(Theme.cardTertiary)
                         )
                 }
             }
@@ -221,11 +240,11 @@ struct LockScreenCard: View {
                 .accessibilityLabel(media.sourceName ?? localized("Sound Output"))
         } else if let source = media.sourceName, !source.isEmpty {
             Text(String(source.prefix(1)))
-                .font(.system(size: 9, weight: .bold))
+                .islandFont(.caption, weight: .bold)
                 .foregroundStyle(.white)
                 .frame(width: 17, height: 17)
                 .background(Circle().fill(.black.opacity(0.75)))
-                .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
+                .overlay(Circle().strokeBorder(Theme.cardHairline, lineWidth: 0.5))
                 .accessibilityLabel(source)
         }
     }
@@ -265,11 +284,14 @@ struct LockScreenCard: View {
     /// exactly as it does on the full stage.
     private var lyricsPane: some View {
         Group {
-            if case .synced(let lines) = lyrics.state, !lines.isEmpty {
+            if case .ready = lyrics.availability,
+               case .synced(let lines) = lyrics.state,
+               !lines.isEmpty {
                 let at = LyricSweep.position(
                     media.position,
                     precisionSync: media.precisionSync,
-                    userOffset: lyrics.userOffset
+                    userOffset: lyrics.userOffset,
+                    trackOffset: lyrics.trackOffset
                 )
                 let centre = LyricSweep.centreIndex(in: lines, at: at)
                 let window = Self.window(around: centre, count: lines.count, size: Self.visibleLyricLines)
@@ -280,20 +302,38 @@ struct LockScreenCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                Text(lyricsStatus)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.45))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 8) {
+                    if case .findingLocalLyrics = lyrics.availability {
+                        ProgressView().controlSize(.small).tint(.white)
+                    }
+                    // `.resolving` draws neither spinner nor text: the status
+                    // line below it is empty for that state by design.
+                    Text(lyricsStatus)
+                        .islandFont(.subhead, weight: .regular)
+                        .foregroundStyle(Theme.cardTertiary)
+                    if LyricsPresentation.canRetry(lyrics.availability) {
+                        Button(localized("Retry"), action: retryLyrics)
+                            .buttonStyle(NotchButtonStyle(size: 24))
+                            .accessibilityLabel(localized("Retry"))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
     private var lyricsStatus: String {
-        guard NotchViewModel.showLyricsEnabled else { return localized("Lyrics are switched off in Settings.") }
-        switch lyrics.state {
-        case .loading: return localized("Looking for the words…")
-        default: return localized("No words for this track.")
-        }
+        LyricsPresentation.compactCaption(
+            for: lyrics.availability, currentLine: nil, localLookup: localLookup()
+        )
+    }
+
+    private var wordTimingEnabled: Bool {
+        LyricsPresentation.usesWordTiming(
+            lyrics.timingGranularity,
+            precisionMeasured: media.precisionSync,
+            wordKaraokeEnabled: lyrics.wordKaraokeEnabled
+        )
     }
 
     private func lyricRow(
@@ -305,18 +345,20 @@ struct LockScreenCard: View {
             distance: abs(index - centre),
             at: at,
             end: LyricSweep.end(of: index, in: lines),
-            fontSize: 16,
+            fontSize: Theme.TypeRole.title.size,
             weight: .bold,
             lineLimit: 1,
             accent: accent,
             reduceMotion: reduceMotion,
+            wordTimingEnabled: wordTimingEnabled,
             seek: {
                 // The song landing on a line somebody pointed at.
                 Haptics.alignment()
                 media.seek(to: LyricsStage.clickTarget(
                     lineAt: lines[index].at,
                     lead: LyricSweep.lead(
-                        precisionSync: media.precisionSync, userOffset: lyrics.userOffset
+                        precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
+                        trackOffset: lyrics.trackOffset
                     ),
                     duration: media.duration
                 ))
@@ -359,15 +401,15 @@ struct LockScreenCard: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(localized("Output"))
-                        .islandFont(11, weight: .semibold)
-                        .foregroundStyle(.white.opacity(0.5))
+                        .islandFont(.body, weight: .semibold)
+                        .foregroundStyle(Theme.cardTertiary)
                         .padding(.horizontal, 12)
                         .padding(.bottom, 4)
 
                     if outputs.isEmpty {
                         Text(localized("No output devices."))
-                            .font(.system(size: 13))
-                            .foregroundStyle(.white.opacity(0.45))
+                            .islandFont(.subhead, weight: .regular)
+                            .foregroundStyle(Theme.cardTertiary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                     } else {
@@ -389,7 +431,7 @@ struct LockScreenCard: View {
                 // coming into focus — instead of a picture of glass turning
                 // opaque. A plain opacity fade is the tell that a material is
                 // painted on rather than real.
-                .transition(.materialize(anchor: .bottomTrailing))
+                .transition(reduceMotion ? .opacity : .materialize(anchor: .bottomTrailing))
                 // Anchored to the control that opened it, which is the rule
                 // Apple states outright: a popover points as directly as it can
                 // at the element that revealed it, and avoids covering that
@@ -415,8 +457,10 @@ struct LockScreenCard: View {
             guard AudioOutputs.select(device.id) else { return }
             // A discrete value committed, which is what this pattern is for.
             Haptics.levelChange()
-            currentOutput = AudioOutputs.current()
-            volume = SystemVolume.current()
+            // Through the watch, not straight into state: the volume listener
+            // has to follow the device we just made default, and one re-read
+            // mirrors everything — list, highlight, level — back into the card.
+            readAudio()
             pane = .player
         } label: {
             HStack(spacing: 10) {
@@ -424,14 +468,14 @@ struct LockScreenCard: View {
                 // selected-state vocabulary in Control Center.
                 ZStack {
                     Circle()
-                        .fill(selected ? Color(nsColor: .controlAccentColor) : Color.white.opacity(0.12))
+                        .fill(selected ? Color(nsColor: .controlAccentColor) : Theme.cardFill)
                         .frame(width: 26, height: 26)
                     Image(systemName: device.symbol)
-                        .font(.system(size: 12, weight: .medium))
+                        .islandFont(.subhead)
                         .foregroundStyle(.white)
                 }
                 Text(device.name)
-                    .islandFont(13.5, weight: selected ? .semibold : .regular)
+                    .islandFont(.subhead, weight: selected ? .semibold : .regular)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 6)
@@ -453,10 +497,18 @@ struct LockScreenCard: View {
     /// had never opened the picker showed a generic AirPlay symbol for a Mac
     /// playing through its own speakers; and the volume rail cannot decide
     /// whether it exists until something has asked.
+    /// One re-read of the machine, mirrored straight into the card's state.
+    ///
+    /// Everything audio now flows through the watch — this asks it to re-read
+    /// and copies what it found, so the pane-change and selection paths and the
+    /// listener-driven path all publish through one place. Direct reads here
+    /// would leave the watch's picture of the machine behind the card's, and
+    /// the volume listener would follow the old default after a selection.
     private func readAudio() {
-        outputs = AudioOutputs.available()
-        currentOutput = AudioOutputs.current()
-        volume = SystemVolume.current()
+        audio.systemAudioChanged()
+        outputs = audio.outputs
+        currentOutput = audio.current
+        volume = audio.volume
     }
 
     // MARK: - Rails
@@ -472,7 +524,7 @@ struct LockScreenCard: View {
             GeometryReader { geo in
                 let width = geo.size.width
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.22)).frame(height: 5)
+                    Capsule().fill(Theme.cardTrack).frame(height: 5)
                     Capsule().fill(accent.opacity(0.95)).frame(width: width * fraction, height: 5)
                 }
                 .frame(maxHeight: .infinity)
@@ -491,6 +543,27 @@ struct LockScreenCard: View {
                 )
             }
             .frame(height: 14)
+            // One adjustable element, the way the panel's scrubber is declared:
+            // a capsule with a drag gesture is nothing at all to assistive
+            // tech, and over the lock screen this is the only way to move the
+            // song without a pointer.
+            .accessibilityElement()
+            .accessibilityLabel(localized("Playback Position"))
+            .accessibilityValue(
+                localized(
+                    "%@ of %@",
+                    formatTime(fraction * media.duration),
+                    formatTime(media.duration)
+                )
+            )
+            .accessibilityAdjustableAction { direction in
+                let step = media.duration * 0.05
+                switch direction {
+                case .increment: media.seek(to: media.position + step)
+                case .decrement: media.seek(to: media.position - step)
+                @unknown default: break
+                }
+            }
             HStack {
                 Text(formatTime(fraction * media.duration))
                 Spacer()
@@ -498,22 +571,26 @@ struct LockScreenCard: View {
                 // how long until this is over.
                 Text("-" + formatTime(max(0, media.duration - fraction * media.duration)))
             }
-            .font(.system(size: 11, weight: .semibold).monospacedDigit())
-            .tracking(Theme.tracking(forSize: 11))
-            .foregroundStyle(.white.opacity(0.55))
+            .font(Theme.TypeRole.body.font(weight: .semibold).monospacedDigit())
+            .tracking(Theme.tracking(forSize: Theme.TypeRole.body.size))
+            .foregroundStyle(Theme.cardSecondary)
         }
     }
+
+    /// Where the volume bar stands, 0...1: the finger while dragging, else the
+    /// device.
+    private var volumeLevel: Double { Double(draggingVolume ?? volume ?? 0) }
 
     /// The system's output volume. Absent entirely for a device that has none
     /// to give, rather than a slider that moves and changes nothing.
     private var volumeBar: some View {
         HStack(spacing: 10) {
-            Image(systemName: "speaker.fill").font(.system(size: 10))
+            Image(systemName: "speaker.fill").islandFont(.caption, weight: .regular)
             GeometryReader { geo in
                 let width = geo.size.width
                 let level = Double(draggingVolume ?? volume ?? 0)
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.22)).frame(height: 5)
+                    Capsule().fill(Theme.cardTrack).frame(height: 5)
                     Capsule().fill(.white.opacity(0.85)).frame(width: width * level, height: 5)
                 }
                 .frame(maxHeight: .infinity)
@@ -533,9 +610,27 @@ struct LockScreenCard: View {
                 )
             }
             .frame(height: 14)
-            Image(systemName: "speaker.wave.3.fill").font(.system(size: 10))
+            // The same contract as the seek bar above: heard as a percentage,
+            // moved in five-percent steps. This is the system's output volume,
+            // and it was invisible to VoiceOver.
+            .accessibilityElement()
+            .accessibilityLabel(localized("Volume"))
+            .accessibilityValue(Text(volumeLevel, format: .percent))
+            .accessibilityAdjustableAction { direction in
+                let step: Float = 0.05
+                let current = Float(volumeLevel)
+                let next: Float
+                switch direction {
+                case .increment: next = min(current + step, 1)
+                case .decrement: next = max(current - step, 0)
+                @unknown default: return
+                }
+                SystemVolume.set(next)
+                volume = SystemVolume.current() ?? next
+            }
+            Image(systemName: "speaker.wave.3.fill").islandFont(.caption, weight: .regular)
         }
-        .foregroundStyle(.white.opacity(0.6))
+        .foregroundStyle(Theme.cardSecondary)
     }
 
     private var transport: some View {
@@ -543,26 +638,30 @@ struct LockScreenCard: View {
             shuffle
             Spacer(minLength: 0)
             Button { media.previous() } label: {
-                Image(systemName: "backward.fill").font(.system(size: 21, weight: .medium))
+                Image(systemName: "backward.fill").islandFont(.display)
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .disabled(!media.canSkip)
             .opacity(media.canSkip ? 1 : 0.35)
+            .help(localized("Previous Track"))
             .accessibilityLabel(localized("Previous Track"))
             Spacer(minLength: 0)
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 28, weight: .medium))
+                    .islandFont(.hero)
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
+            .help(media.isPlaying ? localized("Pause") : localized("Play"))
             .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Spacer(minLength: 0)
             Button { media.next() } label: {
-                Image(systemName: "forward.fill").font(.system(size: 21, weight: .medium))
+                Image(systemName: "forward.fill").islandFont(.display)
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .disabled(!media.canSkip)
             .opacity(media.canSkip ? 1 : 0.35)
+            .help(localized("Next Track"))
             .accessibilityLabel(localized("Next Track"))
             Spacer(minLength: 0)
             repeatToggle
@@ -578,10 +677,11 @@ struct LockScreenCard: View {
             isOn: media.shuffleEnabled == true,
             accent: accent,
             size: 32,
-            glyphSize: 15
+            glyphSize: Theme.TypeRole.title.size
         ) { media.toggleShuffle() }
         .disabled(media.shuffleEnabled == nil)
         .opacity(media.shuffleEnabled == nil ? 0.3 : 1)
+        .help(localized("Shuffle"))
         .accessibilityLabel(localized("Shuffle"))
         .accessibilityValue(media.shuffleEnabled == true ? localized("On") : localized("Off"))
     }
@@ -592,10 +692,12 @@ struct LockScreenCard: View {
             isOn: media.repeatMode != nil && media.repeatMode != .off,
             accent: accent,
             size: 32,
-            glyphSize: 15
+            glyphSize: Theme.TypeRole.title.size,
+            reduceMotion: reduceMotion
         ) { media.cycleRepeat() }
         .disabled(media.repeatMode == nil)
         .opacity(media.repeatMode == nil ? 0.3 : 1)
+        .help(localized("Repeat"))
         .accessibilityLabel(localized("Repeat"))
     }
 
@@ -615,12 +717,13 @@ struct LockScreenCard: View {
             pane = open ? .player : target
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(open ? .white : .white.opacity(0.62))
+                .islandFont(.title, weight: .medium)
+                .foregroundStyle(open ? Color.white : Theme.cardSecondary)
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                 .frame(width: 26, height: 22)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .help(label)
         .accessibilityLabel(label)
         .accessibilityAddTraits(open ? [.isSelected] : [])
@@ -645,27 +748,22 @@ struct LockScreenCard: View {
                 let known = spotify.saved[id]
                 let isSaved = known ?? false
                 Button { spotify.toggleSaved(trackID: id) } label: {
-                    Image(systemName: isSaved ? "heart.fill" : "heart")
-                        .font(.system(size: 11, weight: .semibold))
+                        Image(systemName: isSaved ? "heart.fill" : "heart")
+                        .islandFont(.body, weight: .semibold)
                         .foregroundStyle(.white)
+                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                         .opacity(known == nil ? 0.45 : 1)
-                        .frame(width: 20, height: 20)
+                        .frame(width: 22, height: 22)
                         .background(Circle().fill(.black.opacity(0.45)))
                 }
                 .disabled(known == nil)
-                .buttonStyle(.plain)
+                .buttonStyle(PanelButtonStyle())
                 .accessibilityLabel(
                     isSaved ? localized("Remove from Liked Songs") : localized("Add to Liked Songs")
                 )
                 .task(id: id) { spotify.refreshSavedState(trackID: id) }
             }
         }
-    }
-
-    private func formatTime(_ seconds: TimeInterval) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
-        let total = Int(seconds.rounded())
-        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     // MARK: - Pure layout arithmetic

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import UniformTypeIdentifiers
 
 @MainActor
 final class NotchViewModel: ObservableObject {
@@ -58,18 +59,124 @@ final class NotchViewModel: ObservableObject {
             if tab == .shelf { shelf.refreshFromDisk() }
             // Leaving the tab that types gives the keyboard straight back.
             if !tab.needsKeyboard { wantsKeyboard = false }
+            // And leaving Music folds the stage, so coming back to the tab
+            // lands on the player rather than on a page of words left open
+            // three songs ago.
+            if tab != .media { isShowingLyrics = false }
         }
     }
+
+    /// Whether the Music tab is showing the full lyrics page instead of the
+    /// player.
+    ///
+    /// It lives here rather than inside `MediaPane` because it is a place the
+    /// app can be *sent*, not just a toggle the pane owns: ⌥⌘L opens the panel
+    /// straight onto it, and the verification hook does the same without a
+    /// pointer. State that only the view holds is state nothing else can ask
+    /// for — which is what made the hook an `onAppear` reading an environment
+    /// variable rather than a route like every other way in.
+    @Published var isShowingLyrics = false
 
     /// Whether the panel must stay open with no pointer on it.
     ///
     /// The one exception to the rule stated at `NotchController.setOpen` — the
-    /// pointer decides, always — kept for the ⌥⌘I pin, which is a deliberate
-    /// request to keep the panel up while the hands are elsewhere.
+    /// pointer decides, always — kept for the pin, which is what an open made
+    /// without the pointer leaves behind: a deliberate request to keep the panel
+    /// up while the hands are elsewhere. Nothing else holds the panel open any
+    /// more; the teleprompter, which used to, went on 2026-08-22.
     var holdsOpen: Bool { isPinnedOpen }
 
-    /// Raised when the panel was opened by a deliberate command rather than by
-    /// the pointer — the ⌥⌘I hotkey or the menu item.
+    /// The pointer reaching the island: the panel is handed back to it.
+    ///
+    /// State, not event plumbing, so it can be tested without a pointer.
+    /// Unconditional on Open on Hover — the setting decides whether arriving
+    /// *opens* the panel, never whether arriving takes back a panel that is
+    /// already open. A step of its own inside `pointerCrossed` because a drag
+    /// arriving must not run it; see there.
+    func pointerArrived() {
+        isPinnedOpen = false
+        select(.media)
+    }
+
+    /// What the pointer crossing the panel's boundary asks the panel to do.
+    ///
+    /// A verdict rather than an action, so the sequence that used to strand a
+    /// panel open — approach, click, walk away — can be played out in a test
+    /// with no panel, no screen and no cursor. The controller keeps the
+    /// effects; the rules live here with the state they read.
+    enum PointerCrossing: Equatable {
+        /// The pointer arrived and Open on Hover is switched on.
+        case opens
+        /// The pointer left and nothing is holding the panel open.
+        case closes
+        /// Neither: an arrival that only hands the panel back to the pointer,
+        /// or a departure that the pin refuses.
+        case standsAsItIs
+    }
+
+    /// - Parameter inside: whether the pointer is now within the rect that
+    ///   holds the panel open — `NotchGeometry.hoverRect(for:)` while open, the
+    ///   collapsed hover rect while shut.
+    /// - Parameter dragging: whether a drag session is in flight, in which case
+    ///   the arrival is not counted at all. A drag is not a hover: the pointer
+    ///   arriving with a file in hand has already said which tab it wants —
+    ///   `onDragEntered` selects the Shelf — so the arrival must not reset it.
+    ///   It used to, roughly `openDelay` after the file crossed the island,
+    ///   which flipped the pane Shelf→Music mid-drag and took `ShelfPane`'s drop
+    ///   highlight with it until the drop put it back. Leaving the pin standing
+    ///   with it costs nothing: `PointerWatcher.isDragging` already holds the
+    ///   panel open for as long as the session runs.
+    func pointerCrossed(inside: Bool, dragging: Bool = false) -> PointerCrossing {
+        if inside {
+            if !dragging { pointerArrived() }
+            // The arrival takes the panel back from whatever opened it without
+            // a pointer, and it does so *before* the hover-to-open question is
+            // asked. Asked first, with the setting off — the default — it
+            // returned early and left the pin standing, so a clicked-open panel
+            // ignored the pointer leaving and could only be dismissed by
+            // clicking somewhere else entirely.
+            return Self.opensOnHoverEnabled ? .opens : .standsAsItIs
+        }
+        // The one place the pointer does not decide — see `holdsOpen`. Asked
+        // here rather than inside `NotchController.setOpen` so that the reasons
+        // that are not the pointer, like the screen going to sleep, still close
+        // a pinned panel.
+        return holdsOpen ? .standsAsItIs : .closes
+    }
+
+    /// The state half of a click that opens the island. The controller owns the
+    /// rest — the active rect, the animation, the pointer watcher.
+    ///
+    /// - Parameter pointerIsOnPanel: whether the cursor is inside the rect the
+    ///   open panel holds itself open from. It normally is, because the island
+    ///   sits inside that rect, so a mouse click lands the pointer there by
+    ///   definition and the panel needs no pin: leaving is what closes it.
+    ///   False only for a click that did not come from the mouse at all — the
+    ///   compact island's accessibility action, which VoiceOver fires from the
+    ///   keyboard with the cursor wherever it was left.
+    func clickOpened(pointerIsOnPanel: Bool) {
+        // The tab first. A hover always landed on Music — the island is for
+        // glancing at a track, and the other tabs are somewhere to go once it
+        // is open, not somewhere to arrive. Skipping it meant a click opened
+        // whatever had been left behind and then swapped panes *during* the
+        // expansion, which is most of what read as an unsmooth open.
+        select(.media)
+        // The hover lift goes out with the same animation that opens the panel,
+        // rather than snapping off the instant `isOpen` flips.
+        isHovering = false
+        // Pinning a panel the pointer is already standing on is what broke the
+        // walk-away: the pin is only cleared when the pointer *arrives*, and
+        // arriving is a transition that had already happened before the click.
+        // So the departure was refused by `holdsOpen` and the panel stayed open
+        // until something else was clicked (fixed 2026-09-10).
+        isPinnedOpen = !pointerIsOnPanel
+    }
+
+    /// Raised when the panel was opened with the pointer nowhere near it: ⌥⌘I,
+    /// or a click that came from the keyboard rather than the mouse — the
+    /// compact island's accessibility action. (There has been no menu item
+    /// since 2026-08-25; the app has no menu-bar item at all.) A click from the
+    /// pointer deliberately does not pin — see `clickOpened(pointerIsOnPanel:)`.
     ///
     /// Those routes exist so the panel can be reached without a mouse, and the
     /// pointer rule cancels them outright: the cursor is wherever it was left,
@@ -80,6 +187,48 @@ final class NotchViewModel: ObservableObject {
     /// reaching for it with the mouse means by leaving.
     @Published var isPinnedOpen = false
 
+    /// Whether the body is showing the welcome instead of the selected tab.
+    ///
+    /// Not a `Tab`: `TabContractTests` asserts exactly five, and a sixth that
+    /// exists for one launch is not somewhere to navigate to. The rail keeps its
+    /// place beside it — the copy sends the reader to the bottom left, which is
+    /// where the rail's Settings icon is, so hiding the rail would leave that
+    /// sentence pointing at nothing.
+    ///
+    /// Lowered by anything that ends the panel it opened, and set by exactly two
+    /// things — Get Started and a tab picked out of the rail. Everything else
+    /// that takes it off screen leaves `hasCompletedFirstRun` alone, so the
+    /// welcome is shown once per account *until it is answered*, not once per
+    /// account full stop.
+    @Published var isShowingWelcome = false
+
+    /// The welcome has been read. Sets the flag that keeps it from ever coming
+    /// back, and lands on Music: the island is for glancing at a track, and the
+    /// welcome replaced whatever pane would have been there.
+    func dismissWelcome() {
+        isShowingWelcome = false
+        Self.completeFirstRun()
+        select(.media)
+    }
+
+    /// A tab the user picked out of the rail.
+    ///
+    /// Distinct from `select` because `select` is also how the *machinery* moves
+    /// the panel to a tab — the pointer arriving, a file being dragged on, a
+    /// translation arriving by hotkey — and none of those is an answer to
+    /// anything. `pointerArrived()` in particular selects Music, and the pointer
+    /// arrives by definition on the way to the Get Started button, so dismissing
+    /// the welcome from `select` would have wiped it out from under the cursor
+    /// reaching for it. Reaching for a tab is a decision; the pointer crossing
+    /// the panel is not.
+    func chooseTab(_ tab: Tab) {
+        if isShowingWelcome {
+            isShowingWelcome = false
+            Self.completeFirstRun()
+        }
+        select(tab)
+    }
+
     /// The pointer is on the island. Drawn as an outline, not as an opening.
     ///
     /// Hovering used to open the panel outright, which meant the island
@@ -88,8 +237,10 @@ final class NotchViewModel: ObservableObject {
     /// when you click it.*
     @Published var isHovering = false
 
-    /// Raised when the collapsed island is clicked. The controller owns what
-    /// that means — open, or refuse while locked — because only it knows.
+    /// Raised when the island is clicked — the collapsed pill, or the header
+    /// strip that is all of it that shows while the panel is open. The
+    /// controller owns what that means — open, close, or refuse while locked —
+    /// because only it knows.
     var onIslandClick: (() -> Void)?
 
     /// Whether the panel currently holds the keyboard.
@@ -108,6 +259,8 @@ final class NotchViewModel: ObservableObject {
     let screenshotVault: ScreenshotVault
     let translator: Translator
     let lyrics: LyricsStore
+    let localLyricsLibrary: LocalLyricsLibrary
+    let lyricsCoordinator: LyricsCoordinator
     /// Shared by every pane that shows something worth not showing.
     let privacy: PrivacyMode
     /// The session's stores, borrowed rather than owned — see `NotchStores`.
@@ -124,6 +277,8 @@ final class NotchViewModel: ObservableObject {
         self.screenshotVault = stores.screenshotVault
         self.translator = stores.translator
         self.lyrics = stores.lyrics
+        self.localLyricsLibrary = stores.localLyricsLibrary
+        self.lyricsCoordinator = stores.lyricsCoordinator
         self.privacy = stores.privacy
 
         // The panel header reads through to the stores — counters, the source
@@ -179,6 +334,48 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    func chooseLocalLyricsFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.init(filenameExtension: "lrc")!]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? lyricsCoordinator.importLocalFile(at: url)
+    }
+
+    func chooseLocalLyricsFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? localLyricsLibrary.addFolder(url)
+    }
+
+    func removeLocalLyricsFolder(_ url: URL) {
+        localLyricsLibrary.removeFolder(url)
+    }
+
+    func rescanLocalLyrics() {
+        try? localLyricsLibrary.rescanFolders()
+    }
+
+    func revealLocalLyricsFolder() {
+        NSWorkspace.shared.activateFileViewerSelecting([localLyricsLibrary.storageDirectory])
+    }
+
+    func clearImportedLyrics() {
+        stores.clearImportedLyrics()
+    }
+
+    func clearLyricsBindingsAndTimingCorrections() {
+        stores.clearBindingsAndTimingCorrections()
+    }
+
+    func dismissUnassignedLyricsOffset(named filename: String) {
+        lyrics.dismissUnassignedLegacyOffset(named: filename)
+    }
+
     /// Body this tab takes when open — asked whether it is open yet or not.
     ///
     /// Separate from `bodySize` because the rects are cut one step before the
@@ -209,6 +406,37 @@ final class NotchViewModel: ObservableObject {
         lockedHoverNudges += 1
     }
 
+    /// What a deliberate open command — ⌥⌘I, the translate shortcut, the
+    /// welcome — is worth right now.
+    ///
+    /// Over the shield nothing may open and nothing may take the keyboard. An
+    /// open there is not merely invisible-because-covered: `setOpen(true)`
+    /// grows the clickable region from the deliberate pill-sized locked rect
+    /// (`applyLockedActiveRect`) to the open body, over the password field, and
+    /// the translate route would additionally land on a tab that types — a
+    /// window the lock presentation deliberately lifted above the shield, now
+    /// key and holding the keyboard. `panel.onPress` already refuses exactly
+    /// that at the keyboard, and the island's own click refusal answers with
+    /// the shake; the commands get the same grammar: refuse, and shake the pill
+    /// instead of doing nothing, which would read as a dead app rather than as
+    /// a limit.
+    ///
+    /// A verdict rather than an action, so the sequence — command, refusal,
+    /// shake — can be played out in a test with no panel, the same shape as
+    /// `PointerCrossing`. The controller keeps the effects.
+    enum CommandVerdict: Equatable {
+        /// The command runs its ordinary open path.
+        case proceed
+        /// Over the shield: shake the pill and do nothing else.
+        case refuseWithShake
+    }
+
+    /// The verdict for `toggle()` and `translate(_:)`, asked before either
+    /// touches a tab, the translator, the pin or `setOpen`.
+    func verdictForDeliberateOpen() -> CommandVerdict {
+        isLockedPresentation ? .refuseWithShake : .proceed
+    }
+
 
 
     var compactMediaActivity: CompactMediaActivity {
@@ -227,6 +455,21 @@ final class NotchViewModel: ObservableObject {
         )
     }
 
+    static let hasCompletedFirstRunKey = "hasCompletedFirstRun"
+
+    /// False exactly once per account. The app has no Dock icon, no menu-bar
+    /// item and no window, so a fresh install produces no visible change at
+    /// all — and `LSUIElement` keeps it out of Force Quit, so someone who
+    /// cannot find the panel cannot quit it either. The welcome is the one
+    /// moment that says the app is running and how to reach it.
+    static var hasCompletedFirstRun: Bool {
+        UserDefaults.standard.bool(forKey: hasCompletedFirstRunKey)
+    }
+
+    static func completeFirstRun() {
+        UserDefaults.standard.set(true, forKey: hasCompletedFirstRunKey)
+    }
+
     /// Off switch for people who copy images all day and do not want them kept.
     static let saveClipboardImagesKey = "saveClipboardImages"
 
@@ -240,15 +483,42 @@ final class NotchViewModel: ObservableObject {
         UserDefaults.standard.bool(forKey: saveClipboardImagesKey)
     }
 
+    static let importRecordingsKey = "importRecordings"
+
+    /// Defaults to **on**: a recording the system saved is already the user's
+    /// deliberate capture, and the pickup only ever offers what finished after
+    /// the app first ran — nothing predating it is vacuumed in. The one system
+    /// folder prompt this can raise arrives on the first shelf open, with the
+    /// shelf on screen to explain it, and then never again. Off restores the
+    /// copy-flow only: drops and clipboard copies still land, disk is never
+    /// scanned.
+    static var importRecordingsEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: importRecordingsKey) != nil else { return true }
+        return defaults.bool(forKey: importRecordingsKey)
+    }
+
     static let showLyricsKey = "showLyrics"
 
-    /// Defaults to **off**. This is the app's only network use: turning it on
-    /// sends what is currently playing — title, artist, album, and for Spotify
-    /// the track id — to three third-party services. That is listening history
-    /// leaving the machine, so it is asked for rather than assumed. Off means
-    /// no request ever leaves.
+    /// Defaults to **off**. On its own it reaches nothing but this Mac: lyrics
+    /// come from files imported here and folders chosen here.
     static var showLyricsEnabled: Bool {
         UserDefaults.standard.bool(forKey: showLyricsKey)
+    }
+
+    static let onlineLyricsKey = "lyrics.onlineEnabled"
+
+    /// Defaults to **off**, and is the only thing in the lyric path that ever
+    /// reaches the network.
+    ///
+    /// A streamed track has no file on this Mac, so no offline lookup can ever
+    /// find words for it — which is why this exists at all. Turning it on lets
+    /// Isla ask LRCLIB, a free community catalogue that needs no account and no
+    /// key, for the words of a track the local library did not match. What
+    /// leaves is the title, artist, album and duration; nothing about the
+    /// listener, and nothing is uploaded. See `OnlineLyrics`.
+    static var onlineLyricsEnabled: Bool {
+        UserDefaults.standard.bool(forKey: onlineLyricsKey)
     }
 
     static let sneakPeekKey = "sneakPeek"
@@ -352,6 +622,26 @@ final class NotchViewModel: ObservableObject {
         )
     }
 
+    /// Persists the width a drag settled on, and returns the width that was
+    /// actually persisted so the caller can rebuild against it rather than
+    /// against what it asked for. Round first, then clamp: rounding is what
+    /// the pane did at this write site before the commit existed (a slider
+    /// hands over fractional ticks), and clamping mirrors `bodyWidth(in:)` —
+    /// the two have to agree or a commit and a `defaults write` of the same
+    /// number would disagree on read, which is the divergence the read-side
+    /// clamp exists to prevent.
+    ///
+    /// `nonisolated` for the same reason the reader is: a default is
+    /// thread-safe, and this is the one sanctioned writer of the key.
+    nonisolated static func commitBodyWidth(_ width: CGFloat, into defaults: UserDefaults) -> CGFloat {
+        let committed = min(
+            max(width.rounded(), NotchMetrics.minimumBodyWidth),
+            NotchMetrics.maximumBodyWidth
+        )
+        defaults.set(Double(committed), forKey: bodyWidthKey)
+        return committed
+    }
+
     /// `nonisolated` because the geometry is a plain struct built off the main
     /// actor as well as on it, and reading a default is thread-safe.
     nonisolated static var bodyWidth: CGFloat { bodyWidth(in: .standard) }
@@ -405,8 +695,15 @@ final class NotchViewModel: ObservableObject {
     /// copy from a phone used to raise a Desktop-or-Documents permission
     /// prompt with no visible cause. The shelf's counter shows the new picture
     /// the moment the panel is opened, so nothing is lost by waiting.
+    ///
+    /// Nor while the welcome is up, for the same reason it waits on a keyboard:
+    /// the welcome is drawn over the pane switch, so the shelf would not appear
+    /// anyway, and moving the tab underneath it would only light Shelf in the
+    /// rail beside a body showing something else. Unlike a drag, a picture that
+    /// arrived by itself is nobody asking for anything, so it does not get to
+    /// take the welcome down — see `showShelfForDrag()`.
     func receivedScreenshot(at url: URL) {
-        guard isOpen, !wantsKeyboard else { return }
+        guard isOpen, !wantsKeyboard, !isShowingWelcome else { return }
         tab = .shelf
     }
 
@@ -414,7 +711,28 @@ final class NotchViewModel: ObservableObject {
     /// is the point, not a side effect to guard against.
     func accept(urls: [URL]) -> Bool {
         shelf.add(urls)
-        tab = .shelf
+        showShelfForDrag()
         return true
+    }
+
+    /// A drag has arrived over the island, or a file has just landed on it.
+    /// Puts the body on the shelf and takes the welcome down with it.
+    ///
+    /// The welcome is drawn *over* the pane switch, so leaving it up made a drop
+    /// during the first launch completely invisible: no drop highlight, no card,
+    /// no counter — and the `setOpen(true)` that follows a drag early-returns on
+    /// the panel the welcome had already opened, so nothing on screen moved at
+    /// all and the file looked like it had gone nowhere.
+    ///
+    /// Deliberately does **not** set `hasCompletedFirstRun`. A drop is a real
+    /// interaction with the app, but it is not the user answering the welcome:
+    /// their attention was on the file, the pane went away underneath it, and the
+    /// thing the welcome exists to say — that Quit lives in Settings, because an
+    /// `LSUIElement` app is not in Force Quit — is exactly what somebody who has
+    /// only ever dropped a file on the island still does not know. Unanswered,
+    /// the next launch asks again, on the same terms as `setOpen(false)`.
+    func showShelfForDrag() {
+        isShowingWelcome = false
+        tab = .shelf
     }
 }

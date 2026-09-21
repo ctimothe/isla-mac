@@ -69,12 +69,24 @@ final class MediaController: ObservableObject {
     /// tab, most podcasts — would otherwise be asked again on every snapshot,
     /// twice a second, forever.
     private var artworkRequestedFor: Set<String> = []
-    private var anchor: (position: TimeInterval, at: Date)?
+    private var anchor: (position: TimeInterval, atMono: TimeInterval)? {
+        // A new anchor moves every boundary's wall time with it.
+        didSet { armBoundaryTimer() }
+    }
+    /// The clock the anchor extrapolates on. Wall time jumps on NTP steps and
+    /// across sleep, and the anchor used to ride it — a +5s step teleported the
+    /// bar and the lyric. `systemUptime` never jumps, so the extrapolation
+    /// survives both. A seam, like `foreignHoldWindow`: tests freeze it while
+    /// the wall runs on. `Date` stays only inside the 1.5s seek-verdict window,
+    /// where what matters is ordering recent events, not measuring durations.
+    var monotonicNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     /// How fast the player says the track is moving. Podcast and video apps
     /// routinely play at 1.5× or 2×, and the ticker extrapolating at 1×
     /// regardless meant the bar fell behind between polls and lurched forward
     /// on each one; below 1× it ran ahead and was yanked back.
-    private var playbackRate: Double = 1
+    private var playbackRate: Double = 1 {
+        didSet { if playbackRate != oldValue { armBoundaryTimer() } }
+    }
     /// Where we asked the player to jump, when — and from where, because the
     /// pre-seek trajectory is the only thing that can unmask a reading taken
     /// after the seek was issued but before the player applied it.
@@ -144,12 +156,73 @@ final class MediaController: ObservableObject {
     /// precise position most of the compensation is unnecessary.
     @Published private(set) var precisionSync = false
     /// False from panel-open or track-change until the first authoritative
-    /// reading lands. The moment the panel opens, the position is a stale
-    /// extrapolation from whenever it closed — usually right, but wrong
-    /// whenever a pause or seek happened while it was shut, and a lyric line
-    /// chosen from it flashes wrong and then corrects. The lyric waits the
-    /// ~150ms for a real fix instead.
+    /// reading lands: the position is an extrapolation from the anchor until
+    /// then — usually right, wrong only if a pause or seek happened while the
+    /// panel was shut and no broadcast reported it.
+    ///
+    /// No lyric surface waits on this any more. They did, and every open of
+    /// the panel showed "Syncing playback…" for the 150ms a real fix takes and
+    /// for the full 1.2s grace when none came — which read as lyrics that were
+    /// slow, on every open, to cover a wrong line that almost never happened.
+    /// The system's own lyrics show the line the clock points at and move it
+    /// when a correction lands; so do these now. The flag stays as the clock's
+    /// own statement of how much it trusts itself, for the tests and the trail.
     @Published private(set) var positionSettled = false
+
+    // MARK: - Lyric boundaries
+
+    /// Track positions at which a lyric surface changes its line — every
+    /// line's timestamp, before the lead — and how much lead the surfaces read
+    /// with. Registered by `LyricsCoordinator` when a timeline is ready.
+    ///
+    /// The four-times-a-second ticker below moves the scrubber, and a scrubber
+    /// does not care about 250ms. A lyric line does: on that grid a line lands
+    /// anywhere from on time to a quarter-second late, at random, which is the
+    /// "sometimes early, sometimes late" that no lead constant can fix. So the
+    /// clock also wakes exactly when the next line is due — one one-shot timer,
+    /// re-armed at every tick and every anchor change — and publishes the
+    /// position on that frame, so every surface turns its line together and
+    /// on the beat. Between boundaries nothing extra runs.
+    private var lyricBoundaries: [TimeInterval] = []
+    private var lyricLead: @MainActor () -> TimeInterval = { 0 }
+    private var boundaryTimer: Timer?
+
+    func setLyricBoundaries(_ boundaries: [TimeInterval], lead: @escaping @MainActor () -> TimeInterval) {
+        lyricBoundaries = boundaries.sorted()
+        lyricLead = lead
+        armBoundaryTimer()
+    }
+
+    /// Seconds until the next boundary strictly ahead of the clock, or nil
+    /// when the song has no more lines to turn. Pure, so the arithmetic is
+    /// testable without a timer.
+    static func nextLyricWake(
+        boundaries: [TimeInterval], lead: TimeInterval, position: TimeInterval, rate: Double
+    ) -> TimeInterval? {
+        guard rate > 0 else { return nil }
+        // Sorted, so the first boundary past the clock is the next one. Half a
+        // millisecond of slack keeps a wake that fired exactly on a boundary
+        // from re-arming for the boundary it just served.
+        guard let next = boundaries.first(where: { $0 - lead > position + 0.0005 }) else { return nil }
+        return ((next - lead) - position) / rate
+    }
+
+    private func armBoundaryTimer() {
+        boundaryTimer?.invalidate()
+        boundaryTimer = nil
+        guard isPlaying, isActive, let anchor, !lyricBoundaries.isEmpty else { return }
+        let now = anchor.position + (monotonicNow() - anchor.atMono) * playbackRate
+        guard let delay = Self.nextLyricWake(
+            boundaries: lyricBoundaries, lead: lyricLead(), position: now, rate: playbackRate
+        ) else { return }
+        let timer = Timer(timeInterval: max(delay, 0.001), repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.tick() }
+        }
+        // No tolerance: the whole point is the frame the line is due on.
+        timer.tolerance = 0
+        RunLoop.main.add(timer, forMode: .common)
+        boundaryTimer = timer
+    }
     /// How long an active panel waits for an authoritative reading before it
     /// settles for the position it has. Long enough for the ~150ms a real fix
     /// takes, short enough that nobody reads it as missing lyrics.
@@ -159,8 +232,73 @@ final class MediaController: ObservableObject {
     /// displayed player and has answered. The word-synced lyrics database is
     /// keyed by it; everything else falls back to title/artist matching.
     @Published private(set) var spotifyTrackID: String?
+    /// The catalogue ISRC for the displayed track, when the Web API has
+    /// answered. Lyric tiers join providers on this instead of guessing from
+    /// title text; nil means unknown, never "this track has none".
+    @Published private(set) var spotifyISRC: String?
+    /// The catalogue's exact duration in seconds, alongside the id
+    /// above. The snapshot's own duration is the daemon's rounded reading;
+    /// this is the number the duration-gated lyric matching compares against.
+    @Published private(set) var spotifyExactDuration: TimeInterval?
+    /// Answers exact catalogue metadata for a Spotify track id.
+    ///
+    /// A seam, not a second path: production leaves this nil and the lookup
+    /// goes to `SpotifyAccount.shared` over the network. Tests substitute
+    /// canned answers because the AppleScript id lookup that triggers the
+    /// fetch never resolves without a running Spotify, and the fetch would
+    /// otherwise be untestable. Internal so tests can reach it, like
+    /// `foreignHoldWindow` above.
+    var spotifyMetadataProvider: ((String) async -> SpotifyAccount.TrackMetadata?)?
     private var precisionTimer: Timer?
     private var precisionInFlight = false
+    /// How often a scriptable player's own clock is asked while its panel is
+    /// open. Apple Music and Spotify both expose this public scripting value.
+    /// Every two seconds the lyric sweep stair-stepped on the beat of the poll —
+    /// a correction yanking the clock up to a tenth forward, then a dead anchor
+    /// free-running until the next one — so the cadence is one second.
+    static let precisionPollInterval: TimeInterval = 1.0
+    /// Tight, for the same reason: a coalesced timer firing late reintroduces
+    /// the very stepping the cadence above removes.
+    static let precisionPollTolerance: TimeInterval = 0.1
+    /// How many RTT-aged corrections the drift regression keeps. One snap
+    /// carried the poll's ±80ms of scheduling jitter straight into the sweep;
+    /// the mean of five converges to the player's line instead.
+    static let correctionWindowSize = 5
+
+    /// How often the position is republished while the panel is open.
+    ///
+    /// This was four times a second, chosen so the scrubber advanced in
+    /// sub-pixel steps. It is also how stale the published position can be,
+    /// and *that* is what a lyric reads: `position` only moves when this fires,
+    /// so a surface drawing between two ticks is showing a number up to a full
+    /// interval old. The live probe measured it — steady-play delta ran a
+    /// median 0.235s behind Spotify against a true pipeline lag of about
+    /// 0.11s, the rest being exactly this staleness — and the spread it
+    /// produced was what failed the harness's 150ms word-timing gate, with the
+    /// bias itself very nearly zero.
+    ///
+    /// Ten times a second costs six extra wake-ups per second, only while the
+    /// panel is open, and cuts the worst-case staleness from 250ms to 100ms.
+    /// The boundary timer beside it still fires exactly on a line change, so
+    /// what this governs is the sweep and the bar between those changes.
+    static let positionTickInterval: TimeInterval = 0.1
+    /// The last corrections as (monotonic moment, RTT-aged position), oldest
+    /// first. Reset wherever the line discontinues — a pause lets the monotonic
+    /// clock run while the position stands still, so origins from before it
+    /// would drag the mean after the resume. A rate change is the same kind
+    /// of discontinuity: old origins recomputed at the new rate lean the
+    /// mean, so the window flushes there too. Internal so tests can pin the
+    /// mid-window rate change, like `foreignHoldWindow` above.
+    var correctionWindow: [(atMono: TimeInterval, position: TimeInterval)] = []
+    /// The fetch behind a correction. Production asks Spotify over AppleScript;
+    /// tests substitute canned answers, mirroring `spotifyMetadataProvider`.
+    var precisionPositionFetcher: ((@escaping @MainActor (TimeInterval?) -> Void) -> Void)?
+    /// Forces the Spotify-displayed verdict in tests, where no Spotify pid can
+    /// be adopted through `NSRunningApplication`. Production leaves this nil.
+    var spotifyDisplayForTests: Bool?
+    /// Pins the scriptable precision source in tests without requiring a
+    /// running player process.
+    var precisionPlayerForTests: PlayerApp?
     private var spotifyStateObserver: (any NSObjectProtocol)?
 
     private var ticker: Timer?
@@ -182,7 +320,8 @@ final class MediaController: ObservableObject {
         // measured arriving 10-30ms after the change, needing no permission
         // at all. It does not fire on seeks (MediaRemote pushes a fresh pair
         // ~185ms after those, covering the gap) and delivery is not
-        // guaranteed, so it is an anchor source, never the only source.
+        // guaranteed, so the broadcast re-anchors at once and then asks for
+        // the authoritative correction — never the only source.
         spotifyStateObserver = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.spotify.client.PlaybackStateChanged"),
             object: nil,
@@ -215,11 +354,10 @@ final class MediaController: ObservableObject {
         guard position.isFinite, position >= 0 else { return }
         guard duration <= 0 || position <= duration + 1 else { return }
         trace(String(format: "bc pos=%.2f old=%.2f", position, self.position))
-        setAnchor(position)
-        // Deliberately not `positionSettled = true`. Delivery of these
-        // notifications is not guaranteed and they do not fire on seeks, which
-        // is exactly why the flag exists — it means "an authoritative reading
-        // has landed", and this is an anchor hint, not that reading.
+        // The broadcast is an anchor hint no longer: a play, pause or
+        // track-change re-anchors at once and asks for the authoritative
+        // correction immediately, unsettled until it lands.
+        handleSpotifyPlaybackState(position: position)
     }
 
     /// Returns the controller to the state `start()` expects.
@@ -243,6 +381,8 @@ final class MediaController: ObservableObject {
         observers.removeAll()
         ticker?.invalidate()
         ticker = nil
+        boundaryTimer?.invalidate()
+        boundaryTimer = nil
     }
 
     /// Panel visibility. The position ticker hangs off this: it exists to move
@@ -342,13 +482,19 @@ final class MediaController: ObservableObject {
     /// re-serves one elapsed/timestamp pair between state changes. Spotify,
     /// though, answers its exact position over scripting to within ~50ms —
     /// so while the panel is open and Spotify is the displayed player, the
-    /// position is corrected against the player itself every two seconds.
+    /// position is corrected against the player itself every second.
     ///
     /// Spotify only, deliberately: it is the player that answers, and the
     /// first use raises macOS's one-time automation consent for it. Scoped to
     /// the open panel so a closed pill costs nothing and prompts for nothing.
     private var displayedPlayerIsSpotify: Bool {
-        displayedPlayerApp == .spotify
+        spotifyDisplayForTests ?? (displayedPlayerApp == .spotify)
+    }
+
+    private var precisionPlayer: PlayerApp? {
+        if let precisionPlayerForTests { return precisionPlayerForTests }
+        if spotifyDisplayForTests == true { return .spotify }
+        return displayedPlayerApp
     }
 
     /// The scriptable player behind the displayed session, when it is one.
@@ -358,6 +504,13 @@ final class MediaController: ObservableObject {
         guard let pid = displayedPlayerPID,
               let bundle = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier else { return nil }
         return PlayerApp.allCases.first { $0.bundleID == bundle }
+    }
+
+    /// A coarse player class for lyric matching. It is metadata, never an
+    /// account or a process identifier, and lets timing policy distinguish
+    /// scriptable players from unmeasured Now Playing publishers.
+    var lyricPlayerID: String {
+        displayedPlayerApp?.rawValue ?? "other"
     }
 
     /// Asks Spotify which track this is, and asks again if it does not answer.
@@ -379,6 +532,7 @@ final class MediaController: ObservableObject {
                   self.displayedPlayerPID == playerPID else { return }
             if let id {
                 self.spotifyTrackID = id
+                Task { [weak self] in await self?.requestSpotifyMetadata(trackID: id, forKey: key) }
                 return
             }
             // Backing off, and giving up well before it could become a poll.
@@ -392,13 +546,63 @@ final class MediaController: ObservableObject {
         }
     }
 
+    /// Fetches the catalogue's exact identity for the resolved Spotify track.
+    ///
+    /// One attempt, not the retry loop above: a lookup that fails simply
+    /// leaves the fields nil and title/artist matching covers the track. The
+    /// next track change refetches, so a failure never needs polling for the
+    /// rest of the song — and a failed lookup must never raise anything,
+    /// because there is no user-grantable permission behind it.
+    func requestSpotifyMetadata(trackID: String, forKey key: String) async {
+        let metadata: SpotifyAccount.TrackMetadata?
+        if let provider = spotifyMetadataProvider {
+            metadata = await provider(trackID)
+        } else {
+            metadata = await SpotifyAccount.shared.trackMetadata(id: trackID)
+        }
+        // The track may have moved on while the lookup was in flight. The
+        // key — pid plus title/artist/album — already identifies the track,
+        // so a stale answer fails this and never pins the previous song's
+        // identity onto the new one. Assigned unconditionally past the guard:
+        // a track the catalogue does not know keeps nil rather than a
+        // predecessor's values.
+        //
+        // The key alone is not enough: two catalogue IDs can share one key —
+        // same title, artist, album and pid for a re-release — so a late
+        // answer for the departed ID would still pass the key guard and pin
+        // its ISRC onto the track the new ID now owns. The resolved ID is the
+        // second half of the guard: set beside the fetch call, it has moved
+        // on by the time a stale answer lands.
+        guard track?.key == key, spotifyTrackID == trackID else { return }
+        spotifyISRC = metadata?.isrc
+        // The Web API speaks milliseconds; everything past this line —
+        // lyric gates, task identities — speaks seconds.
+        spotifyExactDuration = metadata.map { TimeInterval($0.durationMs) / 1000 }
+    }
+
+    /// Test seam: pins the resolved catalogue id the metadata guard reads,
+    /// standing in for the AppleScript lookup that never resolves without a
+    /// running Spotify. Production sets `spotifyTrackID` beside the fetch;
+    /// tests do the same through here.
+    func setSpotifyTrackIDForTests(_ id: String?) { spotifyTrackID = id }
+
+    /// Test seam for late Spotify catalogue metadata. Production writes these
+    /// fields through `requestSpotifyMetadata(trackID:forKey:)`.
+    func setSpotifyMetadataForTests(
+        trackID: String?, isrc: String?, exactDuration: TimeInterval?
+    ) {
+        spotifyTrackID = trackID
+        spotifyISRC = isrc
+        spotifyExactDuration = exactDuration
+    }
+
     private func updatePrecisionSync() {
         // Playing, too. A paused track's position cannot move, so asking
-        // Spotify where it is every two seconds — a fresh AppleScript compile
+        // Spotify where it is every second — a fresh AppleScript compile
         // and an Apple event into another process each time — bought a number
         // already known. Pausing and walking away used to leave that running
         // indefinitely.
-        let wanted = isActive && isPlaying && displayedPlayerIsSpotify
+        let wanted = isActive && isPlaying && precisionPlayer != nil
         if precisionSync != wanted { precisionSync = wanted }
         guard wanted else {
             precisionTimer?.invalidate()
@@ -406,23 +610,67 @@ final class MediaController: ObservableObject {
             return
         }
         guard precisionTimer == nil else { return }
-        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.precisionCorrect() }
+        // A (re)starting loop is a new line: origins measured before a pause
+        // describe a frozen position against a running clock, and regressing
+        // them with the fresh ones would lean the mean backwards for five polls.
+        correctionWindow = []
+        let timer = Timer(timeInterval: Self.precisionPollInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.precisionCorrect() }
         }
-        timer.tolerance = 0.2
+        timer.tolerance = Self.precisionPollTolerance
         RunLoop.main.add(timer, forMode: .common)
         precisionTimer = timer
         precisionCorrect()
     }
 
+    /// The smoothed anchor for a window of RTT-aged corrections.
+    ///
+    /// Each correction implies an origin — where the track stood at monotonic
+    /// zero had it always run at `rate` — and the mean of those origins is the
+    /// line the player is actually on. Zero-mean scheduling jitter cancels
+    /// across the window instead of yanking the sweep every poll, while a real
+    /// drift moves every sample and carries the mean with it. A single sample
+    /// is just a snap: the regression only helps once there is a window.
+    static func regressedAnchorPosition(
+        corrections: [(atMono: TimeInterval, position: TimeInterval)],
+        rate: Double,
+        nowMono: TimeInterval
+    ) -> TimeInterval {
+        guard let last = corrections.last else { return 0 }
+        guard rate > 0 else { return last.position }
+        let mean = corrections.map { $0.position - $0.atMono * rate }.reduce(0, +)
+            / TimeInterval(corrections.count)
+        return mean + nowMono * rate
+    }
+
+    /// What a Spotify play/pause/track-change broadcast is worth.
+    ///
+    /// The reading arrives in 10-30ms with millisecond precision, so it anchors
+    /// at once — then a correction is asked for immediately rather than on the
+    /// next poll, and the position reads unsettled until that authoritative
+    /// answer lands so no lyric is chosen from the hint. The guards (Spotify
+    /// displayed, no seek in flight, sane value) stay with the caller.
+    func handleSpotifyPlaybackState(position broadcastPosition: TimeInterval) {
+        setAnchor(broadcastPosition)
+        positionSettled = false
+        precisionCorrect()
+    }
+
     private func precisionCorrect() {
-        guard !precisionInFlight, displayedPlayerIsSpotify else { return }
+        guard !precisionInFlight, let player = precisionPlayer else { return }
         precisionInFlight = true
-        let asked = Date()
-        PlayerBridge.preciseSpotifyPosition { [weak self] value in
+        let askedMono = monotonicNow()
+        // The seek verdict below is the one place the wall clock stays: it
+        // orders a reading against a seek issued moments ago, and thresholds
+        // (1.5s expiry, 0.6 phantom, 0.8 target) are unchanged.
+        let askedWall = Date()
+        let fetch = precisionPositionFetcher ?? { completion in
+            PlayerBridge.precisePosition(of: player, completion: completion)
+        }
+        fetch { [weak self] value in
             guard let self else { return }
             self.precisionInFlight = false
-            guard let value, self.isActive, self.displayedPlayerIsSpotify else { return }
+            guard let value, self.isActive, self.precisionPlayer == player else { return }
 
             // With corrections stewarding the position, this loop must also
             // settle a pending seek — the MediaRemote branch that used to is
@@ -435,7 +683,7 @@ final class MediaController: ObservableObject {
                     reading: value,
                     target: pending.target,
                     issuedAt: pending.at,
-                    askedAt: asked,
+                    askedAt: askedWall,
                     now: Date(),
                     origin: pending.origin,
                     rate: self.isPlaying ? self.playbackRate : 0
@@ -450,20 +698,42 @@ final class MediaController: ObservableObject {
             // it describes the moment mid-round-trip, so while playing it is
             // aged by half the trip before use. Without this every correction
             // pulled the clock back by its own latency, and the measured
-            // result was a position that froze for a third of a second every
-            // two seconds: the exact stutter this path exists to remove.
-            let latency = Date().timeIntervalSince(asked)
+            // result was a position that froze for a third of a second on every
+            // poll: the exact stutter this path exists to remove. The
+            // trip is timed on the monotonic clock, so a wall step mid-round-trip
+            // cannot stretch or shrink it.
+            let nowMono = self.monotonicNow()
+            let latency = nowMono - askedMono
             let corrected = self.isPlaying ? value + latency / 2 : value
             let delta = corrected - self.position
             self.trace(String(format: "pc val=%.2f lat=%.2f delta=%.2f pos=%.2f", value, latency, delta, self.position))
 
             // Monotonic while playing: time does not go backwards, so a small
             // backward disagreement is sampling noise and only re-bases the
-            // clock. A large one is a real rewind and is taken whole.
+            // clock. A large one is a real rewind and is taken whole. Forward
+            // and large corrections join the regression window instead of
+            // snapping the anchor, so one jittered answer cannot move the sweep.
             if delta >= 0 || delta <= -1.0 || !self.isPlaying {
-                self.setAnchor(corrected)
+                // ...unless the jump is event-scale — a seek made in the
+                // player, not drift. The window still leans on the old line,
+                // and regressing a +30s jump would drag the anchor back towards
+                // where the track was for five polls. Flush and snap, mirroring
+                // the 1.0s band the rebase rule above already draws.
+                if self.isPlaying, abs(delta) >= 1.0 {
+                    self.correctionWindow = []
+                    self.setAnchor(corrected)
+                } else {
+                    self.correctionWindow.append((atMono: nowMono, position: corrected))
+                    if self.correctionWindow.count > Self.correctionWindowSize {
+                        self.correctionWindow.removeFirst(
+                            self.correctionWindow.count - Self.correctionWindowSize)
+                    }
+                    let rate = self.isPlaying ? self.playbackRate : 0
+                    self.setAnchor(Self.regressedAnchorPosition(
+                        corrections: self.correctionWindow, rate: rate, nowMono: nowMono))
+                }
             } else {
-                self.anchor = (self.position, Date())
+                self.anchor = (self.position, nowMono)
             }
             if !self.positionSettled { self.positionSettled = true }
         }
@@ -501,6 +771,9 @@ final class MediaController: ObservableObject {
         // trajectory the track has already left.
         rewindCandidate = nil
         setAnchor(clamped)
+        // Our own jump starts a new line: corrections measured against the old
+        // one would lean the regression back towards it for five polls.
+        correctionWindow = []
         pendingSeek = (clamped, Date(), origin)
         lastSeek = (clamped, Date(), origin)
         if feedAvailable {
@@ -578,10 +851,18 @@ final class MediaController: ObservableObject {
         // every two seconds forever, and the whole panel graph was rebuilt off
         // the back of it — measured at roughly a quarter of the app's idle CPU,
         // spent re-rendering a collapsed shell that had not changed.
-        let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
         let trackChanged = track?.key != key
-        if track != fresh { track = fresh }
         let playerChanged = displayedPlayerPID != snapshot.playerPID
+        // Clear metadata for the departing logical track before publishing the
+        // new one. Otherwise a subscriber can observe the new title paired
+        // with the previous recording ID for one synchronous Combine turn.
+        if trackChanged || playerChanged {
+            spotifyTrackID = nil
+            spotifyISRC = nil
+            spotifyExactDuration = nil
+        }
+        let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
+        if track != fresh { track = fresh }
         // Adopted *before* the Spotify id is asked for. Asking first tested the
         // player the last snapshot came from: switching Music → Spotify skipped
         // the lookup for the first Spotify track, so its word-synced lyrics
@@ -590,7 +871,8 @@ final class MediaController: ObservableObject {
         // lyrics to the wrong song entirely.
         displayedPlayerPID = snapshot.playerPID
         if trackChanged || playerChanged {
-            spotifyTrackID = nil
+            // A new song is a new line for the regression too.
+            correctionWindow = []
             requestSpotifyTrackID(for: key, playerPID: snapshot.playerPID, attempt: 0)
         }
         if playerChanged {
@@ -660,7 +942,23 @@ final class MediaController: ObservableObject {
         // The rate the clock extrapolates at, from the player itself. Zero is
         // what a paused session reports and says nothing about how fast it will
         // resume, so the last positive rate is kept.
-        if snapshot.rate > 0 { playbackRate = snapshot.rate }
+        if snapshot.rate > 0 {
+            // A rate change discontinues the regression line the way a seek
+            // and a track change already do (see both): every origin in the
+            // window was measured while the track moved at the old rate, and
+            // `regressedAnchorPosition` derives each origin as
+            // `position - atMono * rate` at the *current* rate — so a window
+            // built at 1x surviving into 2x playback recomputes those origins
+            // a growing distance off, leaning the mean towards the speed
+            // mismatch instead of the player's drift and "correcting" every
+            // fresh reading backwards for the five polls it takes the window
+            // to age out. Only a change flushes: a steady rate is the
+            // ordinary case and must keep the line it has been building, and
+            // the first positive rate after a pause is no change at all —
+            // the loop that was paused flushes its own window on restart.
+            if snapshot.rate != playbackRate { correctionWindow = [] }
+            playbackRate = snapshot.rate
+        }
         if precisionSteers {
             // Position is the correction loop's job; everything else in the
             // snapshot — track, playing state, commands, artwork — landed
@@ -805,7 +1103,8 @@ final class MediaController: ObservableObject {
         // does not compare before firing, so writing nil over nil still
         // invalidated the whole panel graph twice a minute, all day — the same
         // regression documented and fixed on the playing path above.
-        guard track != nil || isPlaying || position != 0 || sourceName != nil || activeApp != nil else {
+        guard track != nil || isPlaying || position != 0 || sourceName != nil || activeApp != nil
+            || spotifyTrackID != nil || spotifyISRC != nil || spotifyExactDuration != nil else {
             return
         }
         activeApp = nil
@@ -831,6 +1130,8 @@ final class MediaController: ObservableObject {
         foreignSince = nil
         positionSettled = false
         spotifyTrackID = nil
+        spotifyISRC = nil
+        spotifyExactDuration = nil
         canSkip = true
         playbackRate = 1
         shuffleEnabled = nil
@@ -843,6 +1144,7 @@ final class MediaController: ObservableObject {
         anchor = nil
         pendingSeek = nil
         rewindCandidate = nil
+        correctionWindow = []
         updatePrecisionSync()
         updateTicker()
     }
@@ -982,7 +1284,7 @@ final class MediaController: ObservableObject {
 
     private func setAnchor(_ value: TimeInterval) {
         position = value
-        anchor = (value, Date())
+        anchor = (value, monotonicNow())
     }
 
     /// Verification-only: one-line breadcrumbs through the position pipeline,
@@ -1062,6 +1364,7 @@ final class MediaController: ObservableObject {
         if duration > 0 { value = min(value, duration) }
         let delta = value - position
         let now = Date()
+        let nowMono = monotonicNow()
 
         if delta <= -seekThreshold, !mayRewindAtOnce, isPlaying {
             let confirmed = Self.corroboratesRewind(
@@ -1074,11 +1377,11 @@ final class MediaController: ObservableObject {
             guard confirmed else {
                 // Keep the clock running under the held reading, so the ignored
                 // difference cannot accumulate into the next comparison.
-                anchor = (position, now)
+                anchor = (position, nowMono)
                 return
             }
             position = value
-            anchor = (value, now)
+            anchor = (value, nowMono)
             return
         }
         rewindCandidate = nil
@@ -1087,11 +1390,11 @@ final class MediaController: ObservableObject {
 
         if delta >= forwardTolerance || delta <= -seekThreshold {
             position = value
-            anchor = (value, Date())
+            anchor = (value, nowMono)
         } else {
             // Keep what is on screen and re-base the clock under it, so the
             // ignored difference cannot accumulate into the next comparison.
-            anchor = (position, Date())
+            anchor = (position, nowMono)
         }
     }
 
@@ -1103,20 +1406,31 @@ final class MediaController: ObservableObject {
         // re-evaluated wherever they change rather than at the handful of call
         // sites that happened to remember.
         updatePrecisionSync()
-        guard isPlaying, isActive else { return }
-        // Four times a second: the bar advances in sub-pixel steps, so it reads
-        // as smooth without any animation smoothing the seek away with it.
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+        guard isPlaying, isActive else {
+            boundaryTimer?.invalidate()
+            boundaryTimer = nil
+            return
         }
-        timer.tolerance = 0.05
+        let timer = Timer(timeInterval: Self.positionTickInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.tick() }
+        }
+        // A twentieth of the interval, so the grid stays a grid. At the old
+        // 0.05 tolerance on a 0.25 interval the system was free to slide a
+        // tick a fifth of the way to the next one.
+        timer.tolerance = Self.positionTickInterval / 20
         RunLoop.main.add(timer, forMode: .common)
         ticker = timer
+        armBoundaryTimer()
     }
 
-    private func tick() {
+    /// Advances the bar from the anchor. Internal so tests can drive the clock
+    /// without waiting on the quarter-second timer.
+    func tick() {
         guard let anchor, isPlaying else { return }
-        let value = anchor.position + Date().timeIntervalSince(anchor.at) * playbackRate
+        let value = anchor.position + (monotonicNow() - anchor.atMono) * playbackRate
         position = duration > 0 ? min(value, duration) : value
+        // Whether this was the grid or a boundary, the next boundary is armed
+        // from the position just published.
+        armBoundaryTimer()
     }
 }

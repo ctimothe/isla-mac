@@ -32,17 +32,23 @@ bash Scripts/test-provenance.sh
 bash Scripts/test-branding.sh
 bash Scripts/test-localizations.sh
 bash Scripts/bundle.sh release
+bash Scripts/test-identity.sh
 bash Scripts/test-helper.sh
 bash Scripts/test-package.sh
-bash Scripts/dmg.sh
+bash Scripts/test-gatekeeper.sh
 bash Scripts/test-lifecycle.sh
+bash Scripts/dmg.sh
 ```
+
+This is the order `Scripts/release.sh` runs and `.github/workflows/build.yml`
+mirrors. `./scripts/check` runs the first four — the ones every change owes —
+and nothing that packages.
 
 Expected artifacts:
 
 ```text
 build/Isla.app
-build/Isla-0.6.5.dmg
+build/Isla-<version>.dmg   # <version> from Scripts/version
 ```
 
 Launch the verified bundle:
@@ -158,8 +164,10 @@ Create a temporary macOS user for the test.
    confirm nothing is written to `~/Pictures/Isla`.
 4. Play a track with **Lyrics** off (the default) and confirm, with Little
    Snitch or `nettop`, that no request leaves the machine.
-5. Turn Lyrics on and confirm requests go only to `lrclib.net`,
-   `raw.githubusercontent.com` and `lyrics.kugou.com`.
+5. Turn Lyrics on, import an LRC file and add a folder, and confirm that
+   still nothing leaves the machine: lyrics are fully offline since
+   `032d34b`, and any request from the app while a lyric surface is open is a
+   regression.
 6. Connect a Spotify account, confirm the browser round trip returns and the
    heart works, then Disconnect and confirm the keychain items are gone.
 
@@ -197,7 +205,10 @@ when the scripting fallback first drives Music or Spotify.
   exactly the height it does for a track with words.
 - Play a track whose lyrics carry word timing, open the full stage, and confirm
   the caption behind it and the stage agree on the current line. Nudge Sync and
-  confirm both move together.
+  confirm both move together. Nudge one track with Sync ±, replay another, and
+  confirm the second is unmoved and the first keeps its nudge; hold the offset
+  readout to clear it back to 0. Re-search clears the track nudge: the
+  correction belonged to the deleted entry's timing.
 - Turn on **Reduce Transparency** in System Settings → Accessibility → Display.
   Every translucent surface becomes an opaque panel while the panel is open,
   without relaunching. Turn on **Increase Contrast** and confirm the lit rim
@@ -238,7 +249,8 @@ export APPLE_TEAM_ID="TEAMID"
 export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
 ```
 
-Create `docs/releases/0.6.5.md`, commit and push it, confirm the tree is clean,
+Create `docs/releases/<version>.md` for the version in `Scripts/version`,
+commit and push it, confirm the tree is clean,
 then explicitly publish:
 
 ```bash
@@ -248,7 +260,7 @@ bash Scripts/release.sh
 The script runs every gate in §2 — including `test-identity.sh` and
 `test-lifecycle.sh` — then Developer ID-signs, notarizes and staples the app,
 builds the disk image around that stapled app without rebuilding it, notarizes
-and staples the image, and only then tags `v0.6.5` and uploads the
+and staples the image, and only then tags `v<version>` and uploads the
 checksum-bearing GitHub release. A failure while publishing removes the tag it
 pushed, so a retry is not blocked by it. It never publishes from an uncommitted
 tree or without release notes and credentials.

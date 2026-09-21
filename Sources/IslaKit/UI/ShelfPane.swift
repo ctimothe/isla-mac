@@ -82,7 +82,7 @@ struct ShelfPane: View {
             )
             .overlay(
                 Image(systemName: "tray.and.arrow.down.fill")
-                    .font(.system(size: 20, weight: .light))
+                    .islandFont(.display, weight: .light)
                     .foregroundStyle(isTargeted ? .white : Theme.tertiary)
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -92,20 +92,20 @@ struct ShelfPane: View {
     private var footer: some View {
         HStack(spacing: 10) {
             if !shelf.selection.isEmpty {
-                Text(localized("Selected: %d", shelf.selection.count))
-                    .font(.system(size: 9))
+                Text(localized("%d selected", shelf.selection.count))
+                    .islandFont(.caption, weight: .regular)
                     .foregroundStyle(Theme.tertiary)
             }
             Spacer()
             if !shelf.selection.isEmpty {
                 Button("Deselect") { shelf.clearSelection() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10, weight: .medium))
+                    .buttonStyle(PanelButtonStyle())
+                    .islandFont(.caption)
                     .foregroundStyle(Theme.secondary)
             }
             ConfirmTextButton(
                 title: localized("Clear"),
-                armedTitle: localized("Clear Everything?")
+                armedTitle: localized("Clear Everything")
             ) { shelf.clear() }
         }
         .padding(.top, 2)
@@ -139,9 +139,10 @@ private struct ShelfCard: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 68, height: 40)
             Text(item.name)
-                .font(.system(size: 9))
+                .islandFont(.caption, weight: .regular)
                 .foregroundStyle(Theme.secondary)
                 .lineLimit(2)
+                .truncationMode(.middle)
                 .multilineTextAlignment(.center)
                 .frame(height: 24, alignment: .top)
         }
@@ -150,11 +151,11 @@ private struct ShelfCard: View {
         .frame(width: 86, height: 92)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.white.opacity(0.18) : (isHovered ? Theme.surfaceHover : Theme.surface))
+                .fill(isSelected ? Theme.selectedChip : (isHovered ? Theme.surfaceHover : Theme.surface))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(isSelected ? 0.55 : 0), lineWidth: 1.5)
+                .strokeBorder(Theme.selectedChipBorder.opacity(isSelected ? 1 : 0), lineWidth: 1.5)
                 .allowsHitTesting(false)
         )
         // Owns clicks and drags: a group drag needs one dragging item per file,
@@ -170,7 +171,7 @@ private struct ShelfCard: View {
         .overlay(alignment: .topLeading) {
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 12))
+                    .islandFont(.subhead, weight: .regular)
                     .foregroundStyle(.white)
                     .padding(4)
                     .allowsHitTesting(false)
@@ -180,11 +181,15 @@ private struct ShelfCard: View {
             if isHovered {
                 Button { shelf.remove(item) } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 13))
+                        .islandFont(.subhead, weight: .regular)
                         .foregroundStyle(Color.white.opacity(0.75))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .padding(4)
+                .buttonStyle(PanelButtonStyle())
+                .help(localized("Remove from Shelf"))
+                .accessibilityLabel(localized("Remove from Shelf"))
+                .padding(2)
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

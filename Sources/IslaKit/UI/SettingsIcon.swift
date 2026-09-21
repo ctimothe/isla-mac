@@ -21,12 +21,32 @@ enum SettingsIcon {
 
     // Screenshots
     static let saveScreenshots = "square.and.arrow.down"
+    /// A recording arriving on its own: video coming in, not going out.
+    static let importRecordings = "video.badge.plus"
     static let showFolder = "folder"
     static let clear = "trash"
 
     // Music
     /// Apple Music's own glyph for lyrics.
     static let lyrics = "quote.bubble"
+    /// Word-by-word, as opposed to the line: the glyph is about the words.
+    static let wordKaraoke = "text.word.spacing"
+    /// A file arriving. `saveScreenshots` already owns the tray glyph, and an
+    /// import is a document being added, not a screenshot being kept.
+    static let importLyrics = "doc.badge.plus"
+    static let addFolder = "folder.badge.plus"
+    /// Removing a folder from the library forgets it; nothing on disk is touched,
+    /// so it is not the trash.
+    static let removeFolder = "folder.badge.minus"
+    static let rescan = "arrow.clockwise"
+    /// Dismissing a leftover timing correction sets it aside; it deletes no file.
+    static let dismiss = "xmark.circle"
+    /// The one lyric switch that reaches the network. A globe says so at a
+    /// glance, which is the point of it being the only one.
+    static let onlineLyrics = "globe"
+    /// The whole catalogue moved in time, as opposed to one track's nudge.
+    static let lyricTiming = "metronome"
+    static let resetTiming = "arrow.counterclockwise"
     /// A brief look at the track that just started.
     static let peek = "eye"
     static let lockScreen = "lock.display"
@@ -51,8 +71,9 @@ enum SettingsIcon {
 
     static let all: [String] = [
         launchAtLogin, openOnHover, hoverDelay, panelWidth,
-        saveScreenshots, showFolder, clear,
-        lyrics, peek, lockScreen, cardStyle,
+        saveScreenshots, importRecordings, showFolder, clear,
+        lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, dismiss,
+        onlineLyrics, lyricTiming, resetTiming, peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, translate, hideFromRecording,
         about, quit,

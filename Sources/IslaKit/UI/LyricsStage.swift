@@ -46,6 +46,12 @@ extension AnyTransition {
 struct LyricsStage: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
+    var localLookup: LocalLyricsLookup? = nil
+    var retry: () -> Void = {}
+    var importLocalFile: () -> Void = {}
+    var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
+    var removeLocalBinding: () -> Void = {}
+    var editLocalLyrics: (LocalLyricsCandidate) -> Void = { _ in }
     /// Folds the stage back into the ordinary pane.
     var dismiss: () -> Void
 
@@ -63,20 +69,37 @@ struct LyricsStage: View {
     /// coloured from the cover is unreadable the moment the cover is pale.
     private let accent: Color = .white
 
-    /// The one lead, shared with the caption and the lock card.
+    /// The one lead, shared with the caption and the lock card: the base plus
+    /// all three offset layers, so a per-track nudge moves every surface.
     private var lead: TimeInterval {
-        LyricSweep.lead(precisionSync: media.precisionSync, userOffset: lyrics.userOffset)
+        LyricSweep.lead(
+            precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
+            trackOffset: lyrics.trackOffset
+        )
     }
 
     private var now: TimeInterval { media.position + lead }
 
+    private var wordTimingEnabled: Bool {
+        LyricsPresentation.usesWordTiming(
+            lyrics.timingGranularity,
+            precisionMeasured: media.precisionSync,
+            wordKaraokeEnabled: lyrics.wordKaraokeEnabled
+        )
+    }
+
     var body: some View {
         ZStack {
             ambience
-            if case .synced(let lines) = lyrics.state, !lines.isEmpty {
-                stage(lines: lines)
-            } else {
-                unavailable
+            VStack(spacing: 0) {
+                header
+                if case .ready = lyrics.availability,
+                   case .synced(let lines) = lyrics.state,
+                   !lines.isEmpty {
+                    stage(lines: lines)
+                } else {
+                    unavailable
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -86,7 +109,7 @@ struct LyricsStage: View {
         .overlay(alignment: .bottomLeading) {
             if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
                 Text(debugStateDescription)
-                    .font(.system(size: 9, weight: .medium).monospacedDigit())
+                    .font(Theme.TypeRole.caption.font().monospacedDigit())
                     .foregroundStyle(.yellow)
                     .padding(6)
                     // A readout is not a control. Left hittable it sat over the
@@ -187,12 +210,9 @@ struct LyricsStage: View {
     // MARK: - Stage
 
     /// Every row occupies the same fixed slot, which is what makes the motion
-    /// exact: the whole column's offset is plain arithmetic on the current
-    /// index, animated as one value. No scroll view — the song is the only
-    /// thing that moves this surface, and a scroll view's own machinery
-    /// (which additionally refuses to render at all inside this panel's
-    /// hosting configuration) had nothing to offer but ways to disagree
-    /// with the clock.
+    /// exact: the song's position maps to a row by plain arithmetic, and the
+    /// `ScrollView` below is driven to that row through `scrollPosition` as
+    /// one value — the clock moves the page, and a hand may move it too.
     static let slotHeight: CGFloat = 40
     static let slotSpacing: CGFloat = 8
 
@@ -210,9 +230,7 @@ struct LyricsStage: View {
         // waiting at the reading centre, dimmed, taking the sweep the moment
         // the voice arrives. Anchoring on nothing left the stage vacant.
         let anchor = currentIndex ?? 0
-        return VStack(spacing: 0) {
-            header
-            GeometryReader { geo in
+        return GeometryReader { geo in
                 // Half a viewport of air above the first line and below the
                 // last, so either end can still reach the reading centre
                 // instead of stopping short against the scroll bounds.
@@ -287,18 +305,38 @@ struct LyricsStage: View {
                 }
                 .animation(reduceMotion ? nil : Theme.contentAnimation, value: following)
                 .animation(reduceMotion ? nil : Theme.contentAnimation, value: strayed)
-            }
-            .padding(.horizontal, 22)
         }
+        .padding(.horizontal, 22)
     }
 
     /// Puts the sung line back at the reading centre.
+    ///
+    /// On `Theme.lyricScroll`, not on the generic content ease this used to
+    /// borrow. `Theme.contentAnimation` is 0.16s — it is the curve for a badge
+    /// appearing — and one page step here is a whole slot, 48pt, moved because
+    /// the song moved. At 0.16s the page beat the thing it exists to carry:
+    /// `KaraokeText` sweeps a line over `.linear(duration: 0.25)`, so the new
+    /// line was already parked at the reading centre with its sweep still
+    /// crossing it. The page has to be the slower of the two, and it is the one
+    /// animation in this app allowed a little overshoot — see the comment on
+    /// `Theme.lyricScroll` for why the momentum rule permits exactly this one.
+    ///
+    /// The Reduce Motion branch is now inside `Theme.lyricScroll(reduceMotion:)`
+    /// rather than being a bare assignment here. It still refuses the spring —
+    /// what it no longer does is snap the page between lines with no transition
+    /// at all, which is the same answer `Theme.open(reduceMotion:)` gives.
     private func center(on id: TimeInterval) {
-        guard !reduceMotion else {
-            reading = id
-            return
-        }
-        withAnimation(Theme.contentAnimation) { reading = id }
+        withAnimation(Theme.lyricScroll(reduceMotion: reduceMotion)) { reading = id }
+    }
+
+    /// The song as somebody would paste it: the sung lines, in order, one per
+    /// line, with the credits left out — they are metadata the app inferred,
+    /// not words anybody sang.
+    static func plainText(_ lines: [LyricsStore.Line]) -> String {
+        lines.filter { !$0.isCredit }
+            .map(\.text)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n")
     }
 
     /// How far the page may drift before the way back is worth offering: the
@@ -324,9 +362,9 @@ struct LyricsStage: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "music.note")
-                    .font(.system(size: 9, weight: .bold))
+                    .islandFont(.caption, weight: .bold)
                 Text(localized("Sync"))
-                    .font(.system(size: 10, weight: .semibold))
+                    .islandFont(.caption, weight: .semibold)
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
@@ -335,12 +373,11 @@ struct LyricsStage: View {
             // inside an opaque panel, so there is nothing behind it to sample.
             .glassSurface(cornerRadius: 999, elevation: .pill, samplesBackdrop: false)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelButtonStyle())
         .accessibilityLabel(localized("Back to the current line"))
         .help(localized("Back to the current line"))
     }
 
-    @ViewBuilder
     private func row(line: LyricsStore.Line, index: Int, current: Int?, lines: [LyricsStore.Line]) -> some View {
         let isCurrent = index == current
         // How far from the voice this line stands, for the depth falloff.
@@ -352,13 +389,15 @@ struct LyricsStage: View {
             at: now,
             end: LyricSweep.end(of: index, in: lines),
             // The stage reads at arm's length and lets a long line wrap; the
-            // card holds one line at a glance. Size and wrapping are the only
-            // things either surface still decides for itself.
-            fontSize: 15,
+            // card holds one line at a glance. Wrapping is the only thing
+            // either surface still decides for itself — both read at the title
+            // size, which is where the two had already met in one tracking band.
+            fontSize: Theme.TypeRole.title.size,
             weight: .bold,
             lineLimit: 2,
             accent: accent,
             reduceMotion: reduceMotion,
+            wordTimingEnabled: wordTimingEnabled,
             seek: {
                 if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
                     DebugTrail.note(String(
@@ -372,7 +411,8 @@ struct LyricsStage: View {
                 // follows again from there rather than stranding the reader one
                 // tap away from a stage that no longer moves.
                 following = true
-            }
+            },
+            allText: Self.plainText(lines)
         )
         .frame(maxHeight: .infinity, alignment: .center)
         .animation(reduceMotion ? nil : Theme.contentAnimation, value: isCurrent)
@@ -382,94 +422,160 @@ struct LyricsStage: View {
 
     /// The sung prefix in the accent, the rest dimmed-bright, as one wrapping
     /// Text — so a two-row line fills in reading order.
+
+    /// The nudge corrects the loaded track's own layer, so without synced
+    /// words there is nothing to correct: persisting needs `.synced`, and a
+    /// nudge made without it would sit in the overlay until the next cache
+    /// hit restores the file's 0 over it, silently eating the correction.
+    private var canNudgeTrack: Bool {
+        if case .ready = lyrics.availability, case .synced = lyrics.state { return true }
+        return false
+    }
+
     // MARK: - Header
 
     private var header: some View {
         HStack(spacing: 10) {
             Button(action: dismiss) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 10, weight: .semibold))
+                    .islandFont(.caption, weight: .semibold)
             }
             .buttonStyle(NotchButtonStyle(size: 24))
+            .help(localized("Back to Player"))
             .accessibilityLabel(localized("Back to Player"))
 
             Spacer(minLength: 0)
 
-            // The timing nudge. Shown as the correction it is; zero reads as
-            // nothing rather than as "+0.00s".
-            HStack(spacing: 4) {
-                Button { lyrics.userOffset -= 0.25 } label: {
+            // The per-track timing nudge. Shown as the correction it is; zero
+            // reads as nothing rather than as "+0.00s". This moves only this
+            // track's layer — a remaster fixed here never shifts any other
+            // song — and holding the readout clears it back to 0.
+            if canNudgeTrack {
+                HStack(spacing: 4) {
+                Button { lyrics.nudgeTrackOffset(by: -0.25) } label: {
                     Image(systemName: "minus")
+                        // Fitted to the 22pt well, not set as type: a caption
+                        // glyph would crowd a button this small.
                         .font(.system(size: 8, weight: .bold))
                 }
-                .buttonStyle(NotchButtonStyle(size: 20))
+                .buttonStyle(NotchButtonStyle(size: 22))
+                .disabled(!canNudgeTrack)
                 .accessibilityLabel(localized("Lyrics Earlier"))
-                if abs(lyrics.userOffset) > 0.01 {
-                    Text(String(format: "%+.2fs", lyrics.userOffset))
-                        .font(.system(size: 9, weight: .medium).monospacedDigit())
+                if abs(lyrics.trackOffset) > 0.01 {
+                    Text(localized("%+.2fs", lyrics.trackOffset))
+                        .font(Theme.TypeRole.caption.font().monospacedDigit())
                         .foregroundStyle(Theme.secondary)
                         .frame(minWidth: 40)
+                        // The only reset, and deliberately a held one: a tap
+                        // target this small, beside two steppers, would eat
+                        // nudges meant for its neighbours.
+                        .onLongPressGesture { lyrics.clearTrackOffset() }
+                        .help(localized("Reset lyric timing"))
+                        .accessibilityHint(localized("Reset lyric timing"))
                 }
-                Button { lyrics.userOffset += 0.25 } label: {
+                Button { lyrics.nudgeTrackOffset(by: 0.25) } label: {
                     Image(systemName: "plus")
+                        // Same fitted glyph as the minus beside it.
                         .font(.system(size: 8, weight: .bold))
                 }
-                .buttonStyle(NotchButtonStyle(size: 20))
+                .buttonStyle(NotchButtonStyle(size: 22))
+                .disabled(!canNudgeTrack)
                 .accessibilityLabel(localized("Lyrics Later"))
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(localized("Lyric Timing"))
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(localized("Lyric Timing"))
 
-            // The bad-match escape hatch.
-            Button {
-                guard let track = media.track else { return }
-                lyrics.research(
-                    title: track.title, artist: track.artist,
-                    album: track.album, duration: media.duration,
-                    spotifyID: media.spotifyTrackID
-                )
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 9, weight: .semibold))
+            Button(action: chooseLocalLRC) {
+                Image(systemName: "doc.badge.plus")
+                    .islandFont(.caption, weight: .semibold)
             }
             .buttonStyle(NotchButtonStyle(size: 24))
-            .accessibilityLabel(localized("Search Lyrics Again"))
-            .help(localized("Wrong lyrics? Search again"))
+            .accessibilityLabel(localized("Import Local LRC"))
+            .help(localized("Import Local LRC"))
+
+            if case .some(.ready(let candidate)) = localLookup {
+                Button { editLocalLyrics(candidate) } label: {
+                    Image(systemName: "pencil")
+                        .islandFont(.caption, weight: .semibold)
+                }
+                .buttonStyle(NotchButtonStyle(size: 24))
+                .accessibilityLabel(localized("Edit Lyrics"))
+                .help(localized("Edit Lyrics"))
+            }
+
+            if lyrics.hasLocalOverride {
+                Button(action: removeLocalBinding) {
+                    Image(systemName: "trash")
+                        .islandFont(.caption, weight: .semibold)
+                }
+                .buttonStyle(NotchButtonStyle(size: 24))
+                .accessibilityLabel(localized("Remove Local Binding"))
+                .help(localized("Remove Local Binding"))
+            }
+
+            Button(action: retry) {
+                Image(systemName: "arrow.clockwise")
+                    .islandFont(.caption, weight: .semibold)
+            }
+            .buttonStyle(NotchButtonStyle(size: 24))
+            .disabled(!LyricsPresentation.canRetry(lyrics.availability))
+            .accessibilityLabel(localized("Retry"))
+            .help(localized("Retry"))
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
     }
 
+    private func chooseLocalLRC() { importLocalFile() }
+
     // MARK: - Empty
 
-    /// Loading, or genuinely nothing. Either way the stage says so instead of
-    /// standing empty.
     private var unavailable: some View {
         VStack(spacing: 8) {
-            if case .loading = lyrics.state {
+            if case .resolving = lyrics.availability {
+                // Nothing at all while the answer is still quick. A glyph and a
+                // blank caption for a fifth of a second is a flicker, not
+                // information.
+                EmptyView()
+            } else if case .findingLocalLyrics = lyrics.availability {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)
             } else {
                 Image(systemName: "text.quote")
-                    .font(.system(size: 20, weight: .light))
+                    .islandFont(.display, weight: .light)
                     .foregroundStyle(Theme.tertiary)
-                Text(localized("No lyrics for this track"))
-                    .font(.system(size: 11.5, weight: .medium))
+                Text(LyricsPresentation.compactCaption(
+                    for: lyrics.availability, currentLine: nil, localLookup: localLookup
+                ))
+                    .islandFont(.body)
                     .foregroundStyle(Theme.secondary)
+            }
+            if case .some(.ambiguous(let candidates)) = localLookup {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(candidates) { candidate in
+                        Button { selectLocalCandidate(candidate) } label: {
+                            Text(candidateLabel(candidate))
+                                .islandFont(.caption, weight: .regular)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(PanelButtonStyle())
+                        .accessibilityLabel(candidateLabel(candidate))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(alignment: .topLeading) {
-            Button(action: dismiss) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .buttonStyle(NotchButtonStyle(size: 24))
-            .accessibilityLabel(localized("Back to Player"))
-            .padding(.leading, 14)
-            .padding(.top, 10)
-        }
+    }
+
+    private func candidateLabel(_ candidate: LocalLyricsCandidate) -> String {
+        let metadata = candidate.document.metadata
+        return [metadata.title, metadata.artist, metadata.album]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " — ")
     }
 
     /// Index of the line being sung at `at`, by the same binary search the

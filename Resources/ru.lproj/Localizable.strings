@@ -16,15 +16,16 @@
 "Launch at Login" = "Запускать при входе";
 "Screenshots" = "Скриншоты";
 "Save Clipboard Screenshots" = "Сохранять скриншоты из буфера";
+"Show Screen Captures" = "Показывать снимки и записи экрана";
 "Show Screenshots Folder" = "Показать папку скриншотов";
-"Clear Screenshots Folder" = "Очистить папку снимков";
-"Clear Screenshots Folder (%@)" = "Очистить папку снимков (%@)";
+"Clear Screenshots Folder" = "Очистить папку скриншотов";
+"Clear Screenshots Folder (%@)" = "Очистить папку скриншотов (%@)";
 "Privacy" = "Конфиденциальность";
 "Application" = "Приложение";
 "About %@" = "О программе %@";
 
 /* Полка */
-"Selected: %d" = "Выбрано: %d";
+"%d selected" = "Выбрано %d";
 "Deselect" = "Снять выбор";
 "Clear" = "Очистить";
 "Copy" = "Копировать";
@@ -33,19 +34,11 @@
 "Remove from Shelf" = "Убрать с полки";
 
 /* Музыка */
-"Nothing is playing" = "Ничего не играет";
-
-/* Заготовки */
-"Delete" = "Удалить";
-
-/* Заметки */
+"Nothing is playing." = "Ничего не играет.";
 
 /* Перевод */
 "Translation Languages…" = "Языки перевода…";
 "Retry" = "Повторить";
-
-/* Календарь */
-"Done" = "Готово";
 
 /* Отсчёт со строчной: прописную ставит то место, где строится подпись.
    Сокращения намеренные: в шапку панели помещается «через 12 мин», но
@@ -55,28 +48,23 @@
    в своём порядке. */
 
 /* Режим приватности: панель закрывает содержимое полем из точек. */
-"Hide Contents" = "Скрывать содержимое";
 "Hidden" = "Скрыто";
 "Show" = "Показать";
 "Hide" = "Скрыть";
-"All" = "Всё";
-
-"Done" = "Готово";
 "Playing" = "Воспроизводится";
 "Paused" = "На паузе";
 "Translation needs macOS 26 or newer." = "Для перевода нужна macOS 26 или новее.";
 "This Mac does not support Apple Intelligence." = "Этот Mac не поддерживает Apple Intelligence.";
 "Turn on Apple Intelligence to translate." = "Включите Apple Intelligence для перевода.";
 "The on-device model is still downloading." = "Локальная модель ещё загружается.";
-"macOS refused to translate this text." = "macOS отказалась переводить этот текст.";
+"This text could not be translated." = "Этот текст не удалось перевести.";
 "This text is too long to translate at once." = "Этот текст слишком длинный для одного перевода.";
 "The translation could not be completed." = "Не удалось выполнить перевод.";
-"Hide From Screen Recording" = "Скрыть от записи экрана";
+"Hide from Screen Recording" = "Скрыть от записи экрана";
 "Translating…" = "Перевод…";
-"notes.json cannot be read, so nothing is being saved." = "notes.json не читается, ничего не сохраняется.";
-"Clear Everything?" = "Очистить всё?";
-"Delete These Files?" = "Удалить эти файлы?";
-"Quit Isla?" = "Выйти из Isla?";
+"Clear Everything" = "Очистить всё";
+"Delete These Files" = "Удалить эти файлы";
+"Quit Isla" = "Выйти из Isla";
 "Asks for confirmation before acting." = "Запрашивает подтверждение перед действием.";
 "Previous Track" = "Предыдущий трек";
 "Next Track" = "Следующий трек";
@@ -84,28 +72,35 @@
 "Pause" = "Пауза";
 "Playback Position" = "Позиция воспроизведения";
 "%@ of %@" = "%@ из %@";
-"Scroll Speed" = "Скорость прокрутки";
 "Remove Entry" = "Удалить запись";
 "Copy Entry" = "Копировать запись";
 "Peek at New Tracks" = "Показывать новые треки";
 "Show Lyrics" = "Показывать текст песни";
 "Lyrics" = "Текст песни";
 "Show on Lock Screen" = "Показывать на экране блокировки";
-"Clear Lyrics Cache" = "Очистить кэш текстов";
+"Word Karaoke" = "Караоке по словам";
+"Lyrics stay on this Mac." = "Тексты песен остаются на этом Mac.";
+"Local Lyrics Library" = "Библиотека локальных текстов";
+"No local lyrics." = "Нет локального текста.";
+"Import LRC…" = "Импортировать LRC…";
+"Add Lyrics Folder…" = "Добавить папку с текстами…";
+"Remove %@" = "Удалить %@";
+"Rescan Local Lyrics" = "Пересканировать локальные тексты";
+"Open Lyrics Folder" = "Открыть папку с текстами";
+"Clear Imported Lyrics" = "Удалить импортированные тексты";
+"Clear Bindings and Timing Corrections" = "Удалить привязки и поправки тайминга";
+"Unassigned timing corrections" = "Неназначенные поправки тайминга";
+"Dismiss %@" = "Скрыть %@";
 "Add to Liked Songs" = "Добавить в любимые треки";
 "Remove from Liked Songs" = "Убрать из любимых треков";
 "Connect Spotify Account…" = "Подключить аккаунт Spotify…";
 "Disconnect Spotify Account" = "Отключить аккаунт Spotify";
-"Connect Spotify" = "Подключение Spotify";
-"Paste the Client ID of your Spotify app (developer.spotify.com/dashboard, redirect URI isla://spotify-callback)." = "Вставьте Client ID вашего приложения Spotify (developer.spotify.com/dashboard, redirect URI isla://spotify-callback).";
-"Continue" = "Продолжить";
-"Cancel" = "Отмена";
 "Spotify" = "Spotify";
 
 /* Spotify credential storage */
-"Import Account From Keychain…" = "Импортировать аккаунт из связки ключей…";
+"Import Account from Keychain…" = "Импортировать аккаунт из связки ключей…";
 "Stored in your keychain." = "Хранится в связке ключей.";
-"Stored in an owner-only file, because this build is unsigned." = "Хранится в файле, доступном только владельцу: сборка не подписана.";
+"Stored in a file only you can read." = "Хранится в файле, доступном только вам.";
 "Cannot be stored on this Mac." = "Не удаётся сохранить на этом Mac.";
 
 /* Lyrics stage */
@@ -113,9 +108,27 @@
 "Lyrics Earlier" = "Текст раньше";
 "Lyrics Later" = "Текст позже";
 "Lyric Timing" = "Тайминг текста";
-"Search Lyrics Again" = "Искать текст заново";
-"Wrong lyrics? Search again" = "Не тот текст? Искать заново";
-"No lyrics for this track" = "Для этого трека нет текста";
+"Reset lyric timing" = "Сбросить тайминг текста";
+"Import Local LRC" = "Импортировать локальный LRC";
+"Remove Local Binding" = "Удалить привязку локального текста";
+"Edit Lyrics" = "Редактировать текст";
+"Save Copy" = "Сохранить копию";
+"Cancel" = "Отмена";
+"Lyrics Metadata" = "Метаданные текста";
+"Local Lyrics" = "Локальный текст";
+"Timestamp" = "Метка времени";
+"Title" = "Название";
+"Artist" = "Исполнитель";
+"Album" = "Альбом";
+"Version" = "Версия";
+"Duration" = "Длительность";
+"Add Lyric Line" = "Добавить строку текста";
+"Remove Lyric Line" = "Удалить строку текста";
+"Export LRC" = "Экспортировать LRC";
+"This LRC file is invalid." = "Этот LRC-файл недействителен.";
+"Choose local lyrics…" = "Выберите локальный текст…";
+"No lyrics for this track." = "Для этого трека нет текста.";
+"Finding lyrics…" = "Ищем текст песни…";
 "Jumps the song to this line" = "Перематывает песню к этой строке";
 "Opens the full lyrics" = "Открывает полный текст";
 
@@ -131,7 +144,6 @@
 "Open %@" = "Открыть %@";
 "Sync" = "К строке";
 "Back to the current line" = "Вернуться к текущей строке";
-"Playing on this Mac" = "Звук идёт с этого Mac";
 "Sound Output" = "Вывод звука";
 "Glass" = "Стекло";
 "Solid" = "Плотный";
@@ -139,9 +151,32 @@
 
 /* Lock card panes */
 "Lyrics are switched off in Settings." = "Тексты выключены в настройках.";
-"Looking for the words…" = "Ищем слова…";
-"No words for this track." = "Для этого трека нет слов.";
 "No output devices." = "Нет устройств вывода.";
-"+%d more in Sound Settings" = "Ещё %d в настройках звука";
 "Open on Hover" = "Открывать при наведении";
 "Output" = "Вывод";
+
+/* Первый запуск */
+"Isla is running." = "Isla работает.";
+"It lives at the notch. Click it to open." = "Она живёт у выреза. Нажмите на неё, чтобы открыть.";
+"Open the panel" = "Открыть панель";
+"Translate the clipboard" = "Перевести из буфера обмена";
+"Quit and everything else lives in Settings, at the bottom left." = "Выход и всё остальное — в настройках, внизу слева.";
+"Get Started" = "Начать";
+
+"Volume" = "Громкость";
+
+/* Показания с единицами */
+"%.2fs" = "%.2f с";
+"%+.2fs" = "%+.2f с";
+"%d pt" = "%d пт";
+
+/* Тайминг и копирование текста */
+"Lyric Delay" = "Задержка текста";
+"Reset Lyric Delay" = "Сбросить задержку текста";
+"Negative shows lyrics earlier; positive, later." = "Отрицательное значение показывает текст раньше, положительное — позже.";
+"Copy Line" = "Скопировать строку";
+"Copy All Lyrics" = "Скопировать весь текст";
+
+/* Онлайн-поиск текста */
+"Look Up Lyrics Online" = "Искать текст онлайн";
+"Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you." = "Запрашивает LRCLIB для треков, которым не нашлось локального файла. Отправляются название, исполнитель, альбом и длительность — ничего о вас.";
