@@ -304,6 +304,8 @@ final class MediaController: ObservableObject {
     /// running player process.
     var precisionPlayerForTests: PlayerApp?
     private var spotifyStateObserver: (any NSObjectProtocol)?
+    /// Music's own change announcement, for a Music song held under a film.
+    private var musicStateObserver: (any NSObjectProtocol)?
 
     private var ticker: Timer?
     /// Deferred blanking of a cover whose replacement is still in flight.
@@ -331,7 +333,19 @@ final class MediaController: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] note in
-            MainActor.assumeIsolated { self?.applySpotifyBroadcast(note) }
+            MainActor.assumeIsolated {
+                self?.applySpotifyBroadcast(note)
+                // And, for a song held under a film, the only report that the
+                // song paused or resumed: MediaRemote is describing the film.
+                self?.heldPlayerChanged(.spotify)
+            }
+        }
+        musicStateObserver = DistributedNotificationCenter.default().addObserver(
+            forName: PlayerApp.music.changeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.heldPlayerChanged(.music) }
         }
     }
 
@@ -380,6 +394,11 @@ final class MediaController: ObservableObject {
             DistributedNotificationCenter.default().removeObserver(spotifyStateObserver)
         }
         spotifyStateObserver = nil
+        if let musicStateObserver {
+            DistributedNotificationCenter.default().removeObserver(musicStateObserver)
+        }
+        musicStateObserver = nil
+        isHolding = false
         feed.stop()
         observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
         observers.removeAll()
@@ -505,8 +524,7 @@ final class MediaController: ObservableObject {
     /// Browsers and everything else answer nil — the honest value, since
     /// shuffle and repeat cannot even be asked about there.
     private var displayedPlayerApp: PlayerApp? {
-        guard let pid = displayedPlayerPID,
-              let bundle = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier else { return nil }
+        guard let pid = displayedPlayerPID, let bundle = bundleIdentifierForPID(pid) else { return nil }
         return PlayerApp.allCases.first { $0.bundleID == bundle }
     }
 
@@ -863,9 +881,184 @@ final class MediaController: ObservableObject {
     /// real app owns.
     func receive(_ snapshot: NowPlayingFeed.Snapshot) {
         switch admission(for: snapshot) {
-        case .accept: apply(snapshot)
-        case .clear: apply(NowPlayingFeed.Snapshot())
-        case .keep: break
+        case .accept:
+            isHolding = false
+            searchedUnder = nil
+            apply(snapshot)
+        case .clear:
+            isHolding = false
+            apply(NowPlayingFeed.Snapshot())
+            // Nothing held — but that only means Isla never *saw* a song, not
+            // that there is none. After a relaunch, or a film started before a
+            // song, the film owns Now Playing and a song paused in Spotify is
+            // invisible to MediaRemote: the island said "Nothing is playing"
+            // over it. So look, once per film.
+            if let pid = snapshot.playerPID, searchedUnder != pid {
+                searchedUnder = pid
+                trace("search: \(snapshot.title) owns Now Playing and nothing is held; asking the music players")
+                adoptLoadedSong()
+            }
+        case .keep:
+            if !isHolding { trace("hold: \(snapshot.title) owns Now Playing; holding \(track?.title ?? "-")") }
+            // Entering the hold is the moment MediaRemote stops describing the
+            // song, so it is the moment to ask the song's player directly.
+            // Every later heartbeat from the film changes nothing about the
+            // song and asks nothing; the player's own announcements do.
+            guard !isHolding else { return }
+            isHolding = true
+            syncHeldPlayer()
+        }
+    }
+
+    // MARK: - Holding a song under a film
+
+    /// True while a filtered session (a film) owns Now Playing and the island
+    /// is holding the song that was showing before it.
+    ///
+    /// For that span MediaRemote describes only the film, so nothing it sends
+    /// says whether the song is playing, paused or changed. Filmed on
+    /// 2026-09-21: Spotify paused under a film in Firefox, the song left
+    /// believing it was playing, its clock running forward to 1:23 and the
+    /// precision poll — which asks Spotify directly — snapping it back to 1:21,
+    /// every two seconds, the lyric line and the play button flipping with it.
+    /// While holding, the song's truth comes from its own player instead.
+    private(set) var isHolding = false
+
+    /// The held player's state, read over AppleScript. Injectable so a test can
+    /// answer for Spotify without Spotify.
+    var heldPlayerState: (PlayerApp, @escaping (PlayerBridge.StateReply) -> Void) -> Void = { app, reply in
+        PlayerBridge.stateReply(of: app) { answer in
+            MainActor.assumeIsolated { reply(answer) }
+        }
+    }
+
+    /// A player announced a play, pause or track change of its own. Worth a
+    /// question only when it is the player whose song is being held; when the
+    /// song is Now Playing's own, MediaRemote has already said the same thing.
+    func heldPlayerChanged(_ app: PlayerApp) {
+        if isHolding {
+            guard displayedPlayerApp == app else { return }
+            syncHeldPlayer()
+            return
+        }
+        // Nothing held under a film yet: a player that just changed may now
+        // have a song worth showing — one started, or loaded, under the film.
+        if searchedUnder != nil { adoptLoadedSong() }
+    }
+
+    /// The film a search for a loaded song has already been made under, so its
+    /// heartbeat every two seconds does not ask the players again. Cleared when
+    /// a music source takes Now Playing back.
+    private var searchedUnder: pid_t?
+
+    /// A song loaded in any running music player, playing or paused.
+    var loadedSong: (@escaping (PlayerState?) -> Void) -> Void = { reply in
+        PlayerBridge.currentState { state in
+            MainActor.assumeIsolated { reply(state) }
+        }
+    }
+
+    /// The pid of a running player, for a song found by asking rather than by
+    /// MediaRemote.
+    var pidForPlayer: (PlayerApp) -> pid_t? = { app in
+        NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID)
+            .first?.processIdentifier
+    }
+
+    /// A cover for a song MediaRemote cannot describe, straight from its player.
+    var heldArtwork: (PlayerState, @escaping (NSImage?) -> Void) -> Void = { state, reply in
+        PlayerBridge.artwork(for: state) { image in
+            MainActor.assumeIsolated { reply(image) }
+        }
+    }
+
+    /// Shows a song found in a music player while a film owns Now Playing.
+    private func adoptLoadedSong() {
+        loadedSong { [weak self] state in
+            guard let self, !self.isHolding, self.searchedUnder != nil,
+                  let state, let pid = self.pidForPlayer(state.app) else { return }
+            var snapshot = NowPlayingFeed.Snapshot()
+            snapshot.title = state.title
+            snapshot.artist = state.artist
+            snapshot.album = state.album
+            snapshot.duration = state.duration
+            snapshot.elapsed = state.position
+            snapshot.isPlaying = state.isPlaying
+            snapshot.rate = state.isPlaying ? 1 : 0
+            snapshot.takenAt = Date()
+            snapshot.playerPID = pid
+            snapshot.source = state.app.displayName
+            self.trace(String(format: "adopt: %@ from %@ playing=%d at %.2f",
+                              state.title, state.app.displayName, state.isPlaying ? 1 : 0, state.position))
+            self.isHolding = true
+            self.apply(snapshot)
+            self.fetchHeldArtwork(state)
+        }
+    }
+
+    /// MediaRemote cannot resend a cover while it describes the film, so a held
+    /// song that has none — adopted, or changed under the film — asks its
+    /// player for one.
+    private func fetchHeldArtwork(_ state: PlayerState) {
+        guard let key = track?.key else { return }
+        heldArtwork(state) { [weak self] image in
+            guard let self, self.track?.key == key, let image else { return }
+            self.blankArtwork?.cancel()
+            self.blankArtwork = nil
+            self.artworkKey = key
+            self.artwork = image
+        }
+    }
+
+    /// Asks the held song's player what it is doing and shows exactly that.
+    ///
+    /// Through `apply`, as an ordinary snapshot, so the pause, the position and
+    /// a track changed under the film all go the one well-trodden way. The
+    /// title and artist are carried over verbatim when the player still names
+    /// the same song, so the track's identity — and with it the cover, which
+    /// MediaRemote cannot resend while it describes the film — survives the
+    /// question.
+    private func syncHeldPlayer() {
+        guard let app = displayedPlayerApp else { return }
+        let pid = displayedPlayerPID
+        heldPlayerState(app) { [weak self] reply in
+            guard let self, self.isHolding, self.displayedPlayerPID == pid else { return }
+            let state: PlayerState
+            switch reply {
+            case let .loaded(loaded):
+                state = loaded
+            case .empty:
+                // The player answered, and has nothing loaded: no song to hold.
+                self.isHolding = false
+                self.clear()
+                return
+            case .unknown:
+                // The player could not be asked — Automation consent withheld,
+                // or no answer in time. That says nothing about the song, so it
+                // stays as last known rather than the island claiming nothing
+                // is playing over a song that may be sitting there paused.
+                self.trace("sync: \(app.displayName) did not answer; keeping \(self.track?.title ?? "-")")
+                return
+            }
+            var snapshot = NowPlayingFeed.Snapshot()
+            let same = self.track.map {
+                $0.title == state.title && $0.artist == state.artist
+            } ?? false
+            snapshot.title = same ? (self.track?.title ?? state.title) : state.title
+            snapshot.artist = same ? (self.track?.artist ?? state.artist) : state.artist
+            snapshot.album = same ? (self.track?.album ?? state.album) : state.album
+            snapshot.duration = state.duration > 0 ? state.duration : self.duration
+            snapshot.elapsed = state.position
+            snapshot.isPlaying = state.isPlaying
+            snapshot.rate = state.isPlaying ? 1 : 0
+            snapshot.takenAt = Date()
+            snapshot.playerPID = pid
+            snapshot.source = self.sourceName
+            self.trace(String(format: "sync: %@ playing=%d at %.2f", state.title, state.isPlaying ? 1 : 0, state.position))
+            self.apply(snapshot)
+            // A different song than the one held — changed under the film —
+            // has no cover yet, and MediaRemote cannot send one.
+            if !same { self.fetchHeldArtwork(state) }
         }
     }
 
@@ -1344,11 +1537,14 @@ final class MediaController: ObservableObject {
         anchor = (value, monotonicNow())
     }
 
-    /// Verification-only: one-line breadcrumbs through the position pipeline,
-    /// behind the same env gate as every other hook. Compiled in, inert in a
-    /// normal run.
+    /// Verification-only: one-line breadcrumbs through the position pipeline
+    /// and every hold decision. Compiled in, inert in a normal run. On with
+    /// `DI_OPEN_LYRICS=1`, which also pins the lyrics page open, or with
+    /// `DI_MEDIA=1` alone — the one that can be left running on a Mac somebody
+    /// is using, because it draws nothing.
     private func trace(_ message: @autoclosure () -> String) {
-        guard ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" else { return }
+        let env = ProcessInfo.processInfo.environment
+        guard env["DI_OPEN_LYRICS"] == "1" || env["DI_MEDIA"] == "1" else { return }
         DebugTrail.note(message())
     }
 

@@ -103,6 +103,7 @@ never touches disk for them:
 - `DI_LOCK_PREVIEW=1` — present the lock card without locking the Mac.
 - `DI_OPEN_LYRICS=1` — open the lyrics stage without a pointer; also writes the trail.
 - `DI_OPEN_PANEL=1` — open the panel on the player without a pointer, to film a skip.
+- `DI_MEDIA=1` — the media trail alone: every snapshot and hold decision, nothing drawn.
 - `DI_TEST_CLICK=next` — drive a lyric click from a test.
 
 ## After each change
