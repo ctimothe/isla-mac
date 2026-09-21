@@ -315,10 +315,7 @@ final class MediaController: ObservableObject {
     // MARK: - Lifecycle
 
     func start() {
-        feed.onUpdate = { [weak self] snapshot in
-            guard let self else { return }
-            self.apply(self.admitted(snapshot))
-        }
+        feed.onUpdate = { [weak self] snapshot in self?.receive(snapshot) }
         feed.onUnavailable = { [weak self] in self?.switchToScriptingFallback() }
         feed.start()
 
@@ -828,20 +825,48 @@ final class MediaController: ObservableObject {
         NSRunningApplication(processIdentifier: $0)?.bundleIdentifier
     }
 
-    /// The live feed's snapshot, or an empty one when Music Only filters it out.
-    ///
-    /// Empty rather than dropped, on purpose: a film playing is *the same as
-    /// nothing playing* as far as the island is concerned, so it takes the same
-    /// path — `apply` clears the track and the island folds to the notch. Done
-    /// here, where the live feed arrives, and not inside `apply`, which every
-    /// test drives directly with made-up pids that no real app owns.
-    func admitted(_ snapshot: NowPlayingFeed.Snapshot) -> NowPlayingFeed.Snapshot {
-        guard musicOnly(), !snapshot.isEmpty else { return snapshot }
+    /// Whether a process is still alive. Injectable for the same reason as
+    /// `bundleIdentifierForPID`.
+    var isProcessRunning: (pid_t) -> Bool = { pid in
+        NSRunningApplication(processIdentifier: pid).map { !$0.isTerminated } ?? false
+    }
+
+    /// What one snapshot from the live feed does to the display.
+    enum Admission: Equatable {
+        /// A music source: shown as normal.
+        case accept
+        /// Not music, and nothing worth keeping: the island shows nothing.
+        case clear
+        /// Not music, but a song is still loaded in a player that is still
+        /// running: the song stays, untouched.
+        case keep
+    }
+
+    func admission(for snapshot: NowPlayingFeed.Snapshot) -> Admission {
+        guard musicOnly(), !snapshot.isEmpty else { return .accept }
         let bundle = snapshot.playerPID.flatMap(bundleIdentifierForPID)
-        guard MediaSourcePolicy.allows(
+        if MediaSourcePolicy.allows(
             bundleIdentifier: bundle, mediaType: snapshot.mediaType, artist: snapshot.artist
-        ) else { return NowPlayingFeed.Snapshot() }
-        return snapshot
+        ) { return .accept }
+        // A film has taken the Now Playing session — macOS reports only the
+        // latest one. It used to be turned straight into "nothing playing",
+        // which cleared the song paused a moment earlier: pause Spotify, start
+        // a film in a tab, open the island, and it said "Nothing is playing"
+        // with a song sitting paused in Spotify. The song is still what the
+        // island is about, for as long as the player holding it is running.
+        if track != nil, let pid = displayedPlayerPID, isProcessRunning(pid) { return .keep }
+        return .clear
+    }
+
+    /// Where the live feed arrives. Filtering happens here and not inside
+    /// `apply`, which every test drives directly with made-up pids that no
+    /// real app owns.
+    func receive(_ snapshot: NowPlayingFeed.Snapshot) {
+        switch admission(for: snapshot) {
+        case .accept: apply(snapshot)
+        case .clear: apply(NowPlayingFeed.Snapshot())
+        case .keep: break
+        }
     }
 
     func apply(_ snapshot: NowPlayingFeed.Snapshot) {
