@@ -1160,11 +1160,6 @@ final class NotchController {
         }
     }
 
-    /// What the menu bar switches. Handed out rather than wrapped: the menu
-    /// reads four sections and writes them one at a time, and a controller
-    /// method per section would be four methods that only forward.
-    var privacy: PrivacyMode? { viewModel?.privacy }
-
     /// Runs the deferred half of closing right now, and cancels the one still
     /// in flight so it cannot land later on a panel that has moved on.
     ///
