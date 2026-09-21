@@ -65,7 +65,7 @@ final class PausedFoldTests: XCTestCase {
             return XCTFail("a test host always has a screen")
         }
         NotchMetrics.pausedLinger = 0.05
-        defer { NotchMetrics.pausedLinger = 5 }
+        defer { NotchMetrics.pausedLinger = 0.4 }
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
 
         vm.playbackChanged(isPlaying: true, hasTrack: true)
@@ -96,7 +96,7 @@ final class PausedFoldTests: XCTestCase {
     func testALingerSurvivesTheSamePauseBeingDescribedAgain() async {
         guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
         NotchMetrics.pausedLinger = 0.15
-        defer { NotchMetrics.pausedLinger = 5 }
+        defer { NotchMetrics.pausedLinger = 0.4 }
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
         vm.playbackChanged(isPlaying: true, hasTrack: true)
         vm.playbackChanged(isPlaying: false, hasTrack: true)
@@ -186,17 +186,37 @@ final class PausedFoldTests: XCTestCase {
         XCTAssertTrue(vm.pauseHasSettled)
     }
 
-    /// A different song arriving paused — a skip made while paused — gets the
-    /// glance a fresh pause gets. The same song described again does not.
-    func testANewSongArrivingPausedLingersAndTheSameOneDoesNot() {
+    /// A different song arriving paused rests like any other paused song. It
+    /// used to glance for the linger; the owner asked on 2026-09-21 for a
+    /// paused island to stay under the notch.
+    func testANewSongArrivingPausedRestsToo() {
         guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
         vm.playbackChanged(isPlaying: false, hasTrack: true, title: "One")
-        XCTAssertTrue(vm.pauseHasSettled, "adopted: nothing to announce")
-        vm.playbackChanged(isPlaying: false, hasTrack: true, title: "One")
-        XCTAssertTrue(vm.pauseHasSettled, "described again: still nothing")
         vm.playbackChanged(isPlaying: false, hasTrack: true, title: "Two")
-        XCTAssertFalse(vm.pauseHasSettled, "a skip while paused shows the new song")
+        XCTAssertTrue(vm.pauseHasSettled)
+    }
+
+    /// A pause folds within a skip's breath, not five seconds: long enough to
+    /// ride out the pause a skip passes through, and no longer.
+    func testAPauseFoldsAlmostAtOnce() {
+        XCTAssertLessThanOrEqual(NotchMetrics.pausedLinger, 0.5)
+        XCTAssertGreaterThan(NotchMetrics.pausedLinger, 0.2, "a skip's own pause must not flicker the pill")
+    }
+
+    /// The pointer thrown to the top of the display parks on its very edge,
+    /// under the notch — the one place a pointer reaches the island from, and
+    /// the one place it was not counted as on it.
+    func testThePointerParkedOnTheTopEdgeIsOnTheIsland() {
+        guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
+        let top = CGPoint(x: geometry.notchCenterX, y: geometry.screen.frame.maxY)
+        XCTAssertTrue(geometry.collapsedIslandHoverRect(for: 200).contains(top), "the hover lift")
+        let window = NotchRootView.reachingTopEdge(
+            CGRect(x: 100, y: 10, width: 200, height: 32), windowHeight: 42)
+        XCTAssertTrue(window.contains(CGPoint(x: 150, y: 42)), "the click")
+        let inside = NotchRootView.reachingTopEdge(
+            CGRect(x: 100, y: 0, width: 200, height: 32), windowHeight: 42)
+        XCTAssertEqual(inside.height, 32, "a rect short of the top is left alone")
     }
 
     /// A playing song is not folded by a film starting alongside it.
@@ -212,7 +232,7 @@ final class PausedFoldTests: XCTestCase {
     func testNoTrackStartsNoCountdown() async {
         guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
         NotchMetrics.pausedLinger = 0.02
-        defer { NotchMetrics.pausedLinger = 5 }
+        defer { NotchMetrics.pausedLinger = 0.4 }
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
         vm.playbackChanged(isPlaying: false, hasTrack: false)
         try? await Task.sleep(for: .milliseconds(120))

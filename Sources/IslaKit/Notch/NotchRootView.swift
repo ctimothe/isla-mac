@@ -5,6 +5,18 @@ import UniformTypeIdentifiers
 /// so the window can stay at its full expanded size while the panel is collapsed.
 final class NotchRootView: NSView {
     /// Interactive area, in window coordinates.
+    /// A rect that touches the window's top edge, grown past it.
+    ///
+    /// The window's top is the display's, and a click with the pointer parked
+    /// on it arrives exactly on the rect's `maxY` — which `contains` excludes,
+    /// so `hitTest` threw away the one click aimed straight at the notch. The
+    /// window cannot receive a point above its own top, so the growth claims
+    /// nothing else.
+    static func reachingTopEdge(_ rect: CGRect, windowHeight: CGFloat) -> CGRect {
+        guard rect.maxY >= windowHeight else { return rect }
+        return CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height + 2)
+    }
+
     var activeRect: CGRect = .zero {
         didSet {
             guard activeRect != oldValue else { return }
