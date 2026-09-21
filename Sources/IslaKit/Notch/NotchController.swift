@@ -351,6 +351,25 @@ final class NotchController {
         // the card off-centre and unclickable until unlock.
         if let screen = viewModel?.geometry.screen { lockCard.reposition(on: screen) }
         panel?.setFrame(fresh.windowFrame, display: false)
+        recutPointerRects()
+    }
+
+    /// Same display, same notch — but not necessarily the same neighbours.
+    ///
+    /// A rect that reaches the top edge grows past it only where no display
+    /// sits directly above (`NotchGeometry.includingTopEdge`), and docking or
+    /// undocking one there changes that without moving this display at all.
+    /// Cut only in `build` and on the panel's own changes, the rects kept
+    /// reaching two points into a display just docked above — its bottom edge
+    /// lit the island and warmed the sampler — or stopped short of an edge
+    /// that had just become one, so a click thrown at the top of the screen
+    /// fell through, until the next track change or open re-cut them.
+    private func recutPointerRects() {
+        guard let vm = viewModel else { return }
+        pointer.warmZone = vm.geometry.warmZone
+        pointer.coolZone = vm.geometry.coolZone
+        pointer.closeRect = vm.geometry.hoverRect(for: vm.openBodySize)
+        if vm.isOpen { refreshOpenRects() } else { refreshCollapsedRects() }
     }
 
     /// A synthetic notch found at launch is checked again shortly after.
