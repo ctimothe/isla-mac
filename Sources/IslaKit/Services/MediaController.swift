@@ -951,11 +951,11 @@ final class MediaController: ObservableObject {
         pendingSeek = (clamped, Date(), origin)
         lastSeek = (clamped, Date(), origin)
         if let held = heldScriptablePlayer {
-            sendToPlayer(.seek(seconds: Int(clamped)), held)
+            sendToPlayer(.seek(seconds: clamped), held)
         } else if feedAvailable {
             feed.seek(to: clamped, playerPID: displayedPlayerPID)
         } else if let activeApp {
-            sendToPlayer(.seek(seconds: Int(clamped)), activeApp)
+            sendToPlayer(.seek(seconds: clamped), activeApp)
         }
     }
 

@@ -70,7 +70,6 @@ final class LockCardWindow {
         media: MediaController,
         lyrics: LyricsStore,
         localLookup: @escaping () -> LocalLyricsLookup? = { nil },
-        retryLyrics: @escaping () -> Void = {},
         on screen: NSScreen,
         presence: LockScreenPresence
     ) {
@@ -105,7 +104,6 @@ final class LockCardWindow {
             media: media,
             lyrics: lyrics,
             localLookup: localLookup,
-            retryLyrics: retryLyrics,
             audio: watch
         ))
         // The card sits inset inside the window, so its shadow has somewhere to

@@ -58,12 +58,16 @@ are the exception the design did not anticipate:
   listener saw "No local lyrics" on every song. With the switch on, a track the
   local library does not match is looked up at LRCLIB — free, community-run, no
   account, no key — sending the title, artist, album and duration and nothing
-  about the listener. Answers are cached so a song is asked about once, misses
-  for a fortnight. A local file always wins; an ambiguous local result still
-  asks. Timelines from it are line-level, so the word sweep stays off for them.
-  The design doc carries the dated amendment and
-  `OfflineLyricsIsolationTests` bounds the exception to one file and one
-  endpoint.
+  about the listener. When the exact record misses — a streaming service
+  rarely names the album the catalogue does — LRCLIB's search is asked with
+  the title and artist alone, and a timed match within three seconds of the
+  length is taken. Answers are cached so a song is asked about once, misses
+  for a fortnight; a lookup that cannot reach the service is asked again on
+  its own after 5s, 30s and 2min rather than offered as a Retry button. A
+  local file always wins; an ambiguous local result still asks. Timelines
+  from it are line-level, so the word sweep stays off for them. The design
+  doc carries the dated amendment and `OfflineLyricsIsolationTests` bounds
+  the exception to one file and one service.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain.

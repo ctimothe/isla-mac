@@ -304,9 +304,17 @@ final class NowPlayingFeed {
         write(Self.seekWireLine(seconds: seconds, playerPID: playerPID))
     }
 
+    /// To the millisecond. The line used to carry whole seconds, so a click on
+    /// a lyric line that starts 0.7s into its second landed 0.7s early — on
+    /// the line before it. The view showed the clicked line at once and fell
+    /// back to the previous one when the player's reading arrived: forward,
+    /// back, forward, filmed on 2026-09-21. The helper already parses a
+    /// double; `%.3f` is formatted in the POSIX locale, so the separator is a
+    /// dot on every Mac.
     nonisolated static func seekWireLine(seconds: TimeInterval, playerPID: pid_t?) -> String {
-        guard let playerPID, playerPID > 0 else { return "seek \(Int(seconds))" }
-        return "seek \(Int(seconds)) \(playerPID)"
+        let position = String(format: "%.3f", max(0, seconds))
+        guard let playerPID, playerPID > 0 else { return "seek \(position)" }
+        return "seek \(position) \(playerPID)"
     }
 
     private func write(_ line: String) {

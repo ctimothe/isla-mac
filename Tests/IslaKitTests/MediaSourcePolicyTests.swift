@@ -403,7 +403,7 @@ final class HeldSongTruthTests: XCTestCase {
         controller.seek(to: 30)
 
         XCTAssertEqual(sent, [
-            "spotify play", "spotify next", "spotify previous", "spotify seek(seconds: 30)",
+            "spotify play", "spotify next", "spotify previous", "spotify seek(seconds: 30.0)",
         ])
     }
 
