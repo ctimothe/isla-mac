@@ -469,9 +469,18 @@ final class MediaControllerTests: XCTestCase {
         )
     }
 
-    /// End to end: with a line due 120ms out, the position is republished on
-    /// that boundary — well inside the 250ms the grid alone would have taken.
-    func testTheClockPublishesOnALyricBoundaryAheadOfItsGrid() async {
+    /// End to end: registering a line due ahead arms a timer for exactly that
+    /// moment — checked on the timer's own fire date, not by waiting for it.
+    ///
+    /// This used to sleep 180ms and assert the first published position landed
+    /// within 30ms of the boundary. That is a claim about how promptly a shared
+    /// CI machine runs a timer, not about this code: it passed on one branch
+    /// and failed on the next for the same commit, 57ms late. It had also gone
+    /// stale — written against a 250ms tick, it raced a 100ms one after
+    /// `positionTickInterval` moved, so the grid tick usually won the race the
+    /// test existed to lose. The fire date is computed when the timer is armed,
+    /// so it says exactly what was scheduled and no scheduler can make it late.
+    func testRegisteringALineArmsAWakeForTheMomentItIsDue() {
         let controller = MediaController()
         controller.setActive(true)
         defer { controller.setActive(false) }
@@ -487,14 +496,19 @@ final class MediaControllerTests: XCTestCase {
         controller.apply(playing)
         let start = controller.position
 
-        var published: [TimeInterval] = []
-        let observer = controller.$position.dropFirst().sink { published.append($0) }
-        defer { observer.cancel() }
+        let armedAt = Date()
         controller.setLyricBoundaries([start + 0.14], lead: { 0.02 })
 
-        try? await Task.sleep(for: .milliseconds(180))
-        XCTAssertFalse(published.isEmpty, "the boundary wake must publish before the 250ms grid tick")
-        XCTAssertEqual(published[0], start + 0.12, accuracy: 0.03, "…and publish the position the line is due at")
+        guard let wake = controller.lyricWakeDateForTests else {
+            return XCTFail("a line ahead of the clock must arm a wake")
+        }
+        // Due 0.12s out: the boundary at +0.14, less the 0.02 lead. The only
+        // slack is the few microseconds between reading `start` and arming.
+        XCTAssertEqual(wake.timeIntervalSince(armedAt), 0.12, accuracy: 0.01)
+
+        // And nothing is armed once there is no line left to turn.
+        controller.setLyricBoundaries([start - 5], lead: { 0.02 })
+        XCTAssertNil(controller.lyricWakeDateForTests, "a line already passed arms nothing")
     }
 
     /// And a player that publishes nothing at all still gives up its lyrics.
