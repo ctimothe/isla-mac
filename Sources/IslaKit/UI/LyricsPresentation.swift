@@ -3,10 +3,14 @@ import Foundation
 /// Copy and interaction policy shared by every lyric surface. Views render a
 /// concrete availability state; they never treat missing lines as a status.
 enum LyricsPresentation {
+    /// - Parameter onlineEnabled: whether LRCLIB was asked as well. With it
+    ///   on, "No local lyrics." undersold the search — it read as though the
+    ///   catalogue had never been tried — so the miss says nothing was found.
     static func compactCaption(
         for availability: LyricsAvailability,
         currentLine: String?,
-        localLookup: LocalLyricsLookup? = nil
+        localLookup: LocalLyricsLookup? = nil,
+        onlineEnabled: Bool = false
     ) -> String {
         if case .noLocalLyrics = availability, case .ambiguous = localLookup {
             return localized("Choose local lyrics…")
@@ -25,7 +29,7 @@ enum LyricsPresentation {
                 ? currentLine!
                 : localized("Finding lyrics…")
         case .noLocalLyrics:
-            return localized("No local lyrics.")
+            return onlineEnabled ? localized("No lyrics found.") : localized("No local lyrics.")
         case .invalidLocalFile:
             return localized("No lyrics for this track.")
         }

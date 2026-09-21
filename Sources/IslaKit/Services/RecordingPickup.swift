@@ -46,7 +46,7 @@ enum RecordingPickup {
     /// is settled once rather than reconsidered on every open.
     static func fresh(
         in folders: [URL], since: Date, seen: Set<String>, prefixes: [String] = capturePrefixes()
-    ) -> (urls: [URL], seen: Set<String>) {
+    ) -> (urls: [URL], dates: [URL: Date], seen: Set<String>) {
         var seen = seen
         var fresh: [(url: URL, date: Date)] = []
         // Every folder captures have been sent to, not only the current one: a
@@ -62,7 +62,10 @@ enum RecordingPickup {
         }
         trimSeen(&seen, folders: folders)
         fresh.sort { $0.date < $1.date }
-        return (fresh.map(\.url), seen)
+        // The dates travel with the files: a capture is found when the shelf
+        // opens, and it belongs where it was taken, not where it was found.
+        let dates = Dictionary(fresh.map { ($0.url, $0.date) }, uniquingKeysWith: { first, _ in first })
+        return (fresh.map(\.url), dates, seen)
     }
 
     /// One folder's worth, folded into the running answer.

@@ -15,6 +15,82 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertEqual(store.items.map(\.url.path), ["/protected/example.txt"])
     }
 
+    /// A capture belongs where it was taken, not where it was found. Filmed
+    /// on 2026-09-21: a recording made at 14:47 but first seen at 16:40 sat
+    /// above the one made at 16:37.
+    func testCapturesReadNewestFirstByWhenTheyWereTaken() {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ShelfStore(defaults: defaults)
+        let late = URL(fileURLWithPath: "/tmp/Screen Recording at 16.37.40.mov")
+        let early = URL(fileURLWithPath: "/tmp/Screen Recording at 14.47.45.mov")
+
+        store.add([late], dates: [late: Date(timeIntervalSinceNow: -180)])
+        store.add([early], dates: [early: Date(timeIntervalSinceNow: -6500)])
+
+        XCTAssertEqual(store.items.map(\.url), [late, early])
+    }
+
+    /// A drop is dated when it was dropped, so it reads above older captures.
+    func testADropIsDatedWhenItWasDropped() {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ShelfStore(defaults: defaults)
+        let capture = URL(fileURLWithPath: "/tmp/Screenshot at 09.00.00.png")
+        let dropped = URL(fileURLWithPath: "/tmp/notes.txt")
+        store.add([capture], dates: [capture: Date(timeIntervalSinceNow: -3600)])
+        store.add([dropped])
+
+        XCTAssertEqual(store.items.first?.url, dropped)
+        XCTAssertEqual(store.items.first?.date?.timeIntervalSinceNow ?? -99, 0, accuracy: 5)
+    }
+
+    /// Dates survive a relaunch, and with them the order.
+    func testDatesSurviveAReload() {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let taken = Date(timeIntervalSince1970: 1_790_000_000)
+        let url = URL(fileURLWithPath: "/tmp/Screenshot.png")
+        ShelfStore(defaults: defaults).add([url], dates: [url: taken])
+
+        let reloaded = ShelfStore(defaults: defaults)
+        reloaded.load()
+        XCTAssertEqual(reloaded.items.first?.date, taken)
+    }
+
+    /// A file in the Trash is gone, as far as a person is concerned. The shelf
+    /// followed trashed recordings into ~/.Trash and kept offering them.
+    func testAFileInTheTrashIsGoneAndIsNotReloaded() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ShelfTrash-\(UUID())")
+        let trash = root.appendingPathComponent(".Trash")
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trashed = trash.appendingPathComponent("Screen Recording.mov")
+        try Data([1]).write(to: trashed)
+        XCTAssertTrue(ShelfStore.isGone(trashed), "it exists, and it is still gone")
+
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set([trashed.path], forKey: "shelf.urls")
+        let store = ShelfStore(defaults: defaults)
+        store.load()
+        XCTAssertTrue(store.items.isEmpty)
+    }
+
+    /// How long ago, the way a person says it.
+    func testTheAgeReadsTheWayAPersonSaysIt() {
+        let now = Date()
+        XCTAssertEqual(ShelfItem.age(of: now.addingTimeInterval(-20), now: now), localized("Just now"))
+        let minutes = ShelfItem.age(of: now.addingTimeInterval(-300), now: now)
+        XCTAssertTrue(minutes.contains("5"), minutes)
+        let hours = ShelfItem.age(of: now.addingTimeInterval(-7200), now: now)
+        XCTAssertTrue(hours.contains("2"), hours)
+    }
+
     func testClearPersistsOnlyToTheInjectedDefaults() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
