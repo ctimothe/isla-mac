@@ -6,7 +6,8 @@ import Foundation
 enum DebugTrail {
     static func note(_ message: String) {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["DI_OPEN_LYRICS"] == "1" || environment["DI_GEOM"] == "1" else { return }
+        guard environment["DI_OPEN_LYRICS"] == "1" || environment["DI_GEOM"] == "1"
+                || environment["DI_MEDIA"] == "1" else { return }
         let line = "\(Date()) \(message)\n"
         let url = URL(fileURLWithPath: "/tmp/di-debug.log")
         if let handle = try? FileHandle(forWritingTo: url) {
