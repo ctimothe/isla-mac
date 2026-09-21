@@ -323,10 +323,15 @@ final class NotchViewModel: ObservableObject {
         // A pause that settles folds the island into the notch; playing again,
         // or a different track, brings it back.
         media.$isPlaying.removeDuplicates()
-            .combineLatest(media.$track.map { $0?.key }.removeDuplicates())
-            .sink { [weak self] isPlaying, key in
-                self?.playbackChanged(isPlaying: isPlaying, hasTrack: key != nil)
+            .combineLatest(media.$track.removeDuplicates { $0?.key == $1?.key })
+            .sink { [weak self] isPlaying, track in
+                self?.playbackChanged(isPlaying: isPlaying, hasTrack: track != nil, title: track?.title)
             }
+            .store(in: &cancellables)
+
+        // A film starting under Music Only folds a paused song's pill at once.
+        media.$otherMediaIsPlaying.removeDuplicates().filter { $0 }
+            .sink { [weak self] _ in self?.otherMediaStartedPlaying() }
             .store(in: &cancellables)
 
         // The remaining stores have nothing to paint while collapsed.
@@ -456,23 +461,83 @@ final class NotchViewModel: ObservableObject {
         )
     }
 
-    /// True once playback has been paused for `NotchMetrics.pausedLinger`.
-    /// Reset the moment it plays again or the track changes, so resuming brings
-    /// the pill straight back.
+    /// True once a pause has lingered for `NotchMetrics.pausedLinger`, or at
+    /// once for a paused track nobody was seen pausing. Reset the moment it
+    /// plays again, so resuming brings the pill straight back.
     @Published private(set) var pauseHasSettled = false
     private var pauseSettleTask: Task<Void, Never>?
+    /// Whether the last state this saw was a track playing — the only state a
+    /// pause can be seen happening from.
+    private var lastSawPlaying = false
+    /// The title of the last track this saw, to tell a different song arriving
+    /// paused from the same one described again.
+    private var lastTitle: String?
 
-    /// Starts or cancels the countdown to folding a paused track into the notch.
-    func playbackChanged(isPlaying: Bool, hasTrack: Bool) {
+    /// Decides whether a paused track shows its pill, and for how long.
+    ///
+    /// The linger exists so a quick resume never flickers the pill away, which
+    /// makes it about a pause somebody just made. It used to run for every
+    /// paused track the island merely learned about as well: a song adopted
+    /// after a relaunch, or re-described while a film owned Now Playing, woke
+    /// the island for five seconds with nothing to announce — filmed on
+    /// 2026-09-21, the paused song's pill appearing over the notch each time
+    /// the owner pressed play on a film. Those rest at once now. A linger
+    /// already running is left alone, so re-describing the same pause cannot
+    /// cut it short or restart it.
+    ///
+    /// A different song arriving paused — a skip made while paused — is news
+    /// too, and gets the same glance: it used to, and the sneak peek has
+    /// nothing to widen while the pill is folded. It is told apart by title
+    /// from a track that was only adopted (there was none before) or described
+    /// again (the same title).
+    func playbackChanged(isPlaying: Bool, hasTrack: Bool, title: String? = nil) {
+        let sawPlaying = lastSawPlaying
+        let previousTitle = lastTitle
+        lastSawPlaying = isPlaying && hasTrack
+        lastTitle = hasTrack ? title : nil
+        let newSongWhilePaused = previousTitle != nil && title != nil && title != previousTitle
+        guard hasTrack, !isPlaying else {
+            pauseSettleTask?.cancel()
+            pauseSettleTask = nil
+            if pauseHasSettled { pauseHasSettled = false }
+            DebugTrail.note("island: playing=\(isPlaying ? 1 : 0) track=\(hasTrack ? 1 : 0)")
+            return
+        }
+        if sawPlaying || newSongWhilePaused {
+            pauseSettleTask?.cancel()
+            pauseSettleTask = nil
+            // Paused while a film plays: the pill has nothing to linger for,
+            // the same as a film starting during the linger.
+            if media.otherMediaIsPlaying {
+                if !pauseHasSettled { pauseHasSettled = true }
+                DebugTrail.note("island: paused while other media plays -> rests at once")
+                return
+            }
+            if pauseHasSettled { pauseHasSettled = false }
+            DebugTrail.note("island: paused while showing -> lingers \(NotchMetrics.pausedLinger)s")
+            pauseSettleTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(NotchMetrics.pausedLinger))
+                guard !Task.isCancelled, let self else { return }
+                self.pauseSettleTask = nil
+                self.pauseHasSettled = true
+                DebugTrail.note("island: pause settled -> rests in the notch")
+            }
+        } else if pauseSettleTask == nil, !pauseHasSettled {
+            pauseHasSettled = true
+            DebugTrail.note("island: a paused track nobody was seen pausing -> rests at once")
+        }
+    }
+
+    /// A source Music Only keeps off the island started playing. A pause still
+    /// lingering has nothing left to say once a film is playing, so its pill
+    /// folds into the notch now rather than hanging over the film for the rest
+    /// of its five seconds. A playing song is left alone.
+    func otherMediaStartedPlaying() {
+        guard pauseSettleTask != nil else { return }
         pauseSettleTask?.cancel()
         pauseSettleTask = nil
-        if pauseHasSettled { pauseHasSettled = false }
-        guard hasTrack, !isPlaying else { return }
-        pauseSettleTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(NotchMetrics.pausedLinger))
-            guard !Task.isCancelled, let self else { return }
-            self.pauseHasSettled = true
-        }
+        pauseHasSettled = true
+        DebugTrail.note("island: other media started playing -> the paused pill folds")
     }
 
     /// Size of the visible body for the current state.

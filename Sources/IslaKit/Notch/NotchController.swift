@@ -961,6 +961,18 @@ final class NotchController {
             }
             .store(in: &cancellables)
 
+        // The pill folds into the notch when a pause settles and comes back
+        // when playback does — its width changes without the track appearing
+        // or disappearing. Cut only for those, a folded pill left an invisible
+        // pill-wide strip beside the notch taking the menu bar's clicks and
+        // hover, and a pill brought back answered only across the notch.
+        vm.$pauseHasSettled.removeDuplicates()
+            .combineLatest(vm.media.$isPlaying.removeDuplicates())
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshCollapsedRects() }
+            }
+            .store(in: &cancellables)
+
         // Peeking changes the collapsed pill's width, so the pointer and
         // hit-test regions have to be re-cut with it or the wider shell would
         // look interactive while only the old strip answered.
@@ -1281,6 +1293,7 @@ final class NotchController {
         let slack = open ? Theme.openTopRadius : Theme.collapsedTopRadius
         let rect = vm.geometry.contentRect(for: size).insetBy(dx: -slack, dy: 0)
         rootView.activeRect = rect
+        geometryTrace(String(format: "activeRect open=%d w=%.0f h=%.0f", open ? 1 : 0, rect.width, rect.height))
         // Drags are aimed by hand and land wide, so the target is the visible
         // island generously grown — but nothing like the whole 700×444 window,
         // which is what used to accept a drag merely crossing the top of the
