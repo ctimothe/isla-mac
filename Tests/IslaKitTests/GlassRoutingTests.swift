@@ -19,6 +19,9 @@ final class GlassRoutingTests: XCTestCase {
     /// style — and then neither the system material nor the drawn recipe is
     /// used, whatever the OS and whatever the setting.
     func testSolidIsTheOpaquePanelByChoice() {
+        SystemAppearance.shared.overrideForTests(reduceTransparency: false)
+        defer { SystemAppearance.shared.resetForTests() }
+
         let solid = style(samplesBackdrop: true, solid: true)
         XCTAssertFalse(solid.usesSystemGlass)
         XCTAssertTrue(solid.isOpaque)
@@ -27,10 +30,29 @@ final class GlassRoutingTests: XCTestCase {
 
     /// A surface with something behind it takes Apple's material on macOS 26.
     /// Below that there is no material to take.
+    ///
+    /// With Reduce Transparency pinned off. It used to read the live setting,
+    /// which is on in the CI image, so this passed on a desk and failed there.
     func testTheSystemMaterialIsUsedWhereItExistsAndCanSample() {
+        SystemAppearance.shared.overrideForTests(reduceTransparency: false)
+        defer { SystemAppearance.shared.resetForTests() }
+
         let expected: Bool
         if #available(macOS 26.0, *) { expected = true } else { expected = false }
         XCTAssertEqual(style(samplesBackdrop: true).usesSystemGlass, expected)
+    }
+
+    /// And with it on, every surface is the opaque panel — on any OS, whatever
+    /// the surface asked for. The branch CI's Mac actually takes, asserted on
+    /// purpose rather than by accident.
+    func testReduceTransparencyMakesEverySurfaceOpaque() {
+        SystemAppearance.shared.overrideForTests(reduceTransparency: true)
+        defer { SystemAppearance.shared.resetForTests() }
+
+        for surface in [style(samplesBackdrop: true), style(samplesBackdrop: false)] {
+            XCTAssertFalse(surface.usesSystemGlass, "no frosted surface survives the setting")
+            XCTAssertTrue(surface.isOpaque)
+        }
     }
 
     /// A surface inside an already-opaque window has no backdrop, so the real
