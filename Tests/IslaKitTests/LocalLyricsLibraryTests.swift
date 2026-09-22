@@ -151,6 +151,52 @@ final class LocalLyricsLibraryTests: XCTestCase {
         XCTAssertEqual(after.id, before.id, "the document keeps its id across the absence")
     }
 
+    /// A folder inside another one the library reads is walked twice: on its
+    /// own, and as part of its parent. Each file used to be indexed once per
+    /// walk. One already indexed went in twice under the same id, and the next
+    /// rescan built its path-to-id table from that — a trap in
+    /// `Dictionary(uniqueKeysWithValues:)`, and since the library rescans as it
+    /// opens, a crash at every launch. One arriving later got an id per walk,
+    /// and every lookup for its song became a choice between two copies.
+    func testAFolderInsideAnotherReadsEachFileOnce() throws {
+        let outer = try makeFolder(named: "Music")
+        let inner = outer.appendingPathComponent("Albums", isDirectory: true)
+        try fileManager.createDirectory(at: inner, withIntermediateDirectories: true)
+        try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: inner.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(outer)
+        try library.addFolder(inner)
+        try library.rescanFolders()
+
+        try write(
+            "[ti:Other]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Later",
+            to: inner.appendingPathComponent("other.lrc")
+        )
+        try library.rescanFolders()
+        for title in ["Song", "Other"] {
+            guard case .ready = library.lookup(identity: identity(title: title)) else {
+                return XCTFail("\(title): one file is one document, not a choice between two")
+            }
+        }
+
+        // And an index an earlier build already wrote with a file in it twice
+        // is read as the library opens, not trapped on.
+        let index = root.appendingPathComponent("lyrics-local/index.json")
+        var json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: index)) as? [String: Any]
+        )
+        let documents = try XCTUnwrap(json["documents"] as? [[String: Any]])
+        json["documents"] = documents + documents
+        try JSONSerialization.data(withJSONObject: json).write(to: index)
+        let relaunched = LocalLyricsLibrary(directory: root)
+        guard case .ready = relaunched.lookup(identity: identity()) else {
+            return XCTFail("the next launch reads the same single document")
+        }
+    }
+
     func testAmbiguousLookupUsesAnExplicitChooseCaption() {
         let caption = LyricsPresentation.compactCaption(
             for: .noLocalLyrics,
