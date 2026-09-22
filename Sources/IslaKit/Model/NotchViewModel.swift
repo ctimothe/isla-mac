@@ -913,8 +913,18 @@ final class NotchViewModel: ObservableObject {
     /// `LSUIElement` app is not in Force Quit — is exactly what somebody who has
     /// only ever dropped a file on the island still does not know. Unanswered,
     /// the next launch asks again, on the same terms as `setOpen(false)`.
+    ///
+    /// Assigning the tab is what refreshes the shelf, so it is assigned only
+    /// when the shelf is really coming into view. A drag leaving the island and
+    /// crossing back is another `draggingEntered`, and so is every later drag,
+    /// and each one used to pass over the whole shelf again — a reachability
+    /// check and a fresh QuickLook request per card. A panel left closed on the
+    /// shelf is the other case: the drag is about to open it there, and that is
+    /// the shelf coming into view.
     func showShelfForDrag() {
+        let shelfInView = isOpen && tab == .shelf && !isShowingWelcome
         isShowingWelcome = false
+        guard !shelfInView else { return }
         tab = .shelf
     }
 }
