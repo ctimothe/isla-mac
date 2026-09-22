@@ -209,14 +209,24 @@ final class LocalLyricsLibrary: ObservableObject {
         let previousDocuments = state.documents
         let previousIssues = state.issues
         let previousContent = records.mapValues(\.document)
+        // First id wins, rather than a trap: an index written before `seen`
+        // below can hold one path twice, and this runs as the library opens.
         let existingIDs = Dictionary(
-            uniqueKeysWithValues: state.documents
+            state.documents
                 .filter { $0.origin == .referencedFolder }
-                .map { ($0.path, $0.id) }
+                .map { ($0.path, $0.id) },
+            uniquingKeysWith: { first, _ in first }
         )
         let imports = state.documents.filter { $0.origin == .imported }
         var references: [StoredDocument] = []
         var issues: [StoredIssue] = []
+        // Every path this scan has indexed. A folder inside another one the
+        // library reads is walked twice — on its own, and as part of its
+        // parent — and each walk used to index every file again: one already
+        // known went in twice under the same id, which trapped the next scan's
+        // table above at every launch, and one arriving later got an id per
+        // walk, so each lookup for its song became a choice between copies.
+        var seen: Set<String> = []
 
         for folder in state.folders {
             // A folder that cannot be reached — a disk unplugged, a share not
@@ -232,9 +242,10 @@ final class LocalLyricsLibrary: ObservableObject {
             }
             guard let url, (try? url.checkResourceIsReachable()) == true else {
                 let roots = [folder.path, URL(fileURLWithPath: folder.path).resolvingSymlinksInPath().path]
-                references += previousDocuments.filter { document in
-                    document.origin == .referencedFolder
-                        && roots.contains { document.path.hasPrefix($0 + "/") }
+                for document in previousDocuments where document.origin == .referencedFolder {
+                    guard roots.contains(where: { document.path.hasPrefix($0 + "/") }),
+                          seen.insert(document.path).inserted else { continue }
+                    references.append(document)
                 }
                 issues.append(StoredIssue(path: folder.path, issue: .unreadable))
                 continue
@@ -253,6 +264,7 @@ final class LocalLyricsLibrary: ObservableObject {
                 else { continue }
 
                 let path = fileURL.standardizedFileURL.path
+                guard seen.insert(path).inserted else { continue }
                 do {
                     let raw = try String(contentsOf: fileURL, encoding: .utf8)
                     let document = try LocalLyricsDocument.parse(raw)
