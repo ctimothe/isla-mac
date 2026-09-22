@@ -12,30 +12,15 @@ import AppKit
 /// this pair, so it is as close to a public contract as an undocumented
 /// notification gets.
 ///
-/// Presentation takes the public route: while locked the panel is raised past
-/// `CGShieldingWindowLevel()` and marked `canBecomeVisibleWithoutLogin` — the
-/// documented permission bit for drawing over loginwindow, the one whose
-/// absence macOS logs as "trying to draw over login window without
-/// permission" — then fronted again. Honesty about the precedent: both of
-/// those apps went further, into the private SkyLight SPI (`SLSSpaceCreate`,
-/// `SLSSpaceSetAbsoluteLevel(400)`, `SLSSpaceAddWindowsAndRemoveFromSpaces`),
-/// because the modern lock screen is not a window to out-level but a whole
-/// space at absolute level 300, drawn over every window of the spaces below
-/// it whatever their level. If the physical lock test shows the public route
-/// losing to that, the SPI is the known fallback, and this type is the one
-/// place it would land.
+/// Presentation goes through a SkyLight space of the app's own — see
+/// `apply(to:locked:)` for why the public route, a panel raised past
+/// `CGShieldingWindowLevel()`, lost the physical test. The documented
+/// permission bit for drawing over loginwindow, `canBecomeVisibleWithoutLogin`,
+/// is still set for the length of a lock.
 @MainActor
 final class LockScreenPresence {
     static let lockNotification = Notification.Name("com.apple.screenIsLocked")
     static let unlockNotification = Notification.Name("com.apple.screenIsUnlocked")
-
-    /// Where the panel sits while the shield is up. Pure, so the arithmetic
-    /// is testable without a window: one past the shield, and never below
-    /// where the panel normally lives — a shield reported at some absurd low
-    /// value must not become an instruction to sink the panel.
-    static func lockedLevel(base: Int, shield: Int) -> Int {
-        max(base, shield + 1)
-    }
 
     private(set) var isLocked = false
     var onLock: (() -> Void)?

@@ -412,6 +412,41 @@ final class LyricsCoordinatorTests: XCTestCase {
         return url
     }
 
+    /// The same song moving from Music to Spotify is keyed to Spotify. The
+    /// track used to be published before the player playing it was adopted,
+    /// so the identity was built for the player the last song came from — and
+    /// with the length unchanged nothing ever rebuilt it: a timing nudge or a
+    /// binding made while the song played in Spotify was saved under Music.
+    func testTheSameSongMovingToAnotherPlayerIsKeyedToThatPlayer() {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        // Never activated, and cut off from every real player: the fixture
+        // names Music and Spotify, and nothing here may script either.
+        media.isolateFromPlayers()
+        media.bundleIdentifierForPID = { pid in
+            switch pid {
+            case 42: return PlayerApp.music.bundleID
+            case 43: return PlayerApp.spotify.bundleID
+            default: return nil
+            }
+        }
+        media.isProcessRunning = { _ in true }
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        media.apply(playingSnapshot())
+        XCTAssertEqual(coordinator.currentLocalTrackIdentity?.playerID, PlayerApp.music.rawValue)
+
+        var inSpotify = playingSnapshot()
+        inSpotify.playerPID = 43
+        media.apply(inSpotify)
+        XCTAssertEqual(
+            coordinator.currentLocalTrackIdentity?.playerID, PlayerApp.spotify.rawValue,
+            "the identity belongs to the player the song is playing in now"
+        )
+    }
+
     private func playingSnapshot() -> NowPlayingFeed.Snapshot {
         var snapshot = NowPlayingFeed.Snapshot()
         snapshot.title = "Song"

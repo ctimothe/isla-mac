@@ -129,6 +129,38 @@ final class OnlineLyricsTests: XCTestCase {
         XCTAssertTrue(cache.cached(track) == nil, "Retry must mean retry")
     }
 
+    /// The cache keeps its newest answers, not every answer ever. A hit carries
+    /// the song's whole timeline, and nothing used to leave: every song ever
+    /// looked up stayed in memory and in the file, re-encoded whole at each new
+    /// answer, for the life of the install. Past its capacity the answers
+    /// checked longest ago go — at load, and as new ones arrive.
+    func testTheCacheKeepsItsNewestAnswersPastItsCapacity() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func song(_ number: Int) -> LocalTrackIdentity {
+            LocalTrackIdentity(
+                playerID: "music", title: "Song \(number)", artist: "Artist", album: "Album",
+                duration: 200, recordingID: nil
+            )
+        }
+        let stored = Dictionary(uniqueKeysWithValues: (1...3).map { number in
+            (OnlineLyricsCache.key(song(number)), ["lines": [], "checkedAt": Double(number) * 1000] as [String: Any])
+        })
+        try JSONSerialization.data(withJSONObject: stored).write(to: directory.appendingPathComponent("cache.json"))
+
+        let cache = OnlineLyricsCache(directory: directory, capacity: 2)
+        XCTAssertTrue(cache.cached(song(1)) == nil, "the answer checked longest ago left at load")
+        XCTAssertFalse(cache.cached(song(2)) == nil)
+        XCTAssertFalse(cache.cached(song(3)) == nil)
+
+        cache.remember(.none, for: song(4))
+        XCTAssertTrue(cache.cached(song(2)) == nil, "a new answer pushes out the oldest")
+        XCTAssertFalse(cache.cached(song(3)) == nil)
+        XCTAssertEqual(cache.cached(song(4)), .some(nil))
+    }
+
     /// The same recording from two players is one lookup, not two.
     func testTheCacheIsKeyedByTheRecordingNotThePlayer() {
         let fromMusic = LocalTrackIdentity(

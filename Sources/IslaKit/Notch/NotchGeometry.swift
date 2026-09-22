@@ -308,12 +308,6 @@ struct NotchGeometry {
     /// an invisible one that does.
     var collapsedDepth: CGFloat { notchSize.height }
 
-    /// Hover target while collapsed, in global screen coordinates. Slightly
-    /// taller than the notch so the panel opens just before the pointer lands.
-    var hoverRect: CGRect {
-        collapsedHoverRect(for: notchSize.width)
-    }
-
     /// The live media activity grows sideways beyond the physical notch. Its
     /// full visible width must remain a hover target or the new wings would
     /// look interactive while only the camera cutout actually responded.

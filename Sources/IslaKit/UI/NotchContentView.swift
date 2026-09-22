@@ -332,7 +332,7 @@ struct NotchContentView: View {
                     // Diagnostic, behind DI_GEOM=1: pairs with the CLICK line in
                     // `NotchRootView.hitTest`, so a dead spot reads as
                     // hit-but-cancelled here versus never-delivered there.
-                    if ProcessInfo.processInfo.environment["DI_GEOM"] == "1" {
+                    if DebugTrail.geometry {
                         DebugTrail.note(String(
                             format: "GESTURE loc=(%.1f,%.1f) island=(%.1f,%.1f,%.1f,%.1f) inside=%d",
                             value.location.x, value.location.y,
@@ -969,7 +969,7 @@ struct PillPresence: ViewModifier {
         var opacity: Double
     }
 
-    static func appearance(shown: Bool, reduceMotion: Bool) -> Appearance {
+    nonisolated static func appearance(shown: Bool, reduceMotion: Bool) -> Appearance {
         if shown { return Appearance(blur: 0, scale: 1, opacity: 1) }
         // Reduce Motion keeps the change and drops the travel: a fade, with no
         // shrinking and no softening.

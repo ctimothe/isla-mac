@@ -116,8 +116,8 @@ final class OnlineLyricsSearchTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: old).write(to: directory.appendingPathComponent("cache.json"))
 
         let cache = OnlineLyricsCache(directory: directory)
-        XCTAssertNil(cache.cached(identity), "an exact-only miss is asked again")
+        XCTAssertTrue(cache.cached(identity) == nil, "an exact-only miss is asked again")
         cache.remember(.none, for: identity)
-        XCTAssertNotNil(cache.cached(identity), "a searched miss is believed")
+        XCTAssertEqual(cache.cached(identity), .some(nil), "a searched miss is believed")
     }
 }

@@ -81,6 +81,11 @@ final class NotchController {
                 self.pointer.setInside(false)
                 self.pointer.stop()
                 self.stores.suspendForIdleScreen()
+                // The watchdog too. It was the one repeating timer a dark
+                // display left running — thirty wake-ups a minute, all night,
+                // checking the frame of a window nobody could see. The wake
+                // handler starts it again before anything is on screen.
+                self.stopGeometryWatchdog()
             }
         })
         observerTokens.append(NSWorkspace.shared.notificationCenter.addObserver(
@@ -92,6 +97,9 @@ final class NotchController {
                 guard let self else { return }
                 self.screensAreAsleep = false
                 self.geometryTrace("screens awake locked=\(self.lockPresence.isLocked ? 1 : 0)")
+                // Before the early returns below: the card over a locked Mac is
+                // exactly what the watchdog keeps in place.
+                self.startGeometryWatchdog()
                 // Only once it is clear the Mac is not still locked — the
                 // checks below decide that.
                 if !self.lockPresence.isLocked { self.stores.resumeFromIdleScreen() }
@@ -133,7 +141,7 @@ final class NotchController {
         // DI_LOCK_PREVIEW=1 the app presents the card as though locked, over
         // the ordinary desktop, so its glass can be seen against a real
         // wallpaper. An app launched normally never has the variable.
-        if ProcessInfo.processInfo.environment["DI_LOCK_PREVIEW"] == "1" {
+        if DebugTrail.lockPreview {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                 MainActor.assumeIsolated { self?.screenLocked() }
             }
@@ -162,6 +170,22 @@ final class NotchController {
         // What was typed is kept — only the panel closes.
         setOpen(false)
         pointer.setInside(false)
+    }
+
+    /// Whether a lock starts the media clock for the card. Not while the
+    /// display is dark.
+    ///
+    /// With any "require password after" delay above zero, the display sleeps
+    /// first and the lock arrives later; with "immediately" the two race. Either
+    /// way the sleep handler had already stopped the clock, and the lock turned
+    /// it straight back on — with a song playing, the ten-a-second ticker and
+    /// the once-a-second Apple event into the player — for a card nobody could
+    /// see, for as long as the display stayed dark. Music keeps a Mac awake
+    /// with its display off, so that was hours. The wake handler starts the
+    /// clock the moment the card can be seen. Pure, so `LockedClockTests` can
+    /// hold the rule without a controller.
+    static func lockKeepsMediaRunning(screensAsleep: Bool) -> Bool {
+        !screensAsleep
     }
 
     /// The lock screen is display-only for the panel: the compact pill keeps
@@ -214,7 +238,8 @@ final class NotchController {
         // the locked pill.
         withTransaction(Self.cut) { viewModel?.isLockedPresentation = true }
         geometryTrace("locked")
-        viewModel?.media.setActive(true)
+        let keepsMediaRunning = Self.lockKeepsMediaRunning(screensAsleep: screensAreAsleep)
+        if keepsMediaRunning { viewModel?.media.setActive(true) }
         // Nobody can copy anything at a locked Mac, and Universal Clipboard
         // arrivals from a phone are not something to record behind a shield.
         // This used to happen only on the branch where the card is switched
@@ -223,7 +248,7 @@ final class NotchController {
         //
         // The media clock stays running: the card is about to be presented, and
         // it draws a scrubber and a moving lyric that both depend on it.
-        stores.suspendForIdleScreen(keepingMediaRunning: true)
+        stores.suspendForIdleScreen(keepingMediaRunning: keepsMediaRunning)
         applyLockedActiveRect()
         lockPresence.apply(to: panel, locked: true)
         // And the card, in its own window, at the centre of the notch's own
@@ -326,6 +351,25 @@ final class NotchController {
         // the card off-centre and unclickable until unlock.
         if let screen = viewModel?.geometry.screen { lockCard.reposition(on: screen) }
         panel?.setFrame(fresh.windowFrame, display: false)
+        recutPointerRects()
+    }
+
+    /// Same display, same notch — but not necessarily the same neighbours.
+    ///
+    /// A rect that reaches the top edge grows past it only where no display
+    /// sits directly above (`NotchGeometry.includingTopEdge`), and docking or
+    /// undocking one there changes that without moving this display at all.
+    /// Cut only in `build` and on the panel's own changes, the rects kept
+    /// reaching two points into a display just docked above — its bottom edge
+    /// lit the island and warmed the sampler — or stopped short of an edge
+    /// that had just become one, so a click thrown at the top of the screen
+    /// fell through, until the next track change or open re-cut them.
+    private func recutPointerRects() {
+        guard let vm = viewModel else { return }
+        pointer.warmZone = vm.geometry.warmZone
+        pointer.coolZone = vm.geometry.coolZone
+        pointer.closeRect = vm.geometry.hoverRect(for: vm.openBodySize)
+        if vm.isOpen { refreshOpenRects() } else { refreshCollapsedRects() }
     }
 
     /// A synthetic notch found at launch is checked again shortly after.
@@ -361,7 +405,7 @@ final class NotchController {
     /// out of place is a state, not an event, so the watchdog samples as well
     /// as narrating each notification that could have caused it.
     private func geometryTrace(_ message: @autoclosure () -> String) {
-        guard ProcessInfo.processInfo.environment["DI_GEOM"] == "1" else { return }
+        guard DebugTrail.geometry else { return }
         DebugTrail.note("GEOM \(message())")
     }
 
@@ -376,8 +420,6 @@ final class NotchController {
         )
     }
 
-    /// Samples where the panel actually is against where the geometry says it
-    /// belongs. Armed only under DI_GEOM=1.
     /// Watches where the panel actually is against where it belongs — and puts
     /// it back when the two disagree.
     ///
@@ -411,7 +453,7 @@ final class NotchController {
                 let hostedFits = hosted.map {
                     abs($0.frame.width - have.width) < 1 && abs($0.frame.height - have.height) < 1
                 } ?? true
-                if ProcessInfo.processInfo.environment["DI_GEOM"] == "1" {
+                if DebugTrail.geometry {
                     DebugTrail.note(String(
                         format: "GEOM watch panel=%.0fx%.0f@%.0f,%.0f want=%.0fx%.0f@%.0f,%.0f %@ content=%.0fx%.0f hosted=%.0fx%.0f%@%@ locked=%d card=%d %@",
                         have.width, have.height, have.origin.x, have.origin.y,
@@ -441,9 +483,15 @@ final class NotchController {
         geometryWatchdog = timer
     }
 
+    private func stopGeometryWatchdog() {
+        geometryWatchdog?.invalidate()
+        geometryWatchdog = nil
+    }
+
     func teardown() {
         lockPresence.stop()
         pointer.stop()
+        stopGeometryWatchdog()
         if let pinnedClickMonitor {
             NSEvent.removeMonitor(pinnedClickMonitor)
             self.pinnedClickMonitor = nil
@@ -939,7 +987,11 @@ final class NotchController {
             // pointer, and lifting its whole surface would be answering twice.
             vm.isHovering = hovering && !vm.isOpen
         }
-        pointer.start()
+        // Not in the dark. A rebuild can land while the display sleeps — an
+        // external display that drops off the bus with it moves the notch
+        // display's frame — and this restarted the sampler the sleep handler
+        // had stopped, for the rest of the night. The wake handler starts it.
+        if !screensAreAsleep { pointer.start() }
 
         // Switching tabs can change how far down the panel reaches, and both
         // the clickable region and the region the pointer counts as "on the
@@ -1037,7 +1089,9 @@ final class NotchController {
             .collapsedHoverRect(for: vm.bodySize.width)
             .contains(NSEvent.mouseLocation)
         let pointerOnBody = geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation)
-        if pointerOnTarget || (wasOpen && pointerOnBody) {
+        // And nothing opens on a dark display: an open panel starts the media
+        // clock, and a cursor left resting on the notch is not somebody asking.
+        if !screensAreAsleep, pointerOnTarget || (wasOpen && pointerOnBody) {
             pointer.setInside(true)
             setOpen(true)
         }
@@ -1124,11 +1178,6 @@ final class NotchController {
             }
         }
     }
-
-    /// What the menu bar switches. Handed out rather than wrapped: the menu
-    /// reads four sections and writes them one at a time, and a controller
-    /// method per section would be four methods that only forward.
-    var privacy: PrivacyMode? { viewModel?.privacy }
 
     /// Runs the deferred half of closing right now, and cancels the one still
     /// in flight so it cannot land later on a panel that has moved on.

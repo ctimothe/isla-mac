@@ -1170,8 +1170,7 @@ final class MediaController: ObservableObject {
     /// Every change in what the helper reports, before any judgement: owner,
     /// playing flag, rate, title and the admission verdict. Verification only.
     private func traceFeed(_ snapshot: NowPlayingFeed.Snapshot, _ verdict: Admission) {
-        let env = ProcessInfo.processInfo.environment
-        guard env["DI_OPEN_LYRICS"] == "1" || env["DI_MEDIA"] == "1" else { return }
+        guard DebugTrail.openLyrics || DebugTrail.media else { return }
         let bundle = snapshot.playerPID.flatMap(bundleIdentifierForPID) ?? "-"
         let line = String(
             format: "feed: pid=%d %@ playing=%d rate=%.2f el=%.2f \"%@\" -> %@",
@@ -1387,15 +1386,23 @@ final class MediaController: ObservableObject {
             spotifyISRC = nil
             spotifyExactDuration = nil
         }
-        let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
-        if track != fresh { track = fresh }
         // Adopted *before* the Spotify id is asked for. Asking first tested the
         // player the last snapshot came from: switching Music → Spotify skipped
         // the lookup for the first Spotify track, so its word-synced lyrics
         // silently degraded, and switching the other way asked Spotify what it
         // was playing and then pinned that id to a Music track, keying its
         // lyrics to the wrong song entirely.
+        //
+        // And before the track is published, for the reason the metadata above
+        // is cleared first: `@Published` tells subscribers before it stores,
+        // and the lyrics coordinator builds its identity from the player
+        // during that very call. Adopted after, a song moving from Music to
+        // Spotify was keyed to Music — and with its length unchanged, nothing
+        // rebuilt the identity, so a nudge or a binding made while it played
+        // in Spotify was saved under the other player.
         displayedPlayerPID = snapshot.playerPID
+        let fresh = Track(title: snapshot.title, artist: snapshot.artist, album: snapshot.album, key: key)
+        if track != fresh { track = fresh }
         if trackChanged || playerChanged {
             // A new song is a new line for the regression too.
             correctionWindow = []
@@ -1639,7 +1646,11 @@ final class MediaController: ObservableObject {
     /// JPEG decoding on the main thread is what makes a track change stutter,
     /// so it happens off it and the finished image is handed back.
     private func decodeArtwork(_ data: Data, for key: String) {
-        DispatchQueue.global(qos: .userInitiated).async {
+        // Weak from the outermost closure. The hops back below asked for a weak
+        // `self`, but to hand them one the decoding closure had to capture it
+        // first, and without a list of its own it captured it strongly: the
+        // `weak` never covered the decode, and the compiler said so.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let rep = NSBitmapImageRep(data: data), let cgImage = rep.cgImage else {
                 // An undecodable payload must not leave the previous track's
                 // cover standing: the deferred blank was already cancelled on
@@ -1864,8 +1875,7 @@ final class MediaController: ObservableObject {
     /// `DI_MEDIA=1` alone — the one that can be left running on a Mac somebody
     /// is using, because it draws nothing.
     private func trace(_ message: @autoclosure () -> String) {
-        let env = ProcessInfo.processInfo.environment
-        guard env["DI_OPEN_LYRICS"] == "1" || env["DI_MEDIA"] == "1" else { return }
+        guard DebugTrail.openLyrics || DebugTrail.media else { return }
         DebugTrail.note(message())
     }
 

@@ -83,6 +83,120 @@ final class LocalLyricsLibraryTests: XCTestCase {
         XCTAssertEqual(candidate.timeline.lines.first?.text, "Changed")
     }
 
+    /// A rescan that finds what was already there changes nothing. Every
+    /// folder-watcher event lands here — any file added, renamed or removed at
+    /// a folder's top level, `.lrc` or not — and each one rewrote the index and
+    /// advanced the revision, which sends the track on screen back through
+    /// resolution and can re-send its online lookup.
+    func testARescanThatFindsNothingNewLeavesTheRevisionAlone() throws {
+        let folder = try makeFolder(named: "Library")
+        let url = try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: folder.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        let settled = library.revision
+
+        try write("not lyrics", to: folder.appendingPathComponent("notes.txt"))
+        try library.rescanFolders()
+        XCTAssertEqual(library.revision, settled, "nothing the library holds changed")
+
+        try write("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Changed", to: url)
+        try library.rescanFolders()
+        XCTAssertGreaterThan(library.revision, settled, "a changed document is news")
+    }
+
+    /// A folder that cannot be reached — a disk unplugged, a share not mounted —
+    /// must not cost the others. Its bookmark throws, and the rescan used to
+    /// throw with it: every folder after the missing one went unread for the
+    /// session. It keeps the documents it had, so a track bound to one of them
+    /// is bound to the same one when the folder comes back.
+    func testAMissingFolderDoesNotHideTheOthersAndKeepsItsDocuments() throws {
+        // Symlinks resolved, so the folder's stored path and the path its
+        // bookmark resolves to are the same string, as they are in ~/Music.
+        let base = root.resolvingSymlinksInPath()
+        let away = base.appendingPathComponent("Away", isDirectory: true)
+        let kept = base.appendingPathComponent("Kept", isDirectory: true)
+        try fileManager.createDirectory(at: away, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: kept, withIntermediateDirectories: true)
+        let awayLRC = "[ti:Other]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Away"
+        try write(awayLRC, to: away.appendingPathComponent("other.lrc"))
+        let song = try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: kept.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(away)
+        try library.addFolder(kept)
+        let other = identity(title: "Other")
+        guard case .ready(let before) = library.lookup(identity: other) else {
+            return XCTFail("the folder's document should resolve while it is there")
+        }
+
+        try fileManager.removeItem(at: away)
+        try write("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Changed", to: song)
+        XCTAssertNoThrow(try library.rescanFolders(), "one missing folder must not abandon the rescan")
+        guard case .ready(let current) = library.lookup(identity: identity()) else {
+            return XCTFail("the reachable folder is still read")
+        }
+        XCTAssertEqual(current.timeline.lines.first?.text, "Changed")
+
+        try fileManager.createDirectory(at: away, withIntermediateDirectories: true)
+        try write(awayLRC, to: away.appendingPathComponent("other.lrc"))
+        try library.rescanFolders()
+        guard case .ready(let after) = library.lookup(identity: other) else {
+            return XCTFail("the folder's document is back with the folder")
+        }
+        XCTAssertEqual(after.id, before.id, "the document keeps its id across the absence")
+    }
+
+    /// A folder inside another one the library reads is walked twice: on its
+    /// own, and as part of its parent. Each file used to be indexed once per
+    /// walk. One already indexed went in twice under the same id, and the next
+    /// rescan built its path-to-id table from that — a trap in
+    /// `Dictionary(uniqueKeysWithValues:)`, and since the library rescans as it
+    /// opens, a crash at every launch. One arriving later got an id per walk,
+    /// and every lookup for its song became a choice between two copies.
+    func testAFolderInsideAnotherReadsEachFileOnce() throws {
+        let outer = try makeFolder(named: "Music")
+        let inner = outer.appendingPathComponent("Albums", isDirectory: true)
+        try fileManager.createDirectory(at: inner, withIntermediateDirectories: true)
+        try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: inner.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(outer)
+        try library.addFolder(inner)
+        try library.rescanFolders()
+
+        try write(
+            "[ti:Other]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Later",
+            to: inner.appendingPathComponent("other.lrc")
+        )
+        try library.rescanFolders()
+        for title in ["Song", "Other"] {
+            guard case .ready = library.lookup(identity: identity(title: title)) else {
+                return XCTFail("\(title): one file is one document, not a choice between two")
+            }
+        }
+
+        // And an index an earlier build already wrote with a file in it twice
+        // is read as the library opens, not trapped on.
+        let index = root.appendingPathComponent("lyrics-local/index.json")
+        var json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: index)) as? [String: Any]
+        )
+        let documents = try XCTUnwrap(json["documents"] as? [[String: Any]])
+        json["documents"] = documents + documents
+        try JSONSerialization.data(withJSONObject: json).write(to: index)
+        let relaunched = LocalLyricsLibrary(directory: root)
+        guard case .ready = relaunched.lookup(identity: identity()) else {
+            return XCTFail("the next launch reads the same single document")
+        }
+    }
+
     func testAmbiguousLookupUsesAnExplicitChooseCaption() {
         let caption = LyricsPresentation.compactCaption(
             for: .noLocalLyrics,

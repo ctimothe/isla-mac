@@ -140,6 +140,74 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
+    /// A drop lands on a shelf the drag already brought up, and `add` loads the
+    /// new cards' previews itself — so the drop must not pass over the whole
+    /// shelf again: a reachability check and a fresh QuickLook request per card,
+    /// each preview landing as a whole-panel redraw. The welcome, if the drop
+    /// beat it down, still goes.
+    func testADropOnTheShelfDoesNotRefreshItAgain() {
+        withCleanFirstRun {
+            guard let vm = Self.viewModel() else {
+                return XCTFail("a test host always has a screen")
+            }
+            vm.showShelfForDrag()
+            vm.isShowingWelcome = true
+            let refreshes = vm.shelf.refreshesForTests
+
+            XCTAssertTrue(vm.accept(urls: []))
+
+            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes, "the drag already refreshed the shelf")
+            XCTAssertEqual(vm.tab, .shelf)
+            XCTAssertFalse(vm.isShowingWelcome)
+        }
+    }
+
+    /// The same for a screenshot arriving while the shelf is on screen: its
+    /// card is already there, and re-showing the shelf redid every other one.
+    func testAScreenshotArrivingOnTheShelfDoesNotRefreshIt() {
+        withCleanFirstRun {
+            guard let vm = Self.viewModel() else {
+                return XCTFail("a test host always has a screen")
+            }
+            vm.isOpen = true
+            vm.tab = .shelf
+            let refreshes = vm.shelf.refreshesForTests
+
+            vm.receivedScreenshot(at: URL(fileURLWithPath: "/tmp/Screenshot.png"))
+
+            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes)
+            XCTAssertEqual(vm.tab, .shelf)
+        }
+    }
+
+    /// And for a drag crossing back onto a shelf already on screen — every
+    /// exit and re-entry is another `draggingEntered`, and so is every later
+    /// drag. Only the shelf coming into view is refreshed: a panel left closed
+    /// on the shelf that the drag is about to open, or one under the welcome.
+    func testADragReenteringAnOpenShelfDoesNotRefreshIt() {
+        withCleanFirstRun {
+            guard let vm = Self.viewModel() else {
+                return XCTFail("a test host always has a screen")
+            }
+            vm.isOpen = true
+            vm.tab = .shelf
+            let refreshes = vm.shelf.refreshesForTests
+
+            vm.showShelfForDrag()
+            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes, "the shelf was already on screen")
+
+            vm.isOpen = false
+            vm.showShelfForDrag()
+            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes + 1, "a closed panel opens onto the shelf")
+
+            vm.isOpen = true
+            vm.isShowingWelcome = true
+            vm.showShelfForDrag()
+            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes + 2, "the welcome was covering it")
+            XCTAssertFalse(vm.isShowingWelcome)
+        }
+    }
+
     /// Every string the welcome shows must exist in both tables, and the Russian
     /// one must actually be Russian.
     ///

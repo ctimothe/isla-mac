@@ -107,7 +107,7 @@ struct LyricsStage: View {
         // branch is live and why, in the corner, only when an agent launched
         // the binary with the variable set. Never present in a normal run.
         .overlay(alignment: .bottomLeading) {
-            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+            if DebugTrail.openLyrics {
                 Text(debugStateDescription)
                     .font(Theme.TypeRole.caption.font().monospacedDigit())
                     .foregroundStyle(.yellow)
@@ -118,7 +118,7 @@ struct LyricsStage: View {
             }
         }
         .onAppear {
-            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+            if DebugTrail.openLyrics {
                 DebugTrail.note("stage appeared: \(debugStateDescription)")
             }
         }
@@ -127,7 +127,7 @@ struct LyricsStage: View {
         // samples the position for the backward yank this hook exists to catch.
         // Never armed in a normal run.
         .task {
-            guard ProcessInfo.processInfo.environment["DI_TEST_CLICK"] == "next" else { return }
+            guard DebugTrail.testClickNext else { return }
             do {
                 for round in 0..<5 {
                     try await Task.sleep(nanoseconds: 6_000_000_000)
@@ -148,10 +148,11 @@ struct LyricsStage: View {
                 // seeking the player from beyond the grave.
             }
         }
-        .onChange(of: debugStateDescription) { _, new in
-            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
-                DebugTrail.note(new)
-            }
+        // The value is gated, not only the note: `onChange` evaluates what it
+        // watches on every pass of this body, and the stage re-renders with
+        // the position, so a normal run formatted a debug string for nobody.
+        .onChange(of: DebugTrail.openLyrics ? debugStateDescription : "") { _, new in
+            DebugTrail.note(new)
         }
     }
 
@@ -265,7 +266,7 @@ struct LyricsStage: View {
                     // The song moving on carries the page with it — but only
                     // while nobody is reading ahead by hand.
                 .onChange(of: anchor) { from, to in
-                    if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                    if DebugTrail.openLyrics {
                         DebugTrail.note(String(
                             format: "STAGE anchor %d->%d current=%d now=%.2f lines=%d viewport=%.0f follow=%d strayed=%d",
                             from, to, currentIndex ?? -1, now,
@@ -287,7 +288,7 @@ struct LyricsStage: View {
                 .onScrollWheel {
                     guard following else { return }
                     following = false
-                    if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                    if DebugTrail.openLyrics {
                         DebugTrail.note("STAGE reader took over")
                     }
                 }
@@ -355,7 +356,7 @@ struct LyricsStage: View {
     /// line away mid-sentence.
     private var syncPill: some View {
         Button {
-            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+            if DebugTrail.openLyrics {
                 DebugTrail.note("SYNC tapped")
             }
             following = true
@@ -400,7 +401,7 @@ struct LyricsStage: View {
             wordTimingEnabled: wordTimingEnabled,
             reading: !following,
             seek: {
-                if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                if DebugTrail.openLyrics {
                     DebugTrail.note(String(
                         format: "ROW CLICK index=%d at=%.2f current=%d pos=%.2f",
                         index, line.at, current ?? -1, media.position
@@ -595,9 +596,9 @@ struct LyricsStage: View {
     /// the jump before the line's timestamp. And a strongly negative offset
     /// near the end of the track must not clamp into the final second — that
     /// is a skip, not a seek.
-    static let clickMargin: TimeInterval = 0.12
+    nonisolated static let clickMargin: TimeInterval = 0.12
 
-    static func clickTarget(lineAt: TimeInterval, lead: TimeInterval, duration: TimeInterval) -> TimeInterval {
+    nonisolated static func clickTarget(lineAt: TimeInterval, lead: TimeInterval, duration: TimeInterval) -> TimeInterval {
         var target = max(0, lineAt - lead + clickMargin)
         if duration > 2 { target = min(target, duration - 1) }
         return target

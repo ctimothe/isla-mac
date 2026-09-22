@@ -870,16 +870,30 @@ final class NotchViewModel: ObservableObject {
     /// rail beside a body showing something else. Unlike a drag, a picture that
     /// arrived by itself is nobody asking for anything, so it does not get to
     /// take the welcome down — see `showShelfForDrag()`.
+    ///
+    /// Nor when the shelf is already showing: the new card is on screen the
+    /// moment `add` puts it there, and assigning the tab again re-ran
+    /// `refreshFromDisk` — a reachability check and a fresh QuickLook request
+    /// for every card, each preview landing as a whole-panel redraw.
     func receivedScreenshot(at url: URL) {
-        guard isOpen, !wantsKeyboard, !isShowingWelcome else { return }
+        guard isOpen, !wantsKeyboard, !isShowingWelcome, tab != .shelf else { return }
         tab = .shelf
     }
 
     /// A file the user dropped on the panel by hand — switching to the shelf
     /// is the point, not a side effect to guard against.
+    ///
+    /// Usually it is already there: the drag that carried the files put the
+    /// shelf up and refreshed it, and `add` loads the new cards' previews
+    /// itself, so showing it again only redid the whole pass over the shelf.
+    /// The welcome still comes down if the drop beat it.
     func accept(urls: [URL]) -> Bool {
         shelf.add(urls)
-        showShelfForDrag()
+        if tab != .shelf {
+            showShelfForDrag()
+        } else if isShowingWelcome {
+            isShowingWelcome = false
+        }
         return true
     }
 
@@ -899,8 +913,18 @@ final class NotchViewModel: ObservableObject {
     /// `LSUIElement` app is not in Force Quit — is exactly what somebody who has
     /// only ever dropped a file on the island still does not know. Unanswered,
     /// the next launch asks again, on the same terms as `setOpen(false)`.
+    ///
+    /// Assigning the tab is what refreshes the shelf, so it is assigned only
+    /// when the shelf is really coming into view. A drag leaving the island and
+    /// crossing back is another `draggingEntered`, and so is every later drag,
+    /// and each one used to pass over the whole shelf again — a reachability
+    /// check and a fresh QuickLook request per card. A panel left closed on the
+    /// shelf is the other case: the drag is about to open it there, and that is
+    /// the shelf coming into view.
     func showShelfForDrag() {
+        let shelfInView = isOpen && tab == .shelf && !isShowingWelcome
         isShowingWelcome = false
+        guard !shelfInView else { return }
         tab = .shelf
     }
 }

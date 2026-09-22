@@ -106,7 +106,7 @@ struct MediaPane: View {
             .onChange(of: track.key) { _, _ in showingLyrics.wrappedValue = false }
             .onAppear {
                 media.refreshPlaybackModes()
-                if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                if DebugTrail.openLyrics {
                     DebugTrail.note("MediaPane track=\(track.title) showingLyrics=\(showingLyrics.wrappedValue)")
                 }
             }
@@ -124,7 +124,7 @@ struct MediaPane: View {
         } else {
             emptyState
                 .onAppear {
-                    if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                    if DebugTrail.openLyrics {
                         DebugTrail.note("MediaPane EMPTY (no track)")
                     }
                 }
@@ -349,7 +349,7 @@ struct MediaPane: View {
                             // Seek first: clearing `scrubbing` beforehand would
                             // drop the bar back to the old position for a frame
                             // before the new one lands.
-                            if ProcessInfo.processInfo.environment["DI_OPEN_LYRICS"] == "1" {
+                            if DebugTrail.openLyrics {
                                 DebugTrail.note(String(format: "SCRUB to=%.2f", media.duration * target))
                             }
                             media.seek(to: media.duration * target)

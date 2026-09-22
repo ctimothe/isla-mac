@@ -96,9 +96,10 @@ Two harnesses are run by hand, never as gates:
 against a live Spotify, using `Scripts/sync-probe/`).
 
 Verification-only environment hooks, all off unless set to `1` — a normal run
-never touches disk for them:
+never touches disk for them. `DebugTrail` reads each one once, at launch; ask it
+(`DebugTrail.geometry`, …) rather than the environment:
 
-- `DI_GEOM=1` — geometry trail plus the active watchdog, appended to `/tmp/di-debug.log`.
+- `DI_GEOM=1` — geometry trail, the watchdog's samples included, appended to `/tmp/di-debug.log`.
 - `DI_LOCK_PREVIEW=1` — present the lock card without locking the Mac.
 - `DI_OPEN_LYRICS=1` — open the lyrics stage without a pointer; also writes the trail.
 - `DI_OPEN_PANEL=1` — open the panel on the player without a pointer, to film a skip.
@@ -167,8 +168,11 @@ decision D7), the parity app *does* draw a centered synthetic notch on
 unnotched displays.
 
 **Lock screen.** `LockScreenPresence` watches the undocumented-but-stable
-`com.apple.screenIsLocked`/`…Unlocked` distributed notifications, raises the
-panel past `CGShieldingWindowLevel()` and sets `canBecomeVisibleWithoutLogin`.
+`com.apple.screenIsLocked`/`…Unlocked` distributed notifications and lifts the
+panel into a SkyLight space of its own at absolute level 400, over the lock
+screen's own space at 300 — private SPI resolved with `dlsym`, so a macOS that
+drops a symbol degrades to a pill hidden while locked. Raising the window level past
+`CGShieldingWindowLevel()` was tried first and lost the physical test.
 Over the shield the island is visible but inert; the card is a separate window
 and is the only thing that answers clicks.
 

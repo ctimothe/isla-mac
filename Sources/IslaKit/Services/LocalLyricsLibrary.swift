@@ -206,20 +206,49 @@ final class LocalLyricsLibrary: ObservableObject {
     }
 
     func rescanFolders() throws {
+        let previousDocuments = state.documents
+        let previousIssues = state.issues
+        let previousContent = records.mapValues(\.document)
+        // First id wins, rather than a trap: an index written before `seen`
+        // below can hold one path twice, and this runs as the library opens.
         let existingIDs = Dictionary(
-            uniqueKeysWithValues: state.documents
+            state.documents
                 .filter { $0.origin == .referencedFolder }
-                .map { ($0.path, $0.id) }
+                .map { ($0.path, $0.id) },
+            uniquingKeysWith: { first, _ in first }
         )
         let imports = state.documents.filter { $0.origin == .imported }
         var references: [StoredDocument] = []
         var issues: [StoredIssue] = []
+        // Every path this scan has indexed. A folder inside another one the
+        // library reads is walked twice — on its own, and as part of its
+        // parent — and each walk used to index every file again: one already
+        // known went in twice under the same id, which trapped the next scan's
+        // table above at every launch, and one arriving later got an id per
+        // walk, so each lookup for its song became a choice between copies.
+        var seen: Set<String> = []
 
         for folder in state.folders {
-            let url = try resolve(folder)
-            let hadAccess = url.startAccessingSecurityScopedResource()
+            // A folder that cannot be reached — a disk unplugged, a share not
+            // mounted, a folder since deleted — must not cost the others. Its
+            // bookmark throws, and this used to throw with it: the whole rescan
+            // was abandoned, and every folder after the missing one went unread
+            // for the session. It keeps the documents it had instead, so a
+            // track bound to one of them finds the same id when it is back.
+            let url = try? resolve(folder)
+            let hadAccess = url?.startAccessingSecurityScopedResource() ?? false
             defer {
-                if hadAccess { url.stopAccessingSecurityScopedResource() }
+                if hadAccess { url?.stopAccessingSecurityScopedResource() }
+            }
+            guard let url, (try? url.checkResourceIsReachable()) == true else {
+                let roots = [folder.path, URL(fileURLWithPath: folder.path).resolvingSymlinksInPath().path]
+                for document in previousDocuments where document.origin == .referencedFolder {
+                    guard roots.contains(where: { document.path.hasPrefix($0 + "/") }),
+                          seen.insert(document.path).inserted else { continue }
+                    references.append(document)
+                }
+                issues.append(StoredIssue(path: folder.path, issue: .unreadable))
+                continue
             }
 
             guard let enumerator = fileManager.enumerator(
@@ -235,6 +264,7 @@ final class LocalLyricsLibrary: ObservableObject {
                 else { continue }
 
                 let path = fileURL.standardizedFileURL.path
+                guard seen.insert(path).inserted else { continue }
                 do {
                     let raw = try String(contentsOf: fileURL, encoding: .utf8)
                     let document = try LocalLyricsDocument.parse(raw)
@@ -255,6 +285,13 @@ final class LocalLyricsLibrary: ObservableObject {
         records = records.filter { $0.value.stored.origin == .imported || surviving.contains($0.key) }
         state.documents = imports + references
         state.issues = issues
+        // Only news is announced. Every folder-watcher event lands here — any
+        // file added, renamed or removed at a folder's top level, `.lrc` or
+        // not — and each one rewrote the index and advanced the revision,
+        // which sends the track on screen back through resolution and can
+        // cancel and re-send its online lookup.
+        guard state.documents != previousDocuments || state.issues != previousIssues
+                || records.mapValues(\.document) != previousContent else { return }
         persist()
         advanceRevision()
     }
@@ -521,8 +558,12 @@ final class LocalLyricsLibrary: ObservableObject {
     private func resolve(_ folder: StoredFolder) throws -> URL {
         guard let bookmark = folder.bookmark else { return URL(fileURLWithPath: folder.path) }
         var stale = false
+        // Never mounting and never asking, like the shelf's bookmarks: this
+        // runs on the main thread at launch, and a folder on a disk or share
+        // that is not there must read as unreachable, not stall the launch
+        // mounting it or put up a dialog nobody asked for.
         let url = try URL(
-            resolvingBookmarkData: bookmark, options: [.withSecurityScope],
+            resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting],
             relativeTo: nil, bookmarkDataIsStale: &stale
         )
         return stale ? URL(fileURLWithPath: folder.path) : url
