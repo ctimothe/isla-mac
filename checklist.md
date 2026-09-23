@@ -655,3 +655,10 @@ downloads in total, and no outside issues.
   (dashboard, "Users and Access"). If it is, only listed accounts can use
   Liked Songs. Settings now says so when Spotify refuses.
 - [ ] README screenshots: they need the live app on the owner's screen.
+- [x] The island shows the charger going in and headphones connecting
+  (`AmbientWatch`), each with a switch. Shelf cards offer Quick Look and
+  AirDrop.
+- [ ] **Physical check owed:** plug in a charger, connect AirPods, and use
+  Quick Look and AirDrop from a Shelf card. The moments are rendered
+  offscreen in tests (`SHOT_OUT`); the two system panels have not been
+  opened from the app yet.

@@ -287,3 +287,7 @@
 "%d%%" = "%d %%";
 "Show Charging" = "Показывать зарядку";
 "Show Headphones Connecting" = "Показывать подключение наушников";
+
+/* Отправка с Полки */
+"Quick Look" = "Быстрый просмотр";
+"AirDrop" = "AirDrop";

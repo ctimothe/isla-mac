@@ -288,3 +288,7 @@
 "%d%%" = "%d%%";
 "Show Charging" = "Show Charging";
 "Show Headphones Connecting" = "Show Headphones Connecting";
+
+/* Shelf sharing */
+"Quick Look" = "Quick Look";
+"AirDrop" = "AirDrop";

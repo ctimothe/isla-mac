@@ -211,8 +211,14 @@ private struct ShelfCard: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .contextMenu {
-            Button("Copy") { shelf.copy(item) }
+            Button("Quick Look") { ShelfSharing.quickLook(shelf.dragURLs(startingAt: item)) }
             Button("Open") { shelf.open(item) }
+            Button("Copy") { shelf.copy(item) }
+            // Offered only where AirDrop can take the files: a Mac without
+            // it, or a folder, gets no row that does nothing.
+            if ShelfSharing.canAirDrop(shelf.dragURLs(startingAt: item)) {
+                Button("AirDrop") { ShelfSharing.airDrop(shelf.dragURLs(startingAt: item)) }
+            }
             Button("Show in Finder") { shelf.reveal(item) }
             Divider()
             Button("Remove from Shelf") { shelf.remove(item) }

@@ -83,3 +83,11 @@ final class AmbientMomentTests: XCTestCase {
         }
     }
 }
+
+/// The Shelf's AirDrop row is offered only where AirDrop can take the files.
+@MainActor
+final class ShelfSharingTests: XCTestCase {
+    func testNothingSelectedOffersNoAirDrop() {
+        XCTAssertFalse(ShelfSharing.canAirDrop([]))
+    }
+}

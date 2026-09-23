@@ -38,7 +38,11 @@ says whether there is one.
 - **Lock screen.** While the Mac is locked, a player card with lyrics, volume
   and audio output.
 - **Shelf.** Drop files onto the notch to keep them at hand and drag them out
-  again. Screenshots and screen recordings appear here too.
+  again, Quick Look them, or AirDrop them. Screenshots and screen recordings
+  appear here too.
+- **Charging and headphones.** Plugging in shows the battery level on the
+  island for a moment; AirPods and other Bluetooth headphones show their name
+  when they connect.
 - **Clipboard.** The last 40 items copied while Isla runs. Click one to copy
   it again. It can be turned off in Settings.
 - **Translate.** Sixteen languages, translated on the Mac by Apple's
