@@ -85,6 +85,16 @@ final class LockScreenPresence {
     /// the custom space and re-ordered, which rebinds it to the active space;
     /// the space itself is hidden and destroyed so nothing leaks across
     /// lock cycles.
+    /// Takes a window that is going away out of the space, without ordering
+    /// anything. A panel rebuilt during a lock (a display plugged in with the
+    /// shield up) is thrown away while still lifted. Left in the space, it
+    /// would keep the space alive after the unlock, now that the space lives
+    /// until its last window leaves.
+    func release(_ panel: NSPanel?) {
+        guard let panel else { return }
+        SkyLight.shared?.lower(windowNumber: panel.windowNumber)
+    }
+
     func apply(to panel: NSPanel?, locked: Bool) {
         guard let panel else { return }
         if locked {
@@ -124,18 +134,29 @@ final class SkyLight {
     private typealias SpaceAddWindows = @convention(c) (Int32, UInt64, CFArray, Int32) -> Void
     private typealias RemoveWindowsFromSpaces = @convention(c) (Int32, CFArray, CFArray) -> Void
 
-    private let connection: Int32
-    private let spaceCreate: SpaceCreate
-    private let spaceDestroy: SpaceDestroy
-    private let setAbsoluteLevel: SpaceSetAbsoluteLevel
-    private let showSpaces: ShowSpaces
-    private let hideSpaces: HideSpaces
-    private let addWindows: SpaceAddWindows
-    private let removeWindows: RemoveWindowsFromSpaces
+    /// The calls, as plain Swift functions of the space and window ids, so a
+    /// test can stand in for SkyLight and watch what is asked of it.
+    struct Calls {
+        var create: () -> UInt64
+        var destroy: (UInt64) -> Void
+        var setLevel: (UInt64, Int32) -> Void
+        var show: (UInt64) -> Void
+        var hide: (UInt64) -> Void
+        var add: (UInt64, Int) -> Void
+        var remove: (UInt64, Int) -> Void
+    }
 
+    private let calls: Calls
     private var space: UInt64 = 0
+    /// Every window currently in the space. The notch panel and the lock card
+    /// share one space, and the space used to be destroyed by whichever window
+    /// was lowered first. On unlock that is the card, so the panel's own
+    /// `lower` then found no space and never removed the panel from the one
+    /// just destroyed; only the re-order after it put the panel back. Now the
+    /// space goes when its last window leaves.
+    private(set) var windows: Set<Int> = []
 
-    private init?() {
+    private convenience init?() {
         guard let handle = dlopen(
             "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW
         ) else { return nil }
@@ -156,31 +177,40 @@ final class SkyLight {
             let remove = symbol("SLSRemoveWindowsFromSpaces", as: RemoveWindowsFromSpaces.self)
         else { return nil }
 
-        connection = main()
-        spaceCreate = create
-        spaceDestroy = destroy
-        setAbsoluteLevel = level
-        showSpaces = show
-        hideSpaces = hide
-        addWindows = add
-        removeWindows = remove
+        let connection = main()
+        self.init(calls: Calls(
+            create: { create(connection, 1, 0) },
+            destroy: { destroy(connection, $0) },
+            setLevel: { level(connection, $0, $1) },
+            show: { show(connection, [$0] as CFArray) },
+            hide: { hide(connection, [$0] as CFArray) },
+            add: { add(connection, $0, [$1] as CFArray, 7) },
+            remove: { remove(connection, [$1] as CFArray, [$0] as CFArray) }
+        ))
+    }
+
+    init(calls: Calls) {
+        self.calls = calls
     }
 
     func lift(windowNumber: Int) {
         if space == 0 {
-            space = spaceCreate(connection, 1, 0)
+            space = calls.create()
             guard space != 0 else { return }
-            setAbsoluteLevel(connection, space, Self.aboveShield)
+            calls.setLevel(space, Self.aboveShield)
         }
-        showSpaces(connection, [space] as CFArray)
-        addWindows(connection, space, [windowNumber] as CFArray, 7)
+        calls.show(space)
+        calls.add(space, windowNumber)
+        windows.insert(windowNumber)
     }
 
     func lower(windowNumber: Int) {
-        guard space != 0 else { return }
-        removeWindows(connection, [windowNumber] as CFArray, [space] as CFArray)
-        hideSpaces(connection, [space] as CFArray)
-        spaceDestroy(connection, space)
+        guard space != 0, windows.contains(windowNumber) else { return }
+        calls.remove(space, windowNumber)
+        windows.remove(windowNumber)
+        guard windows.isEmpty else { return }
+        calls.hide(space)
+        calls.destroy(space)
         space = 0
     }
 }

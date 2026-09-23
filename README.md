@@ -3,7 +3,8 @@
 A Dynamic Island–style panel for the Mac notch: what's playing, synced lyrics,
 a file shelf, clipboard history and translation. Click the notch to open it.
 
-Requires macOS 15 or later. On a display without a notch, Isla draws one.
+Requires macOS 15 or later, on Apple silicon or Intel. On a display without a
+notch, Isla draws one.
 
 "Dynamic Island" is Apple's term and is used here only to describe the idea.
 Isla is an independent project and is not affiliated with Apple.
@@ -63,6 +64,17 @@ Spotify tokens are stored in a file readable only by your user account in
 `~/Library/Application Support/Isla`. Signed builds use the Keychain instead.
 macOS asks before Isla controls Music or Spotify through Apple Events, the
 fallback used when Now Playing is unavailable.
+
+## When something is wrong
+
+- **The Music tab says only Music and Spotify can be seen.** macOS refused Isla's
+  Now Playing reader, usually because the download quarantine is still on the
+  app. Run the `xattr` command from Install, then **Settings → Music → Try Again**.
+- **A shortcut does nothing.** Another app may own it. Settings → Keyboard
+  Shortcuts says so and lets you pick another.
+- **Anything else.** **Settings → Copy Diagnostics**, then **Report a Problem…**
+  and paste it into the form. The report lists versions, settings and Isla's own
+  log, and nothing you played, copied or translated.
 
 ## Build from source
 

@@ -97,33 +97,19 @@ final class NotchController {
                 guard let self else { return }
                 self.screensAreAsleep = false
                 self.geometryTrace("screens awake locked=\(self.lockPresence.isLocked ? 1 : 0)")
-                // Before the early returns below: the card over a locked Mac is
-                // exactly what the watchdog keeps in place.
-                self.startGeometryWatchdog()
-                // Only once it is clear the Mac is not still locked — the
-                // checks below decide that.
-                if !self.lockPresence.isLocked { self.stores.resumeFromIdleScreen() }
-                // Repair path: if the unlock notification was ever missed —
-                // it once queued behind a main-thread block and the card
-                // stayed stranded on the desktop — waking with the shield
-                // down puts the panel back to normal.
-                if !self.lockPresence.isLocked, self.viewModel?.isLockedPresentation == true {
-                    self.screenUnlocked()
-                    return
-                }
-                if self.lockPresence.isLocked {
-                    // Still locked: the sampler must stay stopped. Restarting
-                    // it here — the display sleeping and rewaking mid-lock is
-                    // the ordinary way the password field is summoned — put it
-                    // to work against rects cut before the lock, which killed
-                    // the card's transport and could unfold the panel under
-                    // the shield. Only the card comes back.
-                    if self.viewModel?.isLockedPresentation == true {
-                        self.viewModel?.media.setActive(true)
+                let plan = Self.wakePlan(
+                    isLocked: self.lockPresence.isLocked,
+                    lockedPresentation: self.viewModel?.isLockedPresentation == true
+                )
+                for step in plan {
+                    switch step {
+                    case .startWatchdog: self.startGeometryWatchdog()
+                    case .resumeStores: self.stores.resumeFromIdleScreen()
+                    case .repairUnlock: self.screenUnlocked()
+                    case .reactivateCardMedia: self.viewModel?.media.setActive(true)
+                    case .restartPointer: self.pointer.start()
                     }
-                    return
                 }
-                self.pointer.start()
             }
         })
         // Locking replaces the desktop with the shield, and the pill stays on
@@ -782,6 +768,9 @@ final class NotchController {
         closeActiveRectWork?.cancel()
         cancellables.removeAll()
         panel?.acceptsKeyboard = false
+        // Out of the lock-screen space before it goes, if it is in one. The
+        // replacement is lifted again below when the Mac is still locked.
+        lockPresence.release(panel)
         panel?.orderOut(nil)
         panel?.contentView = nil
         panel = nil
@@ -1373,5 +1362,42 @@ final class NotchController {
         pointer.interactiveRect = vm.geometry
             .contentScreenRect(for: size)
             .insetBy(dx: -slack, dy: 0)
+    }
+}
+
+// MARK: - Waking
+
+extension NotchController {
+    enum WakeStep: Equatable {
+        case startWatchdog
+        case resumeStores
+        case repairUnlock
+        case reactivateCardMedia
+        case restartPointer
+    }
+
+    /// What a display waking has to do, in order. Pure, so the decisions that
+    /// have each cost a bug are tests rather than comments.
+    ///
+    /// - The watchdog comes first and always: the card over a locked Mac is
+    ///   exactly what it keeps in place.
+    /// - The stores resume only once it is clear the Mac is not still locked.
+    /// - Awake, unlocked, but still dressed for the lock: the unlock
+    ///   notification was missed (it once queued behind a main-thread block
+    ///   and the card stayed stranded on the desktop), so the unlock is
+    ///   replayed and nothing else runs.
+    /// - Still locked: the pointer sampler must stay stopped. Restarting it
+    ///   there, the display sleeping and rewaking mid-lock being the ordinary
+    ///   way the password field is summoned, put it to work against rects cut
+    ///   before the lock, which killed the card's transport and could unfold
+    ///   the panel under the shield. Only the card's media comes back.
+    nonisolated static func wakePlan(isLocked: Bool, lockedPresentation: Bool) -> [WakeStep] {
+        if isLocked {
+            return lockedPresentation ? [.startWatchdog, .reactivateCardMedia] : [.startWatchdog]
+        }
+        if lockedPresentation {
+            return [.startWatchdog, .resumeStores, .repairUnlock]
+        }
+        return [.startWatchdog, .resumeStores, .restartPointer]
     }
 }

@@ -90,6 +90,19 @@ if match is None:
 else:
     used |= set(re.findall(r'"((?:[^"\\]|\\.)*)"', match.group(1)))
 
+# App Intents. Shortcuts, Spotlight and Siri read these titles through the
+# app's Localizable table, but they are LocalizedStringResource literals, not
+# localized() calls, so the scrape above never saw them. Until 2026-09-23
+# every one of them showed in English to a Russian user.
+intents = (root / "Sources" / "IslaKit" / "App" / "IslaIntents.swift").read_text()
+intent_keys = set(re.findall(r'LocalizedStringResource = "((?:[^"\\]|\\.)*)"', intents))
+intent_keys |= set(re.findall(r'IntentDescription\(\s*"((?:[^"\\]|\\.)*)"', intents))
+intent_keys |= set(re.findall(r'(?:shortTitle|title): "((?:[^"\\]|\\.)*)"', intents))
+intent_keys |= set(re.findall(r'case \.\w+: return "((?:[^"\\]|\\.)*)"', intents))
+if not intent_keys:
+    fail("IslaIntents.swift: no intent strings found, the scrape is stale")
+used |= intent_keys
+
 table = set(en_keys)
 for key in sorted(used - table):
     fail(f"used in Sources but absent from the tables: {key!r}")

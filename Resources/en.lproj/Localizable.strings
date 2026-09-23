@@ -261,3 +261,22 @@
 
 /* Diagnostics */
 "Collecting…" = "Collecting…";
+
+/* Shortcuts, Spotlight and Siri (App Intents) */
+"Opens Isla's panel with the lyrics page for whatever is playing." = "Opens Isla's panel with the lyrics page for whatever is playing.";
+"Show Isla" = "Show Isla";
+"Opens Isla's panel at the notch." = "Opens Isla's panel at the notch.";
+"Get Current Lyric" = "Get Current Lyric";
+"Returns the lyric line playing right now, if Isla has words for the track." = "Returns the lyric line playing right now, if Isla has words for the track.";
+"Get Current Track" = "Get Current Track";
+"Returns the track and artist Isla is showing." = "Returns the track and artist Isla is showing.";
+"Set Lyric Delay" = "Set Lyric Delay";
+"Shifts every lyric in time. Negative shows lyrics earlier; positive, later." = "Shifts every lyric in time. Negative shows lyrics earlier; positive, later.";
+"Seconds" = "Seconds";
+"Play or Pause" = "Play or Pause";
+"Toggles playback of whatever Isla is showing." = "Toggles playback of whatever Isla is showing.";
+"Skips to the next track." = "Skips to the next track.";
+"Goes back to the previous track." = "Goes back to the previous track.";
+"Current Lyric" = "Current Lyric";
+"Current Track" = "Current Track";
+"Isla is still starting up. Try again in a moment." = "Isla is still starting up. Try again in a moment.";

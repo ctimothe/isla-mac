@@ -260,3 +260,22 @@
 
 /* Диагностика */
 "Collecting…" = "Сбор данных…";
+
+/* Команды, Spotlight и Siri (App Intents) */
+"Opens Isla's panel with the lyrics page for whatever is playing." = "Открывает панель Isla на странице текста того, что сейчас играет.";
+"Show Isla" = "Показать Isla";
+"Opens Isla's panel at the notch." = "Открывает панель Isla у выреза экрана.";
+"Get Current Lyric" = "Получить текущую строку";
+"Returns the lyric line playing right now, if Isla has words for the track." = "Возвращает строку, которая звучит сейчас, если у Isla есть текст этого трека.";
+"Get Current Track" = "Получить текущий трек";
+"Returns the track and artist Isla is showing." = "Возвращает трек и исполнителя, которых показывает Isla.";
+"Set Lyric Delay" = "Задать задержку текста";
+"Shifts every lyric in time. Negative shows lyrics earlier; positive, later." = "Сдвигает весь текст во времени. Отрицательное значение показывает текст раньше, положительное — позже.";
+"Seconds" = "Секунды";
+"Play or Pause" = "Воспроизвести или приостановить";
+"Toggles playback of whatever Isla is showing." = "Запускает или ставит на паузу то, что показывает Isla.";
+"Skips to the next track." = "Переходит к следующему треку.";
+"Goes back to the previous track." = "Возвращается к предыдущему треку.";
+"Current Lyric" = "Текущая строка";
+"Current Track" = "Текущий трек";
+"Isla is still starting up. Try again in a moment." = "Isla ещё запускается. Попробуйте через мгновение.";

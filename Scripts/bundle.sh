@@ -34,9 +34,14 @@ esac
 mkdir -p "$ROOT/build"
 ICON="$ROOT/Resources/AppIcon.icns"
 
-echo "==> swift build -c $CONFIG"
-swift build -c "$CONFIG" --package-path "$ROOT"
-BIN="$(swift build -c "$CONFIG" --package-path "$ROOT" --show-bin-path)/Isla"
+# Universal. The README only ever said "macOS 15 or later", and macOS 15 and
+# 26 still run on Intel Macs, which got an app that refused to open. Intel Macs
+# have no notch, and Isla draws one for them like for any notchless display.
+# Apple Intelligence translation is weak-linked and simply unavailable there.
+ARCH_ARGS=(--arch arm64 --arch x86_64)
+echo "==> swift build -c $CONFIG (arm64 + x86_64)"
+swift build -c "$CONFIG" --package-path "$ROOT" "${ARCH_ARGS[@]}"
+BIN="$(swift build -c "$CONFIG" --package-path "$ROOT" "${ARCH_ARGS[@]}" --show-bin-path)/Isla"
 
 echo "==> assembling $APP"
 rm -rf "$APP"
@@ -115,6 +120,7 @@ done
 # into the app: it is loaded into /usr/bin/perl at runtime. See helper.m.
 echo "==> building Now Playing helper"
 clang -dynamiclib -fobjc-arc -O2 \
+    -arch arm64 -arch x86_64 \
     -mmacosx-version-min=15.0 \
     -framework Foundation \
     -o "$APP/Contents/Resources/libislamedia.dylib" \
