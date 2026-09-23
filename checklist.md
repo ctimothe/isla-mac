@@ -620,3 +620,38 @@ notch in a single frame, "too intense, too raw".
 - [x] README rewritten for people installing it: install, features, privacy,
   building, uninstalling. Release notes in `docs/releases/0.2.0.md`.
 
+### For strangers — 2026-09-23
+
+Everything the 2026-09-23 exploration found, except Developer ID and
+notarization, which the owner excluded. Plan: `docs/plans/2026-09-23-for-strangers.md`.
+The baseline it answered: 8 stars, 5 of them the owner's own accounts, 5 DMG
+downloads in total, and no outside issues.
+
+- [x] Shortcuts default to ⌃⌥⌘I / ⌃⌥⌘L / ⌃⌥⌘T. The old ⌥⌘ keys took Web
+  Inspector, Downloads and Finder's toolbar away from their apps. All three
+  are rebindable in Settings, and a refused one is named.
+- [x] A refused helper load exits perl at once (status 3) and goes straight to
+  the fallback, instead of 45 s of silence and an orphaned perl. The fallback
+  names its reason in Settings and on the Music tab, retries on wake (a
+  refused load only on Try Again), and precision polling waits for lyrics.
+- [x] The Apple Events prompt says what the access is for. It and the Desktop,
+  Documents and Downloads prompts are localized, and the localization gate
+  checks them.
+- [x] Copy Diagnostics and Report a Problem in Settings. Every log line goes
+  through `Log` (os.Logger). GitHub has issue forms.
+- [x] Check for Updates, with automatic checking off by default (see the
+  capability list above). CFBundleVersion is a monotonic BUILD.
+- [x] The lyrics page offers Show Lyrics and Look Up Online. Clipboard history
+  has an off switch. Spotify refusals say why.
+- [x] The lock-screen space is reference-counted per window (audit B9). The
+  wake decision is `NotchController.wakePlan`, tested.
+- [x] Universal binary and helper. App Intents strings are localized.
+- [ ] **Physical check owed:** lock and unlock with the card on and with it
+  off, and plug in a display while locked. The space change is unit-tested
+  against stand-in SkyLight calls only.
+- [ ] **Physical check owed:** the Intel slice has only been built, never run.
+  No Intel Mac was available.
+- [ ] **Owner:** check whether the Spotify app is still in development mode
+  (dashboard, "Users and Access"). If it is, only listed accounts can use
+  Liked Songs. Settings now says so when Spotify refuses.
+- [ ] README screenshots: they need the live app on the owner's screen.
