@@ -43,13 +43,66 @@ final class HotKeyTests: XCTestCase {
         XCTAssertEqual(shifted.displayString, "⇧⌘F5")
     }
 
-    /// A press with no ⌘, ⌃ or ⌥ would take a letter from every text field.
-    func testAPressNeedsCommandControlOrOption() {
+    /// A hot key fires before the focused app sees the press, so it needs two
+    /// of ⌘, ⌃ and ⌥. ⌘V recorded as a shortcut would break paste Mac-wide,
+    /// ⌃A would take a text-field motion, and macOS refuses ⌥ and ⌥⇧ alone.
+    func testAPressNeedsTwoOfCommandControlAndOption() {
         XCTAssertNil(HotKeyBinding(keyCode: UInt16(kVK_ANSI_K), flags: []))
         XCTAssertNil(HotKeyBinding(keyCode: UInt16(kVK_ANSI_K), flags: [.shift]))
-        XCTAssertNil(HotKeyBinding(keyCode: UInt16(kVK_Command), flags: [.command]), "a modifier alone is not a key")
+        XCTAssertNil(HotKeyBinding(keyCode: UInt16(kVK_ANSI_V), flags: [.command]), "⌘V is Paste everywhere")
+        XCTAssertNil(HotKeyBinding(keyCode: UInt16(kVK_ANSI_N), flags: [.command, .shift]))
+        XCTAssertNil(HotKeyBinding(keyCode: UInt16(kVK_ANSI_A), flags: [.control]), "⌃A moves to the line's start")
+        XCTAssertNil(HotKeyBinding(keyCode: UInt16(kVK_ANSI_K), flags: [.option, .shift]), "macOS refuses ⌥⇧ hot keys")
+        XCTAssertNil(HotKeyBinding(keyCode: UInt16(kVK_Command), flags: [.command, .option]), "a modifier alone is not a key")
         let recorded = HotKeyBinding(keyCode: UInt16(kVK_ANSI_K), flags: [.control, .option, .shift])
         XCTAssertEqual(recorded?.displayString, "⌃⌥⇧K")
+        XCTAssertNotNil(HotKeyBinding(keyCode: UInt16(kVK_ANSI_K), flags: [.control, .command]))
+    }
+
+    /// One monitor for every row. Starting a second recording used to end the
+    /// first row's without removing its monitor, which then swallowed every
+    /// key for the rest of the session.
+    func testRecordingUsesOneMonitorWhicheverRowStartsIt() {
+        let center = HotKeyCenter(defaults: defaults, registrar: FakeRegistrar().register)
+        center.beginRecording(.openPanel)
+        XCTAssertTrue(center.isListening)
+        center.beginRecording(.showLyrics)
+        XCTAssertEqual(center.recording, .showLyrics)
+        XCTAssertTrue(center.isListening)
+        center.endRecording()
+        XCTAssertFalse(center.isListening, "the monitor goes with the recording")
+        XCTAssertNil(center.recording)
+    }
+
+    func testEscapeCancelsDeleteClearsAndAGoodPressIsKept() {
+        let fake = FakeRegistrar()
+        let center = HotKeyCenter(defaults: defaults, registrar: fake.register)
+        center.refuseSound = {}
+        center.install(Dictionary(uniqueKeysWithValues: HotKeyAction.allCases.map { ($0, {}) }))
+
+        center.beginRecording(.openPanel)
+        XCTAssertTrue(center.record(keyCode: UInt16(kVK_Escape), flags: []))
+        XCTAssertEqual(center.bindings[.openPanel], HotKeyAction.openPanel.defaultBinding, "Esc changes nothing")
+        XCTAssertFalse(center.isListening)
+
+        center.beginRecording(.openPanel)
+        XCTAssertFalse(center.record(keyCode: UInt16(kVK_ANSI_V), flags: [.command]), "⌘V is refused and recording goes on")
+        XCTAssertTrue(center.isListening)
+        XCTAssertTrue(center.record(keyCode: UInt16(kVK_ANSI_N), flags: [.control, .command]))
+        XCTAssertEqual(center.bindings[.openPanel]?.displayString, "⌃⌘N")
+        XCTAssertTrue(fake.live.contains(HotKeyBinding(keyCode: UInt32(kVK_ANSI_N), modifiers: UInt32(controlKey | cmdKey))))
+
+        center.beginRecording(.openPanel)
+        XCTAssertTrue(center.record(keyCode: UInt16(kVK_Delete), flags: []))
+        XCTAssertNil(center.bindings[.openPanel], "Delete clears it")
+        XCTAssertEqual(fake.live.count, 2)
+    }
+
+    func testTeardownLeavesNoMonitor() {
+        let center = HotKeyCenter(defaults: defaults, registrar: FakeRegistrar().register)
+        center.beginRecording(.translateClipboard)
+        center.teardown()
+        XCTAssertFalse(center.isListening)
     }
 
     func testNothingStoredMeansTheDefault() {
@@ -113,8 +166,8 @@ final class HotKeyTests: XCTestCase {
         XCTAssertEqual(fake.live.count, 3)
     }
 
-    /// A combination another app registered first comes back refused, and
-    /// Settings has to be able to say which one.
+    /// A combination macOS will not register comes back refused, and Settings
+    /// has to be able to say which one.
     func testARefusedShortcutIsReported() {
         let fake = FakeRegistrar()
         fake.refuse = [HotKeyAction.translateClipboard.defaultBinding]

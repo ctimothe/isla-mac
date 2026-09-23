@@ -63,6 +63,24 @@ final class FindabilityTests: XCTestCase {
         XCTAssertEqual(store.items.first?.preview, "kept")
     }
 
+    /// A switch turned back on starts from the pasteboard as it is now. A
+    /// password copied while history was off must not be recorded by the
+    /// first poll after it is turned on.
+    func testTurningHistoryBackOnSkipsWhatWasCopiedWhileItWasOff() {
+        let board = NSPasteboard(name: .init("FindabilityTests.\(UUID())"))
+        let store = ClipboardStore(pasteboard: board)
+        board.clearContents()
+        board.setString("copied while off", forType: .string)
+        store.startFresh()
+        store.pollNow()
+        XCTAssertTrue(store.items.isEmpty)
+        board.clearContents()
+        board.setString("copied after", forType: .string)
+        store.pollNow()
+        XCTAssertEqual(store.items.first?.preview, "copied after")
+        store.stop()
+    }
+
     /// With history and clipboard screenshots both off, nothing reads the
     /// pasteboard at all.
     func testNothingPollsWhenNothingWantsThePasteboard() {

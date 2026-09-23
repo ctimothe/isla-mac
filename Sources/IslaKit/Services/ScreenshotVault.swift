@@ -127,7 +127,7 @@ final class ScreenshotVault {
             do {
                 try data.write(to: url, options: .atomic)
             } catch {
-                Log.shelf.error("failed to save capture: \(error.localizedDescription, privacy: .public)")
+                Log.shelf.error("failed to save capture: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
                 DispatchQueue.main.async { completion(nil) }
                 return
             }

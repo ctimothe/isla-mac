@@ -8,9 +8,12 @@ import OSLog
 /// for the current process only.
 ///
 /// Privacy follows `os.Logger`'s rule: an interpolated value is private unless
-/// marked otherwise. Error descriptions and states are marked public, because
-/// a report that says "<private>" where the error should be cannot be acted
-/// on. Track titles, file names and clipboard text are never marked public.
+/// marked otherwise. States, reasons and an error's domain and code are marked
+/// public, because a report that says "<private>" where the error should be
+/// cannot be acted on. An error's description stays private wherever it can
+/// name a file or a path: Cocoa's file errors quote the file name, and a path
+/// in the home folder quotes the user's name. Track titles, file names and
+/// clipboard text are never public.
 enum Log {
     static let subsystem = "com.ctimothe.isla"
 

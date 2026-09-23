@@ -57,12 +57,32 @@ final class NowPlayingRouteTests: XCTestCase {
         XCTAssertNil(media.fallbackReason, "a stop returns the controller to Now Playing")
     }
 
-    /// The fallback used to be one-way until quit.
-    func testAWakeTriesNowPlayingAgain() {
+    /// The fallback used to be one-way until quit. Now a wake tries again,
+    /// and the fallback keeps working until the helper has proved itself.
+    func testAWakeTriesAgainAndTheFallbackStaysUntilTheHelperSpeaks() {
         let media = MediaController()
         media.switchToScriptingFallback(.keptStopping)
         media.retryNowPlaying(userAsked: false)
+        XCTAssertTrue(media.retryingNowPlaying)
+        XCTAssertEqual(media.fallbackReason, .keptStopping, "Music and Spotify keep working meanwhile")
+
+        var first = NowPlayingFeed.Snapshot()
+        first.title = "Back"
+        first.takenAt = Date()
+        media.feedDelivered(first)
         XCTAssertNil(media.fallbackReason)
+        XCTAssertFalse(media.retryingNowPlaying)
+        media.stop()
+    }
+
+    /// A retry that fails leaves the fallback as it was, with the new reason.
+    func testAFailedRetryKeepsTheFallback() {
+        let media = MediaController()
+        media.switchToScriptingFallback(.keptStopping)
+        media.retryNowPlaying(userAsked: false)
+        media.switchToScriptingFallback(.routeClosed)
+        XCTAssertFalse(media.retryingNowPlaying)
+        XCTAssertEqual(media.fallbackReason, .routeClosed)
         media.stop()
     }
 
@@ -72,9 +92,9 @@ final class NowPlayingRouteTests: XCTestCase {
         let media = MediaController()
         media.switchToScriptingFallback(.readerRefused)
         media.retryNowPlaying(userAsked: false)
-        XCTAssertEqual(media.fallbackReason, .readerRefused, "a wake must not raise the alert again")
+        XCTAssertFalse(media.retryingNowPlaying, "a wake must not raise the alert again")
         media.retryNowPlaying(userAsked: true)
-        XCTAssertNil(media.fallbackReason)
+        XCTAssertTrue(media.retryingNowPlaying)
         media.stop()
     }
 

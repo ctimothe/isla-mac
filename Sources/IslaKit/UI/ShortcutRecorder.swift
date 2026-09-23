@@ -1,22 +1,25 @@
 import AppKit
-import Carbon.HIToolbox
 import SwiftUI
 
 /// One shortcut in Settings: what it does, and a well that shows the keys. A
 /// click on the well records the next combination, the way the shortcut
 /// fields in System Settings → Keyboard do.
 ///
-/// Recording needs key presses, and this panel never takes the keyboard on
-/// its own. So a recording asks for it through the same `wantsKeyboard` claim
-/// the Translate field uses, and gives it back when the recording ends. That
-/// covers a key, Esc, the panel losing key status, and the row going away.
+/// The row only starts and stops recordings. The key monitor and what each
+/// key means belong to `HotKeyCenter`, so there is only ever one monitor,
+/// whichever row started it. Recording needs key presses, and this panel
+/// never takes the keyboard on its own. So a recording asks for it through
+/// the `wantsKeyboard` claim the Translate field uses, and the row gives it
+/// back when its recording ends while the row is still on screen. A row that
+/// is leaving, for Translate, which wants the keyboard too, leaves the claim
+/// to the tab change.
 struct ShortcutRecorderRow: View {
     let action: HotKeyAction
     let symbol: String
     @ObservedObject var center: HotKeyCenter
     @Binding var wantsKeyboard: Bool
 
-    @State private var monitor: Any?
+    @State private var leaving = false
 
     private var isRecording: Bool { center.recording == action }
 
@@ -54,12 +57,22 @@ struct ShortcutRecorderRow: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 26)
+        .onAppear { leaving = false }
+        .onChange(of: center.recording) { old, new in
+            // This row's recording ended with the row still here: the keyboard
+            // goes back. Not when another row took the recording over, which
+            // holds the keyboard itself.
+            if old == action, new == nil, !leaving { wantsKeyboard = false }
+        }
         .onChange(of: wantsKeyboard) { _, wants in
             // Clicking into another app takes the keyboard away, and a
             // recording without the keyboard would wait forever.
-            if !wants, isRecording { stopRecording() }
+            if !wants, isRecording { center.endRecording() }
         }
-        .onDisappear { if isRecording { stopRecording() } }
+        .onDisappear {
+            leaving = true
+            if isRecording { center.endRecording() }
+        }
     }
 
     private var wellText: String {
@@ -68,49 +81,11 @@ struct ShortcutRecorderRow: View {
     }
 
     private func toggleRecording() {
-        isRecording ? stopRecording() : startRecording()
-    }
-
-    private func startRecording() {
-        // One recording at a time. Starting a second one ends the first.
-        if center.recording != nil { center.endRecording() }
-        center.beginRecording(action)
-        wantsKeyboard = true
-        removeMonitor()
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            MainActor.assumeIsolated { handle(event) }
-            // Every press is swallowed while recording, so none of them reaches
-            // the panel's own Esc handling or types into anything.
-            return nil
-        }
-    }
-
-    private func handle(_ event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let plain = flags.intersection([.command, .control, .option]).isEmpty
-        if plain, Int(event.keyCode) == kVK_Escape {
-            stopRecording()
-        } else if plain, Int(event.keyCode) == kVK_Delete || Int(event.keyCode) == kVK_ForwardDelete {
-            center.setBinding(nil, for: action)
-            stopRecording()
-        } else if let binding = HotKeyBinding(keyCode: event.keyCode, flags: flags) {
-            center.setBinding(binding, for: action)
-            stopRecording()
+        if isRecording {
+            center.endRecording()
         } else {
-            // A key with no ⌘, ⌃ or ⌥. Say no and keep listening, the way
-            // System Settings' own shortcut fields do.
-            NSSound.beep()
+            center.beginRecording(action)
+            wantsKeyboard = true
         }
-    }
-
-    private func stopRecording() {
-        removeMonitor()
-        center.endRecording()
-        wantsKeyboard = false
-    }
-
-    private func removeMonitor() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
     }
 }

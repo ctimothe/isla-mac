@@ -108,5 +108,6 @@ Two pull requests: the first carries sections 1–6, the second section 7.
   behaviour, and a split without a bug to motivate it is the trap the
   2026-09-03 audit named. Section 2 moves route state out of it.
 - README screenshots and the launch posts. Screenshots need the live app on
-  the owner's screen, and posting is the owner's to do. Drafts are in
-  `docs/launch/`.
+  the owner's screen, and posting is the owner's to do. The drafts were handed
+  over outside the repository, because marketing stays local
+  (`marketing/`, never GitHub).

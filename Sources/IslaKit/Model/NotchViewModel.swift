@@ -620,12 +620,12 @@ final class NotchViewModel: ObservableObject {
     func setClipboardHistory(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Self.clipboardHistoryKey)
         if !enabled { clipboard.clear() }
-        stores.refreshClipboardPolling()
+        stores.refreshClipboardPolling(settingChanged: true)
     }
 
     /// The screenshot switch decides polling too, once history is off.
     func refreshClipboardPolling() {
-        stores.refreshClipboardPolling()
+        stores.refreshClipboardPolling(settingChanged: true)
     }
 
     /// Off switch for people who copy images all day and do not want them kept.

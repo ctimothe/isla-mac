@@ -132,6 +132,18 @@ final class ClipboardStore: ObservableObject {
         timer = nil
     }
 
+    var isPolling: Bool { timer != nil }
+
+    /// Starts polling from the pasteboard as it is now, without the copy made
+    /// before. For a switch turned on: a password copied while history was
+    /// off, or a picture copied while screenshot saving was off, must not be
+    /// what the first poll records. `start()` keeps the baseline on purpose,
+    /// for a display waking, where the copy just before sleep does count.
+    func startFresh() {
+        lastChangeCount = pasteboard.changeCount
+        start()
+    }
+
     func clear() {
         items.removeAll()
     }

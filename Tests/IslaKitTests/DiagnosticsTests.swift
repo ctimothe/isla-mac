@@ -13,8 +13,8 @@ final class DiagnosticsTests: XCTestCase {
             version: "0.3.0", build: "3", macOS: "Version 27.0 (Build 27A1)",
             model: "Mac16,1", architecture: "arm64",
             displays: [
-                .init(name: "Built-in Retina Display", points: CGSize(width: 1512, height: 982), scale: 2, hasNotch: true),
-                .init(name: "Studio Display", points: CGSize(width: 2560, height: 1440), scale: 2, hasNotch: false),
+                .init(name: "built-in", points: CGSize(width: 1512, height: 982), scale: 2, hasNotch: true),
+                .init(name: "external", points: CGSize(width: 2560, height: 1440), scale: 2, hasNotch: false),
             ],
             nowPlaying: "Music and Spotify only (readerRefused)",
             helperPresent: true, appQuarantined: true, helperQuarantined: true,
@@ -28,7 +28,7 @@ final class DiagnosticsTests: XCTestCase {
         let text = Diagnostics.render(sample())
         for expected in [
             "Isla 0.3.0 (3)", "macOS Version 27.0", "Mac16,1", "arm64",
-            "Built-in Retina Display: 1512×982 pt @2x, notch", "Studio Display: 2560×1440 pt @2x, no notch",
+            "built-in: 1512×982 pt @2x, notch", "external: 2560×1440 pt @2x, no notch",
             "route: Music and Spotify only (readerRefused)", "app quarantined: yes", "helper quarantined: yes",
             "signature: ad-hoc", "lock-screen SPI: available",
             "Show Lyrics: on", "openPanel: ⌃⌥⌘I", "helper refused: readerRefused",

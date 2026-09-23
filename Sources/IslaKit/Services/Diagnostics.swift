@@ -112,12 +112,15 @@ enum Diagnostics {
             macOS: ProcessInfo.processInfo.operatingSystemVersionString,
             model: sysctlString("hw.model") ?? "unknown",
             architecture: architecture,
-            displays: NSScreen.screens.map {
-                Display(
-                    name: $0.localizedName,
-                    points: $0.frame.size,
-                    scale: $0.backingScaleFactor,
-                    hasNotch: $0.safeAreaInsets.top > 0
+            // By kind, not by name. An AirPlay or Sidecar display is named
+            // after its device, which is usually named after its owner.
+            displays: NSScreen.screens.map { screen in
+                let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+                return Display(
+                    name: id.map { CGDisplayIsBuiltin($0) != 0 } == true ? "built-in" : "external",
+                    points: screen.frame.size,
+                    scale: screen.backingScaleFactor,
+                    hasNotch: screen.safeAreaInsets.top > 0
                 )
             },
             nowPlaying: nowPlaying,

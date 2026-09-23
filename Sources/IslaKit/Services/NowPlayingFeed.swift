@@ -299,7 +299,7 @@ final class NowPlayingFeed {
         do {
             try task.run()
         } catch {
-            Log.media.error("helper failed to launch: \(error.localizedDescription, privacy: .public)")
+            Log.media.error("helper failed to launch: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
             onUnavailable?(.cannotStart)
             return
         }

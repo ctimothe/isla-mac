@@ -768,6 +768,11 @@ final class NotchController {
         closeActiveRectWork?.cancel()
         cancellables.removeAll()
         panel?.acceptsKeyboard = false
+        // A recording in the Settings pane being torn down would otherwise
+        // depend on SwiftUI calling that row's `onDisappear` when the content
+        // view goes, which AppKit hosting does not promise, and with the
+        // recording stuck every shortcut stays unregistered.
+        HotKeyCenter.shared.endRecording()
         // Out of the lock-screen space before it goes, if it is in one. The
         // replacement is lifted again below when the Mac is still locked.
         lockPresence.release(panel)
@@ -1102,6 +1107,9 @@ final class NotchController {
             pointer.setInside(true)
         }
         panel?.acceptsKeyboard = wants
+        // A shortcut being recorded needs the keyboard it just lost, and the
+        // Settings row that started it may not be told (see `rebuild`).
+        if !wants { HotKeyCenter.shared.endRecording() }
         // What was typed stays: clicking away to look something up should not
         // be the same as throwing the text out. Esc and the ✕ do that.
         if !wants { scheduleCollapseIfPointerAway() }

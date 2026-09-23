@@ -655,3 +655,15 @@ downloads in total, and no outside issues.
   (dashboard, "Users and Access"). If it is, only listed accounts can use
   Liked Songs. Settings now says so when Spotify refuses.
 - [ ] README screenshots: they need the live app on the owner's screen.
+- [ ] **Physical check owed:** with VoiceOver on, press ⌃⌥⌘L and ⌃⌥⌘T. They
+  are also VO-⌘-L and VO-⌘-T (next link, next table). Record which one wins.
+- [x] Review of 2026-09-23, fixed the same day. The shortcut recorder had
+  leaked its key monitor across rows; `HotKeyCenter` now owns the only one.
+  Recording now needs two of ⌘⌃⌥, since a ⌘V shortcut would have broken
+  paste Mac-wide. A clipboard switch turned back on starts from the
+  pasteboard as it is now. A wake retry keeps the fallback until the helper
+  speaks. File names and paths stay private in the log, and displays are
+  reported by kind. release.sh compares BUILD against every tag. Tests no
+  longer send real Apple Events (`PlayerBridge.isRunningTests`). The
+  "taken by another app" wording became "macOS would not register", because
+  non-exclusive Carbon registrations cannot see another app's claim.
