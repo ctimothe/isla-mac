@@ -753,6 +753,7 @@ final class MediaControllerTests: XCTestCase {
     func testAppleMusicStartsPrecisionPolling() async {
         let controller = MediaController()
         controller.precisionPlayerForTests = .music
+        controller.lyricsShown = { true }
         controller.precisionPositionFetcher = { next in
             Task { @MainActor in next(42.3) }
         }
@@ -843,6 +844,9 @@ final class MediaControllerTests: XCTestCase {
         let controller = MediaController()
         controller.monotonicNow = { 2_000 }
         controller.spotifyDisplayForTests = true
+        // The correction runs only while lyrics are on; pinned, not read from
+        // whatever the test machine's defaults hold.
+        controller.lyricsShown = { true }
         // Far past the settle grace, so only the fresh correction — never the
         // watchdog — can settle what the notification below unsettles.
         MediaController.settleGrace = 30
@@ -909,6 +913,9 @@ final class MediaControllerTests: XCTestCase {
         let controller = MediaController()
         controller.monotonicNow = { 3_000 }
         controller.spotifyDisplayForTests = true
+        // The correction runs only while lyrics are on; pinned, not read from
+        // whatever the test machine's defaults hold.
+        controller.lyricsShown = { true }
         MediaController.settleGrace = 30
         defer { MediaController.settleGrace = 1.2 }
 

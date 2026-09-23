@@ -77,6 +77,15 @@ final class MediaController: ObservableObject {
     /// Spotify's scripting has only the boolean.
     @Published private(set) var supportsRepeatOne = false
 
+    /// Why the app is on the Music-and-Spotify fallback, or nil while it
+    /// reads Now Playing. Published so the Music tab and Settings can say it.
+    /// The fallback used to be one log line and a pane reading "Nothing is
+    /// playing." while a browser played.
+    @Published private(set) var fallbackReason: NowPlayingRouteFailure?
+    /// A retry is under way, and the fallback keeps working until it
+    /// succeeds. See `retryNowPlaying`.
+    private(set) var retryingNowPlaying = false
+
     private let feed = NowPlayingFeed()
     private var feedAvailable = true
     private var displayedPlayerPID: pid_t?
@@ -350,8 +359,8 @@ final class MediaController: ObservableObject {
     // MARK: - Lifecycle
 
     func start() {
-        feed.onUpdate = { [weak self] snapshot in self?.receive(snapshot) }
-        feed.onUnavailable = { [weak self] in self?.switchToScriptingFallback() }
+        feed.onUpdate = { [weak self] snapshot in self?.feedDelivered(snapshot) }
+        feed.onUnavailable = { [weak self] reason in self?.switchToScriptingFallback(reason) }
         feed.start()
 
         // Spotify broadcasts every play, pause and track change as a
@@ -450,6 +459,8 @@ final class MediaController: ObservableObject {
     /// both routes are dead with nothing reporting an error.
     func stop() {
         feedAvailable = true
+        fallbackReason = nil
+        retryingNowPlaying = false
         isActive = false
         precisionTimer?.invalidate()
         precisionTimer = nil
@@ -681,13 +692,26 @@ final class MediaController: ObservableObject {
         spotifyExactDuration = exactDuration
     }
 
+    /// Whether any lyric surface can be showing words. Read, not stored,
+    /// like `musicOnly`, so the Settings switch reaches a running clock
+    /// through `refreshPrecisionSync()`. Tests pin it.
+    var lyricsShown: () -> Bool = { NotchViewModel.showLyricsEnabled }
+
+    /// Re-decides the precision loop after the lyrics switch moved.
+    func refreshPrecisionSync() { updatePrecisionSync() }
+
     private func updatePrecisionSync() {
         // Playing, too. A paused track's position cannot move, so asking
         // Spotify where it is every second — a fresh AppleScript compile
         // and an Apple event into another process each time — bought a number
         // already known. Pausing and walking away used to leave that running
         // indefinitely.
-        let wanted = isActive && isPlaying && precisionPlayer != nil
+        //
+        // And only while lyrics are on. The correction exists for the words:
+        // a scrubber cannot show the tenth of a second it buys. Without this
+        // gate it ran whenever the panel was open on Spotify or Music, one
+        // AppleScript compile a second for a number nothing was drawing.
+        let wanted = isActive && isPlaying && precisionPlayer != nil && lyricsShown()
         if precisionSync != wanted { precisionSync = wanted }
         guard wanted else {
             precisionTimer?.invalidate()
@@ -1727,9 +1751,19 @@ final class MediaController: ObservableObject {
 
     // MARK: - Fallback: scriptable players only
 
-    private func switchToScriptingFallback() {
+    /// Internal so a test can hand in a reason without a helper to refuse.
+    func switchToScriptingFallback(_ reason: NowPlayingRouteFailure) {
+        // A retry that failed: the fallback never stopped, so there is
+        // nothing to switch to, only a fresh reason to show.
+        if retryingNowPlaying {
+            retryingNowPlaying = false
+            fallbackReason = reason
+            Log.media.notice("retry failed (\(reason.rawValue, privacy: .public)); staying on Music and Spotify scripting")
+            return
+        }
         guard feedAvailable else { return }
         feedAvailable = false
+        fallbackReason = reason
         // The hold and the search describe the helper's view of Now Playing,
         // which this route no longer has. Left set, taps kept going to a held
         // song the fallback was no longer showing.
@@ -1740,7 +1774,7 @@ final class MediaController: ObservableObject {
         // drives both skip — so the arrows come back rather than staying dim
         // on a state no longer being refreshed.
         canSkip = true
-        NSLog("Isla: Now Playing helper unavailable, falling back to Music/Spotify scripting")
+        Log.media.error("Now Playing unavailable (\(reason.rawValue, privacy: .public)); falling back to Music and Spotify scripting")
 
         let center = DistributedNotificationCenter.default()
         for app in PlayerApp.allCases {
@@ -1754,6 +1788,44 @@ final class MediaController: ObservableObject {
             })
         }
         refreshFromPlayers()
+    }
+
+    /// Tries Now Playing again after a fallback.
+    ///
+    /// The fallback used to be one-way: only `stop()` cleared it, and only
+    /// quitting called that. Three failures in one bad minute (a wake, a
+    /// macOS update mid-session, a quarantined download the user has since
+    /// fixed) left browser and podcast audio invisible until the next launch.
+    /// Called on screen wake and from Settings. The fallback keeps running
+    /// until the helper delivers its first snapshot, and only then hands over
+    /// (`feedDelivered`). Dropping the fallback first meant a helper that
+    /// went mute again cost about 45 s of dead Music and Spotify after every
+    /// wake and unlock, until the watchdog gave up. A retry that fails comes
+    /// back through `switchToScriptingFallback` with a fresh reason.
+    ///
+    /// A refused load is retried only when the user asks. Each refused load of
+    /// the quarantined dylib raises macOS's "Not Opened … Move to Trash"
+    /// alert, and a retry on every wake would put that alert up every morning.
+    func retryNowPlaying(userAsked: Bool) {
+        guard !feedAvailable, !retryingNowPlaying else { return }
+        guard userAsked || fallbackReason != .readerRefused else { return }
+        retryingNowPlaying = true
+        Log.media.notice("retrying Now Playing alongside the fallback")
+        feed.start()
+    }
+
+    /// The feed's way in. The first snapshot of a retry is the proof the
+    /// helper works, so the fallback goes then, and not before.
+    func feedDelivered(_ snapshot: NowPlayingFeed.Snapshot) {
+        if retryingNowPlaying {
+            retryingNowPlaying = false
+            observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
+            observers.removeAll()
+            feedAvailable = true
+            fallbackReason = nil
+            Log.media.notice("Now Playing is back")
+        }
+        receive(snapshot)
     }
 
     private func refreshFromPlayers() {

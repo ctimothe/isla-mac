@@ -11,7 +11,7 @@ import SwiftUI
 /// and Russian, decided by the script typed, until 2026-09-21.
 struct TranslatePane: View {
     @ObservedObject var translator: Translator
-    /// ⌥⌘T fills the source field with whatever was on the clipboard, so this
+    /// ⌃⌥⌘T fills the source field with whatever was on the clipboard, so this
     /// pane can be displaying the same secret the clipboard tab covers.
     @ObservedObject var privacy: PrivacyMode
     /// Whether the panel holds the keyboard. Drops to false when the user

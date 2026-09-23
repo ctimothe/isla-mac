@@ -1,0 +1,16 @@
+name: An idea
+description: Something Isla could do, or do differently.
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like
+      description: What you are trying to do, and where Isla gets in the way or falls short.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How you do it today
+      description: Another app, a workaround, or not at all.

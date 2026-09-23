@@ -148,9 +148,10 @@ geometry on `NSApplication.didChangeScreenParametersNotification`. The app is
 once in `IslaApplication.run()` and never changed at runtime. There is
 no status item: Open Panel, About, Quit and the privacy toggles all live in the
 **Settings** tab (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
-directly). `NotchController` (~1250 lines) owns panel lifecycle, geometry,
+directly). `NotchController` (~1400 lines) owns panel lifecycle, geometry,
 open/close timing, and the lock transition; `AppDelegate` owns the three global hot
-keys (⌥⌘I open, ⌥⌘T translate clipboard, ⌥⌘L lyrics page), the "Translate in
+keys (⌃⌥⌘I open, ⌃⌥⌘T translate clipboard, ⌃⌥⌘L lyrics page — rebindable, held
+by `HotKeyCenter`), the "Translate in
 Isla" service (`NSApp.servicesProvider`, no Accessibility permission), and the
 Spotify URL-scheme callback.
 

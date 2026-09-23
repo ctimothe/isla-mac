@@ -48,7 +48,7 @@ enum NotchMetrics {
     /// to outlast a hand moving from the keyboard back to the trackpad.
     static let pointerAwayCollapseDelay: TimeInterval = 0.6
 
-    /// How long a translation summoned by ⌥⌘T stays up with nobody touching
+    /// How long a translation summoned by ⌃⌥⌘T stays up with nobody touching
     /// the trackpad.
     ///
     /// The shortcut exists to be used from the keyboard, so the pointer is

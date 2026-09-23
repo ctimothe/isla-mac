@@ -815,6 +815,8 @@ struct NotchContentView: View {
                 lyrics: vm.lyrics,
                 localLookup: vm.lyricsCoordinator.localLookup,
                 retryLyrics: vm.lyricsCoordinator.retry,
+                turnOnLyrics: vm.turnOnLyrics,
+                turnOnOnlineLyrics: vm.turnOnOnlineLyrics,
                 importLocalFile: vm.chooseLocalLyricsFile,
                 selectLocalCandidate: vm.lyricsCoordinator.selectLocalCandidate,
                 removeLocalBinding: vm.lyricsCoordinator.removeLocalBinding,
@@ -834,6 +836,7 @@ struct NotchContentView: View {
                 shelf: vm.shelf,
                 screenshotVault: vm.screenshotVault,
                 lyrics: vm.lyrics,
+                media: vm.media,
                 localLyrics: vm.localLyricsLibrary,
                 onLyricsVisibilityChanged: vm.lyricsCoordinator.refreshVisibility,
                 importLocalLyrics: vm.chooseLocalLyricsFile,
@@ -844,7 +847,10 @@ struct NotchContentView: View {
                 clearImportedLyrics: vm.clearImportedLyrics,
                 clearBindingsAndTimingCorrections: vm.clearLyricsBindingsAndTimingCorrections,
                 dismissUnassignedLyricsOffset: vm.dismissUnassignedLyricsOffset,
-                privacy: vm.privacy
+                privacy: vm.privacy,
+                wantsKeyboard: $vm.wantsKeyboard,
+                setClipboardHistory: vm.setClipboardHistory,
+                refreshClipboardPolling: vm.refreshClipboardPolling
             )
         }
     }
@@ -871,6 +877,9 @@ private struct Rail: View {
     var footer: [NotchViewModel.Tab] = []
 
     @State private var hovered: NotchViewModel.Tab?
+    /// Read for one thing: whether Settings wears the mark that says a newer
+    /// Isla is out. Set only by a check the user ran or turned on.
+    @ObservedObject private var updates = UpdateCheck.shared
 
     var body: some View {
         VStack(spacing: NotchGeometry.railSpacing) {
@@ -931,8 +940,22 @@ private struct Rail: View {
                 .transaction { $0.animation = nil }
         }
         .buttonStyle(PanelButtonStyle())
+        .overlay(alignment: .topTrailing) {
+            // The one badge in the app: a newer version, found by a check the
+            // user asked for. A dot rather than a count, in the chrome's own
+            // white. It says "look here", and Settings says what.
+            if tab == .settings, updates.hasUpdate {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 5, height: 5)
+                    .offset(x: -3, y: 3)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .help(tab.title)
         .accessibilityLabel(tab.title)
+        .accessibilityValue(tab == .settings && updates.hasUpdate ? localized("Update available") : "")
         .accessibilityAddTraits(vm.tab == tab ? [.isButton, .isSelected] : .isButton)
         .onHover { inside in
             if inside {

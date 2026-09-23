@@ -19,6 +19,14 @@ enum SettingsIcon {
     static let hoverDelay = "cursorarrow.motionlines"
     static let panelWidth = "arrow.left.and.right"
 
+    // Keyboard Shortcuts
+    /// The panel, at the top of the screen, which is what the shortcut opens.
+    static let shortcutOpenPanel = "rectangle.topthird.inset.filled"
+    /// The lyrics page's own glyph, not the Music section's switch.
+    static let shortcutLyrics = "text.quote"
+    static let shortcutTranslate = "translate"
+    static let restoreShortcuts = "arrow.uturn.backward"
+
     // Screenshots
     static let saveScreenshots = "square.and.arrow.down"
     /// A recording arriving on its own: video coming in, not going out.
@@ -41,6 +49,8 @@ enum SettingsIcon {
     /// so it is not the trash.
     static let removeFolder = "folder.badge.minus"
     static let rescan = "arrow.clockwise"
+    /// Starting the Now Playing reader again, a cycle rather than a refresh.
+    static let tryAgain = "arrow.triangle.2.circlepath"
     /// Dismissing a leftover timing correction sets it aside; it deletes no file.
     static let dismiss = "xmark.circle"
     /// A switch that reaches the network. The globe is kept for those and only
@@ -67,21 +77,30 @@ enum SettingsIcon {
     /// The same glyphs as the Clipboard and Translate tabs, so each feature
     /// reads as the same feature here.
     static let clipboard = "doc.on.clipboard"
+    /// Keeping a list of copies, as opposed to covering it.
+    static let clipboardHistory = "list.bullet.clipboard"
     static let translate = "character.bubble"
     /// About recording, not about whether a person can see the panel.
     static let hideFromRecording = "video.slash"
 
     // Application
     static let about = "info.circle"
+    /// Examining the app's state, which is what the report is.
+    static let copyDiagnostics = "stethoscope"
+    static let reportProblem = "exclamationmark.bubble"
+    static let checkForUpdates = "arrow.down.circle"
+    /// Taking the newer version: a download, not a check.
+    static let downloadUpdate = "arrow.down.to.line"
     static let quit = "power"
 
     static let all: [String] = [
         launchAtLogin, openOnHover, hoverDelay, panelWidth,
+        shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
-        musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, dismiss,
+        musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
         online, lyricTiming, resetTiming, peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
-        clipboard, translate, hideFromRecording,
-        about, quit,
+        clipboard, clipboardHistory, translate, hideFromRecording,
+        about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,
     ]
 }

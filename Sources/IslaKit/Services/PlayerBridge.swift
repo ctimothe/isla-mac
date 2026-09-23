@@ -460,11 +460,23 @@ enum PlayerBridge {
         return pendingTransport > 0
     }
 
+    /// True inside a test process. The unit tests never ask a real player
+    /// (see `MediaControllerTests`), and the Spotify track-id lookup had no
+    /// seam, so a test that pretended Spotify was showing sent real Apple
+    /// Events to whatever Spotify the machine was running. That raised
+    /// macOS's automation prompt for xctest on the owner's screen and hung
+    /// the run until someone answered it.
+    static let isRunningTests = NSClassFromString("XCTestCase") != nil
+
     static func runScript(
         _ source: String,
         priority: Priority = .background,
         completion: @escaping (NSAppleEventDescriptor?) -> Void
     ) {
+        if isRunningTests {
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
         if priority == .transport { changePendingTransport(1) }
         queue.async {
             if priority == .transport {
@@ -480,7 +492,9 @@ enum PlayerBridge {
             let result = script(for: source, cacheable: priority != .transport)?
                 .executeAndReturnError(&error)
             if let error, let code = error[NSAppleScript.errorNumber] as? Int, code != 0 {
-                NSLog("Isla: AppleScript error \(code): \(error[NSAppleScript.errorMessage] ?? "")")
+                // The message can echo a value from the script, a track name
+                // among them, so only the code is public.
+                Log.media.error("AppleScript error \(code, privacy: .public): \(String(describing: error[NSAppleScript.errorMessage] ?? ""), privacy: .private)")
             }
             DispatchQueue.main.async { completion(result) }
         }

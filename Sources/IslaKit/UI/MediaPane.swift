@@ -5,6 +5,8 @@ struct MediaPane: View {
     @ObservedObject var lyrics: LyricsStore
     var localLookup: LocalLyricsLookup? = nil
     var retryLyrics: () -> Void = {}
+    var turnOnLyrics: () -> Void = {}
+    var turnOnOnlineLyrics: () -> Void = {}
     var importLocalFile: () -> Void = {}
     var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
     var removeLocalBinding: () -> Void = {}
@@ -20,7 +22,7 @@ struct MediaPane: View {
     /// Whether the pane is showing the lyrics page.
     ///
     /// A binding rather than this pane's own `@State`, because the page is a
-    /// place the app can be *sent* and not just a toggle the pane owns: ⌥⌘L
+    /// place the app can be *sent* and not just a toggle the pane owns: ⌃⌥⌘L
     /// opens the panel straight onto it. It defaults to a constant so the pane
     /// still renders standalone in the layout tests, where there is no panel
     /// to route anything and nowhere for the request to go.
@@ -83,6 +85,8 @@ struct MediaPane: View {
                         lyrics: lyrics,
                         localLookup: localLookup,
                         retry: retryLyrics,
+                        turnOnLyrics: turnOnLyrics,
+                        turnOnOnlineLyrics: turnOnOnlineLyrics,
                         importLocalFile: importLocalFile,
                         selectLocalCandidate: selectLocalCandidate,
                         removeLocalBinding: removeLocalBinding,
@@ -597,6 +601,14 @@ struct MediaPane: View {
             Text(localized("Nothing is playing."))
                 .islandFont(.subhead)
                 .foregroundStyle(Theme.secondary)
+            // Unless something is and the reader cannot see it. Without this
+            // line a browser could play under a pane that said nothing was;
+            // Settings → Music says why and offers Try Again.
+            if media.fallbackReason != nil {
+                Text(localized("Only Music and Spotify can be seen right now."))
+                    .islandFont(.caption, weight: .regular)
+                    .foregroundStyle(Theme.tertiary)
+            }
             // And an affordance, because a dead end teaches people not to
             // open the tab. One button per player that is actually installed.
             HStack(spacing: 8) {

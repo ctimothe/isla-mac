@@ -275,7 +275,7 @@ final class FirstRunTests: XCTestCase {
     /// column again.
     func testTheTwoKeycapsAreTheSameWidth() {
         let font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        for keys in ["⌥⌘I", "⌥⌘T"] {
+        for keys in HotKeyAction.allCases.map(\.defaultBinding.displayString) {
             let natural = (keys as NSString).size(withAttributes: [.font: font]).width
             XCTAssertLessThanOrEqual(
                 natural, WelcomePane.keycapGlyphWidth,
@@ -324,8 +324,8 @@ final class FirstRunTests: XCTestCase {
                 running: Self.value(for: WelcomePane.Copy.english.running, in: table),
                 whereItLives: Self.value(for: WelcomePane.Copy.english.whereItLives, in: table),
                 openPanel: Self.value(for: WelcomePane.Copy.english.openPanel, in: table),
-                translateClipboard: Self.value(
-                    for: WelcomePane.Copy.english.translateClipboard, in: table
+                showLyrics: Self.value(
+                    for: WelcomePane.Copy.english.showLyrics, in: table
                 ),
                 settingsFootnote: Self.value(
                     for: WelcomePane.Copy.english.settingsFootnote, in: table

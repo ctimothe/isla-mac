@@ -5,9 +5,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Readable so `IslaIntents` can reach the live panel the way `SettingsPane`
     /// already reaches this delegate. Still only ever set here.
     private(set) var controller: NotchController?
-    private var hotKey: GlobalHotKey?
-    private var translateHotKey: GlobalHotKey?
-    private var lyricsHotKey: GlobalHotKey?
 
     /// The browser returns from Spotify's consent page through the app's URL
     /// scheme; the account object finishes the token exchange.
@@ -31,41 +28,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // app. Costs nothing when no account is connected: the initializer
         // returns without touching the keychain in that case.
         _ = SpotifyAccount.shared
-        // The panel never activates, so without this it cannot be opened from
+        // The panel never activates, so without these it cannot be opened from
         // the keyboard at all — and anything that cannot be opened from the
         // keyboard cannot be reached by assistive tech either.
-        hotKey = GlobalHotKey(
-            keyCode: GlobalHotKey.defaultKeyCode,
-            modifiers: GlobalHotKey.defaultModifiers
-        ) { [weak self] in
-            self?.togglePanel()
-        }
-
-        // Translation without a window, an app switch, or a permission.
         //
-        // Two routes, because they suit different moments and neither costs
-        // anything. The shortcut translates whatever is already on the
-        // clipboard, which needs no setup at all. The service takes the
-        // current selection from any app that offers one — macOS hands the
-        // text over itself, so reading a selection asks for no Accessibility
-        // access, which is what every other route to it would have cost.
-        translateHotKey = GlobalHotKey(
-            keyCode: GlobalHotKey.translateKeyCode,
-            modifiers: GlobalHotKey.defaultModifiers
-        ) { [weak self] in
-            guard let text = NSPasteboard.general.string(forType: .string) else { return }
-            self?.controller?.translate(text)
-        }
-        // Straight to the words, from anywhere, without a pointer. The panel
-        // opens on the Music tab with the lyrics page already up; pressing it
-        // again folds the page back to the player.
-        lyricsHotKey = GlobalHotKey(
-            keyCode: GlobalHotKey.lyricsKeyCode,
-            modifiers: GlobalHotKey.defaultModifiers
-        ) { [weak self] in
-            self?.controller?.toggleLyrics()
-        }
+        // Translation without a window, an app switch, or a permission: the
+        // shortcut translates whatever is already on the clipboard, and the
+        // service below takes the current selection from any app that offers
+        // one — macOS hands the text over itself, so reading a selection asks
+        // for no Accessibility access.
+        //
+        // The lyrics shortcut opens the panel on the Music tab with the lyrics
+        // page already up; pressing it again folds the page back to the player.
+        //
+        // What each is bound to lives in `HotKeyCenter`, which Settings can
+        // change while the app runs.
+        HotKeyCenter.shared.install([
+            .openPanel: { [weak self] in self?.togglePanel() },
+            .translateClipboard: { [weak self] in
+                guard let text = NSPasteboard.general.string(forType: .string) else { return }
+                self?.controller?.translate(text)
+            },
+            .showLyrics: { [weak self] in self?.controller?.toggleLyrics() },
+        ])
         NSApp.servicesProvider = self
+        // Nothing, unless the user turned the daily check on in Settings.
+        UpdateCheck.shared.startAutomaticIfEnabled()
 
         // One visible moment on a fresh account, and only one. Everything about
         // this app is invisible by design — `.accessory`, no Dock icon, no
@@ -92,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DebugTrail.note("launch hook armed")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                 DebugTrail.note("pinning panel open on the lyrics page")
-                // Through the same route ⌥⌘L takes. This used to be a
+                // Through the same route the lyrics shortcut takes. This used to be a
                 // `togglePanel()` here plus an `onAppear` inside `MediaPane`
                 // that flipped its own `@State` — and when that state moved to
                 // the view model the `onAppear` went with it, leaving the hook
@@ -126,16 +114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller?.teardown()
         // Explicitly, because a hot key cannot release itself: the Carbon
         // callback needs a lookup table to find the instance, that table holds
-        // the only strong reference, and so `deinit` never runs. Nothing here
-        // is load-bearing at quit — the process is going away — but it is the
-        // one call site that keeps the teardown path real instead of dead code
-        // waiting for the first rebinding to expose it.
-        hotKey?.unregister()
-        translateHotKey?.unregister()
-        lyricsHotKey?.unregister()
-        hotKey = nil
-        translateHotKey = nil
-        lyricsHotKey = nil
+        // the only strong reference, and so `deinit` never runs.
+        HotKeyCenter.shared.teardown()
     }
 
     // MARK: - Panel hooks
@@ -150,8 +130,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller?.refreshGeometry()
     }
 
-    /// Private again, and no longer `@objc`: the only callers left are the ⌥⌘I
-    /// hotkey and the verification hook above. Settings used to reach it through
+    /// Private again, and no longer `@objc`: the only callers left are the open
+    /// shortcut and the verification hook above. Settings used to reach it through
     /// `NSApp.delegate` for an "Open Panel" row, but that row sat inside the
     /// panel it offered to open, so it could only ever close what you were
     /// reading it in.

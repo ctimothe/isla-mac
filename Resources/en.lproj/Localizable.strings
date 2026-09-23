@@ -176,7 +176,7 @@
 "Compact" = "Compact";
 
 /* Lock card panes */
-"Lyrics are switched off in Settings." = "Lyrics are switched off in Settings.";
+"Lyrics are off." = "Lyrics are off.";
 "No output devices." = "No output devices.";
 "Open on Hover" = "Open on Hover";
 "Output" = "Output";
@@ -211,3 +211,72 @@
 "Music Only" = "Music Only";
 "Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show." = "Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show.";
 "Anything playing shows on the island, videos included." = "Anything playing shows on the island, videos included.";
+
+/* Keyboard Shortcuts */
+"Show the lyrics" = "Show the lyrics";
+"Keyboard Shortcuts" = "Keyboard Shortcuts";
+"Type Shortcut" = "Type Shortcut";
+"None" = "None";
+"Records a new shortcut. Press Delete to clear it, Escape to cancel." = "Records a new shortcut. Press Delete to clear it, Escape to cancel.";
+"macOS would not register %@. Choose another shortcut." = "macOS would not register %@. Choose another shortcut.";
+"Restore Default Shortcuts" = "Restore Default Shortcuts";
+
+/* Now Playing fallback */
+"macOS blocked Isla's Now Playing reader. Only Music and Spotify can be seen until it loads." = "macOS blocked Isla's Now Playing reader. Only Music and Spotify can be seen until it loads.";
+"This version of macOS closed the Now Playing route. Only Music and Spotify can be seen." = "This version of macOS closed the Now Playing route. Only Music and Spotify can be seen.";
+"Isla's Now Playing reader kept stopping. Only Music and Spotify can be seen." = "Isla's Now Playing reader kept stopping. Only Music and Spotify can be seen.";
+"Isla's Now Playing reader could not start. Only Music and Spotify can be seen." = "Isla's Now Playing reader could not start. Only Music and Spotify can be seen.";
+"Try Again" = "Try Again";
+"Only Music and Spotify can be seen right now." = "Only Music and Spotify can be seen right now.";
+
+/* Diagnostics */
+"Copy Diagnostics" = "Copy Diagnostics";
+"Copied. It lists versions, settings and Isla's own log, and nothing you played, copied or translated." = "Copied. It lists versions, settings and Isla's own log, and nothing you played, copied or translated.";
+"Report a Problem…" = "Report a Problem…";
+
+/* Updates */
+"Check for Updates" = "Check for Updates";
+"Checking…" = "Checking…";
+"Isla %@ is the latest version." = "Isla %@ is the latest version.";
+"Download Isla %@" = "Download Isla %@";
+"Quit Isla, then replace it in Applications with the new version." = "Quit Isla, then replace it in Applications with the new version.";
+"Could not reach GitHub. Try again later." = "Could not reach GitHub. Try again later.";
+"Check for Updates Automatically" = "Check for Updates Automatically";
+"Asks GitHub once a day for the latest version. It sends nothing about you." = "Asks GitHub once a day for the latest version. It sends nothing about you.";
+"Update available" = "Update available";
+
+/* Lyrics page offers */
+"Look Up Online" = "Look Up Online";
+"Sends the title, artist, album and length to LRCLIB." = "Sends the title, artist, album and length to LRCLIB.";
+
+/* Clipboard History */
+"Clipboard History" = "Clipboard History";
+"Copies are not read or kept. Turning it off emptied the list." = "Copies are not read or kept. Turning it off emptied the list.";
+"Clipboard history is off in Settings." = "Clipboard history is off in Settings.";
+
+/* Spotify refusals */
+"Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet." = "Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet.";
+"Spotify refused this account. Liked Songs needs Spotify Premium." = "Spotify refused this account. Liked Songs needs Spotify Premium.";
+"Spotify refused this account's library request." = "Spotify refused this account's library request.";
+
+/* Diagnostics */
+"Collecting…" = "Collecting…";
+
+/* Shortcuts, Spotlight and Siri (App Intents) */
+"Opens Isla's panel with the lyrics page for whatever is playing." = "Opens Isla's panel with the lyrics page for whatever is playing.";
+"Show Isla" = "Show Isla";
+"Opens Isla's panel at the notch." = "Opens Isla's panel at the notch.";
+"Get Current Lyric" = "Get Current Lyric";
+"Returns the lyric line playing right now, if Isla has words for the track." = "Returns the lyric line playing right now, if Isla has words for the track.";
+"Get Current Track" = "Get Current Track";
+"Returns the track and artist Isla is showing." = "Returns the track and artist Isla is showing.";
+"Set Lyric Delay" = "Set Lyric Delay";
+"Shifts every lyric in time. Negative shows lyrics earlier; positive, later." = "Shifts every lyric in time. Negative shows lyrics earlier; positive, later.";
+"Seconds" = "Seconds";
+"Play or Pause" = "Play or Pause";
+"Toggles playback of whatever Isla is showing." = "Toggles playback of whatever Isla is showing.";
+"Skips to the next track." = "Skips to the next track.";
+"Goes back to the previous track." = "Goes back to the previous track.";
+"Current Lyric" = "Current Lyric";
+"Current Track" = "Current Track";
+"Isla is still starting up. Try again in a moment." = "Isla is still starting up. Try again in a moment.";

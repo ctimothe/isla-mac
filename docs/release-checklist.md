@@ -9,7 +9,8 @@
 Complete the commands and manual flows in [runbook.md](runbook.md). Add a short
 result, evidence path, or issue link to every gate.
 
-1. [x] **Unit and service tests** — 29 tests pass. Evidence:
+1. [x] **Unit and service tests** — every test passes (29 on the day this line was first
+   written; 520 or so as of 2026-09-23 — trust the run, not this number). Evidence:
    [release-candidate report](verification/2026-08-18-release-candidate.md)
 2. [x] **Media-helper contract** — live NDJSON response and shutdown pass;
    numeric commands and restart/fallback pass unit tests. Evidence:

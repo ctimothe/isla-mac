@@ -17,7 +17,8 @@ enum LyricsPresentation {
         }
         switch availability {
         case .disabled:
-            return localized("Lyrics are switched off in Settings.")
+            // The page under this caption now offers the switch itself.
+            return localized("Lyrics are off.")
         case .resolving:
             // Deliberately empty: the slot holds its height and fills when the
             // answer lands, so a fast one never shows a loading state.
@@ -32,6 +33,32 @@ enum LyricsPresentation {
             return onlineEnabled ? localized("No lyrics found.") : localized("No local lyrics.")
         case .invalidLocalFile:
             return localized("No lyrics for this track.")
+        }
+    }
+
+    /// The one action an empty lyrics page offers, if any.
+    enum Offer: Equatable {
+        /// Lyrics are off: turn them on, which reaches nothing but this Mac.
+        case turnOnLyrics
+        /// Nothing local matched and LRCLIB was never asked: ask it, with
+        /// the disclosure beside the button.
+        case lookUpOnline
+    }
+
+    static func offer(
+        for availability: LyricsAvailability,
+        localLookup: LocalLyricsLookup?,
+        onlineEnabled: Bool
+    ) -> Offer? {
+        switch availability {
+        case .disabled:
+            return .turnOnLyrics
+        case .noLocalLyrics:
+            // An ambiguous match already has its own choice on the page.
+            if case .ambiguous = localLookup { return nil }
+            return onlineEnabled ? nil : .lookUpOnline
+        default:
+            return nil
         }
     }
 

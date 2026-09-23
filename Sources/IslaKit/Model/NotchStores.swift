@@ -86,6 +86,7 @@ final class NotchStores {
         // to PNG in full just to be dropped on this doorstep — pure heat on
         // exactly the machines whose owners turned the feature off.
         clipboard.wantsImages = { NotchViewModel.saveClipboardImagesEnabled }
+        clipboard.recordsHistory = { NotchViewModel.clipboardHistoryEnabled }
         clipboard.onImage = { [weak self] png in
             guard let self else { return }
             self.screenshotVault.save(png) { [weak self] url in
@@ -113,7 +114,36 @@ final class NotchStores {
             self.shelf.add([url])
             self.onScreenshot?(url)
         }
-        clipboard.start()
+        refreshClipboardPolling()
+    }
+
+    /// The pasteboard is read only while something wants what is on it:
+    /// history, or clipboard screenshots for the Shelf. With both off,
+    /// nothing polls at all.
+    static func clipboardShouldPoll(history: Bool, images: Bool) -> Bool {
+        history || images
+    }
+
+    /// - Parameter settingChanged: true when a Settings switch asked. A poll
+    ///   that a switch turns back on starts from the pasteboard as it is now,
+    ///   because whatever was copied while it was off was copied while the
+    ///   user had said not to look.
+    func refreshClipboardPolling(settingChanged: Bool = false) {
+        guard Self.clipboardShouldPoll(
+            history: NotchViewModel.clipboardHistoryEnabled,
+            images: NotchViewModel.saveClipboardImagesEnabled
+        ) else {
+            clipboard.stop()
+            return
+        }
+        if settingChanged {
+            // Already polling means already baselined: a switch that keeps the
+            // poll running has nothing old to skip, and restarting it would
+            // skip a copy that was allowed.
+            if !clipboard.isPolling { clipboard.startFresh() }
+        } else {
+            clipboard.start()
+        }
     }
 
     func stop() {
@@ -144,6 +174,12 @@ final class NotchStores {
     }
 
     func resumeFromIdleScreen() {
-        clipboard.start()
+        refreshClipboardPolling()
+        // A wake is the likeliest moment for a failed route to work again. The
+        // helper can lose a race with a waking MediaRemote, and a user who
+        // cleared the download quarantine has usually put the Mac to sleep
+        // since. Costs nothing while Now Playing is healthy, and a refused
+        // load waits for the user to ask (see `retryNowPlaying`).
+        media.retryNowPlaying(userAsked: false)
     }
 }

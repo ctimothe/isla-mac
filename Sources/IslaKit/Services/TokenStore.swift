@@ -6,14 +6,16 @@ import Security
 /// There are two honest places to put a credential on macOS, and which one is
 /// available is decided entirely by the build's signature:
 ///
-/// **Signed builds** — anything with a Developer ID, which is every release —
-/// use the *data-protection* keychain. Items there are scoped to the team
+/// **Signed builds** — anything with a Developer ID — use the *data-protection*
+/// keychain. Items there are scoped to the team
 /// identity carried in the app's entitlements, so the app can always read what
 /// it wrote, across updates and re-signings, and nothing else can. No prompt,
-/// ever, and proper isolation. This is the path users are on.
+/// ever, and proper isolation. This is the path users will be on once releases
+/// are signed with a Developer ID.
 ///
-/// **Unsigned local builds** — what you get from cloning the repository and
-/// running `Scripts/bundle.sh` — cannot use it: the data-protection keychain
+/// **Ad-hoc builds** — what you get from cloning the repository and running
+/// `Scripts/bundle.sh`, and, until a Developer ID exists, every release too,
+/// 0.1.0 and 0.2.0 included — cannot use it: the data-protection keychain
 /// needs a `keychain-access-groups` entitlement, that entitlement needs a team
 /// prefix, and an ad-hoc signature has no team. The obvious fallback, the
 /// login keychain, is the worst of both worlds here: it protects each item with
@@ -28,7 +30,9 @@ import Security
 /// Support directory, `0600`, owner-only. That is the same protection the login
 /// keychain would actually be providing here (any process running as you could
 /// read either), minus the prompts. It is stated plainly in Settings rather
-/// than hidden, and it never applies to a build anybody ships.
+/// than hidden. This comment used to say it "never applies to a build anybody
+/// ships"; the ad-hoc 0.1.0 and 0.2.0 releases made that false, and it stays
+/// false until releases are signed.
 ///
 /// The legacy login keychain is read in exactly one situation: the user asks
 /// for it, from Settings, to bring an account across from an older build. It is
@@ -161,7 +165,7 @@ struct TokenStore: Sendable {
             )
             return true
         } catch {
-            NSLog("Isla: cannot store credentials: \(error.localizedDescription)")
+            Log.storage.error("cannot store credentials: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
             return false
         }
     }

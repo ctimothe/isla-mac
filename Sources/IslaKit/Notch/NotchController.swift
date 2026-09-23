@@ -35,7 +35,7 @@ final class NotchController {
     ///
     /// A pinned panel is deliberately deaf to the pointer, so the ordinary
     /// hover rule cannot close it, and it only receives key events on the two
-    /// tabs that take the keyboard — which left a panel opened by ⌥⌘I on the
+    /// tabs that take the keyboard — which left a panel opened by ⌃⌥⌘I on the
     /// media tab with no way out but the hotkey itself. A global monitor sees
     /// clicks the app never receives, which is exactly the signal needed.
     private var pinnedClickMonitor: Any?
@@ -97,33 +97,19 @@ final class NotchController {
                 guard let self else { return }
                 self.screensAreAsleep = false
                 self.geometryTrace("screens awake locked=\(self.lockPresence.isLocked ? 1 : 0)")
-                // Before the early returns below: the card over a locked Mac is
-                // exactly what the watchdog keeps in place.
-                self.startGeometryWatchdog()
-                // Only once it is clear the Mac is not still locked — the
-                // checks below decide that.
-                if !self.lockPresence.isLocked { self.stores.resumeFromIdleScreen() }
-                // Repair path: if the unlock notification was ever missed —
-                // it once queued behind a main-thread block and the card
-                // stayed stranded on the desktop — waking with the shield
-                // down puts the panel back to normal.
-                if !self.lockPresence.isLocked, self.viewModel?.isLockedPresentation == true {
-                    self.screenUnlocked()
-                    return
-                }
-                if self.lockPresence.isLocked {
-                    // Still locked: the sampler must stay stopped. Restarting
-                    // it here — the display sleeping and rewaking mid-lock is
-                    // the ordinary way the password field is summoned — put it
-                    // to work against rects cut before the lock, which killed
-                    // the card's transport and could unfold the panel under
-                    // the shield. Only the card comes back.
-                    if self.viewModel?.isLockedPresentation == true {
-                        self.viewModel?.media.setActive(true)
+                let plan = Self.wakePlan(
+                    isLocked: self.lockPresence.isLocked,
+                    lockedPresentation: self.viewModel?.isLockedPresentation == true
+                )
+                for step in plan {
+                    switch step {
+                    case .startWatchdog: self.startGeometryWatchdog()
+                    case .resumeStores: self.stores.resumeFromIdleScreen()
+                    case .repairUnlock: self.screenUnlocked()
+                    case .reactivateCardMedia: self.viewModel?.media.setActive(true)
+                    case .restartPointer: self.pointer.start()
                     }
-                    return
                 }
-                self.pointer.start()
             }
         })
         // Locking replaces the desktop with the shield, and the pill stays on
@@ -531,7 +517,7 @@ final class NotchController {
         vm.isPeeking = false
         vm.select(.media)
         vm.isShowingLyrics = true
-        // Pinned, like ⌥⌘I and for the same reason: the hand that pressed it is
+        // Pinned, like ⌃⌥⌘I and for the same reason: the hand that pressed it is
         // on the keyboard, not on the notch, and an unpinned panel nobody is
         // hovering folds a third of a second after it appears. Lyrics are read
         // for the length of a song, which is the longest any of these stays up.
@@ -659,7 +645,7 @@ final class NotchController {
         pointer.openDelay = NotchViewModel.hoverOpenDelay
     }
 
-    /// The ⌥⌘I hotkey, `presentWelcome()` on a fresh account, and the
+    /// The ⌃⌥⌘I hotkey, `presentWelcome()` on a fresh account, and the
     /// `DI_OPEN_LYRICS` verification hook. (The Translate service opens through
     /// `translate(_:)`, which sets its own tab and its own grace, not here.)
     ///
@@ -689,7 +675,7 @@ final class NotchController {
         if opening {
             pointer.setInside(true)
         } else {
-            // The same hazard as the second click on the island: ⌥⌘I can be
+            // The same hazard as the second click on the island: ⌃⌥⌘I can be
             // pressed with the pointer standing on the panel, and the rect an
             // arrival is measured against is still the open body's while the
             // panel folds. See `PointerWatcher.closedByHand()`.
@@ -782,6 +768,14 @@ final class NotchController {
         closeActiveRectWork?.cancel()
         cancellables.removeAll()
         panel?.acceptsKeyboard = false
+        // A recording in the Settings pane being torn down would otherwise
+        // depend on SwiftUI calling that row's `onDisappear` when the content
+        // view goes, which AppKit hosting does not promise, and with the
+        // recording stuck every shortcut stays unregistered.
+        HotKeyCenter.shared.endRecording()
+        // Out of the lock-screen space before it goes, if it is in one. The
+        // replacement is lifted again below when the Mac is still locked.
+        lockPresence.release(panel)
         panel?.orderOut(nil)
         panel?.contentView = nil
         panel = nil
@@ -965,7 +959,7 @@ final class NotchController {
             // panel is this closure's. An arrival lands on Music: the island is
             // for glancing at a track, and the other tabs are somewhere to go
             // once it is open, not somewhere to arrive. Deliberate routes still
-            // choose their own tab — ⌥⌘T lands on Translate, and a drag stays on
+            // choose their own tab — ⌃⌥⌘T lands on Translate, and a drag stays on
             // the Shelf, which is what `dragging` is for.
             switch vm.pointerCrossed(inside: inside, dragging: self.pointer.isDragging()) {
             case .opens: self.setOpen(true)
@@ -1113,6 +1107,9 @@ final class NotchController {
             pointer.setInside(true)
         }
         panel?.acceptsKeyboard = wants
+        // A shortcut being recorded needs the keyboard it just lost, and the
+        // Settings row that started it may not be told (see `rebuild`).
+        if !wants { HotKeyCenter.shared.endRecording() }
         // What was typed stays: clicking away to look something up should not
         // be the same as throwing the text out. Esc and the ✕ do that.
         if !wants { scheduleCollapseIfPointerAway() }
@@ -1126,7 +1123,7 @@ final class NotchController {
     ///
     /// The pin is the single exception, and it is enforced where the pointer is
     /// read rather than here — see `NotchViewModel.holdsOpen`. It exists for
-    /// the routes that open the panel with the pointer nowhere near it: ⌥⌘I,
+    /// the routes that open the panel with the pointer nowhere near it: ⌃⌥⌘I,
     /// the Translate service, and VoiceOver firing the island's accessibility
     /// action. A click on the island only pins when the pointer would land
     /// outside the open panel, which it normally does not.
@@ -1233,7 +1230,7 @@ final class NotchController {
 
     private func scheduleCollapseIfPointerAway(after delay: TimeInterval = NotchMetrics.pointerAwayCollapseDelay) {
         // Stamped like every other deferred step in this file. A bare
-        // `asyncAfter` from an earlier open stayed armed, so pressing ⌥⌘T twice
+        // `asyncAfter` from an earlier open stayed armed, so pressing ⌃⌥⌘T twice
         // a few seconds apart let the first timer fold the translation the
         // second one had just put on screen.
         collapseCheckWork?.cancel()
@@ -1373,5 +1370,42 @@ final class NotchController {
         pointer.interactiveRect = vm.geometry
             .contentScreenRect(for: size)
             .insetBy(dx: -slack, dy: 0)
+    }
+}
+
+// MARK: - Waking
+
+extension NotchController {
+    enum WakeStep: Equatable {
+        case startWatchdog
+        case resumeStores
+        case repairUnlock
+        case reactivateCardMedia
+        case restartPointer
+    }
+
+    /// What a display waking has to do, in order. Pure, so the decisions that
+    /// have each cost a bug are tests rather than comments.
+    ///
+    /// - The watchdog comes first and always: the card over a locked Mac is
+    ///   exactly what it keeps in place.
+    /// - The stores resume only once it is clear the Mac is not still locked.
+    /// - Awake, unlocked, but still dressed for the lock: the unlock
+    ///   notification was missed (it once queued behind a main-thread block
+    ///   and the card stayed stranded on the desktop), so the unlock is
+    ///   replayed and nothing else runs.
+    /// - Still locked: the pointer sampler must stay stopped. Restarting it
+    ///   there, the display sleeping and rewaking mid-lock being the ordinary
+    ///   way the password field is summoned, put it to work against rects cut
+    ///   before the lock, which killed the card's transport and could unfold
+    ///   the panel under the shield. Only the card's media comes back.
+    nonisolated static func wakePlan(isLocked: Bool, lockedPresentation: Bool) -> [WakeStep] {
+        if isLocked {
+            return lockedPresentation ? [.startWatchdog, .reactivateCardMedia] : [.startWatchdog]
+        }
+        if lockedPresentation {
+            return [.startWatchdog, .resumeStores, .repairUnlock]
+        }
+        return [.startWatchdog, .resumeStores, .restartPointer]
     }
 }

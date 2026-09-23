@@ -9,6 +9,7 @@ struct SettingsPane: View {
     @ObservedObject var shelf: ShelfStore
     let screenshotVault: ScreenshotVault
     @ObservedObject var lyrics: LyricsStore
+    @ObservedObject var media: MediaController
     @ObservedObject var localLyrics: LocalLyricsLibrary
     var onLyricsVisibilityChanged: () -> Void = {}
     var importLocalLyrics: () -> Void = {}
@@ -20,6 +21,14 @@ struct SettingsPane: View {
     var clearBindingsAndTimingCorrections: () -> Void = {}
     var dismissUnassignedLyricsOffset: (String) -> Void = { _ in }
     @ObservedObject var privacy: PrivacyMode
+    /// The panel's claim on the keyboard, which recording a shortcut needs.
+    var wantsKeyboard: Binding<Bool> = .constant(false)
+    @ObservedObject var hotKeys: HotKeyCenter = .shared
+    @ObservedObject var updates: UpdateCheck = .shared
+    var setClipboardHistory: (Bool) -> Void = { _ in }
+    var refreshClipboardPolling: () -> Void = {}
+    @State private var clipboardHistory = NotchViewModel.clipboardHistoryEnabled
+    @State private var checkUpdatesAutomatically = UpdateCheck.automaticEnabled
 
     static let localLyricsPrivacyCopyKey = "Lyrics stay on this Mac."
 
@@ -43,6 +52,10 @@ struct SettingsPane: View {
     /// on "Connect" forever while the tokens were already in the keychain.
     @ObservedObject private var spotify = SpotifyAccount.shared
     @State private var screenshotUsage: (files: Int, bytes: Int64) = (0, 0)
+    /// When the report was last copied, so the row can say it worked. A copy
+    /// has no other visible result.
+    @State private var diagnosticsCopied: Date?
+    @State private var collectingDiagnostics = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -133,6 +146,35 @@ struct SettingsPane: View {
                     .accessibilityLabel(localized("Panel Width"))
                 }
 
+                // The three ways in that need no pointer. Each can be moved or
+                // cleared, because whichever keys ship, some app somewhere
+                // already uses them.
+                section(localized("Keyboard Shortcuts")) {
+                    ShortcutRecorderRow(
+                        action: .openPanel, symbol: SettingsIcon.shortcutOpenPanel,
+                        center: hotKeys, wantsKeyboard: wantsKeyboard
+                    )
+                    ShortcutRecorderRow(
+                        action: .showLyrics, symbol: SettingsIcon.shortcutLyrics,
+                        center: hotKeys, wantsKeyboard: wantsKeyboard
+                    )
+                    ShortcutRecorderRow(
+                        action: .translateClipboard, symbol: SettingsIcon.shortcutTranslate,
+                        center: hotKeys, wantsKeyboard: wantsKeyboard
+                    )
+                    ForEach(HotKeyAction.allCases.filter { hotKeys.refused.contains($0) }) { action in
+                        noteRow(localized(
+                            "macOS would not register %@. Choose another shortcut.",
+                            hotKeys.bindings[action]?.displayString ?? ""
+                        ))
+                    }
+                    if HotKeyAction.allCases.contains(where: { hotKeys.bindings[$0] != $0.defaultBinding }) {
+                        actionRow(symbol: SettingsIcon.restoreShortcuts, title: localized("Restore Default Shortcuts")) {
+                            hotKeys.restoreDefaults()
+                        }
+                    }
+                }
+
                 section(localized("Screenshots")) {
                     toggleRow(
                         symbol: SettingsIcon.saveScreenshots,
@@ -164,6 +206,14 @@ struct SettingsPane: View {
                 }
 
                 section(localized("Music")) {
+                    // Above everything: while the reader is down, every other
+                    // switch here describes music the island cannot see.
+                    if let reason = media.fallbackReason {
+                        noteRow(reason.explanation)
+                        actionRow(symbol: SettingsIcon.tryAgain, title: localized("Try Again")) {
+                            media.retryNowPlaying(userAsked: true)
+                        }
+                    }
                     // First in the section because it decides what reaches the
                     // island at all; everything below it is about the music
                     // that does.
@@ -409,9 +459,26 @@ struct SettingsPane: View {
                     if spotify.isConnected {
                         noteRow(storageNote)
                     }
+                    if spotify.isConnected, spotify.apiBlocked {
+                        noteRow((spotify.refusal ?? .other).explanation)
+                    }
                 }
 
                 section(localized("Privacy")) {
+                    toggleRow(
+                        symbol: SettingsIcon.clipboardHistory,
+                        title: localized("Clipboard History"),
+                        isOn: Binding(
+                            get: { clipboardHistory },
+                            set: { wants in
+                                clipboardHistory = wants
+                                setClipboardHistory(wants)
+                            }
+                        )
+                    )
+                    if !clipboardHistory {
+                        noteRow(localized("Copies are not read or kept. Turning it off emptied the list."))
+                    }
                     ForEach(PrivacyMode.Section.allCases) { privacySection in
                         toggleRow(
                             symbol: privacySymbol(for: privacySection),
@@ -438,6 +505,68 @@ struct SettingsPane: View {
                 section(localized("Application")) {
                     actionRow(symbol: SettingsIcon.about, title: localized("About %@", ProductIdentity.displayName)) {
                         NSApp.orderFrontStandardAboutPanel(nil)
+                    }
+                    // What a stranger needs to tell the owner what went wrong:
+                    // the report, and the form that asks for it.
+                    actionRow(
+                        symbol: SettingsIcon.copyDiagnostics,
+                        title: collectingDiagnostics ? localized("Collecting…") : localized("Copy Diagnostics"),
+                        disabled: collectingDiagnostics
+                    ) {
+                        collectingDiagnostics = true
+                        Task { @MainActor in
+                            await Diagnostics.copyToPasteboard(media: media)
+                            collectingDiagnostics = false
+                            let copied = Date()
+                            diagnosticsCopied = copied
+                            try? await Task.sleep(for: .seconds(4))
+                            if diagnosticsCopied == copied { diagnosticsCopied = nil }
+                        }
+                    }
+                    if diagnosticsCopied != nil {
+                        noteRow(localized("Copied. It lists versions, settings and Isla's own log, and nothing you played, copied or translated."))
+                    }
+                    actionRow(symbol: SettingsIcon.reportProblem, title: localized("Report a Problem…")) {
+                        NSWorkspace.shared.open(Diagnostics.reportURL)
+                    }
+                    // Whether a newer Isla is out. Pressing the row is the
+                    // consent for its one request; the switch under it, which
+                    // asks daily, is off until turned on.
+                    actionRow(
+                        symbol: SettingsIcon.checkForUpdates,
+                        title: localized("Check for Updates"),
+                        disabled: updates.state == .checking
+                    ) {
+                        updates.check()
+                    }
+                    switch updates.state {
+                    case .idle:
+                        EmptyView()
+                    case .checking:
+                        noteRow(localized("Checking…"))
+                    case .upToDate(let version):
+                        noteRow(localized("Isla %@ is the latest version.", version))
+                    case .available(let version, let page):
+                        actionRow(symbol: SettingsIcon.downloadUpdate, title: localized("Download Isla %@", version)) {
+                            NSWorkspace.shared.open(page)
+                        }
+                        noteRow(localized("Quit Isla, then replace it in Applications with the new version."))
+                    case .failed:
+                        noteRow(localized("Could not reach GitHub. Try again later."))
+                    }
+                    toggleRow(
+                        symbol: SettingsIcon.online,
+                        title: localized("Check for Updates Automatically"),
+                        isOn: Binding(
+                            get: { checkUpdatesAutomatically },
+                            set: { wants in
+                                checkUpdatesAutomatically = wants
+                                updates.setAutomatic(wants)
+                            }
+                        )
+                    )
+                    if checkUpdatesAutomatically {
+                        noteRow(localized("Asks GitHub once a day for the latest version. It sends nothing about you."))
                     }
                     confirmRow(
                         symbol: SettingsIcon.quit,
@@ -481,7 +610,7 @@ struct SettingsPane: View {
                         try SMAppService.mainApp.unregister()
                     }
                 } catch {
-                    NSLog("Isla: launch-at-login failed: \(error.localizedDescription)")
+                    Log.app.error("launch at login failed: \(error.localizedDescription, privacy: .public)")
                 }
                 launchAtLogin = SMAppService.mainApp.status == .enabled
             }
@@ -494,6 +623,7 @@ struct SettingsPane: View {
             set: { wants in
                 saveClipboardImages = wants
                 UserDefaults.standard.set(wants, forKey: NotchViewModel.saveClipboardImagesKey)
+                refreshClipboardPolling()
             }
         )
     }

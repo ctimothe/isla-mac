@@ -26,7 +26,52 @@ final class SpotifyAccount: ObservableObject {
     /// True once the API has refused a library call for account reasons —
     /// Spotify gates the whole Web API behind Premium as of 2026. The heart
     /// hides rather than lies; this clears on the next successful call.
-    @Published private(set) var apiBlocked = false
+    @Published private(set) var apiBlocked = false {
+        didSet { if !apiBlocked { refusal = nil } }
+    }
+    /// Why, when Spotify said. Settings shows it so the missing heart has an
+    /// explanation. Before, the heart vanished and nothing anywhere said why.
+    @Published private(set) var refusal: Refusal?
+
+    enum Refusal: Equatable {
+        /// Spotify keeps an app in development mode until it is reviewed, and
+        /// in that mode only accounts the developer listed by hand may use
+        /// it. Every other account gets 403 "User not registered in the
+        /// Developer Dashboard".
+        case notRegistered
+        /// The Web API is refused to accounts without Premium.
+        case premiumRequired
+        case other
+
+        /// Read from the 403's own message, because the status alone cannot
+        /// tell the two apart and the user can fix only one of them.
+        static func from(_ body: Data?) -> Refusal {
+            guard let body,
+                  let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+                  let error = object["error"] as? [String: Any],
+                  let message = (error["message"] as? String)?.lowercased()
+            else { return .other }
+            if message.contains("not registered") { return .notRegistered }
+            if message.contains("premium") { return .premiumRequired }
+            return .other
+        }
+
+        var explanation: String {
+            switch self {
+            case .notRegistered:
+                return localized("Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet.")
+            case .premiumRequired:
+                return localized("Spotify refused this account. Liked Songs needs Spotify Premium.")
+            case .other:
+                return localized("Spotify refused this account's library request.")
+            }
+        }
+    }
+
+    private func refuse(_ body: Data?) {
+        refusal = Refusal.from(body)
+        apiBlocked = true
+    }
     /// Track id → saved?, so hearts answer instantly and survive re-renders.
     ///
     /// A missing entry means "not asked yet or not answered", which is not the
@@ -313,7 +358,7 @@ final class SpotifyAccount: ObservableObject {
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 403 {
-                apiBlocked = true
+                refuse(data)
                 return
             }
             guard status == 200,
@@ -356,9 +401,9 @@ final class SpotifyAccount: ObservableObject {
             var request = URLRequest(url: url)
             request.httpMethod = wants ? "PUT" : "DELETE"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            let status = (try? await URLSession.shared.data(for: request))
-                .flatMap { ($0.1 as? HTTPURLResponse)?.statusCode }
-            if status == 403 { apiBlocked = true }
+            let reply = try? await URLSession.shared.data(for: request)
+            let status = reply.flatMap { ($0.1 as? HTTPURLResponse)?.statusCode }
+            if status == 403 { refuse(reply?.0) }
             if !(status.map { (200..<300).contains($0) } ?? false) {
                 saved[trackID] = !wants
             } else {
@@ -423,7 +468,7 @@ final class SpotifyAccount: ObservableObject {
         guard let (data, response) = try? await session.data(for: request) else { return nil }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 403 {
-            apiBlocked = true
+            refuse(data)
             return nil
         }
         guard status == 200,

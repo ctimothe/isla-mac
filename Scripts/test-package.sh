@@ -69,3 +69,11 @@ if ! grep -q 'autoShortcuts' "$INTENTS/extract.actionsdata"; then
 fi
 
 echo "  ✓ Isla bundle contract is complete"
+
+# Both architectures, in the app and in the helper perl loads. An Intel Mac
+# runs perl as x86_64 and can only load an x86_64 helper.
+for binary in "$APP/Contents/MacOS/Isla" "$APP/Contents/Resources/libislamedia.dylib"; do
+    archs="$(lipo -archs "$binary")"
+    case " $archs " in *" arm64 "*) ;; *) echo "$binary lacks arm64 ($archs)" >&2; exit 1 ;; esac
+    case " $archs " in *" x86_64 "*) ;; *) echo "$binary lacks x86_64 ($archs)" >&2; exit 1 ;; esac
+done

@@ -3,7 +3,8 @@
 A Dynamic Island–style panel for the Mac notch: what's playing, synced lyrics,
 a file shelf, clipboard history and translation. Click the notch to open it.
 
-Requires macOS 15 or later. On a display without a notch, Isla draws one.
+Requires macOS 15 or later, on Apple silicon or Intel. On a display without a
+notch, Isla draws one.
 
 "Dynamic Island" is Apple's term and is used here only to describe the idea.
 Isla is an independent project and is not affiliated with Apple.
@@ -24,7 +25,8 @@ Isla is an independent project and is not affiliated with Apple.
 Isla has no Dock icon, menu bar item or window: it lives in the notch. Click the
 notch to open it. **Settings** in the panel has Launch at Login, About and Quit.
 
-To update, repeat the steps with the new release.
+To update, repeat the steps with the new release. **Settings → Check for Updates**
+says whether there is one.
 
 ## Features
 
@@ -38,12 +40,13 @@ To update, repeat the steps with the new release.
 - **Shelf.** Drop files onto the notch to keep them at hand and drag them out
   again. Screenshots and screen recordings appear here too.
 - **Clipboard.** The last 40 items copied while Isla runs. Click one to copy
-  it again.
+  it again. It can be turned off in Settings.
 - **Translate.** Sixteen languages, translated on the Mac by Apple's
   Translation framework or Apple Intelligence (macOS 26 or later). Uzbek and
   Kazakh need Translate Online.
-- **Shortcuts.** ⌥⌘I opens Isla, ⌥⌘T translates the clipboard, ⌥⌘L opens the
-  lyrics. Shortcuts, Spotlight and Siri can read the current track and lyric.
+- **Shortcuts.** ⌃⌥⌘I opens Isla, ⌃⌥⌘L opens the lyrics, ⌃⌥⌘T translates the
+  clipboard. Each can be changed or cleared in Settings. Shortcuts, Spotlight and
+  Siri can read the current track and lyric.
 
 ## Privacy
 
@@ -55,11 +58,23 @@ by default:
 | Look Up Lyrics Online | Track title, artist, album and length | [LRCLIB](https://lrclib.net) |
 | Translate Online | The text and its two languages, only for languages the Mac cannot translate itself | [MyMemory](https://mymemory.translated.net) |
 | Connect Spotify Account | Spotify sign-in, to read and change Liked Songs | Spotify |
+| Check for Updates Automatically | A request for the latest version, naming Isla's version | [GitHub](https://github.com) |
 
 Spotify tokens are stored in a file readable only by your user account in
 `~/Library/Application Support/Isla`. Signed builds use the Keychain instead.
 macOS asks before Isla controls Music or Spotify through Apple Events, the
 fallback used when Now Playing is unavailable.
+
+## When something is wrong
+
+- **The Music tab says only Music and Spotify can be seen.** macOS refused Isla's
+  Now Playing reader, usually because the download quarantine is still on the
+  app. Run the `xattr` command from Install, then **Settings → Music → Try Again**.
+- **A shortcut does nothing.** Another app may own it. Settings → Keyboard
+  Shortcuts says so and lets you pick another.
+- **Anything else.** **Settings → Copy Diagnostics**, then **Report a Problem…**
+  and paste it into the form. The report lists versions, settings and Isla's own
+  log, and nothing you played, copied or translated.
 
 ## Build from source
 

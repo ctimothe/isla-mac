@@ -38,7 +38,7 @@ struct WelcomePane: View {
         var running: String
         var whereItLives: String
         var openPanel: String
-        var translateClipboard: String
+        var showLyrics: String
         var settingsFootnote: String
         var action: String
 
@@ -48,7 +48,7 @@ struct WelcomePane: View {
             running: "Isla is running.",
             whereItLives: "It lives at the notch. Click it to open.",
             openPanel: "Open the panel",
-            translateClipboard: "Translate the clipboard",
+            showLyrics: "Show the lyrics",
             settingsFootnote: "Quit and everything else lives in Settings, at the bottom left.",
             action: "Get Started"
         )
@@ -60,19 +60,29 @@ struct WelcomePane: View {
                 running: localized(english.running),
                 whereItLives: localized(english.whereItLives),
                 openPanel: localized(english.openPanel),
-                translateClipboard: localized(english.translateClipboard),
+                showLyrics: localized(english.showLyrics),
                 settingsFootnote: localized(english.settingsFootnote),
                 action: localized(english.action)
             )
         }
 
         var all: [String] {
-            [running, whereItLives, openPanel, translateClipboard, settingsFootnote, action]
+            [running, whereItLives, openPanel, showLyrics, settingsFootnote, action]
         }
     }
 
     /// Every key this pane shows, so a test can prove both tables carry them.
     static let localizedKeys = Copy.english.all
+
+    /// The keys as they are bound right now, not as they shipped. A welcome
+    /// that printed the defaults would be wrong for anyone who had moved one
+    /// before resetting the first run, and it was wrong for everybody once
+    /// the defaults themselves changed.
+    ///
+    /// Lyrics and not Translate on the second row: lyrics are what nobody else
+    /// has, and the Translate shortcut is listed in Settings with the others.
+    var openKeys = HotKeyCenter.shared.bindings[.openPanel]?.displayString ?? ""
+    var lyricsKeys = HotKeyCenter.shared.bindings[.showLyrics]?.displayString ?? ""
 
     var body: some View {
         // The vertical budget, measured rather than guessed, because the body is
@@ -94,8 +104,8 @@ struct WelcomePane: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 6) {
-                shortcut("⌥⌘I", copy.openPanel)
-                shortcut("⌥⌘T", copy.translateClipboard)
+                if !openKeys.isEmpty { shortcut(openKeys, copy.openPanel) }
+                if !lyricsKeys.isEmpty { shortcut(lyricsKeys, copy.showLyrics) }
             }
             .padding(.top, 2)
 
@@ -140,14 +150,15 @@ struct WelcomePane: View {
     /// the same size and the two labels start at the same x.
     ///
     /// The system font is proportional and these are not digits, so `⌥⌘T`
-    /// measures 28.3 pt against `⌥⌘I`'s 24.3 — the two caps came out four points
+    /// measured 28.3 pt against `⌥⌘I`'s 24.3 — the two caps came out four points
     /// apart, and two rows of a two-row list not lining up is the one flaw in
-    /// this pane a reader cannot help seeing. `.monospacedDigit()`, which the
+    /// this pane a reader cannot help seeing. The defaults grew a ⌃ on
+    /// 2026-09-23, which is why this is wider than it was. `.monospacedDigit()`, which the
     /// first draft used for this, does nothing here: it fixes the width of
     /// figures, and there are none. `FirstRunTests` measures both strings
     /// against this number, so a font change that outgrew it fails a test
     /// instead of quietly ragging the column again.
-    static let keycapGlyphWidth: CGFloat = 30
+    static let keycapGlyphWidth: CGFloat = 40
 
     /// The glyph and what it does. The keycap is the rail icon's own well —
     /// `Theme.surface` — so a shortcut reads as a key rather than as a link.
@@ -171,7 +182,7 @@ struct WelcomePane: View {
                 .islandFont(.body, weight: .regular)
                 .foregroundStyle(Theme.secondary)
         }
-        // One element, so VoiceOver reads the pair as "⌥⌘I, open the panel"
+        // One element, so VoiceOver reads the pair as "⌃⌥⌘I, open the panel"
         // rather than stopping on a keycap that means nothing on its own.
         .accessibilityElement(children: .combine)
     }

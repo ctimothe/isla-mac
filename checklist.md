@@ -27,9 +27,14 @@ panes, privacy sections, and tests are gone, and the calendar entitlement
 went with them. The app now claims one entitlement of its own,
 `com.apple.security.automation.apple-events` (a Developer ID build adds a
 keychain access group at bundle time, see `Scripts/bundle.sh`), which the hardened runtime
-requires before the scripting fallback can drive Music or Spotify at all;
-macOS asks for that consent at the moment the fallback is first used, and
-it is refusable. Nothing is requested at launch. Parity gates below no longer cover either feature, and the parity
+requires before Isla can script Music or Spotify at all. That covers the
+fallback, and also shuffle, repeat, the Spotify track id behind the heart,
+and, while lyrics are on, the per-second position correction. So macOS asks
+the first time the panel opens on Music or Spotify, not only when the
+fallback is used; the consent is refusable, and refusing it costs those
+controls and nothing else. Corrected 2026-09-23: this note and the prompt's
+own text used to say the access was only for the fallback. Nothing is
+requested at launch. Parity gates below no longer cover either feature, and the parity
 claim is explicitly partial as a result. (Two stale section *comments* in
 `Resources/en.lproj/Localizable.strings` outlived the removal and were
 retitled on 2026-08-21; the keys under them are shared ones that were
@@ -53,7 +58,7 @@ are the exception the design did not anticipate:
   always require an explicit choice. Enhanced LRC word timing animates only for
   a measured player clock; every other player uses line-level highlighting.
 - **Look Up Lyrics Online** (Settings, default off, added 2026-09-21) is the
-  only part of the app that reaches the internet. A streamed track has no file
+  only part of the lyric path that reaches the internet. A streamed track has no file
   on this Mac, so the offline-only rule approved on 2026-09-13 meant a Spotify
   listener saw "No local lyrics" on every song. With the switch on, a track the
   local library does not match is looked up at LRCLIB — free, community-run, no
@@ -79,6 +84,15 @@ are the exception the design did not anticipate:
   carries a globe in its heading. `OnlineTranslationTests` bounds the exception
   to `OnlineTranslation.swift` and the one host; `TranslatorTests` holds that no
   on-device pair ever lists the online engine.
+- **Check for Updates** (Settings › Application, added 2026-09-23) asks
+  GitHub's `releases/latest` for the newest Isla and, if it is newer than the
+  running one, offers its release page. It sends the request and nothing else:
+  GitHub sees an IP address and a User-Agent naming the Isla version. Pressing
+  the row is the consent for one request. **Check for Updates Automatically**
+  (default off) asks once a day and marks the Settings tab when there is
+  something new. It exists because nothing else could tell a 0.1.0 user that
+  0.2.0 was out. Sparkle replaces it once there is a Developer ID to sign the
+  feed with. `UpdateCheckTests` holds the default and the request.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain.
@@ -606,3 +620,50 @@ notch in a single frame, "too intense, too raw".
 - [x] README rewritten for people installing it: install, features, privacy,
   building, uninstalling. Release notes in `docs/releases/0.2.0.md`.
 
+### For strangers — 2026-09-23
+
+Everything the 2026-09-23 exploration found, except Developer ID and
+notarization, which the owner excluded. Plan: `docs/plans/2026-09-23-for-strangers.md`.
+The baseline it answered: 8 stars, 5 of them the owner's own accounts, 5 DMG
+downloads in total, and no outside issues.
+
+- [x] Shortcuts default to ⌃⌥⌘I / ⌃⌥⌘L / ⌃⌥⌘T. The old ⌥⌘ keys took Web
+  Inspector, Downloads and Finder's toolbar away from their apps. All three
+  are rebindable in Settings, and a refused one is named.
+- [x] A refused helper load exits perl at once (status 3) and goes straight to
+  the fallback, instead of 45 s of silence and an orphaned perl. The fallback
+  names its reason in Settings and on the Music tab, retries on wake (a
+  refused load only on Try Again), and precision polling waits for lyrics.
+- [x] The Apple Events prompt says what the access is for. It and the Desktop,
+  Documents and Downloads prompts are localized, and the localization gate
+  checks them.
+- [x] Copy Diagnostics and Report a Problem in Settings. Every log line goes
+  through `Log` (os.Logger). GitHub has issue forms.
+- [x] Check for Updates, with automatic checking off by default (see the
+  capability list above). CFBundleVersion is a monotonic BUILD.
+- [x] The lyrics page offers Show Lyrics and Look Up Online. Clipboard history
+  has an off switch. Spotify refusals say why.
+- [x] The lock-screen space is reference-counted per window (audit B9). The
+  wake decision is `NotchController.wakePlan`, tested.
+- [x] Universal binary and helper. App Intents strings are localized.
+- [ ] **Physical check owed:** lock and unlock with the card on and with it
+  off, and plug in a display while locked. The space change is unit-tested
+  against stand-in SkyLight calls only.
+- [ ] **Physical check owed:** the Intel slice has only been built, never run.
+  No Intel Mac was available.
+- [ ] **Owner:** check whether the Spotify app is still in development mode
+  (dashboard, "Users and Access"). If it is, only listed accounts can use
+  Liked Songs. Settings now says so when Spotify refuses.
+- [ ] README screenshots: they need the live app on the owner's screen.
+- [ ] **Physical check owed:** with VoiceOver on, press ⌃⌥⌘L and ⌃⌥⌘T. They
+  are also VO-⌘-L and VO-⌘-T (next link, next table). Record which one wins.
+- [x] Review of 2026-09-23, fixed the same day. The shortcut recorder had
+  leaked its key monitor across rows; `HotKeyCenter` now owns the only one.
+  Recording now needs two of ⌘⌃⌥, since a ⌘V shortcut would have broken
+  paste Mac-wide. A clipboard switch turned back on starts from the
+  pasteboard as it is now. A wake retry keeps the fallback until the helper
+  speaks. File names and paths stay private in the log, and displays are
+  reported by kind. release.sh compares BUILD against every tag. Tests no
+  longer send real Apple Events (`PlayerBridge.isRunningTests`). The
+  "taken by another app" wording became "macOS would not register", because
+  non-exclusive Carbon registrations cannot see another app's claim.

@@ -175,7 +175,7 @@
 "Compact" = "Компактный";
 
 /* Lock card panes */
-"Lyrics are switched off in Settings." = "Тексты выключены в настройках.";
+"Lyrics are off." = "Текст песен выключен.";
 "No output devices." = "Нет устройств вывода.";
 "Open on Hover" = "Открывать при наведении";
 "Output" = "Вывод";
@@ -210,3 +210,72 @@
 "Music Only" = "Только музыка";
 "Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show." = "Видео и фильмы не появляются на острове. Музыкальные приложения, подкасты и песни в Telegram по-прежнему видны.";
 "Anything playing shows on the island, videos included." = "На острове показывается всё, что играет, включая видео.";
+
+/* Сочетания клавиш */
+"Show the lyrics" = "Показать текст песни";
+"Keyboard Shortcuts" = "Сочетания клавиш";
+"Type Shortcut" = "Нажмите сочетание";
+"None" = "Нет";
+"Records a new shortcut. Press Delete to clear it, Escape to cancel." = "Записывает новое сочетание. Delete — очистить, Escape — отменить.";
+"macOS would not register %@. Choose another shortcut." = "macOS не зарегистрировала %@. Выберите другое сочетание.";
+"Restore Default Shortcuts" = "Вернуть стандартные сочетания";
+
+/* Запасной путь Now Playing */
+"macOS blocked Isla's Now Playing reader. Only Music and Spotify can be seen until it loads." = "macOS заблокировала модуль Isla для чтения Now Playing. Пока он не загрузится, видны только Музыка и Spotify.";
+"This version of macOS closed the Now Playing route. Only Music and Spotify can be seen." = "Эта версия macOS закрыла доступ к Now Playing. Видны только Музыка и Spotify.";
+"Isla's Now Playing reader kept stopping. Only Music and Spotify can be seen." = "Модуль Isla для чтения Now Playing постоянно останавливался. Видны только Музыка и Spotify.";
+"Isla's Now Playing reader could not start. Only Music and Spotify can be seen." = "Модуль Isla для чтения Now Playing не запустился. Видны только Музыка и Spotify.";
+"Try Again" = "Повторить попытку";
+"Only Music and Spotify can be seen right now." = "Сейчас видны только Музыка и Spotify.";
+
+/* Диагностика */
+"Copy Diagnostics" = "Скопировать диагностику";
+"Copied. It lists versions, settings and Isla's own log, and nothing you played, copied or translated." = "Скопировано. Там версии, настройки и журнал самой Isla — и ничего из того, что вы слушали, копировали или переводили.";
+"Report a Problem…" = "Сообщить о проблеме…";
+
+/* Обновления */
+"Check for Updates" = "Проверить обновления";
+"Checking…" = "Проверка…";
+"Isla %@ is the latest version." = "Isla %@ — последняя версия.";
+"Download Isla %@" = "Скачать Isla %@";
+"Quit Isla, then replace it in Applications with the new version." = "Закройте Isla и замените её в Программах новой версией.";
+"Could not reach GitHub. Try again later." = "Не удалось связаться с GitHub. Попробуйте позже.";
+"Check for Updates Automatically" = "Проверять обновления автоматически";
+"Asks GitHub once a day for the latest version. It sends nothing about you." = "Раз в день спрашивает у GitHub последнюю версию. О вас ничего не отправляется.";
+"Update available" = "Доступно обновление";
+
+/* Предложения страницы текста */
+"Look Up Online" = "Найти в интернете";
+"Sends the title, artist, album and length to LRCLIB." = "Отправляет в LRCLIB название, исполнителя, альбом и длительность.";
+
+/* История буфера обмена */
+"Clipboard History" = "История буфера обмена";
+"Copies are not read or kept. Turning it off emptied the list." = "Скопированное не читается и не сохраняется. При выключении список очищен.";
+"Clipboard history is off in Settings." = "История буфера обмена выключена в Настройках.";
+
+/* Отказы Spotify */
+"Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet." = "Spotify отказал этой учётной записи. Пока Spotify не проверит Isla, доступ есть только у вручную добавленных учётных записей, поэтому «Любимые треки» здесь пока не работают.";
+"Spotify refused this account. Liked Songs needs Spotify Premium." = "Spotify отказал этой учётной записи. Для «Любимых треков» нужен Spotify Premium.";
+"Spotify refused this account's library request." = "Spotify отказал в доступе к медиатеке этой учётной записи.";
+
+/* Диагностика */
+"Collecting…" = "Сбор данных…";
+
+/* Команды, Spotlight и Siri (App Intents) */
+"Opens Isla's panel with the lyrics page for whatever is playing." = "Открывает панель Isla на странице текста того, что сейчас играет.";
+"Show Isla" = "Показать Isla";
+"Opens Isla's panel at the notch." = "Открывает панель Isla у выреза экрана.";
+"Get Current Lyric" = "Получить текущую строку";
+"Returns the lyric line playing right now, if Isla has words for the track." = "Возвращает строку, которая звучит сейчас, если у Isla есть текст этого трека.";
+"Get Current Track" = "Получить текущий трек";
+"Returns the track and artist Isla is showing." = "Возвращает трек и исполнителя, которых показывает Isla.";
+"Set Lyric Delay" = "Задать задержку текста";
+"Shifts every lyric in time. Negative shows lyrics earlier; positive, later." = "Сдвигает весь текст во времени. Отрицательное значение показывает текст раньше, положительное — позже.";
+"Seconds" = "Секунды";
+"Play or Pause" = "Воспроизвести или приостановить";
+"Toggles playback of whatever Isla is showing." = "Запускает или ставит на паузу то, что показывает Isla.";
+"Skips to the next track." = "Переходит к следующему треку.";
+"Goes back to the previous track." = "Возвращается к предыдущему треку.";
+"Current Lyric" = "Текущая строка";
+"Current Track" = "Текущий трек";
+"Isla is still starting up. Try again in a moment." = "Isla ещё запускается. Попробуйте через мгновение.";

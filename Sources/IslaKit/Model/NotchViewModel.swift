@@ -96,7 +96,7 @@ final class NotchViewModel: ObservableObject {
     /// player.
     ///
     /// It lives here rather than inside `MediaPane` because it is a place the
-    /// app can be *sent*, not just a toggle the pane owns: ⌥⌘L opens the panel
+    /// app can be *sent*, not just a toggle the pane owns: ⌃⌥⌘L opens the panel
     /// straight onto it, and the verification hook does the same without a
     /// pointer. State that only the view holds is state nothing else can ask
     /// for — which is what made the hook an `onAppear` reading an environment
@@ -198,7 +198,7 @@ final class NotchViewModel: ObservableObject {
         isPinnedOpen = !pointerIsOnPanel
     }
 
-    /// Raised when the panel was opened with the pointer nowhere near it: ⌥⌘I,
+    /// Raised when the panel was opened with the pointer nowhere near it: ⌃⌥⌘I,
     /// or a click that came from the keyboard rather than the mouse — the
     /// compact island's accessibility action. (There has been no menu item
     /// since 2026-08-25; the app has no menu-bar item at all.) A click from the
@@ -374,6 +374,24 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    /// Turns lyrics on from the lyrics page itself. The headline feature was
+    /// off by default behind a switch in Settings, and the page only said so,
+    /// so somebody who opened it to find words was sent somewhere else to get
+    /// them. The switch stays the same one: this writes the key Settings reads.
+    func turnOnLyrics() {
+        UserDefaults.standard.set(true, forKey: Self.showLyricsKey)
+        lyricsCoordinator.refreshVisibility()
+    }
+
+    /// Turns on the LRCLIB lookup from the page that just failed to find a
+    /// local file, which is where a streamed song always ends up. The button
+    /// carries the disclosure the Settings note does, so pressing it is the
+    /// same informed choice as flipping the switch.
+    func turnOnOnlineLyrics() {
+        UserDefaults.standard.set(true, forKey: Self.onlineLyricsKey)
+        lyricsCoordinator.refreshVisibility()
+    }
+
     func chooseLocalLyricsFile() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.init(filenameExtension: "lrc")!]
@@ -446,7 +464,7 @@ final class NotchViewModel: ObservableObject {
         lockedHoverNudges += 1
     }
 
-    /// What a deliberate open command — ⌥⌘I, the translate shortcut, the
+    /// What a deliberate open command — ⌃⌥⌘I, the translate shortcut, the
     /// welcome — is worth right now.
     ///
     /// Over the shield nothing may open and nothing may take the keyboard. An
@@ -583,6 +601,31 @@ final class NotchViewModel: ObservableObject {
 
     static func completeFirstRun() {
         UserDefaults.standard.set(true, forKey: hasCompletedFirstRunKey)
+    }
+
+    static let clipboardHistoryKey = "clipboard.historyEnabled"
+
+    /// Defaults to **on**, as it always was. Clipboard history reads every
+    /// copy made while Isla runs. That is the feature, and it is also the one
+    /// thing here a person may reasonably not want, so it has a switch.
+    /// Before 2026-09-23 the only choices were keeping it or quitting the app.
+    /// Off, the poll records nothing, the list is emptied, and the pasteboard
+    /// is not read at all unless Save Clipboard Screenshots still needs it.
+    static var clipboardHistoryEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: clipboardHistoryKey) != nil else { return true }
+        return defaults.bool(forKey: clipboardHistoryKey)
+    }
+
+    func setClipboardHistory(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.clipboardHistoryKey)
+        if !enabled { clipboard.clear() }
+        stores.refreshClipboardPolling(settingChanged: true)
+    }
+
+    /// The screenshot switch decides polling too, once history is off.
+    func refreshClipboardPolling() {
+        stores.refreshClipboardPolling(settingChanged: true)
     }
 
     /// Off switch for people who copy images all day and do not want them kept.

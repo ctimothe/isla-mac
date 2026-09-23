@@ -1,5 +1,42 @@
 import AppKit
 
+/// Why the app stopped reading Now Playing and fell back to asking Music and
+/// Spotify over AppleScript.
+///
+/// The fallback used to be silent: one log line, then a Music tab reading
+/// "Nothing is playing." while a browser played. Each case here is something
+/// the user can be told, and for some of them something they can fix.
+enum NowPlayingRouteFailure: String, Equatable {
+    /// macOS refused to load the helper into perl, which is what quarantine or
+    /// a Gatekeeper rejection of the ad-hoc-signed dylib looks like.
+    case readerRefused
+    /// The helper loaded and reported MediaRemote closed, or a symbol it
+    /// needs missing: a macOS release shut the route.
+    case routeClosed
+    /// The helper ran, then kept dying or going silent until the restart
+    /// budget ran out.
+    case keptStopping
+    /// There was nothing to run: no helper in the bundle, no /usr/bin/perl, or
+    /// the process would not launch.
+    case cannotStart
+
+    /// One sentence for Settings, in the user's words. Each names what
+    /// happened and what still works, because "Nothing is playing" while a
+    /// browser plays is the failure this exists to end.
+    var explanation: String {
+        switch self {
+        case .readerRefused:
+            return localized("macOS blocked Isla's Now Playing reader. Only Music and Spotify can be seen until it loads.")
+        case .routeClosed:
+            return localized("This version of macOS closed the Now Playing route. Only Music and Spotify can be seen.")
+        case .keptStopping:
+            return localized("Isla's Now Playing reader kept stopping. Only Music and Spotify can be seen.")
+        case .cannotStart:
+            return localized("Isla's Now Playing reader could not start. Only Music and Spotify can be seen.")
+        }
+    }
+}
+
 /// Runs the Now Playing helper inside `/usr/bin/perl` and turns its stdout into
 /// snapshots. See `Sources/IslaMediaHelper/helper.m` for why perl is the host.
 @MainActor
@@ -56,8 +93,9 @@ final class NowPlayingFeed {
     }
 
     var onUpdate: ((Snapshot) -> Void)?
-    /// Raised when the helper cannot run at all, so the caller can fall back.
-    var onUnavailable: (() -> Void)?
+    /// Raised when the helper cannot run at all, so the caller can fall back,
+    /// with the reason.
+    var onUnavailable: ((NowPlayingRouteFailure) -> Void)?
 
     private var process: Process?
     private var input: FileHandle?
@@ -177,7 +215,7 @@ final class NowPlayingFeed {
     private func checkForSilence() {
         guard !stopped, process != nil else { return }
         guard ProcessInfo.processInfo.systemUptime - lastLineAt > Self.silenceTimeout else { return }
-        NSLog("Isla: helper went silent; restarting")
+        Log.media.notice("helper went silent; restarting")
         // Treated exactly like a crash, so the same budget and backoff apply
         // and a helper that is reliably mute eventually hands over to scripting.
         //
@@ -193,20 +231,43 @@ final class NowPlayingFeed {
         handleTermination()
     }
 
+    /// What perl runs. The helper does its work from its load-time
+    /// constructor, so the sleep loop only keeps the host alive around it.
+    ///
+    /// `or exit` is the part that matters. `dl_load_file` returns undef when
+    /// macOS refuses the library, and without the exit the script went
+    /// straight on to the sleep loop: a perl process that would never print
+    /// a line and never read stdin. It then took the silence watchdog three
+    /// cycles and two restart delays, about 45 s, to give up, and a refused
+    /// load at every launch meant 45 s of dead media every launch. If the app
+    /// died in that window, the mute perl outlived it, since only a loaded
+    /// helper exits when stdin closes.
+    nonisolated static let hostScript =
+        "use DynaLoader; DynaLoader::dl_load_file($ARGV[0], 0x01) or exit \(loadRefusedExitStatus); while (1) { sleep 3600; }"
+
+    /// The helper's own failures exit 1 or die by signal; 3 is only the
+    /// script above.
+    nonisolated static let loadRefusedExitStatus: Int32 = 3
+
+    /// What a helper's exit says about the route, if anything. Only a clean
+    /// exit with the load-refused status is a verdict; every other death goes
+    /// to the restart budget.
+    nonisolated static func routeFailure(
+        exitStatus: Int32, reason: Process.TerminationReason
+    ) -> NowPlayingRouteFailure? {
+        reason == .exit && exitStatus == loadRefusedExitStatus ? .readerRefused : nil
+    }
+
     private func launch() {
         guard !stopped else { return }
         guard let helperPath, FileManager.default.isExecutableFile(atPath: "/usr/bin/perl") else {
-            onUnavailable?()
+            onUnavailable?(.cannotStart)
             return
         }
 
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
-        task.arguments = [
-            "-e",
-            "use DynaLoader; DynaLoader::dl_load_file($ARGV[0], 0x01); while (1) { sleep 3600; }",
-            helperPath,
-        ]
+        task.arguments = ["-e", Self.hostScript, helperPath]
 
         let output = Pipe()
         let commands = Pipe()
@@ -230,15 +291,16 @@ final class NowPlayingFeed {
             Task { @MainActor in self?.consume(chunk, epoch: epoch) }
         }
 
-        task.terminationHandler = { [weak self] _ in
-            Task { @MainActor in self?.handleTermination() }
+        task.terminationHandler = { [weak self] process in
+            let verdict = Self.routeFailure(exitStatus: process.terminationStatus, reason: process.terminationReason)
+            Task { @MainActor in self?.handleTermination(verdict: verdict) }
         }
 
         do {
             try task.run()
         } catch {
-            NSLog("Isla: helper failed to launch: \(error.localizedDescription)")
-            onUnavailable?()
+            Log.media.error("helper failed to launch: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
+            onUnavailable?(.cannotStart)
             return
         }
 
@@ -257,7 +319,7 @@ final class NowPlayingFeed {
         }
     }
 
-    private func handleTermination() {
+    private func handleTermination(verdict: NowPlayingRouteFailure? = nil) {
         guard !stopped else { return }
         // Once per death. The process's own termination handler and the
         // watchdog can both reach here for the same event, and two failures
@@ -277,9 +339,18 @@ final class NowPlayingFeed {
         output = nil
         process = nil
         input = nil
+        // A refused load is not a crash to retry: the next launch would be
+        // refused the same way, two seconds later, three times over. It goes
+        // straight to the fallback, and the retry on wake or from Settings
+        // tries again once something may have changed.
+        if let verdict {
+            Log.media.error("helper refused: \(verdict.rawValue, privacy: .public)")
+            onUnavailable?(verdict)
+            return
+        }
         switch failurePolicy.recordFailure() {
         case .fallback:
-            onUnavailable?()
+            onUnavailable?(.keptStopping)
         case .restart(let delay):
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 self?.launch()
@@ -339,7 +410,7 @@ final class NowPlayingFeed {
         do {
             try input.write(contentsOf: data)
         } catch {
-            NSLog("Isla: helper write failed: \(error.localizedDescription)")
+            Log.media.error("helper write failed: \(error.localizedDescription, privacy: .public)")
             // The pipe broke mid-write, which is the same situation as writing
             // with no pipe at all: hold the command for the replacement.
             if !stopped, !line.hasPrefix("get") { pendingCommand = line }
@@ -382,7 +453,7 @@ final class NowPlayingFeed {
             // holding memory for a route that is closed (#8) — so the process
             // goes down with the route, and `stopped` keeps it down.
             stop()
-            onUnavailable?()
+            onUnavailable?(.routeClosed)
         case .snapshot(let snapshot):
             failurePolicy.recordSuccess()
             onUpdate?(snapshot)

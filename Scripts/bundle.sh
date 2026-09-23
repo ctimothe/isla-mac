@@ -21,6 +21,10 @@ if [ -z "$VERSION" ]; then
     echo "Scripts/version has no VERSION= line" >&2
     exit 1
 fi
+BUILD="$(sed -n 's/^BUILD=//p' "$ROOT/Scripts/version" 2>/dev/null || true)"
+case "$BUILD" in
+    ''|*[!0-9]*) echo "Scripts/version needs BUILD= and a whole number" >&2; exit 1 ;;
+esac
 
 # The app icon is a tracked asset (Resources/AppIcon.icns), copied verbatim into
 # the bundle. This script used to generate a placeholder icon into build/ so a
@@ -30,9 +34,14 @@ fi
 mkdir -p "$ROOT/build"
 ICON="$ROOT/Resources/AppIcon.icns"
 
-echo "==> swift build -c $CONFIG"
-swift build -c "$CONFIG" --package-path "$ROOT"
-BIN="$(swift build -c "$CONFIG" --package-path "$ROOT" --show-bin-path)/Isla"
+# Universal. The README only ever said "macOS 15 or later", and macOS 15 and
+# 26 still run on Intel Macs, which got an app that refused to open. Intel Macs
+# have no notch, and Isla draws one for them like for any notchless display.
+# Apple Intelligence translation is weak-linked and simply unavailable there.
+ARCH_ARGS=(--arch arm64 --arch x86_64)
+echo "==> swift build -c $CONFIG (arm64 + x86_64)"
+swift build -c "$CONFIG" --package-path "$ROOT" "${ARCH_ARGS[@]}"
+BIN="$(swift build -c "$CONFIG" --package-path "$ROOT" "${ARCH_ARGS[@]}" --show-bin-path)/Isla"
 
 echo "==> assembling $APP"
 rm -rf "$APP"
@@ -67,14 +76,20 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     </dict></array>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleVersion</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticTermination</key><false/>
     <key>NSSupportsSuddenTermination</key><false/>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Isla reads the current track and controls Music or Spotify when its primary media route is unavailable.</string>
+    <string>Isla asks Music and Spotify for shuffle, repeat and the exact position of the song, and controls them when Now Playing is unavailable.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Isla shows new screenshots and recordings saved to the Desktop, and files you put on the Shelf from there.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Isla shows files you put on the Shelf from Documents.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Isla shows files you put on the Shelf from Downloads.</string>
     <key>NSHumanReadableCopyright</key><string>MIT License</string>
 </dict>
 </plist>
@@ -105,6 +120,7 @@ done
 # into the app: it is loaded into /usr/bin/perl at runtime. See helper.m.
 echo "==> building Now Playing helper"
 clang -dynamiclib -fobjc-arc -O2 \
+    -arch arm64 -arch x86_64 \
     -mmacosx-version-min=15.0 \
     -framework Foundation \
     -o "$APP/Contents/Resources/libislamedia.dylib" \
