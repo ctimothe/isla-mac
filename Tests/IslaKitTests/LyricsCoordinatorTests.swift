@@ -102,6 +102,7 @@ final class LyricsCoordinatorTests: XCTestCase {
         _ = try library.importDocument(at: try writeLRC(), binding: nil)
         let media = MediaController()
         media.precisionPlayerForTests = .music
+        media.lyricsShown = { true }
         let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
         coordinator.start()
         defer { coordinator.stop() }

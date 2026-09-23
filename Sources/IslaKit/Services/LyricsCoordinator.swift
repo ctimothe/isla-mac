@@ -180,6 +180,7 @@ final class LyricsCoordinator: ObservableObject {
 
     func refreshVisibility() {
         reconcileTrack(track: media.track, duration: media.duration, force: true)
+        media.refreshPrecisionSync()
     }
 
     /// Ask again, including the network. A remembered miss is forgotten first,

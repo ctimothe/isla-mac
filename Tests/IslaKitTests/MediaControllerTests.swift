@@ -753,6 +753,7 @@ final class MediaControllerTests: XCTestCase {
     func testAppleMusicStartsPrecisionPolling() async {
         let controller = MediaController()
         controller.precisionPlayerForTests = .music
+        controller.lyricsShown = { true }
         controller.precisionPositionFetcher = { next in
             Task { @MainActor in next(42.3) }
         }

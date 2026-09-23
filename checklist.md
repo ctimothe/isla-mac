@@ -27,9 +27,14 @@ panes, privacy sections, and tests are gone, and the calendar entitlement
 went with them. The app now claims one entitlement of its own,
 `com.apple.security.automation.apple-events` (a Developer ID build adds a
 keychain access group at bundle time, see `Scripts/bundle.sh`), which the hardened runtime
-requires before the scripting fallback can drive Music or Spotify at all;
-macOS asks for that consent at the moment the fallback is first used, and
-it is refusable. Nothing is requested at launch. Parity gates below no longer cover either feature, and the parity
+requires before Isla can script Music or Spotify at all. That covers the
+fallback, and also shuffle, repeat, the Spotify track id behind the heart,
+and, while lyrics are on, the per-second position correction. So macOS asks
+the first time the panel opens on Music or Spotify, not only when the
+fallback is used; the consent is refusable, and refusing it costs those
+controls and nothing else. Corrected 2026-09-23: this note and the prompt's
+own text used to say the access was only for the fallback. Nothing is
+requested at launch. Parity gates below no longer cover either feature, and the parity
 claim is explicitly partial as a result. (Two stale section *comments* in
 `Resources/en.lproj/Localizable.strings` outlived the removal and were
 retitled on 2026-08-21; the keys under them are shared ones that were

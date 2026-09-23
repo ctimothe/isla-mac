@@ -74,7 +74,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSSupportsAutomaticTermination</key><false/>
     <key>NSSupportsSuddenTermination</key><false/>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Isla reads the current track and controls Music or Spotify when its primary media route is unavailable.</string>
+    <string>Isla asks Music and Spotify for shuffle, repeat and the exact position of the song, and controls them when Now Playing is unavailable.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Isla shows new screenshots and recordings saved to the Desktop, and files you put on the Shelf from there.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Isla shows files you put on the Shelf from Documents.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Isla shows files you put on the Shelf from Downloads.</string>
     <key>NSHumanReadableCopyright</key><string>MIT License</string>
 </dict>
 </plist>

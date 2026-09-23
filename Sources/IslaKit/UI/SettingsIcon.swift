@@ -49,6 +49,8 @@ enum SettingsIcon {
     /// so it is not the trash.
     static let removeFolder = "folder.badge.minus"
     static let rescan = "arrow.clockwise"
+    /// Starting the Now Playing reader again, a cycle rather than a refresh.
+    static let tryAgain = "arrow.triangle.2.circlepath"
     /// Dismissing a leftover timing correction sets it aside; it deletes no file.
     static let dismiss = "xmark.circle"
     /// A switch that reaches the network. The globe is kept for those and only
@@ -87,7 +89,7 @@ enum SettingsIcon {
         launchAtLogin, openOnHover, hoverDelay, panelWidth,
         shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
-        musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, dismiss,
+        musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
         online, lyricTiming, resetTiming, peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, translate, hideFromRecording,

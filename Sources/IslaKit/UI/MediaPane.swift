@@ -597,6 +597,14 @@ struct MediaPane: View {
             Text(localized("Nothing is playing."))
                 .islandFont(.subhead)
                 .foregroundStyle(Theme.secondary)
+            // Unless something is and the reader cannot see it. Without this
+            // line a browser could play under a pane that said nothing was;
+            // Settings → Music says why and offers Try Again.
+            if media.fallbackReason != nil {
+                Text(localized("Only Music and Spotify can be seen right now."))
+                    .islandFont(.caption, weight: .regular)
+                    .foregroundStyle(Theme.tertiary)
+            }
             // And an affordance, because a dead end teaches people not to
             // open the tab. One button per player that is actually installed.
             HStack(spacing: 8) {

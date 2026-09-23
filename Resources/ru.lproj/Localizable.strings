@@ -219,3 +219,11 @@
 "Records a new shortcut. Press Delete to clear it, Escape to cancel." = "Записывает новое сочетание. Delete — очистить, Escape — отменить.";
 "%@ is taken by another app. Choose another shortcut." = "%@ занято другим приложением. Выберите другое сочетание.";
 "Restore Default Shortcuts" = "Вернуть стандартные сочетания";
+
+/* Запасной путь Now Playing */
+"macOS blocked Isla's Now Playing reader. Only Music and Spotify can be seen until it loads." = "macOS заблокировала модуль Isla для чтения Now Playing. Пока он не загрузится, видны только Музыка и Spotify.";
+"This version of macOS closed the Now Playing route. Only Music and Spotify can be seen." = "Эта версия macOS закрыла доступ к Now Playing. Видны только Музыка и Spotify.";
+"Isla's Now Playing reader kept stopping. Only Music and Spotify can be seen." = "Модуль Isla для чтения Now Playing постоянно останавливался. Видны только Музыка и Spotify.";
+"Isla's Now Playing reader could not start. Only Music and Spotify can be seen." = "Модуль Isla для чтения Now Playing не запустился. Видны только Музыка и Spotify.";
+"Try Again" = "Повторить попытку";
+"Only Music and Spotify can be seen right now." = "Сейчас видны только Музыка и Spotify.";

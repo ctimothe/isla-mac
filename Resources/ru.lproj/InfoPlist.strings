@@ -1,0 +1,5 @@
+/* Эти строки macOS показывает в запросах доступа. */
+"NSAppleEventsUsageDescription" = "Isla узнаёт у Музыки и Spotify режим перемешивания, повтора и точную позицию песни и управляет ими, когда Now Playing недоступен.";
+"NSDesktopFolderUsageDescription" = "Isla показывает новые снимки и записи экрана, сохранённые на Рабочий стол, и файлы, которые вы положили на Полку оттуда.";
+"NSDocumentsFolderUsageDescription" = "Isla показывает файлы, которые вы положили на Полку из Документов.";
+"NSDownloadsFolderUsageDescription" = "Isla показывает файлы, которые вы положили на Полку из Загрузок.";

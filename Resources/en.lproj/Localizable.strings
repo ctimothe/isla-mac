@@ -220,3 +220,11 @@
 "Records a new shortcut. Press Delete to clear it, Escape to cancel." = "Records a new shortcut. Press Delete to clear it, Escape to cancel.";
 "%@ is taken by another app. Choose another shortcut." = "%@ is taken by another app. Choose another shortcut.";
 "Restore Default Shortcuts" = "Restore Default Shortcuts";
+
+/* Now Playing fallback */
+"macOS blocked Isla's Now Playing reader. Only Music and Spotify can be seen until it loads." = "macOS blocked Isla's Now Playing reader. Only Music and Spotify can be seen until it loads.";
+"This version of macOS closed the Now Playing route. Only Music and Spotify can be seen." = "This version of macOS closed the Now Playing route. Only Music and Spotify can be seen.";
+"Isla's Now Playing reader kept stopping. Only Music and Spotify can be seen." = "Isla's Now Playing reader kept stopping. Only Music and Spotify can be seen.";
+"Isla's Now Playing reader could not start. Only Music and Spotify can be seen." = "Isla's Now Playing reader could not start. Only Music and Spotify can be seen.";
+"Try Again" = "Try Again";
+"Only Music and Spotify can be seen right now." = "Only Music and Spotify can be seen right now.";

@@ -834,6 +834,7 @@ struct NotchContentView: View {
                 shelf: vm.shelf,
                 screenshotVault: vm.screenshotVault,
                 lyrics: vm.lyrics,
+                media: vm.media,
                 localLyrics: vm.localLyricsLibrary,
                 onLyricsVisibilityChanged: vm.lyricsCoordinator.refreshVisibility,
                 importLocalLyrics: vm.chooseLocalLyricsFile,

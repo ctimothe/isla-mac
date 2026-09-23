@@ -6,7 +6,39 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 for locale in en ru; do
     test -s "$ROOT/Resources/$locale.lproj/Localizable.strings"
     plutil -lint "$ROOT/Resources/$locale.lproj/Localizable.strings"
+    test -s "$ROOT/Resources/$locale.lproj/InfoPlist.strings"
+    plutil -lint "$ROOT/Resources/$locale.lproj/InfoPlist.strings"
 done
+
+# The permission prompts. Every usage description in the bundle's Info.plist
+# needs a row in both InfoPlist.strings tables, the English row must say what
+# Info.plist says, and neither table may carry a key Info.plist lacks. A
+# prompt macOS cannot localise falls back to the plist's English, which is how
+# the Apple Events prompt reached Russian users before 2026-09-23.
+python3 - "$ROOT" <<'PROMPTS'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+plist = (root / "Scripts" / "bundle.sh").read_text()
+usage = dict(re.findall(r"<key>(NS\w+UsageDescription)</key>\s*<string>([^<]*)</string>", plist))
+failures = []
+for locale in ("en", "ru"):
+    text = (root / "Resources" / f"{locale}.lproj" / "InfoPlist.strings").read_text()
+    table = dict(re.findall(r'^"(\w+)"\s*=\s*"((?:[^"\\]|\\.)*)";', text, re.M))
+    if set(table) != set(usage):
+        failures.append(f"{locale} InfoPlist.strings keys {sorted(table)} != Info.plist {sorted(usage)}")
+    if locale == "en":
+        for key, value in usage.items():
+            if table.get(key) != value:
+                failures.append(f"en InfoPlist.strings {key} differs from Info.plist")
+    else:
+        for key, value in table.items():
+            if value == usage.get(key):
+                failures.append(f"ru InfoPlist.strings leaves {key} in English")
+if failures:
+    print("\n".join(failures), file=sys.stderr)
+    sys.exit(1)
+print(f"  ✓ {len(usage)} permission prompts localized in en and ru")
+PROMPTS
 
 python3 - "$ROOT" <<'PY'
 import pathlib

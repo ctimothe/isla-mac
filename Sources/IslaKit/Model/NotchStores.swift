@@ -145,5 +145,11 @@ final class NotchStores {
 
     func resumeFromIdleScreen() {
         clipboard.start()
+        // A wake is the likeliest moment for a failed route to work again. The
+        // helper can lose a race with a waking MediaRemote, and a user who
+        // cleared the download quarantine has usually put the Mac to sleep
+        // since. Costs nothing while Now Playing is healthy, and a refused
+        // load waits for the user to ask (see `retryNowPlaying`).
+        media.retryNowPlaying(userAsked: false)
     }
 }

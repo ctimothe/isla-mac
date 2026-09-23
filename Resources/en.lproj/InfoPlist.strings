@@ -1,0 +1,7 @@
+/* The system shows these in its permission prompts. The English values
+   repeat Info.plist, so a key that drifts between the two is caught by
+   Scripts/test-localizations.sh. */
+"NSAppleEventsUsageDescription" = "Isla asks Music and Spotify for shuffle, repeat and the exact position of the song, and controls them when Now Playing is unavailable.";
+"NSDesktopFolderUsageDescription" = "Isla shows new screenshots and recordings saved to the Desktop, and files you put on the Shelf from there.";
+"NSDocumentsFolderUsageDescription" = "Isla shows files you put on the Shelf from Documents.";
+"NSDownloadsFolderUsageDescription" = "Isla shows files you put on the Shelf from Downloads.";

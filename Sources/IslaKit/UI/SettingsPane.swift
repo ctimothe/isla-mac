@@ -9,6 +9,7 @@ struct SettingsPane: View {
     @ObservedObject var shelf: ShelfStore
     let screenshotVault: ScreenshotVault
     @ObservedObject var lyrics: LyricsStore
+    @ObservedObject var media: MediaController
     @ObservedObject var localLyrics: LocalLyricsLibrary
     var onLyricsVisibilityChanged: () -> Void = {}
     var importLocalLyrics: () -> Void = {}
@@ -196,6 +197,14 @@ struct SettingsPane: View {
                 }
 
                 section(localized("Music")) {
+                    // Above everything: while the reader is down, every other
+                    // switch here describes music the island cannot see.
+                    if let reason = media.fallbackReason {
+                        noteRow(reason.explanation)
+                        actionRow(symbol: SettingsIcon.tryAgain, title: localized("Try Again")) {
+                            media.retryNowPlaying(userAsked: true)
+                        }
+                    }
                     // First in the section because it decides what reaches the
                     // island at all; everything below it is about the music
                     // that does.
@@ -513,7 +522,7 @@ struct SettingsPane: View {
                         try SMAppService.mainApp.unregister()
                     }
                 } catch {
-                    NSLog("Isla: launch-at-login failed: \(error.localizedDescription)")
+                    Log.app.error("launch at login failed: \(error.localizedDescription, privacy: .public)")
                 }
                 launchAtLogin = SMAppService.mainApp.status == .enabled
             }
