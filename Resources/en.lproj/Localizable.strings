@@ -280,3 +280,11 @@
 "Current Lyric" = "Current Lyric";
 "Current Track" = "Current Track";
 "Isla is still starting up. Try again in a moment." = "Isla is still starting up. Try again in a moment.";
+
+/* Charging and headphones */
+"Charging" = "Charging";
+"Charging, %d percent" = "Charging, %d percent";
+"%@ connected" = "%@ connected";
+"%d%%" = "%d%%";
+"Show Charging" = "Show Charging";
+"Show Headphones Connecting" = "Show Headphones Connecting";

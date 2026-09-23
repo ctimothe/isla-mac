@@ -51,6 +51,9 @@ struct NotchContentView: View {
     private var size: CGSize { vm.bodySize }
     @State private var isPressed = false
     private var compactActivity: CompactMediaActivity { vm.compactMediaActivity }
+    /// Whether the collapsed pill is out of the notch: music, or the charger
+    /// or headphones having their moment.
+    private var pillShown: Bool { compactActivity.isVisible || vm.ambient != nil }
     private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : Theme.collapsedTopRadius }
 
     // MARK: - Resting in the notch
@@ -66,7 +69,7 @@ struct NotchContentView: View {
     /// from the notch itself. On an external display there is no cutout to hide
     /// in, so the synthetic notch stays drawn as before.
     private var restsInNotch: Bool {
-        !isOpen && !compactActivity.isVisible && vm.geometry.isPhysical
+        !isOpen && !pillShown && vm.geometry.isPhysical
     }
 
     /// The pointer is on the island, or a press is under way.
@@ -226,7 +229,7 @@ struct NotchContentView: View {
             .frame(width: shapeSize.width, height: shapeSize.height)
             .shadow(
                 color: .black.opacity(
-                    isOpen ? 0.5 : (compactActivity.isVisible || (restsInNotch && isAwake) ? 0.28 : 0)
+                    isOpen ? 0.5 : (pillShown || (restsInNotch && isAwake) ? 0.28 : 0)
                 ),
                 radius: isOpen ? 18 : 5,
                 y: isOpen ? 8 : 2
@@ -357,6 +360,7 @@ struct NotchContentView: View {
         .animation(Theme.pill(appearing: compactActivity.isVisible, reduceMotion: reduceMotion),
                    value: compactActivity)
         .animation(Theme.pill(appearing: vm.isPeeking, reduceMotion: reduceMotion), value: vm.isPeeking)
+        .animation(Theme.pill(appearing: vm.ambient != nil, reduceMotion: reduceMotion), value: vm.ambient)
         .animation(Theme.paneAnimation, value: vm.tab)
         // The welcome ending is a pane change like any other, and it arrives
         // from a `Button` — which animates nothing by itself, so without this
@@ -393,9 +397,64 @@ struct NotchContentView: View {
             // interpolate between two views that are both in the tree for the
             // same transaction. Take this transition away and the morph does not
             // break loudly — it silently goes back to being a crossfade.
-            compactMediaHeader(morph: morph)
-                .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
+            ZStack {
+                // The music stays mounted under the moment, faded rather than
+                // removed, so the cover's morph and the fold described above
+                // are exactly as they were when the moment ends.
+                compactMediaHeader(morph: morph)
+                    .opacity(vm.ambient == nil ? 1 : 0)
+                if let ambient = vm.ambient {
+                    ambientHeader(ambient)
+                        .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
+                }
+            }
+            .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
         }
+    }
+
+    /// The charger or headphones, in the pill's two wings.
+    ///
+    /// One grammar for both: a glyph in the left wing where the cover sits,
+    /// and what it is about in the right wing where the equalizer sits. The
+    /// charge's level; the headphones' name. White on black like every other
+    /// wing, because the chrome does not take colour. "Connected" is left to
+    /// the accessibility label: the glyph arriving already says it.
+    private func ambientHeader(_ ambient: AmbientActivity) -> some View {
+        let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2)
+        let symbol: String
+        let value: String?
+        switch ambient {
+        case .charging(let level):
+            symbol = "bolt.fill"
+            value = level.map { localized("%d%%", $0) }
+        case .headphones(let name, let deviceSymbol):
+            symbol = deviceSymbol
+            value = name
+        }
+        return HStack(spacing: 0) {
+            Image(systemName: symbol)
+                .islandFont(.subhead, weight: .semibold)
+                .foregroundStyle(.white)
+                .frame(width: wingWidth, alignment: .center)
+
+            Color.clear
+                .frame(width: vm.geometry.notchSize.width, height: 1)
+
+            Group {
+                if let value {
+                    Text(value)
+                        .font(Theme.TypeRole.caption.font().monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .padding(.horizontal, 10)
+                }
+            }
+            .frame(width: wingWidth, alignment: .center)
+        }
+        .frame(width: size.width, height: vm.geometry.notchSize.height)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(ambient.accessibilityLabel)
     }
 
     private var openHeader: some View {

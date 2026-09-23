@@ -47,6 +47,9 @@ final class NotchController {
         stores.onScreenshot = { [weak self] url in
             self?.viewModel?.receivedScreenshot(at: url)
         }
+        stores.ambient.onEvent = { [weak self] activity in
+            self?.presentAmbient(activity)
+        }
         stores.start()
         build()
         observerTokens.append(NotificationCenter.default.addObserver(
@@ -183,6 +186,10 @@ final class NotchController {
     /// none of this happens and the panel sinks under the shield as any
     /// ordinary window does.
     private func screenLocked() {
+        // A charger or headphones moment does not carry over the shield. The
+        // locked pill is cut for music alone.
+        ambientWork?.cancel()
+        viewModel?.ambient = nil
         guard NotchViewModel.showOnLockScreenEnabled else {
             // The card is switched off, but the rest of the lock contract still
             // holds: fold, and stop the sampler. Returning outright left it
@@ -1031,6 +1038,13 @@ final class NotchController {
                 DispatchQueue.main.async { self?.refreshCollapsedRects() }
             }
             .store(in: &cancellables)
+        // The charger or headphones widen the pill the same way.
+        vm.$ambient
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshCollapsedRects() }
+            }
+            .store(in: &cancellables)
 
         // Sneak peek: a new track shows itself, then gets out of the way.
         //
@@ -1256,6 +1270,9 @@ final class NotchController {
     private func sneakPeek() {
         guard NotchViewModel.sneakPeekEnabled else { return }
         guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted else { return }
+        // The charger or headphones hold the pill for their moment. A track
+        // peek on top would put two things in one pill.
+        guard vm.ambient == nil else { return }
         // Nothing peeks at a locked screen. The peek re-cuts the collapsed
         // rects, and while the shield is up those rects belong to the lock
         // card — a track changing on a locked Mac used to hand the card's hit
@@ -1290,6 +1307,40 @@ final class NotchController {
         }
         peekWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.sneakPeekDuration, execute: work)
+    }
+
+    private var ambientWork: DispatchWorkItem?
+
+    /// Shows the charger or headphones on the island for a moment.
+    ///
+    /// The same restraint as the track peek: nothing when the panel is open,
+    /// under the pointer, mid-drag, or over the lock screen, where the
+    /// collapsed rects belong to the card (see `sneakPeek`). A track peek
+    /// already on screen gives way, because the Mac did something and the song
+    /// has not changed.
+    private func presentAmbient(_ activity: AmbientActivity) {
+        switch activity {
+        case .charging: guard NotchViewModel.showChargingEnabled else { return }
+        case .headphones: guard NotchViewModel.showHeadphonesEnabled else { return }
+        }
+        guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted, !vm.isLockedPresentation else { return }
+        guard !pointer.isInside, !screensAreAsleep else { return }
+
+        let reduceMotion = SystemAppearance.shared.reduceMotion
+        peekWork?.cancel()
+        ambientWork?.cancel()
+        withAnimation(Theme.pill(appearing: true, reduceMotion: reduceMotion)) {
+            vm.isPeeking = false
+            vm.ambient = activity
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let vm = self?.viewModel else { return }
+            withAnimation(Theme.pill(appearing: false, reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                vm.ambient = nil
+            }
+        }
+        ambientWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.ambientDuration, execute: work)
     }
 
     private func refreshCollapsedRects() {

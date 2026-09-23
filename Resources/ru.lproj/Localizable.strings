@@ -279,3 +279,11 @@
 "Current Lyric" = "Текущая строка";
 "Current Track" = "Текущий трек";
 "Isla is still starting up. Try again in a moment." = "Isla ещё запускается. Попробуйте через мгновение.";
+
+/* Зарядка и наушники */
+"Charging" = "Заряжается";
+"Charging, %d percent" = "Заряжается: %d %%";
+"%@ connected" = "%@: подключено";
+"%d%%" = "%d %%";
+"Show Charging" = "Показывать зарядку";
+"Show Headphones Connecting" = "Показывать подключение наушников";

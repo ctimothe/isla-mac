@@ -24,6 +24,8 @@ final class NotchStores {
     let lyricsCoordinator: LyricsCoordinator
     /// Shared by every pane that shows something worth not showing.
     let privacy = PrivacyMode()
+    /// The charger and headphones, for the island's moments without music.
+    let ambient = AmbientWatch()
 
     /// Raised when a screenshot arrives on its own — copied elsewhere, or
     /// synced from a phone. The panel's view model wires itself to this;
@@ -115,6 +117,7 @@ final class NotchStores {
             self.onScreenshot?(url)
         }
         refreshClipboardPolling()
+        ambient.start()
     }
 
     /// The pasteboard is read only while something wants what is on it:
@@ -142,6 +145,7 @@ final class NotchStores {
         localLyricsLibrary.stopWatchingFolders()
         media.stop()
         clipboard.stop()
+        ambient.stop()
     }
 
     /// Paused while nobody can see or reach the panel — the display asleep, or

@@ -67,6 +67,9 @@ enum NotchMetrics {
     /// read a title at a glance, short enough that it is over before it can
     /// become an interruption.
     static let sneakPeekDuration: TimeInterval = 2.2
+    /// The charger or headphones: long enough to read a percentage or a
+    /// name, the same beat as a new track's peek.
+    static let ambientDuration: TimeInterval = 2.2
 
     /// How long a paused track keeps its pill before folding into the notch.
     ///
@@ -95,4 +98,8 @@ enum NotchMetrics {
     /// How much wider the pill goes while peeking, over the compact width.
     /// Enough for a title beside the artwork without reaching the full body.
     static let sneakPeekExtension: CGFloat = 300
+    /// The headphones moment: a glyph in the left wing and a device name in
+    /// the right, 110 pt each, enough for "AirPods Pro Max" before it
+    /// truncates.
+    static let ambientNameExtension: CGFloat = 220
 }

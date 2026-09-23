@@ -18,6 +18,9 @@ enum SettingsIcon {
     static let openOnHover = "cursorarrow.rays"
     static let hoverDelay = "cursorarrow.motionlines"
     static let panelWidth = "arrow.left.and.right"
+    /// The island's moments without music: what each one shows.
+    static let showCharging = "bolt"
+    static let showHeadphones = "headphones"
 
     // Keyboard Shortcuts
     /// The panel, at the top of the screen, which is what the shortcut opens.
@@ -94,7 +97,7 @@ enum SettingsIcon {
     static let quit = "power"
 
     static let all: [String] = [
-        launchAtLogin, openOnHover, hoverDelay, panelWidth,
+        launchAtLogin, openOnHover, hoverDelay, panelWidth, showCharging, showHeadphones,
         shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
