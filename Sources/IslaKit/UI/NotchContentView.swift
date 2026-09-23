@@ -844,7 +844,8 @@ struct NotchContentView: View {
                 clearImportedLyrics: vm.clearImportedLyrics,
                 clearBindingsAndTimingCorrections: vm.clearLyricsBindingsAndTimingCorrections,
                 dismissUnassignedLyricsOffset: vm.dismissUnassignedLyricsOffset,
-                privacy: vm.privacy
+                privacy: vm.privacy,
+                wantsKeyboard: $vm.wantsKeyboard
             )
         }
     }

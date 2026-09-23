@@ -42,8 +42,9 @@ To update, repeat the steps with the new release.
 - **Translate.** Sixteen languages, translated on the Mac by Apple's
   Translation framework or Apple Intelligence (macOS 26 or later). Uzbek and
   Kazakh need Translate Online.
-- **Shortcuts.** ⌥⌘I opens Isla, ⌥⌘T translates the clipboard, ⌥⌘L opens the
-  lyrics. Shortcuts, Spotlight and Siri can read the current track and lyric.
+- **Shortcuts.** ⌃⌥⌘I opens Isla, ⌃⌥⌘L opens the lyrics, ⌃⌥⌘T translates the
+  clipboard. Each can be changed or cleared in Settings. Shortcuts, Spotlight and
+  Siri can read the current track and lyric.
 
 ## Privacy
 

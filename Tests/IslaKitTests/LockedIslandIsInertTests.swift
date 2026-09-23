@@ -46,7 +46,7 @@ final class LockedIslandIsInertTests: XCTestCase {
         XCTAssertFalse(vm.isOpen, "nothing opens over the shield")
     }
 
-    /// A deliberate open command — ⌥⌘I, the translate shortcut, the welcome —
+    /// A deliberate open command — ⌃⌥⌘I, the translate shortcut, the welcome —
     /// is refused over the shield, exactly as a click is. Opened there, the
     /// panel would grow its clickable region from the deliberate pill-sized
     /// locked rect to the open body over the password field, and the translate

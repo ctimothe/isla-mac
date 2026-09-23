@@ -102,15 +102,3 @@ final class GlobalHotKey {
         if let reference { UnregisterEventHotKey(reference) }
     }
 }
-
-extension GlobalHotKey {
-    /// ⌥⌘I — free in macOS's own shortcut set, and mnemonic for the island.
-    static let defaultKeyCode = UInt32(kVK_ANSI_I)
-    static let defaultModifiers = UInt32(optionKey | cmdKey)
-
-    /// ⌥⌘T translates whatever is on the clipboard.
-    static let translateKeyCode = UInt32(kVK_ANSI_T)
-    /// ⌥⌘L: straight to the words. L for lyrics, and free — macOS itself
-    /// binds ⌥⌘L in no system-wide context.
-    static let lyricsKeyCode = UInt32(kVK_ANSI_L)
-}

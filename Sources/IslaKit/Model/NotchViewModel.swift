@@ -96,7 +96,7 @@ final class NotchViewModel: ObservableObject {
     /// player.
     ///
     /// It lives here rather than inside `MediaPane` because it is a place the
-    /// app can be *sent*, not just a toggle the pane owns: ⌥⌘L opens the panel
+    /// app can be *sent*, not just a toggle the pane owns: ⌃⌥⌘L opens the panel
     /// straight onto it, and the verification hook does the same without a
     /// pointer. State that only the view holds is state nothing else can ask
     /// for — which is what made the hook an `onAppear` reading an environment
@@ -198,7 +198,7 @@ final class NotchViewModel: ObservableObject {
         isPinnedOpen = !pointerIsOnPanel
     }
 
-    /// Raised when the panel was opened with the pointer nowhere near it: ⌥⌘I,
+    /// Raised when the panel was opened with the pointer nowhere near it: ⌃⌥⌘I,
     /// or a click that came from the keyboard rather than the mouse — the
     /// compact island's accessibility action. (There has been no menu item
     /// since 2026-08-25; the app has no menu-bar item at all.) A click from the
@@ -446,7 +446,7 @@ final class NotchViewModel: ObservableObject {
         lockedHoverNudges += 1
     }
 
-    /// What a deliberate open command — ⌥⌘I, the translate shortcut, the
+    /// What a deliberate open command — ⌃⌥⌘I, the translate shortcut, the
     /// welcome — is worth right now.
     ///
     /// Over the shield nothing may open and nothing may take the keyboard. An

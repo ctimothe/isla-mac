@@ -20,7 +20,7 @@ import Combine
 @MainActor
 final class PrivacyMode: ObservableObject {
     enum Section: String, CaseIterable, Identifiable {
-        /// Translate is here because ⌥⌘T puts the clipboard's contents into it
+        /// Translate is here because ⌃⌥⌘T puts the clipboard's contents into it
         /// verbatim. Covering the clipboard tab while leaving the pane that
         /// displays the same text in full view was a hole in the promise the
         /// covers make.

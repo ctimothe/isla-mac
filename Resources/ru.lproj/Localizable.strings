@@ -210,3 +210,12 @@
 "Music Only" = "Только музыка";
 "Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show." = "Видео и фильмы не появляются на острове. Музыкальные приложения, подкасты и песни в Telegram по-прежнему видны.";
 "Anything playing shows on the island, videos included." = "На острове показывается всё, что играет, включая видео.";
+
+/* Сочетания клавиш */
+"Show the lyrics" = "Показать текст песни";
+"Keyboard Shortcuts" = "Сочетания клавиш";
+"Type Shortcut" = "Нажмите сочетание";
+"None" = "Нет";
+"Records a new shortcut. Press Delete to clear it, Escape to cancel." = "Записывает новое сочетание. Delete — очистить, Escape — отменить.";
+"%@ is taken by another app. Choose another shortcut." = "%@ занято другим приложением. Выберите другое сочетание.";
+"Restore Default Shortcuts" = "Вернуть стандартные сочетания";

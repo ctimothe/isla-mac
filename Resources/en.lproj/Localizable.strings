@@ -211,3 +211,12 @@
 "Music Only" = "Music Only";
 "Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show." = "Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show.";
 "Anything playing shows on the island, videos included." = "Anything playing shows on the island, videos included.";
+
+/* Keyboard Shortcuts */
+"Show the lyrics" = "Show the lyrics";
+"Keyboard Shortcuts" = "Keyboard Shortcuts";
+"Type Shortcut" = "Type Shortcut";
+"None" = "None";
+"Records a new shortcut. Press Delete to clear it, Escape to cancel." = "Records a new shortcut. Press Delete to clear it, Escape to cancel.";
+"%@ is taken by another app. Choose another shortcut." = "%@ is taken by another app. Choose another shortcut.";
+"Restore Default Shortcuts" = "Restore Default Shortcuts";

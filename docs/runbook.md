@@ -63,7 +63,7 @@ macOS only knows one Isla. Opening the built app directly registers a second
 copy that can intercept the Spotify sign-in callback.
 
 The app has no Dock icon, no menu-bar item and no window. If the panel is not
-visible, press ⌥⌘I — that shortcut is the only route in that needs no pointer.
+visible, press ⌃⌥⌘I — that shortcut is the only route in that needs no pointer.
 
 ## 3. Every-tab smoke pass
 
@@ -72,7 +72,7 @@ visible, press ⌥⌘I — that shortcut is the only route in that needs no poin
 | Music | Play media, seek, pause, skip | Metadata and progress update; supported controls act on the active player |
 | Shelf | Drop files, multi-select, drag out, copy, reveal, remove | Files remain references; previews load only while Shelf is visible |
 | Clipboard | Copy 41 text values, a multi-file selection, and a concealed item | Latest 40 remain; the selection returns all of its files when pasted back; concealed item is absent |
-| Translate | Enter English and Cyrillic text; press ⌥⌘T with text on the clipboard | Route reverses by script; the pane takes the keyboard; covered when Translate privacy is on |
+| Translate | Enter English and Cyrillic text; press ⌃⌥⌘T with text on the clipboard | Route reverses by script; the pane takes the keyboard; covered when Translate privacy is on |
 | Settings | Toggle screenshot saving, lyrics, capture hiding and launch at login; drag the panel-width slider; open support files | Values persist, the panel rebuilds at the new width, and actions open Isla-owned paths; screenshot saving and lyrics start off |
 
 Collapse the panel after privacy-covered rows are temporarily revealed. Reopen
@@ -84,7 +84,7 @@ The app must show no surface other than the panel itself.
 
 1. Launch and confirm there is **no** Dock icon, **no** menu-bar item, and no
    window — before, during and after opening the panel.
-2. Press ⌥⌘I with the pointer nowhere near the notch. The panel opens.
+2. Press ⌃⌥⌘I with the pointer nowhere near the notch. The panel opens.
 3. In Settings, press **Open Panel** and confirm it closes again.
 4. In Settings, press **About** and confirm the standard about panel names the
    build's version.
@@ -119,8 +119,8 @@ On a notched MacBook display:
 4. Move down the rail and confirm the 150 ms tab dwell prevents accidental
    switching.
 5. Leave the cool zone and confirm collapse after 320 ms.
-6. Press ⌥⌘I, move the pointer well away, and confirm the panel stays open
-   until Escape, ⌥⌘I again, or a click in another application closes it.
+6. Press ⌃⌥⌘I, move the pointer well away, and confirm the panel stays open
+   until Escape, ⌃⌥⌘I again, or a click in another application closes it.
 7. Set the panel width to its minimum and maximum in turn, and repeat step 2 at
    each: the clickable area is cut from the width, so a dead edge would only
    appear at one of them.

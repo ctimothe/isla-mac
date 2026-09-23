@@ -19,6 +19,14 @@ enum SettingsIcon {
     static let hoverDelay = "cursorarrow.motionlines"
     static let panelWidth = "arrow.left.and.right"
 
+    // Keyboard Shortcuts
+    /// The panel, at the top of the screen, which is what the shortcut opens.
+    static let shortcutOpenPanel = "rectangle.topthird.inset.filled"
+    /// The lyrics page's own glyph, not the Music section's switch.
+    static let shortcutLyrics = "text.quote"
+    static let shortcutTranslate = "translate"
+    static let restoreShortcuts = "arrow.uturn.backward"
+
     // Screenshots
     static let saveScreenshots = "square.and.arrow.down"
     /// A recording arriving on its own: video coming in, not going out.
@@ -77,6 +85,7 @@ enum SettingsIcon {
 
     static let all: [String] = [
         launchAtLogin, openOnHover, hoverDelay, panelWidth,
+        shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, dismiss,
         online, lyricTiming, resetTiming, peek, lockScreen, cardStyle,

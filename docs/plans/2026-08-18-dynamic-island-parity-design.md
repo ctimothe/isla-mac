@@ -364,6 +364,18 @@ transitions.
 > tested: nothing in the suite builds a panel, so both are on the manual
 > first-run pass.
 
+> **Amended 2026-09-23 — shortcuts.** The three global shortcuts move from
+> ⌥⌘I, ⌥⌘T and ⌥⌘L to ⌃⌥⌘I, ⌃⌥⌘T and ⌃⌥⌘L, and each can be rebound or
+> cleared in a **Keyboard Shortcuts** section of Settings. macOS binds none of
+> the old keys system-wide, but apps bind all three: ⌥⌘I is Web Inspector and
+> Developer Tools in every browser, ⌥⌘L is Downloads in Safari, Chrome and
+> Finder, and ⌥⌘T hides Finder's toolbar. A Carbon hot key wins over the app in
+> front, so Isla took those keys without saying so. Recording a shortcut uses
+> the same keyboard claim as Translate. A combination macOS refuses is named in
+> Settings, not swallowed. The welcome prints the live bindings, and its second
+> row is the lyrics shortcut; Translate's is listed in Settings with the others.
+> Held by `HotKeyTests`, `FirstRunTests` and `LyricRoutesTests`.
+
 ### Privacy mode
 
 Privacy covers apply independently to Clipboard and Translate (Snippets,

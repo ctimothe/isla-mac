@@ -20,6 +20,9 @@ struct SettingsPane: View {
     var clearBindingsAndTimingCorrections: () -> Void = {}
     var dismissUnassignedLyricsOffset: (String) -> Void = { _ in }
     @ObservedObject var privacy: PrivacyMode
+    /// The panel's claim on the keyboard, which recording a shortcut needs.
+    var wantsKeyboard: Binding<Bool> = .constant(false)
+    @ObservedObject var hotKeys: HotKeyCenter = .shared
 
     static let localLyricsPrivacyCopyKey = "Lyrics stay on this Mac."
 
@@ -131,6 +134,35 @@ struct SettingsPane: View {
                     .frame(height: 26)
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(localized("Panel Width"))
+                }
+
+                // The three ways in that need no pointer. Each can be moved or
+                // cleared, because whichever keys ship, some app somewhere
+                // already uses them.
+                section(localized("Keyboard Shortcuts")) {
+                    ShortcutRecorderRow(
+                        action: .openPanel, symbol: SettingsIcon.shortcutOpenPanel,
+                        center: hotKeys, wantsKeyboard: wantsKeyboard
+                    )
+                    ShortcutRecorderRow(
+                        action: .showLyrics, symbol: SettingsIcon.shortcutLyrics,
+                        center: hotKeys, wantsKeyboard: wantsKeyboard
+                    )
+                    ShortcutRecorderRow(
+                        action: .translateClipboard, symbol: SettingsIcon.shortcutTranslate,
+                        center: hotKeys, wantsKeyboard: wantsKeyboard
+                    )
+                    ForEach(HotKeyAction.allCases.filter { hotKeys.refused.contains($0) }) { action in
+                        noteRow(localized(
+                            "%@ is taken by another app. Choose another shortcut.",
+                            hotKeys.bindings[action]?.displayString ?? ""
+                        ))
+                    }
+                    if HotKeyAction.allCases.contains(where: { hotKeys.bindings[$0] != $0.defaultBinding }) {
+                        actionRow(symbol: SettingsIcon.restoreShortcuts, title: localized("Restore Default Shortcuts")) {
+                            hotKeys.restoreDefaults()
+                        }
+                    }
                 }
 
                 section(localized("Screenshots")) {

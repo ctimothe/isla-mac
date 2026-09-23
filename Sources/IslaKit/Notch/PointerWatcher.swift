@@ -168,7 +168,7 @@ final class PointerWatcher {
     }
 
     /// The panel was shut by a deliberate gesture — a second click on the
-    /// island, ⌥⌘I again, a click in another app — while the pointer may still
+    /// island, ⌃⌥⌘I again, a click in another app — while the pointer may still
     /// be standing inside the rect the open panel held itself open from.
     ///
     /// `setInside(false)` alone is not enough there, and that is the whole bug

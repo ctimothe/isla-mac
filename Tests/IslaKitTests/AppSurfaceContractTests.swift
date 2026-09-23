@@ -39,10 +39,9 @@ final class AppSurfaceContractTests: XCTestCase {
     /// the panel can still be opened without a pointer. Losing this would leave
     /// an app with no way in at all on a Mac whose notch is not detected.
     func testThePanelCanStillBeOpenedFromTheKeyboard() {
-        XCTAssertEqual(GlobalHotKey.defaultKeyCode, GlobalHotKey.defaultKeyCode)
         XCTAssertNotEqual(
-            GlobalHotKey.defaultModifiers, 0,
-            "⌥⌘I is the only route in that needs no pointer and no icon"
+            HotKeyAction.openPanel.defaultBinding.modifiers, 0,
+            "the open shortcut is the only route in that needs no pointer and no icon"
         )
     }
 }

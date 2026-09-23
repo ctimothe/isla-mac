@@ -20,7 +20,7 @@ struct MediaPane: View {
     /// Whether the pane is showing the lyrics page.
     ///
     /// A binding rather than this pane's own `@State`, because the page is a
-    /// place the app can be *sent* and not just a toggle the pane owns: ⌥⌘L
+    /// place the app can be *sent* and not just a toggle the pane owns: ⌃⌥⌘L
     /// opens the panel straight onto it. It defaults to a constant so the pane
     /// still renders standalone in the layout tests, where there is no panel
     /// to route anything and nowhere for the request to go.

@@ -165,7 +165,7 @@ final class OpenOnClickTests: XCTestCase {
         }
     }
 
-    /// The routes that have no pointer keep the pin: ⌥⌘I, and the compact
+    /// The routes that have no pointer keep the pin: ⌃⌥⌘I, and the compact
     /// island's accessibility action, which VoiceOver fires from the keyboard.
     /// There the cursor really is wherever it was left, the next sample calls it
     /// away, and without the pin the panel folds a third of a second after it

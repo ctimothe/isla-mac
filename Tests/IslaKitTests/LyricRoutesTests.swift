@@ -7,17 +7,13 @@ import XCTest
 @MainActor
 final class LyricRoutesTests: XCTestCase {
 
-    /// ⌥⌘L is its own key, not a second name for one already bound. Three
-    /// hotkeys sharing the option-command modifier means the codes are the
-    /// only thing keeping them apart.
+    /// The lyrics shortcut is its own key, not a second name for one already
+    /// bound. All three share ⌃⌥⌘, so the key codes are the only thing keeping
+    /// them apart.
     func testTheThreeHotkeysAreDistinct() {
-        let codes = [
-            GlobalHotKey.defaultKeyCode,
-            GlobalHotKey.translateKeyCode,
-            GlobalHotKey.lyricsKeyCode,
-        ]
-        XCTAssertEqual(Set(codes).count, 3, "⌥⌘I, ⌥⌘T and ⌥⌘L must be three different keys")
-        XCTAssertEqual(GlobalHotKey.defaultModifiers, UInt32(optionKey | cmdKey))
+        let codes = HotKeyAction.allCases.map(\.defaultBinding.keyCode)
+        XCTAssertEqual(Set(codes).count, 3, "⌃⌥⌘I, ⌃⌥⌘T and ⌃⌥⌘L must be three different keys")
+        XCTAssertEqual(HotKeyBinding.defaultModifiers, UInt32(controlKey | optionKey | cmdKey))
     }
 
     /// Leaving Music folds the page. Without this, opening Shelf and coming

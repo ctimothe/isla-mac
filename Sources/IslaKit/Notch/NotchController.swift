@@ -35,7 +35,7 @@ final class NotchController {
     ///
     /// A pinned panel is deliberately deaf to the pointer, so the ordinary
     /// hover rule cannot close it, and it only receives key events on the two
-    /// tabs that take the keyboard — which left a panel opened by ⌥⌘I on the
+    /// tabs that take the keyboard — which left a panel opened by ⌃⌥⌘I on the
     /// media tab with no way out but the hotkey itself. A global monitor sees
     /// clicks the app never receives, which is exactly the signal needed.
     private var pinnedClickMonitor: Any?
@@ -531,7 +531,7 @@ final class NotchController {
         vm.isPeeking = false
         vm.select(.media)
         vm.isShowingLyrics = true
-        // Pinned, like ⌥⌘I and for the same reason: the hand that pressed it is
+        // Pinned, like ⌃⌥⌘I and for the same reason: the hand that pressed it is
         // on the keyboard, not on the notch, and an unpinned panel nobody is
         // hovering folds a third of a second after it appears. Lyrics are read
         // for the length of a song, which is the longest any of these stays up.
@@ -659,7 +659,7 @@ final class NotchController {
         pointer.openDelay = NotchViewModel.hoverOpenDelay
     }
 
-    /// The ⌥⌘I hotkey, `presentWelcome()` on a fresh account, and the
+    /// The ⌃⌥⌘I hotkey, `presentWelcome()` on a fresh account, and the
     /// `DI_OPEN_LYRICS` verification hook. (The Translate service opens through
     /// `translate(_:)`, which sets its own tab and its own grace, not here.)
     ///
@@ -689,7 +689,7 @@ final class NotchController {
         if opening {
             pointer.setInside(true)
         } else {
-            // The same hazard as the second click on the island: ⌥⌘I can be
+            // The same hazard as the second click on the island: ⌃⌥⌘I can be
             // pressed with the pointer standing on the panel, and the rect an
             // arrival is measured against is still the open body's while the
             // panel folds. See `PointerWatcher.closedByHand()`.
@@ -965,7 +965,7 @@ final class NotchController {
             // panel is this closure's. An arrival lands on Music: the island is
             // for glancing at a track, and the other tabs are somewhere to go
             // once it is open, not somewhere to arrive. Deliberate routes still
-            // choose their own tab — ⌥⌘T lands on Translate, and a drag stays on
+            // choose their own tab — ⌃⌥⌘T lands on Translate, and a drag stays on
             // the Shelf, which is what `dragging` is for.
             switch vm.pointerCrossed(inside: inside, dragging: self.pointer.isDragging()) {
             case .opens: self.setOpen(true)
@@ -1126,7 +1126,7 @@ final class NotchController {
     ///
     /// The pin is the single exception, and it is enforced where the pointer is
     /// read rather than here — see `NotchViewModel.holdsOpen`. It exists for
-    /// the routes that open the panel with the pointer nowhere near it: ⌥⌘I,
+    /// the routes that open the panel with the pointer nowhere near it: ⌃⌥⌘I,
     /// the Translate service, and VoiceOver firing the island's accessibility
     /// action. A click on the island only pins when the pointer would land
     /// outside the open panel, which it normally does not.
@@ -1233,7 +1233,7 @@ final class NotchController {
 
     private func scheduleCollapseIfPointerAway(after delay: TimeInterval = NotchMetrics.pointerAwayCollapseDelay) {
         // Stamped like every other deferred step in this file. A bare
-        // `asyncAfter` from an earlier open stayed armed, so pressing ⌥⌘T twice
+        // `asyncAfter` from an earlier open stayed armed, so pressing ⌃⌥⌘T twice
         // a few seconds apart let the first timer fold the translation the
         // second one had just put on screen.
         collapseCheckWork?.cancel()

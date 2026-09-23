@@ -71,7 +71,7 @@ struct ShowLyricsIntent: AppIntent {
     }
 }
 
-/// The panel itself, the same as ⌥⌘I.
+/// The panel itself, the same as ⌃⌥⌘I.
 struct ShowPanelIntent: AppIntent {
     static var title: LocalizedStringResource = "Show Isla"
     static var description = IntentDescription("Opens Isla's panel at the notch.")
