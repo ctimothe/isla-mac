@@ -228,3 +228,8 @@
 "Isla's Now Playing reader could not start. Only Music and Spotify can be seen." = "Isla's Now Playing reader could not start. Only Music and Spotify can be seen.";
 "Try Again" = "Try Again";
 "Only Music and Spotify can be seen right now." = "Only Music and Spotify can be seen right now.";
+
+/* Diagnostics */
+"Copy Diagnostics" = "Copy Diagnostics";
+"Copied. It lists versions, settings and Isla's own log, and nothing you played, copied or translated." = "Copied. It lists versions, settings and Isla's own log, and nothing you played, copied or translated.";
+"Report a Problem…" = "Report a Problem…";

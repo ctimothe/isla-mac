@@ -480,7 +480,7 @@ enum PlayerBridge {
             let result = script(for: source, cacheable: priority != .transport)?
                 .executeAndReturnError(&error)
             if let error, let code = error[NSAppleScript.errorNumber] as? Int, code != 0 {
-                NSLog("Isla: AppleScript error \(code): \(error[NSAppleScript.errorMessage] ?? "")")
+                Log.media.error("AppleScript error \(code, privacy: .public): \(String(describing: error[NSAppleScript.errorMessage] ?? ""), privacy: .public)")
             }
             DispatchQueue.main.async { completion(result) }
         }

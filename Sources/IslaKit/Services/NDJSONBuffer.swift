@@ -46,7 +46,7 @@ struct NDJSONBuffer {
             pending.removeAll()
             if !resyncing {
                 resyncing = true
-                NSLog("Isla: dropped an oversized now-playing record")
+                Log.media.notice("dropped an oversized now-playing record")
                 // Deferred out of this mutating call. Invoked inline, a handler
                 // that touched the buffer it was called from would trap on
                 // overlapping exclusive access.

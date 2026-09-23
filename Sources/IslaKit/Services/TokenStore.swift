@@ -161,7 +161,7 @@ struct TokenStore: Sendable {
             )
             return true
         } catch {
-            NSLog("Isla: cannot store credentials: \(error.localizedDescription)")
+            Log.storage.error("cannot store credentials: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }

@@ -1,0 +1,34 @@
+name: Something is wrong
+description: Isla does something it should not, or does not do something it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. The fastest fix starts from the diagnostics:
+        open Isla, go to **Settings → Application → Copy Diagnostics**, and paste
+        the result below. It lists versions, settings and Isla's own log, and
+        nothing you played, copied or translated.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what Isla did instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: |
+        1. Play a song in Spotify
+        2. Click the notch
+        3. …
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Settings → Application → Copy Diagnostics, then paste here.
+      render: text
+    validations:
+      required: true

@@ -8,19 +8,14 @@ import XCTest
 /// it is taken anyway.
 @MainActor
 final class HotKeyTests: XCTestCase {
-    private var defaults: UserDefaults!
-    private var suite: String!
-
-    override func setUp() {
-        super.setUp()
-        suite = "HotKeyTests-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suite)
-    }
-
-    override func tearDown() {
-        defaults.removePersistentDomain(forName: suite)
-        super.tearDown()
-    }
+    /// A private suite per test, removed when the test ends, so no test
+    /// writes a shortcut into the defaults of the machine running it.
+    private lazy var defaults: UserDefaults = {
+        let suite = "HotKeyTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        return defaults
+    }()
 
     /// ⌥⌘I is Web Inspector in Safari and Developer Tools in Chrome, ⌥⌘L is
     /// Downloads, ⌥⌘T hides Finder's toolbar. A Carbon hot key wins over the

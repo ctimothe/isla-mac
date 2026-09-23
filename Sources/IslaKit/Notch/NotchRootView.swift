@@ -286,7 +286,7 @@ final class NotchRootView: NSView {
     /// compiler has to be told this one entry point is not.
     nonisolated func promisedFileArrived(_ url: URL?, error: Error?) {
         if let error {
-            NSLog("Isla: promised file failed: \(error.localizedDescription)")
+            Log.shelf.error("promised file failed: \(error.localizedDescription, privacy: .public)")
             return
         }
         guard let url else { return }

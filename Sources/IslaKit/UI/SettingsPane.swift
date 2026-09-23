@@ -47,6 +47,9 @@ struct SettingsPane: View {
     /// on "Connect" forever while the tokens were already in the keychain.
     @ObservedObject private var spotify = SpotifyAccount.shared
     @State private var screenshotUsage: (files: Int, bytes: Int64) = (0, 0)
+    /// When the report was last copied, so the row can say it worked. A copy
+    /// has no other visible result.
+    @State private var diagnosticsCopied: Date?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -479,6 +482,22 @@ struct SettingsPane: View {
                 section(localized("Application")) {
                     actionRow(symbol: SettingsIcon.about, title: localized("About %@", ProductIdentity.displayName)) {
                         NSApp.orderFrontStandardAboutPanel(nil)
+                    }
+                    // What a stranger needs to tell the owner what went wrong:
+                    // the report, and the form that asks for it.
+                    actionRow(symbol: SettingsIcon.copyDiagnostics, title: localized("Copy Diagnostics")) {
+                        Diagnostics.copyToPasteboard(media: media)
+                        let copied = Date()
+                        diagnosticsCopied = copied
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                            if diagnosticsCopied == copied { diagnosticsCopied = nil }
+                        }
+                    }
+                    if diagnosticsCopied != nil {
+                        noteRow(localized("Copied. It lists versions, settings and Isla's own log, and nothing you played, copied or translated."))
+                    }
+                    actionRow(symbol: SettingsIcon.reportProblem, title: localized("Report a Problem…")) {
+                        NSWorkspace.shared.open(Diagnostics.reportURL)
                     }
                     confirmRow(
                         symbol: SettingsIcon.quit,

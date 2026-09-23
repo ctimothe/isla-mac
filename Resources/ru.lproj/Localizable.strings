@@ -227,3 +227,8 @@
 "Isla's Now Playing reader could not start. Only Music and Spotify can be seen." = "Модуль Isla для чтения Now Playing не запустился. Видны только Музыка и Spotify.";
 "Try Again" = "Повторить попытку";
 "Only Music and Spotify can be seen right now." = "Сейчас видны только Музыка и Spotify.";
+
+/* Диагностика */
+"Copy Diagnostics" = "Скопировать диагностику";
+"Copied. It lists versions, settings and Isla's own log, and nothing you played, copied or translated." = "Скопировано. Там версии, настройки и журнал самой Isla — и ничего из того, что вы слушали, копировали или переводили.";
+"Report a Problem…" = "Сообщить о проблеме…";

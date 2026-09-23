@@ -31,7 +31,7 @@ struct AppPaths: Sendable {
         do {
             try ensureSupportDirectory(using: fm)
         } catch {
-            NSLog("Isla: cannot create support directory: \(error.localizedDescription)")
+            Log.storage.error("cannot create support directory: \(error.localizedDescription, privacy: .public)")
             return nil
         }
         return supportDirectory.appendingPathComponent(name)
@@ -51,7 +51,7 @@ struct AppPaths: Sendable {
         do {
             try fm.createDirectory(at: inbox, withIntermediateDirectories: true)
         } catch {
-            NSLog("Isla: cannot create drop inbox: \(error.localizedDescription)")
+            Log.storage.error("cannot create drop inbox: \(error.localizedDescription, privacy: .public)")
             return nil
         }
         return inbox

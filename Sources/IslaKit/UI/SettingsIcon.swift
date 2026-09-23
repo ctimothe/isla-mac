@@ -83,6 +83,9 @@ enum SettingsIcon {
 
     // Application
     static let about = "info.circle"
+    /// Examining the app's state, which is what the report is.
+    static let copyDiagnostics = "stethoscope"
+    static let reportProblem = "exclamationmark.bubble"
     static let quit = "power"
 
     static let all: [String] = [
@@ -93,6 +96,6 @@ enum SettingsIcon {
         online, lyricTiming, resetTiming, peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, translate, hideFromRecording,
-        about, quit,
+        about, copyDiagnostics, reportProblem, quit,
     ]
 }

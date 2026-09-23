@@ -127,7 +127,7 @@ final class ScreenshotVault {
             do {
                 try data.write(to: url, options: .atomic)
             } catch {
-                NSLog("Isla: failed to save capture: \(error.localizedDescription)")
+                Log.shelf.error("failed to save capture: \(error.localizedDescription, privacy: .public)")
                 DispatchQueue.main.async { completion(nil) }
                 return
             }
