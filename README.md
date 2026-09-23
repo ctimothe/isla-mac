@@ -24,7 +24,8 @@ Isla is an independent project and is not affiliated with Apple.
 Isla has no Dock icon, menu bar item or window: it lives in the notch. Click the
 notch to open it. **Settings** in the panel has Launch at Login, About and Quit.
 
-To update, repeat the steps with the new release.
+To update, repeat the steps with the new release. **Settings → Check for Updates**
+says whether there is one.
 
 ## Features
 
@@ -56,6 +57,7 @@ by default:
 | Look Up Lyrics Online | Track title, artist, album and length | [LRCLIB](https://lrclib.net) |
 | Translate Online | The text and its two languages, only for languages the Mac cannot translate itself | [MyMemory](https://mymemory.translated.net) |
 | Connect Spotify Account | Spotify sign-in, to read and change Liked Songs | Spotify |
+| Check for Updates Automatically | A request for the latest version, naming Isla's version | [GitHub](https://github.com) |
 
 Spotify tokens are stored in a file readable only by your user account in
 `~/Library/Application Support/Isla`. Signed builds use the Keychain instead.

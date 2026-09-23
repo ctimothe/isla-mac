@@ -21,6 +21,10 @@ if [ -z "$VERSION" ]; then
     echo "Scripts/version has no VERSION= line" >&2
     exit 1
 fi
+BUILD="$(sed -n 's/^BUILD=//p' "$ROOT/Scripts/version" 2>/dev/null || true)"
+case "$BUILD" in
+    ''|*[!0-9]*) echo "Scripts/version needs BUILD= and a whole number" >&2; exit 1 ;;
+esac
 
 # The app icon is a tracked asset (Resources/AppIcon.icns), copied verbatim into
 # the bundle. This script used to generate a placeholder icon into build/ so a
@@ -67,7 +71,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     </dict></array>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleVersion</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>

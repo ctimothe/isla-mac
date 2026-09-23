@@ -95,6 +95,7 @@ enum Diagnostics {
             ("Open on Hover", onOff(NotchViewModel.opensOnHoverEnabled)),
             ("Show on Lock Screen", onOff(NotchViewModel.showOnLockScreenEnabled)),
             ("Hide from Screen Recording", onOff(NotchViewModel.hideFromCaptureEnabled)),
+            ("Check for Updates Automatically", onOff(UpdateCheck.automaticEnabled)),
             ("Launch at Login", SMAppService.mainApp.status == .enabled ? "on" : "off"),
             ("Panel Width", "\(Int(NotchViewModel.bodyWidth)) pt"),
             ("Drawn Glass", onOff(defaults.bool(forKey: "drawnGlass"))),

@@ -86,6 +86,9 @@ enum SettingsIcon {
     /// Examining the app's state, which is what the report is.
     static let copyDiagnostics = "stethoscope"
     static let reportProblem = "exclamationmark.bubble"
+    static let checkForUpdates = "arrow.down.circle"
+    /// Taking the newer version: a download, not a check.
+    static let downloadUpdate = "arrow.down.to.line"
     static let quit = "power"
 
     static let all: [String] = [
@@ -96,6 +99,6 @@ enum SettingsIcon {
         online, lyricTiming, resetTiming, peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, translate, hideFromRecording,
-        about, copyDiagnostics, reportProblem, quit,
+        about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,
     ]
 }

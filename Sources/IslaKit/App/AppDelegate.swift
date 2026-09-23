@@ -52,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .showLyrics: { [weak self] in self?.controller?.toggleLyrics() },
         ])
         NSApp.servicesProvider = self
+        // Nothing, unless the user turned the daily check on in Settings.
+        UpdateCheck.shared.startAutomaticIfEnabled()
 
         // One visible moment on a fresh account, and only one. Everything about
         // this app is invisible by design — `.accessory`, no Dock icon, no

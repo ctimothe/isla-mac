@@ -51,6 +51,17 @@ git fetch --quiet "$REMOTE"
 if git rev-parse "$TAG" >/dev/null 2>&1; then
     fail "tag $TAG already exists; increment Scripts/version"
 fi
+# The build number only goes up. The last release's is read from its own
+# Scripts/version, where the tag recorded it. A tag from before BUILD= existed
+# counts as 0, and so does a repository with no release yet.
+BUILD="$(sed -n 's/^BUILD=//p' "$ROOT/Scripts/version")"
+LAST_TAG="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+LAST_BUILD=0
+if [ -n "$LAST_TAG" ]; then
+    LAST_BUILD="$(git show "$LAST_TAG:Scripts/version" 2>/dev/null | sed -n 's/^BUILD=//p')"
+    LAST_BUILD="${LAST_BUILD:-0}"
+fi
+[ "$BUILD" -gt "$LAST_BUILD" ] || fail "BUILD=$BUILD must be greater than $LAST_TAG's $LAST_BUILD; increment it in Scripts/version"
 
 echo "==> local release gates"
 swift test

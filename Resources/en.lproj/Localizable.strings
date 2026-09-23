@@ -233,3 +233,14 @@
 "Copy Diagnostics" = "Copy Diagnostics";
 "Copied. It lists versions, settings and Isla's own log, and nothing you played, copied or translated." = "Copied. It lists versions, settings and Isla's own log, and nothing you played, copied or translated.";
 "Report a Problem…" = "Report a Problem…";
+
+/* Updates */
+"Check for Updates" = "Check for Updates";
+"Checking…" = "Checking…";
+"Isla %@ is the latest version." = "Isla %@ is the latest version.";
+"Download Isla %@" = "Download Isla %@";
+"Quit Isla, then replace it in Applications with the new version." = "Quit Isla, then replace it in Applications with the new version.";
+"Could not reach GitHub. Try again later." = "Could not reach GitHub. Try again later.";
+"Check for Updates Automatically" = "Check for Updates Automatically";
+"Asks GitHub once a day for the latest version. It sends nothing about you." = "Asks GitHub once a day for the latest version. It sends nothing about you.";
+"Update available" = "Update available";

@@ -58,7 +58,7 @@ are the exception the design did not anticipate:
   always require an explicit choice. Enhanced LRC word timing animates only for
   a measured player clock; every other player uses line-level highlighting.
 - **Look Up Lyrics Online** (Settings, default off, added 2026-09-21) is the
-  only part of the app that reaches the internet. A streamed track has no file
+  only part of the lyric path that reaches the internet. A streamed track has no file
   on this Mac, so the offline-only rule approved on 2026-09-13 meant a Spotify
   listener saw "No local lyrics" on every song. With the switch on, a track the
   local library does not match is looked up at LRCLIB — free, community-run, no
@@ -84,6 +84,15 @@ are the exception the design did not anticipate:
   carries a globe in its heading. `OnlineTranslationTests` bounds the exception
   to `OnlineTranslation.swift` and the one host; `TranslatorTests` holds that no
   on-device pair ever lists the online engine.
+- **Check for Updates** (Settings › Application, added 2026-09-23) asks
+  GitHub's `releases/latest` for the newest Isla and, if it is newer than the
+  running one, offers its release page. It sends the request and nothing else:
+  GitHub sees an IP address and a User-Agent naming the Isla version. Pressing
+  the row is the consent for one request. **Check for Updates Automatically**
+  (default off) asks once a day and marks the Settings tab when there is
+  something new. It exists because nothing else could tell a 0.1.0 user that
+  0.2.0 was out. Sparkle replaces it once there is a Developer ID to sign the
+  feed with. `UpdateCheckTests` holds the default and the request.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain.

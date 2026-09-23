@@ -1,1 +1,6 @@
 VERSION=0.2.0
+# CFBundleVersion. A whole number that only ever goes up, one per release, so
+# an updater can compare two builds without parsing marketing versions. 0.1.0
+# shipped as 1 in spirit (its bundle said "0.1.0"), 0.2.0 as 2. Scripts/release.sh
+# refuses a BUILD that is not greater than the last released tag's.
+BUILD=2

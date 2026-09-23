@@ -24,6 +24,8 @@ struct SettingsPane: View {
     /// The panel's claim on the keyboard, which recording a shortcut needs.
     var wantsKeyboard: Binding<Bool> = .constant(false)
     @ObservedObject var hotKeys: HotKeyCenter = .shared
+    @ObservedObject var updates: UpdateCheck = .shared
+    @State private var checkUpdatesAutomatically = UpdateCheck.automaticEnabled
 
     static let localLyricsPrivacyCopyKey = "Lyrics stay on this Mac."
 
@@ -498,6 +500,45 @@ struct SettingsPane: View {
                     }
                     actionRow(symbol: SettingsIcon.reportProblem, title: localized("Report a Problem…")) {
                         NSWorkspace.shared.open(Diagnostics.reportURL)
+                    }
+                    // Whether a newer Isla is out. Pressing the row is the
+                    // consent for its one request; the switch under it, which
+                    // asks daily, is off until turned on.
+                    actionRow(
+                        symbol: SettingsIcon.checkForUpdates,
+                        title: localized("Check for Updates"),
+                        disabled: updates.state == .checking
+                    ) {
+                        updates.check()
+                    }
+                    switch updates.state {
+                    case .idle:
+                        EmptyView()
+                    case .checking:
+                        noteRow(localized("Checking…"))
+                    case .upToDate(let version):
+                        noteRow(localized("Isla %@ is the latest version.", version))
+                    case .available(let version, let page):
+                        actionRow(symbol: SettingsIcon.downloadUpdate, title: localized("Download Isla %@", version)) {
+                            NSWorkspace.shared.open(page)
+                        }
+                        noteRow(localized("Quit Isla, then replace it in Applications with the new version."))
+                    case .failed:
+                        noteRow(localized("Could not reach GitHub. Try again later."))
+                    }
+                    toggleRow(
+                        symbol: SettingsIcon.online,
+                        title: localized("Check for Updates Automatically"),
+                        isOn: Binding(
+                            get: { checkUpdatesAutomatically },
+                            set: { wants in
+                                checkUpdatesAutomatically = wants
+                                updates.setAutomatic(wants)
+                            }
+                        )
+                    )
+                    if checkUpdatesAutomatically {
+                        noteRow(localized("Asks GitHub once a day for the latest version. It sends nothing about you."))
                     }
                     confirmRow(
                         symbol: SettingsIcon.quit,

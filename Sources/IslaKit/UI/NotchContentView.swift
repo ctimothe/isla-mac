@@ -873,6 +873,9 @@ private struct Rail: View {
     var footer: [NotchViewModel.Tab] = []
 
     @State private var hovered: NotchViewModel.Tab?
+    /// Read for one thing: whether Settings wears the mark that says a newer
+    /// Isla is out. Set only by a check the user ran or turned on.
+    @ObservedObject private var updates = UpdateCheck.shared
 
     var body: some View {
         VStack(spacing: NotchGeometry.railSpacing) {
@@ -933,8 +936,22 @@ private struct Rail: View {
                 .transaction { $0.animation = nil }
         }
         .buttonStyle(PanelButtonStyle())
+        .overlay(alignment: .topTrailing) {
+            // The one badge in the app: a newer version, found by a check the
+            // user asked for. A dot rather than a count, in the chrome's own
+            // white. It says "look here", and Settings says what.
+            if tab == .settings, updates.hasUpdate {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 5, height: 5)
+                    .offset(x: -3, y: 3)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .help(tab.title)
         .accessibilityLabel(tab.title)
+        .accessibilityValue(tab == .settings && updates.hasUpdate ? localized("Update available") : "")
         .accessibilityAddTraits(vm.tab == tab ? [.isButton, .isSelected] : .isButton)
         .onHover { inside in
             if inside {
