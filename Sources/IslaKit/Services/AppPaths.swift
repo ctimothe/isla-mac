@@ -31,7 +31,7 @@ struct AppPaths: Sendable {
         do {
             try ensureSupportDirectory(using: fm)
         } catch {
-            Log.storage.error("cannot create support directory: \(error.localizedDescription, privacy: .public)")
+            Log.storage.error("cannot create support directory: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
             return nil
         }
         return supportDirectory.appendingPathComponent(name)
@@ -51,7 +51,7 @@ struct AppPaths: Sendable {
         do {
             try fm.createDirectory(at: inbox, withIntermediateDirectories: true)
         } catch {
-            Log.storage.error("cannot create drop inbox: \(error.localizedDescription, privacy: .public)")
+            Log.storage.error("cannot create drop inbox: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
             return nil
         }
         return inbox

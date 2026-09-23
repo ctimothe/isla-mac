@@ -218,7 +218,7 @@
 "Type Shortcut" = "Type Shortcut";
 "None" = "None";
 "Records a new shortcut. Press Delete to clear it, Escape to cancel." = "Records a new shortcut. Press Delete to clear it, Escape to cancel.";
-"%@ is taken by another app. Choose another shortcut." = "%@ is taken by another app. Choose another shortcut.";
+"macOS would not register %@. Choose another shortcut." = "macOS would not register %@. Choose another shortcut.";
 "Restore Default Shortcuts" = "Restore Default Shortcuts";
 
 /* Now Playing fallback */

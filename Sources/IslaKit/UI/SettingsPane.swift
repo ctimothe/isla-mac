@@ -190,7 +190,7 @@ struct SettingsPane: View {
                     )
                     ForEach(HotKeyAction.allCases.filter { hotKeys.refused.contains($0) }) { action in
                         noteRow(localized(
-                            "%@ is taken by another app. Choose another shortcut.",
+                            "macOS would not register %@. Choose another shortcut.",
                             hotKeys.bindings[action]?.displayString ?? ""
                         ))
                     }

@@ -127,14 +127,25 @@ final class NotchStores {
         history || images
     }
 
-    func refreshClipboardPolling() {
-        if Self.clipboardShouldPoll(
+    /// - Parameter settingChanged: true when a Settings switch asked. A poll
+    ///   that a switch turns back on starts from the pasteboard as it is now,
+    ///   because whatever was copied while it was off was copied while the
+    ///   user had said not to look.
+    func refreshClipboardPolling(settingChanged: Bool = false) {
+        guard Self.clipboardShouldPoll(
             history: NotchViewModel.clipboardHistoryEnabled,
             images: NotchViewModel.saveClipboardImagesEnabled
-        ) {
-            clipboard.start()
-        } else {
+        ) else {
             clipboard.stop()
+            return
+        }
+        if settingChanged {
+            // Already polling means already baselined: a switch that keeps the
+            // poll running has nothing old to skip, and restarting it would
+            // skip a copy that was allowed.
+            if !clipboard.isPolling { clipboard.startFresh() }
+        } else {
+            clipboard.start()
         }
     }
 

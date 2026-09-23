@@ -217,7 +217,7 @@
 "Type Shortcut" = "Нажмите сочетание";
 "None" = "Нет";
 "Records a new shortcut. Press Delete to clear it, Escape to cancel." = "Записывает новое сочетание. Delete — очистить, Escape — отменить.";
-"%@ is taken by another app. Choose another shortcut." = "%@ занято другим приложением. Выберите другое сочетание.";
+"macOS would not register %@. Choose another shortcut." = "macOS не зарегистрировала %@. Выберите другое сочетание.";
 "Restore Default Shortcuts" = "Вернуть стандартные сочетания";
 
 /* Запасной путь Now Playing */

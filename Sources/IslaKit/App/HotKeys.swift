@@ -26,6 +26,12 @@ enum HotKeyAction: String, CaseIterable, Identifiable {
     /// shortcut, so Isla took those keys from every browser without saying so.
     /// Browsers bind nothing to Control-Option-Command, which is why global
     /// utilities use it.
+    ///
+    /// One overlap is known and accepted: ⌃⌥ is VoiceOver's VO key, so with
+    /// VoiceOver running, ⌃⌥⌘L and ⌃⌥⌘T are also VO-⌘-L and VO-⌘-T, its
+    /// next-link and next-table commands. Which one wins has not been checked
+    /// on hardware (see `checklist.md`). Either way a VoiceOver user can move
+    /// all three in Settings, from the keyboard.
     var defaultBinding: HotKeyBinding {
         switch self {
         case .openPanel: return HotKeyBinding(keyCode: UInt32(kVK_ANSI_I), modifiers: HotKeyBinding.defaultModifiers)
@@ -49,13 +55,16 @@ struct HotKeyBinding: Equatable, Hashable {
 
     /// The binding a key press describes, or nil when it cannot be one.
     ///
-    /// It needs ⌘, ⌃ or ⌥. A key with only ⇧, or no modifier, would take a
-    /// letter away from every text field on the Mac, because a hot key fires
-    /// before the focused field sees the press. A press of a modifier alone
-    /// is not a key either.
+    /// It needs two of ⌘, ⌃ and ⌥. A hot key fires before the focused app
+    /// sees the press, so anything less takes keys away from everything:
+    /// ⌘ alone owns Copy, Paste and Quit in every app (a recorded ⌘V would
+    /// have broken paste Mac-wide, and been saved), ⌃ alone owns the
+    /// text-field motions (⌃A, ⌃E), and macOS 15 refuses ⌥ and ⌥⇧ hot keys
+    /// outright. A press of a modifier alone is not a key either.
     init?(keyCode: UInt16, flags: NSEvent.ModifierFlags) {
         let flags = flags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.intersection([.command, .control, .option]).isEmpty else { return nil }
+        let primaries = [NSEvent.ModifierFlags.command, .control, .option].filter { flags.contains($0) }
+        guard primaries.count >= 2 else { return nil }
         guard !Self.modifierKeyCodes.contains(Int(keyCode)) else { return nil }
         var carbon: Int = 0
         if flags.contains(.command) { carbon |= cmdKey }
@@ -183,10 +192,15 @@ final class HotKeyCenter: ObservableObject {
 
     /// nil for an action the user cleared.
     @Published private(set) var bindings: [HotKeyAction: HotKeyBinding] = [:]
-    /// Bindings macOS refused, usually because another app registered the
-    /// combination first. Shown in Settings. Before this, a refused
+    /// Bindings macOS refused. Shown in Settings. Before this, a refused
     /// registration returned nil into an optional nobody read, and the
     /// shortcut did nothing without any sign of why.
+    ///
+    /// Not a conflict detector. Carbon hot keys are registered non-exclusive,
+    /// and a non-exclusive registration succeeds even when another app holds
+    /// the same combination, so a clash with another app is invisible from
+    /// here. What does come back refused is what macOS itself will not
+    /// register, and the Settings note says exactly that.
     @Published private(set) var refused: Set<HotKeyAction> = []
     /// The action whose shortcut Settings is recording right now.
     @Published private(set) var recording: HotKeyAction?
@@ -195,6 +209,18 @@ final class HotKeyCenter: ObservableObject {
     private let registrar: Registrar
     private var handlers: [HotKeyAction: () -> Void] = [:]
     private var registrations: [HotKeyAction: HotKeyRegistration] = [:]
+    /// The one key monitor a recording uses. Owned here and not by a Settings
+    /// row, because a row that started a recording could lose track of its
+    /// monitor: clicking a second row ended the first row's recording
+    /// without removing its monitor, which then swallowed every key the app
+    /// received for the rest of the session and could record ⌘V as a global
+    /// shortcut.
+    private var monitor: Any?
+    /// What a refused press does. A beep, like System Settings' own shortcut
+    /// fields; tests silence it.
+    var refuseSound: () -> Void = { NSSound.beep() }
+
+    var isListening: Bool { monitor != nil }
 
     init(
         defaults: UserDefaults = .standard,
@@ -242,21 +268,62 @@ final class HotKeyCenter: ObservableObject {
 
     /// Recording lets every shortcut go until it ends. Otherwise pressing the
     /// combination already bound, to keep it or to move it, would fire it
-    /// instead of being recorded.
+    /// instead of being recorded. Every key press goes to `record` and none
+    /// reaches the panel, until the recording ends.
     func beginRecording(_ action: HotKeyAction) {
+        removeMonitor()
         recording = action
         unregisterAll()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            MainActor.assumeIsolated { _ = self?.record(keyCode: event.keyCode, flags: event.modifierFlags) }
+            return nil
+        }
     }
 
+    /// One key press while recording: Esc cancels, Delete clears the
+    /// shortcut, and a usable combination is kept. Anything else beeps and
+    /// recording goes on. Returns whether the recording ended.
+    @discardableResult
+    func record(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> Bool {
+        guard let action = recording else { return false }
+        let flags = flags.intersection(.deviceIndependentFlagsMask)
+        let plain = flags.intersection([.command, .control, .option]).isEmpty
+        if plain, Int(keyCode) == kVK_Escape {
+            endRecording()
+            return true
+        }
+        if plain, Int(keyCode) == kVK_Delete || Int(keyCode) == kVK_ForwardDelete {
+            setBinding(nil, for: action)
+            endRecording()
+            return true
+        }
+        guard let binding = HotKeyBinding(keyCode: keyCode, flags: flags) else {
+            refuseSound()
+            return false
+        }
+        setBinding(binding, for: action)
+        endRecording()
+        return true
+    }
+
+    /// Ends a recording, whoever asks: the row, Esc, the panel losing the
+    /// keyboard, a rebuild, or quitting. Safe to call when none is running.
     func endRecording() {
         guard recording != nil else { return }
+        removeMonitor()
         recording = nil
         registerAll()
     }
 
     func teardown() {
+        removeMonitor()
         recording = nil
         unregisterAll()
+    }
+
+    private func removeMonitor() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 
     private func registerAll() {
@@ -268,7 +335,7 @@ final class HotKeyCenter: ObservableObject {
                 registrations[action] = registration
             } else {
                 refused.insert(action)
-                Log.app.error("shortcut \(binding.displayString, privacy: .public) for \(action.rawValue, privacy: .public) was refused")
+                Log.app.error("macOS refused shortcut \(binding.displayString, privacy: .public) for \(action.rawValue, privacy: .public)")
             }
         }
         if refused != self.refused { self.refused = refused }

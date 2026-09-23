@@ -51,16 +51,26 @@ git fetch --quiet "$REMOTE"
 if git rev-parse "$TAG" >/dev/null 2>&1; then
     fail "tag $TAG already exists; increment Scripts/version"
 fi
-# The build number only goes up. The last release's is read from its own
-# Scripts/version, where the tag recorded it. A tag from before BUILD= existed
-# counts as 0, and so does a repository with no release yet.
+# The build number only goes up, across every release tag, not only the
+# nearest one: `git describe` answers from HEAD's ancestry, and after the
+# 2026-09-22 history rewrite the v0.1.0 and v0.2.0 tags are not ancestors of
+# main, so it found nothing and passed any BUILD. Each tag's number is read
+# from its own Scripts/version. A tag from before BUILD= existed counts as its
+# place in the list, which is the number it would have had (0.1.0 is 1, 0.2.0
+# is 2).
 BUILD="$(sed -n 's/^BUILD=//p' "$ROOT/Scripts/version")"
-LAST_TAG="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
 LAST_BUILD=0
-if [ -n "$LAST_TAG" ]; then
-    LAST_BUILD="$(git show "$LAST_TAG:Scripts/version" 2>/dev/null | sed -n 's/^BUILD=//p')"
-    LAST_BUILD="${LAST_BUILD:-0}"
-fi
+LAST_TAG=none
+ORDINAL=0
+for TAG_NAME in $(git tag -l 'v*' --sort=v:refname); do
+    ORDINAL=$((ORDINAL + 1))
+    TAG_BUILD="$(git show "$TAG_NAME:Scripts/version" 2>/dev/null | sed -n 's/^BUILD=//p')"
+    TAG_BUILD="${TAG_BUILD:-$ORDINAL}"
+    if [ "$TAG_BUILD" -gt "$LAST_BUILD" ]; then
+        LAST_BUILD="$TAG_BUILD"
+        LAST_TAG="$TAG_NAME"
+    fi
+done
 [ "$BUILD" -gt "$LAST_BUILD" ] || fail "BUILD=$BUILD must be greater than $LAST_TAG's $LAST_BUILD; increment it in Scripts/version"
 
 echo "==> local release gates"

@@ -165,7 +165,7 @@ struct TokenStore: Sendable {
             )
             return true
         } catch {
-            Log.storage.error("cannot store credentials: \(error.localizedDescription, privacy: .public)")
+            Log.storage.error("cannot store credentials: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
             return false
         }
     }
