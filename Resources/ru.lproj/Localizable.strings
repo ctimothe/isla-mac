@@ -279,3 +279,19 @@
 "Current Lyric" = "Текущая строка";
 "Current Track" = "Текущий трек";
 "Isla is still starting up. Try again in a moment." = "Isla ещё запускается. Попробуйте через мгновение.";
+
+/* Зарядка и наушники */
+"Charging" = "Заряжается";
+"Charging, %d percent" = "Заряжается: %d %%";
+"%@ connected" = "%@: подключено";
+"%d%%" = "%d %%";
+"Show Charging" = "Показывать зарядку";
+"Show Headphones Connecting" = "Показывать подключение наушников";
+
+/* Отправка с Полки */
+"Quick Look" = "Быстрый просмотр";
+"AirDrop" = "AirDrop";
+
+/* Зарядка и наушники */
+"Power adapter connected" = "Адаптер питания подключён";
+"Power adapter connected, %d percent" = "Адаптер питания подключён: %d %%";

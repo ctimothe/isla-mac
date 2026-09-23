@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -128,6 +129,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Settings changed the panel's width, which is geometry.
     func refreshGeometry() {
         controller?.refreshGeometry()
+    }
+
+    // MARK: - Quick Look
+
+    /// The Shelf's Quick Look controller. The app delegate is at the end of
+    /// every responder chain, which is where the panel looks. See
+    /// `ShelfSharing.quickLook`.
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        !ShelfSharing.preview.urls.isEmpty
+    }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = ShelfSharing.preview
+        panel.delegate = ShelfSharing.preview
+        panel.reloadData()
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = nil
+        panel.delegate = nil
     }
 
     /// Private again, and no longer `@objc`: the only callers left are the open

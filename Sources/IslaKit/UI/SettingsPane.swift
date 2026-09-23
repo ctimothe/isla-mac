@@ -47,6 +47,8 @@ struct SettingsPane: View {
     @State private var onlineLyrics = NotchViewModel.onlineLyricsEnabled
     @State private var onlineTranslation = NotchViewModel.onlineTranslationEnabled
     @State private var musicOnly = NotchViewModel.musicOnlyEnabled
+    @State private var showCharging = NotchViewModel.showChargingEnabled
+    @State private var showHeadphones = NotchViewModel.showHeadphonesEnabled
     /// Observed, not snapshotted: the connect flow completes in the browser
     /// long after this pane rendered, and a one-shot copy of isConnected sat
     /// on "Connect" forever while the tokens were already in the keychain.
@@ -144,6 +146,33 @@ struct SettingsPane: View {
                     .frame(height: 26)
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(localized("Panel Width"))
+                    // The island's two moments without music. Each is on by
+                    // default and leaves nothing but a picture on the notch.
+                    // Only on a Mac with a battery to report on.
+                    if AmbientWatch.hasBattery {
+                        toggleRow(
+                            symbol: SettingsIcon.showCharging,
+                            title: localized("Show Charging"),
+                            isOn: Binding(
+                                get: { showCharging },
+                                set: { wants in
+                                    showCharging = wants
+                                    UserDefaults.standard.set(wants, forKey: NotchViewModel.showChargingKey)
+                    }
+                        )
+                    )
+                    }
+                    toggleRow(
+                        symbol: SettingsIcon.showHeadphones,
+                        title: localized("Show Headphones Connecting"),
+                        isOn: Binding(
+                            get: { showHeadphones },
+                            set: { wants in
+                                showHeadphones = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.showHeadphonesKey)
+                            }
+                        )
+                    )
                 }
 
                 // The three ways in that need no pointer. Each can be moved or

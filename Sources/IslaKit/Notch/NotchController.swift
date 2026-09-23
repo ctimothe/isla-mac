@@ -47,6 +47,9 @@ final class NotchController {
         stores.onScreenshot = { [weak self] url in
             self?.viewModel?.receivedScreenshot(at: url)
         }
+        stores.ambient.onEvent = { [weak self] activity in
+            self?.presentAmbient(activity)
+        }
         stores.start()
         build()
         observerTokens.append(NotificationCenter.default.addObserver(
@@ -77,6 +80,10 @@ final class NotchController {
                 guard let self else { return }
                 self.screensAreAsleep = true
                 self.geometryTrace("screens asleep")
+                // A charger moment's timer does not run while the Mac sleeps,
+                // so a lid closed right after plugging in woke to the old
+                // percentage still on the island.
+                self.clearAmbient()
                 self.setOpen(false)
                 self.pointer.setInside(false)
                 self.pointer.stop()
@@ -183,6 +190,9 @@ final class NotchController {
     /// none of this happens and the panel sinks under the shield as any
     /// ordinary window does.
     private func screenLocked() {
+        // A charger or headphones moment does not carry over the shield. The
+        // locked pill is cut for music alone.
+        clearAmbient()
         guard NotchViewModel.showOnLockScreenEnabled else {
             // The card is switched off, but the rest of the lock contract still
             // holds: fold, and stop the sampler. Returning outright left it
@@ -1036,6 +1046,13 @@ final class NotchController {
                 DispatchQueue.main.async { self?.refreshCollapsedRects() }
             }
             .store(in: &cancellables)
+        // The charger or headphones widen the pill the same way.
+        vm.$ambient
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshCollapsedRects() }
+            }
+            .store(in: &cancellables)
 
         // Sneak peek: a new track shows itself, then gets out of the way.
         //
@@ -1264,6 +1281,9 @@ final class NotchController {
     private func sneakPeek() {
         guard NotchViewModel.sneakPeekEnabled else { return }
         guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted else { return }
+        // The charger or headphones hold the pill for their moment. A track
+        // peek on top would put two things in one pill.
+        guard vm.ambient == nil else { return }
         // Nothing peeks at a locked screen. The peek re-cuts the collapsed
         // rects, and while the shield is up those rects belong to the lock
         // card — a track changing on a locked Mac used to hand the card's hit
@@ -1298,6 +1318,76 @@ final class NotchController {
         }
         peekWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.sneakPeekDuration, execute: work)
+    }
+
+    private var ambientWork: DispatchWorkItem?
+
+    /// Shows the charger or headphones on the island for a moment.
+    ///
+    /// The same restraint as the track peek: nothing when the panel is open,
+    /// under the pointer, mid-drag, or over the lock screen, where the
+    /// collapsed rects belong to the card (see `sneakPeek`). A track peek
+    /// already on screen gives way, because the Mac did something and the song
+    /// has not changed.
+    private func presentAmbient(_ activity: AmbientActivity) {
+        guard let vm = viewModel else { return }
+        let switchOn: Bool
+        switch activity {
+        case .charging: switchOn = NotchViewModel.showChargingEnabled
+        case .headphones: switchOn = NotchViewModel.showHeadphonesEnabled
+        }
+        let grown = NotchViewModel.ambientBodySize(
+            activity, media: vm.bodySize, notchSize: vm.geometry.notchSize,
+            bodyWidth: vm.geometry.expandedSize.width
+        )
+        guard Self.ambientAllowed(
+            switchOn: switchOn,
+            isOpen: vm.isOpen,
+            isDropTargeted: vm.isDropTargeted,
+            isLocked: vm.isLockedPresentation,
+            pointerInside: pointer.isInside,
+            pointerUnderGrownPill: vm.geometry.collapsedHoverRect(for: grown.width).contains(NSEvent.mouseLocation),
+            screensAsleep: screensAreAsleep
+        ) else { return }
+
+        let reduceMotion = SystemAppearance.shared.reduceMotion
+        peekWork?.cancel()
+        ambientWork?.cancel()
+        withAnimation(Theme.pill(appearing: true, reduceMotion: reduceMotion)) {
+            vm.isPeeking = false
+            vm.ambient = activity
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let vm = self?.viewModel else { return }
+            withAnimation(Theme.pill(appearing: false, reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                vm.ambient = nil
+            }
+        }
+        ambientWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.ambientDuration, execute: work)
+    }
+
+    /// Whether a charger or headphones moment may show now. Pure, so each
+    /// refusal is a test.
+    ///
+    /// - A pointer resting where the grown pill would reach is refused along
+    ///   with one already inside: the pill would grow under a still cursor,
+    ///   take the clicks meant for the menu bar beside the notch, and with
+    ///   Open on Hover on, open the panel nobody asked for.
+    nonisolated static func ambientAllowed(
+        switchOn: Bool, isOpen: Bool, isDropTargeted: Bool, isLocked: Bool,
+        pointerInside: Bool, pointerUnderGrownPill: Bool, screensAsleep: Bool
+    ) -> Bool {
+        switchOn && !isOpen && !isDropTargeted && !isLocked
+            && !pointerInside && !pointerUnderGrownPill && !screensAsleep
+    }
+
+    /// Ends a charger or headphones moment at once. For a lock, a dark
+    /// display, and anything else that takes the pill away.
+    private func clearAmbient() {
+        ambientWork?.cancel()
+        ambientWork = nil
+        viewModel?.ambient = nil
     }
 
     private func refreshCollapsedRects() {

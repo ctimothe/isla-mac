@@ -667,3 +667,19 @@ downloads in total, and no outside issues.
   longer send real Apple Events (`PlayerBridge.isRunningTests`). The
   "taken by another app" wording became "macOS would not register", because
   non-exclusive Carbon registrations cannot see another app's claim.
+- [x] The island shows the charger going in and headphones connecting
+  (`AmbientWatch`), each with a switch. Shelf cards offer Quick Look and
+  AirDrop.
+- [ ] **Physical check owed:** plug in a charger, connect AirPods, and use
+  Quick Look and AirDrop from a Shelf card. The moments are rendered
+  offscreen in tests (`SHOT_OUT`); the two system panels have not been
+  opened from the app yet.
+- [x] Review of the features, fixed the same day. Quick Look and AirDrop gave
+  the keyboard back to the app that had it. Quick Look got a real controller
+  (`AppDelegate`). The AirDrop row is checked on the click, not on every
+  card redraw. A lid closed mid-moment no longer wakes to it. Headphones are
+  tracked by UID, stay quiet for 30 s and survive a failed read, and lose the
+  owner's name. A holding battery shows the plug, not the bolt. The moment
+  is refused where the grown pill would land under a still cursor. Show
+  Charging appears only on Macs with a battery. Every refusal has a test
+  (`NotchController.ambientAllowed`).

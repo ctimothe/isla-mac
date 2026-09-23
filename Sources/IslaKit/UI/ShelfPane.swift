@@ -211,8 +211,10 @@ private struct ShelfCard: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .contextMenu {
-            Button("Copy") { shelf.copy(item) }
+            Button("Quick Look") { ShelfSharing.quickLook(shelf.dragURLs(startingAt: item)) }
             Button("Open") { shelf.open(item) }
+            Button("Copy") { shelf.copy(item) }
+            Button("AirDrop") { ShelfSharing.airDrop(shelf.dragURLs(startingAt: item)) }
             Button("Show in Finder") { shelf.reveal(item) }
             Divider()
             Button("Remove from Shelf") { shelf.remove(item) }

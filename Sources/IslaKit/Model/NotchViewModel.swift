@@ -73,6 +73,8 @@ final class NotchViewModel: ObservableObject {
     @Published var isDropTargeted = false
     /// Briefly true when a new track has just arrived and is showing itself.
     @Published var isPeeking = false
+    /// The charger or headphones, shown for a moment. See `AmbientActivity`.
+    @Published var ambient: AmbientActivity?
     /// True while the shield is up and the panel is presenting the lock-screen
     /// card instead of its normal shell.
     @Published var isLockedPresentation = false
@@ -579,13 +581,27 @@ final class NotchViewModel: ObservableObject {
     /// Size of the visible body for the current state.
     var bodySize: CGSize {
         if isOpen || isDropTargeted { return openBodySize }
-        return compactMediaActivity.bodySize(
+        let media = compactMediaActivity.bodySize(
             notchSize: geometry.notchSize,
             peeking: isPeeking,
             // The body the panel would open to, so the pill can never be wider
             // than the panel it turns into.
             bodyWidth: geometry.expandedSize.width
         )
+        guard let ambient else { return media }
+        return Self.ambientBodySize(
+            ambient, media: media, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
+        )
+    }
+
+    /// At least as wide as the moment needs, never narrower than the music
+    /// pill it may be standing in for, never wider than the panel. Pure, so
+    /// the arithmetic has tests.
+    nonisolated static func ambientBodySize(
+        _ ambient: AmbientActivity, media: CGSize, notchSize: CGSize, bodyWidth: CGFloat
+    ) -> CGSize {
+        let width = min(notchSize.width + ambient.extensionWidth, bodyWidth)
+        return CGSize(width: max(media.width, width), height: notchSize.height)
     }
 
     static let hasCompletedFirstRunKey = "hasCompletedFirstRun"
@@ -701,6 +717,24 @@ final class NotchViewModel: ObservableObject {
     /// Mac can do itself still stays on it, switch or no switch.
     static var onlineTranslationEnabled: Bool {
         UserDefaults.standard.bool(forKey: onlineTranslationKey)
+    }
+
+    static let showChargingKey = "island.showCharging"
+    static let showHeadphonesKey = "island.showHeadphones"
+
+    /// Both default to **on**. Neither reaches the network or asks for a
+    /// permission: the charge comes from IOKit and the headphones from the
+    /// CoreAudio device list the lock card already reads.
+    static var showChargingEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: showChargingKey) != nil else { return true }
+        return defaults.bool(forKey: showChargingKey)
+    }
+
+    static var showHeadphonesEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: showHeadphonesKey) != nil else { return true }
+        return defaults.bool(forKey: showHeadphonesKey)
     }
 
     static let sneakPeekKey = "sneakPeek"

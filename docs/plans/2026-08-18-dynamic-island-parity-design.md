@@ -389,6 +389,24 @@ transitions.
 > mode, Premium required, or other. Before, the heart vanished without a
 > word. Held by `FindabilityTests`.
 
+> **Amended 2026-09-23 — the island without music.** The charger going in
+> and a Bluetooth audio output appearing each grow the pill out of the notch
+> for 2.2 s. The glyph sits in the left wing and the level or device name in
+> the right, white on black. It has the track peek's restraint (never open,
+> under the pointer, mid-drag, locked or dark), and each has a switch in
+> Settings → General, on by default. Sources: IOKit power-source
+> notifications and the CoreAudio device list, with no permission and no
+> polling. Shelf cards gain Quick Look (the system panel) and AirDrop (the
+> system sheet) in their context menu. Both act on the selection like a
+> drag does. Both activate the app, because each opens a window the user
+> must work in, and both hand activation back to the app that had it when
+> that window closes. Quick Look is driven through `AppDelegate` as its
+> controller, the documented way. Headphones are tracked by device UID and
+> stay quiet for 30 s after being announced, and the owner's name is taken
+> off the device name. Held by `AmbientMomentTests` and
+> `ShelfSharingTests`. Quick Look, AirDrop and the two moments have not
+> been checked on hardware yet (see `checklist.md`).
+
 ### Privacy mode
 
 Privacy covers apply independently to Clipboard and Translate (Snippets,
