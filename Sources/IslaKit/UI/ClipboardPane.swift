@@ -7,10 +7,19 @@ struct ClipboardPane: View {
     var body: some View {
         VStack(spacing: 0) {
             if clipboard.items.isEmpty {
-                Image(systemName: NotchViewModel.Tab.clipboard.symbol)
-                    .islandFont(.display, weight: .light)
-                    .foregroundStyle(Theme.tertiary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 10) {
+                    Image(systemName: NotchViewModel.Tab.clipboard.symbol)
+                        .islandFont(.display, weight: .light)
+                        .foregroundStyle(Theme.tertiary)
+                    // An empty list with history off is not "nothing copied
+                    // yet", and saying which one it is saves a hunt.
+                    if !NotchViewModel.clipboardHistoryEnabled {
+                        Text(localized("Clipboard history is off in Settings."))
+                            .islandFont(.body, weight: .regular)
+                            .foregroundStyle(Theme.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView(showsIndicators: false) {
                     // One clock for every covered row in the list — see

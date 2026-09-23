@@ -59,7 +59,13 @@ final class DiagnosticsTests: XCTestCase {
 
     /// Isla's own log is read back for this process only, and a private value
     /// logged by the app does not come back readable.
-    func testTheLogIsReadBackWithPrivateValuesRedacted() {
+    func testTheLogIsReadBackWithPrivateValuesRedacted() throws {
+        // Opening the process's log store takes seconds, and what this checks
+        // is os.Logger's own redaction, so it runs on request like the other
+        // live tests.
+        guard ProcessInfo.processInfo.environment["ISLA_LIVE_TESTS"] == "1" else {
+            throw XCTSkip("reads the unified log; set ISLA_LIVE_TESTS=1")
+        }
         let marker = UUID().uuidString
         Log.app.notice("diagnostics test \(marker, privacy: .public) secret=\("hunter2-\(marker)")")
         let lines = Diagnostics.recentLog(minutes: 1)

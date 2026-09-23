@@ -815,6 +815,8 @@ struct NotchContentView: View {
                 lyrics: vm.lyrics,
                 localLookup: vm.lyricsCoordinator.localLookup,
                 retryLyrics: vm.lyricsCoordinator.retry,
+                turnOnLyrics: vm.turnOnLyrics,
+                turnOnOnlineLyrics: vm.turnOnOnlineLyrics,
                 importLocalFile: vm.chooseLocalLyricsFile,
                 selectLocalCandidate: vm.lyricsCoordinator.selectLocalCandidate,
                 removeLocalBinding: vm.lyricsCoordinator.removeLocalBinding,
@@ -846,7 +848,9 @@ struct NotchContentView: View {
                 clearBindingsAndTimingCorrections: vm.clearLyricsBindingsAndTimingCorrections,
                 dismissUnassignedLyricsOffset: vm.dismissUnassignedLyricsOffset,
                 privacy: vm.privacy,
-                wantsKeyboard: $vm.wantsKeyboard
+                wantsKeyboard: $vm.wantsKeyboard,
+                setClipboardHistory: vm.setClipboardHistory,
+                refreshClipboardPolling: vm.refreshClipboardPolling
             )
         }
     }

@@ -376,6 +376,19 @@ transitions.
 > row is the lyrics shortcut; Translate's is listed in Settings with the others.
 > Held by `HotKeyTests`, `FirstRunTests` and `LyricRoutesTests`.
 
+> **Amended 2026-09-23 — what can be found, and switched off.** The lyrics page
+> offers the way out of its own dead ends. With lyrics off it offers **Show
+> Lyrics**. When no local file matched and the online lookup is off it offers
+> **Look Up Online**, with the LRCLIB disclosure beside the button. Both write
+> the same keys the Settings switches do, so turning one on from the page is
+> the same informed choice. Clipboard history has an off switch (Settings →
+> Privacy, default on). Off, copies are neither read nor kept and the list is
+> emptied. The pasteboard is polled only while history or clipboard
+> screenshots want it. When Spotify refuses the library, Settings shows
+> Spotify's reason: an account not admitted while the app is in development
+> mode, Premium required, or other. Before, the heart vanished without a
+> word. Held by `FindabilityTests`.
+
 ### Privacy mode
 
 Privacy covers apply independently to Clipboard and Translate (Snippets,

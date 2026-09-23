@@ -77,6 +77,8 @@ enum SettingsIcon {
     /// The same glyphs as the Clipboard and Translate tabs, so each feature
     /// reads as the same feature here.
     static let clipboard = "doc.on.clipboard"
+    /// Keeping a list of copies, as opposed to covering it.
+    static let clipboardHistory = "list.bullet.clipboard"
     static let translate = "character.bubble"
     /// About recording, not about whether a person can see the panel.
     static let hideFromRecording = "video.slash"
@@ -98,7 +100,7 @@ enum SettingsIcon {
         musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
         online, lyricTiming, resetTiming, peek, lockScreen, cardStyle,
         connectAccount, disconnectAccount, importFromKeychain,
-        clipboard, translate, hideFromRecording,
+        clipboard, clipboardHistory, translate, hideFromRecording,
         about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,
     ]
 }

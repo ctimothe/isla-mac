@@ -39,7 +39,7 @@ says whether there is one.
 - **Shelf.** Drop files onto the notch to keep them at hand and drag them out
   again. Screenshots and screen recordings appear here too.
 - **Clipboard.** The last 40 items copied while Isla runs. Click one to copy
-  it again.
+  it again. It can be turned off in Settings.
 - **Translate.** Sixteen languages, translated on the Mac by Apple's
   Translation framework or Apple Intelligence (macOS 26 or later). Uzbek and
   Kazakh need Translate Online.

@@ -176,7 +176,7 @@
 "Compact" = "Compact";
 
 /* Lock card panes */
-"Lyrics are switched off in Settings." = "Lyrics are switched off in Settings.";
+"Lyrics are off." = "Lyrics are off.";
 "No output devices." = "No output devices.";
 "Open on Hover" = "Open on Hover";
 "Output" = "Output";
@@ -244,3 +244,20 @@
 "Check for Updates Automatically" = "Check for Updates Automatically";
 "Asks GitHub once a day for the latest version. It sends nothing about you." = "Asks GitHub once a day for the latest version. It sends nothing about you.";
 "Update available" = "Update available";
+
+/* Lyrics page offers */
+"Look Up Online" = "Look Up Online";
+"Sends the title, artist, album and length to LRCLIB." = "Sends the title, artist, album and length to LRCLIB.";
+
+/* Clipboard History */
+"Clipboard History" = "Clipboard History";
+"Copies are not read or kept. Turning it off emptied the list." = "Copies are not read or kept. Turning it off emptied the list.";
+"Clipboard history is off in Settings." = "Clipboard history is off in Settings.";
+
+/* Spotify refusals */
+"Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet." = "Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet.";
+"Spotify refused this account. Liked Songs needs Spotify Premium." = "Spotify refused this account. Liked Songs needs Spotify Premium.";
+"Spotify refused this account's library request." = "Spotify refused this account's library request.";
+
+/* Diagnostics */
+"Collecting…" = "Collecting…";

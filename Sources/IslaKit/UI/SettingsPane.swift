@@ -25,6 +25,9 @@ struct SettingsPane: View {
     var wantsKeyboard: Binding<Bool> = .constant(false)
     @ObservedObject var hotKeys: HotKeyCenter = .shared
     @ObservedObject var updates: UpdateCheck = .shared
+    var setClipboardHistory: (Bool) -> Void = { _ in }
+    var refreshClipboardPolling: () -> Void = {}
+    @State private var clipboardHistory = NotchViewModel.clipboardHistoryEnabled
     @State private var checkUpdatesAutomatically = UpdateCheck.automaticEnabled
 
     static let localLyricsPrivacyCopyKey = "Lyrics stay on this Mac."
@@ -52,6 +55,7 @@ struct SettingsPane: View {
     /// When the report was last copied, so the row can say it worked. A copy
     /// has no other visible result.
     @State private var diagnosticsCopied: Date?
+    @State private var collectingDiagnostics = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -455,9 +459,26 @@ struct SettingsPane: View {
                     if spotify.isConnected {
                         noteRow(storageNote)
                     }
+                    if spotify.isConnected, spotify.apiBlocked {
+                        noteRow((spotify.refusal ?? .other).explanation)
+                    }
                 }
 
                 section(localized("Privacy")) {
+                    toggleRow(
+                        symbol: SettingsIcon.clipboardHistory,
+                        title: localized("Clipboard History"),
+                        isOn: Binding(
+                            get: { clipboardHistory },
+                            set: { wants in
+                                clipboardHistory = wants
+                                setClipboardHistory(wants)
+                            }
+                        )
+                    )
+                    if !clipboardHistory {
+                        noteRow(localized("Copies are not read or kept. Turning it off emptied the list."))
+                    }
                     ForEach(PrivacyMode.Section.allCases) { privacySection in
                         toggleRow(
                             symbol: privacySymbol(for: privacySection),
@@ -487,11 +508,18 @@ struct SettingsPane: View {
                     }
                     // What a stranger needs to tell the owner what went wrong:
                     // the report, and the form that asks for it.
-                    actionRow(symbol: SettingsIcon.copyDiagnostics, title: localized("Copy Diagnostics")) {
-                        Diagnostics.copyToPasteboard(media: media)
-                        let copied = Date()
-                        diagnosticsCopied = copied
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    actionRow(
+                        symbol: SettingsIcon.copyDiagnostics,
+                        title: collectingDiagnostics ? localized("Collecting…") : localized("Copy Diagnostics"),
+                        disabled: collectingDiagnostics
+                    ) {
+                        collectingDiagnostics = true
+                        Task { @MainActor in
+                            await Diagnostics.copyToPasteboard(media: media)
+                            collectingDiagnostics = false
+                            let copied = Date()
+                            diagnosticsCopied = copied
+                            try? await Task.sleep(for: .seconds(4))
                             if diagnosticsCopied == copied { diagnosticsCopied = nil }
                         }
                     }
@@ -595,6 +623,7 @@ struct SettingsPane: View {
             set: { wants in
                 saveClipboardImages = wants
                 UserDefaults.standard.set(wants, forKey: NotchViewModel.saveClipboardImagesKey)
+                refreshClipboardPolling()
             }
         )
     }

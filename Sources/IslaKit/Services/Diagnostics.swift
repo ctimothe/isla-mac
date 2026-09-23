@@ -95,6 +95,7 @@ enum Diagnostics {
             ("Open on Hover", onOff(NotchViewModel.opensOnHoverEnabled)),
             ("Show on Lock Screen", onOff(NotchViewModel.showOnLockScreenEnabled)),
             ("Hide from Screen Recording", onOff(NotchViewModel.hideFromCaptureEnabled)),
+            ("Clipboard History", onOff(NotchViewModel.clipboardHistoryEnabled)),
             ("Check for Updates Automatically", onOff(UpdateCheck.automaticEnabled)),
             ("Launch at Login", SMAppService.mainApp.status == .enabled ? "on" : "off"),
             ("Panel Width", "\(Int(NotchViewModel.bodyWidth)) pt"),
@@ -134,12 +135,18 @@ enum Diagnostics {
     /// Copies the report, marked transient so Isla's own clipboard history and
     /// other clipboard managers leave it out. It is a few hundred lines meant
     /// for one paste, not something to keep.
+    ///
+    /// The log is read off the main thread. Opening the process's log store
+    /// and scanning half an hour of it measured several seconds, and on the
+    /// main thread that froze the panel the button sits in. Everything else is
+    /// read on the main actor, where it lives, before the hop.
     @MainActor
-    static func copyToPasteboard(media: MediaController) {
-        let text = render(current(media: media))
+    static func copyToPasteboard(media: MediaController) async {
+        var snapshot = current(media: media, includeLog: false)
+        snapshot.log = await Task.detached(priority: .userInitiated) { recentLog() }.value
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        pasteboard.setString(render(snapshot), forType: .string)
         pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
     }
 
@@ -193,7 +200,7 @@ enum Diagnostics {
 
     /// Isla's own entries for the last half hour, newest last, at most 300.
     /// Reading the current process's log needs no entitlement.
-    static func recentLog(minutes: Double = 30, limit: Int = 300) -> [String] {
+    nonisolated static func recentLog(minutes: Double = 30, limit: Int = 300) -> [String] {
         guard let store = try? OSLogStore(scope: .currentProcessIdentifier) else { return [] }
         let start = store.position(date: Date().addingTimeInterval(-minutes * 60))
         let predicate = NSPredicate(format: "subsystem == %@", Log.subsystem)

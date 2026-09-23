@@ -48,6 +48,8 @@ struct LyricsStage: View {
     @ObservedObject var lyrics: LyricsStore
     var localLookup: LocalLyricsLookup? = nil
     var retry: () -> Void = {}
+    var turnOnLyrics: () -> Void = {}
+    var turnOnOnlineLyrics: () -> Void = {}
     var importLocalFile: () -> Void = {}
     var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
     var removeLocalBinding: () -> Void = {}
@@ -554,6 +556,23 @@ struct LyricsStage: View {
                 ))
                     .islandFont(.body)
                     .foregroundStyle(Theme.secondary)
+                // The way out of each dead end, on the page that shows it. Both
+                // used to point at Settings, which a Spotify listener, the
+                // commonest one, had to visit twice before any word appeared.
+                switch LyricsPresentation.offer(
+                    for: lyrics.availability, localLookup: localLookup,
+                    onlineEnabled: NotchViewModel.onlineLyricsEnabled
+                ) {
+                case .turnOnLyrics:
+                    offerButton(localized("Show Lyrics"), action: turnOnLyrics)
+                case .lookUpOnline:
+                    offerButton(localized("Look Up Online"), action: turnOnOnlineLyrics)
+                    Text(localized("Sends the title, artist, album and length to LRCLIB."))
+                        .islandFont(.caption, weight: .regular)
+                        .foregroundStyle(Theme.tertiary)
+                case nil:
+                    EmptyView()
+                }
             }
             if case .some(.ambiguous(let candidates)) = localLookup {
                 VStack(alignment: .leading, spacing: 4) {
@@ -571,6 +590,22 @@ struct LyricsStage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The pill the Music tab's "Open Spotify" wears: the one action on an
+    /// otherwise empty page.
+    private func offerButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .islandFont(.body)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Theme.surface, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
+        }
+        .buttonStyle(PanelButtonStyle())
+        .padding(.top, 2)
     }
 
     private func candidateLabel(_ candidate: LocalLyricsCandidate) -> String {

@@ -175,7 +175,7 @@
 "Compact" = "Компактный";
 
 /* Lock card panes */
-"Lyrics are switched off in Settings." = "Тексты выключены в настройках.";
+"Lyrics are off." = "Текст песен выключен.";
 "No output devices." = "Нет устройств вывода.";
 "Open on Hover" = "Открывать при наведении";
 "Output" = "Вывод";
@@ -243,3 +243,20 @@
 "Check for Updates Automatically" = "Проверять обновления автоматически";
 "Asks GitHub once a day for the latest version. It sends nothing about you." = "Раз в день спрашивает у GitHub последнюю версию. О вас ничего не отправляется.";
 "Update available" = "Доступно обновление";
+
+/* Предложения страницы текста */
+"Look Up Online" = "Найти в интернете";
+"Sends the title, artist, album and length to LRCLIB." = "Отправляет в LRCLIB название, исполнителя, альбом и длительность.";
+
+/* История буфера обмена */
+"Clipboard History" = "История буфера обмена";
+"Copies are not read or kept. Turning it off emptied the list." = "Скопированное не читается и не сохраняется. При выключении список очищен.";
+"Clipboard history is off in Settings." = "История буфера обмена выключена в Настройках.";
+
+/* Отказы Spotify */
+"Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet." = "Spotify отказал этой учётной записи. Пока Spotify не проверит Isla, доступ есть только у вручную добавленных учётных записей, поэтому «Любимые треки» здесь пока не работают.";
+"Spotify refused this account. Liked Songs needs Spotify Premium." = "Spotify отказал этой учётной записи. Для «Любимых треков» нужен Spotify Premium.";
+"Spotify refused this account's library request." = "Spotify отказал в доступе к медиатеке этой учётной записи.";
+
+/* Диагностика */
+"Collecting…" = "Сбор данных…";

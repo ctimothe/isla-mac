@@ -374,6 +374,24 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    /// Turns lyrics on from the lyrics page itself. The headline feature was
+    /// off by default behind a switch in Settings, and the page only said so,
+    /// so somebody who opened it to find words was sent somewhere else to get
+    /// them. The switch stays the same one: this writes the key Settings reads.
+    func turnOnLyrics() {
+        UserDefaults.standard.set(true, forKey: Self.showLyricsKey)
+        lyricsCoordinator.refreshVisibility()
+    }
+
+    /// Turns on the LRCLIB lookup from the page that just failed to find a
+    /// local file, which is where a streamed song always ends up. The button
+    /// carries the disclosure the Settings note does, so pressing it is the
+    /// same informed choice as flipping the switch.
+    func turnOnOnlineLyrics() {
+        UserDefaults.standard.set(true, forKey: Self.onlineLyricsKey)
+        lyricsCoordinator.refreshVisibility()
+    }
+
     func chooseLocalLyricsFile() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.init(filenameExtension: "lrc")!]
@@ -583,6 +601,31 @@ final class NotchViewModel: ObservableObject {
 
     static func completeFirstRun() {
         UserDefaults.standard.set(true, forKey: hasCompletedFirstRunKey)
+    }
+
+    static let clipboardHistoryKey = "clipboard.historyEnabled"
+
+    /// Defaults to **on**, as it always was. Clipboard history reads every
+    /// copy made while Isla runs. That is the feature, and it is also the one
+    /// thing here a person may reasonably not want, so it has a switch.
+    /// Before 2026-09-23 the only choices were keeping it or quitting the app.
+    /// Off, the poll records nothing, the list is emptied, and the pasteboard
+    /// is not read at all unless Save Clipboard Screenshots still needs it.
+    static var clipboardHistoryEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: clipboardHistoryKey) != nil else { return true }
+        return defaults.bool(forKey: clipboardHistoryKey)
+    }
+
+    func setClipboardHistory(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.clipboardHistoryKey)
+        if !enabled { clipboard.clear() }
+        stores.refreshClipboardPolling()
+    }
+
+    /// The screenshot switch decides polling too, once history is off.
+    func refreshClipboardPolling() {
+        stores.refreshClipboardPolling()
     }
 
     /// Off switch for people who copy images all day and do not want them kept.

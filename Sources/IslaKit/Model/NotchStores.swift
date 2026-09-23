@@ -86,6 +86,7 @@ final class NotchStores {
         // to PNG in full just to be dropped on this doorstep — pure heat on
         // exactly the machines whose owners turned the feature off.
         clipboard.wantsImages = { NotchViewModel.saveClipboardImagesEnabled }
+        clipboard.recordsHistory = { NotchViewModel.clipboardHistoryEnabled }
         clipboard.onImage = { [weak self] png in
             guard let self else { return }
             self.screenshotVault.save(png) { [weak self] url in
@@ -113,7 +114,25 @@ final class NotchStores {
             self.shelf.add([url])
             self.onScreenshot?(url)
         }
-        clipboard.start()
+        refreshClipboardPolling()
+    }
+
+    /// The pasteboard is read only while something wants what is on it:
+    /// history, or clipboard screenshots for the Shelf. With both off,
+    /// nothing polls at all.
+    static func clipboardShouldPoll(history: Bool, images: Bool) -> Bool {
+        history || images
+    }
+
+    func refreshClipboardPolling() {
+        if Self.clipboardShouldPoll(
+            history: NotchViewModel.clipboardHistoryEnabled,
+            images: NotchViewModel.saveClipboardImagesEnabled
+        ) {
+            clipboard.start()
+        } else {
+            clipboard.stop()
+        }
     }
 
     func stop() {
@@ -144,7 +163,7 @@ final class NotchStores {
     }
 
     func resumeFromIdleScreen() {
-        clipboard.start()
+        refreshClipboardPolling()
         // A wake is the likeliest moment for a failed route to work again. The
         // helper can lose a race with a waking MediaRemote, and a user who
         // cleared the download quarantine has usually put the Mac to sleep
