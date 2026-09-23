@@ -96,6 +96,8 @@ enum Diagnostics {
             ("Show on Lock Screen", onOff(NotchViewModel.showOnLockScreenEnabled)),
             ("Hide from Screen Recording", onOff(NotchViewModel.hideFromCaptureEnabled)),
             ("Clipboard History", onOff(NotchViewModel.clipboardHistoryEnabled)),
+            ("Show Charging", onOff(NotchViewModel.showChargingEnabled)),
+            ("Show Headphones Connecting", onOff(NotchViewModel.showHeadphonesEnabled)),
             ("Check for Updates Automatically", onOff(UpdateCheck.automaticEnabled)),
             ("Launch at Login", SMAppService.mainApp.status == .enabled ? "on" : "off"),
             ("Panel Width", "\(Int(NotchViewModel.bodyWidth)) pt"),

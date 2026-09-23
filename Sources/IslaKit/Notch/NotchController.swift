@@ -80,6 +80,10 @@ final class NotchController {
                 guard let self else { return }
                 self.screensAreAsleep = true
                 self.geometryTrace("screens asleep")
+                // A charger moment's timer does not run while the Mac sleeps,
+                // so a lid closed right after plugging in woke to the old
+                // percentage still on the island.
+                self.clearAmbient()
                 self.setOpen(false)
                 self.pointer.setInside(false)
                 self.pointer.stop()
@@ -188,8 +192,7 @@ final class NotchController {
     private func screenLocked() {
         // A charger or headphones moment does not carry over the shield. The
         // locked pill is cut for music alone.
-        ambientWork?.cancel()
-        viewModel?.ambient = nil
+        clearAmbient()
         guard NotchViewModel.showOnLockScreenEnabled else {
             // The card is switched off, but the rest of the lock contract still
             // holds: fold, and stop the sampler. Returning outright left it
@@ -1327,12 +1330,25 @@ final class NotchController {
     /// already on screen gives way, because the Mac did something and the song
     /// has not changed.
     private func presentAmbient(_ activity: AmbientActivity) {
+        guard let vm = viewModel else { return }
+        let switchOn: Bool
         switch activity {
-        case .charging: guard NotchViewModel.showChargingEnabled else { return }
-        case .headphones: guard NotchViewModel.showHeadphonesEnabled else { return }
+        case .charging: switchOn = NotchViewModel.showChargingEnabled
+        case .headphones: switchOn = NotchViewModel.showHeadphonesEnabled
         }
-        guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted, !vm.isLockedPresentation else { return }
-        guard !pointer.isInside, !screensAreAsleep else { return }
+        let grown = NotchViewModel.ambientBodySize(
+            activity, media: vm.bodySize, notchSize: vm.geometry.notchSize,
+            bodyWidth: vm.geometry.expandedSize.width
+        )
+        guard Self.ambientAllowed(
+            switchOn: switchOn,
+            isOpen: vm.isOpen,
+            isDropTargeted: vm.isDropTargeted,
+            isLocked: vm.isLockedPresentation,
+            pointerInside: pointer.isInside,
+            pointerUnderGrownPill: vm.geometry.collapsedHoverRect(for: grown.width).contains(NSEvent.mouseLocation),
+            screensAsleep: screensAreAsleep
+        ) else { return }
 
         let reduceMotion = SystemAppearance.shared.reduceMotion
         peekWork?.cancel()
@@ -1349,6 +1365,29 @@ final class NotchController {
         }
         ambientWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.ambientDuration, execute: work)
+    }
+
+    /// Whether a charger or headphones moment may show now. Pure, so each
+    /// refusal is a test.
+    ///
+    /// - A pointer resting where the grown pill would reach is refused along
+    ///   with one already inside: the pill would grow under a still cursor,
+    ///   take the clicks meant for the menu bar beside the notch, and with
+    ///   Open on Hover on, open the panel nobody asked for.
+    nonisolated static func ambientAllowed(
+        switchOn: Bool, isOpen: Bool, isDropTargeted: Bool, isLocked: Bool,
+        pointerInside: Bool, pointerUnderGrownPill: Bool, screensAsleep: Bool
+    ) -> Bool {
+        switchOn && !isOpen && !isDropTargeted && !isLocked
+            && !pointerInside && !pointerUnderGrownPill && !screensAsleep
+    }
+
+    /// Ends a charger or headphones moment at once. For a lock, a dark
+    /// display, and anything else that takes the pill away.
+    private func clearAmbient() {
+        ambientWork?.cancel()
+        ambientWork = nil
+        viewModel?.ambient = nil
     }
 
     private func refreshCollapsedRects() {

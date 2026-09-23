@@ -20,16 +20,68 @@ final class AmbientMomentTests: XCTestCase {
     }
 
     func testOnlyNewlyAppearedHeadphonesAreAnnounced() {
-        let pods = AudioOutputs.Output(id: 7, name: "AirPods Pro", transport: kAudioDeviceTransportTypeBluetooth)
-        let speaker = AudioOutputs.Output(id: 9, name: "Speaker", transport: kAudioDeviceTransportTypeBluetooth)
-        XCTAssertEqual(AmbientWatch.newArrivals(known: [9], now: [pods, speaker]).map(\.id), [7])
-        XCTAssertTrue(AmbientWatch.newArrivals(known: [7, 9], now: [pods, speaker]).isEmpty)
+        let pods = AmbientWatch.Headphones(uid: "pods", name: "AirPods Pro", symbol: "airpodspro")
+        let speaker = AmbientWatch.Headphones(uid: "speaker", name: "Speaker", symbol: "hifispeaker")
+        let now = Date()
+        XCTAssertEqual(AmbientWatch.announcements(known: ["speaker"], now: [pods, speaker], lastAnnounced: [:], at: now).map(\.uid), ["pods"])
+        XCTAssertTrue(AmbientWatch.announcements(known: ["pods", "speaker"], now: [pods, speaker], lastAnnounced: [:], at: now).isEmpty)
+    }
+
+    /// AirPods hopping between a phone and the Mac, or coreaudiod restarting,
+    /// reappear within seconds. The same device stays quiet for a while.
+    func testTheSameHeadphonesAreNotAnnouncedTwiceInAMoment() {
+        let pods = AmbientWatch.Headphones(uid: "pods", name: "AirPods Pro", symbol: "airpodspro")
+        let then = Date()
+        XCTAssertTrue(AmbientWatch.announcements(
+            known: [], now: [pods], lastAnnounced: ["pods": then], at: then.addingTimeInterval(10)
+        ).isEmpty)
+        XCTAssertEqual(AmbientWatch.announcements(
+            known: [], now: [pods], lastAnnounced: ["pods": then], at: then.addingTimeInterval(AmbientWatch.repeatQuiet + 1)
+        ).map(\.uid), ["pods"])
+    }
+
+    /// The owner's name is what fit in the wing and the model is what got cut.
+    func testTheOwnersNameComesOffADeviceName() {
+        XCTAssertEqual(AmbientWatch.shortName("Elshod's AirPods Max"), "AirPods Max")
+        XCTAssertEqual(AmbientWatch.shortName("Elshod’s AirPods Pro"), "AirPods Pro")
+        XCTAssertEqual(AmbientWatch.shortName("Beats Studio Pro"), "Beats Studio Pro")
+        XCTAssertEqual(AmbientWatch.shortName("Elshod's "), "Elshod's ", "nothing after the owner: leave it")
+    }
+
+    /// Plugged in and holding is not charging, and the plug says so.
+    func testAHoldingBatteryWearsThePlugNotTheBolt() {
+        XCTAssertEqual(AmbientActivity.charging(level: 80, isCharging: true).chargeSymbol, "bolt.fill")
+        XCTAssertEqual(AmbientActivity.charging(level: 80, isCharging: false).chargeSymbol, "powerplug.fill")
+        for symbol in ["bolt.fill", "powerplug.fill"] {
+            XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), "\(symbol) must resolve")
+        }
+    }
+
+    /// Every refusal the moment makes, one at a time.
+    func testTheMomentKeepsTheTrackPeeksRestraint() {
+        func allowed(
+            switchOn: Bool = true, isOpen: Bool = false, isDropTargeted: Bool = false, isLocked: Bool = false,
+            pointerInside: Bool = false, pointerUnderGrownPill: Bool = false, screensAsleep: Bool = false
+        ) -> Bool {
+            NotchController.ambientAllowed(
+                switchOn: switchOn, isOpen: isOpen, isDropTargeted: isDropTargeted, isLocked: isLocked,
+                pointerInside: pointerInside, pointerUnderGrownPill: pointerUnderGrownPill, screensAsleep: screensAsleep
+            )
+        }
+        XCTAssertTrue(allowed())
+        XCTAssertFalse(allowed(switchOn: false), "switched off in Settings")
+        XCTAssertFalse(allowed(isOpen: true), "the panel is open")
+        XCTAssertFalse(allowed(isDropTargeted: true), "a drag is over the island")
+        XCTAssertFalse(allowed(isLocked: true), "the lock card owns the rects")
+        XCTAssertFalse(allowed(pointerInside: true), "the pointer is on the island")
+        XCTAssertFalse(allowed(pointerUnderGrownPill: true), "the pill would grow under a still cursor")
+        XCTAssertFalse(allowed(screensAsleep: true), "nobody can see it")
     }
 
     func testThePillGrowsOnlyAsFarAsTheMomentNeeds() {
         let notch = CGSize(width: 200, height: 32)
         let folded = notch
-        let charging = NotchViewModel.ambientBodySize(.charging(level: 80), media: folded, notchSize: notch, bodyWidth: 560)
+        let charging = NotchViewModel.ambientBodySize(.charging(level: 80, isCharging: true), media: folded, notchSize: notch, bodyWidth: 560)
         XCTAssertEqual(charging.width, 200 + NotchMetrics.compactMediaExtension)
         let pods = NotchViewModel.ambientBodySize(
             .headphones(name: "AirPods Pro", symbol: "airpodspro"), media: folded, notchSize: notch, bodyWidth: 560
@@ -40,7 +92,7 @@ final class AmbientMomentTests: XCTestCase {
         )
         XCTAssertEqual(narrow.width, 380, "never wider than the panel it would open into")
         let overMusic = NotchViewModel.ambientBodySize(
-            .charging(level: 80), media: CGSize(width: 460, height: 32), notchSize: notch, bodyWidth: 560
+            .charging(level: 80, isCharging: true), media: CGSize(width: 460, height: 32), notchSize: notch, bodyWidth: 560
         )
         XCTAssertEqual(overMusic.width, 460, "never narrower than the music pill it stands in for")
     }
@@ -61,7 +113,7 @@ final class AmbientMomentTests: XCTestCase {
     func testBothMomentsRender() throws {
         guard let geometry = NotchGeometry.current() else { return XCTFail("a test host always has a screen") }
         var images: [NSImage] = []
-        for activity in [AmbientActivity.charging(level: 82), .headphones(name: "AirPods Pro", symbol: "airpodspro")] {
+        for activity in [AmbientActivity.charging(level: 82, isCharging: true), .headphones(name: "AirPods Pro", symbol: "airpodspro")] {
             let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
             vm.ambient = activity
             let width = vm.geometry.expandedSize.width + 80
@@ -84,10 +136,26 @@ final class AmbientMomentTests: XCTestCase {
     }
 }
 
-/// The Shelf's AirDrop row is offered only where AirDrop can take the files.
+/// The Quick Look panel's data source: the files asked for, in order, and
+/// nothing once the panel is gone.
 @MainActor
 final class ShelfSharingTests: XCTestCase {
-    func testNothingSelectedOffersNoAirDrop() {
-        XCTAssertFalse(ShelfSharing.canAirDrop([]))
+    func testThePreviewListsTheFilesInOrder() {
+        let source = ShelfSharing.PreviewSource()
+        let urls = [URL(fileURLWithPath: "/tmp/a.png"), URL(fileURLWithPath: "/tmp/b.pdf")]
+        source.urls = urls
+        XCTAssertEqual(source.numberOfPreviewItems(in: nil), 2)
+        XCTAssertEqual(source.previewPanel(nil, previewItemAt: 1)?.previewItemURL, urls[1])
+        XCTAssertNil(source.previewPanel(nil, previewItemAt: 2))
+    }
+
+    /// The controller accepts the panel only while there is something to show.
+    func testTheAppAcceptsQuickLookOnlyWithFiles() {
+        let delegate = AppDelegate()
+        ShelfSharing.preview.urls = []
+        XCTAssertFalse(delegate.acceptsPreviewPanelControl(nil))
+        ShelfSharing.preview.urls = [URL(fileURLWithPath: "/tmp/a.png")]
+        XCTAssertTrue(delegate.acceptsPreviewPanelControl(nil))
+        ShelfSharing.preview.urls = []
     }
 }

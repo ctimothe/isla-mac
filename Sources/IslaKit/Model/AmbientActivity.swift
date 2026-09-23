@@ -11,7 +11,9 @@ import CoreGraphics
 /// permission.
 enum AmbientActivity: Equatable {
     /// External power arrived. The level is nil on a Mac that reports none.
-    case charging(level: Int?)
+    /// `isCharging` is false when the battery holds rather than charges: at
+    /// its limit, or with charging paused.
+    case charging(level: Int?, isCharging: Bool)
     /// A Bluetooth audio output appeared.
     case headphones(name: String, symbol: String)
 
@@ -26,9 +28,20 @@ enum AmbientActivity: Equatable {
         }
     }
 
+    /// The left wing's glyph for the charger: the bolt while charging, the
+    /// plug while it only holds, as the battery menu draws them.
+    var chargeSymbol: String {
+        if case .charging(_, false) = self { return "powerplug.fill" }
+        return "bolt.fill"
+    }
+
     var accessibilityLabel: String {
         switch self {
-        case .charging(let level):
+        case .charging(let level, let isCharging):
+            guard isCharging else {
+                guard let level else { return localized("Power adapter connected") }
+                return localized("Power adapter connected, %d percent", level)
+            }
             guard let level else { return localized("Charging") }
             return localized("Charging, %d percent", level)
         case .headphones(let name, _):

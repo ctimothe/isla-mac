@@ -424,8 +424,8 @@ struct NotchContentView: View {
         let symbol: String
         let value: String?
         switch ambient {
-        case .charging(let level):
-            symbol = "bolt.fill"
+        case .charging(let level, _):
+            symbol = ambient.chargeSymbol
             value = level.map { localized("%d%%", $0) }
         case .headphones(let name, let deviceSymbol):
             symbol = deviceSymbol

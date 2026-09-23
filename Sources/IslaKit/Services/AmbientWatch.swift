@@ -10,13 +10,31 @@ final class AmbientWatch {
     struct Power: Equatable {
         var onExternalPower: Bool
         var level: Int?
+        /// Taking charge, as opposed to plugged in and holding: a battery at
+        /// its limit, or with charging paused, says so here.
+        var isCharging: Bool = false
+    }
+
+    /// A Bluetooth output as the watch tracks it: by UID, which survives a
+    /// CoreAudio restart and a reconnect, where the numeric device id does
+    /// not.
+    struct Headphones: Equatable {
+        var uid: String
+        var name: String
+        var symbol: String
     }
 
     var onEvent: ((AmbientActivity) -> Void)?
 
+    /// How long after announcing a device the same device stays quiet.
+    /// AirPods hopping between a phone and this Mac, or a coreaudiod restart,
+    /// reappear within seconds, and each reappearance is not news.
+    nonisolated static let repeatQuiet: TimeInterval = 30
+
     private var powerSource: CFRunLoopSource?
     private var lastPower: Power?
-    private var knownBluetooth: Set<AudioDeviceID> = []
+    private var knownHeadphones: Set<String> = []
+    private var lastAnnounced: [String: Date] = [:]
     private var devicesListener: AudioObjectPropertyListenerBlock?
     private var devicesAddress = AudioObjectPropertyAddress(
         mSelector: kAudioHardwarePropertyDevices,
@@ -27,10 +45,12 @@ final class AmbientWatch {
     func start() {
         stop()
         lastPower = Self.readPower()
-        knownBluetooth = Set(Self.bluetoothOutputs().map(\.id))
+        if let headphones = Self.readHeadphones() { knownHeadphones = Set(headphones.map(\.uid)) }
 
         // IOKit calls back on the run loop the source is added to, the main
-        // one here, with the context pointer it was given.
+        // one here, with the context pointer it was given. Unretained is safe:
+        // the watch lives as long as the stores, which live as long as the
+        // app, and `stop` removes the source first.
         let context = Unmanaged.passUnretained(self).toOpaque()
         if let source = IOPSNotificationCreateRunLoopSource({ context in
             guard let context else { return }
@@ -64,13 +84,20 @@ final class AmbientWatch {
         }
     }
 
+    /// Whether this Mac has a battery to report on, for Settings: a desktop
+    /// Mac gets no Show Charging switch that could never do anything.
+    /// Read once: a battery does not come and go while the app runs.
+    nonisolated static let hasBattery: Bool = readPower() != nil
+
     // MARK: - Power
 
     private func powerChanged() {
-        let now = Self.readPower()
+        // A failed read keeps the last good one. Stored as nil, it made the
+        // next real plug-in look like the first reading, which is no event.
+        guard let now = Self.readPower() else { return }
         defer { lastPower = now }
-        guard let now, Self.pluggedIn(previous: lastPower, now: now) else { return }
-        onEvent?(.charging(level: now.level))
+        guard Self.pluggedIn(previous: lastPower, now: now) else { return }
+        onEvent?(.charging(level: now.level, isCharging: now.isCharging))
     }
 
     /// Only the moment external power arrives. A level change while charging,
@@ -95,7 +122,11 @@ final class AmbientWatch {
                let maximum = description[kIOPSMaxCapacityKey] as? Int, maximum > 0 {
                 level = Int((Double(current) / Double(maximum) * 100).rounded())
             }
-            return Power(onExternalPower: state == kIOPSACPowerValue, level: level)
+            return Power(
+                onExternalPower: state == kIOPSACPowerValue,
+                level: level,
+                isCharging: (description[kIOPSIsChargingKey] as? Bool) ?? false
+            )
         }
         return nil
     }
@@ -103,22 +134,70 @@ final class AmbientWatch {
     // MARK: - Headphones
 
     private func devicesChanged() {
-        let outputs = Self.bluetoothOutputs()
-        let arrived = Self.newArrivals(known: knownBluetooth, now: outputs)
-        knownBluetooth = Set(outputs.map(\.id))
+        // A read that finds no devices at all is a read that failed (a Mac
+        // always has somewhere to play), not headphones going away. Taken at
+        // its word, it emptied the known set and the next good read
+        // announced everything already connected.
+        guard let headphones = Self.readHeadphones() else { return }
+        let now = Date()
+        let arrived = Self.announcements(
+            known: knownHeadphones, now: headphones, lastAnnounced: lastAnnounced, at: now
+        )
+        knownHeadphones = Set(headphones.map(\.uid))
         // One at a time. Two devices appearing in one change is a Mac waking
         // with both already paired, and the first is enough to say so.
         guard let device = arrived.first else { return }
-        onEvent?(.headphones(name: device.name, symbol: device.symbol))
+        lastAnnounced[device.uid] = now
+        onEvent?(.headphones(name: Self.shortName(device.name), symbol: device.symbol))
     }
 
-    nonisolated static func newArrivals(known: Set<AudioDeviceID>, now: [AudioOutputs.Output]) -> [AudioOutputs.Output] {
-        now.filter { !known.contains($0.id) }
-    }
-
-    private static func bluetoothOutputs() -> [AudioOutputs.Output] {
-        AudioOutputs.available().filter {
-            $0.transport == kAudioDeviceTransportTypeBluetooth || $0.transport == kAudioDeviceTransportTypeBluetoothLE
+    /// The headphones worth announcing: newly present, and not announced in
+    /// the last `repeatQuiet` seconds.
+    nonisolated static func announcements(
+        known: Set<String>, now: [Headphones], lastAnnounced: [String: Date], at date: Date,
+        quiet: TimeInterval = repeatQuiet
+    ) -> [Headphones] {
+        now.filter { device in
+            guard !known.contains(device.uid) else { return false }
+            guard let last = lastAnnounced[device.uid] else { return true }
+            return date.timeIntervalSince(last) >= quiet
         }
+    }
+
+    /// The name without its owner. macOS names headphones after the person
+    /// who paired them ("Elshod's AirPods Max"), and in a 90 pt wing the
+    /// owner's name is what fit and the model is what got cut. Anything not
+    /// shaped like that is left alone.
+    nonisolated static func shortName(_ name: String) -> String {
+        for mark in ["'s ", "’s "] {
+            if let range = name.range(of: mark) {
+                let rest = name[range.upperBound...].trimmingCharacters(in: .whitespaces)
+                if !rest.isEmpty { return rest }
+            }
+        }
+        return name
+    }
+
+    /// Bluetooth outputs, or nil when CoreAudio returned no devices at all.
+    private static func readHeadphones() -> [Headphones]? {
+        let outputs = AudioOutputs.available()
+        guard !outputs.isEmpty else { return nil }
+        return outputs
+            .filter { $0.transport == kAudioDeviceTransportTypeBluetooth || $0.transport == kAudioDeviceTransportTypeBluetoothLE }
+            .map { Headphones(uid: uid(of: $0.id) ?? "id-\($0.id)", name: $0.name, symbol: $0.symbol) }
+    }
+
+    private static func uid(of id: AudioDeviceID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var uid: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &uid) == noErr,
+              let value = uid?.takeRetainedValue()
+        else { return nil }
+        return value as String
     }
 }

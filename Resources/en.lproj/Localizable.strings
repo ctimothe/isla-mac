@@ -292,3 +292,7 @@
 /* Shelf sharing */
 "Quick Look" = "Quick Look";
 "AirDrop" = "AirDrop";
+
+/* Charging and headphones */
+"Power adapter connected" = "Power adapter connected";
+"Power adapter connected, %d percent" = "Power adapter connected, %d percent";

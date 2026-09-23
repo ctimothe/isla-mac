@@ -148,17 +148,20 @@ struct SettingsPane: View {
                     .accessibilityLabel(localized("Panel Width"))
                     // The island's two moments without music. Each is on by
                     // default and leaves nothing but a picture on the notch.
-                    toggleRow(
-                        symbol: SettingsIcon.showCharging,
-                        title: localized("Show Charging"),
-                        isOn: Binding(
-                            get: { showCharging },
-                            set: { wants in
-                                showCharging = wants
-                                UserDefaults.standard.set(wants, forKey: NotchViewModel.showChargingKey)
-                            }
+                    // Only on a Mac with a battery to report on.
+                    if AmbientWatch.hasBattery {
+                        toggleRow(
+                            symbol: SettingsIcon.showCharging,
+                            title: localized("Show Charging"),
+                            isOn: Binding(
+                                get: { showCharging },
+                                set: { wants in
+                                    showCharging = wants
+                                    UserDefaults.standard.set(wants, forKey: NotchViewModel.showChargingKey)
+                    }
                         )
                     )
+                    }
                     toggleRow(
                         symbol: SettingsIcon.showHeadphones,
                         title: localized("Show Headphones Connecting"),

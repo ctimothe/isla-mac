@@ -398,8 +398,12 @@ transitions.
 > notifications and the CoreAudio device list, with no permission and no
 > polling. Shelf cards gain Quick Look (the system panel) and AirDrop (the
 > system sheet) in their context menu. Both act on the selection like a
-> drag does, and both activate the app, because each opens a window the
-> user must interact with. Held by `AmbientMomentTests` and
+> drag does. Both activate the app, because each opens a window the user
+> must work in, and both hand activation back to the app that had it when
+> that window closes. Quick Look is driven through `AppDelegate` as its
+> controller, the documented way. Headphones are tracked by device UID and
+> stay quiet for 30 s after being announced, and the owner's name is taken
+> off the device name. Held by `AmbientMomentTests` and
 > `ShelfSharingTests`. Quick Look, AirDrop and the two moments have not
 > been checked on hardware yet (see `checklist.md`).
 
