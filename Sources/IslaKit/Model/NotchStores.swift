@@ -15,15 +15,15 @@ import Foundation
 @MainActor
 final class NotchStores {
     let media = MediaController()
-    let shelf = ShelfStore()
-    let clipboard = ClipboardStore()
-    let screenshotVault = ScreenshotVault()
-    let translator = Translator()
+    let shelf: ShelfStore
+    let clipboard: ClipboardStore
+    let screenshotVault: ScreenshotVault
+    let translator: Translator
     let lyrics: LyricsStore
     let localLyricsLibrary: LocalLyricsLibrary
     let lyricsCoordinator: LyricsCoordinator
     /// Shared by every pane that shows something worth not showing.
-    let privacy = PrivacyMode()
+    let privacy: PrivacyMode
     /// The charger and headphones, for the island's moments without music.
     let ambient = AmbientWatch()
 
@@ -34,10 +34,26 @@ final class NotchStores {
 
     private var started = false
 
+    /// The store parameters are a seam for the headless visual lab
+    /// (`Tests/IslaKitTests/VisualLab*`), which builds whole panels without
+    /// touching anything of the person's: the default `ClipboardStore` reads
+    /// the general pasteboard, `ScreenshotVault` creates `~/Pictures/Isla`,
+    /// and `PrivacyMode` and `Translator` write the standard defaults. Left
+    /// out — as the app always leaves them — each is built exactly as before.
     init(
         lyricsEnabled: (() -> Bool)? = nil,
-        localLyricsDirectory: URL = AppPaths.live.supportDirectory
+        localLyricsDirectory: URL = AppPaths.live.supportDirectory,
+        shelf: ShelfStore? = nil,
+        clipboard: ClipboardStore? = nil,
+        screenshotVault: ScreenshotVault? = nil,
+        translator: Translator? = nil,
+        privacy: PrivacyMode? = nil
     ) {
+        self.shelf = shelf ?? ShelfStore()
+        self.clipboard = clipboard ?? ClipboardStore()
+        self.screenshotVault = screenshotVault ?? ScreenshotVault()
+        self.translator = translator ?? Translator()
+        self.privacy = privacy ?? PrivacyMode()
         // Import a listener's old local override and timing correction before
         // the retired cache helper gets a chance to prune its cache files.
         // The local library is now the coordinator's only lyric authority.

@@ -330,7 +330,14 @@ final class Translator: ObservableObject {
         }
     }
 
+    /// A seam for the headless visual lab, nil in the app: what this Mac can
+    /// do, stated rather than asked. The real answer depends on which language
+    /// packs the machine running the lab has downloaded, so a "missing pack"
+    /// render could otherwise only be made on a Mac that happens to miss one.
+    var capabilitiesOverride: ((Route) -> Capabilities)?
+
     private func capabilities(for route: Route) async -> Capabilities {
+        if let capabilitiesOverride { return capabilitiesOverride(route) }
         var capabilities = Capabilities()
         capabilities.onlineEnabled = defaults.bool(forKey: NotchViewModel.onlineTranslationKey)
         guard #available(macOS 26.0, *) else {

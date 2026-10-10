@@ -341,7 +341,10 @@ final class ClipboardStore: ObservableObject {
         record(ClipItem(payload: .text(Self.capped(string)), date: Date()))
     }
 
-    private func record(_ item: ClipItem) {
+    /// Internal rather than private as a seam for the headless visual lab,
+    /// which fills the history without reading any pasteboard. The app
+    /// itself only ever reaches it through `pollNow`.
+    func record(_ item: ClipItem) {
         items.removeAll { $0 == item }
         items.insert(item, at: 0)
         if items.count > limit { items.removeLast(items.count - limit) }
