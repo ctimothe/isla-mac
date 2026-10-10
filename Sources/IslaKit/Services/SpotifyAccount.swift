@@ -11,7 +11,15 @@ import CryptoKit
 /// the only scopes requested are the library ones the heart needs.
 @MainActor
 final class SpotifyAccount: ObservableObject {
-    static let shared = SpotifyAccount()
+    static var shared: SpotifyAccount { sharedOverride ?? live }
+    private static let live = SpotifyAccount()
+
+    /// A seam for the headless visual lab, never set by the app. Settings and
+    /// the lock card read `shared` from deep inside the view tree, and the
+    /// live account's first read goes to the person's own keychain and
+    /// support folder. Set before anything asks for `shared`, an isolated
+    /// account stands in and the live one is never even built — it is lazy.
+    static var sharedOverride: SpotifyAccount?
 
     /// The registration made for this install — created in the user's own
     /// Spotify developer dashboard, at their request, so Connect is one
