@@ -51,6 +51,11 @@ says whether there is one.
 - **Translate.** Sixteen languages, translated on the Mac by Apple's
   Translation framework or Apple Intelligence (macOS 26 or later). Uzbek and
   Kazakh need Translate Online.
+- **Prompter.** Off until you turn it on in Settings. A script of your own, shown
+  in the island and scrolled at the speed you choose, for a call or a talk. It
+  stays open while you work in another app, pauses when the Mac locks or sleeps,
+  and uses no microphone and no network. Isla asks screen sharing to leave it
+  out, but apps differ in whether they listen: try yours before you rely on it.
 - **Shortcuts.** ⌃⌥⌘I opens Isla, ⌃⌥⌘L opens the lyrics, ⌃⌥⌘T translates the
   clipboard. Each can be changed or cleared in Settings. Shortcuts, Spotlight and
   Siri can read the current track and lyric. Escape closes a panel opened

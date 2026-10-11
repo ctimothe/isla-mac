@@ -20,7 +20,7 @@ struct PromptWord: Sendable, Equatable, Identifiable {
     let range: Range<Int>
     /// UTF-16 offsets into the *original* page text, the unit `NSTextView`
     /// speaks. Kept per word so an editor selection never has to be re-derived
-    /// from `Character` counts (Textream mixed the two and drifted after an
+    /// from `Character` counts (the app this was modelled on mixed the two and drifted after an
     /// emoji).
     let utf16Range: Range<Int>
     /// Overlaps a `[...]` span. Editor styling and speech skipping both read
@@ -38,7 +38,7 @@ struct PromptWord: Sendable, Equatable, Identifiable {
 
 /// Everything a layout cache needs besides the page text. The caller supplies
 /// font, size and width; the script only supplies its own content hash.
-/// Textream keyed its cache by word count plus first and last word, so editing
+/// The app this was modelled on keyed its cache by word count plus first and last word, so editing
 /// a middle word kept a stale layout, and the cache was shared by every view.
 struct PromptLayoutKey: Hashable, Sendable {
     let contentHash: UInt64
@@ -156,7 +156,7 @@ struct PromptScript: Sendable, Equatable {
         }
         // A word that opens after whitespace holding two or more line ends has
         // a whitespace-only line between it and the previous word: a blank
-        // line. A single newline is just a space (Textream drew a divider on
+        // line. A single newline is just a space (the app this was modelled on drew a divider on
         // every hard newline). Leading blank lines have no previous word.
         func opensParagraph() -> Bool { newlinesSinceContent >= 2 && !tokens.isEmpty }
 

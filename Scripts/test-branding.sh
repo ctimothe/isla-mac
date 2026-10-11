@@ -64,6 +64,28 @@ case "$lstatus" in
         ;;
 esac
 
+# The Prompter's matcher and engine handling are derived from Textream's
+# structure and constants (MIT), and that debt is paid in THIRD_PARTY_NOTICES.md,
+# which `test-provenance.sh` checks. The name stays out of the shipped sources
+# the same way the upstream's does, so a comment or a string can never present
+# the feature as Textream's. The notices file and the docs are not scanned here.
+set +e
+reference="$(scan 'textream' "${targets[@]}")"
+rstatus=$?
+set -e
+case "$rstatus" in
+    0)
+        echo "$reference"
+        echo "the reference app's name appears in shipped sources; credit lives in THIRD_PARTY_NOTICES.md" >&2
+        exit 1
+        ;;
+    1) ;;
+    *)
+        echo "scan failed while checking for the reference app's name (exit $rstatus)" >&2
+        exit 1
+        ;;
+esac
+
 grep -q 'com.ctimothe.isla' "$ROOT/Scripts/bundle.sh"
 grep -q 'Isla.app' "$ROOT/Scripts/bundle.sh"
 grep -q 'libislamedia.dylib' "$ROOT/Scripts/bundle.sh"

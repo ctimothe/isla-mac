@@ -72,6 +72,14 @@ result, evidence path, or issue link to every gate.
   line: "macOS treats each Isla update as a new app until Isla is signed with
   a Developer ID, so it asks once more for the folders and players Isla had
   access to." Added 2026-10-11 (J-002, ms/MS-20).
+- [ ] A release that ships the Prompter says in its release notes that it is
+  off by default, and which release of it this is (classic scrolling only; the
+  microphone and speech recognition ship alone in later releases). It also says
+  that the capture-hiding claim was tested in the apps listed in
+  `checklist.md` ("prompter") and names any that failed. Added 2026-10-12.
+- [ ] A release that adds the Prompter's microphone entitlement or speech
+  permission is not combined with any other change, and its notes state that
+  nothing is recorded and, for speech, whether Apple processing is off.
 
 Verdict: **NO-GO** — UI, clean-account permission, synthetic-display,
 performance, Developer ID, and notarization gates remain open.
