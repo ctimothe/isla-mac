@@ -33,6 +33,9 @@ struct SettingsPane: View {
     var wantsKeyboard: Binding<Bool> = .constant(false)
     @ObservedObject var hotKeys: HotKeyCenter = .shared
     @ObservedObject var updates: UpdateCheck = .shared
+    /// Observed so the "Following your Mac" line appears and goes with the
+    /// System Settings switches it names.
+    @ObservedObject private var appearance: SystemAppearance = .shared
     /// Observed: its one published field changes when macOS answers a
     /// read-only check or a script is refused, a handful of times a session,
     /// never on the media clock's tick. A test passes its own, so nothing it
@@ -310,6 +313,13 @@ struct SettingsPane: View {
                             }
                         )
                     )
+                    // Why the island moves or looks the way it does when the
+                    // Mac asks for less motion, less transparency or more
+                    // contrast: Isla honours all three live and said nothing
+                    // (M-34).
+                    if let following = followingYourMacLine {
+                        noteRow(following)
+                    }
                 }
 
                 // Second, straight under General: it is what someone about to
@@ -443,7 +453,8 @@ struct SettingsPane: View {
                     toggleRow(
                         symbol: SettingsIcon.wordKaraoke,
                         title: localized("Word Karaoke"),
-                        isOn: $lyrics.wordKaraokeEnabled
+                        isOn: $lyrics.wordKaraokeEnabled,
+                        disabledReason: lyricsOffReason
                     )
                     // The correction that moves every song at once.
                     //
@@ -458,7 +469,8 @@ struct SettingsPane: View {
                     //
                     // The slider, fine steps and a live preview of the line:
                     // see `LyricDelayControls`.
-                    LyricDelayControls(lyrics: lyrics, media: media)
+                    LyricDelayControls(lyrics: lyrics, media: media, disabledReason: lyricsOffReason)
+                        .disabledWithReason(lyricsOffReason)
                     if abs(lyrics.userOffset) > 0.01 {
                         actionRow(
                             symbol: SettingsIcon.resetTiming,
@@ -481,7 +493,8 @@ struct SettingsPane: View {
                                 UserDefaults.standard.set(wants, forKey: NotchViewModel.onlineLyricsKey)
                                 onLyricsVisibilityChanged()
                             }
-                        )
+                        ),
+                        disabledReason: lyricsOffReason
                     )
                     if onlineLyrics {
                         noteRow(localized("Asks LRCLIB for tracks no local file matches. It sends the title, artist, album and length — nothing about you."))
@@ -983,7 +996,13 @@ struct SettingsPane: View {
     /// (H-002). The accessibility label stays the bare title so VoiceOver
     /// reads the row by its name; the row's padding and height live in the
     /// style, inside the target, so the edges of the row are not dead.
-    private func toggleRow(symbol: String, title: String, isOn: Binding<Bool>) -> some View {
+    ///
+    /// `disabledReason` dims the row the way a disabled action row is dimmed
+    /// and says why where a pointer rests and where VoiceOver lands, for the
+    /// switches that do nothing while the one they depend on is off (M-34).
+    private func toggleRow(
+        symbol: String, title: String, isOn: Binding<Bool>, disabledReason: String? = nil
+    ) -> some View {
         Toggle(isOn: isOn) {
             HStack(spacing: 8) {
                 RowIcon(symbol: symbol)
@@ -994,6 +1013,7 @@ struct SettingsPane: View {
         }
         .toggleStyle(PanelSwitchStyle())
         .accessibilityLabel(title)
+        .disabledWithReason(disabledReason)
     }
 
     /// A row that picks one of a short list: see `SettingsChoiceRow`.
@@ -1082,6 +1102,23 @@ struct SettingsPane: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// Why Word Karaoke, Lyric Delay and Look Up Lyrics Online are dimmed:
+    /// they only act on lyrics the island is showing.
+    private var lyricsOffReason: String? {
+        showLyrics ? nil : localized("Needs Show Lyrics")
+    }
+
+    /// The Mac display settings Isla is following right now, by their System
+    /// Settings names, or nil when none is on.
+    private var followingYourMacLine: String? {
+        var names: [String] = []
+        if appearance.reduceMotion { names.append(localized("Reduce Motion")) }
+        if appearance.reduceTransparency { names.append(localized("Reduce Transparency")) }
+        if appearance.increaseContrast { names.append(localized("Increase Contrast")) }
+        guard !names.isEmpty else { return nil }
+        return localized("Following your Mac: %@", names.joined(separator: ", "))
+    }
+
     private func noteRow(_ text: String) -> some View {
         Text(text)
             .islandFont(.body, weight: .regular)
@@ -1113,6 +1150,32 @@ struct SettingsPane: View {
         .buttonStyle(PanelButtonStyle())
         .disabled(disabled)
         .opacity(disabled ? 0.4 : 1)
+    }
+}
+
+// MARK: - Dependent rows
+
+private extension View {
+    @ViewBuilder
+    func reasonHelp(_ reason: String?) -> some View {
+        if let reason { self.help(reason).accessibilityHint(reason) } else { self }
+    }
+
+    /// A row that does nothing until something else is on: dimmed to the
+    /// disabled look of `actionRow`, with the reason as its help text and its
+    /// accessibility hint so a pointer and VoiceOver both get it. A nil reason
+    /// leaves the row untouched.
+    @ViewBuilder
+    func disabledWithReason(_ reason: String?) -> some View {
+        if let reason {
+            self
+                .disabled(true)
+                .opacity(0.4)
+                .help(reason)
+                .accessibilityHint(reason)
+        } else {
+            self
+        }
     }
 }
 
@@ -1213,6 +1276,10 @@ struct SettingsSliderRow: View {
     /// the native step is a tenth of the range, 0.6 s there, wider than the
     /// whole window inside which a listener stops noticing the offset.
     var accessibilityStep: ((_ value: Double, _ up: Bool) -> Double)? = nil
+    /// Why the row is dimmed, when it is (the dimming itself is the caller's,
+    /// `disabledWithReason`): the slider is the element a pointer and
+    /// VoiceOver land on, so the reason is put on it.
+    var reason: String? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1241,7 +1308,12 @@ struct SettingsSliderRow: View {
         .controlSize(.mini)
         .tint(Theme.secondary)
         .accessibilityLabel(title)
-        .accessibilityValue(spokenValue)
+        // A native slider does not vend a hint to assistive clients (the
+        // probe read an empty help on it, disabled or not), so the reason is
+        // part of what VoiceOver speaks as its value; the tooltip is for the
+        // pointer.
+        .accessibilityValue(reason.map { "\(spokenValue). \($0)" } ?? spokenValue)
+        .reasonHelp(reason)
         if let accessibilityStep {
             base.accessibilityAdjustableAction { direction in
                 switch direction {
@@ -1327,6 +1399,8 @@ enum LyricDelayStep {
 struct LyricDelayControls: View {
     @ObservedObject var lyrics: LyricsStore
     let media: MediaController
+    /// Set while Show Lyrics is off; see `SettingsSliderRow.reason`.
+    var disabledReason: String? = nil
     @State private var isPlaying = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -1342,7 +1416,8 @@ struct LyricDelayControls: View {
                 drawnValue: localized("%+.2fs", lyrics.userOffset),
                 spokenValue: LyricDelayCopy.value(lyrics.userOffset),
                 drawnValueWidth: 44,
-                accessibilityStep: { LyricDelayStep.next($0, later: $1) }
+                accessibilityStep: { LyricDelayStep.next($0, later: $1) },
+                reason: disabledReason
             )
             HStack(spacing: 8) {
                 stepper(later: false)
