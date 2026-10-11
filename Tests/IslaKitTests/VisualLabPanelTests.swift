@@ -436,6 +436,18 @@ final class VisualLabPanelTests: VisualLabCase {
                 stores.translator.received("Где ближайшая железнодорожная станция?", for: sentence, by: .system)
             }), variant, height: size.height)
         }
+        // H-006: a short sentence with one long word. The length alone put it
+        // at 27 points, where "железнодорожная" is wider than the column and
+        // broke as "железнодорожна / я". The word now steps the pair to 20, on
+        // the side typed into as well as the answer, and at 480 points too.
+        try await shoot.shoot("long-cyrillic-word", variants: [.base, .w480, .russian], size: size, settle: 0.12,
+                              notes: "Russian typed in, English handed back: no word may break in the middle.") { variant in
+            let russian = "Где находится железнодорожная станция?"
+            return Self.scene(try await self.openPanel(session, tab: .translate, prepare: { stores in
+                stores.translator.input = russian
+                stores.translator.received("Where is the railway station?", for: russian, by: .system)
+            }), variant, height: size.height)
+        }
         try await shoot.shoot("result-online", variants: [.base], size: size, settle: 0.12,
                               notes: "An answer from the online service carries its globe.") { variant in
             Self.scene(try await self.openPanel(session, tab: .translate, prepare: { stores in
