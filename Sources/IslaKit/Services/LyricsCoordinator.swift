@@ -468,6 +468,11 @@ final class LyricsCoordinator: ObservableObject {
     /// Hands the clock every line's timestamp, so it can wake the surfaces on
     /// the frame a line is due instead of on its quarter-second grid. The lead
     /// is read at each wake, so a nudge takes effect on the next one.
+    ///
+    /// A line going dark at its honoured end is a change of line too, so
+    /// those ends are boundaries beside the starts. Without them the line
+    /// went dark on the next quarter-second tick, up to 250 ms after the
+    /// voice — the same random lateness the wakes exist to remove.
     private func registerBoundaries() {
         guard case .ready(let timeline) = availability else {
             media.setLyricBoundaries([], lead: { 0 })
@@ -475,7 +480,9 @@ final class LyricsCoordinator: ObservableObject {
         }
         let media = self.media
         let presentation = self.presentation
-        media.setLyricBoundaries(timeline.lines.map(\.at)) {
+        let lines = timeline.lines
+        let ends = lines.indices.compactMap { LyricSweep.effectiveEnd(of: $0, in: lines) }
+        media.setLyricBoundaries(lines.map(\.at) + ends) {
             LyricSweep.lead(
                 precisionSync: media.precisionSync,
                 userOffset: presentation?.userOffset ?? 0,

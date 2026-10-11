@@ -177,8 +177,10 @@ final class LyricAccuracyLabParseTests: XCTestCase {
         var sweepEvaluations = 0, monotonicViolations = 0, sweepOracleMisses = 0
         var entryPointDisagreements: [String: Int] = [
             "index_vs_LyricsStore.current": 0,
-            "index_vs_displayed.line": 0,
-            "displayed.swept_vs_index_nil": 0,
+            "moment.current_vs_index": 0,
+            "moment.dark_without_an_end": 0,
+            "moment_vs_displayed.line": 0,
+            "displayed.swept_vs_moment.current": 0,
             "displayed.end_vs_LyricSweep.end": 0,
         ]
 
@@ -220,12 +222,22 @@ final class LyricAccuracyLabParseTests: XCTestCase {
                 if index != oracle(lines, at) { randomMisses += 1 }
                 let current = LyricsStore.current(in: lines, at: at)
                 if current.line != index.map({ lines[$0] }) { entryPointDisagreements["index_vs_LyricsStore.current", default: 0] += 1 }
+                // Since line ends (LY-05) the moment may call nothing current
+                // while `index` still names the line before: only after that
+                // line's honoured end. Anything else is a disagreement.
+                let moment = LyricSweep.moment(in: lines, at: at)
+                if let current = moment.current, current != index {
+                    entryPointDisagreements["moment.current_vs_index", default: 0] += 1
+                }
+                if moment.current == nil, let index,
+                   !(LyricSweep.effectiveEnd(of: index, in: lines).map { at >= $0 } ?? false) {
+                    entryPointDisagreements["moment.dark_without_an_end", default: 0] += 1
+                }
                 if let shown = LyricSweep.displayed(lines: lines, at: at) {
-                    if shown.line != lines[index ?? 0] { entryPointDisagreements["index_vs_displayed.line", default: 0] += 1 }
-                    if shown.swept != (index != nil) { entryPointDisagreements["displayed.swept_vs_index_nil", default: 0] += 1 }
-                    let expectedEnd = index.map { LyricSweep.end(of: $0, in: lines) }
-                        ?? (lines.count > 1 ? lines[1].at : lines[0].at + 6)
-                    if shown.end != expectedEnd { entryPointDisagreements["displayed.end_vs_LyricSweep.end", default: 0] += 1 }
+                    let row = moment.current ?? moment.centre
+                    if shown.line != lines[row] { entryPointDisagreements["moment_vs_displayed.line", default: 0] += 1 }
+                    if shown.swept != (moment.current != nil) { entryPointDisagreements["displayed.swept_vs_moment.current", default: 0] += 1 }
+                    if shown.end != LyricSweep.end(of: row, in: lines) { entryPointDisagreements["displayed.end_vs_LyricSweep.end", default: 0] += 1 }
                 }
             }
 

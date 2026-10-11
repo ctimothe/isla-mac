@@ -99,3 +99,53 @@ Tests: `LyricSweepTests.testAPositiveDelayShowsLyricsLater`,
 `…testATestRunLeavesTheInstalledAppsOffsetsAlone`, and the four legacy-nudge
 tests in `LocalLyricsLibraryTests`, which now read the imported nudge back in
 the new sign.
+
+## Amendment — 2026-10-11: a line goes dark when its voice ends
+
+A finished line used to stay lit until the next line's stamp, through every
+instrumental and every outro. The lyric lab (L6, 540 tracks) measured a
+median 28.9 s of stale highlight a track, 12.5 % of track time, with 447
+mid-song lines lit through more than 8 s of silence and 295 outros. The
+answer was already in hand: LRC marks the end of a line's voice with a bare
+stamp, and LRCLIB writes one in most files (1,694 in the corpus). The parser
+dropped them.
+
+- **An empty stamp is the end of the sung line before it.**
+  `LocalLyricsDocument.parse` keeps it as `LyricsStore.Line.end` when it lies
+  strictly after that line's start (after the sort, the next sung line cannot
+  start before it); it never becomes a row. A second stamp in one gap leaves
+  the first; a stamp before the first line, or at a line's own moment, ends
+  nothing. `serialize` writes `[end]` back after its line, only where `parse`
+  would read it as that same line's end. `end` is optional, so every cache and
+  index written before it still decodes. `parserRevision` is 3.
+- **One rule decides whether an end is honoured.** `LyricSweep.effectiveEnd`
+  keeps an end only when the silence after it is at least
+  `minimumHonouredGap` (1.5 s) before the next line; a breath must not blink
+  the line off and on. The last line's end (the outro stamp) is always
+  honoured. Ends a file does not state are not invented: a last line without
+  an outro stamp still holds to the track's end.
+- **From the honoured end nothing is current.** `LyricSweep.moment` answers
+  `current: nil` until the next line starts and centres on that line, the
+  same statement the intro makes, so the stage, the caption and the lock card
+  turn to the coming line, dim and unswept; in the outro they keep the last
+  line, unswept. `end(of:in:)` returns the honoured end, so a word-timed
+  line's last word ends with the voice instead of stretching across the
+  instrumental. `displayed` (the Get Current Lyric action) reads the same
+  moment.
+- **The clock wakes for an end as for a start.** `LyricsCoordinator` hands
+  `setLyricBoundaries` every start and every honoured end, so a line goes
+  dark on the frame its voice stops rather than on the next quarter-second
+  tick.
+
+Not done: decoding LRCLIB's `lyricsfile` `end_ms` (the same information
+behind a YAML reader, deferred as L-12); refreshing cached LRCLIB answers
+that predate ends (LY-09); a marker for long gaps (LY-13).
+
+Tests: `LocalLyricsDocumentTests.testABareTimestampEndsTheLineBeforeIt`,
+`…testWhichLineAnEmptyStampEnds`,
+`…testAnEndIsWrittenOnlyWhereItReadsBackAsTheSameLinesEnd`,
+`SharedLyricTimelineTests.testALineGoesDarkAtItsEnd`,
+`…testAShortBreathKeepsTheLineLit`,
+`…testTheOutroLeavesTheLastLineShownUnswept`,
+`LyricsCoordinatorTests.testLineEndsAreBoundaries`; the lab's L6 now measures
+production's ends (needs the corpus, `Scripts/lyric-lab.sh`).

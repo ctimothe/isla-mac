@@ -309,11 +309,17 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
 
     // MARK: - L6 gap behaviour
 
-    /// After a line's voice has stopped, the line stays current until the next
-    /// line's stamp — through every instrumental. How long that is, against
-    /// two truths: the empty stamps LRCLIB's own `syncedLyrics` writes at a
-    /// line's end (which Isla's parser drops), and `lyricsfile`'s `end_ms`
-    /// (which Isla never decodes).
+    /// After a line's voice has stopped, how long the line stays current —
+    /// against two truths: the empty stamps LRCLIB's own `syncedLyrics`
+    /// writes at a line's end, and `lyricsfile`'s `end_ms` (which Isla never
+    /// decodes, L-12).
+    ///
+    /// Until 2026-10-11 the parser dropped those stamps and every line held
+    /// to the next one's stamp, and this case measured that by assuming it.
+    /// It now measures production: a line is shown until
+    /// `LyricSweep.effectiveEnd` (less the lead), and `LyricSweep.moment` is
+    /// sampled on either side of that instant to prove it is the moment
+    /// that draws the line dark, not this case's restatement of it.
     func testL6GapBehaviour() throws {
         let accepted = try LyricLab.acceptedTracks()
         let lead = LyricSweep.lead(precisionSync: false, userOffset: 0)
@@ -339,6 +345,8 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
         var sweepSpanFinishesEarly = 0, sweepSpanFinishesLate = 0, sweepSpanLines = 0
         var sitsFullSeconds: [Double] = []
         var fractionFullMidGap = 0, midGapChecks = 0
+        var honouredEnds = 0, momentChecks = 0, momentDisagreements = 0
+        var linesWithEnd = 0, endsUnderMinimumGap = 0, outrosWithoutEnd = 0
 
         for (track, lines) in accepted {
             let duration = track.duration > 0 ? track.duration : lines.last!.at + 6
@@ -357,14 +365,30 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
             var informative = false
             var litInLongGaps = 0.0
             for (i, line) in lines.enumerated() {
-                // The last line the track reaches holds until the track ends:
-                // `LyricSweep.index` has no end, only a next line. A file timed
+                // A line with no honoured end holds to the next stamp, and the
+                // last line the track reaches to the track's end. A file timed
                 // past the track's own length is cut at the length.
                 let isLast = i + 1 == lines.count || lines[i + 1].at >= duration
                 guard line.at < duration else { continue }
                 let islaEnd = isLast ? duration : lines[i + 1].at
                 guard islaEnd > line.at else { continue }
-                let shownUntil = islaEnd - (isLast ? 0 : lead)
+                let held = islaEnd - (isLast ? 0 : lead)
+                if line.end != nil { linesWithEnd += 1 }
+                let productionEnd = LyricSweep.effectiveEnd(of: i, in: lines)
+                if line.end != nil, productionEnd == nil { endsUnderMinimumGap += 1 }
+                if isLast, productionEnd == nil { outrosWithoutEnd += 1 }
+                // The clock reads `position + lead`, so the line goes dark at
+                // the position `end - lead`.
+                let shownUntil = productionEnd.map { min($0 - lead, held) } ?? held
+                if let productionEnd, productionEnd - lead < held {
+                    honouredEnds += 1
+                    // Production's own verdict either side of that instant.
+                    for (offset, expected) in [(-0.01, Optional(i)), (0.01, nil)] where productionEnd + offset > line.at {
+                        momentChecks += 1
+                        let current = LyricSweep.moment(in: lines, at: productionEnd + offset).current
+                        if current != expected { momentDisagreements += 1 }
+                    }
+                }
 
                 // Truth 1: an empty stamp after this line and before the next.
                 let t1 = empties.first { $0 > line.at && $0 < islaEnd }
@@ -457,10 +481,20 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
         let overall = describe(all)
         let verdict = all.gapsOver8s > 0 ? "fail" : ((overall["totalStaleSeconds"] as? Double ?? 0) > 0 ? "concern" : "pass")
         if all.gapsOver8s > 0 { LyricLab.finding("L6: \(all.gapsOver8s) lines held current through more than 8 s of silence") }
+        if momentDisagreements > 0 { LyricLab.finding("L6: LyricSweep.moment disagrees with effectiveEnd \(momentDisagreements) times") }
         LyricLab.write(section: "L6_gap_behaviour", [
             "lead": lead,
-            "definition": "stale = time a line is still drawn current (until the next stamp less the lead; the last line until the track ends) after its voice ended; truth = the earlier of an empty LRC stamp and lyricsfile end_ms",
+            "definition": "stale = time a line is still drawn current (until LyricSweep.effectiveEnd less the lead when it honours one, otherwise until the next stamp less the lead, and the last line until the track ends) after its voice ended; truth = the earlier of an empty LRC stamp and lyricsfile end_ms",
             "overall": overall,
+            "productionEnds": [
+                "minimumHonouredGap": LyricSweep.minimumHonouredGap,
+                "linesWithEnd": linesWithEnd,
+                "honouredEndsBeforeHold": honouredEnds,
+                "endsUnderMinimumGap": endsUnderMinimumGap,
+                "outrosWithoutEnd": outrosWithoutEnd,
+                "momentChecks": momentChecks,
+                "momentDisagreesWithEffectiveEnd": momentDisagreements,
+            ],
             "perCategory": tallies.mapValues(describe),
             "lyricsfileLineMatch": ["matched": matched, "unmatched": unmatched, "toleranceMs": 150],
             "estimateSweepPath": [

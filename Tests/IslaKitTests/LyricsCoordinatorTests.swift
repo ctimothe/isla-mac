@@ -407,6 +407,41 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertGreaterThan(cancelled.value, 0, "the superseded request must be cancelled, not merely ignored")
     }
 
+    /// A line going dark is a change of line like any other, so the clock
+    /// wakes for it: an end it honours is a boundary beside every start. Left
+    /// to the quarter-second ticker, the line would linger up to 250 ms past
+    /// the voice at random. A breath-length end is not honoured, so it does
+    /// not wake anything.
+    func testLineEndsAreBoundaries() throws {
+        let url = root.appendingPathComponent("ends.lrc")
+        try Data("""
+        [ti:Song]
+        [ar:Artist]
+        [al:Album]
+        [length:03:00]
+        [00:10.00]One
+        [00:15.00]
+        [00:26.30]Two
+        [00:30.00]
+        [00:30.80]Three
+        [00:40.00]
+        """.utf8).write(to: url, options: .atomic)
+        let library = LocalLyricsLibrary(directory: root)
+        _ = try library.importDocument(at: url, binding: nil)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        media.apply(playingSnapshot())
+
+        guard case .ready = coordinator.availability else {
+            return XCTFail("the fixture: the local file is the answer, got \(coordinator.availability)")
+        }
+        XCTAssertEqual(media.lyricBoundariesForTests, [10, 15, 26.3, 30.8, 40])
+    }
+
     private func writeLRC() throws -> URL {
         let url = root.appendingPathComponent("song.lrc")
         try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Local opening".utf8)
