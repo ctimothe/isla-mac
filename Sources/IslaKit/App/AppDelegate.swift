@@ -16,6 +16,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Before anything at all — the purge, the panel, the helper, the hot
+        // keys: a copy that is not going to stay must not have started a
+        // second media helper or taken a key from the copy that is. See
+        // `LaunchGuard` for why the newer copy is the one that leaves.
+        if let older = LaunchGuard.olderCopy() {
+            handOver(to: older)
+            return
+        }
+        // The other half of that: a copy launched after this one asks for the
+        // panel and quits. `.deliverImmediately`, because an accessory app is
+        // almost never the active one, and a distributed notification held
+        // for an inactive app would wait for an activation that may not come.
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(showRequested(_:)),
+            name: LaunchGuard.showNotification,
+            object: nil,
+            suspensionBehavior: .deliverImmediately
+        )
         // First, before anything can make a request: earlier builds sent every
         // request through `URLSession.shared`, whose disk cache may still hold
         // a translated text in its URL (audit G-016). Requests go through
@@ -109,6 +128,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Isla opened again — from Spotlight, Launchpad or Finder — while it is
+    /// already running.
+    ///
+    /// There was no handler, so this did nothing visible, and for an app with
+    /// no window, no Dock icon and no menu-bar item nothing visible is
+    /// indistinguishable from a launch that failed (F-023). Opening the app
+    /// means opening the panel. False, because there is no window for AppKit
+    /// to bring forward in its place.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        controller?.show()
+        return false
+    }
+
+    /// A newer copy is handing over; see `handOver(to:)`.
+    @objc private func showRequested(_ notification: Notification) {
+        controller?.show()
+    }
+
+    /// This copy is the newer one: give the island to the copy already
+    /// running, and leave.
+    ///
+    /// Activation goes to that copy first. A copy launched from Finder or
+    /// `open` is the active app, and when the active app quits macOS
+    /// activates whichever came before it — which the running copy reads as
+    /// another app coming to the front, the ⌘-Tab that ends a pin, and the
+    /// panel this asked for folded the moment it opened. Its own activation
+    /// ends nothing. A copy that was never active passes nothing on, which is
+    /// equally harmless.
+    private func handOver(to older: NSRunningApplication) {
+        older.activate(from: NSRunningApplication.current, options: [])
+        DistributedNotificationCenter.default().postNotificationName(
+            LaunchGuard.showNotification,
+            object: nil,
+            userInfo: nil,
+            deliverImmediately: true
+        )
+        NSApp.terminate(nil)
+    }
+
     /// Entry point for the "Translate in Isla" service, named in the
     /// bundle's NSServices. macOS passes the selection on a private pasteboard.
     @objc func translateSelection(
@@ -121,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        DistributedNotificationCenter.default().removeObserver(self)
         controller?.teardown()
         // Explicitly, because a hot key cannot release itself: the Carbon
         // callback needs a lookup table to find the instance, that table holds

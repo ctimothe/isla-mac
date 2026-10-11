@@ -574,6 +574,29 @@ final class NotchController {
             vm.isShowingLyrics = false
             return
         }
+        openOnLyrics(vm)
+    }
+
+    /// The Show Lyrics intent: `toggleLyrics()` without the fold-back.
+    ///
+    /// The toggle is right for a key — one key is the whole round trip — and
+    /// wrong for a Shortcut or a Focus automation called *Show*, which ran on a
+    /// panel already showing the words and folded them away (F-024).
+    func showLyrics() {
+        guard let vm = viewModel else { return }
+        guard vm.verdictForDeliberateOpen() == .proceed else {
+            vm.nudgeLockedIsland()
+            return
+        }
+        guard NotchViewModel.showLyricsVerdict(
+            isOpen: vm.isOpen, tab: vm.tab, showingLyrics: vm.isShowingLyrics
+        ) == .open else { return }
+        openOnLyrics(vm)
+    }
+
+    /// The open half of `toggleLyrics()`, shared with `showLyrics()` so the
+    /// two cannot open the page in two different ways.
+    private func openOnLyrics(_ vm: NotchViewModel) {
         peekWork?.cancel()
         vm.isPeeking = false
         // `chooseTab`, so a press during the first-run welcome retires it
@@ -712,9 +735,10 @@ final class NotchController {
         pointer.openDelay = NotchViewModel.hoverOpenDelay
     }
 
-    /// The ⌃⌥⌘I hotkey, `presentWelcome()` on a fresh account, and the
-    /// `DI_OPEN_LYRICS` verification hook. (The Translate service opens through
-    /// `translateCommanded(_:)`, which sets its own tab and its own grace, not here.)
+    /// The ⌃⌥⌘I hotkey, `presentWelcome()` on a fresh account, the
+    /// `DI_OPEN_PANEL` verification hook, and the open half of `show()`. (The
+    /// Translate service opens through `translateCommanded(_:)`, which sets its
+    /// own tab and its own grace, not here.)
     ///
     /// Opens until something closes it — the same command again, Escape, a
     /// click outside, or another app coming to the front (⌘-Tab) — rather than
@@ -750,6 +774,25 @@ final class NotchController {
             pointer.closedByHand()
         }
         updatePinnedClickMonitor()
+    }
+
+    /// Show Isla, opening the app again from Spotlight or Finder while it
+    /// runs, and a second copy handing over: `toggle()`'s open, and nothing
+    /// when the panel is already open.
+    ///
+    /// Those three called the toggle, or nothing at all: the Shortcut closed a
+    /// panel it was meant to show (F-024), and reopening the app did nothing
+    /// visible, which for an app with no window reads as broken (F-023). An
+    /// open panel is left exactly as it is — its tab and its pin — because
+    /// whoever opened it is still reading it.
+    func show() {
+        guard let viewModel else { return }
+        guard viewModel.verdictForDeliberateOpen() == .proceed else {
+            viewModel.nudgeLockedIsland()
+            return
+        }
+        guard NotchViewModel.showVerdict(isOpen: viewModel.isOpen) == .open else { return }
+        toggle()
     }
 
     /// The one visible moment on a fresh account: the body shows the welcome and
