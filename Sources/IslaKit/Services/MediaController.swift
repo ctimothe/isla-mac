@@ -577,6 +577,7 @@ final class MediaController: ObservableObject {
             queue: .main
         ) { [weak self] note in
             MainActor.assumeIsolated {
+                self?.hearAnnouncement(from: .spotify, note.userInfo ?? [:])
                 self?.applySpotifyBroadcast(note)
                 // And, for a song held under a film, the only report that the
                 // song paused or resumed: MediaRemote is describing the film.
@@ -587,8 +588,11 @@ final class MediaController: ObservableObject {
             forName: PlayerApp.music.changeNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.playerAnnouncedChange(.music) }
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                self?.hearAnnouncement(from: .music, note.userInfo ?? [:])
+                self?.playerAnnouncedChange(.music)
+            }
         }
     }
 
@@ -687,6 +691,7 @@ final class MediaController: ObservableObject {
         }
         musicStateObserver = nil
         isHolding = false
+        announcements = [:]
         feed.stop()
         observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
         observers.removeAll()
@@ -1572,7 +1577,8 @@ final class MediaController: ObservableObject {
     lazy var loadedSong: (@escaping (PlayerState?) -> Void) -> Void = { [weak self] reply in
         PlayerBridge.currentState(
             prefer: self?.displayedPlayerApp ?? self?.activeApp,
-            asking: { app in MainActor.assumeIsolated { self?.mayScript(app) ?? false } }
+            asking: { app in MainActor.assumeIsolated { self?.mayScript(app) ?? false } },
+            announced: self?.announcedStates() ?? [:]
         ) { state in
             MainActor.assumeIsolated { reply(state) }
         }
@@ -2135,14 +2141,14 @@ final class MediaController: ObservableObject {
         for app in PlayerApp.allCases {
             observers.append(center.addObserver(
                 forName: app.changeNotification, object: nil, queue: .main
-            ) { [weak self] _ in
+            ) { [weak self] note in
                 // The announcer is not made the active app here any more. It
                 // used to be, before anyone had answered, so a paused Music
                 // announcing anything took the transport — and, as the
                 // preferred player, the island — from a Spotify still on
                 // screen. The active app is whichever one the island shows,
                 // set when `refreshFromPlayers` shows it.
-                MainActor.assumeIsolated { self?.refreshFromPlayers() }
+                MainActor.assumeIsolated { self?.fallbackHeard(app, note.userInfo ?? [:]) }
             })
         }
         refreshFromPlayers()
@@ -2204,48 +2210,115 @@ final class MediaController: ObservableObject {
         // J-003: a DMG user whose helper is refused lands here at launch, and
         // reading every running player there raised one Automation prompt per
         // player over whatever they were doing, with no panel to explain it.
-        // Where no player may be asked yet, the panel opening asks.
-        guard mayScriptAnyPlayer else { return }
+        // Where no player may be asked yet, the panel opening asks — and
+        // until then the players' own announcements are what the island
+        // shows. Before, it showed nothing over a song that was playing.
+        guard mayScriptAnyPlayer else {
+            guard !feedAvailable else { return }
+            let running = PlayerApp.allCases.filter { pidForPlayer($0) != nil }
+            let replies = Dictionary(uniqueKeysWithValues: running.map { ($0, PlayerBridge.StateReply.unknown) })
+            // Nothing heard is nothing known, and the island keeps what it
+            // shows rather than blank a song nobody has said is gone.
+            guard let state = PlayerBridge.choose(
+                replies: replies, announced: announcedStates(), prefer: displayedPlayerApp ?? activeApp
+            ) else { return }
+            return showFromPlayers(state)
+        }
         loadedSong { [weak self] state in
             // A reply that lands after the helper is back describes a route
             // no longer in charge; shown, it replaced the helper's song with
             // whatever the script had found a moment earlier.
             guard let self, !self.feedAvailable else { return }
             guard let state else { return self.clear() }
-            let pid = self.pidForPlayer(state.app)
-            // `apply` holds off a paused stranger until it has kept claiming
-            // the session for `foreignHoldWindow`, and on the helper route the
-            // two-second heartbeat brings that moment. Nothing re-asks here, so
-            // a hold for a player that has quit never ended: Spotify's last
-            // song stayed on the island over a paused Music. A player that is
-            // gone has nothing left to show.
-            if let shown = self.displayedPlayerPID, shown != pid, !self.isProcessRunning(shown) {
-                self.clear()
-            }
-            var snapshot = NowPlayingFeed.Snapshot()
-            snapshot.title = state.title
-            snapshot.artist = state.artist
-            snapshot.album = state.album
-            snapshot.duration = state.duration
-            snapshot.elapsed = state.position
-            snapshot.isPlaying = state.isPlaying
-            snapshot.rate = state.isPlaying ? 1 : 0
-            snapshot.takenAt = Date()
-            snapshot.playerPID = pid
-            snapshot.source = state.app.displayName
-            let key = "\(pid ?? 0)|\(state.title)|\(state.artist)|\(state.album)"
-            // Read before `apply`, which moves `artworkKey` on to the new song
-            // whether or not its cover has come.
-            let coverShown = self.artworkKey == key && self.artwork != nil
-            self.trace(String(format: "fallback: %@ from %@ playing=%d at %.2f",
-                              state.title, state.app.displayName, state.isPlaying ? 1 : 0, state.position))
-            self.apply(snapshot)
-            // Only once the island shows it: a stranger `apply` held off must
-            // not take the transport from the song still on screen.
-            guard self.displayedPlayerPID == pid, self.track?.key == key else { return }
-            self.activeApp = state.app
-            self.displayedIsMusic = true
-            if !coverShown { self.fallbackArtwork(for: state, key: key) }
+            self.showFromPlayers(state)
+        }
+    }
+
+    /// Shows one player's state on the fallback, asked or heard, through
+    /// `apply` as a snapshot.
+    private func showFromPlayers(_ state: PlayerState) {
+        let pid = pidForPlayer(state.app)
+        // `apply` holds off a paused stranger until it has kept claiming
+        // the session for `foreignHoldWindow`, and on the helper route the
+        // two-second heartbeat brings that moment. Nothing re-asks here, so
+        // a hold for a player that has quit never ended: Spotify's last
+        // song stayed on the island over a paused Music. A player that is
+        // gone has nothing left to show.
+        if let shown = displayedPlayerPID, shown != pid, !isProcessRunning(shown) {
+            clear()
+        }
+        // Music's announcement says nothing of where the song is. Read as
+        // 0:00, a pause at 2:00 sent the bar and the lyric back to the start;
+        // the song on screen keeps the place its clock has carried it to, and
+        // only a song not on screen starts from its beginning.
+        let same = displayedPlayerPID == pid
+            && track?.title == state.title && track?.artist == state.artist
+        var snapshot = NowPlayingFeed.Snapshot()
+        snapshot.title = state.title
+        snapshot.artist = state.artist
+        snapshot.album = state.album
+        snapshot.duration = state.duration > 0 || !same ? state.duration : duration
+        snapshot.elapsed = state.positionKnown ? state.position : (same ? extrapolatedPosition() : 0)
+        snapshot.isPlaying = state.isPlaying
+        snapshot.rate = state.isPlaying ? 1 : 0
+        snapshot.takenAt = Date()
+        snapshot.playerPID = pid
+        snapshot.source = state.app.displayName
+        let key = "\(pid ?? 0)|\(state.title)|\(state.artist)|\(state.album)"
+        // Read before `apply`, which moves `artworkKey` on to the new song
+        // whether or not its cover has come.
+        let coverShown = artworkKey == key && artwork != nil
+        trace(String(format: "fallback: %@ from %@ playing=%d at %.2f",
+                     state.title, state.app.displayName, state.isPlaying ? 1 : 0, snapshot.elapsed))
+        apply(snapshot)
+        // Only once the island shows it: a stranger `apply` held off must
+        // not take the transport from the song still on screen.
+        guard displayedPlayerPID == pid, track?.key == key else { return }
+        activeApp = state.app
+        displayedIsMusic = true
+        if !coverShown { fallbackArtwork(for: state, key: key) }
+    }
+
+    // MARK: - Players' own announcements
+
+    /// The last song each player announced, and when, on the monotonic clock.
+    /// An announcement that names no song — a stop, or keys not understood —
+    /// removes the entry: it says the old one no longer stands.
+    private var announcements: [PlayerApp: (state: PlayerState, heardAt: TimeInterval)] = [:]
+
+    /// Keeps what a player's own announcement says, for a moment when the
+    /// player cannot or may not be asked (`PlayerAnnouncement`). Kept on both
+    /// routes: the search for a song under a film reads it as well.
+    func hearAnnouncement(from app: PlayerApp, _ info: [AnyHashable: Any]) {
+        announcements[app] = PlayerAnnouncement.state(from: info, app: app).map { ($0, monotonicNow()) }
+    }
+
+    /// A player's announcement on the fallback route: kept, then shown the
+    /// way the route shows everything. Two observers hear it — the one
+    /// `start()` keeps and the fallback's own — and their order is not
+    /// promised, so this one keeps it too rather than refresh before the
+    /// other has. Internal so a test can stand in for the player.
+    func fallbackHeard(_ app: PlayerApp, _ info: [AnyHashable: Any]) {
+        hearAnnouncement(from: app, info)
+        refreshFromPlayers()
+    }
+
+    /// The announced states as they stand now.
+    ///
+    /// A player that has quit takes its announcement with it, or its last
+    /// song would speak for it after the next launch. And a playing song is
+    /// aged to now: an announcement is read again whenever the *other* player
+    /// announces, by when a Spotify heard playing at 0:12 twenty seconds ago
+    /// is at 0:32, and reading 0:12 dragged the clock backwards.
+    func announcedStates() -> [PlayerApp: PlayerState] {
+        announcements = announcements.filter { pidForPlayer($0.key) != nil }
+        let now = monotonicNow()
+        return announcements.mapValues { heard in
+            var state = heard.state
+            guard state.isPlaying, state.positionKnown else { return state }
+            let aged = state.position + max(0, now - heard.heardAt)
+            state.position = state.duration > 0 ? min(aged, state.duration) : aged
+            return state
         }
     }
 
@@ -2265,6 +2338,10 @@ final class MediaController: ObservableObject {
         // Before an attempt is counted: a cover consent kept back is not a
         // cover that failed, and the next refresh asks again.
         guard state.app != .music || mayScript(.music) else { return }
+        // Nor is a Spotify song with no cover address — the one its own
+        // announcement describes, which carries none. Counted, it spent both
+        // tries before the answer that has one, once Spotify could be asked.
+        guard state.app != .spotify || state.artworkURL != nil else { return }
         if fallbackArtworkAttempts[key] == nil { fallbackArtworkAttempts = [key: 0] }
         guard let attempts = fallbackArtworkAttempts[key], attempts < 2 else { return }
         fallbackArtworkAttempts[key] = attempts + 1

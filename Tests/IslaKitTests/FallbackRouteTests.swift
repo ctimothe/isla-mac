@@ -25,9 +25,12 @@ final class FallbackRouteTests: XCTestCase {
         _ title: String, album: String = "C", playing: Bool = true,
         at position: TimeInterval = 10, duration: TimeInterval = 240, app: PlayerApp = .spotify
     ) -> PlayerState {
+        // A scripted Spotify state names its cover's address, as the real
+        // one does; one without an address is not fetched at all.
         PlayerState(
             app: app, isPlaying: playing, title: title, artist: "B", album: album,
-            duration: duration, position: position
+            duration: duration, position: position,
+            artworkURL: app == .spotify ? URL(string: "https://i.scdn.co/image/\(title)") : nil
         )
     }
 
