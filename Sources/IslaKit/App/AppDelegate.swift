@@ -16,6 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // First, before anything can make a request: earlier builds sent every
+        // request through `URLSession.shared`, whose disk cache may still hold
+        // a translated text in its URL (audit G-016). Requests go through
+        // `PrivateNetwork.session` now, which writes nothing, but the rows
+        // already written stay until they are removed — so they are, once.
+        PrivateNetwork.purgeLegacyStorage()
         controller = NotchController()
         controller?.install()
         // Built here rather than wherever a view first mentions it.

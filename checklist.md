@@ -170,6 +170,17 @@ are the exception the design did not anticipate:
   brings the re-asked Automation prompt in context, on the first panel open.
   Live check: session S2 (`codesign -d -r-` on two builds shows two cdhash
   requirements, and a reinstall brings the prompt back).
+- **Spotify covers** (no setting, recorded 2026-10-11, sp/PV-03, G-030) are
+  fetched from Spotify's image server when Spotify is playing and Now
+  Playing cannot describe it — the scripting fallback and a held cover —
+  because Spotify's scripting dictionary names its artwork only by address.
+  The request carries the cover's https address and nothing about the
+  listener beyond the IP any request carries. It predates every switch above
+  and was never listed: a code comment called it "the one thing the app ever
+  fetches" and the README said nothing left the Mac unless turned on. Both
+  are corrected and the README's privacy table lists it. Gating it behind a
+  switch is left to the owner. Like every request Isla makes, it goes through
+  `PrivateNetwork.session`, which keeps no cache, cookies or credentials.
 
 The status-item menu, and then the whole status item, were removed on
 2026-08-25 by owner decision. A window was built first and withdrawn the
@@ -1189,3 +1200,28 @@ a stack, and nothing showed it was needed.
   onto the Trash removes the card; pressing ⌘ mid-drag turns the copy into a
   move. Film one drag: the thumbnail stays under the pointer where it was
   grabbed.
+### Third-party requests keep nothing on disk — 2026-10-11 (sp/PV-03)
+
+Closes G-016 (every request went through `URLSession.shared`, whose disk cache
+could keep a Translate Online text, sent in a GET's `q=`, and its answer in
+`~/Library/Caches/com.ctimothe.isla/Cache.db`) and G-030 (the Spotify cover
+fetch was unlisted and a comment called it the only request).
+
+- [x] **One session that keeps nothing.** `PrivateNetwork.session` is
+  ephemeral with no URL cache, no cookie jar, no credential store and
+  `.reloadIgnoringLocalCacheData`. LRCLIB, MyMemory, the Spotify Web API and
+  token exchange, the cover fetch and the update check all default to it.
+  `PrivateNetworkTests.testPrivateSessionKeepsNothing`,
+  `testNoSourceUsesTheSharedSession` (no source names `URLSession.shared` or
+  builds a session of its own; five uses before).
+- [x] **The old cache is emptied once.** The first launch of this build
+  removes every response in the shared URL cache and every cookie in the
+  shared jar, then sets `network.cachePurged.1` so it never runs again.
+  `PrivateNetworkTests.testTheOldCacheIsPurgedExactlyOnce`.
+- [x] **The cover fetch is named.** README's privacy table lists Spotify
+  covers with no setting; the capability list above records it.
+- [ ] **Live check owed:** with Translate Online on, translate one Uzbek
+  sentence, quit Isla, then
+  `sqlite3 ~/Library/Caches/com.ctimothe.isla/Cache.db "select count(*) from cfurl_cache_response where request_key like '%mymemory%'"`
+  answers 0 (or the file is absent). Also confirm the Spotify account still
+  connects, refreshes and hearts a track, and an update check still answers.

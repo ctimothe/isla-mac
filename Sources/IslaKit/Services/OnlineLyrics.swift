@@ -175,7 +175,7 @@ enum OnlineLyrics {
     static func lookUp(
         _ identity: LocalTrackIdentity,
         transport: @Sendable (URLRequest) async throws -> (Data, URLResponse) = { request in
-            try await URLSession.shared.data(for: request)
+            try await PrivateNetwork.session.data(for: request)
         }
     ) async -> Outcome {
         guard let request = request(for: identity) else { return .none }

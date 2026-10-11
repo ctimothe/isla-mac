@@ -185,10 +185,11 @@ final class SpotifyAccount: ObservableObject {
     /// account over an empty keychain.
     private let credentials: CredentialStore
 
-    /// The session every Web-API call goes through. `URLSession.shared` in
-    /// production, substituted in tests so the whole request path runs
-    /// without a network. The two Liked Songs calls used to name
-    /// `URLSession.shared` directly, so no test could ever reach them.
+    /// The session every Web-API call goes through. `PrivateNetwork.session`
+    /// in production — no disk cache, no cookie jar (audit G-016) —
+    /// substituted in tests so the whole request path runs without a network.
+    /// The two Liked Songs calls used to name the shared session directly, so
+    /// no test could ever reach them.
     private let session: URLSession
     /// The clock the refusal cooldown reads. `Date.init` in production; a
     /// test moves it ten minutes without waiting ten minutes.
@@ -212,7 +213,7 @@ final class SpotifyAccount: ObservableObject {
     /// touching the real one. Production always arrives through `shared`.
     init(
         credentials: CredentialStore? = nil,
-        session: URLSession = .shared,
+        session: URLSession = PrivateNetwork.session,
         now: @escaping () -> Date = Date.init,
         openURL: @escaping (URL) -> Void = { _ = NSWorkspace.shared.open($0) }
     ) {

@@ -54,8 +54,8 @@ says whether there is one.
 
 ## Privacy
 
-Nothing leaves the Mac unless you turn it on in Settings. Each of these is off
-by default:
+Nothing about you leaves the Mac unless you turn it on in Settings. Each of
+these is off by default, except the cover row, which has no setting:
 
 | Setting | What is sent | Where |
 | --- | --- | --- |
@@ -63,6 +63,9 @@ by default:
 | Translate Online | The text and its two languages, only for languages the Mac cannot translate itself | [MyMemory](https://mymemory.translated.net) |
 | Connect Spotify Account | Spotify sign-in, to read and change Liked Songs | Spotify |
 | Check for Updates Automatically | A request for the latest version, naming Isla's version | [GitHub](https://github.com) |
+| Spotify covers (no setting) | The cover's address, only when Spotify is playing and Now Playing cannot describe it | Spotify's image server |
+
+Isla keeps no web cache and no cookies from any of these requests.
 
 Spotify tokens are stored in a file readable only by your user account in
 `~/Library/Application Support/Isla`. Signed builds use the Keychain instead.
