@@ -150,6 +150,10 @@ struct SettingsPane: View {
     /// on "Connect" forever while the tokens were already in the keychain.
     @ObservedObject private var spotify = SpotifyAccount.shared
     @State private var screenshotUsage: (files: Int, bytes: Int64) = (0, 0)
+    /// True from the confirming click until the vault says the files reached
+    /// the Trash. The row is disabled meanwhile: the size it names is stale
+    /// until then, and a second confirm would only queue a clear of nothing.
+    @State private var clearingScreenshots = false
     /// When the report was last copied, so the row can say it worked. A copy
     /// has no other visible result.
     @State private var diagnosticsCopied: Date?
@@ -297,15 +301,30 @@ struct SettingsPane: View {
                         symbol: SettingsIcon.clear,
                         title: clearTitle,
                         armedTitle: localized("Delete These Files"),
-                        disabled: screenshotUsage.files == 0
+                        disabled: screenshotUsage.files == 0 || clearingScreenshots
                     ) {
-                        screenshotVault.clear()
-                        shelf.load()
-                        // The files were just deleted, so the cards have to go
-                        // with them. Safe to look here: the vault lives in the
-                        // app's own folder, which macOS does not guard.
-                        shelf.refreshFromDisk()
-                        refreshUsage()
+                        clearingScreenshots = true
+                        // Inside the answer, not after the call: the trash
+                        // runs on the vault's queue, and refreshing on the
+                        // next line reloaded the Shelf and the size before a
+                        // single file had moved, so both stayed until the next
+                        // visit (F-034).
+                        screenshotVault.clear { moved in
+                            clearingScreenshots = false
+                            shelf.load()
+                            // The files are in the Trash now, so the cards
+                            // have to go with them. Safe to look here: the
+                            // vault lives in the app's own folder, which macOS
+                            // does not guard.
+                            shelf.refreshFromDisk()
+                            refreshUsage()
+                            // The row's title changing is all a sighted user
+                            // needs; VoiceOver hears what happened, with the
+                            // count the vault actually moved.
+                            Announcer.shared.announce(moved == 1
+                                ? localized("Moved 1 file to the Trash.")
+                                : localized("Moved %d files to the Trash.", moved))
+                        }
                     }
                 }
 

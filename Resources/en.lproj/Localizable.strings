@@ -369,3 +369,5 @@
 "AirDrop cannot send these files." = "AirDrop cannot send these files.";
 "Release to add to the Shelf" = "Release to add to the Shelf";
 "Drop to keep on the Shelf" = "Drop to keep on the Shelf";
+"Moved 1 file to the Trash." = "Moved 1 file to the Trash.";
+"Moved %d files to the Trash." = "Moved %d files to the Trash.";

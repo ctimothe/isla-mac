@@ -18,7 +18,11 @@ final class ScreenshotVault {
     /// What the trim and Clear do with a file the vault is done with. The
     /// Trash, always, in the app; a test hands in a recorder instead, so a
     /// test run can never move anything into the owner's own Trash.
-    private let discard: @Sendable (URL) -> Void
+    ///
+    /// Throws when the move is refused — a volume with no Trash, a file
+    /// locked in Finder — so Clear can say how many files actually went
+    /// rather than how many it asked to send (F-034).
+    private let discard: @Sendable (URL) throws -> Void
 
     /// Every write, trim and clear runs here, one at a time.
     ///
@@ -36,14 +40,14 @@ final class ScreenshotVault {
     /// test that built a `NotchStores` — a folder nobody had asked for
     /// (J-013). The folder is now made by the first save, or by the user
     /// asking to see it.
-    init(paths: AppPaths = .live, discard: @escaping @Sendable (URL) -> Void = ScreenshotVault.trash) {
+    init(paths: AppPaths = .live, discard: @escaping @Sendable (URL) throws -> Void = ScreenshotVault.trash) {
         self.paths = paths
         self.discard = discard
         self.location = Location(paths)
     }
 
-    @Sendable nonisolated static func trash(_ url: URL) {
-        try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
+    @Sendable nonisolated static func trash(_ url: URL) throws {
+        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
     }
 
     /// Where the vault's files live: Pictures, or the support fallback when
@@ -272,7 +276,7 @@ final class ScreenshotVault {
     /// than the limit. Only files this vault wrote are considered — anything
     /// else in the folder is the user's and is left alone.
     private nonisolated static func trimToLimit(
-        folder: URL, limit: Int, discard: @Sendable (URL) -> Void
+        folder: URL, limit: Int, discard: @Sendable (URL) throws -> Void
     ) {
         let ours = ownFiles(in: folder)
         guard ours.count > limit else { return }
@@ -282,8 +286,10 @@ final class ScreenshotVault {
             return (url, date)
         }
         .sorted { $0.1 < $1.1 }
+        // A refused move leaves the file where it is, over the cap; the next
+        // save tries again, and nothing here is worth stopping a save for.
         for (url, _) in dated.prefix(ours.count - limit) {
-            discard(url)
+            try? discard(url)
         }
     }
 
@@ -328,13 +334,27 @@ final class ScreenshotVault {
     /// On the vault's own queue, so a save already queued finishes first and
     /// a save queued after it lands in a cleared folder — never a half-cleared
     /// one. With no folder there is nothing to clear, and nothing is created.
-    func clear() {
+    ///
+    /// Answers on the main thread with how many files reached the Trash, once
+    /// the last of them has. There was no answer at all once: Settings called
+    /// this and reloaded the Shelf and the size label on the next line, while
+    /// the trash had not started, so the cards and the size stayed until the
+    /// next visit (F-034). The answer comes even when nothing moved — the
+    /// caller disables its row while it waits, and must hear back to undo
+    /// that.
+    func clear(completion: @escaping @MainActor (Int) -> Void) {
         let location = location
         let discard = discard
         queue.async {
-            guard let folder = location.existing() else { return }
-            for url in Self.ownFiles(in: folder) {
-                discard(url)
+            var moved = 0
+            if let folder = location.existing() {
+                for url in Self.ownFiles(in: folder) where (try? discard(url)) != nil {
+                    moved += 1
+                }
+            }
+            let count = moved
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { completion(count) }
             }
         }
     }
