@@ -365,28 +365,22 @@ struct MediaPane: View {
                 )
                 .animation(Theme.contentAnimation, value: scrubHover)
             }
-            .frame(height: 14)
+            // 22 pt to grab, 14 pt to lay out (F-014). The strip sits at the
+            // top edge of the screen, and 14 pt there was a target a seek had
+            // to be aimed at; a near miss landed on nothing. The drawn bar is
+            // centred in the strip either way, and the negative padding gives
+            // the extra 8 pt back to the column, so the caption above and the
+            // transport below stay exactly where the type rhythm put them.
+            .frame(height: 22)
             // A capsule with a drag gesture is nothing at all to assistive
-            // tech. Declared as one adjustable element instead, seeking in
-            // five-percent steps, so the position can be both heard and moved
-            // without the pointer.
-            .accessibilityElement()
-            .accessibilityLabel(localized("Playback Position"))
-            .accessibilityValue(
-                localized(
-                    "%@ of %@",
-                    formatTime(progress * media.duration),
-                    formatTime(media.duration)
-                )
+            // tech; see `playbackPositionAccessibility` for why it is a slider.
+            .playbackPositionAccessibility(
+                shown: progress * media.duration,
+                duration: media.duration,
+                position: { media.position },
+                seek: { media.seek(to: $0) }
             )
-            .accessibilityAdjustableAction { direction in
-                let step = media.duration * 0.05
-                switch direction {
-                case .increment: media.seek(to: media.position + step)
-                case .decrement: media.seek(to: media.position - step)
-                @unknown default: break
-                }
-            }
+            .padding(.vertical, -4)
 
             Text(formatTime(media.duration))
                 .frame(width: media.duration >= 3600 ? 52 : 32, alignment: .trailing)
