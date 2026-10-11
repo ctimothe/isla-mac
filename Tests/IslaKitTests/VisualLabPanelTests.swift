@@ -122,8 +122,9 @@ final class VisualLabPanelTests: VisualLabCase {
             Self.scene(try await self.openPanel(session, track: .init(cover: nil), lyrics: .disabled), variant, height: size.height)
         }
         try await shoot.shoot("live-stream-no-duration", variants: [.base, .russian], size: size,
-                              notes: "A stream with no length: no scrubber.") { variant in
-            Self.scene(try await self.openPanel(session, track: .init(duration: 0, elapsed: 0, source: "Radio"), lyrics: .disabled),
+                              notes: "A stream with no length: no scrubber, and the caption says live audio has no lyrics rather than that lyrics are off.") { variant in
+            Self.scene(try await self.openPanel(session, track: .init(duration: 0, elapsed: 0, source: "Radio"),
+                                                lyrics: .cannotLookUp(.noLength)),
                        variant, height: size.height)
         }
         try await shoot.shoot("podcast-over-an-hour", variants: [.base, .w480], size: size,

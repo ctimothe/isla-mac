@@ -135,17 +135,36 @@ final class SkipTransitionTests: XCTestCase {
 
 /// What the lyric caption says when a song has none.
 final class LyricCaptionCopyTests: XCTestCase {
-    /// With LRCLIB asked too, a miss says nothing was found. "No local
-    /// lyrics." read as though the catalogue had never been tried.
+    /// With LRCLIB asked too, a miss says nothing was found; with only this
+    /// Mac searched, it says so, rather than reading as though the catalogue
+    /// had been tried.
     func testAMissWithOnlineLyricsOnSaysNothingWasFound() {
-        XCTAssertEqual(
+        XCTAssertNotEqual(
             LyricsPresentation.compactCaption(for: .noLocalLyrics, currentLine: nil, onlineEnabled: true),
-            localized("No lyrics found.")
+            LyricsPresentation.compactCaption(for: .noLocalLyrics, currentLine: nil),
+            "a search that never asked the catalogue must not claim it found nothing there"
+        )
+    }
+
+    /// One plain vocabulary, each line still saying what was searched. "No
+    /// local lyrics." was jargon a new listener met on nearly every song, and
+    /// there were four miss strings with no common voice.
+    func testEachMissNamesItsReasonInPlainWords() {
+        XCTAssertEqual(
+            LyricsPresentation.compactCaption(for: .noLocalLyrics, currentLine: nil, onlineEnabled: false),
+            localized("No lyrics on this Mac.")
         )
         XCTAssertEqual(
-            LyricsPresentation.compactCaption(for: .noLocalLyrics, currentLine: nil),
-            localized("No local lyrics."),
-            "with only the local library searched, local is the honest word"
+            LyricsPresentation.compactCaption(for: .noLocalLyrics, currentLine: nil, onlineEnabled: true),
+            localized("No lyrics found for this song.")
+        )
+        XCTAssertEqual(
+            LyricsPresentation.compactCaption(for: .invalidLocalFile(.malformed), currentLine: nil),
+            localized("Can't read the lyrics file for this song.")
+        )
+        XCTAssertEqual(
+            LyricsPresentation.compactCaption(for: .disabled, currentLine: nil),
+            localized("Lyrics are off.")
         )
     }
 }

@@ -198,7 +198,7 @@ final class LyricsStore: ObservableObject {
             switch availability {
             case .disabled: state = .idle
             case .resolving, .findingLocalLyrics: state = .loading
-            case .noLocalLyrics, .invalidLocalFile: state = .none
+            case .noLocalLyrics, .invalidLocalFile, .cannotLookUp: state = .none
             case .ready: preconditionFailure("handled above")
             }
         }

@@ -242,8 +242,10 @@ final class FirstRunTests: XCTestCase {
 
     func testEveryLocalLyricsStringHasEnglishAndRussianTranslations() throws {
         let keys = [
-            "Local Lyrics Library", "Add Lyrics Folder…", "No local lyrics.",
+            "Local Lyrics Library", "Add Lyrics Folder…", "No lyrics on this Mac.",
             "This LRC file is invalid.", "Export LRC", "Lyrics stay on this Mac.",
+            "No lyrics found for this song.", "Can't read the lyrics file for this song.",
+            "No lyrics for live audio.", "This track has no title to look up.", "Lyrics are off.",
         ]
         for language in ["en", "ru"] {
             let table = try Self.table(language)
@@ -254,6 +256,9 @@ final class FirstRunTests: XCTestCase {
                 }
             }
         }
+        // "Текст песен" is "the lyrics of songs", which does not agree with a
+        // switch about the one song playing.
+        XCTAssertEqual(Self.value(for: "Lyrics are off.", in: try Self.table("ru")), "Текст песни выключен.")
     }
 
     func testWordKaraokeHasEnglishAndRussianTranslations() throws {

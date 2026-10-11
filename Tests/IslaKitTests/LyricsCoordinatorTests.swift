@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import IslaKit
 
@@ -446,6 +447,128 @@ final class LyricsCoordinatorTests: XCTestCase {
             coordinator.currentLocalTrackIdentity?.playerID, PlayerApp.spotify.rawValue,
             "the identity belongs to the player the song is playing in now"
         )
+    }
+
+    /// A stream, a radio station or a browser tab publishes no length, and
+    /// every such track used to say "Lyrics are off." with a Show Lyrics
+    /// button that rewrote an already-true switch and could not work: the
+    /// guard that meant "the switch is off" also swallowed "this track has no
+    /// length". It now says what is true, and offers nothing it cannot do.
+    func testATrackWithNoLengthSaysSoAndOffersNothingThatCannotWork() async throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        LyricsCoordinator.noLengthGrace = 0.05
+        defer { LyricsCoordinator.noLengthGrace = 1.5 }
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        var live = playingSnapshot()
+        live.title = "Radio"
+        live.artist = "Station"
+        live.album = ""
+        live.duration = 0
+        media.apply(live)
+        XCTAssertEqual(coordinator.availability, .resolving, "quiet first: the length may yet arrive")
+
+        for _ in 0..<50 {
+            if coordinator.availability == .cannotLookUp(.noLength) { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(coordinator.availability, .cannotLookUp(.noLength))
+        XCTAssertNil(LyricsPresentation.offer(
+            for: coordinator.availability, localLookup: coordinator.localLookup, onlineEnabled: false
+        ))
+        XCTAssertNil(LyricsPresentation.offer(
+            for: coordinator.availability, localLookup: coordinator.localLookup, onlineEnabled: true
+        ))
+        XCTAssertEqual(
+            LyricsPresentation.compactCaption(for: coordinator.availability, currentLine: nil),
+            localized("No lyrics for live audio.")
+        )
+        XCTAssertFalse(LyricsPresentation.canRetry(coordinator.availability))
+        XCTAssertFalse(LyricsPresentation.canOpenLocalActions(coordinator.availability))
+    }
+
+    /// The player publishes the title before the length, so a real song
+    /// passes through "no length" on its way in. That moment must never be
+    /// drawn as live audio: the grace holds the slot quiet, and a length
+    /// arriving inside it resolves the track as any other.
+    func testADurationThatArrivesInsideTheGraceNeverShowsTheLiveState() async throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        // Wide enough that a busy machine cannot let the grace run out
+        // before the length lands at 20ms; the wait after it outlasts the
+        // grace, so a timer that was not cancelled would have fired.
+        LyricsCoordinator.noLengthGrace = 0.3
+        defer { LyricsCoordinator.noLengthGrace = 1.5 }
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        var published: [LyricsAvailability] = []
+        let watch = coordinator.$availability.sink { published.append($0) }
+        defer { watch.cancel() }
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        var early = playingSnapshot()
+        early.duration = 0
+        media.apply(early)
+        try? await Task.sleep(for: .milliseconds(20))
+
+        var known = early
+        known.duration = 180
+        known.takenAt = Date()
+        media.apply(known)
+        try? await Task.sleep(for: .milliseconds(450))
+
+        XCTAssertFalse(
+            published.contains { (state: LyricsAvailability) -> Bool in
+                if case .cannotLookUp = state { return true }
+                return false
+            },
+            "published \(published)"
+        )
+        XCTAssertEqual(coordinator.availability, .noLocalLyrics)
+    }
+
+    /// No title is nothing to look a song up by, which is not the switch
+    /// being off either. A truly empty title never becomes a track (the feed
+    /// reads it as nothing playing); a blank one does, and used to be sent to
+    /// the matcher and the catalogue as a title.
+    func testATrackWithNoTitleSaysItCannotBeLookedUp() {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        var untitled = playingSnapshot()
+        untitled.title = "   "
+        media.apply(untitled)
+
+        XCTAssertNotNil(media.track, "the fixture: a blank title is still a track")
+        XCTAssertEqual(coordinator.availability, .cannotLookUp(.noTitle))
+        XCTAssertEqual(
+            LyricsPresentation.compactCaption(for: coordinator.availability, currentLine: nil),
+            localized("This track has no title to look up.")
+        )
+    }
+
+    /// Off is the only state that says off.
+    func testWithLyricsOffANoLengthTrackStillSaysOff() {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { false })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        var live = playingSnapshot()
+        live.duration = 0
+        media.apply(live)
+        XCTAssertEqual(coordinator.availability, .disabled)
     }
 
     private func playingSnapshot() -> NowPlayingFeed.Snapshot {

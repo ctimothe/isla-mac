@@ -101,8 +101,6 @@
 "Word Karaoke" = "Word Karaoke";
 "Lyrics stay on this Mac." = "Lyrics stay on this Mac.";
 "Local Lyrics Library" = "Local Lyrics Library";
-"No local lyrics." = "No local lyrics.";
-"No lyrics found." = "No lyrics found.";
 "Import LRC…" = "Import LRC…";
 "Add Lyrics Folder…" = "Add Lyrics Folder…";
 "Remove %@" = "Remove %@";
@@ -148,7 +146,6 @@
 "Export LRC" = "Export LRC";
 "This LRC file is invalid." = "This LRC file is invalid.";
 "Choose local lyrics…" = "Choose local lyrics…";
-"No lyrics for this track." = "No lyrics for this track.";
 "Finding lyrics…" = "Finding lyrics…";
 "Jumps the song to this line" = "Jumps the song to this line";
 "Opens the full lyrics" = "Opens the full lyrics";
@@ -299,3 +296,10 @@
 
 /* Shelf: a card whose disk is not plugged in */
 "Disk not connected" = "Disk not connected";
+
+/* Lyrics: why a song has none, in plain words */
+"No lyrics on this Mac." = "No lyrics on this Mac.";
+"No lyrics found for this song." = "No lyrics found for this song.";
+"Can't read the lyrics file for this song." = "Can't read the lyrics file for this song.";
+"No lyrics for live audio." = "No lyrics for live audio.";
+"This track has no title to look up." = "This track has no title to look up.";
