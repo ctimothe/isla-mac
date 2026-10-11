@@ -170,7 +170,7 @@ struct ClipboardPane: View {
     }
 }
 
-private struct ClipRow: View {
+struct ClipRow: View {
     let item: ClipItem
     @ObservedObject var clipboard: ClipboardStore
     @ObservedObject var privacy: PrivacyMode
@@ -180,9 +180,17 @@ private struct ClipRow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var hidden: Bool { privacy.hides(.clipboard, item.id.uuidString) }
 
+    /// The row's kind glyph. A covered row wears one neutral glyph whatever it
+    /// holds: the link glyph on row 5 told a screen-share audience which of the
+    /// covered rows is a URL, and a file's told them it was a file (H-026). The
+    /// copied tick still wins over it, in the body.
+    static func glyph(for item: ClipItem, hidden: Bool) -> String {
+        hidden ? "text.alignleft" : item.symbol
+    }
+
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: justCopied ? "checkmark" : item.symbol)
+            Image(systemName: justCopied ? "checkmark" : Self.glyph(for: item, hidden: hidden))
                 .islandFont(.caption)
                 .foregroundStyle(justCopied ? Theme.success : Theme.tertiary)
                 .symbolSwap(value: justCopied, reduceMotion: reduceMotion)
@@ -203,23 +211,29 @@ private struct ClipRow: View {
                     .islandFont(.caption)
                     .foregroundStyle(Theme.secondary)
                     .transition(.opacity)
-            } else if hovering {
+            } else {
+                // At rest on a covered pane, not only under the pointer: a
+                // covered row that shows nothing says nothing about how to
+                // read it, and the eye was the one control a hover-less
+                // touch or trackpad user never found (M-04).
                 if privacy.covers(.clipboard) {
                     RevealEye(hidden: hidden) { privacy.toggle(item.id.uuidString) }
                 }
-                Button { clipboard.remove(item) } label: {
-                    Image(systemName: "xmark")
-                        .islandFont(.caption, weight: .semibold)
-                        .foregroundStyle(Theme.secondary)
-                        // A 10pt glyph is a ~10pt target sitting beside the
-                        // reveal eye, inside a row whose own background
-                        // copies to the pasteboard — missing it by two
-                        // points overwrote what the user had copied.
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
+                if hovering {
+                    Button { clipboard.remove(item) } label: {
+                        Image(systemName: "xmark")
+                            .islandFont(.caption, weight: .semibold)
+                            .foregroundStyle(Theme.secondary)
+                            // A 10pt glyph is a ~10pt target sitting beside the
+                            // reveal eye, inside a row whose own background
+                            // copies to the pasteboard — missing it by two
+                            // points overwrote what the user had copied.
+                            .frame(width: 22, height: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PanelButtonStyle())
+                    .accessibilityLabel(localized("Remove Entry"))
                 }
-                .buttonStyle(PanelButtonStyle())
-                .accessibilityLabel(localized("Remove Entry"))
             }
         }
         .padding(.horizontal, 9)

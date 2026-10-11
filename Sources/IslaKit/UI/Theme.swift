@@ -489,11 +489,70 @@ enum Theme {
     /// Carries nearly every 9–10pt label in the panel — tab titles, counters,
     /// scrubber times, section headers, placeholders. At 0.32 white over black
     /// that computes to 2.67:1, far under the 4.5:1 WCAG AA asks of text this
-    /// size, and 9pt is precisely the type least able to afford it. 0.46 gives
-    /// 4.58:1 and clears it without turning every label into a headline; 0.65
-    /// gives 8.60:1 once Increase Contrast is on.
+    /// size, and 9pt is precisely the type least able to afford it. 0.46 gave
+    /// 4.58:1 over black and cleared it there, but a label seldom sits on bare
+    /// black: on `surface` (Settings notes, section rows) it was 4.29:1
+    /// (F-052). 0.50 is 5.28:1 over black and 4.8:1 on `surface`, without
+    /// turning every label into a headline; 0.65 gives 8.60:1 once Increase
+    /// Contrast is on. The fills that are brighter still — a hovered Shelf
+    /// card, the stacked capsules of a choice row — raise the label per
+    /// fill with `tertiaryOpacity(over:increaseContrast:)`.
     static func tertiaryOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.65 : 0.46
+        increaseContrast ? 0.65 : 0.50
+    }
+
+    /// The panel's translucent white fills a label can sit on, by name, so a
+    /// label's backdrop is stated once and measured by `ContrastRampTests`.
+    enum Fill {
+        case surface, surfaceHover, selectedChip
+
+        func opacity(increaseContrast: Bool) -> Double {
+            switch self {
+            case .surface: return Theme.surfaceOpacity(increaseContrast: increaseContrast)
+            case .surfaceHover: return Theme.surfaceHoverOpacity(increaseContrast: increaseContrast)
+            case .selectedChip: return Theme.selectedChipOpacity(increaseContrast: increaseContrast)
+            }
+        }
+    }
+
+    /// What an unselected option of a Settings choice row sits on: the section
+    /// card's `surface` and the capsule group's own `surface` on top of it. At
+    /// Increase Contrast those two stack to 0.48 of white, where even pure white
+    /// text reaches only 4.24:1, so the capsule group gives up its fill for the
+    /// defined edge that setting asks for and the option sits on the card alone.
+    static func choiceOptionFills(increaseContrast: Bool) -> [Fill] {
+        increaseContrast ? [.surface] : [.surface, .surface]
+    }
+
+    /// The grey (sRGB, 0…1) that white layers of these opacities make over the
+    /// panel's black, source-over, first layer first.
+    static func composite(_ opacities: [Double]) -> Double {
+        opacities.reduce(0) { grey, alpha in alpha + (1 - alpha) * grey }
+    }
+
+    /// WCAG contrast of white at `textOpacity` over an sRGB grey.
+    static func contrast(textOpacity: Double, overGrey grey: Double) -> Double {
+        LockCardLegibility.contrast(textOpacity: textOpacity, overGrey: grey)
+    }
+
+    /// The smallest white opacity, no dimmer than the tertiary ramp, that
+    /// clears 4.5:1 over these stacked fills. Searched in whole percent so the
+    /// answer is a value a designer would write; the tertiary ramp itself is
+    /// returned where it already clears.
+    static func tertiaryOpacity(over fills: [Fill], increaseContrast: Bool) -> Double {
+        let base = tertiaryOpacity(increaseContrast: increaseContrast)
+        let grey = composite(fills.map { $0.opacity(increaseContrast: increaseContrast) })
+        var candidate = base
+        while candidate < 1, contrast(textOpacity: candidate, overGrey: grey) < 4.5 {
+            candidate = (candidate * 100).rounded() / 100 + 0.01
+        }
+        return min(candidate, 1)
+    }
+
+    /// `tertiaryOpacity(over:increaseContrast:)` as a colour, at the live
+    /// Increase Contrast setting.
+    @MainActor static func tertiary(over fills: [Fill]) -> Color {
+        Color.white.opacity(tertiaryOpacity(over: fills, increaseContrast: SystemAppearance.shared.increaseContrast))
     }
 
     /// A filled shape has to read as a filled shape. 0.08 was 1.14:1 over

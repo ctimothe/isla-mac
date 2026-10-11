@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import Combine
+import IOKit.ps
 import SwiftUI
 
 @MainActor
@@ -49,6 +50,9 @@ final class NotchController {
     /// Monotonic stamp for the deferred half of closing: any newer open or
     /// close outdates the one still in flight.
     private var openGeneration = 0
+    /// Stamp of the panel `build()` last made. The synthetic-notch looks a
+    /// build schedules do nothing once a newer build has outdated them.
+    private var buildGeneration = 0
 
     func install() {
         stores.onScreenshot = { [weak self] url in
@@ -149,7 +153,6 @@ final class NotchController {
         lockPresence.onUnlock = { [weak self] in self?.screenUnlocked() }
         lockPresence.start()
         startGeometryWatchdog()
-        verifySyntheticNotch()
         // Verification hook, environment-gated like the panel's own: the lock
         // card is the one surface that cannot be screenshotted where it lives,
         // because the shield owns the screen while it is up. Launched with
@@ -181,6 +184,18 @@ final class NotchController {
         // behind other windows' ordering on the new space; fronting it again
         // makes the island read as fixed to the notch the way the hardware is.
         panel?.orderFrontRegardless()
+        // Entering a full-screen app is a Space change, and a moment already
+        // on screen would ride into it (K-003): end it with the Space it was
+        // shown on. A peek's work item is cancelled with its flag, or the flag
+        // would stay raised with nothing left to lower it.
+        if let vm = viewModel, momentsAreQuiet() {
+            if vm.isPeeking {
+                peekWork?.cancel()
+                peekWork = nil
+                vm.isPeeking = false
+            }
+            if vm.ambient != nil { clearAmbient() }
+        }
         guard viewModel?.isOpen == true else { return }
         // What was typed is kept — only the panel closes.
         setOpen(false)
@@ -421,12 +436,31 @@ final class NotchController {
     /// settling its displays. A launch that lands in that window would draw the
     /// synthetic pill for the rest of the session, since nothing else asks
     /// again. Two later looks cost nothing and end that.
+    ///
+    /// Asked at the end of every `build()`, not only at launch: a display
+    /// reconfiguration or a wake rebuilds the panel while the built-in display
+    /// is just as unsettled, and a synthetic pill drawn then stayed for the
+    /// session (F-047). The generation stamp bounds that — each build's looks
+    /// belong to it alone, so a rebuild storm leaves one pair of live looks.
+    nonisolated static func syntheticRecheckDelays(
+        isPhysical: Bool, generation: Int, current: Int
+    ) -> [TimeInterval] {
+        guard !isPhysical, generation == current else { return [] }
+        return [1.5, 5.0]
+    }
+
     private func verifySyntheticNotch() {
-        guard viewModel?.geometry.isPhysical == false else { return }
-        for delay in [1.5, 5.0] {
+        let generation = buildGeneration
+        let delays = Self.syntheticRecheckDelays(
+            isPhysical: viewModel?.geometry.isPhysical ?? true,
+            generation: generation,
+            current: buildGeneration
+        )
+        for delay in delays {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 MainActor.assumeIsolated {
-                    guard let self, self.viewModel?.geometry.isPhysical == false else { return }
+                    guard let self, self.buildGeneration == generation,
+                          self.viewModel?.geometry.isPhysical == false else { return }
                     guard let fresh = NotchGeometry.current(), fresh.isPhysical else { return }
                     self.geometryTrace("late notch found, rebuilding")
                     self.rebuild()
@@ -980,6 +1014,7 @@ final class NotchController {
         showingWelcome: Bool = false
     ) {
         guard let geometry = NotchGeometry.current() else { return }
+        buildGeneration += 1
         let vm = NotchViewModel(geometry: geometry, stores: stores)
         // Before any rect is cut. The tab decides how far down the panel
         // reaches, and restoring it afterwards left every rect cut for the
@@ -1371,6 +1406,7 @@ final class NotchController {
         // pill vanishes from the shield at the exact moment a display
         // changes. Last, so it also undoes the reopen just above.
         if lockPresence.isLocked { screenLocked() }
+        verifySyntheticNotch()
     }
 
     // MARK: - Open / close
@@ -1568,6 +1604,10 @@ final class NotchController {
         // to widen. Peeking anyway drew its title into a wing of no width,
         // which under a real notch is invisible and beside a drawn one is not.
         guard vm.compactMediaActivity.isVisible else { return }
+        // Nor over a talk, a projector or a film (K-003): the title would land
+        // on the audience's screen. After the cheaper guards, since this one
+        // reads the displays.
+        guard !momentsAreQuiet() else { return }
 
         peekWork?.cancel()
         vm.isPeeking = true
@@ -1624,7 +1664,8 @@ final class NotchController {
             isLocked: vm.isLockedPresentation,
             pointerInside: pointer.isInside,
             pointerUnderGrownPill: vm.geometry.collapsedHoverRect(for: grown.width).contains(NSEvent.mouseLocation),
-            screensAsleep: screensAreAsleep
+            screensAsleep: screensAreAsleep,
+            quiet: momentsAreQuiet()
         ) else { return }
 
         let reduceMotion = SystemAppearance.shared.reduceMotion
@@ -1667,12 +1708,68 @@ final class NotchController {
     ///   with one already inside: the pill would grow under a still cursor,
     ///   take the clicks meant for the menu bar beside the notch, and with
     ///   Open on Hover on, open the panel nobody asked for.
+    /// - A quiet moment (`momentsQuiet`) is refused: the audience's screen is
+    ///   not the place for a battery percentage (K-003).
     nonisolated static func ambientAllowed(
         switchOn: Bool, isOpen: Bool, isDropTargeted: Bool, isLocked: Bool,
-        pointerInside: Bool, pointerUnderGrownPill: Bool, screensAsleep: Bool
+        pointerInside: Bool, pointerUnderGrownPill: Bool, screensAsleep: Bool, quiet: Bool
     ) -> Bool {
         switchOn && !isOpen && !isDropTargeted && !isLocked
-            && !pointerInside && !pointerUnderGrownPill && !screensAsleep
+            && !pointerInside && !pointerUnderGrownPill && !screensAsleep && !quiet
+    }
+
+    /// Whether the transient moments (the track peek, the charger, the
+    /// headphones) stay away now. Pure, so each reason is a test (K-003).
+    ///
+    /// A talk mirrored to a projector, a laptop presenting through HDMI with
+    /// its lid shut, and a full-screen film or game each have an audience or an
+    /// absorbed viewer, and a 2.2 s pill with a song title on it is noise to
+    /// both. `sharingType = .none` hides the panel from screen capture and not
+    /// from a hardware mirror, so the pill cannot be left to hide itself. Only
+    /// the transient moments are quieted: the resting pill's presence on every
+    /// Space is the tested contract (S9-b).
+    nonisolated static func momentsQuiet(
+        fullScreenFrontmost: Bool, displayMirrored: Bool, soleExternalDisplay: Bool
+    ) -> Bool {
+        fullScreenFrontmost || displayMirrored || soleExternalDisplay
+    }
+
+    /// Only external displays on a Mac that has a battery is a laptop with its
+    /// lid shut and a screen plugged in, which is how a talk is given. A Mini
+    /// or a Studio has no battery and only ever has external displays, and that
+    /// is a desk, so it is not quiet.
+    nonisolated static func isSoleExternalDisplay(displaysAreBuiltIn: [Bool], hasInternalBattery: Bool) -> Bool {
+        hasInternalBattery && !displaysAreBuiltIn.isEmpty && !displaysAreBuiltIn.contains(true)
+    }
+
+    /// The live reading behind `momentsQuiet`. Read when a moment is about to
+    /// show, never cached: a display plugged in a second ago has to count.
+    private func momentsAreQuiet() -> Bool {
+        let options = NSApp.currentSystemPresentationOptions
+        var count: UInt32 = 0
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        CGGetActiveDisplayList(UInt32(ids.count), &ids, &count)
+        let active = ids.prefix(Int(count))
+        return Self.momentsQuiet(
+            // `.hideMenuBar` rather than `.autoHideMenuBar`: the latter is a
+            // preference many people keep on all day, the former is an app
+            // that took the whole screen.
+            fullScreenFrontmost: options.contains(.fullScreen) || options.contains(.hideMenuBar),
+            displayMirrored: active.contains { CGDisplayIsInMirrorSet($0) != 0 },
+            soleExternalDisplay: Self.isSoleExternalDisplay(
+                displaysAreBuiltIn: active.map { CGDisplayIsBuiltin($0) != 0 },
+                hasInternalBattery: Self.hasInternalBattery()
+            )
+        )
+    }
+
+    private static func hasInternalBattery() -> Bool {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return false }
+        return list.contains { source in
+            let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any]
+            return description?[kIOPSTypeKey] as? String == kIOPSInternalBatteryType
+        }
     }
 
     /// How long a moment due to fold waits before asking again, or nil to

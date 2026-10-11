@@ -20,6 +20,26 @@ final class PrivacyModeTests: XCTestCase {
         XCTAssertTrue(PrivacyMode(defaults: defaults).covers(.clipboard))
     }
 
+    /// With the cover on, the header still read "6" and row 5 still wore a
+    /// link glyph, so a screen-share audience learned how many items there
+    /// are and which is a URL (H-026). Hidden, the count is gone and every
+    /// row wears one neutral glyph; a revealed row shows its real kind.
+    func testTheCoverHidesCountAndKind() {
+        XCTAssertNil(NotchContentView.clipboardCounter(count: 6, covered: true))
+        XCTAssertEqual(NotchContentView.clipboardCounter(count: 6, covered: false), 6)
+        XCTAssertNil(NotchContentView.clipboardCounter(count: 0, covered: false))
+
+        let link = ClipItem(payload: .text("https://example.com"), date: .distantPast)
+        let text = ClipItem(payload: .text("a note"), date: .distantPast)
+        let file = ClipItem(payload: .file(URL(fileURLWithPath: "/tmp/a.txt")), date: .distantPast)
+        for item in [link, text, file] {
+            XCTAssertEqual(ClipRow.glyph(for: item, hidden: true), "text.alignleft")
+        }
+        XCTAssertEqual(ClipRow.glyph(for: link, hidden: false), "link")
+        XCTAssertEqual(ClipRow.glyph(for: text, hidden: false), "text.alignleft")
+        XCTAssertEqual(ClipRow.glyph(for: file, hidden: false), "doc")
+    }
+
     /// ⌃⌥⌘T on a pane the user had already uncovered puts a new clipboard
     /// secret into it; the controller conceals the pane first, so the reveal
     /// meant for the old text does not carry over to the new one.

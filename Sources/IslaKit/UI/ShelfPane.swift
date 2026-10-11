@@ -331,7 +331,10 @@ private struct ShelfCard: View {
                     TimelineView(.periodic(from: .now, by: 30)) { context in
                         Text(ShelfItem.age(of: date, now: context.date))
                             .islandFont(.caption, weight: .regular)
-                            .foregroundStyle(Theme.tertiary)
+                            // The age sits on the card's own fill, which is
+                            // brighter than the pane: tertiary was 3.52:1 on a
+                            // hovered card (F-052).
+                            .foregroundStyle(Theme.tertiary(over: [isSelected ? .selectedChip : (isHovered ? .surfaceHover : .surface)]))
                             .lineLimit(1)
                     }
                     .help(date.formatted(date: .abbreviated, time: .shortened))

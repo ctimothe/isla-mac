@@ -199,6 +199,9 @@ struct NotchContentView: View {
                 // the wallpaper beside a shape that has already moved in.
                 .frame(width: size.width, alignment: .center)
                 .clipped()
+                // The refusal under Reduce Motion: the content dips, the black
+                // shape above stays put (see `RefusalShake`).
+                .refusalContentDim()
         }
         // Isla over the shield too, folded or not: pressed, it gives the
         // refusal a click gets. With nothing playing this island used to be
@@ -899,7 +902,9 @@ struct NotchContentView: View {
         case .shelf:
             counter(vm.shelf.items.count)
         case .clipboard:
-            counter(vm.clipboard.items.count)
+            counter(Self.clipboardCounter(
+                count: vm.clipboard.items.count, covered: vm.privacy.covers(.clipboard)
+            ) ?? 0)
         case .translate:
             // Nothing: the columns name both languages already, and the strip
             // is the one part of the panel worth not spending on a repeat.
@@ -907,6 +912,13 @@ struct NotchContentView: View {
         case .settings:
             EmptyView()
         }
+    }
+
+    /// The number the clipboard header shows, or nil for none. With the cover
+    /// on, the header read "6" over rows of dots, and a screen-share audience
+    /// learned how many things had been copied (H-026). Pure, so it is a test.
+    static func clipboardCounter(count: Int, covered: Bool) -> Int? {
+        covered || count <= 0 ? nil : count
     }
 
     @ViewBuilder

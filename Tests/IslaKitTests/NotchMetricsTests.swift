@@ -18,6 +18,26 @@ final class NotchMetricsTests: XCTestCase {
         XCTAssertEqual(NotchMetrics.pointerAwayCollapseDelay, 0.6)
     }
 
+    /// `verifySyntheticNotch` ran only from `install()`, so a display change or
+    /// a wake that rebuilt the panel while the built-in display was still
+    /// settling drew the synthetic pill on a notched Mac for the rest of the
+    /// session (F-047). Every synthetic build now asks again, twice; a build
+    /// that a newer one superseded, or one that found the physical notch,
+    /// asks nothing — which is also what bounds a rebuild storm to one pair of
+    /// looks per live build.
+    func testASyntheticBuildSchedulesItsOwnRecheck() {
+        XCTAssertEqual(
+            NotchController.syntheticRecheckDelays(isPhysical: false, generation: 2, current: 2),
+            [1.5, 5.0]
+        )
+        XCTAssertEqual(
+            NotchController.syntheticRecheckDelays(isPhysical: false, generation: 2, current: 3), []
+        )
+        XCTAssertEqual(
+            NotchController.syntheticRecheckDelays(isPhysical: true, generation: 2, current: 2), []
+        )
+    }
+
     /// `NotchGeometry.windowSize` used to return a locally computed `size`
     /// that only matched `NotchMetrics.maximumWindow` because of an
     /// `assert()` — which vanishes in Release builds, so the contract held

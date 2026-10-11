@@ -1245,13 +1245,46 @@ struct LockScreenCard: View {
             } else {
                 Spacer(minLength: 0)
             }
-            paneButton(.output, symbol: outputSymbol, label: localized("Sound Output"))
+            paneButton(
+                .output, symbol: outputSymbol, label: localized("Sound Output"),
+                value: Self.outputName(outputs: outputs, current: currentOutput)
+            )
         }
         .frame(height: 22)
     }
 
-    private func paneButton(_ target: Pane, symbol: String, label: String) -> some View {
+    /// What the open pane's door wears behind its glyph. The open glyph used to
+    /// differ from its bare sibling by one opacity step, white against
+    /// `cardSecondary`, which a pale cover or low vision cannot tell apart
+    /// (M-17): a filled well says "this one is open" as a shape, and Increase
+    /// Contrast adds the card's hairline edge to it. The siblings stay bare.
+    struct PaneButtonLook: Equatable {
+        let wellOpacity: Double
+        let outlined: Bool
+    }
+
+    static func paneButtonLook(open: Bool, increaseContrast: Bool) -> PaneButtonLook {
+        guard open else { return PaneButtonLook(wellOpacity: 0, outlined: false) }
+        return PaneButtonLook(
+            wellOpacity: Theme.cardFillOpacity(increaseContrast: increaseContrast),
+            outlined: increaseContrast
+        )
+    }
+
+    /// The name of the device the sound goes to, for the output button's value:
+    /// the button is a glyph, and a locked-Mac user could not tell where the
+    /// sound goes without opening the picker (M-24). Nil for a device the list
+    /// does not hold, so the button then says only what it is.
+    static func outputName(outputs: [AudioOutputs.Output], current: AudioDeviceID?) -> String? {
+        guard let current else { return nil }
+        return outputs.first(where: { $0.id == current })?.name
+    }
+
+    private func paneButton(
+        _ target: Pane, symbol: String, label: String, value: String? = nil
+    ) -> some View {
         let open = pane == target
+        let look = Self.paneButtonLook(open: open, increaseContrast: appearance.increaseContrast)
         return Button {
             pane = open ? .player : target
         } label: {
@@ -1262,11 +1295,24 @@ struct LockScreenCard: View {
                 // device is picked or unplugged — never in an animation.
                 .symbolSwap(value: symbol, reduceMotion: reduceMotion)
                 .frame(width: 26, height: 22)
+                .background {
+                    // 24 pt, the rail's own 22 pt row plus a point each side:
+                    // a well larger than the row would push the rail taller.
+                    Circle()
+                        .fill(Color.white.opacity(look.wellOpacity))
+                        .overlay {
+                            if look.outlined {
+                                Circle().strokeBorder(Theme.cardHairline, lineWidth: 1)
+                            }
+                        }
+                        .frame(width: 22, height: 22)
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(PanelButtonStyle())
-        .help(label)
+        .help(value.map { "\(label), \($0)" } ?? label)
         .accessibilityLabel(label)
+        .accessibilityValue(value ?? "")
         .accessibilityAddTraits(open ? [.isSelected] : [])
     }
 
