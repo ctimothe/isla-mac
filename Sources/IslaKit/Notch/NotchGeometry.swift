@@ -53,19 +53,57 @@ struct NotchGeometry {
         expandedSize.height - notchSize.height - Self.bodyBottomPadding
     }
 
-    /// Height each rail icon gets. A ceiling, not a constant: six icons at
-    /// the full 24 pt plus the five 4 pt gaps between them is 164 pt, and
-    /// the body only has `expandedSize.height − notchSize.height −
+    /// The deepest notch the body is laid out for, in points. `WelcomePane`
+    /// budgets its legend column against the same figure (the shallowest body
+    /// any supported Mac gives it is 208 less this less the padding below).
+    static let deepestSupportedNotchHeight: CGFloat = 40
+
+    /// The most the rail's footer gap (`Rail.footerGap`) takes before the
+    /// footer icon. A constant here and not a read of `Rail` so the geometry
+    /// stays free of the views; `NotchMetricsTests` checks the rail fits.
+    static let railFooterGap: CGFloat = 10
+
+    /// What a rail of `iconCount` icons asks of the body. The rail is a
+    /// VStack of the icons with a minimum-length spacer before the footer, so
+    /// with the spacer counted as a child there is a `railSpacing` between
+    /// every pair of neighbours: `iconCount` of them, and the spacer's own
+    /// minimum on top.
+    static func railHeight(iconCount: Int, iconHeight: CGFloat) -> CGFloat {
+        CGFloat(iconCount) * iconHeight + CGFloat(iconCount) * railSpacing + railFooterGap
+    }
+
+    /// Height each rail icon gets, for `iconCount` icons. A ceiling, not a
+    /// constant: six icons at the full 24 pt plus their gaps and the footer
+    /// gap is 178 pt, and the body only has `bodyHeight − notchHeight −
     /// bodyBottomPadding` left to give the rail once the header — the notch
     /// itself — and the padding beneath are taken out of the fixed 208.
     /// Rounded down rather than to the nearest point: a rail that asks for
     /// more than it is given should visibly yield, not overflow by a
     /// fraction that clips it.
-    var railIconHeight: CGFloat {
-        let icons = CGFloat(NotchViewModel.Tab.leftRail.count)
-        let available = expandedSize.height - notchSize.height - Self.bodyBottomPadding
-        let ceiling = (available - (icons - 1) * Self.railSpacing) / icons
+    ///
+    /// The footer gap is part of the budget. It was not while the rail had
+    /// five icons, where 24 pt fits with room over at any supported notch and
+    /// the omission could not show; with six, leaving it out made the rail
+    /// 12 pt taller than its frame on the deepest notch. For five icons the
+    /// answer is unchanged (24 on every supported notch), for six it is 20 on
+    /// the deepest (`NotchMetricsTests`).
+    static func railIconHeight(iconCount: Int, notchHeight: CGFloat, bodyHeight: CGFloat) -> CGFloat {
+        guard iconCount > 0 else { return 24 }
+        let icons = CGFloat(iconCount)
+        let available = bodyHeight - notchHeight - bodyBottomPadding
+        let ceiling = (available - icons * railSpacing - railFooterGap) / icons
         return min(24, ceiling).rounded(.down)
+    }
+
+    /// The icon height for the tabs on the rail right now — the one question
+    /// the rail, the Welcome legend and the tests all ask, answered from the
+    /// same `visibleTabs` list.
+    func railIconHeight(prompterEnabled: Bool) -> CGFloat {
+        Self.railIconHeight(
+            iconCount: NotchViewModel.Tab.visibleTabs(prompterEnabled: prompterEnabled).count,
+            notchHeight: notchSize.height,
+            bodyHeight: expandedSize.height
+        )
     }
 
     /// Slack around the panel so the concave shoulders and shadow are not clipped.

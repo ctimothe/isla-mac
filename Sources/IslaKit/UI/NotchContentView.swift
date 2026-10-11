@@ -515,7 +515,7 @@ struct NotchContentView: View {
         case .media: detail = vm.media.sourceName
         case .shelf: detail = vm.shelf.items.isEmpty ? nil : "\(vm.shelf.items.count)"
         case .clipboard: detail = vm.clipboard.items.isEmpty ? nil : "\(vm.clipboard.items.count)"
-        case .translate, .settings: detail = nil
+        case .translate, .prompter, .settings: detail = nil
         }
         guard let detail, !detail.isEmpty else { return vm.tab.title }
         return "\(vm.tab.title), \(detail)"
@@ -909,6 +909,9 @@ struct NotchContentView: View {
             // Nothing: the columns name both languages already, and the strip
             // is the one part of the panel worth not spending on a repeat.
             EmptyView()
+        case .prompter:
+            // T10 builds the tab and with it what the strip says.
+            EmptyView()
         case .settings:
             EmptyView()
         }
@@ -934,7 +937,8 @@ struct NotchContentView: View {
 
     private var content: some View {
         HStack(spacing: 14) {
-            Rail(vm: vm, tabs: NotchViewModel.Tab.contentTabs, footer: NotchViewModel.Tab.utilityTabs)
+            let groups = NotchViewModel.Tab.railGroups(prompterEnabled: vm.prompterEnabled)
+            Rail(vm: vm, tabs: groups.content, footer: groups.footer)
             panes
         }
         .padding(.horizontal, 14)
@@ -962,7 +966,11 @@ struct NotchContentView: View {
             // dismissing it is not travel between two tabs: one thing ends and
             // the panel it was in carries on.
             if vm.isShowingWelcome {
-                WelcomePane(onDismiss: { vm.dismissWelcome() }, railIconHeight: vm.geometry.railIconHeight)
+                WelcomePane(
+                    onDismiss: { vm.dismissWelcome() },
+                    railIconHeight: vm.railIconHeight,
+                    prompterEnabled: vm.prompterEnabled
+                )
                     .transition(.opacity)
             } else {
                 // The slight zoom is the only travel a swap has, and Reduce
@@ -1025,6 +1033,8 @@ struct NotchContentView: View {
         case .translate:
             TranslatePane(translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
                 .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
+        case .prompter:
+            PrompterTab()
         case .settings:
             SettingsPane(
                 shelf: vm.shelf,
@@ -1043,6 +1053,7 @@ struct NotchContentView: View {
                 clearBindingsAndTimingCorrections: vm.clearLyricsBindingsAndTimingCorrections,
                 dismissUnassignedLyricsOffset: vm.dismissUnassignedLyricsOffset,
                 privacy: vm.privacy,
+                prompterEnabled: vm.prompterEnabled,
                 wantsKeyboard: $vm.wantsKeyboard,
                 setClipboardHistory: vm.setClipboardHistory,
                 refreshClipboardPolling: vm.refreshClipboardPolling,
@@ -1080,7 +1091,7 @@ struct Rail: View {
     /// The least room between the run of content tabs and Settings below it.
     /// `WelcomePane` holds its Settings legend down with the same gap, so the
     /// line stays level with the icon on a body that leaves no more than this.
-    static let footerGap: CGFloat = 10
+    static let footerGap: CGFloat = NotchGeometry.railFooterGap
 
     /// Whether `tab`'s chip is drawn chosen — its fill, its filled glyph, its
     /// edge — and carries the selected trait.
@@ -1115,7 +1126,7 @@ struct Rail: View {
         // top, settings held to the bottom by the gap between them.
         .frame(height: vm.geometry.standardContentHeight, alignment: .center)
         .frame(maxHeight: .infinity, alignment: .top)
-        // The five tabs together, under one name, and apart from the pane —
+        // The tabs together, under one name, and apart from the pane —
         // see the pane's own group in `NotchContentView.panes`.
         .accessibilityElement(children: .contain)
         .accessibilityLabel(localized("Tabs"))
@@ -1139,7 +1150,7 @@ struct Rail: View {
                 // of a second late reads as a rail catching up.
                 .symbolVariant(isLit(tab) ? .fill : .none)
                 .islandFont(.subhead)
-                .frame(width: 30, height: vm.geometry.railIconHeight)
+                .frame(width: 30, height: vm.railIconHeight)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(fill(for: tab))

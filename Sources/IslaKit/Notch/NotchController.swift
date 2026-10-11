@@ -21,6 +21,12 @@ final class NotchController {
     /// Stores that belong to the session, not to the panel: a rebuild replaces
     /// the panel and its view model and leaves these untouched.
     private let stores = NotchStores()
+    /// The Prompter's switch, handed in by `AppDelegate` before `install()`.
+    /// The controller only learns whether it is on, to show or remove the tab;
+    /// it never builds the feature. Nil in a test that has no Prompter, which
+    /// is the same as off.
+    var prompterFeature: PrompterFeature?
+    private var prompterSubscription: AnyCancellable?
     private var closeActiveRectWork: DispatchWorkItem?
     private var collapseCheckWork: DispatchWorkItem?
     private var peekWork: DispatchWorkItem?
@@ -65,6 +71,12 @@ final class NotchController {
             self?.promisedFilesArrived(urls)
         }
         stores.start()
+        // The tab follows the switch live. Through `viewModel` at call time
+        // rather than a captured model, because a display change replaces the
+        // model and the subscription must outlive it.
+        prompterSubscription = prompterFeature?.onChange { [weak self] enabled in
+            self?.viewModel?.setPrompterEnabled(enabled)
+        }
         build()
         observerTokens.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -602,6 +614,7 @@ final class NotchController {
     }
 
     func teardown() {
+        prompterSubscription = nil
         lockPresence.stop()
         pointer.stop()
         stopGeometryWatchdog()
@@ -1053,7 +1066,12 @@ final class NotchController {
     ) {
         guard let geometry = NotchGeometry.current() else { return }
         buildGeneration += 1
-        let vm = NotchViewModel(geometry: geometry, stores: stores)
+        // Told whether the switch is on before the restored tab is set below:
+        // a Prompter tab restored onto a model that thinks the switch is off
+        // would be a selection that is not on the rail.
+        let vm = NotchViewModel(
+            geometry: geometry, stores: stores, prompterEnabled: prompterFeature?.isEnabled ?? false
+        )
         // Before any rect is cut. The tab decides how far down the panel
         // reaches, and restoring it afterwards left every rect cut for the
         // default media body — so a restored teleprompter opened to its full

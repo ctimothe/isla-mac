@@ -208,6 +208,7 @@
 "Show the lyrics" = "Show the lyrics";
 "Start or pause the Prompter" = "Start or pause the Prompter";
 "Stop the Prompter" = "Stop the Prompter";
+"Prompter" = "Prompter";
 "Keyboard Shortcuts" = "Keyboard Shortcuts";
 "Type Shortcut" = "Type Shortcut";
 "None" = "None";
@@ -308,6 +309,7 @@
 /* Privacy card: what each switch protects (H-004, F-008, J-001) */
 "Cover Clipboard Rows" = "Cover Clipboard Rows";
 "Cover Translate Text" = "Cover Translate Text";
+"Cover Prompter Text" = "Cover Prompter Text";
 "Covered text shows as moving dots until you click it, and is covered again when the panel closes." = "Covered text shows as moving dots until you click it, and is covered again when the panel closes.";
 "Asks macOS to leave Isla out of screenshots, recordings and screen sharing. Some sharing apps may still show it, so cover Clipboard and Translate before you share." = "Asks macOS to leave Isla out of screenshots, recordings and screen sharing. Some sharing apps may still show it, so cover Clipboard and Translate before you share.";
 "Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on." = "Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on.";
@@ -382,6 +384,8 @@
 "What you copied, kept in memory" = "What you copied, kept in memory";
 "%@ translates what you copied" = "%@ translates what you copied";
 "Translates what you copied" = "Translates what you copied";
+"Reads your script in the island (%@)" = "Reads your script in the island (%@)";
+"Reads your script in the island" = "Reads your script in the island";
 "Privacy, shortcuts and Quit" = "Privacy, shortcuts and Quit";
 "Needs your approval in Login Items." = "Needs your approval in Login Items.";
 "Open Login Items…" = "Open Login Items…";

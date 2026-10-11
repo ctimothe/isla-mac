@@ -118,7 +118,7 @@ final class IslandAccessibilityTests: XCTestCase {
         XCTAssertEqual(inside.filter { $0.role == "AXButton" }.count, 5, rail.dump)
         XCTAssertEqual(
             Set(inside.map(\.label)),
-            Set((NotchViewModel.Tab.contentTabs + NotchViewModel.Tab.utilityTabs).map(\.title)),
+            Set(NotchViewModel.Tab.visibleTabs(prompterEnabled: false).map(\.title)),
             rail.dump
         )
 

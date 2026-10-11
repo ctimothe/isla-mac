@@ -49,4 +49,58 @@ final class NotchMetricsTests: XCTestCase {
         // A test host always has one.
         XCTAssertEqual(NotchGeometry.current()?.windowSize, NotchMetrics.maximumWindow)
     }
+
+    // MARK: - The rail's icon height (Prompter spec 5.1)
+
+    /// The deepest notch the panel is laid out for. `WelcomePane` budgets its
+    /// legend column against the same figure.
+    private let deepestNotch = NotchGeometry.deepestSupportedNotchHeight
+    private var body208: CGFloat { NotchMetrics.standardBody.height }
+
+    private func height(icons: Int, notch: CGFloat) -> CGFloat {
+        NotchGeometry.railIconHeight(iconCount: icons, notchHeight: notch, bodyHeight: body208)
+    }
+
+    /// Six icons on the smallest body the code supports stay at least 20 pt,
+    /// and the rail they make fits the room it is given: every icon, every gap
+    /// the VStack puts between children, and the footer gap. The expected
+    /// height is asserted through the fit, not through a copy of the formula.
+    func testSixIconsStayAtLeastTwentyPointsOnTheSmallestBody() {
+        for notch in stride(from: CGFloat(24), through: deepestNotch, by: 1) {
+            let icon = height(icons: 6, notch: notch)
+            XCTAssertGreaterThanOrEqual(icon, 20, "notch \(notch)")
+            XCTAssertLessThanOrEqual(icon, 24)
+            XCTAssertLessThanOrEqual(
+                NotchGeometry.railHeight(iconCount: 6, iconHeight: icon),
+                body208 - notch - NotchGeometry.bodyBottomPadding,
+                "six icons at \(icon) overflow the rail at notch \(notch)"
+            )
+        }
+    }
+
+    /// Five icons are exactly what they were before the sixth existed: the full
+    /// 24 pt on every notch the panel supports.
+    func testFiveIconsAreUnchanged() {
+        for notch in stride(from: CGFloat(24), through: deepestNotch, by: 1) {
+            XCTAssertEqual(height(icons: 5, notch: notch), 24, "notch \(notch)")
+        }
+    }
+
+    /// The instance form reads the same one function with the visible count,
+    /// so the rail and the Welcome legend cannot disagree with the tests.
+    @MainActor
+    func testTheGeometryAsksTheVisibleTabCount() throws {
+        let geometry = try LabGeometry.make()
+        XCTAssertEqual(
+            geometry.railIconHeight(prompterEnabled: false),
+            NotchGeometry.railIconHeight(
+                iconCount: NotchViewModel.Tab.visibleTabs(prompterEnabled: false).count,
+                notchHeight: geometry.notchSize.height, bodyHeight: geometry.expandedSize.height
+            )
+        )
+        XCTAssertLessThanOrEqual(
+            geometry.railIconHeight(prompterEnabled: true), geometry.railIconHeight(prompterEnabled: false)
+        )
+        XCTAssertGreaterThanOrEqual(geometry.railIconHeight(prompterEnabled: true), 20)
+    }
 }

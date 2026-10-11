@@ -25,6 +25,11 @@ final class PrivacyMode: ObservableObject {
         /// displays the same text in full view was a hole in the promise the
         /// covers make.
         case clipboard, translate
+        /// The script on the stage and in the tab. Listed only while the
+        /// Prompter's switch is on (`shown`), but always a case: the stored
+        /// choice survives the switch being turned off and on again, and
+        /// "cover everything" keeps meaning everything.
+        case prompter
 
         var id: String { rawValue }
 
@@ -34,7 +39,15 @@ final class PrivacyMode: ObservableObject {
             switch self {
             case .clipboard: return localized("Clipboard")
             case .translate: return localized("Translate")
+            case .prompter: return localized("Prompter")
             }
+        }
+
+        /// The sections Settings offers. With the Prompter's switch off its
+        /// cover row is absent, not disabled: a feature that is off has no
+        /// surface to tell anyone about (Prompter spec 4).
+        static func shown(prompterEnabled: Bool) -> [Section] {
+            allCases.filter { $0 != .prompter || prompterEnabled }
         }
 
         /// The switch's name in Settings, which says what it does rather than
@@ -47,6 +60,7 @@ final class PrivacyMode: ObservableObject {
             switch self {
             case .clipboard: return localized("Cover Clipboard Rows")
             case .translate: return localized("Cover Translate Text")
+            case .prompter: return localized("Cover Prompter Text")
             }
         }
     }

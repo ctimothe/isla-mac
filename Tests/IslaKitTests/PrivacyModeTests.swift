@@ -83,4 +83,30 @@ final class PrivacyModeTests: XCTestCase {
             .entries(from: start, mode: .normal)
         XCTAssertEqual(Array(running.prefix(3)).count, 3)
     }
+
+    /// The Prompter section (spec 5.1, 12): a cover row of its own, listed
+    /// only while the switch is on. Its text is the script, which is exactly
+    /// what somebody sharing a screen does not want to read out.
+    func testThePrompterSectionHasACoverRowAndIsListedOnlyWhileOn() {
+        XCTAssertTrue(PrivacyMode.Section.allCases.contains(.prompter))
+        XCTAssertEqual(PrivacyMode.Section.prompter.rawValue, "prompter")
+        XCTAssertFalse(PrivacyMode.Section.prompter.title.isEmpty)
+        XCTAssertFalse(PrivacyMode.Section.prompter.settingsTitle.isEmpty)
+        XCTAssertNotEqual(PrivacyMode.Section.prompter.settingsTitle, PrivacyMode.Section.prompter.title)
+        XCTAssertFalse(PrivacyMode.Section.shown(prompterEnabled: false).contains(.prompter))
+        XCTAssertTrue(PrivacyMode.Section.shown(prompterEnabled: true).contains(.prompter))
+    }
+
+    /// Somebody who had everything covered before the Prompter existed has
+    /// the Prompter covered too the day they turn it on: the list of sections
+    /// grows and "everything" stays everything.
+    func testCoveringEverythingIncludesThePrompterSection() {
+        let suite = "PrivacyModeTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["clipboard", "translate"], forKey: PrivacyMode.key)
+        defaults.set(["clipboard", "translate"], forKey: "privacyKnownSections")
+        let privacy = PrivacyMode(defaults: defaults)
+        XCTAssertTrue(privacy.covers(.prompter))
+    }
 }

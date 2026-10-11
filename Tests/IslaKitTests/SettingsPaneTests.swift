@@ -139,7 +139,7 @@ final class SettingsPaneTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(frame.height, 24, "\(node.label) is \(frame.size), not the row")
         }
 
-        for section in PrivacyMode.Section.allCases {
+        for section in PrivacyMode.Section.shown(prompterEnabled: false) {
             let before = stores.privacy.covers(section)
             guard let node = switches.first(where: { $0.label == section.settingsTitle }) else {
                 XCTFail("no switch for \(section.settingsTitle)\n\(root.dump)")

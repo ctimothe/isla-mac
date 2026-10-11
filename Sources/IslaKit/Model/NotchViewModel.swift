@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 @MainActor
 final class NotchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case media, shelf, clipboard, translate, settings
+        case media, shelf, clipboard, translate, prompter, settings
         var id: String { rawValue }
 
         /// The rail's glyph, in its outline form; the rail fills the selected
@@ -33,6 +33,11 @@ final class NotchViewModel: ObservableObject {
             case .shelf: return "rectangle.stack"
             case .clipboard: return "doc.on.clipboard"
             case .translate: return "character.bubble"
+            // A scroll of script. Not among `retiredSymbols`, and unlike the
+            // teleprompter glyphs the old build might have worn it is the
+            // system's own word for a rolled page of text. Resolved on macOS 15
+            // by the glyph test.
+            case .prompter: return "scroll"
             case .settings: return "slider.horizontal.3"
             }
         }
@@ -50,23 +55,68 @@ final class NotchViewModel: ObservableObject {
             case .shelf: return localized("Shelf")
             case .clipboard: return localized("Clipboard")
             case .translate: return localized("Translate")
+            case .prompter: return localized("Prompter")
             case .settings: return localized("Settings")
             }
         }
 
         /// Tabs with a field in them. Landing on one hands it the keyboard, so
-        /// that arriving and typing is a single move.
-        var needsKeyboard: Bool { self == .translate }
+        /// that arriving and typing is a single move. The Prompter's editor is
+        /// the second.
+        var needsKeyboard: Bool { self == .translate || self == .prompter }
 
-        /// One rail, in two groups. Four tabs is few enough that a second
-        /// column was only ever there to hold the overflow — and the overflow
-        /// is gone. Settings sits at the foot of the rail, below a gap: it is
-        /// not something to hover past on the way to a track, so it stays out
-        /// of the run people rest on.
-        static let contentTabs: [Tab] = [.media, .shelf, .clipboard, .translate]
-        static let utilityTabs: [Tab] = [.settings]
-        static let leftRail: [Tab] = contentTabs + utilityTabs
-        static let rightRail: [Tab] = []
+        /// One rail, in two groups, and ONE list behind it. The rail, the
+        /// Welcome legend and the rail's icon height all read this function;
+        /// three hand-kept copies of "which tabs are there" would be three
+        /// places for the Prompter to leak into the default configuration.
+        ///
+        /// The Prompter is a sixth tab, after Translate, shown only while its
+        /// switch is on (Prompter spec 5.1). Absent, not hidden: with the
+        /// switch off this is exactly the five tabs the 2026-08-22 withdrawal
+        /// left. Settings sits at the foot of the rail, below a gap: it is not
+        /// something to hover past on the way to a track, so it stays out of
+        /// the run people rest on.
+        static func visibleTabs(prompterEnabled: Bool) -> [Tab] {
+            let groups = railGroups(prompterEnabled: prompterEnabled)
+            return groups.content + groups.footer
+        }
+
+        /// The same list split the way the rail draws it: the run, then the
+        /// footer below the gap.
+        static func railGroups(prompterEnabled: Bool) -> (content: [Tab], footer: [Tab]) {
+            (
+                [.media, .shelf, .clipboard, .translate] + (prompterEnabled ? [.prompter] : []),
+                [.settings]
+            )
+        }
+    }
+
+    /// Whether the Prompter's switch is on, as far as this panel is concerned.
+    ///
+    /// Fed from `PrompterFeature.onChange` by the controller, never read from
+    /// defaults here: the model must not be able to disagree with the switch.
+    /// Published so the rail, its icon height and the Welcome legend follow it
+    /// live. Off by default and in every test that builds a model without
+    /// naming it.
+    @Published private(set) var prompterEnabled: Bool
+
+    /// The tabs on the rail right now.
+    var visibleTabs: [Tab] { Tab.visibleTabs(prompterEnabled: prompterEnabled) }
+
+    /// Height of each rail icon right now: the geometry's, for as many icons
+    /// as the rail has.
+    var railIconHeight: CGFloat { geometry.railIconHeight(prompterEnabled: prompterEnabled) }
+
+    /// The switch changed. Turning it on shows the tab and does not select it
+    /// (spec 4). Turning it off while the Prompter tab is selected moves the
+    /// selection to Settings, which is where the switch is and the one tab
+    /// that is never absent; the spec does not say where, and a tab that is no
+    /// longer on the rail must not stay selected. Through the ordinary `tab`
+    /// observer, so the keyboard goes back with it.
+    func setPrompterEnabled(_ enabled: Bool) {
+        guard enabled != prompterEnabled else { return }
+        prompterEnabled = enabled
+        if !enabled, tab == .prompter { tab = .settings }
     }
 
     @Published var isOpen = false {
@@ -445,7 +495,8 @@ final class NotchViewModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
 
-    init(geometry: NotchGeometry, stores: NotchStores) {
+    init(geometry: NotchGeometry, stores: NotchStores, prompterEnabled: Bool = false) {
+        self.prompterEnabled = prompterEnabled
         self.geometry = geometry
         self.stores = stores
         self.media = stores.media
@@ -1187,6 +1238,10 @@ final class NotchViewModel: ObservableObject {
     /// dimming the caret of the window underneath, and the dwell threshold on
     /// the rail already keeps a passing pointer from arriving here at all.
     func select(_ tab: Tab) {
+        // A tab that is not on the rail is not a place the panel can be sent:
+        // a stale route (a hot key, a restored selection) must not land on a
+        // feature whose switch is off.
+        guard visibleTabs.contains(tab) else { return }
         self.tab = tab
         if tab.needsKeyboard { wantsKeyboard = true }
     }

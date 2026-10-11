@@ -55,6 +55,14 @@ struct WelcomePane: View {
     var openKeys = HotKeyCenter.shared.bindings[.openPanel]?.displayString ?? ""
     var lyricsKeys = HotKeyCenter.shared.bindings[.showLyrics]?.displayString ?? ""
     var translateKeys = HotKeyCenter.shared.bindings[.translateClipboard]?.displayString ?? ""
+    var prompterKeys = HotKeyCenter.shared.bindings[.prompterToggle]?.displayString ?? ""
+
+    /// Whether the Prompter's switch is on. The legend has a row for it only
+    /// then (Prompter spec 4: no Welcome legend row while off).
+    var prompterEnabled = false
+
+    /// The rows, from the same list the rail draws.
+    var legendTabs: [NotchViewModel.Tab] { NotchViewModel.Tab.visibleTabs(prompterEnabled: prompterEnabled) }
 
     struct Copy {
         var running: String
@@ -67,6 +75,8 @@ struct WelcomePane: View {
         var clipboard: String
         var translate: String
         var translateUnbound: String
+        var prompter: String
+        var prompterUnbound: String
         var settings: String
         var action: String
 
@@ -88,6 +98,8 @@ struct WelcomePane: View {
             clipboard: "What you copied, kept in memory",
             translate: "%@ translates what you copied",
             translateUnbound: "Translates what you copied",
+            prompter: "Reads your script in the island (%@)",
+            prompterUnbound: "Reads your script in the island",
             settings: "Privacy, shortcuts and Quit",
             action: "Get Started"
         )
@@ -110,6 +122,8 @@ struct WelcomePane: View {
                 clipboard: try look(clipboard),
                 translate: try look(translate),
                 translateUnbound: try look(translateUnbound),
+                prompter: try look(prompter),
+                prompterUnbound: try look(prompterUnbound),
                 settings: try look(settings),
                 action: try look(action)
             )
@@ -119,7 +133,7 @@ struct WelcomePane: View {
             [
                 running, comeBack, comeBackUnbound, staysOnMac,
                 music, musicUnbound, shelf, clipboard,
-                translate, translateUnbound, settings, action,
+                translate, translateUnbound, prompter, prompterUnbound, settings, action,
             ]
         }
     }
@@ -147,6 +161,8 @@ struct WelcomePane: View {
             return copy.clipboard
         case .translate:
             return translateKeys.isEmpty ? copy.translateUnbound : String(format: copy.translate, translateKeys)
+        case .prompter:
+            return prompterKeys.isEmpty ? copy.prompterUnbound : String(format: copy.prompter, prompterKeys)
         case .settings:
             return copy.settings
         }
@@ -191,9 +207,10 @@ struct WelcomePane: View {
     /// no top padding here.
     var legendColumn: some View {
         VStack(alignment: .leading, spacing: NotchGeometry.railSpacing) {
-            ForEach(NotchViewModel.Tab.contentTabs) { legendRow($0) }
+            let groups = NotchViewModel.Tab.railGroups(prompterEnabled: prompterEnabled)
+            ForEach(groups.content) { legendRow($0) }
             Spacer(minLength: Rail.footerGap)
-            ForEach(NotchViewModel.Tab.utilityTabs) { legendRow($0) }
+            ForEach(groups.footer) { legendRow($0) }
         }
         .frame(maxHeight: .infinity, alignment: .top)
     }

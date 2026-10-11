@@ -285,10 +285,10 @@ final class FirstRunTests: XCTestCase {
     /// tab and the welcome is not up. Nothing is lit while welcoming — not the
     /// tab the model is parked on, and not any other.
     func testNoTabIsLitWhileWelcoming() {
-        for tab in NotchViewModel.Tab.leftRail {
+        for tab in NotchViewModel.Tab.visibleTabs(prompterEnabled: false) {
             XCTAssertFalse(Rail.isLit(tab, selected: tab, welcoming: true), "\(tab) is lit under the welcome")
             XCTAssertTrue(Rail.isLit(tab, selected: tab, welcoming: false))
-            for other in NotchViewModel.Tab.leftRail where other != tab {
+            for other in NotchViewModel.Tab.visibleTabs(prompterEnabled: false) where other != tab {
                 XCTAssertFalse(Rail.isLit(tab, selected: other, welcoming: false))
             }
         }
@@ -302,7 +302,7 @@ final class FirstRunTests: XCTestCase {
             onDismiss: {}, railIconHeight: 24,
             openKeys: "⌃⌥⌘I", lyricsKeys: "⌃⌥⌘L", translateKeys: "⌃⌥⌘T"
         )
-        let legends = NotchViewModel.Tab.leftRail.map(pane.legend(for:))
+        let legends = NotchViewModel.Tab.visibleTabs(prompterEnabled: false).map(pane.legend(for:))
         XCTAssertEqual(legends.count, 5)
         XCTAssertEqual(Set(legends).count, legends.count, "two tabs share a legend: \(legends)")
         XCTAssertFalse(legends.contains(where: \.isEmpty), "\(legends)")
@@ -314,6 +314,38 @@ final class FirstRunTests: XCTestCase {
         XCTAssertFalse(pane.comeBackLine.contains("Click it to open"))
     }
 
+    /// The legend lists the Prompter only while the switch is on, and reads
+    /// from the same `visibleTabs` the rail does, so the two cannot disagree
+    /// about how many rows there are.
+    func testTheLegendListsThePrompterOnlyWhileTheSwitchIsOn() {
+        var pane = WelcomePane(
+            onDismiss: {}, railIconHeight: 20,
+            openKeys: "⌃⌥⌘I", lyricsKeys: "⌃⌥⌘L", translateKeys: "⌃⌥⌘T", prompterKeys: "⌃⌥⌘P"
+        )
+        XCTAssertEqual(pane.legendTabs, NotchViewModel.Tab.visibleTabs(prompterEnabled: false))
+        XCTAssertFalse(pane.legendTabs.contains(.prompter))
+        pane.prompterEnabled = true
+        XCTAssertEqual(pane.legendTabs, NotchViewModel.Tab.visibleTabs(prompterEnabled: true))
+        XCTAssertTrue(pane.legend(for: .prompter).contains("⌃⌥⌘P"), pane.legend(for: .prompter))
+        pane.prompterKeys = ""
+        let unbound = pane.legend(for: .prompter)
+        XCTAssertFalse(unbound.contains("()") || unbound.contains("%@") || unbound.contains("  "), unbound)
+    }
+
+    /// Six rows at the six-icon height must still fit the shallowest body:
+    /// the legend column is the rail's own rhythm, so it is the rail's height.
+    func testSixLegendRowsFitTheShallowestBody() {
+        let icon = NotchGeometry.railIconHeight(
+            iconCount: 6, notchHeight: NotchGeometry.deepestSupportedNotchHeight,
+            bodyHeight: NotchMetrics.standardBody.height
+        )
+        XCTAssertLessThanOrEqual(
+            NotchGeometry.railHeight(iconCount: 6, iconHeight: icon),
+            NotchMetrics.standardBody.height - NotchGeometry.deepestSupportedNotchHeight
+                - NotchGeometry.bodyBottomPadding
+        )
+    }
+
     /// A shortcut can be cleared in Settings, and a reset first run then shows
     /// the welcome without it. The line that names it must not print an empty
     /// gap where the keys were — "press  to come back", "lyrics ()".
@@ -322,7 +354,7 @@ final class FirstRunTests: XCTestCase {
             onDismiss: {}, railIconHeight: 24,
             openKeys: "", lyricsKeys: "", translateKeys: ""
         )
-        for line in NotchViewModel.Tab.leftRail.map(pane.legend(for:)) + [pane.comeBackLine] {
+        for line in NotchViewModel.Tab.visibleTabs(prompterEnabled: false).map(pane.legend(for:)) + [pane.comeBackLine] {
             XCTAssertFalse(line.contains("%@"), line)
             XCTAssertFalse(line.contains("()"), line)
             XCTAssertFalse(line.contains("  "), line)
@@ -350,13 +382,13 @@ final class FirstRunTests: XCTestCase {
         let welcoming = await AXProbe.tree(of: NotchContentView(vm: vm), size: size)
         let rail = try XCTUnwrap(welcoming.first(label: "Tabs"), welcoming.dump)
         let tabs = rail.all(role: "AXButton")
-        XCTAssertEqual(tabs.count, NotchViewModel.Tab.leftRail.count, rail.dump)
+        XCTAssertEqual(tabs.count, NotchViewModel.Tab.visibleTabs(prompterEnabled: false).count, rail.dump)
         XCTAssertEqual(tabs.filter(\.selected).map(\.label), [], rail.dump)
 
         // And the welcome names every tab, each legend under the tab's own
         // name, since the icon it sits beside is in the other group.
         let welcome = try XCTUnwrap(welcoming.first(label: "Welcome"), welcoming.dump)
-        for tab in NotchViewModel.Tab.leftRail {
+        for tab in NotchViewModel.Tab.visibleTabs(prompterEnabled: false) {
             let legend = welcome.all { $0.label == tab.title && !$0.value.isEmpty }
             XCTAssertEqual(legend.count, 1, "\(tab.title) has no legend\n\(welcome.dump)")
         }

@@ -29,6 +29,9 @@ struct SettingsPane: View {
     var clearBindingsAndTimingCorrections: () -> Void = {}
     var dismissUnassignedLyricsOffset: (String) -> Void = { _ in }
     @ObservedObject var privacy: PrivacyMode
+    /// Whether the Prompter's switch is on, for the one thing this pane owes
+    /// it so far: its cover row appears only then. T9 adds the section.
+    var prompterEnabled = false
     /// The panel's claim on the keyboard, which recording a shortcut needs.
     var wantsKeyboard: Binding<Bool> = .constant(false)
     @ObservedObject var hotKeys: HotKeyCenter = .shared
@@ -407,7 +410,7 @@ struct SettingsPane: View {
                     if !clipboardHistory {
                         noteRow(Self.clipboardOffNote(imagesOn: saveClipboardImages))
                     }
-                    ForEach(PrivacyMode.Section.allCases) { privacySection in
+                    ForEach(PrivacyMode.Section.shown(prompterEnabled: prompterEnabled)) { privacySection in
                         toggleRow(
                             symbol: privacySymbol(for: privacySection),
                             title: privacySection.settingsTitle,
@@ -1023,6 +1026,7 @@ struct SettingsPane: View {
         switch section {
         case .clipboard: return SettingsIcon.clipboard
         case .translate: return SettingsIcon.translate
+        case .prompter: return NotchViewModel.Tab.prompter.symbol
         }
     }
 

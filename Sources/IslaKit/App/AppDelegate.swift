@@ -49,7 +49,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `PrivateNetwork.session` now, which writes nothing, but the rows
         // already written stay until they are removed — so they are, once.
         PrivateNetwork.purgeLegacyStorage()
+        // The Prompter's keys exist only while its switch is on. The center
+        // learns the switch's state before `install`, so the very first
+        // registration is already right (a key registered for a moment at
+        // launch would still have been taken from another app), and then
+        // follows it live: turning the switch off frees ⌃⌥⌘P and ⌃⌥⌘S at once.
+        // Their handlers are the controller's and arrive with its Prompter
+        // wiring; until then an action with no handler is not registered at
+        // all, which is better than a key that is taken and does nothing.
+        let prompter = PrompterFeature.live()
+        self.prompter = prompter
+        HotKeyCenter.shared.setFeature(.prompter, enabled: prompter.isEnabled)
+        prompterHotKeys = prompter.onChange { enabled in
+            HotKeyCenter.shared.setFeature(.prompter, enabled: enabled)
+        }
         controller = NotchController()
+        controller?.prompterFeature = prompter
         controller?.install()
         // Built here rather than wherever a view first mentions it.
         //
@@ -78,20 +93,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // What each is bound to lives in `HotKeyCenter`, which Settings can
         // change while the app runs.
         //
-        // The Prompter's keys exist only while its switch is on. The center
-        // learns the switch's state before `install`, so the very first
-        // registration is already right (a key registered for a moment at
-        // launch would still have been taken from another app), and then
-        // follows it live: turning the switch off frees ⌃⌥⌘P and ⌃⌥⌘S at once.
-        // Their handlers are the controller's and arrive with its Prompter
-        // wiring; until then an action with no handler is not registered at
-        // all, which is better than a key that is taken and does nothing.
-        let prompter = PrompterFeature.live()
-        self.prompter = prompter
-        HotKeyCenter.shared.setFeature(.prompter, enabled: prompter.isEnabled)
-        prompterHotKeys = prompter.onChange { enabled in
-            HotKeyCenter.shared.setFeature(.prompter, enabled: enabled)
-        }
         HotKeyCenter.shared.install([
             .openPanel: { [weak self] in self?.togglePanel() },
             // No text is passed on as `nil`, not dropped here: with an image
