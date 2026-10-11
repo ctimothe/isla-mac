@@ -1024,6 +1024,7 @@ struct NotchContentView: View {
             )
         case .translate:
             TranslatePane(translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
+                .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
         case .settings:
             SettingsPane(
                 shelf: vm.shelf,
@@ -1165,10 +1166,12 @@ struct Rail: View {
         }
         .buttonStyle(PanelButtonStyle())
         .overlay(alignment: .topTrailing) {
-            // The one badge in the app: a newer version, found by a check the
-            // user asked for. A dot rather than a count, in the chrome's own
-            // white. It says "look here", and Settings says what.
-            if tab == .settings, updates.hasUpdate {
+            // The app's badge, one primitive for two reasons: a newer version,
+            // found by a check the user asked for, and a screenshot that
+            // arrived while another tab was showing (it used to switch the tab
+            // under the user). A dot rather than a count, in the chrome's own
+            // white. It says "look here", and the pane says what.
+            if hasBadge(tab) {
                 Circle()
                     .fill(Color.white)
                     .frame(width: 5, height: 5)
@@ -1179,7 +1182,7 @@ struct Rail: View {
         }
         .help(tab.title)
         .accessibilityLabel(tab.title)
-        .accessibilityValue(tab == .settings && updates.hasUpdate ? localized("Update available") : "")
+        .accessibilityValue(badgeValue(tab))
         .accessibilityAddTraits(isLit(tab) ? [.isButton, .isSelected] : .isButton)
         .onHover { inside in
             if inside {
@@ -1188,6 +1191,21 @@ struct Rail: View {
                 hovered = nil
             }
         }
+    }
+
+    @MainActor
+    private func hasBadge(_ tab: NotchViewModel.Tab) -> Bool {
+        switch tab {
+        case .settings: return updates.hasUpdate
+        case .shelf: return vm.shelfHasNew
+        default: return false
+        }
+    }
+
+    @MainActor
+    private func badgeValue(_ tab: NotchViewModel.Tab) -> String {
+        guard hasBadge(tab) else { return "" }
+        return tab == .shelf ? localized("New screenshot") : localized("Update available")
     }
 
     @MainActor

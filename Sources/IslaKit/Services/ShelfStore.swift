@@ -214,6 +214,10 @@ final class ShelfStore: ObservableObject {
         /// AirDrop being off is not this case; the system sheet opens and
         /// says that itself.
         case airDropCannotSend
+        /// A file a drag promised (Mail, Photos, a browser) could not be
+        /// written by its source. Said because the drop had been accepted and
+        /// nothing ever appeared (F-035). A cancel is not this case.
+        case promiseFailed
 
         var text: String {
             switch self {
@@ -227,6 +231,8 @@ final class ShelfStore: ObservableObject {
                 return localized("AirDrop is not available on this Mac.")
             case .airDropCannotSend:
                 return localized("AirDrop cannot send these files.")
+            case .promiseFailed:
+                return localized("A file from the drag could not be received.")
             }
         }
 
@@ -239,7 +245,7 @@ final class ShelfStore: ObservableObject {
         var showsOverSelection: Bool {
             switch self {
             case .alreadyOnShelf, .evicted: return false
-            case .airDropUnavailable, .airDropCannotSend: return true
+            case .airDropUnavailable, .airDropCannotSend, .promiseFailed: return true
             }
         }
     }

@@ -1,0 +1,3 @@
+/* Пункт меню «Службы» в любом приложении. Ключ — NSMenuItem default из
+   Info.plist (Scripts/bundle.sh); Scripts/test-localizations.sh следит за ними. */
+"Translate in Isla" = "Перевести в Isla";

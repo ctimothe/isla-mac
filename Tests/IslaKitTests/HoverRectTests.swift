@@ -75,4 +75,40 @@ final class HoverRectTests: XCTestCase {
             )
         }
     }
+
+    /// Native beats taste (owner decision 24): every Mac app shows an I-beam
+    /// over a text field, and the panel pinned the arrow over the whole active
+    /// rect, the Translate editor included. The panel is never key, so the
+    /// shape comes from the view's tracking areas, and this is their rule.
+    func testTheCursorIsAnIBeamOverTheEditorOnly() {
+        let active = CGRect(x: 100, y: 50, width: 400, height: 200)
+        let editor = CGRect(x: 120, y: 70, width: 150, height: 120)
+
+        XCTAssertEqual(
+            NotchRootView.cursor(at: CGPoint(x: 150, y: 100), active: active, text: [editor]),
+            .iBeam,
+            "over the editor"
+        )
+        XCTAssertEqual(
+            NotchRootView.cursor(at: CGPoint(x: 400, y: 100), active: active, text: [editor]),
+            .arrow,
+            "inside the panel, outside the editor"
+        )
+        XCTAssertNil(
+            NotchRootView.cursor(at: CGPoint(x: 10, y: 10), active: active, text: [editor]),
+            "outside the panel is not ours to claim"
+        )
+        XCTAssertNil(
+            NotchRootView.cursor(at: CGPoint(x: 150, y: 100), active: .zero, text: [editor]),
+            "a collapsed panel claims nothing, whatever the editor last reported"
+        )
+    }
+
+    /// The editor's frame arrives in the hosting view's space, top-left
+    /// origin; the root view is bottom-left, like `activeRect`.
+    func testTheEditorFrameIsFlippedIntoTheRootViewsSpace() {
+        let flipped = NotchRootView.textRect(fromTopLeft: CGRect(x: 20, y: 30, width: 100, height: 40), windowHeight: 400)
+        XCTAssertEqual(flipped, CGRect(x: 20, y: 330, width: 100, height: 40))
+        XCTAssertEqual(NotchRootView.textRect(fromTopLeft: .zero, windowHeight: 400), .zero, "no editor, no rect")
+    }
 }

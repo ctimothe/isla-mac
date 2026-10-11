@@ -147,6 +147,16 @@ struct TranslatePane: View {
                 // that back so the first character lines up with the title.
                 .padding(.leading, -5)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // Where the field is, for the panel's cursor: it is never key,
+                // so AppKit's own I-beam never applies and the root view's
+                // tracking areas have to know the rectangle (PTR-02). A
+                // background layer for the same reason as `paneSize` above:
+                // reading it must not feed back into layout.
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: TextInputRectKey.self, value: proxy.frame(in: .global))
+                    }
+                )
                 // Named, or VoiceOver announced an unnamed text area: the
                 // only field in the panel, and nothing said what it was for
                 // (F-030).
@@ -670,5 +680,15 @@ private extension View {
             .buttonStyle(PanelButtonStyle())
             .menuIndicator(.hidden)
             .fixedSize()
+    }
+}
+
+/// The source editor's frame in the window, top-left origin. Carried up to the
+/// view model so the root view can show an I-beam over it (PTR-02).
+struct TextInputRectKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isEmpty { value = next }
     }
 }

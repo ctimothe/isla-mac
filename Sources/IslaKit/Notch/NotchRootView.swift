@@ -68,6 +68,9 @@ final class NotchRootView: NSView {
     var onDragEntered: (() -> Void)?
     var onDragExited: (() -> Void)?
     var onDrop: (([URL]) -> Bool)?
+    /// Receives the files a drag only promised; owned by the session's stores,
+    /// so it outlives this view. See `PromisedDropInbox`.
+    var promises: PromisedDropInbox?
 
     private(set) var isReceivingDrag = false
 
@@ -139,6 +142,8 @@ final class NotchRootView: NSView {
             removeTrackingArea(cursorArea)
             self.cursorArea = nil
         }
+        for area in textAreas { removeTrackingArea(area) }
+        textAreas = []
         guard !activeRect.isEmpty else { return }
         let area = NSTrackingArea(
             rect: activeRect,
@@ -147,10 +152,58 @@ final class NotchRootView: NSView {
         )
         addTrackingArea(area)
         cursorArea = area
+        // One more per text field (owner decision 24: native beats taste, and
+        // every Mac app shows an I-beam over a text field). Added after the
+        // panel's own so it is the more specific claim where the two overlap;
+        // clipped to the panel, so a field mid-slide never claims a point the
+        // panel does not take.
+        for rect in textRects {
+            let clipped = rect.intersection(activeRect)
+            guard !clipped.isNull, !clipped.isEmpty else { continue }
+            let text = NSTrackingArea(
+                rect: clipped,
+                options: [.cursorUpdate, .mouseEnteredAndExited, .activeAlways],
+                owner: self,
+                userInfo: ["text": true]
+            )
+            addTrackingArea(text)
+            textAreas.append(text)
+        }
+    }
+
+    /// Text inputs inside the panel, in this view's coordinates, that take an
+    /// I-beam. Reported by the Translate pane through the controller; empty on
+    /// every other tab, and re-cut whenever it changes.
+    var textRects: [CGRect] = [] {
+        didSet {
+            guard textRects != oldValue else { return }
+            refreshCursorArea()
+        }
+    }
+
+    private var textAreas: [NSTrackingArea] = []
+
+    /// The shape for a pointer at `point`, or nil when the point is not the
+    /// panel's to claim. Static so the rule is testable without a window.
+    static func cursor(at point: CGPoint, active: CGRect, text: [CGRect]) -> NSCursor? {
+        guard active.contains(point) else { return nil }
+        return text.contains(where: { $0.contains(point) }) ? .iBeam : .arrow
+    }
+
+    /// SwiftUI reports a frame from the top-left of the hosting view, which
+    /// fills this view; this view, like `activeRect`, counts from the bottom.
+    static func textRect(fromTopLeft rect: CGRect, windowHeight: CGFloat) -> CGRect {
+        guard !rect.isEmpty else { return .zero }
+        return CGRect(x: rect.minX, y: windowHeight - rect.maxY, width: rect.width, height: rect.height)
+    }
+
+    private func applyCursor(for event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        Self.cursor(at: point, active: activeRect, text: textRects)?.set()
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        NSCursor.arrow.set()
+        applyCursor(for: event)
     }
 
     /// The pointer can already be inside a freshly installed area — entering is
@@ -160,14 +213,20 @@ final class NotchRootView: NSView {
             onLockedHover?(true)
             return
         }
-        NSCursor.arrow.set()
+        applyCursor(for: event)
     }
 
     /// Leaving takes the edge away again. Without this the island kept a lit
     /// outline for the rest of the lock after one pass of the cursor.
+    ///
+    /// Leaving a text field restores the arrow while the pointer is still on
+    /// the panel: the panel's own area was entered long before and gets no
+    /// second notification.
     override func mouseExited(with event: NSEvent) {
         if event.trackingArea?.userInfo?["locked"] != nil {
             onLockedHover?(false)
+        } else if event.trackingArea?.userInfo?["text"] != nil {
+            applyCursor(for: event)
         }
     }
 
@@ -265,73 +324,17 @@ final class NotchRootView: NSView {
         // finished writing — on the main thread that is the whole UI.
         let queue = OperationQueue()
         queue.qualityOfService = .userInitiated
+        //
+        // The reader holds the inbox, not this view. The view is rebuilt when a
+        // display changes, and a transfer that outlives it (an iCloud original
+        // still downloading) used to find nobody to hand the file to (G-025).
+        guard let inbox = promises else { return false }
         for receiver in receivers {
-            receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: queue) { [weak self] url, error in
-                self?.promisedFileArrived(url, error: error)
+            receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: queue) { url, error in
+                inbox.arrived(url: url, error: error)
             }
         }
         return true
-    }
-
-    /// Where a promised file lands, called by `NSFilePromiseReceiver` on the
-    /// queue handed to it above — never on the main queue.
-    ///
-    /// This used to be `MainActor.assumeIsolated`, which is an assertion, not a
-    /// hop: it traps when it is wrong, and here it was wrong every single time.
-    /// Dragging a Mail attachment or a Photos item — the two sources the whole
-    /// promise path exists for — killed the process the moment the first file
-    /// was written. `Task { @MainActor }` is the hop the code always meant.
-    ///
-    /// `nonisolated` on purpose: `NSView` is main-actor isolated, and the
-    /// compiler has to be told this one entry point is not.
-    nonisolated func promisedFileArrived(_ url: URL?, error: Error?) {
-        if let error {
-            Log.shelf.error("promised file failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
-            return
-        }
-        guard let url else { return }
-        Task { @MainActor [weak self] in
-            self?.enqueuePromisedFile(url)
-        }
-    }
-
-    /// Files received so far that have not been handed over yet.
-    private var pendingPromised: [URL] = []
-    private var promisedDelivery: DispatchWorkItem?
-    private var firstPendingAt: Date?
-
-    /// However slowly files trickle in, a batch is handed over by now.
-    private static let promiseMaximumWait: TimeInterval = 3
-
-    /// Long enough that the files of one drop arrive together, short enough
-    /// that the shelf does not feel slow.
-    private static let promiseCoalesceWindow: TimeInterval = 0.4
-
-    private func enqueuePromisedFile(_ url: URL) {
-        pendingPromised.append(url)
-        // A ceiling on the sliding window: files arriving slower than the
-        // debounce would otherwise push delivery back indefinitely.
-        if firstPendingAt == nil { firstPendingAt = Date() }
-        if let start = firstPendingAt, Date().timeIntervalSince(start) > Self.promiseMaximumWait {
-            promisedDelivery?.cancel()
-            deliverPromised()
-            return
-        }
-        promisedDelivery?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated { self?.deliverPromised() }
-        }
-        promisedDelivery = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.promiseCoalesceWindow, execute: work)
-    }
-
-    private func deliverPromised() {
-        let batch = pendingPromised
-        pendingPromised.removeAll()
-        promisedDelivery = nil
-        firstPendingAt = nil
-        guard !batch.isEmpty else { return }
-        _ = onDrop?(batch)
     }
 
     private func urls(from sender: NSDraggingInfo) -> [URL] {

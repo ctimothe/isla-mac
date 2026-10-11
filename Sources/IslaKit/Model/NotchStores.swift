@@ -16,6 +16,9 @@ import Foundation
 final class NotchStores {
     let media = MediaController()
     let shelf: ShelfStore
+    /// Takes the files a drag only promised. Here rather than in the panel's
+    /// root view, which a display change rebuilds mid-transfer (G-025).
+    let promises: PromisedDropInbox
     let clipboard: ClipboardStore
     let screenshotVault: ScreenshotVault
     let translator: Translator
@@ -50,7 +53,9 @@ final class NotchStores {
         translator: Translator? = nil,
         privacy: PrivacyMode? = nil
     ) {
-        self.shelf = shelf ?? ShelfStore()
+        let shelfStore = shelf ?? ShelfStore()
+        self.shelf = shelfStore
+        promises = PromisedDropInbox(shelf: shelfStore)
         self.clipboard = clipboard ?? ClipboardStore()
         self.screenshotVault = screenshotVault ?? ScreenshotVault()
         self.translator = translator ?? Translator()
