@@ -1213,7 +1213,7 @@ struct LockScreenCard: View {
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
                     .islandFont(.hero)
-                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                    .symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .help(media.isPlaying ? localized("Pause") : localized("Play"))
@@ -1258,7 +1258,9 @@ struct LockScreenCard: View {
             Image(systemName: symbol)
                 .islandFont(.subhead, weight: .medium)
                 .foregroundStyle(open ? Color.white : Theme.cardSecondary)
-                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                // The output glyph follows the route, which moves when a
+                // device is picked or unplugged — never in an animation.
+                .symbolSwap(value: symbol, reduceMotion: reduceMotion)
                 .frame(width: 26, height: 22)
                 .contentShape(Rectangle())
         }
@@ -1290,7 +1292,7 @@ struct LockScreenCard: View {
                         Image(systemName: isSaved ? "heart.fill" : "heart")
                         .islandFont(.title, weight: .medium)
                         .foregroundStyle(isSaved ? Color.white : Theme.cardSecondary)
-                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                        .symbolSwap(value: isSaved, reduceMotion: reduceMotion)
                         .opacity(known == nil ? 0.45 : 1)
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())

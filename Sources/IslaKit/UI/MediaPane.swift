@@ -433,8 +433,9 @@ struct MediaPane: View {
                     // The glyph is replaced, not swapped. A hard cut on the one
                     // control the eye is already resting on is the most visible
                     // non-native moment in the app; `.replace` is what every
-                    // Apple transport control does.
-                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                    // Apple transport control does. The play state changes
+                    // outside any animation, so the swap brings its own.
+                    .symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .help(media.isPlaying ? localized("Pause") : localized("Play"))
