@@ -185,11 +185,16 @@ final class PrompterTabLayoutTests: XCTestCase {
     }
 
     func testTheAlertsTextFitsItsBlockInBothLanguages() throws {
-        let all = [PrompterLibraryNotice.unreadable(corruptCopy: nil), .newerVersion(2), .writeFailed]
+        let all = [
+            PrompterLibraryNotice.unreadable(corruptCopy: nil), .unreadable(corruptCopy: "library.corrupt-1.json"),
+            .newerVersion(2), .writeFailed,
+        ]
         for locale in ["en", "ru"] {
             let strings = try table(locale)
-            for notice in all where notice.blocksTheTab {
-                let detailKey = notice.detailKey
+            // The refusal of a new library takes the explanation's place in
+            // the same block (ruling 20.6 #4).
+            let keys = all.filter(\.blocksTheTab).map(\.detailKey) + [PrompterTabModel.newLibraryRefusalKey]
+            for detailKey in keys {
                 let detail = try XCTUnwrap(strings[detailKey], "\(locale) has \(detailKey.prefix(30))")
                 let font = NSFont.systemFont(ofSize: Theme.TypeRole.body.size)
                 let rect = (detail as NSString).boundingRect(

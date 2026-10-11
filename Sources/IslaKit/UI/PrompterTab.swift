@@ -570,7 +570,9 @@ struct PrompterLibraryAlert: View {
             }
             .islandFont(.subhead, weight: .semibold)
             .frame(height: 16)
-            Text(notice.detail)
+            // A refused Start a New Library says why in the explanation's
+            // place, so the block keeps its height (ruling 20.6 #4).
+            Text(model.newLibraryRefusal ?? notice.detail)
                 .islandFont(.body)
                 .foregroundStyle(Theme.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -589,8 +591,12 @@ struct PrompterLibraryAlert: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain)
+        .onChange(of: model.newLibraryRefusal) { _, refusal in
+            if let refusal { Announcer.shared.announce(refusal) }
+        }
     }
 
+    /// The copy, or the original file when no copy could be made.
     private func reveal() {
         guard case .unreadable(let copy) = notice else { return }
         let url = PrompterTabModel.revealTarget(corruptCopy: copy, directory: FilePrompterFileIO.live.directory)

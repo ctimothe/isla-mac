@@ -461,6 +461,8 @@
 "Saved by a newer Isla" = "Сохранено новой версией Isla";
 "Couldn't save your changes. They are kept and Isla will try again." = "Не удалось сохранить изменения. Они не потеряны, Isla повторит попытку.";
 "Isla kept a copy of the file next to it. Nothing is deleted until you start a new library." = "Isla сохранила копию файла рядом с ним. Ничего не удаляется, пока вы не начнёте новую библиотеку.";
+"Isla couldn't make a copy of the file, so it is left exactly as it is. Nothing is replaced until a copy can be kept." = "Isla не удалось сделать копию файла, поэтому он оставлен как есть. Ничего не заменяется, пока копию не удастся сохранить.";
+"Isla still couldn't copy the file, so it was not replaced. Free some disk space or check the folder's permissions, then try again." = "Isla снова не удалось скопировать файл, поэтому он не заменён. Освободите место на диске или проверьте права доступа к папке и повторите попытку.";
 "A newer version of Isla saved these scripts. Update Isla to edit them; nothing here will be changed." = "Эти сценарии сохранила более новая версия Isla. Обновите Isla, чтобы изменять их; здесь ничего не изменится.";
 "Words: %d · %@" = "Слов: %d · %@";
 "Untitled Script" = "Сценарий без названия";

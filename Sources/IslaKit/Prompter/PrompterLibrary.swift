@@ -149,6 +149,10 @@ enum PrompterLibraryError: Error, Equatable {
     case writingDisabled
     /// `startFreshLibrary()` on a library that is not broken.
     case nothingToReplace
+    /// `startFreshLibrary()` on an unreadable file of which no copy could be
+    /// made, even on a second try: replacing it would destroy the only copy
+    /// of the owner's scripts (ruling 20.6 #4).
+    case noCopyKept
     case tooManyPages(limit: Int)
     case scriptTooLong(limit: Int)
     case tooManyScripts(limit: Int)
@@ -264,26 +268,41 @@ final class PrompterLibrary: ObservableObject {
     /// So a file that exists but cannot be understood is copied aside first,
     /// and writing stays off until `startFreshLibrary()`.
     private func quarantine() {
+        status = .unreadable(corruptCopy: copyAside())
+    }
+
+    /// The copy `quarantine` makes, or nil when it could not be made: a file
+    /// unreadable for its permissions usually cannot be copied either, and a
+    /// full disk refuses the copy of a corrupt one.
+    private func copyAside() -> String? {
         let name = "library.corrupt-\(Self.timestamp(now())).json"
-        let copy: String?
         do {
-            copy = try io.copyAside(as: name)
+            return try io.copyAside(as: name)
         } catch {
             Log.storage.error("prompter library copy-aside failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public)")
-            copy = nil
+            return nil
         }
-        status = .unreadable(corruptCopy: copy)
     }
 
     /// The owner's choice after "Couldn't read your scripts": an empty library
     /// replaces the unreadable file. Only from the unreadable state; a newer
     /// version's file is never replaced from inside an older Isla.
+    ///
+    /// Only once a copy of the old file exists. With none, this replaced the
+    /// only copy of the owner's scripts with an empty library, under an alert
+    /// that said a copy had been kept. The copy is tried once more here (the
+    /// disk may have room now); if that fails too, nothing is written and the
+    /// library stays read-only (ruling 20.6 #4).
     func startFreshLibrary() throws {
         switch status {
         case .notLoaded: throw PrompterLibraryError.notLoaded
         case .newerVersion: throw PrompterLibraryError.readOnly
         case .ready: throw PrompterLibraryError.nothingToReplace
-        case .unreadable: break
+        case .unreadable(.some):
+            break
+        case .unreadable(nil):
+            guard let copy = copyAside() else { throw PrompterLibraryError.noCopyKept }
+            status = .unreadable(corruptCopy: copy)
         }
         scripts = []
         currentScriptID = nil

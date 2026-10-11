@@ -134,10 +134,17 @@ enum PrompterLibraryNotice: Equatable {
 
     /// The explanation's key (and English text), so a test can look the same
     /// sentence up in either table.
+    ///
+    /// An unreadable file with no copy says so: the alert used to promise "a
+    /// copy of the file next to it" when the copy had failed (a file
+    /// unreadable for its permissions, a full disk), and the owner then
+    /// replaced the only copy trusting it (ruling 20.6 #4).
     var detailKey: String {
         switch self {
-        case .unreadable:
+        case .unreadable(.some):
             return "Isla kept a copy of the file next to it. Nothing is deleted until you start a new library."
+        case .unreadable(nil):
+            return "Isla couldn't make a copy of the file, so it is left exactly as it is. Nothing is replaced until a copy can be kept."
         case .newerVersion:
             return "A newer version of Isla saved these scripts. Update Isla to edit them; nothing here will be changed."
         case .writeFailed:
@@ -150,8 +157,10 @@ enum PrompterLibraryNotice: Equatable {
     @MainActor
     var detail: String {
         switch self {
-        case .unreadable:
+        case .unreadable(.some):
             return localized("Isla kept a copy of the file next to it. Nothing is deleted until you start a new library.")
+        case .unreadable(nil):
+            return localized("Isla couldn't make a copy of the file, so it is left exactly as it is. Nothing is replaced until a copy can be kept.")
         case .newerVersion:
             return localized("A newer version of Isla saved these scripts. Update Isla to edit them; nothing here will be changed.")
         case .writeFailed:
@@ -239,6 +248,12 @@ final class PrompterTabModel: ObservableObject {
     /// Moves when an edit was refused: the editor shows the text the library
     /// kept, not the text that was typed over it.
     @Published private(set) var revision = 0
+    /// Why Start a New Library did nothing: no copy of the unreadable file
+    /// could be made, even on the retry (ruling 20.6 #4). Shown in the alert
+    /// in place of its explanation; cleared by the next attempt.
+    @Published private(set) var newLibraryRefusal: String?
+    nonisolated static let newLibraryRefusalKey =
+        "Isla still couldn't copy the file, so it was not replaced. Free some disk space or check the folder's permissions, then try again."
 
     /// The sample was offered, or the library turned out not to need one. The
     /// library's own `isFirstRun` stays true for the rest of the run, so
@@ -479,7 +494,17 @@ final class PrompterTabModel: ObservableObject {
     /// "Start a new library", after the view's arm-then-confirm. Only from
     /// the unreadable state; the library refuses anything else.
     func startNewLibrary() {
-        guard (try? library.startFreshLibrary()) != nil else { return }
+        newLibraryRefusal = nil
+        do {
+            try library.startFreshLibrary()
+        } catch PrompterLibraryError.noCopyKept {
+            // A literal call, so the tables' checker sees the key in use;
+            // `newLibraryRefusalKey` is the same text, for the tests.
+            newLibraryRefusal = localized("Isla still couldn't copy the file, so it was not replaced. Free some disk space or check the folder's permissions, then try again.")
+            return
+        } catch {
+            return
+        }
         // The owner chose an empty library: no sample is dropped into it.
         didSeed = true
         seededScriptID = nil
@@ -489,10 +514,10 @@ final class PrompterTabModel: ObservableObject {
     }
 
     /// What Reveal in Finder shows: the corrupt copy made before anything
-    /// could be saved, or the library's folder when even the copy failed.
+    /// could be saved, or, when even the copy failed, the original file
+    /// itself, which is then the only thing there is to rescue.
     nonisolated static func revealTarget(corruptCopy: String?, directory: URL) -> URL {
-        guard let corruptCopy else { return directory }
-        return directory.appendingPathComponent(corruptCopy)
+        directory.appendingPathComponent(corruptCopy ?? FilePrompterFileIO.fileName)
     }
 
     // MARK: Start

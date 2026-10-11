@@ -13,13 +13,19 @@ import XCTest
 private final class TabFileIO: PrompterFileIO {
     var data: Data?
     var writeError: Error?
+    /// The file is there but cannot be read (permissions, an I/O error).
+    var readError: Error?
+    /// How many copy-asides fail before one succeeds (a full disk).
+    var copyFailures = 0
     private(set) var writes = 0
     private(set) var copies: [String] = []
+    private(set) var copyAttempts = 0
 
     init(data: Data? = nil) { self.data = data }
 
     func exists() -> Bool { data != nil }
     func read() throws -> Data {
+        if let readError { throw readError }
         guard let data else { throw CocoaError(.fileReadNoSuchFile) }
         return data
     }
@@ -29,6 +35,11 @@ private final class TabFileIO: PrompterFileIO {
         writes += 1
     }
     func copyAside(as name: String) throws -> String {
+        copyAttempts += 1
+        if copyFailures > 0 {
+            copyFailures -= 1
+            throw CocoaError(.fileWriteOutOfSpace)
+        }
         copies.append(name)
         return name
     }
@@ -227,7 +238,7 @@ final class PrompterTabModelTests: XCTestCase {
     /// way); in a test host, where nothing is translated, they are the keys.
     func testTheAppsSampleAndExplanationsAreTheTablesKeys() {
         XCTAssertEqual(PrompterSampleScript.current, PrompterSampleScript.make(lookup: { $0 }))
-        for notice in [PrompterLibraryNotice.unreadable(corruptCopy: nil), .newerVersion(3)] {
+        for notice in [PrompterLibraryNotice.unreadable(corruptCopy: nil), .unreadable(corruptCopy: "c.json"), .newerVersion(3)] {
             XCTAssertEqual(notice.detail, notice.detailKey)
             XCTAssertFalse(notice.detail.isEmpty)
         }
@@ -622,13 +633,77 @@ final class PrompterTabModelTests: XCTestCase {
         XCTAssertEqual(rig.library.scripts.count, 1, "nothing is replaced when nothing is broken")
     }
 
-    func testRevealTargetIsTheCorruptCopyOrElseTheFolder() {
+    /// With no copy, Reveal in Finder shows the original file itself, which is
+    /// the one thing there is to rescue (ruling 20.6 #4).
+    func testRevealTargetIsTheCorruptCopyOrElseTheOriginalFile() {
         let directory = URL(fileURLWithPath: "/tmp/Prompter", isDirectory: true)
         XCTAssertEqual(
             PrompterTabModel.revealTarget(corruptCopy: "library.corrupt-1.json", directory: directory).lastPathComponent,
             "library.corrupt-1.json"
         )
-        XCTAssertEqual(PrompterTabModel.revealTarget(corruptCopy: nil, directory: directory), directory)
+        XCTAssertEqual(
+            PrompterTabModel.revealTarget(corruptCopy: nil, directory: directory),
+            directory.appendingPathComponent(FilePrompterFileIO.fileName)
+        )
+    }
+
+    /// Ruling 20.6 #4. A library that exists but cannot be read (permissions,
+    /// an I/O error) usually cannot be copied either, and a full disk refuses
+    /// the copy of a corrupt one. The alert then said "Isla kept a copy of the
+    /// file next to it" about a copy that did not exist.
+    func testAnUnreadableLibraryWithNoCopyDoesNotClaimOne() throws {
+        let io = TabFileIO(data: Data("{}".utf8))
+        io.readError = CocoaError(.fileReadNoPermission)
+        io.copyFailures = 1
+        let rig = TabRig(io: io)
+        let notice = try XCTUnwrap(rig.model.notice)
+        XCTAssertEqual(notice, .unreadable(corruptCopy: nil))
+        XCTAssertTrue(notice.blocksTheTab)
+        XCTAssertNotEqual(notice.detailKey, PrompterLibraryNotice.unreadable(corruptCopy: "c.json").detailKey)
+        XCTAssertFalse(notice.detail.contains("kept a copy"), "no copy was kept, so the alert must not say one was")
+        XCTAssertEqual(notice.detail, localized(notice.detailKey))
+    }
+
+    /// "Start a New Library" replaced the only copy of the owner's scripts
+    /// when there was no copy aside. It now tries the copy once more and is
+    /// refused, with the reason, if that fails too: nothing is written.
+    func testANewLibraryIsRefusedWhileNoCopyCanBeKept() throws {
+        let original = Data("garbage".utf8)
+        let io = TabFileIO(data: original)
+        io.copyFailures = 2
+        let rig = TabRig(io: io)
+        XCTAssertEqual(rig.model.notice, .unreadable(corruptCopy: nil))
+
+        rig.model.startNewLibrary()
+        XCTAssertEqual(io.copyAttempts, 2, "the copy was tried once more, and only once")
+        XCTAssertEqual(io.data, original, "the only copy of the scripts is untouched")
+        XCTAssertEqual(io.writes, 0)
+        XCTAssertFalse(rig.model.canEdit, "writing stays off")
+        XCTAssertEqual(rig.model.notice, .unreadable(corruptCopy: nil))
+        let refusal = try XCTUnwrap(rig.model.newLibraryRefusal, "and the alert says why")
+        XCTAssertEqual(refusal, localized(PrompterTabModel.newLibraryRefusalKey))
+        io.copyFailures = 1
+        XCTAssertThrowsError(try rig.library.startFreshLibrary()) { error in
+            XCTAssertEqual(error as? PrompterLibraryError, .noCopyKept)
+        }
+        XCTAssertEqual(io.writes, 0)
+    }
+
+    /// The retry that works is the copy the alert promised, and then the
+    /// fresh library may replace the file.
+    func testANewLibraryRetriesTheCopyAndThenReplacesTheFile() throws {
+        let io = TabFileIO(data: Data("garbage".utf8))
+        io.copyFailures = 1
+        let rig = TabRig(io: io)
+        XCTAssertEqual(rig.model.notice, .unreadable(corruptCopy: nil))
+
+        rig.model.startNewLibrary()
+        XCTAssertEqual(io.copies.count, 1, "the retry kept a copy")
+        XCTAssertEqual(io.copies.first?.hasPrefix("library.corrupt-"), true)
+        XCTAssertNil(rig.model.notice)
+        XCTAssertNil(rig.model.newLibraryRefusal)
+        XCTAssertTrue(rig.model.canEdit)
+        XCTAssertNotEqual(io.data, Data("garbage".utf8), "replaced only once the copy existed")
     }
 
     func testANewerLibraryIsAReadOnlyNoticeThatNeverOffersToReplaceIt() throws {

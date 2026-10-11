@@ -455,6 +455,8 @@
 "Saved by a newer Isla" = "Saved by a newer Isla";
 "Couldn't save your changes. They are kept and Isla will try again." = "Couldn't save your changes. They are kept and Isla will try again.";
 "Isla kept a copy of the file next to it. Nothing is deleted until you start a new library." = "Isla kept a copy of the file next to it. Nothing is deleted until you start a new library.";
+"Isla couldn't make a copy of the file, so it is left exactly as it is. Nothing is replaced until a copy can be kept." = "Isla couldn't make a copy of the file, so it is left exactly as it is. Nothing is replaced until a copy can be kept.";
+"Isla still couldn't copy the file, so it was not replaced. Free some disk space or check the folder's permissions, then try again." = "Isla still couldn't copy the file, so it was not replaced. Free some disk space or check the folder's permissions, then try again.";
 "A newer version of Isla saved these scripts. Update Isla to edit them; nothing here will be changed." = "A newer version of Isla saved these scripts. Update Isla to edit them; nothing here will be changed.";
 "Words: %d · %@" = "Words: %d · %@";
 "Untitled Script" = "Untitled Script";
