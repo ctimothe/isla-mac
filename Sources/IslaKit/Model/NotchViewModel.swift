@@ -91,8 +91,20 @@ final class NotchViewModel: ObservableObject {
             // lands on the player rather than on a page of words left open
             // three songs ago.
             if tab != .media { isShowingLyrics = false }
+            // A scroll target is for the visit it was set for. One left
+            // unspent would jump a later, unrelated visit to Settings.
+            if tab != .settings { settingsScrollTarget = nil }
         }
     }
+
+    /// Where Settings should scroll on its next appearance, by section id.
+    ///
+    /// Settings scrolls, and the Music section sits below General, Keyboard
+    /// Shortcuts and Screenshots, so a pointer from elsewhere that only
+    /// selected the tab landed three sections above the switch it promised
+    /// (J-007's Open Settings). `SettingsPane` scrolls to it and clears it:
+    /// a one-shot, not a remembered position.
+    @Published var settingsScrollTarget: String?
 
     /// Whether the Music tab is showing the full lyrics page instead of the
     /// player.
@@ -975,6 +987,14 @@ final class NotchViewModel: ObservableObject {
     func select(_ tab: Tab) {
         self.tab = tab
         if tab.needsKeyboard { wantsKeyboard = true }
+    }
+
+    /// The Music tab's remedy when Music Only keeps a playing source off the
+    /// island: Settings, scrolled to the switch. The target goes first so the
+    /// pane that appears for the tab change finds it already set.
+    func openMusicOnlySetting() {
+        settingsScrollTarget = SettingsPane.musicSectionID
+        select(.settings)
     }
 
     /// Whether a pane wants this Escape for itself. Consulted before the panel

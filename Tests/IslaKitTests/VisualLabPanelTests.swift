@@ -79,6 +79,26 @@ final class VisualLabPanelTests: VisualLabCase {
                               notes: "The Open buttons list the players installed on the rendering Mac.") { variant in
             Self.scene(try await self.openPanel(session), variant, height: size.height)
         }
+        // J-007: a browser video Music Only keeps off the island is playing.
+        // The status names it and the one remedy is Open Settings; the
+        // Russian sentence is the long one, so it is drawn at 480 pt too.
+        try await shoot.shoot("nothing-shown-music-only-hides-a-video",
+                              variants: [.base, .w480, .russian, LabVariant(name: "ru-w480", width: 480, language: "ru"), .baseIR],
+                              size: size,
+                              notes: "A YouTube tab in a browser is playing; Music Only filters it.") { variant in
+            Self.scene(try await self.openPanel(session, prepare: { stores in
+                stores.media.musicOnly = { true }
+                stores.media.bundleIdentifierForPID = { _ in "com.google.Chrome" }
+                var video = NowPlayingFeed.Snapshot()
+                video.title = "A Video"
+                video.duration = 600
+                video.isPlaying = true
+                video.rate = 1
+                video.takenAt = Date()
+                video.playerPID = 4242
+                stores.media.receive(video)
+            }), variant, height: size.height)
+        }
         try await shoot.shoot("playing-lyrics-off", variants: LabVariant.panel, size: size) { variant in
             Self.scene(try await self.openPanel(session, track: .init(), lyrics: .disabled), variant, height: size.height)
         }
@@ -507,6 +527,12 @@ final class VisualLabPanelTests: VisualLabCase {
 
         try await shoot.shoot("viewport-top", variants: LabVariant.panel, size: size, settle: 0.3) { variant in
             Self.scene(try await self.openPanel(session, tab: .settings), variant, height: size.height)
+        }
+        try await shoot.shoot("viewport-opened-at-music", variants: [.base, .russian], size: size, settle: 0.4,
+                              notes: "Reached from the Music tab's Open Settings (J-007): scrolled to the Music section, Music Only first.") { variant in
+            Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+                vm.settingsScrollTarget = SettingsPane.musicSectionID
+            }), variant, height: size.height)
         }
         try await shoot.shoot("viewport-open-on-hover", variants: [.base, .russian], size: size, settle: 0.3,
                               defaults: [NotchViewModel.opensOnHoverKey: true],
