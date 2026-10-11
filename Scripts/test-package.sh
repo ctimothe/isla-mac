@@ -10,6 +10,8 @@ test -f "$APP/Contents/Resources/libislamedia.dylib"
 test -f "$APP/Contents/Resources/AppIcon.icns"
 test -f "$APP/Contents/Resources/en.lproj/Localizable.strings"
 test -f "$APP/Contents/Resources/ru.lproj/Localizable.strings"
+test -f "$APP/Contents/Resources/en.lproj/ServicesMenu.strings"
+test -f "$APP/Contents/Resources/ru.lproj/ServicesMenu.strings"
 test -f "$APP/Contents/Resources/Licenses/LICENSE"
 test -f "$APP/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.md"
 grep -q 'Copyright (c) 2026 akalikbergenov' \

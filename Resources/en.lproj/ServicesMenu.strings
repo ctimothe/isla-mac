@@ -1,0 +1,4 @@
+/* The system shows this in every app's Services menu. The key is the
+   NSMenuItem default in Info.plist (Scripts/bundle.sh); Scripts/test-localizations.sh
+   keeps the two in step. */
+"Translate in Isla" = "Translate in Isla";
