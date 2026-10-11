@@ -307,9 +307,32 @@ final class VisualLabPanelTests: VisualLabCase {
         try await shoot.shoot("empty", variants: LabVariant.panel, size: size) { variant in
             Self.scene(try await self.openPanel(session, tab: .shelf), variant, height: size.height)
         }
-        try await shoot.shoot("drop-target", variants: [.base, .contrast], size: size,
-                              notes: "A drag over the island: the dashed well lights.") { variant in
+        // M-22: under a drag the headline says what letting go does.
+        // Russian at 480 pt is the longest it gets and the narrowest it is
+        // drawn, here and on the populated strip's pill below.
+        let russianNarrowDrag = LabVariant(name: "ru-w480", width: 480, language: "ru")
+        try await shoot.shoot("drop-target", variants: [.base, .contrast, russianNarrowDrag], size: size,
+                              notes: "A drag over the island: the dashed well lights and the headline says Release.") { variant in
             Self.scene(try await self.openPanel(session, tab: .shelf, configure: { $0.isDropTargeted = true }), variant, height: size.height)
+        }
+        // M-22: a drag over a strip of cards had no target to see, since the
+        // well is the empty state's.
+        try await shoot.shoot("drag-over-populated", variants: [.base, .contrast, .motion, .russian, russianNarrowDrag],
+                              size: size, settle: 0.8,
+                              notes: note + " A drag over a shelf that has cards: a pill over the strip says where the file goes.") { variant in
+            Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { self.stock($0.shelf, session: session, urls: few) },
+                                                configure: { $0.isDropTargeted = true }), variant, height: size.height)
+        }
+        for (state, variant, expected, absent) in [
+            ("drop-target", "dark", "Release to add to the Shelf", "Drop files here to keep them"),
+            ("drop-target", "ru-w480", "Отпустите, чтобы положить на полку", "Download Multiple"),
+            ("drag-over-populated", "dark", "Drop to keep on the Shelf", "Download Multiple"),
+            ("drag-over-populated", "ru-w480", "Отпустите, чтобы оставить на полке", "Download Multiple"),
+        ] {
+            let url = session.root.appendingPathComponent("a11y/panel-shelf/\(state)__\(variant).txt")
+            let tree = try String(contentsOf: url, encoding: .utf8)
+            XCTAssertTrue(tree.contains(expected), "\(state) \(variant) does not say \(expected)\n\(tree)")
+            XCTAssertFalse(tree.contains(absent), "\(state) \(variant) still says \(absent)\n\(tree)")
         }
         try await shoot.shoot("a-few-cards", variants: LabVariant.panel, size: size, settle: 0.8, notes: note) { variant in
             Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { self.stock($0.shelf, session: session, urls: few) }),

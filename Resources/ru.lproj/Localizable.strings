@@ -366,3 +366,5 @@
 "Muted" = "Звук выключен";
 "AirDrop is not available on this Mac." = "AirDrop недоступен на этом Mac.";
 "AirDrop cannot send these files." = "AirDrop не может отправить эти файлы.";
+"Release to add to the Shelf" = "Отпустите, чтобы положить на полку";
+"Drop to keep on the Shelf" = "Отпустите, чтобы оставить на полке";
