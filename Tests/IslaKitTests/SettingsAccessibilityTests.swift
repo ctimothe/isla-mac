@@ -63,6 +63,18 @@ final class SettingsAccessibilityTests: XCTestCase {
     /// sliders do. The number itself staying a number is right: it is what
     /// increment and decrement move.
     func testSlidersCarryUnits() async {
+        // The delay slider speaks why it is dimmed while Show Lyrics is off
+        // (SET-08), so the value asserted below is only the bare direction
+        // with the switch on. The test used to inherit the switch from
+        // whatever the runner's defaults held — a test machine that had
+        // ever turned lyrics on passed, a clean one failed — so it pins it.
+        let defaults = UserDefaults.standard
+        let had = defaults.object(forKey: NotchViewModel.showLyricsKey)
+        defer {
+            if let had { defaults.set(had, forKey: NotchViewModel.showLyricsKey) }
+            else { defaults.removeObject(forKey: NotchViewModel.showLyricsKey) }
+        }
+        defaults.set(true, forKey: NotchViewModel.showLyricsKey)
         let (root, isolated) = await probePane()
         defer { isolated.release() }
         let sliders = root.all(role: "AXSlider")
