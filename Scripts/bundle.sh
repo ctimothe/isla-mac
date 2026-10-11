@@ -126,7 +126,7 @@ echo "==> building Now Playing helper"
 clang -dynamiclib -fobjc-arc -O2 \
     -arch arm64 -arch x86_64 \
     -mmacosx-version-min=15.0 \
-    -framework Foundation \
+    -framework Foundation -framework ImageIO -framework CoreGraphics \
     -o "$APP/Contents/Resources/libislamedia.dylib" \
     "$ROOT/Sources/IslaMediaHelper/helper.m"
 
