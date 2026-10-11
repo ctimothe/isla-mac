@@ -285,6 +285,16 @@ struct LockScreenCard: View {
             // carries more shadow to stay legible over it.
             .shadow(color: .black.opacity(style == .solid ? 0 : (style == .clear ? 0.5 : 0.35)), radius: 3, y: 1)
             .frame(width: dimensions.width, height: dimensions.height)
+            // While the output picker is up, the card under its scrim is gone
+            // for VoiceOver too. It used to stay in reading order, and since
+            // the picker overlaps it, the two were read interleaved by position:
+            // "Playback Position" between MacBook Pro Speakers and AirPods Pro,
+            // "Previous Track" between two more devices (H-010). The whole card
+            // goes, not control by control — a per-control list would drift the
+            // first time the card grew a control. Applied before the overlay,
+            // so the picker itself is untouched; the way back is the picker's
+            // own Escape, since the scrim's tap is not an element.
+            .accessibilityHidden(pane == .output)
             .overlay { outputPicker }
             .background { coverLight }
             .glassSurface(
@@ -428,6 +438,10 @@ struct LockScreenCard: View {
             // opaque — see-through is exactly what that setting asks against.
             .opacity(style == .clear && !appearance.increaseContrast ? 0.62 : 1)
             .clipped()
+            // Light, not a picture: blurred past recognition on purpose, it was
+            // read as a nameless 690x690 image (H-009). The cover the listener
+            // can name is the one in the header.
+            .accessibilityHidden(true)
             .animation(reduceMotion ? nil : Theme.artworkAnimation, value: media.artwork)
         }
     }
@@ -867,6 +881,18 @@ struct LockScreenCard: View {
                 .padding(.trailing, 14)
                 .padding(.bottom, Self.footerClearance)
             }
+            // One named group, modal, the way the scrim already says it is to
+            // a sighted listener: the card under it is hidden from VoiceOver
+            // while it is up (see `body`), and this is what is left — "Sound
+            // Output", the control's own name, holding the devices (H-010).
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(localized("Sound Output"))
+            .accessibilityAddTraits(.isModal)
+            // With the card hidden, the glyph that opened the list is hidden
+            // with it, and the scrim's tap was never an element: without this
+            // a VoiceOver user could leave only by choosing a device. Escape
+            // closes it as a click on the scrim does.
+            .accessibilityAction(.escape) { pane = .player }
             .animation(reduceMotion ? nil : Theme.paneAnimation, value: pane)
         }
     }
