@@ -184,6 +184,15 @@ struct NotchContentView: View {
                 .frame(width: size.width, alignment: .center)
                 .clipped()
         }
+        // Isla over the shield too, folded or not: pressed, it gives the
+        // refusal a click gets. With nothing playing this island used to be
+        // absent to VoiceOver on the lock screen as well (H-001).
+        .modifier(islandAccessibility(open: false))
+        // The click target is the pill, cut before the row is widened to the
+        // window — see the same placement in `shell` for why it matters to
+        // VoiceOver. The panel's active rect is this same width, so no click
+        // the pointer could deliver lands anywhere different.
+        .contentShape(Rectangle())
         .frame(maxWidth: .infinity, alignment: .top)
         // The same lift as unlocked, and the same exclusion: the cutout is a
         // hole and nothing may be drawn in it. Only on a pill that is there.
@@ -192,7 +201,6 @@ struct NotchContentView: View {
         // The edge says the island is there; the shake says it is not opening
         // here. Two different answers to two different gestures, rather than
         // one shake for both.
-        .contentShape(Rectangle())
         .onTapGesture { vm.onIslandClick?() }
         // Folded, the shape sits one point inside the cutout, and an 11 pt
         // swing would carry ten of them out onto the wallpaper beside it. There
@@ -299,12 +307,21 @@ struct NotchContentView: View {
             .clipped()
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // A click anywhere on the collapsed island opens it. The equalizer
         // wing keeps its own tap for play/pause — a child gesture wins, so
         // pausing still costs one click and does not open anything, and the open
         // panel's header strip closes the panel by winning the same way.
+        //
+        // Cut to the island, shoulders included, and *then* widened to the
+        // window — not the other way round. SwiftUI hands a content shape to
+        // the accessibility element beneath it when that element is the only
+        // one there, and on a shut island the Isla button is the only one: cut
+        // after the window-filling frame, the button's frame was the whole
+        // 700-point window instead of the island (H-001). This rect is
+        // `compactGestureRect` and the panel's active rect exactly, so no
+        // click the pointer can deliver lands anywhere different.
         .contentShape(Rectangle())
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // Highlight on press, commit on release — the order Apple states for a
         // tap. Waiting for the click to show anything makes the island feel
         // dead for the length of the press, which is the one moment the user is
@@ -408,8 +425,75 @@ struct NotchContentView: View {
                         .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
                 }
             }
+            // The island to assistive tech, on the stack that holds both the
+            // music and the moment, so that a peek or a charger changes this
+            // element's value rather than swapping one element for another.
+            .modifier(islandAccessibility(open: false))
             .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
         }
+    }
+
+    /// What the island is to VoiceOver and Switch Control: one button called
+    /// Isla, in every state the island has, whose value says what it shows.
+    ///
+    /// The element used to live inside the music header and was hidden while
+    /// the pill was folded, on the reasoning that a folded pill has nothing on
+    /// screen to describe. But the island is not only a display: it is the one
+    /// way into the app, which has no Dock icon, no menu-bar item and no
+    /// window. With nothing playing the tree held only the hosting view, and a
+    /// blind user could neither find Isla nor open it — while the welcome told
+    /// them to click it (H-001). So the island is always there now, with
+    /// "Nothing is playing." as its value when that is the truth.
+    ///
+    /// Open, the same element sits on the header strip — the strip a pointer
+    /// clicks to shut the panel — and says so. A panel opened from assistive
+    /// tech is pinned open, and nothing in it used to close it again: the
+    /// strip was a bare tap gesture with no trait and no action (G-015).
+    ///
+    /// Accessibility modifiers do not change layout, so the matched-geometry
+    /// ids and the fold are untouched, and the strip stays free of controls
+    /// for the pointer: menu-bar monitors such as Ice see exactly what they
+    /// saw before.
+    private func islandAccessibility(open: Bool) -> IslandAccessibility {
+        IslandAccessibility(
+            value: open ? openIslandValue : closedIslandValue,
+            hint: open ? localized("Closes the panel") : localized("Opens the panel"),
+            action: {
+                // Locked, the same refusal a click gets — the shake and the
+                // spoken "Unlock your Mac to open Isla." It used to return
+                // silently, which to someone who cannot see the pill was a
+                // button that did nothing at all.
+                guard !vm.isLockedPresentation else {
+                    vm.nudgeLockedIsland()
+                    return
+                }
+                vm.onIslandClick?()
+            }
+        )
+    }
+
+    /// The shut island's value: the moment if one is up, else the track, else
+    /// that there is none. The locked pill draws no moment, so over the shield
+    /// it does not name one.
+    private var closedIslandValue: String {
+        if !vm.isLockedPresentation, let ambient = vm.ambient { return ambient.accessibilityLabel }
+        return vm.media.track == nil ? localized("Nothing is playing.") : compactAccessibilityLabel
+    }
+
+    /// The open island's value: what the header strip shows — the tab, and
+    /// the count or the player on its right end. The welcome is not a tab
+    /// (see `openHeader`), so there it names the welcome instead.
+    private var openIslandValue: String {
+        if vm.isShowingWelcome { return localized("Welcome") }
+        let detail: String?
+        switch vm.tab {
+        case .media: detail = vm.media.sourceName
+        case .shelf: detail = vm.shelf.items.isEmpty ? nil : "\(vm.shelf.items.count)"
+        case .clipboard: detail = vm.clipboard.items.isEmpty ? nil : "\(vm.clipboard.items.count)"
+        case .translate, .settings: detail = nil
+        }
+        guard let detail, !detail.isEmpty else { return vm.tab.title }
+        return "\(vm.tab.title), \(detail)"
     }
 
     /// The charger or headphones, in the pill's two wings.
@@ -453,8 +537,8 @@ struct NotchContentView: View {
             .frame(width: wingWidth, alignment: .center)
         }
         .frame(width: size.width, height: vm.geometry.notchSize.height)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(ambient.accessibilityLabel)
+        // No element of its own: the moment is the island's value, set on the
+        // stack above it — see `islandAccessibility(open:)`.
     }
 
     private var openHeader: some View {
@@ -497,6 +581,10 @@ struct NotchContentView: View {
         // the right. The rail and the panes begin below it.
         .contentShape(Rectangle())
         .onTapGesture { vm.onIslandClick?() }
+        // The same close for assistive tech, as the same Isla button the shut
+        // island is — the gesture above has no trait and no action, so a panel
+        // opened from VoiceOver had no discoverable way to close (G-015).
+        .modifier(islandAccessibility(open: true))
     }
 
     /// - Parameter morph: the namespace the cover and the equalizer travel in,
@@ -569,25 +657,12 @@ struct NotchContentView: View {
                 // the controls actually are.
         }
         .frame(width: size.width, height: vm.geometry.notchSize.height)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(compactAccessibilityLabel)
-        // Folded, there is nothing on screen to describe.
-        .accessibilityHidden(!shown)
-        // The same single purpose assistive tech gets: opening. A Pause action
-        // here would be a button the compact island does not have, reachable
-        // only by people who cannot see that it has none.
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction {
-            // Locked, the same refusal a click gets — the shake and the spoken
-            // "Unlock your Mac to open Isla." This used to return silently,
-            // which to someone who cannot see the pill was a button that did
-            // nothing at all.
-            guard !vm.isLockedPresentation else {
-                vm.nudgeLockedIsland()
-                return
-            }
-            vm.onIslandClick?()
-        }
+        // No element of its own. It was one, hidden while folded, and so with
+        // nothing playing the island did not exist to VoiceOver at all; the
+        // island's one element now sits on whatever holds this header — see
+        // `islandAccessibility(open:)`. Its single purpose is still opening:
+        // a Pause action here would be a button the compact island does not
+        // have, reachable only by people who cannot see that it has none.
     }
 
     /// The island brightening under the pointer.
@@ -833,6 +908,12 @@ struct NotchContentView: View {
         // cannot drift apart into a rail that does not fit.
         .padding(.bottom, NotchGeometry.bodyBottomPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // VO-Escape, or Switch Control's Escape, anywhere in the body closes
+        // the panel, as the header does. A panel opened from assistive tech is
+        // pinned open, and the pin ends only on a real mouse-down in another
+        // app, so without this the only way out was the global hot key —
+        // which someone who opened Isla by its button may not know (G-015).
+        .accessibilityAction(.escape) { vm.onIslandClick?() }
     }
 
     private var panes: some View {
@@ -863,6 +944,11 @@ struct NotchContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
+        // One group, named for what it holds. Loose, the pane's elements were
+        // read in among the rail's by position — the Translate tab put
+        // "Translate From" between Music and Shelf.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(vm.isShowingWelcome ? localized("Welcome") : vm.tab.title)
     }
 
     @ViewBuilder
@@ -957,6 +1043,10 @@ private struct Rail: View {
         // top, settings held to the bottom by the gap between them.
         .frame(height: vm.geometry.standardContentHeight, alignment: .center)
         .frame(maxHeight: .infinity, alignment: .top)
+        // The five tabs together, under one name, and apart from the pane —
+        // see the pane's own group in `NotchContentView.panes`.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(localized("Tabs"))
     }
 
     @ViewBuilder
@@ -1033,6 +1123,29 @@ private struct Rail: View {
     private func fill(for tab: NotchViewModel.Tab) -> Color {
         if vm.tab == tab { return Theme.selectedChip }
         return hovered == tab ? Theme.surface : .clear
+    }
+}
+
+/// The island's one accessibility element: a button called Isla. Built by
+/// `NotchContentView.islandAccessibility(open:)`, which decides the value, the
+/// hint and what a press does; this only says them.
+///
+/// The children are ignored rather than combined: what the wings draw — a
+/// cover, bars, a charge level — is in the value already, and a folded wing is
+/// drawn at nothing, so combining would describe a pill that is not there.
+private struct IslandAccessibility: ViewModifier {
+    let value: String
+    let hint: String
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(ProductIdentity.displayName)
+            .accessibilityValue(value)
+            .accessibilityHint(hint)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default, action)
     }
 }
 

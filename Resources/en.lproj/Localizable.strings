@@ -315,3 +315,7 @@
 "Covered text shows as moving dots until you click it, and is covered again when the panel closes." = "Covered text shows as moving dots until you click it, and is covered again when the panel closes.";
 "Asks macOS to leave Isla out of screenshots, recordings and screen sharing. Some sharing apps may still show it, so cover Clipboard and Translate before you share." = "Asks macOS to leave Isla out of screenshots, recordings and screen sharing. Some sharing apps may still show it, so cover Clipboard and Translate before you share.";
 "Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on." = "Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on.";
+"Opens the panel" = "Opens the panel";
+"Closes the panel" = "Closes the panel";
+"Tabs" = "Tabs";
+"Welcome" = "Welcome";
