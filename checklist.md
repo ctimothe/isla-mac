@@ -521,6 +521,19 @@ Open, for the owner — each is a design decision, not a defect:
 - [ ] `scripts/check` is tracked in lowercase while every other script is
   under `Scripts/`; one directory on this Mac's case-insensitive disk, two on
   a case-sensitive one.
+- [x] **The detached-label toggle above is closed, 2026-10-11 (SET-01, H-002,
+  owner decision 2).** Every Settings switch is one `Toggle` whose label is
+  the row's icon and title, drawn by `PanelSwitchStyle` (`Theme.swift`): the
+  whole 26 pt row is the target, so a click on the words flips it, and the
+  style draws its own on-state — the person's `controlAccentColor` on, a well
+  shaded into the card off, a 1 pt white-0.7 outline under Increase Contrast —
+  because AppKit's switch only shows one in a key window and this panel is not
+  key outside Translate. VoiceOver still finds one AXCheckBox per row, named
+  by its title, valued 0 or 1 (`SettingsPaneTests`); on vs off clears 3:1 for
+  all eight accents over the card (`ContrastRampTests`). Reversible. Owed on
+  the Mac: a click on "Launch at Login" text flips it; VoiceOver's reading of
+  the row ("switch" or "toggle button", on or off); Graphite and Yellow
+  accents by eye; the visual lab's panel-settings renders reviewed.
 
 ### Native motion — 2026-09-21
 

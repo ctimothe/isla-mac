@@ -20,6 +20,58 @@ final class ContrastRampTests: XCTestCase {
         return (linear + 0.05) / 0.05
     }
 
+    /// WCAG relative luminance of an opaque sRGB colour, channels 0…255.
+    private func luminance(_ red: Double, _ green: Double, _ blue: Double) -> Double {
+        func linear(_ value: Double) -> Double {
+            let channel = value / 255
+            return channel <= 0.03928 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+    }
+
+    /// `controlAccentColor` under dark Aqua for each accent a person can pick,
+    /// as macOS resolves it. Read on 2026-10-11 from a scratch process
+    /// launched with `-AppleAccentColor <n>` — the argument domain, so the
+    /// Mac's own setting was never touched — and kept as numbers here because
+    /// a test cannot change the accent it runs under. Graphite is the one
+    /// that matters: grey on grey, with no hue to tell on from off.
+    private static let accents: [(name: String, rgb: (Double, Double, Double))] = [
+        ("graphite", (140, 140, 140)), ("blue", (0, 122, 255)), ("yellow", (255, 198, 0)),
+        ("red", (255, 82, 87)), ("orange", (247, 130, 27)), ("green", (98, 186, 70)),
+        ("purple", (165, 80, 167)), ("pink", (247, 79, 158)),
+    ]
+
+    /// A Settings switch that is on looks on, whatever accent drew it.
+    ///
+    /// The track is measured where it is drawn — inside a Settings card, which
+    /// is `surface` white over the panel's black — rather than over bare black,
+    /// which flatters it: the plan's own off fill (`surfaceHover`) cleared 3:1
+    /// over black for neither graphite (2.97) nor blue (2.49), and over the
+    /// card it fell to 1.86 and 1.55. The off track is a well shaded into the
+    /// card instead, so the accent has the whole step to itself. 3:1 is
+    /// WCAG's non-text floor (1.4.11), held at both contrast settings.
+    func testSwitchOnAndOffAreTellableApartOnEveryAccent() {
+        for increaseContrast in [false, true] {
+            let card = Theme.surfaceOpacity(increaseContrast: increaseContrast)
+            let well = card * (1 - Theme.switchWellOpacity(increaseContrast: increaseContrast))
+            let off = luminance(well * 255, well * 255, well * 255)
+            for accent in Self.accents {
+                let on = luminance(accent.rgb.0, accent.rgb.1, accent.rgb.2)
+                XCTAssertGreaterThanOrEqual(
+                    (on + 0.05) / (off + 0.05), 3.0,
+                    "\(accent.name) on vs off, increaseContrast \(increaseContrast)"
+                )
+                // Over bare black, the measure the plan named, the well adds
+                // nothing to the black and the step only grows.
+                XCTAssertGreaterThanOrEqual((on + 0.05) / 0.05, 3.0, accent.name)
+            }
+        }
+        XCTAssertGreaterThan(
+            PanelSwitchStyle.look(isOn: false, increaseContrast: true).outlineWidth, 0,
+            "Increase Contrast draws an edge round the track"
+        )
+    }
+
     func testTheNonTextChromeIsVisibleAsAShape() {
         XCTAssertGreaterThanOrEqual(
             ratioOverBlack(whiteOpacity: Theme.surfaceOpacity(increaseContrast: false)), 1.4,
