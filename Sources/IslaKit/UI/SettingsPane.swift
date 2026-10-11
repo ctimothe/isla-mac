@@ -128,7 +128,10 @@ struct SettingsPane: View {
         return rows
     }
 
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    /// What macOS decided, not just whether it is enabled: a registration
+    /// waiting on approval in Login Items read as off and snapped the switch
+    /// back with no words (F-027).
+    @State private var launchAtLogin = LaunchAtLogin.read()
     @State private var hoverDelay = NotchViewModel.hoverOpenDelay
     @State private var bodyWidth = NotchViewModel.bodyWidth
     @State private var opensOnHover = NotchViewModel.opensOnHoverEnabled
@@ -227,6 +230,17 @@ struct SettingsPane: View {
                         title: localized("Launch at Login"),
                         isOn: launchAtLoginBinding
                     )
+                    if let note = LaunchAtLogin.note(launchAtLogin) {
+                        noteRow(note)
+                    }
+                    if launchAtLogin.offersLoginItems {
+                        // User-initiated, and like Open Automation Settings…
+                        // it needs no activation: System Settings comes
+                        // forward on its own from a panel that is never key.
+                        actionRow(symbol: SettingsIcon.openSystemSettings, title: localized("Open Login Items…")) {
+                            SMAppService.openSystemSettingsLoginItems()
+                        }
+                    }
                     toggleRow(
                         symbol: SettingsIcon.openOnHover,
                         title: localized("Open on Hover"),
@@ -763,7 +777,9 @@ struct SettingsPane: View {
         // between visits to this tab (#11 taught the same lesson for the menu
         // this replaces).
         .onAppear {
-            launchAtLogin = SMAppService.mainApp.status == .enabled
+            // Also how the approval note clears: the way back from Open
+            // Login Items… is to reopen this tab.
+            launchAtLogin = LaunchAtLogin.read()
             saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
             importRecordings = NotchViewModel.importRecordingsEnabled
             refreshUsage()
@@ -798,19 +814,8 @@ struct SettingsPane: View {
 
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(
-            get: { launchAtLogin },
-            set: { wants in
-                do {
-                    if wants {
-                        try SMAppService.mainApp.register()
-                    } else {
-                        try SMAppService.mainApp.unregister()
-                    }
-                } catch {
-                    Log.app.error("launch at login failed: \(error.localizedDescription, privacy: .public)")
-                }
-                launchAtLogin = SMAppService.mainApp.status == .enabled
-            }
+            get: { launchAtLogin.isOn },
+            set: { wants in launchAtLogin = LaunchAtLogin.set(wants) }
         )
     }
 

@@ -381,3 +381,6 @@
 "%@ translates what you copied" = "%@ translates what you copied";
 "Translates what you copied" = "Translates what you copied";
 "Privacy, shortcuts and Quit" = "Privacy, shortcuts and Quit";
+"Needs your approval in Login Items." = "Needs your approval in Login Items.";
+"Open Login Items…" = "Open Login Items…";
+"Launch at Login failed: %@" = "Launch at Login failed: %@";
