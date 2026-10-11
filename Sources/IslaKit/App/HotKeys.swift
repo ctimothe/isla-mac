@@ -1,12 +1,26 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// The three things the keyboard can reach from anywhere, whatever app is in
-/// front.
+/// An optional feature that owns hot keys. Its keys exist only while it is
+/// on: `HotKeyCenter` registers an action only when the action's feature is
+/// enabled, so a key bound while the feature is off stays free for every
+/// other app (Prompter spec section 4).
+enum HotKeyFeature: String, Sendable {
+    case prompter
+}
+
+/// The things the keyboard can reach from anywhere, whatever app is in front:
+/// the core three, always there, and the Prompter's two, there only while its
+/// switch is on.
 enum HotKeyAction: String, CaseIterable, Identifiable {
     case openPanel
     case showLyrics
     case translateClipboard
+    /// Prompter spec 5.4: start, pause or resume. Release 2 adds faster and
+    /// slower; they are not cases until their speed control exists, because a
+    /// case is a row in Settings and a key somebody can press.
+    case prompterToggle
+    case prompterStop
 
     var id: String { rawValue }
 
@@ -15,6 +29,16 @@ enum HotKeyAction: String, CaseIterable, Identifiable {
         case .openPanel: return localized("Open the panel")
         case .showLyrics: return localized("Show the lyrics")
         case .translateClipboard: return localized("Translate the clipboard")
+        case .prompterToggle: return localized("Start or pause the Prompter")
+        case .prompterStop: return localized("Stop the Prompter")
+        }
+    }
+
+    /// The optional feature this action belongs to, nil for the core three.
+    var feature: HotKeyFeature? {
+        switch self {
+        case .openPanel, .showLyrics, .translateClipboard: return nil
+        case .prompterToggle, .prompterStop: return .prompter
         }
     }
 
@@ -32,11 +56,18 @@ enum HotKeyAction: String, CaseIterable, Identifiable {
     /// next-link and next-table commands. Which one wins has not been checked
     /// on hardware (see `checklist.md`). Either way a VoiceOver user can move
     /// all three in Settings, from the keyboard.
+    ///
+    /// The Prompter's ⌃⌥⌘P and ⌃⌥⌘S (spec 5.4) follow the same reasoning and
+    /// carry the same VoiceOver overlap (E-52). Neither is a plain Escape,
+    /// which a session never claims: during a Keynote or Zoom presentation
+    /// Escape belongs to the app in front, and ends its slideshow.
     var defaultBinding: HotKeyBinding {
         switch self {
         case .openPanel: return HotKeyBinding(keyCode: UInt32(kVK_ANSI_I), modifiers: HotKeyBinding.defaultModifiers)
         case .showLyrics: return HotKeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: HotKeyBinding.defaultModifiers)
         case .translateClipboard: return HotKeyBinding(keyCode: UInt32(kVK_ANSI_T), modifiers: HotKeyBinding.defaultModifiers)
+        case .prompterToggle: return HotKeyBinding(keyCode: UInt32(kVK_ANSI_P), modifiers: HotKeyBinding.defaultModifiers)
+        case .prompterStop: return HotKeyBinding(keyCode: UInt32(kVK_ANSI_S), modifiers: HotKeyBinding.defaultModifiers)
         }
     }
 
@@ -146,7 +177,7 @@ extension HotKeyBinding {
     /// A cleared shortcut is stored as an explicit "none" and not as a missing
     /// key. A missing key means the default, so a shortcut cleared that way
     /// would come back at the next launch.
-    static func stored(for action: HotKeyAction, in defaults: UserDefaults) -> HotKeyBinding? {
+    static func stored(for action: HotKeyAction, in defaults: Defaults) -> HotKeyBinding? {
         guard let value = defaults.object(forKey: action.defaultsKey) else { return action.defaultBinding }
         guard let dictionary = value as? [String: Int],
               let keyCode = dictionary["keyCode"], let modifiers = dictionary["modifiers"],
@@ -155,7 +186,7 @@ extension HotKeyBinding {
         return HotKeyBinding(keyCode: UInt32(keyCode), modifiers: UInt32(modifiers))
     }
 
-    static func store(_ binding: HotKeyBinding?, for action: HotKeyAction, in defaults: UserDefaults) {
+    static func store(_ binding: HotKeyBinding?, for action: HotKeyAction, in defaults: Defaults) {
         guard let binding else {
             defaults.set(Self.clearedMarker, forKey: action.defaultsKey)
             return
@@ -185,8 +216,13 @@ protocol HotKeyRegistration: AnyObject {
 
 extension GlobalHotKey: HotKeyRegistration {}
 
-/// Owns the three shortcuts: what each one is bound to, whether macOS
-/// accepted it, and changing them from Settings.
+/// Owns the shortcuts: what each one is bound to, whether macOS accepted it,
+/// whether its feature is on, and changing them from Settings.
+///
+/// An action whose feature is off is *absent*: it is not registered, cannot
+/// be recorded, set or restored, takes no part in moving a key from one
+/// action to another, and is never written. Its stored binding is read and
+/// kept, untouched, for when the feature comes back.
 @MainActor
 final class HotKeyCenter: ObservableObject {
     static let shared = HotKeyCenter()
@@ -217,7 +253,21 @@ final class HotKeyCenter: ObservableObject {
     }
     @Published private(set) var displaced: Displaced?
 
-    private let defaults: UserDefaults
+    /// Optional features that are on. Empty until someone says otherwise, so
+    /// a center nobody told about the Prompter registers only the core three:
+    /// the safe reading of "not known to be on" is off.
+    @Published private(set) var enabledFeatures: Set<HotKeyFeature> = []
+
+    /// Available actions that are not registered because an earlier action
+    /// already holds the same key, mapped to that holder. Only reachable when
+    /// a core action took a key while the feature owning it was off: the move
+    /// is not made then (the loser would be an action the user cannot see),
+    /// so when the feature returns both want the key. The earlier action in
+    /// `allCases` order keeps it. Registering both is not an option: Carbon
+    /// registrations are non-exclusive, so one press would fire both.
+    @Published private(set) var shadowed: [HotKeyAction: HotKeyAction] = [:]
+
+    private let defaults: Defaults
     private let registrar: Registrar
     private var handlers: [HotKeyAction: () -> Void] = [:]
     private var registrations: [HotKeyAction: HotKeyRegistration] = [:]
@@ -235,7 +285,7 @@ final class HotKeyCenter: ObservableObject {
     var isListening: Bool { monitor != nil }
 
     init(
-        defaults: UserDefaults = .standard,
+        defaults: Defaults = UserDefaults.standard,
         registrar: @escaping Registrar = { binding, action in
             GlobalHotKey(keyCode: binding.keyCode, modifiers: binding.modifiers, action: action)
         }
@@ -254,6 +304,35 @@ final class HotKeyCenter: ObservableObject {
         registerAll()
     }
 
+    /// Whether `action` exists right now: a core action always, a feature's
+    /// action only while its feature is on.
+    func isAvailable(_ action: HotKeyAction) -> Bool {
+        action.feature.map(enabledFeatures.contains) ?? true
+    }
+
+    /// The actions Settings, the restore row and Diagnostics should show.
+    var availableActions: [HotKeyAction] {
+        HotKeyAction.allCases.filter(isAvailable)
+    }
+
+    /// A feature's switch changed. Its keys are registered or let go at once,
+    /// so turning the Prompter off frees ⌃⌥⌘P for other apps without a
+    /// relaunch (spec 4, E-45). A recording of one of its keys ends with it,
+    /// taking its key-swallowing monitor along; a note about one of its keys
+    /// goes too, since it would name an action that is no longer there.
+    func setFeature(_ feature: HotKeyFeature, enabled: Bool) {
+        guard enabledFeatures.contains(feature) != enabled else { return }
+        if enabled { enabledFeatures.insert(feature) } else { enabledFeatures.remove(feature) }
+        if !enabled, let note = displaced, note.from.feature == feature || note.to.feature == feature {
+            displaced = nil
+        }
+        if !enabled, recording?.feature == feature {
+            endRecording()
+            return
+        }
+        if recording == nil { registerAll() }
+    }
+
     /// Binds `action` to `binding`, or clears it when `binding` is nil. A
     /// combination already held by another action moves here, and the other
     /// action is cleared. Two actions on one key cannot both fire, and letting
@@ -263,10 +342,14 @@ final class HotKeyCenter: ObservableObject {
     /// silent: `displaced` says which action lost its shortcut, because
     /// "Open the panel" is the keyboard and VoiceOver way in and used to be
     /// unbound with no sign (J-023).
+    ///
+    /// An absent action (its feature off) is left alone, as a target and as a
+    /// loser: nothing writes behind a switch that is off.
     func setBinding(_ binding: HotKeyBinding?, for action: HotKeyAction) {
+        guard isAvailable(action) else { return }
         displaced = nil
         if let binding {
-            for other in HotKeyAction.allCases where other != action && bindings[other] == binding {
+            for other in HotKeyAction.allCases where other != action && isAvailable(other) && bindings[other] == binding {
                 bindings[other] = nil
                 HotKeyBinding.store(nil, for: other, in: defaults)
                 displaced = Displaced(binding: binding, from: other, to: action)
@@ -277,9 +360,11 @@ final class HotKeyCenter: ObservableObject {
         if recording == nil { registerAll() }
     }
 
+    /// The available actions only: Restore Default Shortcuts restores what
+    /// Settings shows, and while the Prompter is off that is the core three.
     func restoreDefaults() {
         displaced = nil
-        for action in HotKeyAction.allCases {
+        for action in availableActions {
             defaults.removeObject(forKey: action.defaultsKey)
             bindings[action] = action.defaultBinding
         }
@@ -291,6 +376,7 @@ final class HotKeyCenter: ObservableObject {
     /// instead of being recorded. Every key press goes to `record` and none
     /// reaches the panel, until the recording ends.
     func beginRecording(_ action: HotKeyAction) {
+        guard isAvailable(action) else { return }
         removeMonitor()
         displaced = nil
         recording = action
@@ -350,16 +436,24 @@ final class HotKeyCenter: ObservableObject {
     private func registerAll() {
         unregisterAll()
         var refused: Set<HotKeyAction> = []
-        for action in HotKeyAction.allCases {
+        var shadowed: [HotKeyAction: HotKeyAction] = [:]
+        var holders: [HotKeyBinding: HotKeyAction] = [:]
+        for action in availableActions {
             guard let binding = bindings[action], let handler = handlers[action] else { continue }
+            if let holder = holders[binding] {
+                shadowed[action] = holder
+                continue
+            }
             if let registration = registrar(binding, handler) {
                 registrations[action] = registration
+                holders[binding] = action
             } else {
                 refused.insert(action)
                 Log.app.error("macOS refused shortcut \(binding.displayString, privacy: .public) for \(action.rawValue, privacy: .public)")
             }
         }
         if refused != self.refused { self.refused = refused }
+        if shadowed != self.shadowed { self.shadowed = shadowed }
     }
 
     private func unregisterAll() {

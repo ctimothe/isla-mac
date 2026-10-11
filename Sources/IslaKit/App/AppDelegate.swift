@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Quartz
 
 @MainActor
@@ -6,6 +7,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Readable so `IslaIntents` can reach the live panel the way `SettingsPane`
     /// already reaches this delegate. Still only ever set here.
     private(set) var controller: NotchController?
+    /// The Prompter's switch (spec section 4). Built after the launch guard,
+    /// like everything else here, so a copy that is about to hand over and
+    /// quit never reads the Prompter's library. With the switch off this reads
+    /// one key and builds nothing else.
+    private(set) var prompter: PrompterFeature?
+    /// Keeps `HotKeyCenter` following the switch for the life of the app.
+    private var prompterHotKeys: AnyCancellable?
 
     /// The browser returns from Spotify's consent page through the app's URL
     /// scheme; the account object finishes the token exchange.
@@ -69,6 +77,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //
         // What each is bound to lives in `HotKeyCenter`, which Settings can
         // change while the app runs.
+        //
+        // The Prompter's keys exist only while its switch is on. The center
+        // learns the switch's state before `install`, so the very first
+        // registration is already right (a key registered for a moment at
+        // launch would still have been taken from another app), and then
+        // follows it live: turning the switch off frees ⌃⌥⌘P and ⌃⌥⌘S at once.
+        // Their handlers are the controller's and arrive with its Prompter
+        // wiring; until then an action with no handler is not registered at
+        // all, which is better than a key that is taken and does nothing.
+        let prompter = PrompterFeature.live()
+        self.prompter = prompter
+        HotKeyCenter.shared.setFeature(.prompter, enabled: prompter.isEnabled)
+        prompterHotKeys = prompter.onChange { enabled in
+            HotKeyCenter.shared.setFeature(.prompter, enabled: enabled)
+        }
         HotKeyCenter.shared.install([
             .openPanel: { [weak self] in self?.togglePanel() },
             // No text is passed on as `nil`, not dropped here: with an image

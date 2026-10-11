@@ -463,7 +463,10 @@ struct SettingsPane: View {
                             taken.binding.displayString, taken.to.title, taken.from.title
                         ))
                     }
-                    if HotKeyAction.allCases.contains(where: { hotKeys.bindings[$0] != $0.defaultBinding }) {
+                    // Available actions only: a Prompter key changed while the
+                    // switch was on must not raise a restore row that, with the
+                    // switch off, would have nothing visible to restore.
+                    if hotKeys.availableActions.contains(where: { hotKeys.bindings[$0] != $0.defaultBinding }) {
                         actionRow(symbol: SettingsIcon.restoreShortcuts, title: localized("Restore Default Shortcuts")) {
                             hotKeys.restoreDefaults()
                         }

@@ -8,14 +8,11 @@ import XCTest
 /// it is taken anyway.
 @MainActor
 final class HotKeyTests: XCTestCase {
-    /// A private suite per test, removed when the test ends, so no test
-    /// writes a shortcut into the defaults of the machine running it.
-    private lazy var defaults: UserDefaults = {
-        let suite = "HotKeyTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
-        return defaults
-    }()
+    /// In memory, per test. These used to be a private suite of the real
+    /// defaults removed through `UserDefaults.standard` at teardown; a crash
+    /// between the two left the suite on disk. `HotKeyCenter` takes the
+    /// `Defaults` seam now, so no test reaches the machine's defaults at all.
+    private var defaults = InMemoryDefaults()
 
     /// ⌥⌘I is Web Inspector in Safari and Developer Tools in Chrome, ⌥⌘L is
     /// Downloads, ⌥⌘T hides Finder's toolbar. A Carbon hot key wins over the
@@ -39,6 +36,8 @@ final class HotKeyTests: XCTestCase {
         XCTAssertEqual(HotKeyAction.openPanel.defaultBinding.displayString, "⌃⌥⌘I")
         XCTAssertEqual(HotKeyAction.showLyrics.defaultBinding.displayString, "⌃⌥⌘L")
         XCTAssertEqual(HotKeyAction.translateClipboard.defaultBinding.displayString, "⌃⌥⌘T")
+        XCTAssertEqual(HotKeyAction.prompterToggle.defaultBinding.displayString, "⌃⌥⌘P")
+        XCTAssertEqual(HotKeyAction.prompterStop.defaultBinding.displayString, "⌃⌥⌘S")
         let shifted = HotKeyBinding(keyCode: UInt32(kVK_F5), modifiers: UInt32(shiftKey | cmdKey))
         XCTAssertEqual(shifted.displayString, "⇧⌘F5")
     }
@@ -251,10 +250,224 @@ extension HotKeyTests {
     }
 }
 
+// MARK: - The Prompter's two keys (spec 5.4, section 4, E-44, E-45)
+
+extension HotKeyTests {
+    private var core: [HotKeyAction] { [.openPanel, .showLyrics, .translateClipboard] }
+    private var coreKeys: Set<HotKeyBinding> { Set(core.map(\.defaultBinding)) }
+    private var prompterKeys: Set<HotKeyBinding> {
+        [HotKeyAction.prompterToggle.defaultBinding, HotKeyAction.prompterStop.defaultBinding]
+    }
+
+    private func installed(_ fake: FakeRegistrar) -> HotKeyCenter {
+        let center = HotKeyCenter(defaults: defaults, registrar: fake.register)
+        center.refuseSound = {}
+        center.install(Dictionary(uniqueKeysWithValues: HotKeyAction.allCases.map { ($0, {}) }))
+        return center
+    }
+
+    /// The core three belong to no feature and are always available; the two
+    /// new ones belong to the Prompter. Release 2's faster and slower keys do
+    /// not exist yet.
+    func testThePrompterActionsBelongToThePrompterAndNothingElseDoes() {
+        XCTAssertEqual(HotKeyAction.allCases, [.openPanel, .showLyrics, .translateClipboard, .prompterToggle, .prompterStop])
+        for action in core { XCTAssertNil(action.feature, "\(action)") }
+        XCTAssertEqual(HotKeyAction.prompterToggle.feature, .prompter)
+        XCTAssertEqual(HotKeyAction.prompterStop.feature, .prompter)
+        XCTAssertEqual(HotKeyAction.prompterToggle.defaultsKey, "hotkey.prompterToggle")
+        XCTAssertTrue(prompterKeys.isDisjoint(with: coreKeys), "⌃⌥⌘P and ⌃⌥⌘S take nothing from the first three")
+    }
+
+    /// An optional feature is off until someone says it is on. A center
+    /// nobody told about the Prompter registers only the core three, which
+    /// is also what every test written before the Prompter assumes.
+    func testAPrompterKeyIsNotRegisteredUntilTheFeatureIsOn() {
+        let fake = FakeRegistrar()
+        let center = installed(fake)
+        XCTAssertEqual(fake.live, coreKeys)
+        XCTAssertTrue(center.enabledFeatures.isEmpty)
+        XCTAssertEqual(center.availableActions, core)
+    }
+
+    func testTheFeatureSwitchRegistersAndUnregistersLive() {
+        let fake = FakeRegistrar()
+        let center = installed(fake)
+
+        center.setFeature(.prompter, enabled: true)
+        XCTAssertEqual(fake.live, coreKeys.union(prompterKeys))
+        XCTAssertTrue(center.isAvailable(.prompterToggle))
+
+        center.setFeature(.prompter, enabled: false)
+        XCTAssertEqual(fake.live, coreKeys)
+        XCTAssertFalse(center.isAvailable(.prompterStop))
+    }
+
+    func testAPrompterKeyIsRebindableAndClearableWhileOn() {
+        let fake = FakeRegistrar()
+        let center = installed(fake)
+        center.setFeature(.prompter, enabled: true)
+
+        center.beginRecording(.prompterToggle)
+        XCTAssertTrue(center.record(keyCode: UInt16(kVK_ANSI_K), flags: [.control, .option, .command]))
+        let chosen = HotKeyBinding(keyCode: UInt32(kVK_ANSI_K), modifiers: HotKeyBinding.defaultModifiers)
+        XCTAssertEqual(center.bindings[.prompterToggle], chosen)
+        XCTAssertEqual(HotKeyBinding.stored(for: .prompterToggle, in: defaults), chosen)
+        XCTAssertTrue(fake.live.contains(chosen))
+        XCTAssertFalse(fake.live.contains(HotKeyAction.prompterToggle.defaultBinding))
+
+        center.beginRecording(.prompterStop)
+        XCTAssertTrue(center.record(keyCode: UInt16(kVK_ForwardDelete), flags: []))
+        XCTAssertNil(center.bindings[.prompterStop])
+        XCTAssertNil(HotKeyBinding.stored(for: .prompterStop, in: defaults), "cleared stays cleared")
+        XCTAssertEqual(fake.live, coreKeys.union([chosen]))
+    }
+
+    /// The same two-of-⌘⌃⌥ rule as the first three: plain Escape, or any
+    /// single-modifier press, can never become a Prompter key (spec 5.4:
+    /// plain Escape is never claimed).
+    func testAPrompterKeyFollowsTheSameRules() {
+        let fake = FakeRegistrar()
+        let center = installed(fake)
+        center.setFeature(.prompter, enabled: true)
+        center.beginRecording(.prompterStop)
+        XCTAssertFalse(center.record(keyCode: UInt16(kVK_ANSI_S), flags: [.command]))
+        XCTAssertTrue(center.record(keyCode: UInt16(kVK_Escape), flags: []), "Escape cancels the recording")
+        XCTAssertEqual(center.bindings[.prompterStop], HotKeyAction.prompterStop.defaultBinding, "and is not recorded")
+    }
+
+    /// Taking a key from a Prompter action while on is reported, exactly as
+    /// between the first three.
+    func testTakingAPrompterKeyWhileOnIsReported() {
+        let center = installed(FakeRegistrar())
+        center.setFeature(.prompter, enabled: true)
+        center.setBinding(HotKeyAction.prompterToggle.defaultBinding, for: .openPanel)
+        XCTAssertEqual(center.displaced?.from, .prompterToggle)
+        XCTAssertNil(center.bindings[.prompterToggle])
+    }
+
+    /// While off the Prompter's actions are absent, so a core action may take
+    /// ⌃⌥⌘P without a note about an action the user cannot see, and without
+    /// writing anything for the Prompter. When the switch comes back, the
+    /// core action keeps the key and the Prompter's is reported as shadowed
+    /// rather than registered twice (two non-exclusive Carbon registrations
+    /// of one key would both fire).
+    func testWhileOffACoreActionMayTakeAPrompterKey() {
+        let fake = FakeRegistrar()
+        let center = installed(fake)
+        let p = HotKeyAction.prompterToggle.defaultBinding
+
+        center.setBinding(p, for: .openPanel)
+        XCTAssertNil(center.displaced, "nothing visible lost its key")
+        XCTAssertEqual(center.bindings[.prompterToggle], p)
+        XCTAssertFalse(defaults.writes.contains(HotKeyAction.prompterToggle.defaultsKey))
+
+        let before = fake.registrations
+        center.setFeature(.prompter, enabled: true)
+        XCTAssertEqual(center.shadowed, [.prompterToggle: .openPanel])
+        XCTAssertTrue(fake.live.contains(p))
+        XCTAssertEqual(fake.registrations - before, 4, "the three core keys and ⌃⌥⌘S: ⌃⌥⌘P once, not twice")
+        XCTAssertEqual(fake.live, [p, HotKeyAction.showLyrics.defaultBinding,
+                                   HotKeyAction.translateClipboard.defaultBinding, HotKeyAction.prompterStop.defaultBinding])
+
+        center.setBinding(HotKeyAction.openPanel.defaultBinding, for: .openPanel)
+        XCTAssertTrue(center.shadowed.isEmpty, "the key is free again")
+        XCTAssertEqual(fake.live, coreKeys.union(prompterKeys))
+    }
+
+    /// An absent action cannot be recorded, set or restored: Settings shows
+    /// no row for it, and nothing else may write it behind the switch.
+    func testAnAbsentActionCannotBeChanged() {
+        let fake = FakeRegistrar()
+        let center = installed(fake)
+        defaults.resetWrites()
+
+        center.beginRecording(.prompterToggle)
+        XCTAssertNil(center.recording)
+        XCTAssertFalse(center.isListening)
+
+        center.setBinding(nil, for: .prompterStop)
+        XCTAssertEqual(center.bindings[.prompterStop], HotKeyAction.prompterStop.defaultBinding)
+        XCTAssertTrue(defaults.writes.isEmpty)
+        XCTAssertEqual(fake.live, coreKeys)
+    }
+
+    /// Restore Default Shortcuts restores what Settings shows. While off that
+    /// is the core three; the Prompter's choices wait, untouched, for the
+    /// switch.
+    func testRestoringDefaultsWhileOffLeavesThePrompterAlone() {
+        let center = installed(FakeRegistrar())
+        center.setFeature(.prompter, enabled: true)
+        center.setBinding(nil, for: .prompterStop)
+        center.setBinding(nil, for: .openPanel)
+        center.setFeature(.prompter, enabled: false)
+        defaults.resetWrites()
+
+        center.restoreDefaults()
+
+        XCTAssertEqual(center.bindings[.openPanel], HotKeyAction.openPanel.defaultBinding)
+        XCTAssertNil(center.bindings[.prompterStop])
+        XCTAssertFalse(defaults.writes.contains(HotKeyAction.prompterStop.defaultsKey))
+    }
+
+    func testRestoringDefaultsWhileOnRestoresThePrompterKeysToo() {
+        let fake = FakeRegistrar()
+        let center = installed(fake)
+        center.setFeature(.prompter, enabled: true)
+        center.setBinding(nil, for: .prompterStop)
+
+        center.restoreDefaults()
+
+        XCTAssertEqual(center.bindings[.prompterStop], HotKeyAction.prompterStop.defaultBinding)
+        XCTAssertEqual(fake.live, coreKeys.union(prompterKeys))
+    }
+
+    /// The switch going off in the middle of recording one of its keys ends
+    /// the recording, so the monitor that swallows every key goes with it.
+    func testTurningTheFeatureOffEndsARecordingOfItsKey() {
+        let fake = FakeRegistrar()
+        let center = installed(fake)
+        center.setFeature(.prompter, enabled: true)
+        center.beginRecording(.prompterStop)
+        XCTAssertTrue(fake.live.isEmpty)
+
+        center.setFeature(.prompter, enabled: false)
+
+        XCTAssertNil(center.recording)
+        XCTAssertFalse(center.isListening)
+        XCTAssertEqual(fake.live, coreKeys)
+    }
+
+    /// A recording of a core key is not the switch's business: it goes on,
+    /// with everything still let go, and the new state applies when it ends.
+    func testTheSwitchDoesNotEndARecordingOfACoreKey() {
+        let fake = FakeRegistrar()
+        let center = installed(fake)
+        center.beginRecording(.openPanel)
+        center.setFeature(.prompter, enabled: true)
+        XCTAssertEqual(center.recording, .openPanel)
+        XCTAssertTrue(fake.live.isEmpty, "recording lets every key go")
+        center.endRecording()
+        XCTAssertEqual(fake.live, coreKeys.union(prompterKeys))
+    }
+
+    /// A note about a Prompter key does not outlive the switch.
+    func testTurningTheFeatureOffClearsANoteAboutItsKeys() {
+        let center = installed(FakeRegistrar())
+        center.setFeature(.prompter, enabled: true)
+        center.setBinding(HotKeyAction.openPanel.defaultBinding, for: .prompterToggle)
+        XCTAssertNotNil(center.displaced)
+        center.setFeature(.prompter, enabled: false)
+        XCTAssertNil(center.displaced)
+    }
+}
+
 @MainActor
 private final class FakeRegistrar {
     var live: Set<HotKeyBinding> = []
     var refuse: Set<HotKeyBinding> = []
+    /// Every successful registration, counted, so a test can tell one
+    /// registration of a key from two that `live` (a set) would merge.
+    private(set) var registrations = 0
 
     final class Registration: HotKeyRegistration {
         let onUnregister: () -> Void
@@ -264,6 +477,7 @@ private final class FakeRegistrar {
 
     func register(_ binding: HotKeyBinding, _ action: @escaping () -> Void) -> HotKeyRegistration? {
         guard !refuse.contains(binding) else { return nil }
+        registrations += 1
         live.insert(binding)
         return Registration { [weak self] in self?.live.remove(binding) }
     }

@@ -212,6 +212,8 @@
 
 /* Сочетания клавиш */
 "Show the lyrics" = "Показать текст песни";
+"Start or pause the Prompter" = "Запустить или приостановить суфлёр";
+"Stop the Prompter" = "Остановить суфлёр";
 "Keyboard Shortcuts" = "Сочетания клавиш";
 "Type Shortcut" = "Нажмите сочетание";
 "None" = "Нет";

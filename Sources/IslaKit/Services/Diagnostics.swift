@@ -134,7 +134,9 @@ enum Diagnostics {
             ("Panel Width", "\(Int(NotchViewModel.bodyWidth)) pt"),
             ("Drawn Glass", onOff(defaults.bool(forKey: "drawnGlass"))),
         ]
-        let shortcuts = HotKeyAction.allCases.map { action -> (String, String) in
+        // What exists: the Prompter's keys are absent while its switch is
+        // off, and a report listing them would say otherwise.
+        let shortcuts = hotKeys.availableActions.map { action -> (String, String) in
             var value = hotKeys.bindings[action]?.displayString ?? "none"
             if hotKeys.refused.contains(action) { value += " (refused)" }
             return (action.rawValue, value)

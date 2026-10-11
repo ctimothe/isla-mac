@@ -206,6 +206,8 @@
 
 /* Keyboard Shortcuts */
 "Show the lyrics" = "Show the lyrics";
+"Start or pause the Prompter" = "Start or pause the Prompter";
+"Stop the Prompter" = "Stop the Prompter";
 "Keyboard Shortcuts" = "Keyboard Shortcuts";
 "Type Shortcut" = "Type Shortcut";
 "None" = "None";
