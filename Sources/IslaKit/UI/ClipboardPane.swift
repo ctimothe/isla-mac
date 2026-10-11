@@ -4,8 +4,31 @@ struct ClipboardPane: View {
     @ObservedObject var clipboard: ClipboardStore
     @ObservedObject var privacy: PrivacyMode
 
+    /// Privacy & Security > Paste from Other Apps, then the Privacy &
+    /// Security root. The anchor is not one Apple documents, so the root is
+    /// the fallback when it does not open: one more click from there beats a
+    /// button that does nothing.
+    static let privacySettingsURLs: [URL] = [
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Pasteboard",
+        "x-apple.systempreferences:com.apple.preference.security",
+    ].compactMap(URL.init(string:))
+
+    /// Opens the first of `privacySettingsURLs` that System Settings accepts.
+    static func openPrivacySettings() {
+        for url in privacySettingsURLs where NSWorkspace.shared.open(url) { return }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            // Only while something wants the pasteboard: with history and
+            // clipboard screenshots both off nothing is lost to the refusal,
+            // and a failure nobody is affected by is not worth the space.
+            if clipboard.access == .denied, NotchStores.clipboardShouldPoll(
+                history: NotchViewModel.clipboardHistoryEnabled,
+                images: NotchViewModel.saveClipboardImagesEnabled
+            ) {
+                deniedNotice
+            }
             if clipboard.items.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: NotchViewModel.Tab.clipboard.symbol)
@@ -37,6 +60,31 @@ struct ClipboardPane: View {
             }
         }
         .padding(.top, 2)
+        // Don't Allow stops the poll, and a stopped poll cannot notice the
+        // switch going back to Allow. Looking at this tab is the moment a
+        // user back from System Settings expects history to resume, so the
+        // system is asked again here rather than on a timer.
+        .onAppear { clipboard.recheckAccess() }
+    }
+
+    /// Paste from Other Apps set to Don't Allow (J-001). Before this the
+    /// history only went quiet: nothing new arrived, clipboard screenshots
+    /// stopped reaching the Shelf, and nothing anywhere said why. Inline
+    /// above the list, because the failure belongs to this section and to
+    /// nothing else; Settings carries no second banner for the same event.
+    /// What was kept before the refusal stays below it, still usable.
+    private var deniedNotice: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(localized("macOS is not letting Isla read what you copy, so nothing new is kept."))
+                .islandFont(.body, weight: .regular)
+                .foregroundStyle(Theme.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(localized("Open Privacy Settings")) { Self.openPrivacySettings() }
+                .buttonStyle(OfferButtonStyle())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 2)
+        .padding(.bottom, 8)
     }
 
     private var footer: some View {

@@ -360,6 +360,35 @@ final class VisualLabPanelTests: VisualLabCase {
             Self.scene(try await self.openPanel(session, tab: .clipboard, prepare: { self.fill(session, $0.clipboard) }),
                        variant, height: size.height)
         }
+        // Paste from Other Apps set to Don't Allow (J-001): the store's own
+        // seam plays the refusal, so the lab's private pasteboard is never
+        // asked. Russian at 480 points is the long button in the narrow panel.
+        func denied(_ clipboard: ClipboardStore) {
+            clipboard.accessBehavior = { .denied }
+            clipboard.recheckAccess()
+        }
+        try await shoot.shoot("access-denied", variants: [.base, .light, .contrast, .w480, .russian], size: size,
+                              notes: "Paste from Other Apps set to Don't Allow, with history kept from before the refusal.") { variant in
+            Self.scene(try await self.openPanel(session, tab: .clipboard, prepare: { stores in
+                self.fill(session, stores.clipboard)
+                denied(stores.clipboard)
+            }), variant, height: size.height)
+        }
+        try await shoot.shoot("access-denied-empty", variants: [.base, .russian], size: size,
+                              notes: "Paste from Other Apps set to Don't Allow, nothing kept.") { variant in
+            Self.scene(try await self.openPanel(session, tab: .clipboard, prepare: { denied($0.clipboard) }),
+                       variant, height: size.height)
+        }
+        for (variant, sentence) in [
+            ("dark", "macOS is not letting Isla read what you copy, so nothing new is kept."),
+            ("ru", "macOS не разрешает Isla читать скопированное, поэтому новое не сохраняется."),
+        ] {
+            for state in ["access-denied", "access-denied-empty"] {
+                let url = session.root.appendingPathComponent("a11y/panel-clipboard/\(state)__\(variant).txt")
+                let tree = try String(contentsOf: url, encoding: .utf8)
+                XCTAssertTrue(tree.contains(sentence), "\(state) \(variant) does not say it\n\(tree)")
+            }
+        }
     }
 
     // MARK: Translate

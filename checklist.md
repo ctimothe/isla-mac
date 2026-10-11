@@ -829,3 +829,48 @@ Amends the **Screen-capture pickup** scope record above.
   Look and not the panel. Confirm macOS registers an unmodified
   Escape hot key (a refusal is logged: "macOS refused the transient Escape
   hot key").
+
+### Pasteboard privacy: what Isla does under each answer — 2026-10-11 (sp/CB-02)
+
+Records Isla's behaviour under Privacy & Security > Paste from Other Apps
+(`NSPasteboard.accessBehavior`, macOS 15.4 and later), which before this was
+recorded nowhere (J-001). `ClipboardStore` asks the system on start, on every
+copy, and when a read comes back empty; nothing is read to find out.
+
+- [x] **Allow, or `.default`** (Isla has never raised an alert, or a macOS
+  before 15.4): the half-second poll runs, the type list decides what is read,
+  and only what History or Save Clipboard Screenshots wants is read (sp/CB-01).
+- [x] **Ask:** every content read may raise the system's alert, so each copy
+  is read at most once per switch that wants it. The change count is spent
+  only once a read has answered: if Allow is chosen while the read waits, it
+  is read once more and recorded. A refused read is spent, and no alert is
+  ever retried for the same copy; the picture wait does not poll under Ask.
+- [x] **Don't Allow:** the poll stops itself (at start, or at the first copy
+  after the switch) and stays stopped. Copies made while refused are skipped,
+  not recorded later. The Clipboard tab says "macOS is not letting Isla read
+  what you copy, so nothing new is kept." above the list, with an Open Privacy
+  Settings button (`OfferButtonStyle`) that opens
+  `x-apple.systempreferences:com.apple.preference.security?Privacy_Pasteboard`
+  and falls back to the Privacy & Security root. What was kept before the
+  refusal stays in the list. Said only while History or Save Clipboard
+  Screenshots is on: with both off nothing is lost to the refusal.
+- [x] **Back to Allow:** opening the Clipboard tab asks the system again
+  (`recheckAccess` on appear) and restarts the poll from the pasteboard as it
+  is then, without a relaunch.
+- [x] **One failure surface:** the tab's inline notice only. Settings carries
+  no second banner for the same event.
+- [x] **Copy Diagnostics** carries `Paste from Other Apps:` with `default`,
+  `ask`, `allowed` or `denied`, read from the system when the report is made.
+- Tests: `DiagnosticsTests.testPasteboardAccessIsReported`,
+  `ClipboardAccessNoticeTests` (testADeniedPasteboardIsSaidWithAWayToFixIt,
+  testAnEmptyDeniedHistoryStillSaysWhy, testAnAllowedPasteboardSaysNothing,
+  testOpeningTheTabAfterAllowResumesHistory,
+  testTheButtonAimsAtPasteFromOtherApps), `ClipboardStoreTests` (sp/CB-01),
+  and the lab's `panel-clipboard/access-denied` renders
+  (`VisualLabPanelTests.testClipboard`).
+- [ ] **Physical check owed (S1 step 7):** under Don't Allow the Clipboard tab
+  shows the sentence, and Open Privacy Settings lands on Paste from Other Apps
+  (the `Privacy_Pasteboard` anchor is not documented; if it lands on the
+  Privacy & Security root instead, record that here). Set Allow, reopen the
+  tab, copy: the copy appears without a relaunch. Copy Diagnostics shows the
+  state each time.

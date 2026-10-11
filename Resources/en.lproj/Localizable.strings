@@ -320,3 +320,5 @@
 "%@ is translated online only. Turning on Translate Online sends this text to MyMemory." = "%@ is translated online only. Turning on Translate Online sends this text to MyMemory.";
 "Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory." = "Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory.";
 "Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet." = "Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet.";
+"macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS is not letting Isla read what you copy, so nothing new is kept.";
+"Open Privacy Settings" = "Open Privacy Settings";
