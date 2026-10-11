@@ -704,6 +704,33 @@ final class NotchViewModel: ObservableObject {
         isLockedPresentation ? .refuseWithShake : .proceed
     }
 
+    /// What a *show* asks for, as against a toggle.
+    ///
+    /// Show Isla and Show Lyrics used to call the hot keys' toggles, so a
+    /// Shortcut or a Focus automation titled *Show* that ran while the panel
+    /// was already open closed it, and Show Lyrics folded the words back to
+    /// the player (F-024). A show only ever opens. Asked after the lock
+    /// verdict, never instead of it.
+    enum ShowVerdict: Equatable {
+        /// Run the ordinary pinned open.
+        case open
+        /// Already showing what was asked for: touch nothing, the pin included.
+        case alreadyOpen
+    }
+
+    /// Show Isla and reopening the app: an open panel, on whatever tab, is
+    /// already the panel.
+    nonisolated static func showVerdict(isOpen: Bool) -> ShowVerdict {
+        isOpen ? .alreadyOpen : .open
+    }
+
+    /// Show Lyrics: only the lyrics page itself is already shown. Open on the
+    /// player or another tab, it goes on to the words — where ⌃⌥⌘L's toggle
+    /// would fold the page instead.
+    nonisolated static func showLyricsVerdict(isOpen: Bool, tab: Tab, showingLyrics: Bool) -> ShowVerdict {
+        isOpen && tab == .media && showingLyrics ? .alreadyOpen : .open
+    }
+
 
 
     var compactMediaActivity: CompactMediaActivity {

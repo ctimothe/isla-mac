@@ -1225,3 +1225,41 @@ fetch was unlisted and a comment called it the only request).
   `sqlite3 ~/Library/Caches/com.ctimothe.isla/Cache.db "select count(*) from cfurl_cache_response where request_key like '%mymemory%'"`
   answers 0 (or the file is absent). Also confirm the Spotify account still
   connects, refreshes and hearts a track, and an update check still answers.
+### Show opens, reopening opens, a second copy hands over — 2026-10-11 (ax/KB-04)
+
+Closes F-024 (the Show Isla and Show Lyrics intents called the hot keys'
+toggles, so a Shortcut run on an open panel closed it, and Show Lyrics folded
+the words back to the player) and F-023 (no reopen handler and no
+single-instance guard: Spotlight → Isla did nothing visible while Isla ran,
+and a second copy drew a second island, spawned a second helper and fought the
+first for the hot keys and the Spotify callback).
+
+- [x] **Show never closes.** `NotchController.show()` and `showLyrics()` run
+  the lock refusal, then open only when `NotchViewModel.showVerdict` /
+  `showLyricsVerdict` say `.open`; an open panel keeps its tab and its pin.
+  The intents call these; ⌃⌥⌘I and ⌃⌥⌘L keep their toggles.
+  `ShowRouteTests`.
+- [x] **Reopening opens the panel.** `applicationShouldHandleReopen` calls
+  `show()` and returns false.
+- [x] **One Isla.** At launch, before the panel, the helper or the hot keys
+  exist, `LaunchGuard.olderCopy()` looks for another running process with the
+  bundle id. The newer copy (later launch date; equal or missing dates fall to
+  the lower pid) hands activation to the older one, posts the distributed
+  notification `com.ctimothe.isla.show` and quits; the older one answers with
+  `show()`. `ISLA_ALLOW_SECOND_INSTANCE=1` turns the guard off, and
+  `Scripts/test-lifecycle.sh` and `Scripts/measure-performance.sh` set it,
+  because they launch the build while the installed copy runs.
+  `LaunchGuardTests`.
+- **New inbound surface, recorded:** any local process can post
+  `com.ctimothe.isla.show`. It only opens the panel, through the same lock
+  refusal and shake as ⌃⌥⌘I, so it grants nothing a person at the keyboard
+  does not already have. It carries no payload and nothing is read from it.
+- [ ] **Physical check owed:** with the panel open, run the Show Isla
+  Shortcut — the panel stays open (it closed before); with the lyrics page
+  up, Show Lyrics leaves it up. Spotlight → Isla while it runs opens the
+  panel. With `/Applications/Isla` running, launch the build copy from
+  Finder: the build exits within a second, the installed panel opens and
+  stays open (the activation hand-over is what keeps the build's exit from
+  reading as ⌘-Tab), and `pgrep -x Isla` lists one process. Over the lock
+  screen, all three shake the pill and open nothing.
+  `./scripts/check lifecycle` stays green with the installed copy running.

@@ -66,12 +66,14 @@ struct ShowLyricsIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        try liveController().toggleLyrics()
+        // Not `toggleLyrics()`: run on a panel already showing the words, the
+        // toggle folded them back to the player (F-024).
+        try liveController().showLyrics()
         return .result()
     }
 }
 
-/// The panel itself, the same as ⌃⌥⌘I.
+/// The panel itself, opened the way ⌃⌥⌘I opens it — but never closed.
 struct ShowPanelIntent: AppIntent {
     static var title: LocalizedStringResource = "Show Isla"
     static var description = IntentDescription("Opens Isla's panel at the notch.")
@@ -79,7 +81,9 @@ struct ShowPanelIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        try liveController().toggle()
+        // Not `toggle()`, which closed a panel that was already open — a
+        // Shortcut called Show that hid Isla (F-024).
+        try liveController().show()
         return .result()
     }
 }

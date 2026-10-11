@@ -3,6 +3,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/build/app.noindex/Isla.app"
+# The build is launched while the owner's installed Isla is usually running,
+# and a second copy hands over to the first and quits (LaunchGuard) — which
+# here would read as the launch having failed. Inherited by the binary below.
+export ISLA_ALLOW_SECOND_INSTANCE=1
 BINARY="$APP/Contents/MacOS/Isla"
 HELPER="$APP/Contents/Resources/libislamedia.dylib"
 
