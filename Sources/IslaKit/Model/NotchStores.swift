@@ -96,8 +96,13 @@ final class NotchStores {
         lyricsCoordinator.start()
         localLyricsLibrary.startWatchingFolders()
         shelf.load()
-        // Drop folders from previous sessions, once, off the main thread.
-        DispatchQueue.global(qos: .utility).async { AppPaths.pruneDropInbox() }
+        // Drop folders from previous sessions, once, off the main thread —
+        // except the ones a card still points into. Read here, on the main
+        // actor and after the load, because the shelf is not the prune's to
+        // touch from a utility thread; a card added after this moment lives
+        // in a folder minted now, which no week-old cutoff can reach (F-019).
+        let cardFiles = Set(shelf.items.map(\.url))
+        DispatchQueue.global(qos: .utility).async { AppPaths.pruneDropInbox(keeping: cardFiles) }
 
         // Screenshots reach the shelf through here whether they were taken on
         // this Mac or on a phone: a copy made on the phone arrives in the same
