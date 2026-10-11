@@ -194,7 +194,7 @@ final class SpotifyAccountTests: XCTestCase {
     private func connectedAccount(
         session: URLSession,
         now: @escaping () -> Date = Date.init,
-        openURL: @escaping (URL) -> Void = { _ in }
+        openURL: @escaping (URL) -> Bool = { _ in true }
     ) async -> SpotifyAccount {
         let store = makeStore()
         await store.storeTokens(
@@ -330,7 +330,7 @@ final class SpotifyAccountTests: XCTestCase {
             request.url?.host == "accounts.spotify.com" ? (200, tokens) : (403, Data())
         }
         var opened: URL?
-        let account = await connectedAccount(session: session, openURL: { opened = $0 })
+        let account = await connectedAccount(session: session, openURL: { opened = $0; return true })
         await account.refreshSavedState(trackID: likedID)?.value
         XCTAssertTrue(account.apiBlocked)
 
@@ -503,7 +503,7 @@ final class SpotifyAccountTests: XCTestCase {
     func testACancelledSignInIsReported() async throws {
         var opened: URL?
         let account = SpotifyAccount(
-            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { opened = $0 }
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { opened = $0; return true }
         )
         let state = try beginSignIn(account) { opened }
 
@@ -530,7 +530,7 @@ final class SpotifyAccountTests: XCTestCase {
     func testAFailedExchangeIsReported() async throws {
         var opened: URL?
         let account = SpotifyAccount(
-            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { opened = $0 }
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { opened = $0; return true }
         )
         let state = try beginSignIn(account) { opened }
 
@@ -541,6 +541,124 @@ final class SpotifyAccountTests: XCTestCase {
 
         XCTAssertEqual(account.signInOutcome, .failed)
         XCTAssertFalse(account.isConnected)
+    }
+
+    // MARK: - Sign-in edge cases (K-015)
+
+    private func queryValue(_ url: URL, _ name: String) -> String? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == name })?.value
+    }
+
+    /// Connect pressed twice used to rotate the verifier and state on the
+    /// second press, so approving the first browser tab failed the state
+    /// check and returned without a word. Both tabs now carry one state.
+    func testASecondConnectKeepsTheFirstTabValid() async throws {
+        let tokens = Data(#"{"access_token":"granted","refresh_token":"granted-refresh","expires_in":3600}"#.utf8)
+        var opened: [URL] = []
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (200, tokens) },
+            openURL: { opened.append($0); return true }
+        )
+        account.beginAuthorization()
+        account.beginAuthorization()
+        XCTAssertEqual(opened.count, 2)
+        let first = try XCTUnwrap(queryValue(opened[0], "state"))
+        XCTAssertEqual(queryValue(opened[1], "state"), first)
+        XCTAssertEqual(queryValue(opened[1], "code_challenge"), queryValue(opened[0], "code_challenge"))
+
+        // Let init's launch read of the empty keychain land first; it writes
+        // isConnected = false, and a grant finishing before it would be undone
+        // by it. A person cannot approve in a browser inside that window.
+        try await Task.sleep(for: .milliseconds(150))
+        var callback = URLComponents(string: "isla://spotify-callback")!
+        callback.queryItems = [.init(name: "code", value: "granted-code"), .init(name: "state", value: first)]
+        account.handleCallback(callback.url!)
+        await waitUntil { account.isConnected }
+
+        XCTAssertTrue(account.isConnected)
+        XCTAssertNil(account.signInProblem)
+    }
+
+    /// A completed callback consumes the pair, so the next Connect after a
+    /// disconnect gets a new one rather than a state already spent.
+    func testAFinishedSignInGetsANewStateNextTime() async throws {
+        var opened: [URL] = []
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) },
+            openURL: { opened.append($0); return true }
+        )
+        account.beginAuthorization()
+        let first = try XCTUnwrap(queryValue(opened[0], "state"))
+        var callback = URLComponents(string: "isla://spotify-callback")!
+        callback.queryItems = [.init(name: "error", value: "access_denied"), .init(name: "state", value: first)]
+        account.handleCallback(callback.url!)
+        account.beginAuthorization()
+
+        XCTAssertNotEqual(queryValue(opened[1], "state"), first)
+    }
+
+    /// A pending pair older than ten minutes is not kept: the person walked
+    /// away from that tab, and a state that old is only attack surface.
+    func testAnExpiredPendingSignInIsReplaced() async throws {
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        var opened: [URL] = []
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, now: { clock },
+            openURL: { opened.append($0); return true }
+        )
+        account.beginAuthorization()
+        clock = clock.addingTimeInterval(SpotifyAccount.pendingSignInLifetime + 1)
+        account.beginAuthorization()
+
+        XCTAssertNotEqual(queryValue(opened[0], "state"), queryValue(opened[1], "state"))
+    }
+
+    /// Without `show_dialog`, Spotify silently reuses whichever account the
+    /// browser is signed in to, so a reconnect after Disconnect could never
+    /// switch account.
+    func testTheConsentPageAlwaysOffersAnotherAccount() async throws {
+        var opened: URL?
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { opened = $0; return true }
+        )
+        account.beginAuthorization()
+
+        XCTAssertEqual(queryValue(try XCTUnwrap(opened), "show_dialog"), "true")
+    }
+
+    /// `NSWorkspace.open`'s answer used to be thrown away, so a Mac with no
+    /// default browser made Connect do nothing and say nothing.
+    func testABrowserThatDoesNotOpenIsSaid() async {
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { _ in false }
+        )
+        account.beginAuthorization()
+
+        XCTAssertEqual(account.signInProblem, .browserDidNotOpen)
+        // The next press starts over, and a browser that does open clears it.
+        let working = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { _ in true }
+        )
+        working.beginAuthorization()
+        XCTAssertNil(working.signInProblem)
+    }
+
+    /// Any one of three items moving used to count as an import, after which
+    /// the Import row was hidden over an account with no refresh token.
+    func testAPartialImportIsNotASuccess() {
+        XCTAssertFalse(CredentialStore.importSucceeded(moved: ["accessToken", "expiresAt"]))
+        XCTAssertFalse(CredentialStore.importSucceeded(moved: []))
+        XCTAssertTrue(CredentialStore.importSucceeded(moved: ["refreshToken"]))
+        XCTAssertTrue(CredentialStore.importSucceeded(moved: ["accessToken", "refreshToken", "expiresAt"]))
+    }
+
+    /// `TokenStore.write` returns where it landed, and `.unavailable` was
+    /// dropped: the account claimed to be connected over tokens that vanish
+    /// at the next launch.
+    func testUnsavedTokensDoNotClaimAConnection() {
+        XCTAssertFalse(SpotifyAccount.connectedAfterStore(refreshBacking: .unavailable))
+        XCTAssertTrue(SpotifyAccount.connectedAfterStore(refreshBacking: .keychain))
+        XCTAssertTrue(SpotifyAccount.connectedAfterStore(refreshBacking: .file))
     }
 
     /// A completed grant clears what the last attempt, or a revoked grant,
@@ -557,7 +675,7 @@ final class SpotifyAccountTests: XCTestCase {
         ])
         let session = stubSession(wire.answer)
         var opened: URL?
-        let account = SpotifyAccount(credentials: store, session: session, openURL: { opened = $0 })
+        let account = SpotifyAccount(credentials: store, session: session, openURL: { opened = $0; return true })
         await waitForConnected(account)
         _ = await account.freshAccessToken()
         XCTAssertTrue(account.needsReconnect)

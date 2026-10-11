@@ -402,3 +402,12 @@
 "Increase Contrast" = "Увеличение контраста";
 "A file from the drag could not be received." = "Не удалось получить файл из перетаскивания.";
 "New screenshot" = "Новый скриншот";
+"Isla could not open your browser for Spotify sign-in." = "Isla не смогла открыть браузер для входа в Spotify.";
+"The account was not imported. Try again, or connect it anew." = "Учётная запись не перенесена. Повторите попытку или подключите её заново.";
+"Spotify signed you in, but Isla could not save the account on this Mac." = "Вход в Spotify выполнен, но Isla не смогла сохранить учётную запись на этом Mac.";
+"Spotify ended Isla's access. Connect again to use Liked Songs." = "Spotify отозвал доступ Isla. Подключитесь снова, чтобы пользоваться «Любимыми треками».";
+"Spotify sign-in was cancelled." = "Вход в Spotify отменён.";
+"Spotify sign-in did not finish. Try connecting again." = "Вход в Spotify не завершился. Попробуйте подключиться ещё раз.";
+"Disconnect" = "Отключить";
+"Isla forgets the account on this Mac. Your Spotify library stays as it is." = "Isla забудет аккаунт на этом Mac. Ваша медиатека Spotify останется как есть.";
+"The heart on the lock screen adds the song to your Liked Songs." = "Сердечко на экране блокировки добавляет песню в «Любимые треки».";

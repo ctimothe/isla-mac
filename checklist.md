@@ -1286,3 +1286,36 @@ that rescales the type roles and the row heights together. Contrast on the
 small labels is held in the meantime by `ContrastRampTests`
 (`testLabelsClearAAOnTheFillsTheySitOn`): `tertiaryOpacity` is 0.50, and
 labels on a brighter fill are raised per fill with `Theme.tertiary(over:)`.
+### Spotify sign-in survives edge cases — 2026-10-11 (kx/KX-02, closes K-015)
+
+- Connect pressed twice keeps one verifier and state for ten minutes
+  (`SpotifyAccount.pendingSignInLifetime`); the first approval consumes them
+  and the other tab's callback is dropped. The consent URL now always carries
+  `show_dialog=true` (documented in Spotify's authorization-code guide), so a
+  reconnect after Disconnect offers a way to switch account. Nothing new
+  leaves the machine; the authorize URL was already opened in the browser.
+- `signInProblem` says when the browser did not open, when the keychain import
+  moved no refresh token (the Import row stays), and when Spotify signed in
+  but no token could be written anywhere (the account is not claimed as
+  connected). One inline note in Settings › Spotify, no toast.
+  `SpotifyAccountTests`.
+- [ ] **Physical check owed:** press Connect twice, approve the first tab: the
+  account connects. Disconnect, then Connect: Spotify's consent page appears
+  with its "Not you?" switch.
+
+### Settings › Spotify says what happened, and disconnect asks — 2026-10-11 (ms/MS-09, closes M-32)
+
+- The section is a pure row model (`SettingsPane.spotifyRows`): a revoked
+  grant offers "Connect again", a cancelled or unfinished sign-in says so, a
+  local failure (`signInProblem`) leads, and one event gets one note. Disconnect
+  is a two-press `confirmRow` and says what stays: Isla forgets the account on
+  this Mac, the Spotify library is untouched. `SettingsPaneTests`.
+- **Account touch, recorded (owner decision 12, keep and disclose):** the
+  lock-screen card's heart writes to the connected account's Liked Songs while
+  the Mac is locked. Connecting the account is the opt-in and is off until the
+  person connects; without an account the heart does not exist. Settings now
+  states it while connected ("The heart on the lock screen adds the song to
+  your Liked Songs."). No new data leaves the Mac: the call is the same
+  `/v1/me/library` write the island's heart already makes.
+- Deferred: showing the account's display name, which needs a new
+  `GET /v1/me` request.

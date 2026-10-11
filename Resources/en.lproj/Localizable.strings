@@ -396,3 +396,12 @@
 "Increase Contrast" = "Increase Contrast";
 "A file from the drag could not be received." = "A file from the drag could not be received.";
 "New screenshot" = "New screenshot";
+"Isla could not open your browser for Spotify sign-in." = "Isla could not open your browser for Spotify sign-in.";
+"The account was not imported. Try again, or connect it anew." = "The account was not imported. Try again, or connect it anew.";
+"Spotify signed you in, but Isla could not save the account on this Mac." = "Spotify signed you in, but Isla could not save the account on this Mac.";
+"Spotify ended Isla's access. Connect again to use Liked Songs." = "Spotify ended Isla's access. Connect again to use Liked Songs.";
+"Spotify sign-in was cancelled." = "Spotify sign-in was cancelled.";
+"Spotify sign-in did not finish. Try connecting again." = "Spotify sign-in did not finish. Try connecting again.";
+"Disconnect" = "Disconnect";
+"Isla forgets the account on this Mac. Your Spotify library stays as it is." = "Isla forgets the account on this Mac. Your Spotify library stays as it is.";
+"The heart on the lock screen adds the song to your Liked Songs." = "The heart on the lock screen adds the song to your Liked Songs.";
