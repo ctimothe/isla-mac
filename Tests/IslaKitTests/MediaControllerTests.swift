@@ -1115,6 +1115,111 @@ final class MediaControllerTests: XCTestCase {
         controller.setActive(false)
     }
 
+    // MARK: - Transport acts only on what the island shows (J-005, J-006)
+
+    /// Music Only hides a paused YouTube tab, the island shows nothing, and a
+    /// Shortcut runs Play or Pause. The command used to go to the helper with
+    /// no pid, the helper handed it to whoever owned Now Playing — the hidden
+    /// tab — and the video started while the intent reported success.
+    func testTransportWithNothingShownSendsNothing() {
+        let controller = MediaController()
+        controller.isolateFromPlayers()
+        controller.lyricsShown = { false }
+        var sent: [String] = []
+        controller.sendToFeed = { command, _ in sent.append("\(command)") }
+        XCTAssertNil(controller.track)
+
+        XCTAssertFalse(controller.togglePlayPause(), "nothing shown, nothing to play or pause")
+        XCTAssertFalse(controller.next(), "nothing shown, nothing to skip")
+        XCTAssertFalse(controller.previous(), "nothing shown, nothing to step back from")
+
+        XCTAssertEqual(sent, [], "no command may reach the helper, which would pick the hidden session")
+        XCTAssertFalse(controller.isPlaying, "the icon must not claim a playback nobody can see")
+    }
+
+    /// On the fallback with no player there used to be one more route: a
+    /// system media key Isla had no Accessibility permission to post. Worse,
+    /// the first toggle left a command in flight that no report would ever
+    /// resolve, so every later toggle was coalesced behind it and never sent
+    /// — even once a player turned up.
+    func testATapWithNoPlayerIsNotSwallowedByTheOneBefore() {
+        let media = MediaController()
+        media.isolateFromPlayers()
+        media.musicOnly = { false }
+        media.lyricsShown = { false }
+        media.bundleIdentifierForPID = { $0 == 77 ? PlayerApp.spotify.bundleID : nil }
+        media.isProcessRunning = { _ in true }
+        var sent: [(PlayerBridge.Transport, PlayerApp)] = []
+        media.sendToPlayer = { sent.append(($0, $1)) }
+        media.switchToScriptingFallback(.keptStopping)
+
+        XCTAssertFalse(media.togglePlayPause())
+        XCTAssertFalse(media.togglePlayPause())
+        XCTAssertTrue(sent.isEmpty)
+
+        // Spotify turns up, paused. The fallback shows it through `apply`.
+        media.pidForPlayer = { $0 == .spotify ? 77 : nil }
+        media.loadedSong = { reply in
+            reply(PlayerState(
+                app: .spotify, isPlaying: false, title: "A", artist: "B", album: "C",
+                duration: 240, position: 10, artworkURL: nil
+            ))
+        }
+        media.refreshFromPlayers()
+        let drained = expectation(description: "main queue drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 2)
+        XCTAssertNotNil(media.track)
+
+        XCTAssertTrue(media.togglePlayPause(), "the first tap on a shown song is taken")
+        XCTAssertEqual(sent.count, 1, "and sent, not coalesced behind the taps that had no player")
+        if let (action, app) = sent.first {
+            XCTAssertEqual(app, .spotify)
+            if case .play = action {} else { XCTFail("a paused song is asked to play, got \(action)") }
+        }
+        media.stop()
+    }
+
+    /// The panel closed, the ticker stopped: the published position is as old
+    /// as the last tick, and the running clock is where the song is.
+    func testTheCurrentPositionRunsOnWithThePanelClosed() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let controller = MediaController()
+        controller.lyricsShown = { false }
+        controller.monotonicNow = { clock.now }
+        controller.apply(clockSnapshot(elapsed: 10))
+
+        clock.now += 5
+        XCTAssertEqual(controller.extrapolatedPosition(), 15, accuracy: 0.01)
+        XCTAssertEqual(controller.position, 10, accuracy: 0.01, "no tick ran, so nothing was published")
+    }
+
+    /// Get Current Lyric from a Stream Deck with the panel shut (G-024). It
+    /// read the published position, frozen at the last tick or snapshot, and
+    /// the helper repeats an unchanged payload only every five seconds — so
+    /// the answer could be the line from several seconds earlier.
+    func testGetCurrentLyricReadsTheRunningClock() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let controller = MediaController()
+        controller.lyricsShown = { false }
+        controller.monotonicNow = { clock.now }
+        controller.apply(clockSnapshot(elapsed: 10))
+        let lines = [
+            LyricsStore.Line(at: 0, text: "first"),
+            LyricsStore.Line(at: 12, text: "second"),
+            LyricsStore.Line(at: 30, text: "third"),
+        ]
+        XCTAssertEqual(
+            CurrentLyricIntent.line(in: lines, media: controller, userOffset: 0, trackOffset: 0), "first")
+
+        clock.now += 5
+        XCTAssertEqual(
+            CurrentLyricIntent.line(in: lines, media: controller, userOffset: 0, trackOffset: 0), "second",
+            "five seconds on, the song is at 0:15 whether or not a tick published it")
+    }
+
     /// Five corrections are regressed, not one snapped: the window the
     /// estimator keeps is exactly five deep.
     func testCorrectionWindowHoldsFiveSamples() {
