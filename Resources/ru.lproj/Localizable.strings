@@ -1,10 +1,17 @@
 /* Isla — русский. Ключи — английский текст, поэтому строка без перевода
    просто останется английской, а не превратится в идентификатор. */
 
+/* Глоссарий. Один термин — одно слово во всей таблице; держит
+   Tests/IslaKitTests/LocalizationGlossaryTests.swift.
+   Clipboard — «Буфер обмена» (не «Буфер»). Источник: остальные строки таблицы.
+   Output — «Выход», Sound Output — «Выход звука». Источник: Пункт управления,
+   Sound.loctable («Output» → «Выход», «Output device» → «Устройство выхода звука»).
+   pt — «пт». Источник: AppKit, Ruler.loctable и FontManager.loctable. */
+
 /* Вкладки */
 "Music" = "Музыка";
 "Shelf" = "Полка";
-"Clipboard" = "Буфер";
+"Clipboard" = "Буфер обмена";
 "Translate" = "Перевод";
 "Settings" = "Настройки";
 
@@ -158,7 +165,7 @@
 "Open %@" = "Открыть %@";
 "Sync" = "К строке";
 "Back to the current line" = "Вернуться к текущей строке";
-"Sound Output" = "Вывод звука";
+"Sound Output" = "Выход звука";
 "Glass" = "Стекло";
 "Solid" = "Сплошное";
 "Lock Screen" = "Экран блокировки";
@@ -172,7 +179,7 @@
 "Lyrics are off." = "Текст песни выключен.";
 "No output devices." = "Нет устройств вывода.";
 "Open on Hover" = "Открывать при наведении";
-"Output" = "Вывод";
+"Output" = "Выход";
 
 /* Первый запуск */
 "Isla is running." = "Isla работает.";
