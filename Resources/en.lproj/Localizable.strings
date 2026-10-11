@@ -339,3 +339,8 @@
 "%+.2f seconds" = "%+.2f seconds";
 "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause.";
 "Instrumental" = "Instrumental";
+"Remove %d" = "Remove %d";
+"Remove %d from Shelf" = "Remove %d from Shelf";
+"Already on the Shelf" = "Already on the Shelf";
+"The Shelf holds %d, so the oldest card left it. Its file is untouched." = "The Shelf holds %d, so the oldest card left it. Its file is untouched.";
+"The Shelf holds %d, so the %d oldest left it. Their files are untouched." = "The Shelf holds %d, so the %d oldest left it. Their files are untouched.";

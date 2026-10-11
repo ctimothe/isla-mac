@@ -56,10 +56,61 @@ final class ShelfStore: ObservableObject {
     @Published private(set) var items: [ShelfItem] = []
     /// Cards picked for a group drag. Empty means "drag whatever is grabbed".
     @Published private(set) var selection: Set<UUID> = []
-    /// The last plainly-clicked card, from which a Shift range extends —
-    /// matching Finder, where Shift always reaches back to the last item
-    /// clicked without a modifier, not to whatever Cmd-click last touched.
+    /// The card a Shift range extends from: the last one a plain click or a
+    /// ⌘-click picked, as in Finder. It used to move on a plain click only,
+    /// so ⌘-click A then ⇧-click D had no anchor at all and toggled D alone
+    /// instead of selecting A…D (J-022). A ⌘-click that takes a card *out*
+    /// of the selection leaves it where it was.
     private var anchor: UUID?
+
+    /// One line the footer says about the last thing the shelf did on its
+    /// own account — a drop that was already there, cards pushed past the
+    /// cap. Nil most of the time; it lapses by itself after `noticeLifetime`.
+    ///
+    /// The footer shows it only while nothing is selected, in the slot the
+    /// selection count uses, so one line shows at a time. Anything else that
+    /// needs to say a sentence in that slot raises its own case here and
+    /// goes through `show(_:)`, rather than growing a second line.
+    @Published private(set) var notice: Notice?
+
+    /// How long a notice stays. A seam so tests do not wait four seconds.
+    var noticeLifetime: Duration = .seconds(4)
+    /// The pending lapse of the current notice. A newer notice cancels it, or
+    /// the older one's timer would cut the newer short.
+    private var noticeLapse: Task<Void, Never>?
+
+    /// What the footer can say.
+    enum Notice: Equatable {
+        /// Every card in a drop, or some of them, were already on the shelf,
+        /// so nothing new appeared for them. Said because a drop that changes
+        /// nothing used to look exactly like a drop that failed (F-035).
+        case alreadyOnShelf
+        /// The shelf was full and this many of its oldest cards left it to
+        /// make room. Their files stay where they are.
+        case evicted(Int)
+
+        var text: String {
+            switch self {
+            case .alreadyOnShelf:
+                return localized("Already on the Shelf")
+            case .evicted(1):
+                return localized("The Shelf holds %d, so the oldest card left it. Its file is untouched.", ShelfStore.limit)
+            case .evicted(let count):
+                return localized("The Shelf holds %d, so the %d oldest left it. Their files are untouched.", ShelfStore.limit, count)
+            }
+        }
+    }
+
+    /// What one `add` did, counted by card. `added` are the URLs that were
+    /// new to the shelf; `duplicates`, the ones it already held (or that
+    /// came twice in the same drop); `evicted`, the cards the cap trimmed
+    /// afterwards, oldest first — which can include a newly added card older
+    /// than everything already there.
+    struct AddResult: Equatable {
+        var added: Int
+        var duplicates: Int
+        var evicted: Int
+    }
 
     private let defaultsKey = "shelf.urls"
     private let defaults: UserDefaults
@@ -349,7 +400,10 @@ final class ShelfStore: ObservableObject {
         }
         if changed || !arrived.isEmpty {
             cards = Self.newestFirst(cards)
-            trimToLimit(&cards)
+            // Recordings found on this open can fill the shelf as surely as
+            // a drop can, and this pass runs with the shelf on screen.
+            let evicted = trimToLimit(&cards)
+            if evicted > 0 { show(.evicted(evicted)) }
         }
         if changed || redrawn || !arrived.isEmpty { items = cards }
         if changed || !arrived.isEmpty { persist() }
@@ -453,14 +507,44 @@ final class ShelfStore: ObservableObject {
     /// - Parameter dates: when each capture was taken, where known. A file
     ///   without one — a drop, a picture saved from the clipboard — is dated
     ///   now, which is when it happened.
-    func add(_ urls: [URL], dates: [URL: Date] = [:]) {
+    ///
+    /// Returns what became of the drop, and says it in the footer too: a URL
+    /// already on the shelf, or a card past the cap, used to leave without a
+    /// word, so dropping 100 photos lost 40 of them silently (F-035). The
+    /// cap still evicts the oldest rather than refusing the newest — a full
+    /// shelf that refused would stop new screenshots arriving, which is worse
+    /// — but it says so now.
+    @discardableResult
+    func add(_ urls: [URL], dates: [URL: Date] = [:]) -> AddResult {
         var cards = items
         let arrived = merge(urls, dates: dates, into: &cards)
         cards = Self.newestFirst(cards)
-        trimToLimit(&cards)
+        let evicted = trimToLimit(&cards)
         items = cards
         persist()
         for url in arrived where items.contains(where: { $0.url == url }) { loadThumbnail(url) }
+        let result = AddResult(added: arrived.count, duplicates: urls.count - arrived.count, evicted: evicted)
+        // Eviction first: losing cards matters more than a card that was
+        // already there, and the slot holds one line.
+        if result.evicted > 0 {
+            show(.evicted(result.evicted))
+        } else if result.duplicates > 0 {
+            show(.alreadyOnShelf)
+        }
+        return result
+    }
+
+    /// Puts one line in the footer for `noticeLifetime`, replacing whatever
+    /// was there and restarting the clock.
+    func show(_ notice: Notice) {
+        noticeLapse?.cancel()
+        self.notice = notice
+        let lifetime = noticeLifetime
+        noticeLapse = Task { [weak self] in
+            try? await Task.sleep(for: lifetime)
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
     }
 
     /// New cards at the front, in the order they came; a URL already on the
@@ -483,9 +567,20 @@ final class ShelfStore: ObservableObject {
     }
 
     /// After sorting, so the cards past the limit are the oldest, not the
-    /// ones that happened to arrive first.
-    private func trimToLimit(_ cards: inout [ShelfItem]) {
-        if cards.count > Self.limit { cards.removeLast(cards.count - Self.limit) }
+    /// ones that happened to arrive first. Returns how many left.
+    ///
+    /// A trimmed card leaves the selection and the anchor with it. It used to
+    /// stay selected with no card to show it: the footer read "3 selected"
+    /// over two marked cards, and "Remove 3" would have promised one more
+    /// than it could remove (J-022).
+    @discardableResult
+    private func trimToLimit(_ cards: inout [ShelfItem]) -> Int {
+        guard cards.count > Self.limit else { return 0 }
+        let trimmed = Set(cards[Self.limit...].map(\.id))
+        cards.removeLast(cards.count - Self.limit)
+        selection.subtract(trimmed)
+        if let anchor, trimmed.contains(anchor) { self.anchor = nil }
+        return trimmed.count
     }
 
     /// Newest first, by when each card's moment was.
@@ -568,10 +663,24 @@ final class ShelfStore: ObservableObject {
         persist()
     }
 
+    /// Takes the selected cards off the shelf and leaves the rest — the
+    /// footer's "Remove 2". Beside a selection the footer used to offer only
+    /// Clear, which emptied the whole shelf (H-015). The files stay where
+    /// they are, as with every removal.
+    func removeSelected() {
+        guard !selection.isEmpty else { return }
+        let picked = selection
+        items.removeAll { picked.contains($0.id) }
+        selection.removeAll()
+        anchor = nil
+        persist()
+    }
+
     // MARK: - Selection
 
     /// Plain click replaces the selection; ⌘ toggles one card; ⇧ selects the
     /// contiguous run between the anchor and the clicked card, matching Finder.
+    /// A plain click or a ⌘-click that picks a card moves the anchor to it.
     func select(_ item: ShelfItem, modifiers: NSEvent.ModifierFlags) {
         if modifiers.contains(.shift),
            let anchor,
@@ -586,6 +695,7 @@ final class ShelfStore: ObservableObject {
                 selection.remove(item.id)
             } else {
                 selection.insert(item.id)
+                anchor = item.id
             }
         } else if selection == [item.id] {
             selection.removeAll()

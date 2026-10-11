@@ -338,3 +338,8 @@
 "%+.2f seconds" = "%+.2f секунды";
 "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify отказал в «Любимых треках» и сослался на Premium. Spotify требует его от регистрации самой Isla, так что дело может быть не в вашей подписке.";
 "Instrumental" = "Проигрыш";
+"Remove %d" = "Убрать %d";
+"Remove %d from Shelf" = "Убрать с полки: %d";
+"Already on the Shelf" = "Уже на полке";
+"The Shelf holds %d, so the oldest card left it. Its file is untouched." = "На полке помещается %d, поэтому самая старая карточка убрана. Сам файл не тронут.";
+"The Shelf holds %d, so the %d oldest left it. Their files are untouched." = "На полке помещается %d, поэтому самые старые убраны: %d. Сами файлы не тронуты.";

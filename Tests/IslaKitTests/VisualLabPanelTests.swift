@@ -328,6 +328,18 @@ final class VisualLabPanelTests: VisualLabCase {
             Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { self.stock($0.shelf, session: session, urls: full) }),
                        variant, height: size.height)
         }
+        try await shoot.shoot("at-the-60-cap-after-a-drop", variants: [.base, .w480, .russian], size: size, settle: 1.5,
+                              notes: note + " One more file dropped on a full shelf: the oldest card leaves and the footer says so.") { variant in
+            Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { stores in
+                self.stock(stores.shelf, session: session, urls: full)
+                // A real file, or opening the shelf finds it gone and drops
+                // the card again: the counter would read 59.
+                let dropped = session.temp.appendingPathComponent("shelf/Dropped just now.png")
+                try LabFixtures.cover(side: 240).write(to: dropped)
+                stores.shelf.noticeLifetime = .seconds(600)
+                stores.shelf.add([dropped])
+            }), variant, height: size.height)
+        }
         try await shoot.shoot("missing-file-pruned", variants: [.base], size: size, settle: 0.8,
                               notes: "Four cards stored, one file deleted first: the shelf has no missing-file card — opening it drops the card.") { variant in
             let missing = session.temp.appendingPathComponent("shelf/Deleted meanwhile.png")
