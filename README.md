@@ -35,6 +35,9 @@ says whether there is one.
   a connected Spotify account, Liked Songs.
 - **Lyrics.** Time-synced lyrics from LRC files you import or keep in a folder,
   and optionally from [LRCLIB](https://lrclib.net). Click a line to jump to it.
+  The island's one-line lyric can turn to the next line a beat early, so you
+  can read it before you sing it, and Lyric Delay lines the words up with
+  speakers or headphones that run late.
 - **Lock screen.** While the Mac is locked, a player card with lyrics, volume
   and audio output.
 - **Shelf.** Drop files onto the notch to keep them at hand and drag them out
@@ -50,7 +53,8 @@ says whether there is one.
   Kazakh need Translate Online.
 - **Shortcuts.** ⌃⌥⌘I opens Isla, ⌃⌥⌘L opens the lyrics, ⌃⌥⌘T translates the
   clipboard. Each can be changed or cleared in Settings. Shortcuts, Spotlight and
-  Siri can read the current track and lyric.
+  Siri can read the current track and lyric. Escape closes a panel opened
+  from the keyboard.
 
 ## Privacy
 
