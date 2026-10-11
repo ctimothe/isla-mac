@@ -185,7 +185,7 @@ private struct ClipRow: View {
             Image(systemName: justCopied ? "checkmark" : item.symbol)
                 .islandFont(.caption)
                 .foregroundStyle(justCopied ? Theme.success : Theme.tertiary)
-                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                .symbolSwap(value: justCopied, reduceMotion: reduceMotion)
                 .frame(width: 14)
             SpoilerText(
                 text: item.preview,

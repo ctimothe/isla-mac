@@ -187,4 +187,58 @@ final class MotionValuesTests: XCTestCase {
             "the lead centres the measured lag; re-run Scripts/measure-sync.sh before moving it"
         )
     }
+
+    /// Every symbol replace carries the animation that makes it run (F-046).
+    ///
+    /// `.contentTransition(.symbolEffect(.replace))` only plays inside an
+    /// animated transaction. Play/pause flips when the player says so, from
+    /// the helper's stream or a media key, and the Liked Songs heart when the
+    /// library answers: plain transactions both, so the most-watched glyph in
+    /// the app could hard-cut while its comment said it was replaced. The
+    /// transition was written bare at nine sites, and each one had to remember
+    /// an `.animation(value:)` of its own; the two transports and the heart
+    /// did not, and the repeat toggle animated `isOn`, which stays on from
+    /// "all" to "one" while the glyph changes. `View.symbolSwap(value:
+    /// reduceMotion:)` pairs the two by construction, and this scan holds the
+    /// bare form out of the sources, the way `test-branding.sh` holds a name
+    /// out: brittle by design.
+    func testEverySymbolSwapCarriesItsAnimation() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let files = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "swift" }
+        XCTAssertFalse(files.isEmpty, "no sources found under \(sources.path)")
+
+        var text: [String: String] = [:]
+        for file in files {
+            text[file.lastPathComponent] = try String(contentsOf: file, encoding: .utf8)
+        }
+
+        // The replace is spelled once, inside the helper, and nowhere else.
+        for (name, body) in text.sorted(by: { $0.key < $1.key }) {
+            let replaces = body.components(separatedBy: ".symbolEffect(.replace").count - 1
+            XCTAssertEqual(
+                replaces, name == "Theme.swift" ? 1 : 0,
+                "\(name) spells a symbol replace by hand; use .symbolSwap(value:reduceMotion:)"
+            )
+        }
+
+        // And the sites F-046 named go through it with the value that moves.
+        let sites: [(file: String, call: String)] = [
+            ("MediaPane.swift", ".symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)"),
+            ("LockScreenCard.swift", ".symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)"),
+            ("LockScreenCard.swift", ".symbolSwap(value: isSaved, reduceMotion: reduceMotion)"),
+            ("LockScreenCard.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
+            ("ClipboardPane.swift", ".symbolSwap(value: justCopied, reduceMotion: reduceMotion)"),
+            ("ModeToggle.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
+        ]
+        for site in sites {
+            XCTAssertTrue(
+                text[site.file]?.contains(site.call) == true,
+                "\(site.file) does not replace its glyph with \(site.call)"
+            )
+        }
+    }
 }

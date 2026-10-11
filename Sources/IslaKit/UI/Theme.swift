@@ -927,6 +927,28 @@ extension View {
             self
         }
     }
+
+    /// Replaces one SF Symbol with the next the way Apple's own controls do,
+    /// whenever `value` changes, and cuts under Reduce Motion.
+    ///
+    /// A symbol content transition only plays inside an animated transaction;
+    /// in a plain one the glyph is simply swapped. Play/pause flips when the
+    /// player says so (the helper's stream, a media key) and the Liked Songs
+    /// heart when the library answers, both outside any `withAnimation`, so the
+    /// most-watched control in the app could hard-cut beside a comment saying
+    /// it was replaced (F-046). The repeat toggle animated `isOn`, which stays
+    /// true from "all" to "one" while the glyph changes. Carrying the
+    /// animation here, on the value that moves the glyph, means a caller
+    /// cannot ask for the replace without the transaction that runs it.
+    ///
+    /// The fade of a tint that changes with the same value rides along; under
+    /// Reduce Motion that is all that is left, since a fade is not motion.
+    /// `MotionValuesTests.testEverySymbolSwapCarriesItsAnimation` keeps the
+    /// bare transition out of the sources.
+    func symbolSwap<Value: Equatable>(value: Value, reduceMotion: Bool) -> some View {
+        contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+            .animation(Theme.contentAnimation, value: value)
+    }
 }
 
 func formatTime(_ seconds: TimeInterval) -> String {

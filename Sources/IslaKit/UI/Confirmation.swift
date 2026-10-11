@@ -67,7 +67,7 @@ struct CopyButton: View {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
                 .islandFont(.caption, weight: .semibold)
                 .foregroundStyle(copied ? Theme.success : Theme.secondary)
-                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                .symbolSwap(value: copied, reduceMotion: reduceMotion)
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }
@@ -267,7 +267,7 @@ struct ConfirmRow: View {
                 Image(systemName: arming.armed ? "exclamationmark.triangle.fill" : symbol)
                     .islandFont(.body)
                     .foregroundStyle(arming.armed ? Theme.danger : Theme.secondary)
-                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                    .symbolSwap(value: arming.armed, reduceMotion: reduceMotion)
                     .frame(width: 16)
                     // Decoration, as `RowIcon` is for every other row; armed,
                     // the title already says what the warning glyph means.
