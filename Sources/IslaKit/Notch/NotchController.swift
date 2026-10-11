@@ -135,7 +135,7 @@ final class NotchController {
                     case .startWatchdog: self.startGeometryWatchdog()
                     case .resumeStores: self.stores.resumeFromIdleScreen()
                     case .repairUnlock: self.screenUnlocked()
-                    case .reactivateCardMedia: self.viewModel?.media.setActive(true)
+                    case .reactivateCardMedia: self.viewModel?.media.setActive(true, surface: .lockCard)
                     case .restartPointer: self.pointer.start()
                     }
                 }
@@ -257,7 +257,10 @@ final class NotchController {
         withTransaction(Self.cut) { viewModel?.isLockedPresentation = true }
         geometryTrace("locked")
         let keepsMediaRunning = Self.lockKeepsMediaRunning(screensAsleep: screensAreAsleep)
-        if keepsMediaRunning { viewModel?.media.setActive(true) }
+        // As the lock card, not the panel: a first Automation prompt raised
+        // here would sit under the shield where nobody can answer it, so the
+        // card asks a player only what macOS already allows.
+        if keepsMediaRunning { viewModel?.media.setActive(true, surface: .lockCard) }
         // Nobody can copy anything at a locked Mac, and Universal Clipboard
         // arrivals from a phone are not something to record behind a shield.
         // This used to happen only on the branch where the card is switched
