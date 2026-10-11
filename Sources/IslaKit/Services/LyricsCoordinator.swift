@@ -514,6 +514,15 @@ final class LyricsCoordinator: ObservableObject {
         case .ambiguous: availability = .noLocalLyrics
         case nil: availability = waitIsWorthAdmitting ? .findingLocalLyrics : .resolving
         }
+        // The store has to know which file is showing, not just which song:
+        // a nudge belongs to the file it corrected (J-024). This is where a
+        // file first shows, and where an import, a binding, a retimed edit or
+        // the catalogue's answer replaces it, so the file is told here — and
+        // before the words are presented, so they never draw for one frame
+        // with the last file's correction.
+        if case .ready(let timeline) = availability {
+            presentation?.activateTrackOffset(for: identity, documentID: timeline.documentID)
+        }
         presentation?.present(availability)
         registerBoundaries()
     }

@@ -536,6 +536,40 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertFalse(store.hasLocalOverride)
     }
 
+    /// The coordinator tells the store which file is showing, so a nudge made
+    /// against one import does not shift a better-timed one imported over it
+    /// for the same song (J-024). Before, the store only ever heard the song.
+    func testImportingABetterTimedFileStartsItUncorrected() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let suite = "LyricsCoordinatorTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = LyricsStore(offsetsDirectory: root.appendingPathComponent("offsets"), defaults: defaults)
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true }, presentation: store
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.apply(playingSnapshot())
+        let identity = try XCTUnwrap(coordinator.currentLocalTrackIdentity)
+
+        try coordinator.importLocalFile(at: try writeUntaggedLRC(), for: identity)
+        guard case .ready(let first) = coordinator.availability else {
+            return XCTFail("the fixture: the bound import is showing")
+        }
+        store.nudgeTrackOffset(by: 0.5)
+        XCTAssertEqual(store.trackOffset, 0.5, accuracy: 1e-9)
+
+        try coordinator.importLocalFile(at: try writeLRC(), for: identity)
+        guard case .ready(let second) = coordinator.availability else {
+            return XCTFail("the fixture: the second import is showing")
+        }
+        XCTAssertNotEqual(first.documentID, second.documentID, "the fixture: another file")
+        XCTAssertEqual(store.trackOffset, 0, accuracy: 1e-9, "the new file starts uncorrected")
+    }
+
     /// Import binds the song that was playing when Import was pressed, not
     /// the one playing when the open panel returns. The identity used to be
     /// read after `runModal`, so browsing through a track change bound song
