@@ -1289,3 +1289,20 @@ first for the hot keys and the Spotify callback).
 - [ ] **Physical check owed:** press Connect twice, approve the first tab: the
   account connects. Disconnect, then Connect: Spotify's consent page appears
   with its "Not you?" switch.
+
+### Settings › Spotify says what happened, and disconnect asks — 2026-10-11 (ms/MS-09, closes M-32)
+
+- The section is a pure row model (`SettingsPane.spotifyRows`): a revoked
+  grant offers "Connect again", a cancelled or unfinished sign-in says so, a
+  local failure (`signInProblem`) leads, and one event gets one note. Disconnect
+  is a two-press `confirmRow` and says what stays: Isla forgets the account on
+  this Mac, the Spotify library is untouched. `SettingsPaneTests`.
+- **Account touch, recorded (owner decision 12, keep and disclose):** the
+  lock-screen card's heart writes to the connected account's Liked Songs while
+  the Mac is locked. Connecting the account is the opt-in and is off until the
+  person connects; without an account the heart does not exist. Settings now
+  states it while connected ("The heart on the lock screen adds the song to
+  your Liked Songs."). No new data leaves the Mac: the call is the same
+  `/v1/me/library` write the island's heart already makes.
+- Deferred: showing the account's display name, which needs a new
+  `GET /v1/me` request.

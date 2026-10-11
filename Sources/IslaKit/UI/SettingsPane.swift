@@ -98,6 +98,71 @@ struct SettingsPane: View {
     /// rather than to nothing.
     static let automationSettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!
 
+    /// One line of the Spotify section.
+    enum SpotifyRow: Hashable {
+        case note(String)
+        case connect
+        /// Disconnect, armed by a first press like Clear and Quit.
+        case confirm(title: String, armedTitle: String)
+        case importAccount
+    }
+
+    /// What the Spotify section shows, as a pure function of the account so the
+    /// branching is tested without a view. The section used to be inline and
+    /// read none of `needsReconnect`, `signInOutcome` or the sign-in problems,
+    /// so a revoked grant, a cancelled approval and a browser that never opened
+    /// all looked like a Connect button that did nothing; and Disconnect, the
+    /// account's one action, happened on a single unconfirmed click.
+    ///
+    /// Order: what just happened, then the action, then storage, refusal, what
+    /// disconnecting keeps, and what the lock-screen heart does. One event gets
+    /// one note: an outcome replaces the reconnect note instead of stacking
+    /// under it.
+    static func spotifyRows(
+        connected: Bool,
+        needsReconnect: Bool,
+        signIn: SpotifyAccount.SignInOutcome?,
+        apiBlocked: Bool,
+        problem: SpotifyAccount.SignInProblem? = nil,
+        canImport: Bool = false,
+        storage: TokenStore.Backing = .keychain,
+        refusal: SpotifyAccount.Refusal? = nil
+    ) -> [SpotifyRow] {
+        var rows: [SpotifyRow] = []
+        if let problem { rows.append(.note(problem.explanation)) }
+        switch signIn {
+        case .cancelled:
+            rows.append(.note(localized("Spotify sign-in was cancelled.")))
+        case .expired, .failed:
+            rows.append(.note(localized("Spotify sign-in did not finish. Try connecting again.")))
+        case nil:
+            if needsReconnect, !connected {
+                rows.append(.note(localized("Spotify ended Isla's access. Connect again to use Liked Songs.")))
+            }
+        }
+        if connected {
+            rows.append(.confirm(title: localized("Disconnect Spotify Account"), armedTitle: localized("Disconnect")))
+        } else {
+            rows.append(.connect)
+        }
+        // Offered only when there is actually something to bring across.
+        // Finding that out asks the keychain for attributes and never for
+        // contents, so the offer itself costs no prompt — pressing it is what
+        // asks, once.
+        if canImport { rows.append(.importAccount) }
+        if connected {
+            switch storage {
+            case .keychain: rows.append(.note(localized("Stored in your keychain.")))
+            case .file: rows.append(.note(localized("Stored in a file only you can read.")))
+            case .unavailable: rows.append(.note(localized("Cannot be stored on this Mac.")))
+            }
+            if apiBlocked { rows.append(.note((refusal ?? .other).explanation)) }
+            rows.append(.note(localized("Isla forgets the account on this Mac. Your Spotify library stays as it is.")))
+            rows.append(.note(localized("The heart on the lock screen adds the song to your Liked Songs.")))
+        }
+        return rows
+    }
+
     /// What the Music section says about Automation, from what
     /// `AutomationAccess` already knows — reading it costs no prompt.
     ///
@@ -624,34 +689,19 @@ struct SettingsPane: View {
                 }
 
                 section(localized("Spotify")) {
-                    if spotify.isConnected {
-                        actionRow(symbol: SettingsIcon.disconnectAccount, title: localized("Disconnect Spotify Account")) {
-                            SpotifyAccount.shared.disconnect()
-                        }
-                    } else {
-                        actionRow(symbol: SettingsIcon.connectAccount, title: localized("Connect Spotify Account…")) {
-                            connectSpotify()
-                        }
-                    }
-                    // Offered only when there is actually something to bring
-                    // across. Finding that out asks the keychain for attributes
-                    // and never for contents, so the offer itself costs no
-                    // prompt — pressing it is what asks, once.
-                    if spotify.canImportLegacyAccount {
-                        actionRow(symbol: SettingsIcon.importFromKeychain, title: localized("Import Account from Keychain…")) {
-                            SpotifyAccount.shared.importLegacyAccount()
-                        }
-                    }
-                    // One inline note for a local sign-in failure, never a toast:
-                    // the person acted on this row, so this row answers.
-                    if let problem = spotify.signInProblem {
-                        noteRow(problem.explanation)
-                    }
-                    if spotify.isConnected {
-                        noteRow(storageNote)
-                    }
-                    if spotify.isConnected, spotify.apiBlocked {
-                        noteRow((spotify.refusal ?? .other).explanation)
+                    // Notes are inline, never a toast: the person acted on this
+                    // section, so this section answers (one failure surface).
+                    ForEach(Self.spotifyRows(
+                        connected: spotify.isConnected,
+                        needsReconnect: spotify.needsReconnect,
+                        signIn: spotify.signInOutcome,
+                        apiBlocked: spotify.apiBlocked,
+                        problem: spotify.signInProblem,
+                        canImport: spotify.canImportLegacyAccount,
+                        storage: spotify.storage,
+                        refusal: spotify.refusal
+                    ), id: \.self) { row in
+                        spotifyRow(row)
                     }
                 }
 
@@ -855,14 +905,23 @@ struct SettingsPane: View {
         )
     }
 
-    /// Where the tokens are, in the user's words. Said out loud because the
-    /// answer depends on how the app was signed, and somebody running a build
-    /// they made themselves deserves to know it is not the keychain.
-    private var storageNote: String {
-        switch spotify.storage {
-        case .keychain: return localized("Stored in your keychain.")
-        case .file: return localized("Stored in a file only you can read.")
-        case .unavailable: return localized("Cannot be stored on this Mac.")
+    @ViewBuilder
+    private func spotifyRow(_ row: SpotifyRow) -> some View {
+        switch row {
+        case let .note(text):
+            noteRow(text)
+        case .connect:
+            actionRow(symbol: SettingsIcon.connectAccount, title: localized("Connect Spotify Account…")) {
+                connectSpotify()
+            }
+        case let .confirm(title, armedTitle):
+            confirmRow(symbol: SettingsIcon.disconnectAccount, title: title, armedTitle: armedTitle) {
+                SpotifyAccount.shared.disconnect()
+            }
+        case .importAccount:
+            actionRow(symbol: SettingsIcon.importFromKeychain, title: localized("Import Account from Keychain…")) {
+                SpotifyAccount.shared.importLegacyAccount()
+            }
         }
     }
 
