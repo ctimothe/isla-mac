@@ -507,6 +507,13 @@ enum Theme {
     /// caption itself stays at the tertiary ramp, which is what carries the
     /// words.
     static let offlineThumbnailOpacity: Double = 0.45
+
+    /// The smallest target a caption-sized control in the panel may offer.
+    /// A word set at the caption role is 13 pt tall, and a button that is
+    /// only its word left Shelf's Deselect a 44x13 sliver beside the
+    /// destructive Clear (F-014). The width still follows the word; this is
+    /// the floor under both.
+    static let minimumHitSize = CGSize(width: 24, height: 20)
 }
 
 /// The pressed state `.plain` does not give.

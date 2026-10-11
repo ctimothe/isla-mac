@@ -66,7 +66,10 @@ final class ShelfStore: ObservableObject {
     /// Generous, because saved screenshots accumulate here and nothing is
     /// deleted behind the user's back. Cards past the limit leave the shelf,
     /// but their files stay in the folder.
-    private let limit = 60
+    ///
+    /// Read by the empty Shelf's copy as well, which says how many cards it
+    /// holds: one number, so the sentence cannot drift from the trim.
+    static let limit = 60
 
     /// Each card's bookmark, made once — when the card arrived, or read back
     /// with it at launch — and reused until the card leaves.
@@ -482,7 +485,7 @@ final class ShelfStore: ObservableObject {
     /// After sorting, so the cards past the limit are the oldest, not the
     /// ones that happened to arrive first.
     private func trimToLimit(_ cards: inout [ShelfItem]) {
-        if cards.count > limit { cards.removeLast(cards.count - limit) }
+        if cards.count > Self.limit { cards.removeLast(cards.count - Self.limit) }
     }
 
     /// Newest first, by when each card's moment was.
