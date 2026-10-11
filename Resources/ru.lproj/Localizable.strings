@@ -380,3 +380,5 @@
 "%@ translates what you copied" = "%@ переводит скопированное";
 "Translates what you copied" = "Переводит скопированное";
 "Privacy, shortcuts and Quit" = "Приватность, сочетания клавиш и выход";
+"Reset Lyric Timing" = "Сбросить смещение текста";
+"Lyric timing correction" = "Смещение текста песни";
