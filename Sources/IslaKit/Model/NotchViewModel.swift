@@ -696,12 +696,29 @@ final class NotchViewModel: ObservableObject {
         case proceed
         /// Over the shield: shake the pill and do nothing else.
         case refuseWithShake
+        /// Every display asleep: do nothing at all. A Shortcut or a Focus
+        /// automation ("when AirPods connect, show lyrics") that ran with the
+        /// lid shut opened a pinned panel nobody could see, started the media
+        /// clock and the player polls for it, and left it pinned open at wake
+        /// (J-026). There is no pill on a dark display to shake, so the refusal
+        /// has nothing to say. Deferring the open to wake was rejected: the
+        /// automation that asked has long finished, and a panel appearing when
+        /// the lid opens is a surprise rather than an answer.
+        case refuseQuietly
     }
 
-    /// The verdict for `toggle()` and `translateCommanded(_:)`, asked before either
-    /// touches a tab, the translator, the pin or `setOpen`.
-    func verdictForDeliberateOpen() -> CommandVerdict {
-        isLockedPresentation ? .refuseWithShake : .proceed
+    /// The verdict for the commanded opens — the hot keys, the Shortcuts, the
+    /// Translate service — asked before any of them touches a tab, the
+    /// translator, the pin or `setOpen`.
+    ///
+    /// `screensAsleep` is the controller's, which owns the sleep and wake
+    /// notifications; it is a parameter rather than a default so a new command
+    /// cannot forget to ask. The lock wins when both hold, so the shield keeps
+    /// one grammar however the screen happens to be.
+    func verdictForDeliberateOpen(screensAsleep: Bool) -> CommandVerdict {
+        if isLockedPresentation { return .refuseWithShake }
+        if screensAsleep { return .refuseQuietly }
+        return .proceed
     }
 
     /// What a *show* asks for, as against a toggle.

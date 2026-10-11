@@ -553,6 +553,29 @@ final class NotchController {
         panel?.orderOut(nil)
     }
 
+    /// Plays out `verdictForDeliberateOpen` for a commanded open — a hot key, a
+    /// Shortcut, the Translate service — and says whether it may go on.
+    ///
+    /// One place, because there are five of these commands and the dark
+    /// display was the second condition they all had to learn: each used to
+    /// ask the verdict and shake by itself, and none of them knew the screens
+    /// were asleep, so an automation that ran with the lid shut opened a
+    /// pinned panel nobody could see and started the media clock for it
+    /// (J-026). Over the shield the refusal is the pill's shake; on a dark
+    /// display it is nothing at all, because there is nothing to see it.
+    private func admitsCommandedOpen(_ vm: NotchViewModel) -> Bool {
+        switch vm.verdictForDeliberateOpen(screensAsleep: screensAreAsleep) {
+        case .proceed:
+            return true
+        case .refuseWithShake:
+            vm.nudgeLockedIsland()
+            return false
+        case .refuseQuietly:
+            geometryTrace("command refused: screens asleep")
+            return false
+        }
+    }
+
     /// Opens on the Music tab with the lyrics page already up.
     ///
     /// The same shape as `translateCommanded(_:)` and for the same reasons:
@@ -563,10 +586,7 @@ final class NotchController {
     /// nothing, so one key is the whole round trip.
     func toggleLyrics() {
         guard let vm = viewModel else { return }
-        guard vm.verdictForDeliberateOpen() == .proceed else {
-            vm.nudgeLockedIsland()
-            return
-        }
+        guard admitsCommandedOpen(vm) else { return }
         // Pressed again with the page already up, it folds the page back to
         // the player rather than doing nothing: one key is the whole round
         // trip, and the panel is left open on the music it was opened for.
@@ -584,10 +604,7 @@ final class NotchController {
     /// panel already showing the words and folded them away (F-024).
     func showLyrics() {
         guard let vm = viewModel else { return }
-        guard vm.verdictForDeliberateOpen() == .proceed else {
-            vm.nudgeLockedIsland()
-            return
-        }
+        guard admitsCommandedOpen(vm) else { return }
         guard NotchViewModel.showLyricsVerdict(
             isOpen: vm.isOpen, tab: vm.tab, showingLyrics: vm.isShowingLyrics
         ) == .open else { return }
@@ -626,11 +643,9 @@ final class NotchController {
         // and then make it key through `select(.translate)` — a window the lock
         // presentation deliberately lifted above the shield, holding the
         // keyboard in front of the password field, the exact hazard
-        // `panel.onPress` refuses for the same reason.
-        guard vm.verdictForDeliberateOpen() == .proceed else {
-            vm.nudgeLockedIsland()
-            return
-        }
+        // `panel.onPress` refuses for the same reason. Refused quietly, too,
+        // on a dark display (J-026).
+        guard admitsCommandedOpen(vm) else { return }
         peekWork?.cancel()
         vm.isPeeking = false
         // Cut to the limit before anything — the field, the pane's measuring,
@@ -753,10 +768,7 @@ final class NotchController {
         // shake is the same refusal the island's own click gives — and
         // `presentWelcome()` keeps its own silent guard, so the welcome never
         // reaches here while locked.
-        guard viewModel.verdictForDeliberateOpen() == .proceed else {
-            viewModel.nudgeLockedIsland()
-            return
-        }
+        guard admitsCommandedOpen(viewModel) else { return }
         // `setOpen`'s close path defers the `isOpen` mutation to the next run
         // loop pass, so reading `viewModel.isOpen` right after calling it would
         // read the stale, pre-close value. Capture the intended target state
@@ -787,10 +799,7 @@ final class NotchController {
     /// whoever opened it is still reading it.
     func show() {
         guard let viewModel else { return }
-        guard viewModel.verdictForDeliberateOpen() == .proceed else {
-            viewModel.nudgeLockedIsland()
-            return
-        }
+        guard admitsCommandedOpen(viewModel) else { return }
         guard NotchViewModel.showVerdict(isOpen: viewModel.isOpen) == .open else { return }
         toggle()
     }
@@ -814,6 +823,11 @@ final class NotchController {
         // better to spend the moment on the next launch, which is what leaving
         // the flag unset does.
         guard !viewModel.isLockedPresentation else { return }
+        // Nor on a dark display, for the same reason and one more: `toggle()`
+        // now refuses there (J-026), so raising the flag first would leave the
+        // welcome waiting under whatever the panel is next opened for at wake
+        // — the very hazard the guard below exists for.
+        guard !screensAreAsleep else { return }
         // Only onto a panel this opens itself. A drag onto the island, or a click
         // on it, can have opened the panel inside the 0.8 s delay this is called
         // after, and the flag is the welcome: raising it over that panel drew the

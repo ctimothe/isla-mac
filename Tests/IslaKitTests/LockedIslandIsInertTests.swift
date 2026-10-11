@@ -58,7 +58,7 @@ final class LockedIslandIsInertTests: XCTestCase {
         let vm = model()
         vm.isLockedPresentation = true
 
-        XCTAssertEqual(vm.verdictForDeliberateOpen(), .refuseWithShake)
+        XCTAssertEqual(vm.verdictForDeliberateOpen(screensAsleep: false), .refuseWithShake)
         // What the controller plays out on `.refuseWithShake`: the shake, and
         // nothing else.
         vm.nudgeLockedIsland()
@@ -73,7 +73,7 @@ final class LockedIslandIsInertTests: XCTestCase {
         let vm = model()
         vm.isLockedPresentation = false
 
-        XCTAssertEqual(vm.verdictForDeliberateOpen(), .proceed)
+        XCTAssertEqual(vm.verdictForDeliberateOpen(screensAsleep: false), .proceed)
     }
 
     /// The verdicts compare, because the controller does exactly that — it asks
@@ -85,6 +85,35 @@ final class LockedIslandIsInertTests: XCTestCase {
             NotchViewModel.CommandVerdict.proceed,
             NotchViewModel.CommandVerdict.refuseWithShake,
             "a refusal must never read as permission to open"
+        )
+        XCTAssertNotEqual(
+            NotchViewModel.CommandVerdict.proceed,
+            NotchViewModel.CommandVerdict.refuseQuietly,
+            "a refusal must never read as permission to open"
+        )
+    }
+
+    /// A command that arrives while every display is asleep opens nothing.
+    ///
+    /// A "when AirPods connect, show lyrics" automation ran with the lid shut:
+    /// the panel opened pinned where nobody could see it, the media clock and
+    /// the player polls started for it, and it was still pinned open at wake
+    /// (J-026). The refusal is quiet — there is no pill on a dark display to
+    /// shake — and the lock's own answer still wins when both hold, so the
+    /// shield keeps one grammar however the screen happens to be.
+    func testACommandOnADarkDisplayIsRefusedQuietly() {
+        let vm = model()
+        vm.isLockedPresentation = false
+
+        XCTAssertEqual(vm.verdictForDeliberateOpen(screensAsleep: true), .refuseQuietly)
+        XCTAssertEqual(vm.verdictForDeliberateOpen(screensAsleep: false), .proceed)
+        XCTAssertFalse(vm.isOpen)
+        XCTAssertEqual(vm.lockedHoverNudges, 0, "nothing shakes on a display nobody sees")
+
+        vm.isLockedPresentation = true
+        XCTAssertEqual(
+            vm.verdictForDeliberateOpen(screensAsleep: true), .refuseWithShake,
+            "the lock's refusal wins over the dark display's"
         )
     }
 }
