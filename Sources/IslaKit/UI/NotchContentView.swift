@@ -971,6 +971,7 @@ struct NotchContentView: View {
                 removeLocalBinding: vm.lyricsCoordinator.removeLocalBinding,
                 localLibrary: vm.localLyricsLibrary,
                 currentLocalTrackIdentity: { vm.lyricsCoordinator.currentLocalTrackIdentity },
+                openMusicOnlySetting: vm.openMusicOnlySetting,
                 morph: morph,
                 showingLyrics: $vm.isShowingLyrics
             )
@@ -1002,7 +1003,8 @@ struct NotchContentView: View {
                 privacy: vm.privacy,
                 wantsKeyboard: $vm.wantsKeyboard,
                 setClipboardHistory: vm.setClipboardHistory,
-                refreshClipboardPolling: vm.refreshClipboardPolling
+                refreshClipboardPolling: vm.refreshClipboardPolling,
+                scrollTarget: $vm.settingsScrollTarget
             )
         }
     }

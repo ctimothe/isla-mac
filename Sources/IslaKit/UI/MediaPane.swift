@@ -12,6 +12,9 @@ struct MediaPane: View {
     var removeLocalBinding: () -> Void = {}
     var localLibrary: LocalLyricsLibrary?
     var currentLocalTrackIdentity: () -> LocalTrackIdentity? = { nil }
+    /// Settings, scrolled to the Music section, for the empty tab's one remedy
+    /// when Music Only is what keeps a playing source off the island.
+    var openMusicOnlySetting: () -> Void = {}
     /// The namespace the cover travels in, when this pane is inside the panel.
     ///
     /// Optional because the pane is also rendered on its own — by the layout
@@ -607,34 +610,101 @@ struct MediaPane: View {
         .accessibilityHint(localized("Opens the full lyrics"))
     }
 
+    /// What the empty tab says, apart from any drawing, so which status wins
+    /// is something a test can read.
+    enum EmptyStateMessage: Equatable {
+        /// Nothing the island could show is playing.
+        case nothingPlaying
+        /// The Now Playing reader is down, so only Music and Spotify can be
+        /// seen at all — a browser could be playing and nobody would know.
+        case readerDown
+        /// Something is audibly playing, and Music Only is what keeps it off
+        /// the island: a YouTube tab, SoundCloud in a browser, a file in IINA.
+        case hiddenByMusicOnly
+
+        var headline: String {
+            switch self {
+            case .nothingPlaying, .readerDown: return localized("Nothing is playing.")
+            case .hiddenByMusicOnly: return localized("Something is playing that Music Only keeps off the island.")
+            }
+        }
+
+        var caption: String? {
+            switch self {
+            case .readerDown: return localized("Only Music and Spotify can be seen right now.")
+            case .nothingPlaying, .hiddenByMusicOnly: return nil
+            }
+        }
+    }
+
+    /// The empty tab used to say "Nothing is playing." over a YouTube video
+    /// that was audibly playing (J-007): Music Only filtered it, which is the
+    /// recorded design, and `MediaController` already knew — it publishes
+    /// `otherMediaIsPlaying` to fold the pill — but the pane never asked. The
+    /// reader being down wins over the filter because it explains more: with
+    /// the helper gone, the filter is not what hides a browser. And the
+    /// filter's own switch is checked, not just the controller's flag, which
+    /// is recomputed only on the next report and so trails the switch.
+    static func emptyStateMessage(
+        fallback: NowPlayingRouteFailure?, otherMediaPlaying: Bool, musicOnly: Bool
+    ) -> EmptyStateMessage {
+        if fallback != nil { return .readerDown }
+        if otherMediaPlaying && musicOnly { return .hiddenByMusicOnly }
+        return .nothingPlaying
+    }
+
     private var emptyState: some View {
-        VStack(spacing: 10) {
+        let message = Self.emptyStateMessage(
+            fallback: media.fallbackReason,
+            otherMediaPlaying: media.otherMediaIsPlaying,
+            musicOnly: media.musicOnly()
+        )
+        return VStack(spacing: 10) {
             Image(systemName: "music.note.list")
                 .islandFont(.display, weight: .light)
                 .foregroundStyle(Theme.tertiary)
             // Status, not instruction: an empty pane on its own would not say
-            // whether nothing is playing or nothing could be read.
-            Text(localized("Nothing is playing."))
+            // whether nothing is playing, nothing could be read, or something
+            // is playing that the island chose not to show.
+            Text(message.headline)
                 .islandFont(.subhead)
                 .foregroundStyle(Theme.secondary)
+                // The filtered-source line is a sentence, not a phrase: in
+                // Russian it outgrows a 480 pt panel's pane on one line.
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 16)
             // Unless something is and the reader cannot see it. Without this
             // line a browser could play under a pane that said nothing was;
             // Settings → Music says why and offers Try Again.
-            if media.fallbackReason != nil {
-                Text(localized("Only Music and Spotify can be seen right now."))
+            if let caption = message.caption {
+                Text(caption)
                     .islandFont(.caption, weight: .regular)
                     .foregroundStyle(Theme.tertiary)
             }
             // And an affordance, because a dead end teaches people not to
-            // open the tab. One button per player that is actually installed.
+            // open the tab. Status first, then one remedy: when the filter is
+            // what hides a playing source, the remedy is the switch, not a
+            // player to open — a person watching YouTube does not need
+            // Spotify launched. It opens Settings at the switch rather than
+            // flipping it from here, because a status line has no room to say
+            // what else Music Only decides.
             HStack(spacing: 8) {
-                ForEach(PlayerApp.allCases.filter(Self.isInstalled), id: \.rawValue) { app in
-                    Button {
-                        NSWorkspace.shared.open(URL(fileURLWithPath: Self.applicationPath(for: app) ?? ""))
-                    } label: {
-                        Text(localized("Open %@", app.displayName))
+                if message == .hiddenByMusicOnly {
+                    Button(action: openMusicOnlySetting) {
+                        Text(localized("Open Settings"))
                     }
                     .buttonStyle(OfferButtonStyle(horizontalPadding: 10))
+                } else {
+                    // One button per player that is actually installed.
+                    ForEach(PlayerApp.allCases.filter(Self.isInstalled), id: \.rawValue) { app in
+                        Button {
+                            NSWorkspace.shared.open(URL(fileURLWithPath: Self.applicationPath(for: app) ?? ""))
+                        } label: {
+                            Text(localized("Open %@", app.displayName))
+                        }
+                        .buttonStyle(OfferButtonStyle(horizontalPadding: 10))
+                    }
                 }
             }
         }

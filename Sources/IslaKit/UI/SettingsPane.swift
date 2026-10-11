@@ -27,10 +27,18 @@ struct SettingsPane: View {
     @ObservedObject var updates: UpdateCheck = .shared
     var setClipboardHistory: (Bool) -> Void = { _ in }
     var refreshClipboardPolling: () -> Void = {}
+    /// A section to scroll to on appearing, cleared once spent. A binding to
+    /// `NotchViewModel.settingsScrollTarget`; constant in the tests and the
+    /// lab, where nothing sends the pane anywhere.
+    var scrollTarget: Binding<String?> = .constant(nil)
     @State private var clipboardHistory = NotchViewModel.clipboardHistoryEnabled
     @State private var checkUpdatesAutomatically = UpdateCheck.automaticEnabled
 
     static let localLyricsPrivacyCopyKey = "Lyrics stay on this Mac."
+
+    /// The Music section's scroll id: where the Music tab's Open Settings
+    /// lands, because Music Only is that section's first switch.
+    static let musicSectionID = "settings.music"
 
     // The Privacy card's notes are static so a test can read exactly what the
     // pane draws, and each literal sits inside `localized(...)` so
@@ -91,6 +99,17 @@ struct SettingsPane: View {
     @State private var collectingDiagnostics = false
 
     var body: some View {
+        ScrollViewReader { proxy in
+            scrollingBody
+                .onAppear { scrollToTarget(proxy) }
+                // Set while the pane is already up, too: nothing stops a later
+                // route from sending it somewhere while Settings is the
+                // visible tab.
+                .onChange(of: scrollTarget.wrappedValue) { _, _ in scrollToTarget(proxy) }
+        }
+    }
+
+    private var scrollingBody: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 14) {
                 section(localized("General")) {
@@ -426,6 +445,7 @@ struct SettingsPane: View {
                         )
                     )
                 }
+                .id(Self.musicSectionID)
 
                 // The card that stands over the lock screen, in a section of its
                 // own: it is a surface in its own right, with its own glass and
@@ -654,6 +674,20 @@ struct SettingsPane: View {
             saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
             importRecordings = NotchViewModel.importRecordingsEnabled
             refreshUsage()
+        }
+    }
+
+    /// Lands the requested section at the top, then spends the request.
+    ///
+    /// On the next turn of the run loop rather than inside `onAppear`: the
+    /// pane appears with the tab change, and its scroll view need not have
+    /// laid its rows out by then — a `scrollTo` with no frame to aim at is
+    /// silently dropped, and the request with it.
+    private func scrollToTarget(_ proxy: ScrollViewProxy) {
+        guard let target = scrollTarget.wrappedValue else { return }
+        DispatchQueue.main.async {
+            proxy.scrollTo(target, anchor: .top)
+            scrollTarget.wrappedValue = nil
         }
     }
 

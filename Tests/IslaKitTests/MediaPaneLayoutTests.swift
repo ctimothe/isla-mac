@@ -49,6 +49,79 @@ final class MediaPaneLayoutTests: XCTestCase {
         XCTAssertNil(LyricSweep.displayed(lines: [], at: 10))
     }
 
+    // MARK: - What the empty tab says
+
+    /// A YouTube video, SoundCloud in a browser or an mp3 in IINA could be
+    /// audibly playing while the Music tab said "Nothing is playing." — Music
+    /// Only kept it off the island, which is the recorded design, but the
+    /// status line was false and nothing pointed at the switch (J-007).
+    func testAPlayingSourceHiddenByMusicOnlyIsNamed() {
+        XCTAssertEqual(
+            MediaPane.emptyStateMessage(fallback: nil, otherMediaPlaying: true, musicOnly: true),
+            .hiddenByMusicOnly
+        )
+        XCTAssertEqual(
+            MediaPane.emptyStateMessage(fallback: nil, otherMediaPlaying: false, musicOnly: true),
+            .nothingPlaying
+        )
+        // The filter is what hides it, so with the filter off there is nothing
+        // to name: the controller's flag can trail the switch by one report.
+        XCTAssertEqual(
+            MediaPane.emptyStateMessage(fallback: nil, otherMediaPlaying: true, musicOnly: false),
+            .nothingPlaying
+        )
+        XCTAssertEqual(
+            MediaPane.EmptyStateMessage.hiddenByMusicOnly.headline,
+            localized("Something is playing that Music Only keeps off the island.")
+        )
+        XCTAssertEqual(MediaPane.EmptyStateMessage.nothingPlaying.headline, localized("Nothing is playing."))
+    }
+
+    /// The reader being down explains more than the filter does: the helper
+    /// cannot see a browser at all then, so it keeps its own line whatever
+    /// else is true.
+    func testTheReaderBeingDownKeepsPrecedence() {
+        XCTAssertEqual(
+            MediaPane.emptyStateMessage(fallback: .keptStopping, otherMediaPlaying: true, musicOnly: true),
+            .readerDown
+        )
+        XCTAssertEqual(
+            MediaPane.emptyStateMessage(fallback: .routeClosed, otherMediaPlaying: false, musicOnly: false),
+            .readerDown
+        )
+        XCTAssertEqual(MediaPane.EmptyStateMessage.readerDown.headline, localized("Nothing is playing."))
+        XCTAssertEqual(
+            MediaPane.EmptyStateMessage.readerDown.caption,
+            localized("Only Music and Spotify can be seen right now.")
+        )
+        XCTAssertNil(MediaPane.EmptyStateMessage.hiddenByMusicOnly.caption)
+        XCTAssertNil(MediaPane.EmptyStateMessage.nothingPlaying.caption)
+    }
+
+    /// Open Settings has to land on the switch, not on the top of a pane that
+    /// scrolls: the Music section sits below General, Keyboard Shortcuts and
+    /// Screenshots. The target is a one-shot — leaving Settings drops an
+    /// unspent one so a later visit does not jump.
+    func testOpenSettingsLandsOnTheMusicSection() throws {
+        // The lab's stand-in: nothing here reads the screen, and a sandboxed
+        // run has none to give.
+        let geometry = try LabGeometry.make()
+        // Stores rooted in a temporary directory, so building a view model
+        // never reads or migrates the lyric files in Application Support.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MediaPaneLayoutTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let vm = NotchViewModel(geometry: geometry, stores: NotchStores(localLyricsDirectory: root))
+        vm.tab = .media
+
+        vm.openMusicOnlySetting()
+        XCTAssertEqual(vm.tab, .settings)
+        XCTAssertEqual(vm.settingsScrollTarget, SettingsPane.musicSectionID)
+
+        vm.select(.media)
+        XCTAssertNil(vm.settingsScrollTarget, "an unspent target must not outlive the visit it was for")
+    }
+
     // MARK: - Where the transport sits
 
     /// The transport must not move because a song has no words. A control that
