@@ -382,15 +382,23 @@ enum Theme {
     // nothing on the card is dimmer than it was.
 
     /// Titles and the labels beside them. Was 0.55–0.62 in four places.
+    ///
+    /// 0.62 became 0.75 with F-003: over a pale cover the artist line was
+    /// 1.76:1. The wash `LockCardLegibility` solves does most of that work; a
+    /// brighter token is what lets it do it without darkening the cover as far.
     static func cardSecondaryOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.85 : 0.62
+        increaseContrast ? 0.85 : 0.75
     }
 
     /// Supporting text: the lyric status, the picker's rows, the volume
     /// glyphs. Was 0.40–0.50 in five places, and 0.40 over a bright wallpaper
     /// is barely there.
+    ///
+    /// 0.50 became 0.62 with F-003, for the same reason as `cardSecondary`:
+    /// this is the token the cover's wash is solved against, so every point it
+    /// gains is light a pale cover keeps.
     static func cardTertiaryOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.75 : 0.50
+        increaseContrast ? 0.75 : 0.62
     }
 
     /// A filled shape that has to read as one: the artwork well, the unselected

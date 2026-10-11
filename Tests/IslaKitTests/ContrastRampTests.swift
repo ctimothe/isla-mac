@@ -110,4 +110,89 @@ final class ContrastRampTests: XCTestCase {
         XCTAssertGreaterThan(ratioOverBlack(whiteOpacity: Theme.cardFillOpacity(increaseContrast: false)), 1.4)
         XCTAssertGreaterThan(ratioOverBlack(whiteOpacity: Theme.cardTrackOpacity(increaseContrast: false)), 1.6)
     }
+
+    // MARK: - The card over its own cover (F-003)
+
+    /// Every label on the card clears AA over the palest cover there is.
+    ///
+    /// The card is lit by the song's cover, and the black wash over it was a
+    /// fixed 0.34. Over a near-white cover that left a 0.66 grey, on which the
+    /// artist line (0.62) measured 1.76:1 and the elapsed time and lyric status
+    /// (0.50) 1.59:1 — the comment above the wash promised "white type holds
+    /// over the palest one" and the arithmetic said otherwise. Everything here
+    /// was measured against black, which is the one backdrop the card never
+    /// has. This measures against the brightest backdrop it can have.
+    func testEveryCardLabelHoldsAAOverTheBrightestCover() {
+        for increaseContrast in [false, true] {
+            let backdrop = LockCardLegibility.backdrop(coverLuma: 1.0, style: .glass, increaseContrast: increaseContrast)
+            XCTAssertGreaterThanOrEqual(
+                LockCardLegibility.contrast(
+                    textOpacity: Theme.cardSecondaryOpacity(increaseContrast: increaseContrast), overGrey: backdrop),
+                4.5, "the artist line over a white cover, increaseContrast \(increaseContrast)"
+            )
+            XCTAssertGreaterThanOrEqual(
+                LockCardLegibility.contrast(
+                    textOpacity: Theme.cardTertiaryOpacity(increaseContrast: increaseContrast), overGrey: backdrop),
+                4.5, "the times and the lyric status over a white cover, increaseContrast \(increaseContrast)"
+            )
+        }
+    }
+
+    /// The same promise at every brightness between, and in Transparent for
+    /// the part of the card the cover lights: the wash is solved for the
+    /// cover, so no grey along the way is the one the rule forgot.
+    func testEveryCoverBrightnessHoldsAA() {
+        for style in [NotchViewModel.LockCardStyle.glass, .clear] {
+            for increaseContrast in [false, true] {
+                for step in 0...20 {
+                    let luma = Double(step) / 20
+                    let backdrop = LockCardLegibility.backdrop(
+                        coverLuma: luma, style: style, increaseContrast: increaseContrast)
+                    XCTAssertGreaterThanOrEqual(
+                        LockCardLegibility.contrast(
+                            textOpacity: Theme.cardTertiaryOpacity(increaseContrast: increaseContrast),
+                            overGrey: backdrop),
+                        4.5, "\(style.rawValue) luma \(luma) increaseContrast \(increaseContrast)"
+                    )
+                }
+            }
+        }
+    }
+
+    /// A dark cover keeps the light it had.
+    ///
+    /// The owner asked on 2026-09-21 for a card "lit by its own cover", and a
+    /// fixed heavy wash would have answered F-003 by putting that light out on
+    /// every dark cover. Below the brightness where the old wash already held,
+    /// nothing changes.
+    func testADarkCoverKeepsTheLightItHad() {
+        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0.25, style: .glass, increaseContrast: false), 0.34)
+        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0.3, style: .glass, increaseContrast: false), 0.34)
+        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0.25, style: .glass, increaseContrast: true), 0.56)
+        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0.25, style: .clear, increaseContrast: false), 0.2)
+        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0, style: .glass, increaseContrast: false), 0.34)
+    }
+
+    /// A brighter cover never gets a lighter wash — otherwise two covers a
+    /// shade apart could swap which one reads.
+    func testTheWashNeverLightensAsTheCoverBrightens() {
+        for increaseContrast in [false, true] {
+            var last = 0.0
+            for step in 0...50 {
+                let wash = LockCardLegibility.washOpacity(
+                    coverLuma: Double(step) / 50, style: .glass, increaseContrast: increaseContrast)
+                XCTAssertGreaterThanOrEqual(wash, last)
+                XCTAssertLessThan(wash, 1, "the cover is dimmed, never painted out")
+                last = wash
+            }
+        }
+    }
+
+    /// The model reproduces the audit's arithmetic, so the numbers above are
+    /// the numbers the audit measured: today's 0.62 over a 0.66 grey.
+    func testTheContrastModelMatchesTheAudit() {
+        XCTAssertEqual(LockCardLegibility.contrast(textOpacity: 0.62, overGrey: 0.66), 1.76, accuracy: 0.01)
+        XCTAssertEqual(LockCardLegibility.contrast(textOpacity: 0.50, overGrey: 0.66), 1.59, accuracy: 0.01)
+        XCTAssertEqual(LockCardLegibility.contrast(textOpacity: 1, overGrey: 0), 21, accuracy: 0.01)
+    }
 }

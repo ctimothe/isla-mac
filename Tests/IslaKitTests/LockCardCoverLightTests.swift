@@ -136,6 +136,41 @@ extension LockCardCoverLightTests {
     }
 }
 
+extension LockCardCoverLightTests {
+    /// A plain 64×64 cover, drawn in sRGB, with `whiteColumns` of its 64
+    /// columns white from the left and the rest black.
+    private func cover(whiteColumns: Int) -> NSImage {
+        NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+            NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1).setFill()
+            rect.fill()
+            NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1).setFill()
+            NSRect(x: 0, y: 0, width: CGFloat(whiteColumns), height: 64).fill()
+            return true
+        }
+    }
+
+    /// The wash is scaled to how bright the cover is, so that reading has to
+    /// be right at the ends: white is 1, black is 0.
+    ///
+    /// And a cover that is half white is measured as white, not as the 0.5 an
+    /// average would give: the blur spreads the white half across the card
+    /// and the type over it is the type that has to hold, so the reading is
+    /// the 90th percentile — the bright end — rather than the mean.
+    func testCoverLumaReadsWhiteAsOneAndBlackAsZero() {
+        XCTAssertEqual(LockCardLegibility.coverLuma(of: cover(whiteColumns: 64)), 1, accuracy: 0.01)
+        XCTAssertEqual(LockCardLegibility.coverLuma(of: cover(whiteColumns: 0)), 0, accuracy: 0.01)
+        XCTAssertGreaterThanOrEqual(LockCardLegibility.coverLuma(of: cover(whiteColumns: 32)), 0.9)
+    }
+
+    /// The reading is the same for the same artwork every time it is asked —
+    /// the card asks on every redraw, and the cache answers.
+    func testCoverLumaIsStableForOneImage() {
+        let image = cover(whiteColumns: 16)
+        let first = LockCardLegibility.coverLuma(of: image)
+        XCTAssertEqual(LockCardLegibility.coverLuma(of: image), first)
+    }
+}
+
 private struct GridSheet: View {
     let shots: [(String, NSImage)]
 
