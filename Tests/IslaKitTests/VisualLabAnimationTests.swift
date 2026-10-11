@@ -184,10 +184,8 @@ final class VisualLabAnimationTests: VisualLabCase {
         // L5 measures what it draws.
         let press = try literal("Sources/IslaKit/UI/Theme.swift", #"\.animation\(\.easeOut\(duration: ([0-9.]+)\), value: configuration\.isPressed\)"#)
         curves.append(try curve(.easeOut(duration: press), "button-press", "NotchButtonStyle press dim", "Theme.swift NotchButtonStyle"))
-        let shake = try literal("Sources/IslaKit/UI/RefusalShake.swift", #"withAnimation\(\.easeOut\(duration: ([0-9.]+)\)\)"#)
-        var refusal = try curve(.easeOut(duration: shake), "refusal-shake-progress", "progress of the locked pill's refusal shake (drives a decaying sine)", "RefusalShake.swift")
-        refusal.travelPoints = Double(RefusalShake.standardAmplitude)
-        curves.append(refusal)
+        // The refusal shake is no longer a curve: it is time-driven
+        // (`RefusalShake.offset(at:)`), sampled into refusal-shake-offset.csv.
         let shimmer = try literal("Sources/IslaKit/UI/Skeleton.swift", #"\.linear\(duration: ([0-9.]+)\)\.repeatForever"#)
         var skeleton = try curve(.linear(duration: shimmer), "skeleton-shimmer", "artwork skeleton shimmer, repeating", "Skeleton.swift")
         skeleton.repeats = true
@@ -391,15 +389,9 @@ final class VisualLabAnimationTests: VisualLabCase {
         }
     }
 
-    /// `RefusalShake`'s private `ShakeOffset`, mirrored: amplitude × (1 − p) ×
-    /// sin(p · 2π · shakes), p on the ease-out it is animated with.
+    /// The shake itself, sampled from the function the view draws with.
     static func shakeOffset(at t: Double) -> Double {
-        guard let curve = LabCurve.parse(.easeOut(duration: (try? literal("Sources/IslaKit/UI/RefusalShake.swift",
-            #"withAnimation\(\.easeOut\(duration: ([0-9.]+)\)\)"#)) ?? 0.5), name: "", usedFor: "", source: "") else { return 0 }
-        let p = curve.sample(t).value
-        guard p > 0, p < 1 else { return 0 }
-        let shakes = (try? literal("Sources/IslaKit/UI/RefusalShake.swift", #"var shakes: CGFloat = ([0-9.]+)"#)) ?? 3
-        return Double(RefusalShake.standardAmplitude) * (1 - p) * sin(p * .pi * 2 * shakes)
+        RefusalShake.offset(at: t)
     }
 
     static func shakeSeries() -> String {

@@ -199,6 +199,9 @@ struct NotchContentView: View {
                 // the wallpaper beside a shape that has already moved in.
                 .frame(width: size.width, alignment: .center)
                 .clipped()
+                // The refusal under Reduce Motion: the content dips, the black
+                // shape above stays put (see `RefusalShake`).
+                .refusalContentDim()
         }
         // Isla over the shield too, folded or not: pressed, it gives the
         // refusal a click gets. With nothing playing this island used to be
