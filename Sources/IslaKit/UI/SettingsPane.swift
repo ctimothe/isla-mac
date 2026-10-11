@@ -33,6 +33,11 @@ struct SettingsPane: View {
     var wantsKeyboard: Binding<Bool> = .constant(false)
     @ObservedObject var hotKeys: HotKeyCenter = .shared
     @ObservedObject var updates: UpdateCheck = .shared
+    /// Observed: its one published field changes when macOS answers a
+    /// read-only check or a script is refused, a handful of times a session,
+    /// never on the media clock's tick. A test passes its own, so nothing it
+    /// draws depends on what the runner's Mac has granted.
+    @ObservedObject var automation: AutomationAccess = .shared
     var setClipboardHistory: (Bool) -> Void = { _ in }
     var refreshClipboardPolling: () -> Void = {}
     /// A section to scroll to on appearing, cleared once spent. A binding to
@@ -77,6 +82,50 @@ struct SettingsPane: View {
         imagesOn
             ? localized("Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on.")
             : localized("Copies are not read or kept. Turning it off emptied the list.")
+    }
+
+    /// One line of the Music section's Automation block.
+    enum AccessRow: Hashable {
+        /// A player and where macOS stands on Isla scripting it.
+        case status(player: String, state: String)
+        case note(String)
+        /// Opens Privacy & Security › Automation in System Settings.
+        case openAutomationSettings
+    }
+
+    /// Where a refusal can be undone. An anchor a later macOS no longer knows
+    /// still opens System Settings, so the action degrades to one more click
+    /// rather than to nothing.
+    static let automationSettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!
+
+    /// What the Music section says about Automation, from what
+    /// `AutomationAccess` already knows — reading it costs no prompt.
+    ///
+    /// Refusing Automation took away shuffle, repeat, the heart and precise
+    /// lyrics without a word, and on the fallback it hid a playing Spotify
+    /// behind a paused Music track (J-027): the only sign was a control that
+    /// was not there. So each player whose state Isla actually read gets a
+    /// row, and a refusal gets the one sentence and the one action that undo
+    /// it. `.unknown` — a player that is not running answers the read-only
+    /// check with procNotFound — gets nothing: a guess drawn as a state is
+    /// worse than no row (M-38).
+    static func automationRows(_ statuses: [PlayerApp: AutomationConsent]) -> [AccessRow] {
+        var rows: [AccessRow] = []
+        for app in PlayerApp.allCases {
+            let state: String
+            switch statuses[app] ?? .unknown {
+            case .allowed: state = localized("Allowed")
+            case .denied: state = localized("Not allowed")
+            case .notAsked: state = localized("Not asked yet")
+            case .unknown: continue
+            }
+            rows.append(.status(player: app.displayName, state: state))
+        }
+        if statuses.values.contains(.denied) {
+            rows.append(.note(localized("Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation.")))
+            rows.append(.openAutomationSettings)
+        }
+        return rows
     }
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -268,6 +317,13 @@ struct SettingsPane: View {
                         actionRow(symbol: SettingsIcon.tryAgain, title: localized("Try Again")) {
                             media.retryNowPlaying(userAsked: true)
                         }
+                    }
+                    // Next to the reader's own state because it is the other
+                    // half of what the island can read: the fallback scripts
+                    // Music and Spotify, and the heart, shuffle and repeat do
+                    // too. Empty, and so absent, until a player has run.
+                    ForEach(Self.automationRows(automation.consents), id: \.self) { row in
+                        automationRow(row)
                     }
                     // First in the section because it decides what reaches the
                     // island at all; everything below it is about the music
@@ -652,6 +708,11 @@ struct SettingsPane: View {
             saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
             importRecordings = NotchViewModel.importRecordingsEnabled
             refreshUsage()
+            // The answer can change in System Settings while Isla is not
+            // looking, and the way back from Open Automation Settings… is
+            // to reopen this tab. Read-only and off the main thread; it never
+            // prompts.
+            automation.refresh()
         }
         .onReceive(media.$fallbackReason) { fallbackReason = $0 }
     }
@@ -902,6 +963,41 @@ struct SettingsPane: View {
             .padding(.leading, 32)
             .padding(.trailing, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func automationRow(_ row: AccessRow) -> some View {
+        switch row {
+        case let .status(player, state):
+            accessStatusRow(player: player, state: state)
+        case let .note(text):
+            noteRow(text)
+        case .openAutomationSettings:
+            // NSWorkspace needs no activation, so this works from a panel
+            // that never becomes key; System Settings comes forward on its own.
+            actionRow(symbol: SettingsIcon.openSystemSettings, title: localized("Open Automation Settings…")) {
+                NSWorkspace.shared.open(Self.automationSettingsURL)
+            }
+        }
+    }
+
+    /// A player and its Automation state: read, not set, so it is a label and
+    /// a value rather than a control, and VoiceOver hears it as one element,
+    /// "Spotify, Not allowed".
+    private func accessStatusRow(player: String, state: String) -> some View {
+        HStack(spacing: 8) {
+            RowIcon(symbol: SettingsIcon.automationAccess)
+            Text(player)
+                .islandFont(.body)
+                .foregroundStyle(.white)
+            Spacer(minLength: 8)
+            Text(state)
+                .islandFont(.caption, weight: .regular)
+                .foregroundStyle(Theme.tertiary)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 26)
+        .accessibilityElement(children: .combine)
     }
 
     private func noteRow(_ text: String) -> some View {

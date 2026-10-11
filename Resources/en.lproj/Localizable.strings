@@ -342,3 +342,8 @@
 "Edit Lyrics for %@" = "Edit Lyrics for %@";
 "Insert Line After" = "Insert Line After";
 "Line %d has a time Isla can't use." = "Line %d has a time Isla can't use.";
+"Allowed" = "Allowed";
+"Not allowed" = "Not allowed";
+"Not asked yet" = "Not asked yet";
+"Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation." = "Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation.";
+"Open Automation Settings…" = "Open Automation Settings…";

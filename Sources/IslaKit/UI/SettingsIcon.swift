@@ -70,6 +70,11 @@ enum SettingsIcon {
     /// Glass or solid is an appearance choice, and this is the system's
     /// appearance glyph.
     static let cardStyle = "circle.lefthalf.filled"
+    /// Whether macOS lets Isla script a player. The raised hand is the glyph
+    /// System Settings itself gives Privacy & Security, where the answer lives.
+    static let automationAccess = "hand.raised"
+    /// Leaving Isla for System Settings: its own gear, not an action of Isla's.
+    static let openSystemSettings = "gearshape"
 
     // Spotify
     static let connectAccount = "person.crop.circle.badge.plus"
@@ -101,7 +106,7 @@ enum SettingsIcon {
         shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
-        online, lyricTiming, resetTiming, peek, lockScreen, cardStyle,
+        online, lyricTiming, resetTiming, peek, lockScreen, cardStyle, automationAccess, openSystemSettings,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, clipboardHistory, translate, hideFromRecording,
         about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,

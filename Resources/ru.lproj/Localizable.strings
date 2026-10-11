@@ -341,3 +341,8 @@
 "Edit Lyrics for %@" = "Редактировать текст: %@";
 "Insert Line After" = "Вставить строку ниже";
 "Line %d has a time Isla can't use." = "В строке %d время, которое Isla не может использовать.";
+"Allowed" = "Разрешено";
+"Not allowed" = "Не разрешено";
+"Not asked yet" = "Ещё не запрашивалось";
+"Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation." = "Isla не может читать плеер, которым ей не разрешено управлять. Разрешите Isla в разделе «Конфиденциальность и безопасность» › «Автоматизация».";
+"Open Automation Settings…" = "Открыть настройки автоматизации…";

@@ -195,6 +195,78 @@ final class SettingsPaneTests: XCTestCase {
                                  "Increase Contrast outlines the track, on and off")
         }
     }
+
+    // MARK: - Automation access (M-38, J-027)
+
+    /// A refused player says so, by name, and the row under it leads to the
+    /// one place the refusal can be undone. Before this the only sign of a
+    /// refused Spotify was a missing heart, shuffle and repeat, and on the
+    /// fallback a playing Spotify that never showed at all (J-027).
+    func testARefusedPlayerPointsToAutomationSettings() {
+        let rows = SettingsPane.automationRows([.spotify: .denied])
+        XCTAssertEqual(rows, [
+            .status(player: "Spotify", state: localized("Not allowed")),
+            .note(localized("Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation.")),
+            .openAutomationSettings,
+        ])
+        XCTAssertEqual(
+            SettingsPane.automationSettingsURL.absoluteString,
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+        )
+    }
+
+    /// Only states Isla actually read are shown. A player that is not running
+    /// answers the read-only check with procNotFound, which says nothing about
+    /// consent; drawing it as "Not asked yet" would be a guess.
+    func testAnUnknownStateIsNotShown() {
+        XCTAssertEqual(SettingsPane.automationRows([:]), [])
+        XCTAssertEqual(SettingsPane.automationRows([.music: .unknown, .spotify: .unknown]), [])
+        XCTAssertEqual(SettingsPane.automationRows([.music: .allowed, .spotify: .unknown]), [
+            .status(player: PlayerApp.music.displayName, state: localized("Allowed")),
+        ])
+    }
+
+    /// One row per known player, in a fixed order, and the note and the
+    /// action once, only while something is refused: "Not asked yet" needs
+    /// no recovery, because the first panel open on Music asks.
+    func testEveryReadableStateHasARowAndOnlyARefusalHasTheAction() {
+        XCTAssertEqual(SettingsPane.automationRows([.spotify: .notAsked, .music: .allowed]), [
+            .status(player: PlayerApp.music.displayName, state: localized("Allowed")),
+            .status(player: "Spotify", state: localized("Not asked yet")),
+        ])
+        let bothRefused = SettingsPane.automationRows([.spotify: .denied, .music: .denied])
+        XCTAssertEqual(bothRefused.filter { $0 == .openAutomationSettings }.count, 1)
+        XCTAssertEqual(bothRefused.prefix(2), [
+            .status(player: PlayerApp.music.displayName, state: localized("Not allowed")),
+            .status(player: "Spotify", state: localized("Not allowed")),
+        ])
+    }
+
+    /// The rows are drawn, not only computed: a refused Spotify reads as one
+    /// element with its state, and the action is a button by its title.
+    func testTheMusicSectionDrawsARefusal() async {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let stores = isolated.stores
+        let access = AutomationAccess()
+        access.learn(.spotify, outcome: AutomationAccess.refused)
+        let pane = SettingsPane(
+            shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: stores.lyrics,
+            media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
+            hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
+            updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) }),
+            automation: access
+        )
+        let root = await AXProbe.tree(of: pane, size: CGSize(width: 488, height: 900))
+        let refused = localized("Not allowed")
+        // One element carrying both, so VoiceOver never reads the state as a
+        // stray line after the name.
+        let read = { (node: AXNode) in node.label + " " + node.value }
+        XCTAssertFalse(root.all { read($0).contains("Spotify") && read($0).contains(refused) }.isEmpty,
+                       "no row reading Spotify, \(refused)\n\(root.dump)")
+        XCTAssertEqual(root.all(role: "AXButton").filter { $0.label == localized("Open Automation Settings…") }.count, 1,
+                       root.dump)
+    }
 }
 
 /// A row switch over a binding the test can watch, re-rendered by its own
