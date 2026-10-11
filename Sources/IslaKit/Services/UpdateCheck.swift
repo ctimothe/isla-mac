@@ -133,9 +133,31 @@ final class UpdateCheck: ObservableObject {
               release.draft != true, release.prerelease != true
         else { return .failed(.server) }
         let remote = release.tag_name.hasPrefix("v") ? String(release.tag_name.dropFirst()) : release.tag_name
-        return isNewer(remote, than: localVersion)
-            ? .available(version: remote, page: release.html_url)
-            : .upToDate(version: localVersion)
+        guard isNewer(remote, than: localVersion) else { return .upToDate(version: localVersion) }
+        // The page is what "Download Isla x" opens. An answer that points
+        // anywhere but Isla's own releases is a failed check, not a download
+        // button (G-027).
+        guard isTrustedReleasePage(release.html_url) else {
+            Log.updates.error("update check refused a release page off Isla's GitHub releases")
+            return .failed(.server)
+        }
+        return .available(version: remote, page: release.html_url)
+    }
+
+    /// Whether `url` is a page under Isla's own GitHub releases: https, exactly
+    /// github.com, no credentials or port, and a path under
+    /// `/ctimothe/isla-mac/releases/`. The repository is read from
+    /// `latestReleaseURL` so the two cannot drift apart. A renamed repository
+    /// shows as a failed check until that constant changes, which the API
+    /// request itself already depends on.
+    nonisolated static func isTrustedReleasePage(_ url: URL) -> Bool {
+        guard url.scheme == "https", url.host == "github.com",
+              url.user == nil, url.password == nil, url.port == nil
+        else { return false }
+        let apiPath = latestReleaseURL.path            // /repos/<owner>/<name>/releases/latest
+        guard apiPath.hasPrefix("/repos/"), let releases = apiPath.range(of: "/releases/") else { return false }
+        let repository = apiPath[apiPath.index(apiPath.startIndex, offsetBy: "/repos".count)..<releases.lowerBound]
+        return url.path.hasPrefix("\(repository)/releases/")
     }
 
     /// Whether `remote` is a later release than `local`, by dotted numbers.

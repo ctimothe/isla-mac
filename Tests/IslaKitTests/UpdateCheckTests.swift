@@ -47,6 +47,31 @@ final class UpdateCheckTests: XCTestCase {
         XCTAssertEqual(UpdateCheck.state(forRelease: Data("nope".utf8), localVersion: "0.2.0"), .failed(.server))
     }
 
+    /// "Download Isla x" opens the answer's page, so a tampered or intercepted
+    /// answer must not be able to put a file:// or off-domain page behind an
+    /// Isla-branded button (G-027).
+    func testAReleasePageOffGitHubIsRefused() {
+        func answer(_ page: String) -> Data {
+            Data(#"{"tag_name":"v9.9.9","html_url":"\#(page)","draft":false,"prerelease":false}"#.utf8)
+        }
+        for page in [
+            "file:///Applications",
+            "https://evil.example/ctimothe/isla-mac/releases/tag/v9.9.9",
+            "http://github.com/ctimothe/isla-mac/releases/tag/v9.9.9",
+            "https://github.com.evil.example/ctimothe/isla-mac/releases/tag/v9.9.9",
+            "https://github.com/someone-else/isla-mac/releases/tag/v9.9.9",
+            "https://github.com/ctimothe/isla-mac/issues/1",
+            "https://user@github.com/ctimothe/isla-mac/releases/tag/v9.9.9",
+        ] {
+            XCTAssertEqual(UpdateCheck.state(forRelease: answer(page), localVersion: "0.2.0"), .failed(.server), page)
+        }
+        let good = "https://github.com/ctimothe/isla-mac/releases/tag/v9.9.9"
+        XCTAssertEqual(
+            UpdateCheck.state(forRelease: answer(good), localVersion: "0.2.0"),
+            .available(version: "9.9.9", page: URL(string: good)!)
+        )
+    }
+
     /// The request goes to GitHub's releases API and names the version asking,
     /// and nothing else.
     func testTheCheckAsksGitHubAndReportsTheAnswer() async throws {
