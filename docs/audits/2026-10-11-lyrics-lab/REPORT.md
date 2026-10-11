@@ -204,3 +204,20 @@ Rerun once the corpus was complete: 540 unique LRCLIB tracks, 25 396 lines, 20 c
 | L8 surfaces | 52 013 disagreements in 953 448 samples, all before the first line (p50 12.9 s per track): the lock card draws line 1 as sung while the stage draws none. Zero disagreement after the first line |
 
 The first run's conclusions stand and are stronger: Isla's arithmetic is exact, and the defects sit in what Isla throws away (gap stamps, line ends, file dialects), in the clock's re-base and rate handling, and in a lead that no single constant can set.
+
+## Final rerun on the integrated branch (2026-10-11, after batch 25)
+
+Same 540-track corpus (536 tracks carry synced lyrics), same harness, run on `feat/island-next-level` at the batch 25 tip. Full numbers: `report-final-integrated.json`. The rerun costs no model tokens.
+
+| Section | Before the program | After batch 25 |
+|---|---|---|
+| L1 parse fidelity | fail: 2 files refused, 1 sung line missing | fail: 1 file refused (LRCLIB 36877652, an enhanced-LRC track with `<mm:ss.xxx>` word tags), 0 sung lines missing |
+| L2 index exactness | concern | pass: 0 disagreements over 153.7 M one-millisecond steps and 1.07 M seeks |
+| L3 frame-grid activation | concern | pass: 0 lines stamped past the end of their track |
+| L4 timer scheduling | concern | concern: strict wake late p50 0.072 ms (was a 3.4 ms Foundation timer), p99 0.6 ms idle, max 17 ms; clock re-base leaves the anchor behind 0 percent of the time (was 36 percent) |
+| L5 word sweep | concern | concern: edge lag p50 4.2 ms, p95 8.3 ms at 120 Hz; still only 2 real word-timed lines in the corpus |
+| L6 gap behaviour | fail: a line stayed lit a median 28.9 s a track | concern: 0 s, 0 lines lit through more than 8 s of silence |
+| L7 lead calibration | concern | concern, unchanged by design: the model suggests a lead near 0.3 s where 0.2 s ships; the owner calibrated 0.2 s by ear and reports it exact, so it was not moved |
+| L8 cross-surface agreement | fail: 52 013 disagreements | pass: 0 over 937 720 samples on three surfaces |
+
+Still open: the one refused enhanced-LRC file (task ly/PARSE-ENH), and the lead, which only the owner's ear (session S-LEAD) can settle.
