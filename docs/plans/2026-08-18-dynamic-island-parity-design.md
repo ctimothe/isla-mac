@@ -179,6 +179,19 @@ transitions.
 > macOS hands activation back to the previous app. Held by
 > `PinnedKeyboardTests`.
 
+> **Amended 2026-10-11 — arriving at an open panel keeps its tab.** The
+> 2026-09-10 arrival rule above both dropped the pin and selected Music, on
+> every arrival. Music is the right landing for arriving at the *closed*
+> island — it is for glancing at a track, and the other tabs are somewhere to
+> go once it is open — and that is unchanged. But ⌃⌥⌘I opens the panel on
+> whatever tab was left, with the pointer elsewhere, and the hand then
+> reaching for a Clipboard row was an arrival too: the pane swapped to Music
+> under it. An arrival on a panel that is already open now only drops the pin
+> (which also gives back the Escape it held); the tab stays where it is.
+> Dropping the Music landing altogether was rejected, because it would reverse
+> the closed-island behaviour. Held by
+> `OpenOnClickTests.testArrivingOnAPanelTheKeyboardOpenedKeepsItsTab`.
+
 > **Amended 2026-08-25.** The standard content size is now `480…620 × 208 pt`,
 > defaulting to `560`, chosen from Settings. The fixed maximum window is
 > unchanged at `700 × 444 pt` and is cut for the widest body: a narrower

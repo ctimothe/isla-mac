@@ -1117,9 +1117,10 @@ final class NotchController {
             //
             // What the crossing means is the view model's — `pointerCrossed`,
             // where it can be tested without a pointer. What it does to the
-            // panel is this closure's. An arrival lands on Music: the island is
-            // for glancing at a track, and the other tabs are somewhere to go
-            // once it is open, not somewhere to arrive. Deliberate routes still
+            // panel is this closure's. An arrival at the closed island lands on
+            // Music: the island is for glancing at a track, and the other tabs
+            // are somewhere to go once it is open, not somewhere to arrive. An
+            // arrival on a panel already open keeps its tab. Deliberate routes still
             // choose their own tab — ⌃⌥⌘T lands on Translate, and a drag stays on
             // the Shelf, which is what `dragging` is for.
             switch vm.pointerCrossed(inside: inside, dragging: self.pointer.isDragging()) {
