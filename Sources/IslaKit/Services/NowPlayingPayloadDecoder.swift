@@ -56,10 +56,21 @@ enum NowPlayingPayloadDecoder {
         charactersIn: "\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}"
     )
 
+    /// The C0 and C1 control codes (general category Cc) and nothing else.
+    /// This used to be `CharacterSet.controlCharacters`, which Apple defines as
+    /// Cc *plus* Cf — so it also ate the zero-width joiner ('❤️‍🔥' drew as a
+    /// heart beside a fire, a family emoji as four people), the zero-width
+    /// non-joiner of a Persian half-space, soft hyphens and the tag characters
+    /// of a subdivision flag, and the altered title was what LRCLIB was asked
+    /// for. The format characters that can actually reorder what the island
+    /// shows are the bidi overrides, which `bidiControls` names one by one.
+    private static let c0AndC1Controls = CharacterSet(charactersIn: "\u{0000}"..."\u{001F}")
+        .union(CharacterSet(charactersIn: "\u{007F}"..."\u{009F}"))
+
     private static func text(_ value: Any?) -> String {
         guard let string = value as? String else { return "" }
         let scalars = string.unicodeScalars.filter {
-            !CharacterSet.controlCharacters.contains($0) && !bidiControls.contains($0)
+            !c0AndC1Controls.contains($0) && !bidiControls.contains($0)
         }
         return String(String.UnicodeScalarView(scalars.prefix(maxTextLength)))
     }
