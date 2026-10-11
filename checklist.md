@@ -371,6 +371,15 @@ Closed from the 2026-09-03 audit (`docs/audits/2026-09-03-synthesis.md`):
   carried. Not a window, not a tab, not a status item: the 2026-08-25
   withdrawal stands (`FirstRunTests`, `TabContractTests`). Validated by hand
   on 2026-09-10 - see the run recorded at the foot of this section.
+  **Amended 2026-10-11 (H-020):** the pane is two columns. One line sits
+  level with each rail icon and says what that tab is, with the live lyrics
+  and translate shortcuts in their lines. Beside them: Isla is running, no Dock
+  or menu-bar icon, click the notch or press the open shortcut to come back,
+  nothing leaves your Mac unless you turn it on, Get Started. No rail tab is
+  lit or selected while it shows. Measured at the 480 pt minimum against the
+  154 pt body: en 150, ru 151 (`FirstRunTests`). The render is owed to the
+  owner's eye, and the first-run pass owes a look on hardware that each legend
+  sits level with its icon.
 - [x] `PointerWatcher.tick`'s ordinary inside-to-outside transition now
   carries an `isDragging()` guard, so dragging a file *out* of the Shelf no
   longer closes the panel mid-drag. Recorded here as open when Task 3

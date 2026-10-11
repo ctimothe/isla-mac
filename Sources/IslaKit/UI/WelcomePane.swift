@@ -9,10 +9,17 @@ import SwiftUI
 /// for something that exists for one launch. So this is the body, for one
 /// launch, and then never again.
 ///
-/// It says three things, in the order somebody who just launched an invisible
-/// app needs them: that the app is running, where it is, and how to get out of
-/// it. The last one is not a courtesy — an `LSUIElement` app does not appear in
-/// Force Quit, so a user who cannot find the panel has no way to quit it.
+/// Two columns. On the left, one line beside each rail icon saying what that
+/// tab is — the rail is right there, so the mapping is shown rather than
+/// described. On the right, what somebody who just launched an invisible app
+/// needs: that it is running, how to get back to it once this closes, and that
+/// nothing leaves the Mac until they say so. The way back is not a courtesy —
+/// an `LSUIElement` app does not appear in Force Quit, so a user who cannot find
+/// the panel again cannot find Quit either.
+///
+/// It used to be one column that said "It lives at the notch. Click it to
+/// open." — on a panel that had opened itself, so the instruction read as
+/// already done — and named none of the tabs, and left ⌃⌥⌘T out (H-020).
 struct WelcomePane: View {
     /// What Get Started does. A closure rather than the whole `NotchViewModel`,
     /// because the one thing this pane asks of the app is "the welcome has been
@@ -24,7 +31,7 @@ struct WelcomePane: View {
     /// would otherwise be caught before a human ever saw it.
     var onDismiss: () -> Void
 
-    /// The six strings, resolved through the app's own tables by default.
+    /// The strings, resolved through the app's own tables by default.
     ///
     /// Handed in rather than written into the `Text`s so a test can render this
     /// pane with the *Russian* table and measure whether it still fits the body:
@@ -34,96 +41,201 @@ struct WelcomePane: View {
     /// which is where a layout laid out in English overflows.
     var copy: Copy = .fromTables
 
+    /// The rail's own icon height, which differs between Macs
+    /// (`NotchGeometry.railIconHeight`). Each legend row is cut to it so that
+    /// the line sits level with the icon it names; at any other height the
+    /// fourth row would be a whole icon out by the bottom of the run.
+    var railIconHeight: CGFloat
+
+    /// The keys as they are bound right now, not as they shipped. A welcome
+    /// that printed the defaults would be wrong for anyone who had moved one
+    /// before resetting the first run, and it was wrong for everybody once
+    /// the defaults themselves changed. Empty for a shortcut cleared in
+    /// Settings, and the line that would have named it says it without one.
+    var openKeys = HotKeyCenter.shared.bindings[.openPanel]?.displayString ?? ""
+    var lyricsKeys = HotKeyCenter.shared.bindings[.showLyrics]?.displayString ?? ""
+    var translateKeys = HotKeyCenter.shared.bindings[.translateClipboard]?.displayString ?? ""
+
     struct Copy {
         var running: String
-        var whereItLives: String
-        var openPanel: String
-        var showLyrics: String
-        var settingsFootnote: String
+        var comeBack: String
+        var comeBackUnbound: String
+        var staysOnMac: String
+        var music: String
+        var musicUnbound: String
+        var shelf: String
+        var clipboard: String
+        var translate: String
+        var translateUnbound: String
+        var settings: String
         var action: String
 
         /// English — and therefore also the keys, since in this project the keys
         /// *are* the English text.
+        ///
+        /// "Nothing leaves your Mac unless you turn it on" is a claim, so it is
+        /// worth saying what makes it true: online lyrics, online translation,
+        /// the update check and the Spotify account all default to off, and the
+        /// clipboard history is held in memory and never written out.
         static let english = Copy(
             running: "Isla is running.",
-            whereItLives: "It lives at the notch. Click it to open.",
-            openPanel: "Open the panel",
-            showLyrics: "Show the lyrics",
-            settingsFootnote: "Quit and everything else lives in Settings, at the bottom left.",
+            comeBack: "No Dock or menu-bar icon. Click the notch or press %@ to come back.",
+            comeBackUnbound: "No Dock or menu-bar icon. Click the notch to come back.",
+            staysOnMac: "Nothing leaves your Mac unless you turn it on.",
+            music: "What's playing, with lyrics (%@)",
+            musicUnbound: "What's playing, with lyrics",
+            shelf: "Files you drop on the notch",
+            clipboard: "What you copied, kept in memory",
+            translate: "%@ translates what you copied",
+            translateUnbound: "Translates what you copied",
+            settings: "Privacy, shortcuts and Quit",
             action: "Get Started"
         )
 
-        /// The same six, looked up in whichever table the app ended up running
-        /// in.
-        static var fromTables: Copy {
+        /// The same, looked up in whichever table the app ended up running in.
+        static var fromTables: Copy { english.mapped(localized) }
+
+        /// Every string put through one lookup. One list of fields, so a test
+        /// reading the Russian table off disk and the app reading it through
+        /// the bundle cannot disagree about which strings there are.
+        func mapped(_ look: (String) throws -> String) rethrows -> Copy {
             Copy(
-                running: localized(english.running),
-                whereItLives: localized(english.whereItLives),
-                openPanel: localized(english.openPanel),
-                showLyrics: localized(english.showLyrics),
-                settingsFootnote: localized(english.settingsFootnote),
-                action: localized(english.action)
+                running: try look(running),
+                comeBack: try look(comeBack),
+                comeBackUnbound: try look(comeBackUnbound),
+                staysOnMac: try look(staysOnMac),
+                music: try look(music),
+                musicUnbound: try look(musicUnbound),
+                shelf: try look(shelf),
+                clipboard: try look(clipboard),
+                translate: try look(translate),
+                translateUnbound: try look(translateUnbound),
+                settings: try look(settings),
+                action: try look(action)
             )
         }
 
         var all: [String] {
-            [running, whereItLives, openPanel, showLyrics, settingsFootnote, action]
+            [
+                running, comeBack, comeBackUnbound, staysOnMac,
+                music, musicUnbound, shelf, clipboard,
+                translate, translateUnbound, settings, action,
+            ]
         }
     }
 
     /// Every key this pane shows, so a test can prove both tables carry them.
     static let localizedKeys = Copy.english.all
 
-    /// The keys as they are bound right now, not as they shipped. A welcome
-    /// that printed the defaults would be wrong for anyone who had moved one
-    /// before resetting the first run, and it was wrong for everybody once
-    /// the defaults themselves changed.
-    ///
-    /// Lyrics and not Translate on the second row: lyrics are what nobody else
-    /// has, and the Translate shortcut is listed in Settings with the others.
-    var openKeys = HotKeyCenter.shared.bindings[.openPanel]?.displayString ?? ""
-    var lyricsKeys = HotKeyCenter.shared.bindings[.showLyrics]?.displayString ?? ""
+    /// Between the legends and the message.
+    static let columnGap: CGFloat = 16
+
+    /// The least the message column may be left with once the legends have
+    /// taken their width. Below this the title and the button are squeezed to a
+    /// word a line and the pane outgrows the body; `FirstRunTests` measures the
+    /// Russian legends against it at the narrowest panel.
+    static let messageMinWidth: CGFloat = 150
+
+    /// What the line beside `tab`'s icon says.
+    func legend(for tab: NotchViewModel.Tab) -> String {
+        switch tab {
+        case .media:
+            return lyricsKeys.isEmpty ? copy.musicUnbound : String(format: copy.music, lyricsKeys)
+        case .shelf:
+            return copy.shelf
+        case .clipboard:
+            return copy.clipboard
+        case .translate:
+            return translateKeys.isEmpty ? copy.translateUnbound : String(format: copy.translate, translateKeys)
+        case .settings:
+            return copy.settings
+        }
+    }
+
+    /// The way back, with the open shortcut in it while there is one.
+    var comeBackLine: String {
+        openKeys.isEmpty ? copy.comeBackUnbound : String(format: copy.comeBack, openKeys)
+    }
 
     var body: some View {
         // The vertical budget, measured rather than guessed, because the body is
         // a fixed 208 pt that never resizes and there is nothing to scroll: the
         // shallowest body any supported Mac can give this pane is 154 pt (208,
-        // less a notch as deep as 40, less the 14 below the rail). Laid out as
-        // designed — a `Spacer` holding the button to the floor, 10 pt between
-        // rows — it asked for 168, and its button was cut off. Dropping the
-        // spacer took it to 158 and this 8 pt spacing to 150, in *both*
-        // languages. `FirstRunTests` holds the number.
+        // less a notch as deep as 40, less the 14 below the rail). The single
+        // column this replaced used 150 of it with two feature lines; four more
+        // would not fit under it, which is why the features went beside the
+        // rail, where the height is already spent on the icons. The legend
+        // column asks for 150 (five icons, their gaps and the rail's 10 pt
+        // footer gap) and the message column for less. `FirstRunTests` holds
+        // the number in both languages at the narrowest panel.
+        HStack(alignment: .top, spacing: Self.columnGap) {
+            legendColumn
+                // The legends are one line each and take the width they need;
+                // the message wraps in what is left. Truncated instead, a
+                // Russian legend lost its tail and the icon it named lost its
+                // meaning.
+                .fixedSize(horizontal: true, vertical: false)
+            message
+                .frame(minWidth: Self.messageMinWidth, maxWidth: .infinity, alignment: .topLeading)
+        }
+        // Aligned with every other pane rather than inset on its own: the rail
+        // is beside it and the body already pads its content by 14.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.trailing, 4)
+    }
+
+    /// One line per rail icon, in the rail's own rhythm: the same row height,
+    /// the same gap, and Settings held to the bottom by the same footer gap, so
+    /// each line sits level with the icon it names. The pane's top is the
+    /// rail's top — both start where the header ends — which is why there is
+    /// no top padding here.
+    var legendColumn: some View {
+        VStack(alignment: .leading, spacing: NotchGeometry.railSpacing) {
+            ForEach(NotchViewModel.Tab.contentTabs) { legendRow($0) }
+            Spacer(minLength: Rail.footerGap)
+            ForEach(NotchViewModel.Tab.utilityTabs) { legendRow($0) }
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func legendRow(_ tab: NotchViewModel.Tab) -> some View {
+        Text(legend(for: tab))
+            .islandFont(.body, weight: .regular)
+            .foregroundStyle(Theme.secondary)
+            .lineLimit(1)
+            .frame(height: railIconHeight, alignment: .leading)
+            // Heard on its own the line says what a tab does but not which tab;
+            // the icon it sits beside is a separate element in another group.
+            // So it carries the tab's name, the way a sighted reader gets it
+            // from the icon.
+            .accessibilityLabel(tab.title)
+            .accessibilityValue(legend(for: tab))
+    }
+
+    private var message: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(copy.running)
                 .islandFont(.title)
                 .foregroundStyle(.white)
 
-            Text(copy.whereItLives)
+            Text(comeBackLine)
                 .islandFont(.body, weight: .regular)
                 .foregroundStyle(Theme.secondary)
+                // A `Text` in a stack whose height is decided elsewhere
+                // truncates to one line rather than taking two, so a line this
+                // long in a column this narrow would arrive with its tail cut
+                // off instead of wrapped.
                 .fixedSize(horizontal: false, vertical: true)
 
-            VStack(alignment: .leading, spacing: 6) {
-                if !openKeys.isEmpty { shortcut(openKeys, copy.openPanel) }
-                if !lyricsKeys.isEmpty { shortcut(lyricsKeys, copy.showLyrics) }
-            }
-            .padding(.top, 2)
-
-            Text(copy.settingsFootnote)
+            Text(copy.staysOnMac)
                 .islandFont(.caption, weight: .regular)
                 .foregroundStyle(Theme.tertiary)
-                // This line and the one above it are the two long enough to
-                // wrap. Neither does today — both fit on one line even at the
-                // narrowest panel width, in English and in Russian — but a
-                // `Text` in a stack whose height is decided elsewhere truncates
-                // to one line rather than taking two, so a longer translation
-                // would arrive with its tail cut off instead of merely tight.
                 .fixedSize(horizontal: false, vertical: true)
 
             // The stack flows from the top and the slack collects underneath,
             // like every other pane. A `Spacer` holding this button to the floor
-            // of the body is what pushed the pane past the height it has — see
-            // the note at the top.
+            // of the body is what pushed the old single column past the height
+            // it had.
             Button(action: onDismiss) {
                 Text(copy.action)
             }
@@ -133,51 +245,5 @@ struct WelcomePane: View {
             // screen.
             .buttonStyle(OfferButtonStyle(fill: Theme.surfaceHover, horizontalPadding: 14, verticalPadding: 6))
         }
-        // Aligned with every other pane rather than inset on its own: the rail
-        // is beside it and the body already pads its content by 14.
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.top, 2)
-        .padding(.trailing, 4)
-    }
-
-    /// Room for the widest of the shortcut glyphs, so that the two keycaps are
-    /// the same size and the two labels start at the same x.
-    ///
-    /// The system font is proportional and these are not digits, so `⌥⌘T`
-    /// measured 28.3 pt against `⌥⌘I`'s 24.3 — the two caps came out four points
-    /// apart, and two rows of a two-row list not lining up is the one flaw in
-    /// this pane a reader cannot help seeing. The defaults grew a ⌃ on
-    /// 2026-09-23, which is why this is wider than it was. `.monospacedDigit()`, which the
-    /// first draft used for this, does nothing here: it fixes the width of
-    /// figures, and there are none. `FirstRunTests` measures both strings
-    /// against this number, so a font change that outgrew it fails a test
-    /// instead of quietly ragging the column again.
-    static let keycapGlyphWidth: CGFloat = 40
-
-    /// The glyph and what it does. The keycap is the rail icon's own well —
-    /// `Theme.surface` — so a shortcut reads as a key rather than as a link.
-    ///
-    /// No tracking on the glyphs, deliberately: `Theme.tracking(forSize:)` adds
-    /// space *after* every character including the last, which pushes a
-    /// two-glyph keycap off centre inside its well. The label beside it is prose
-    /// and takes the table.
-    private func shortcut(_ keys: String, _ label: String) -> some View {
-        HStack(spacing: 8) {
-            Text(keys)
-                .font(Theme.TypeRole.body.font())
-                .foregroundStyle(.white)
-                // Inside the padding, so the well grows with the glyphs rather
-                // than the glyphs sliding around inside a fixed well.
-                .frame(minWidth: Self.keycapGlyphWidth)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-            Text(label)
-                .islandFont(.body, weight: .regular)
-                .foregroundStyle(Theme.secondary)
-        }
-        // One element, so VoiceOver reads the pair as "⌃⌥⌘I, open the panel"
-        // rather than stopping on a keycap that means nothing on its own.
-        .accessibilityElement(children: .combine)
     }
 }
