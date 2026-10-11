@@ -339,3 +339,8 @@
 "%+.2f seconds" = "%+.2f seconds";
 "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause.";
 "Instrumental" = "Instrumental";
+"Allowed" = "Allowed";
+"Not allowed" = "Not allowed";
+"Not asked yet" = "Not asked yet";
+"Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation." = "Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation.";
+"Open Automation Settings…" = "Open Automation Settings…";

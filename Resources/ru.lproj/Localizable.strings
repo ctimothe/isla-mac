@@ -338,3 +338,8 @@
 "%+.2f seconds" = "%+.2f секунды";
 "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify отказал в «Любимых треках» и сослался на Premium. Spotify требует его от регистрации самой Isla, так что дело может быть не в вашей подписке.";
 "Instrumental" = "Проигрыш";
+"Allowed" = "Разрешено";
+"Not allowed" = "Не разрешено";
+"Not asked yet" = "Ещё не запрашивалось";
+"Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation." = "Isla не может читать плеер, которым ей не разрешено управлять. Разрешите Isla в разделе «Конфиденциальность и безопасность» › «Автоматизация».";
+"Open Automation Settings…" = "Открыть настройки автоматизации…";
