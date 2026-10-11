@@ -373,18 +373,19 @@ struct LockScreenCard: View {
             if case .ready = lyrics.availability,
                case .synced(let lines) = lyrics.state,
                !lines.isEmpty {
-                let at = LyricSweep.position(
-                    media.position,
+                let resolution = Self.resolve(lines: lines, inputs: LyricInputs(
+                    position: media.position,
                     precisionSync: media.precisionSync,
                     userOffset: lyrics.userOffset,
-                    trackOffset: lyrics.trackOffset
-                )
-                let centre = LyricSweep.centreIndex(in: lines, at: at)
+                    trackOffset: lyrics.trackOffset,
+                    wordTiming: wordTimingEnabled
+                ))
+                let centre = resolution.centre
                 let window = Self.window(around: centre, count: lines.count, size: Self.visibleLyricLines(for: cardSize))
                 let jump = Self.isJump(from: lastCentre, to: centre)
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(window, id: \.self) { index in
-                        lyricRow(lines: lines, index: index, centre: centre, at: at)
+                        lyricRow(lines: lines, index: index, resolution: resolution)
                             .transition(Self.lineTransition(reduceMotion: reduceMotion))
                     }
                 }
@@ -451,14 +452,27 @@ struct LockScreenCard: View {
         )
     }
 
+    /// What the card draws for one reading of the clock: the window centres on
+    /// `centre`, and only `current` is drawn as sung. The card used to pass
+    /// the centre as `isCurrent`, so through every intro it filled line 1 as
+    /// though the voice were in it while the stage and the caption both showed
+    /// it waiting — a median 12.9 s of each of the lyric lab's 540 tracks. The
+    /// lab calls this function, not a copy of it.
+    static func resolve(lines: [LyricsStore.Line], inputs: LyricInputs) -> LyricResolution {
+        LyricSweep.resolve(lines: lines, inputs: inputs)
+    }
+
     private func lyricRow(
-        lines: [LyricsStore.Line], index: Int, centre: Int, at: TimeInterval
+        lines: [LyricsStore.Line], index: Int, resolution: LyricResolution
     ) -> some View {
         LyricRow(
             line: lines[index],
-            isCurrent: index == centre,
-            distance: abs(index - centre),
-            at: at,
+            isCurrent: index == resolution.current,
+            // Measured from the sung line, as on the stage: from the centre,
+            // the waiting opening line sat at the far floor beside a brighter
+            // neighbour.
+            distance: resolution.moment.distance(of: index),
+            at: resolution.at,
             end: LyricSweep.end(of: index, in: lines),
             fontSize: Theme.TypeRole.title.size,
             weight: .bold,

@@ -59,6 +59,112 @@ final class SharedLyricTimelineTests: XCTestCase {
         )
     }
 
+    /// The intro, on all three surfaces at once. Before the first timestamp
+    /// the stage drew no sung line, the caption drew line 1 unswept, and the
+    /// lock card drew line 1 *as sung* — `isCurrent` was the centre, and
+    /// `LyricRow` fills a current line-timed row to 1 — for a median 12.9 s of
+    /// every track in the lab's 540 (L8: 52,013 disagreements, every one of
+    /// them before the first line). One moment answers for all three now:
+    /// nothing is current, line 1 is the one shown, and it is not swept.
+    func testEverySurfaceAgreesBeforeTheFirstLine() throws {
+        let lines = [
+            LyricsStore.Line(at: 5, text: "a"),
+            LyricsStore.Line(at: 9, text: "b"),
+        ]
+        // Standard sync, no corrections: the lead is 0.2, so the lyric reads 2.2.
+        let inputs = LyricInputs(
+            position: 2, precisionSync: false, userOffset: 0, trackOffset: 0, wordTiming: false
+        )
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), 0.2, accuracy: 0.0001)
+
+        let stage = LyricsStage.resolve(lines: lines, inputs: inputs)
+        XCTAssertNil(stage.current, "the stage lights nothing during the intro")
+        XCTAssertEqual(stage.centre, 0, "and waits on the opening line")
+        XCTAssertEqual(stage.fraction, 0)
+
+        let card = LockScreenCard.resolve(lines: lines, inputs: inputs)
+        XCTAssertNil(card.current, "the card used to call the centre current and fill it")
+        XCTAssertEqual(card.centre, 0)
+        XCTAssertEqual(card.fraction, 0, "line 1 is not sung yet, so it is not swept")
+
+        let caption = try XCTUnwrap(MediaPane.captionResolution(lines: lines, inputs: inputs))
+        XCTAssertNil(caption.current)
+        XCTAssertEqual(caption.centre, 0, "the caption shows the opening line")
+        XCTAssertEqual(caption.fraction, 0, "unswept")
+
+        XCTAssertEqual(stage, card)
+        XCTAssertEqual(card, caption)
+    }
+
+    /// And once the voice is inside a line, all three still say the same:
+    /// that line, filled to 1 for line timing, by its word sweep otherwise.
+    func testEverySurfaceAgreesInsideALine() throws {
+        let lines = [
+            LyricsStore.Line(at: 5, text: "a"),
+            LyricsStore.Line(
+                at: 9, text: "one two",
+                words: [LyricWord(at: 9, text: "one", end: 10), LyricWord(at: 10, text: "two", end: 11)]
+            ),
+        ]
+        for wordTiming in [false, true] {
+            let inputs = LyricInputs(
+                position: 9.8, precisionSync: false, userOffset: 0, trackOffset: 0, wordTiming: wordTiming
+            )
+            let stage = LyricsStage.resolve(lines: lines, inputs: inputs)
+            let card = LockScreenCard.resolve(lines: lines, inputs: inputs)
+            let caption = try XCTUnwrap(MediaPane.captionResolution(lines: lines, inputs: inputs))
+            XCTAssertEqual(stage.current, 1)
+            XCTAssertEqual(stage.centre, 1)
+            XCTAssertEqual(
+                stage.fraction,
+                wordTiming ? LyricSweep.fraction(line: lines[1], at: 10, end: 15) : 1,
+                accuracy: 0.0001
+            )
+            XCTAssertEqual(stage, card)
+            XCTAssertEqual(card, caption)
+        }
+    }
+
+    /// A credit is never swept, on any surface: a filled sweep across
+    /// "Produced by" claims somebody is singing it.
+    func testACurrentCreditIsDrawnUnswept() {
+        let credit = LyricsStore.Line(at: 0, text: "Produced by Somebody", isCredit: true)
+        XCTAssertEqual(LyricSweep.drawnFraction(line: credit, isCurrent: true, at: 3, end: 6, wordTiming: false), 0)
+        let sung = LyricsStore.Line(at: 0, text: "la la")
+        XCTAssertEqual(LyricSweep.drawnFraction(line: sung, isCurrent: true, at: 3, end: 6, wordTiming: false), 1)
+        XCTAssertEqual(LyricSweep.drawnFraction(line: sung, isCurrent: false, at: 3, end: 6, wordTiming: false), 0)
+    }
+
+    /// The moment itself: what is current, what a surface centres on, and what
+    /// the voice reaches next.
+    func testTheMomentNamesCurrentCentreAndUpcoming() {
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: 0), LyricMoment(current: nil, centre: 0, upcoming: 0))
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: 20), LyricMoment(current: 1, centre: 1, upcoming: 2))
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: 999), LyricMoment(current: 2, centre: 2, upcoming: nil))
+        XCTAssertEqual(LyricSweep.moment(in: [], at: 5), LyricMoment(current: nil, centre: 0, upcoming: nil))
+        // Depth is measured from the sung line; with none sung, every line
+        // sits at the far floor rather than the opening line being the
+        // dimmest thing beside a brighter neighbour.
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: 20).distance(of: 2), 1)
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: 0).distance(of: 0), 2)
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: 0).distance(of: 1), 2)
+    }
+
+    /// A bilingual LRC stamps the original and its translation at one time,
+    /// and the parser keeps both. Keyed by timestamp, the two rows shared one
+    /// id — drawn twice or skipped, and the scroll anchor could not tell them
+    /// apart. Keyed by index, every row is its own.
+    func testRowsAreKeyedByIndexNotTime() {
+        let bilingual = [
+            LyricsStore.Line(at: 4, text: "hello"),
+            LyricsStore.Line(at: 4, text: "privet"),
+            LyricsStore.Line(at: 8, text: "goodbye"),
+        ]
+        let ids = LyricsStage.rowIDs(bilingual)
+        XCTAssertEqual(ids.count, bilingual.count)
+        XCTAssertEqual(Set(ids).count, bilingual.count, "two lines at one stamp are two rows")
+    }
+
     func testEveryLocalAvailabilityHasCaptionAndLocalRecoveryAction() {
         let timeline = LyricTimeline(
             lines: [LyricsStore.Line(at: 1, text: "One")],

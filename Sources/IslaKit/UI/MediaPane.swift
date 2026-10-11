@@ -478,25 +478,22 @@ struct MediaPane: View {
     private var lyricsLine: some View {
         if case .ready = lyrics.availability,
            case .synced(let lines) = lyrics.state {
-            let at = LyricSweep.position(
-                media.position,
+            let wordTimingEnabled = LyricsPresentation.usesWordTiming(
+                lyrics.timingGranularity,
+                precisionMeasured: media.precisionSync,
+                wordKaraokeEnabled: lyrics.wordKaraokeEnabled
+            )
+            if let shown = Self.captionResolution(lines: lines, inputs: LyricInputs(
+                position: media.position,
                 precisionSync: media.precisionSync,
                 userOffset: lyrics.userOffset,
-                trackOffset: lyrics.trackOffset
-            )
-            if let shown = LyricSweep.displayed(lines: lines, at: at) {
-                let line = shown.line
-                let wordTimingEnabled = LyricsPresentation.usesWordTiming(
-                    lyrics.timingGranularity,
-                    precisionMeasured: media.precisionSync,
-                    wordKaraokeEnabled: lyrics.wordKaraokeEnabled
-                )
-                // Where the voice stands inside this line, 0...1. The catalogue
-                // carries line timestamps, not word ones, so within a line the
-                // sweep is linear time — even pacing, which is what singing
-                // mostly is. The end of the last line borrows a spoken-line
-                // length rather than running to the end of the track.
-                let end = shown.end
+                trackOffset: lyrics.trackOffset,
+                wordTiming: wordTimingEnabled
+            )) {
+                // The row shown: the line being sung, or the opening line
+                // waiting through the intro.
+                let index = shown.centre
+                let line = lines[index]
                 // The caption is the door to the stage: click it and the pane
                 // becomes the full scrolling lyrics. A chevron surfaces on
                 // hover so the door reads as one — a bare line of text gives
@@ -505,14 +502,12 @@ struct MediaPane: View {
                     HStack(spacing: 5) {
                         KaraokeText(
                             text: line.text,
-                            // A credit is not being sung, so it is not swept:
-                            // a filled sweep across "Produced by" says the
-                            // voice is there, which it is not.
-                            fraction: line.isCredit || !shown.swept
-                                ? 0
-                                : wordTimingEnabled
-                                    ? LyricSweep.fraction(line: line, at: at, end: end)
-                                    : 1,
+                            // Where the voice stands inside this line, 0...1,
+                            // and 0 for a credit or a line the voice has not
+                            // reached: a filled sweep across "Produced by", or
+                            // across the opening line during the intro, says
+                            // the voice is there, which it is not.
+                            fraction: shown.fraction,
                             reduceMotion: reduceMotion,
                             // The caption sits at the body size, where SF opens tracking
                             // up slightly rather than tightening it.
@@ -522,7 +517,10 @@ struct MediaPane: View {
                         // Keyed so a line change is a change of line — not a
                         // morph glyph-by-glyph in place — and the change is a
                         // turn, not a crossfade: see `AnyTransition.lyricLine`.
-                        .id(line.at)
+                        // By row, not by timestamp: two lines stamped at one
+                        // moment (a bilingual LRC) shared a key, so the second
+                        // replaced the first in place with no turn at all.
+                        .id(index)
                         .transition(.lyricLine(reduceMotion: reduceMotion))
                         Image(systemName: "chevron.right")
                             // A glyph fitted to its row, not type: it sizes
@@ -545,7 +543,7 @@ struct MediaPane: View {
                 // On the lyric spring, like the page and the row: the song
                 // carries this motion, so it is allowed the momentum the
                 // 0.16 s content ease was refusing it.
-                .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: line.at)
+                .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: index)
                 .animation(Theme.contentAnimation, value: captionHover)
                 .accessibilityLabel(localized("Lyrics"))
                 .accessibilityValue(line.text)
@@ -556,6 +554,21 @@ struct MediaPane: View {
         } else {
             compactLyricsStatus
         }
+    }
+
+    /// What the caption draws for one reading of the clock, or nil when there
+    /// are no lines to show. Its row is the line being sung, or the line the
+    /// voice reaches next while it has not reached any — the opening line,
+    /// unswept — through the same `LyricSweep.resolve` as the stage and the
+    /// lock card. The lyric lab calls this function rather than a copy of the
+    /// caption's arithmetic.
+    static func captionResolution(lines: [LyricsStore.Line], inputs: LyricInputs) -> LyricResolution? {
+        let resolution = LyricSweep.resolve(lines: lines, inputs: inputs)
+        // With neither a current line nor one coming there is nothing to
+        // caption. Whenever there is, it is the moment's centre — the row the
+        // stage and the card centre on — which is why the view draws `centre`.
+        guard (resolution.current ?? resolution.moment.upcoming) != nil else { return nil }
+        return resolution
     }
 
     private var compactLyricsStatus: some View {

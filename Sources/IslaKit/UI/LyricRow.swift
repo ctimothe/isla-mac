@@ -132,9 +132,12 @@ struct LyricRow: View {
                 if isCurrent {
                     KaraokeText(
                         text: line.text,
-                        fraction: wordTimingEnabled
-                            ? LyricSweep.fraction(line: line, at: at, end: end)
-                            : 1,
+                        // The same function the lab's resolutions report, so
+                        // the sweep a surface claims is the sweep it draws.
+                        fraction: LyricSweep.drawnFraction(
+                            line: line, isCurrent: true, at: at, end: end,
+                            wordTiming: wordTimingEnabled
+                        ),
                         reduceMotion: reduceMotion,
                         accent: accent,
                         font: .system(size: fontSize, weight: weight),
