@@ -388,6 +388,23 @@ transitions.
 > Spotify's reason: an account not admitted while the app is in development
 > mode, Premium required, or other. Before, the heart vanished without a
 > word. Held by `FindabilityTests`.
+>
+> **Amended 2026-10-11 — lyrics off means off.** "Lyrics are off" and its
+> Show Lyrics offer now mean only that the switch is off. A track that
+> cannot be looked up by any source says so instead, with no offer: a
+> stream, radio station or browser tab with no length reads "No lyrics for
+> live audio." once it has played for 1.5 s without one (players publish
+> the title before the length, so every ordinary song passes through "no
+> length" on its way in), and a blank title reads "This track has no title
+> to look up." Before, both said "Lyrics are off." beside a Show Lyrics
+> button that rewrote an already-true switch and could not work. The miss
+> copy is one plain vocabulary that still says what was searched: "No
+> lyrics on this Mac." with the online lookup off (Look Up Online is still
+> offered beside it on the page), "No lyrics found for this song." with it
+> on, and "Can't read the lyrics file for this song." for a file that is
+> there but unreadable. The lock card shows the same copy and offers
+> nothing: a network switch is not turned on over the shield. Held by
+> `LyricsCoordinatorTests`, `LyricCaptionCopyTests` and `FindabilityTests`.
 
 > **Amended 2026-09-23 — the island without music.** The charger going in
 > and a Bluetooth audio output appearing each grow the pill out of the notch

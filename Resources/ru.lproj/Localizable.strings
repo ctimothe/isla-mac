@@ -100,8 +100,6 @@
 "Word Karaoke" = "Караоке по словам";
 "Lyrics stay on this Mac." = "Тексты песен остаются на этом Mac.";
 "Local Lyrics Library" = "Библиотека локальных текстов";
-"No local lyrics." = "Нет локального текста.";
-"No lyrics found." = "Текст не найден.";
 "Import LRC…" = "Импортировать LRC…";
 "Add Lyrics Folder…" = "Добавить папку с текстами…";
 "Remove %@" = "Удалить %@";
@@ -147,7 +145,6 @@
 "Export LRC" = "Экспортировать LRC";
 "This LRC file is invalid." = "Этот LRC-файл недействителен.";
 "Choose local lyrics…" = "Выберите локальный текст…";
-"No lyrics for this track." = "Для этого трека нет текста.";
 "Finding lyrics…" = "Ищем текст песни…";
 "Jumps the song to this line" = "Перематывает песню к этой строке";
 "Opens the full lyrics" = "Открывает полный текст";
@@ -175,7 +172,7 @@
 "Compact" = "Компактный";
 
 /* Lock card panes */
-"Lyrics are off." = "Текст песен выключен.";
+"Lyrics are off." = "Текст песни выключен.";
 "No output devices." = "Нет устройств вывода.";
 "Open on Hover" = "Открывать при наведении";
 "Output" = "Вывод";
@@ -298,3 +295,10 @@
 
 /* Полка: карточка, чей диск не подключён */
 "Disk not connected" = "Диск не подключён";
+
+/* Текст песни: почему его нет, простыми словами */
+"No lyrics on this Mac." = "На этом Mac нет текста этой песни.";
+"No lyrics found for this song." = "Текст этой песни не найден.";
+"Can't read the lyrics file for this song." = "Не удаётся прочитать файл с текстом этой песни.";
+"No lyrics for live audio." = "Для прямого эфира текста нет.";
+"This track has no title to look up." = "У этого трека нет названия для поиска.";
