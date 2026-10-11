@@ -216,6 +216,132 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertFalse(store.isSelected(store.items[2]))
     }
 
+    /// Finder's anchor moves with a ⌘-click that picks a card, so ⌘-click A
+    /// then ⇧-click D is the run A…D. It used to move only on a plain click:
+    /// with no anchor, the ⇧-click fell through to a toggle and picked D
+    /// alone beside A (J-022).
+    func testCommandClickThenShiftClickSelectsTheRange() {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(
+            ["/tmp/a.txt", "/tmp/b.txt", "/tmp/c.txt", "/tmp/d.txt"],
+            forKey: "shelf.urls"
+        )
+        let store = ShelfStore(defaults: defaults)
+        store.load()
+
+        store.select(store.items[0], modifiers: .command)
+        store.select(store.items[3], modifiers: .shift)
+
+        XCTAssertEqual(store.selection, Set(store.items.map(\.id)), "the whole run from the ⌘-clicked card")
+    }
+
+    /// A card trimmed past the cap leaves the selection with it. It used to
+    /// stay there, and the footer read "3 selected" over two visible
+    /// cards (J-022).
+    func testATrimDropsTrimmedCardsFromTheSelection() {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = quietStore(defaults)
+        let base = Date(timeIntervalSinceNow: -100_000)
+        let full = (0..<ShelfStore.limit).map { URL(fileURLWithPath: "/tmp/full-\($0).png") }
+        store.add(full, dates: Dictionary(uniqueKeysWithValues: full.enumerated().map {
+            ($0.element, base.addingTimeInterval(Double($0.offset)))
+        }))
+        guard let oldest = store.items.last else { return XCTFail("a full shelf") }
+        store.select(oldest, modifiers: [])
+
+        store.add([URL(fileURLWithPath: "/tmp/newer.png")])
+
+        XCTAssertFalse(store.items.contains(oldest), "the oldest card left past the cap")
+        XCTAssertTrue(store.selection.isEmpty, "and took its place in the selection with it")
+    }
+
+    /// A drop says what became of it. `add` used to return nothing, so a
+    /// file already on the shelf vanished from the drop without a word, and
+    /// a drop onto a full shelf pushed the oldest cards off it the same way
+    /// (F-035).
+    func testAddReportsDuplicatesAndEvictions() {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = quietStore(defaults)
+        let base = Date(timeIntervalSinceNow: -100_000)
+        let full = (0..<ShelfStore.limit).map { URL(fileURLWithPath: "/tmp/full-\($0).png") }
+        let first = store.add(full, dates: Dictionary(uniqueKeysWithValues: full.enumerated().map {
+            ($0.element, base.addingTimeInterval(Double($0.offset)))
+        }))
+        XCTAssertEqual(first, ShelfStore.AddResult(added: ShelfStore.limit, duplicates: 0, evicted: 0))
+        XCTAssertNil(store.notice, "filling the shelf exactly is nothing to report")
+
+        let again = store.add([full[7]])
+        XCTAssertEqual(again, ShelfStore.AddResult(added: 0, duplicates: 1, evicted: 0))
+        XCTAssertEqual(store.notice, .alreadyOnShelf)
+
+        let more = (0..<3).map { URL(fileURLWithPath: "/tmp/more-\($0).png") }
+        let past = store.add(more)
+        XCTAssertEqual(past, ShelfStore.AddResult(added: 3, duplicates: 0, evicted: 3))
+        XCTAssertEqual(store.notice, .evicted(3))
+        XCTAssertEqual(store.items.count, ShelfStore.limit)
+        XCTAssertFalse(store.items.contains { full[0...2].contains($0.url) }, "the three oldest left")
+    }
+
+    /// The footer's notice is a moment, not a state: it goes by itself, and
+    /// a newer one restarts the clock rather than being cut short by the
+    /// older one's timer.
+    func testTheDropNoticeClearsItself() async throws {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = quietStore(defaults)
+        store.noticeLifetime = .milliseconds(200)
+        let url = URL(fileURLWithPath: "/tmp/twice.png")
+        store.add([url])
+
+        store.add([url])
+        try await Task.sleep(for: .milliseconds(120))
+        store.add([url])
+        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertEqual(store.notice, .alreadyOnShelf, "the second notice runs its own full lifetime")
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertNil(store.notice)
+    }
+
+    /// With cards picked, the footer's destructive verb is "Remove 2" and
+    /// acts on those two only. Beside a selection it used to be Clear, which
+    /// emptied the whole shelf (H-015).
+    func testRemoveSelectedLeavesTheRest() {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(
+            ["/tmp/a.txt", "/tmp/b.txt", "/tmp/c.txt", "/tmp/d.txt"],
+            forKey: "shelf.urls"
+        )
+        let store = quietStore(defaults)
+        store.load()
+        let kept = [store.items[0].url, store.items[2].url]
+
+        store.select(store.items[1], modifiers: .command)
+        store.select(store.items[3], modifiers: .command)
+        store.removeSelected()
+
+        XCTAssertEqual(store.items.map(\.url), kept)
+        XCTAssertTrue(store.selection.isEmpty)
+        XCTAssertEqual(defaults.stringArray(forKey: "shelf.urls"), kept.map(\.path), "and the shorter shelf is saved")
+    }
+
+    /// A store that never asks QuickLook or the disk for a bookmark: sixty
+    /// fixture cards should cost nothing but the test.
+    private func quietStore(_ defaults: UserDefaults) -> ShelfStore {
+        let store = ShelfStore(defaults: defaults)
+        store.requestThumbnail = { _, _ in }
+        store.makeBookmark = { Data($0.path.utf8) }
+        return store
+    }
+
     /// A card whose file has actually been deleted is evicted the next time
     /// the shelf is refreshed from disk.
     func testRefreshFromDiskEvictsACardWhoseFileWasDeleted() async throws {

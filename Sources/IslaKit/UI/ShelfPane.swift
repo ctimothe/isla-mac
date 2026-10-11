@@ -105,14 +105,35 @@ struct ShelfPane: View {
             .animation(Theme.contentAnimation, value: isTargeted)
     }
 
+    /// Two footers, one per state, and never both verbs at once.
+    ///
+    /// With cards picked, the destructive verb is "Remove 2" and acts on
+    /// those two. It used to be Clear, beside "2 selected": a person reads
+    /// Clear as acting on what they picked, and it emptied the whole shelf,
+    /// with only the armed "Clear Everything" — in the very spot of the
+    /// second press — to warn them (H-015). Clear comes back once nothing is
+    /// picked, so emptying the shelf is still one deliberate step away.
+    ///
+    /// The leading slot holds one line: the count while there is a
+    /// selection, otherwise the shelf's last notice, if it has one.
     private var footer: some View {
         HStack(spacing: 10) {
             if !shelf.selection.isEmpty {
                 Text(localized("%d selected", shelf.selection.count))
                     .islandFont(.caption, weight: .regular)
                     .foregroundStyle(Theme.tertiary)
+            } else if let notice = shelf.notice {
+                // Two lines at most: the eviction sentence ends on what
+                // matters most — the files themselves are untouched — and
+                // at the narrowest panel, in Russian, one line cut it off.
+                Text(notice.text)
+                    .islandFont(.caption, weight: .regular)
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
             }
-            Spacer()
+            Spacer(minLength: 0)
             if !shelf.selection.isEmpty {
                 // The word alone made a 44x13 target right beside the
                 // destructive Clear (F-014): a near miss there arms Clear.
@@ -124,13 +145,30 @@ struct ShelfPane: View {
                 .buttonStyle(PanelButtonStyle())
                 .islandFont(.caption)
                 .foregroundStyle(Theme.secondary)
+                ConfirmTextButton(
+                    title: localized("Remove %d", shelf.selection.count),
+                    armedTitle: localized("Remove %d from Shelf", shelf.selection.count)
+                ) { shelf.removeSelected() }
+                // A fresh button for every selection, so an arming always
+                // names the cards the second press removes: armed on two,
+                // then ⌘-clicking a third, it starts over rather than
+                // removing three on the strength of a confirmation for two.
+                .id(shelf.selection)
+            } else {
+                ConfirmTextButton(
+                    title: localized("Clear"),
+                    armedTitle: localized("Clear Everything")
+                ) { shelf.clear() }
             }
-            ConfirmTextButton(
-                title: localized("Clear"),
-                armedTitle: localized("Clear Everything")
-            ) { shelf.clear() }
         }
         .padding(.top, 2)
+        .animation(Theme.contentAnimation, value: shelf.notice)
+        // The line is drawn where the pane is, so it is heard only when the
+        // Shelf is on screen: a screenshot saved with the panel shut has
+        // nobody to tell, and VoiceOver should not speak up over another tab.
+        .onChange(of: shelf.notice) { _, notice in
+            if let notice { Announcer.shared.announce(notice.text) }
+        }
     }
 }
 

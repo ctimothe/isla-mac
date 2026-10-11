@@ -347,3 +347,8 @@
 "Not asked yet" = "Not asked yet";
 "Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation." = "Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation.";
 "Open Automation Settings…" = "Open Automation Settings…";
+"Remove %d" = "Remove %d";
+"Remove %d from Shelf" = "Remove %d from Shelf";
+"Already on the Shelf" = "Already on the Shelf";
+"The Shelf holds %d, so the oldest card left it. Its file is untouched." = "The Shelf holds %d, so the oldest card left it. Its file is untouched.";
+"The Shelf holds %d, so the %d oldest left it. Their files are untouched." = "The Shelf holds %d, so the %d oldest left it. Their files are untouched.";
