@@ -271,24 +271,7 @@ struct TranslatePane: View {
                     .islandFont(.body, weight: .regular)
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                // Capsules, the panel's shape for an offer. They were bare
-                // bold caption words, and the only way forward from the first
-                // error a newcomer meets did not look like something to press
-                // (H-007).
-                HStack(spacing: 8) {
-                    ForEach(translator.remedies, id: \.self) { remedy in
-                        remedyButton(remedy)
-                    }
-                }
-                .buttonStyle(OfferButtonStyle())
-                // Russian's "Включить «Переводить онлайн»" is wider than this
-                // column at a 480-point panel and breaks onto a second line.
-                // Centred, the two lines still read as one button; left-
-                // aligned, they read as a paragraph in a box. Set here rather
-                // than in the style, because centring moves a one-line label
-                // by a fraction of a point and the other offers were to stay
-                // pixel-for-pixel what they were.
-                .multilineTextAlignment(.center)
+                remediesRow
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .covered:
@@ -303,22 +286,45 @@ struct TranslatePane: View {
             dust(seed: 0xA24BAED4963EE407)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .answer:
-            ScrollView(showsIndicators: false) {
-                Text(translator.output)
-                    // The ladder's rung for this text, not a role: see `ladder`.
-                    .font(.system(size: font))
-                    // Dimmed while it answers the text before an edit: from
-                    // the keystroke until the new answer lands it translates
-                    // something no longer in the field, and it used to sit
-                    // there at full white as if it were current (K-004).
-                    // Kept rather than cleared, so a pause in typing does not
-                    // blank the column.
-                    .foregroundStyle(translator.answersInput ? Color.white : Theme.secondary)
-                    .animation(Theme.contentAnimation, value: translator.answersInput)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            VStack(alignment: .leading, spacing: 6) {
+                ScrollView(showsIndicators: false) {
+                    Text(translator.output)
+                        // The ladder's rung for this text, not a role: see `ladder`.
+                        .font(.system(size: font))
+                        // Dimmed while it answers the text before an edit: from
+                        // the keystroke until the new answer lands it translates
+                        // something no longer in the field, and it used to sit
+                        // there at full white as if it were current (K-004).
+                        // Kept rather than cleared, so a pause in typing does not
+                        // blank the column.
+                        .foregroundStyle(translator.answersInput ? Color.white : Theme.secondary)
+                        .animation(Theme.contentAnimation, value: translator.answersInput)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // An answer that does not cover the whole text says so under it,
+                // outside the scroll so it cannot scroll away: only the first
+                // part went online, or the rest never came back and why (F-042).
+                // That part used to be thrown away with the failure. Retry sits
+                // beside it only when a second try could bring the rest. A
+                // partial answer keeps the column through a Retry rather than
+                // giving way to the spinner, so the spinner takes Retry's
+                // place instead — a press that changed nothing on screen was
+                // K-004's complaint.
+                if let note = translator.outputNote {
+                    VStack(alignment: .leading, spacing: 6) {
+                        noticeLine(note)
+                        if translator.isTranslating {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else if !translator.remedies.isEmpty {
+                            remediesRow
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .translating:
             // The on-device model is not instant the way a lookup table would
             // be — a paragraph takes a beat, and the very first request after
@@ -526,6 +532,26 @@ struct TranslatePane: View {
     }
 
     @ViewBuilder
+    /// Capsules, the panel's shape for an offer. They were bare bold caption
+    /// words, and the only way forward from the first error a newcomer meets
+    /// did not look like something to press (H-007).
+    private var remediesRow: some View {
+        HStack(spacing: 8) {
+            ForEach(translator.remedies, id: \.self) { remedy in
+                remedyButton(remedy)
+            }
+        }
+        .buttonStyle(OfferButtonStyle())
+        // Russian's "Включить «Переводить онлайн»" is wider than this
+        // column at a 480-point panel and breaks onto a second line.
+        // Centred, the two lines still read as one button; left-
+        // aligned, they read as a paragraph in a box. Set here rather
+        // than in the style, because centring moves a one-line label
+        // by a fraction of a point and the other offers were to stay
+        // pixel-for-pixel what they were.
+        .multilineTextAlignment(.center)
+    }
+
     private func remedyButton(_ remedy: Translator.Remedy) -> some View {
         switch remedy {
         case .appleIntelligenceSettings:

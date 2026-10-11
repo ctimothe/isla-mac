@@ -1,3 +1,4 @@
+import FoundationModels
 import XCTest
 @testable import IslaKit
 
@@ -493,6 +494,119 @@ final class TranslatorTests: XCTestCase {
         // flag or an accented letter into a broken glyph.
         let flags = String(repeating: "🇺🇿", count: 20_001)
         XCTAssertEqual(Translator.prepareCommandInput(flags, locale: english).text, String(repeating: "🇺🇿", count: 20_000))
+    }
+
+    // MARK: - Retry only where Retry can work (F-042, M-10)
+
+    /// A translator that only the online engine can serve, answered by
+    /// `online` instead of MyMemory.
+    private func onlineTranslator(
+        _ online: @escaping (String, Translator.Route) async throws -> OnlineTranslation.Reply
+    ) -> Translator {
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
+        translator.choose(source: .uzbek)
+        translator.choose(target: .russian)
+        translator.capabilitiesOverride = { _ in
+            var capabilities = Translator.Capabilities()
+            capabilities.onlineEnabled = true
+            capabilities.sourceOffDevice = true
+            return capabilities
+        }
+        translator.onlineTranslate = online
+        translator.input = "salom"
+        return translator
+    }
+
+    /// Every failure used to offer Retry, including a day's allowance that is
+    /// spent: pressing it sent the text again and got the same refusal until
+    /// midnight, a button that could not work.
+    func testAQuotaFailureOffersNoRetry() async {
+        let translator = onlineTranslator { _, _ in throw OnlineTranslation.Failure.quotaExhausted }
+        await translator.translate()
+        XCTAssertEqual(translator.failure, "Today's free online translations are used up.")
+        XCTAssertEqual(translator.remedies, [])
+        XCTAssertEqual(translator.output, "")
+    }
+
+    /// Apple's guardrail refuses the same text the same way every time, and a
+    /// text past the model's context is still past it on a second try: Retry
+    /// under either changed nothing. The too-long one says what would.
+    func testAGuardrailOrTooLongOffersNoRetry() async throws {
+        guard #available(macOS 26.0, *) else { throw XCTSkip("the model's errors exist from macOS 26") }
+        let context = LanguageModelSession.GenerationError.Context(debugDescription: "test")
+        let guardrail = onlineTranslator { _, _ in
+            throw LanguageModelSession.GenerationError.guardrailViolation(context)
+        }
+        await guardrail.translate()
+        XCTAssertEqual(guardrail.failure, "This text could not be translated.")
+        XCTAssertEqual(guardrail.remedies, [])
+
+        let tooLong = onlineTranslator { _, _ in
+            throw LanguageModelSession.GenerationError.exceededContextWindowSize(context)
+        }
+        await tooLong.translate()
+        XCTAssertEqual(tooLong.failure, "This text is too long to translate at once. Shorten it and try again.")
+        XCTAssertEqual(tooLong.remedies, [])
+    }
+
+    /// Offline, a timeout, the service down, or a refusal with no reason: a
+    /// second try can succeed, so those keep Retry.
+    func testUnreachableOffersRetry() async {
+        let unreachable = onlineTranslator { _, _ in throw OnlineTranslation.Failure.unreachable }
+        await unreachable.translate()
+        XCTAssertEqual(unreachable.failure, "Online translation is not reachable right now.")
+        XCTAssertEqual(unreachable.remedies, [.retry])
+
+        let refused = onlineTranslator { _, _ in throw OnlineTranslation.Failure.refused("") }
+        await refused.translate()
+        XCTAssertEqual(refused.failure, "The translation could not be completed.")
+        XCTAssertEqual(refused.remedies, [.retry])
+    }
+
+    /// What came back before the allowance ran out is shown, with the reason
+    /// the rest did not come — and no Retry, which would only spend nothing
+    /// for the same refusal.
+    func testAPartialAnswerIsKeptWithItsCause() async {
+        let quota = onlineTranslator { _, _ in
+            throw OnlineTranslation.Failure.partial(text: "привет", cause: .quotaExhausted)
+        }
+        await quota.translate()
+        XCTAssertEqual(quota.output, "привет")
+        XCTAssertNil(quota.failure, "an answer, not a failure: the pane shows the text")
+        XCTAssertEqual(quota.outputNote, "Today's free online translations are used up.")
+        XCTAssertEqual(quota.remedies, [])
+        XCTAssertTrue(quota.answersInput)
+
+        let dropped = onlineTranslator { _, _ in
+            throw OnlineTranslation.Failure.partial(text: "привет", cause: .unreachable)
+        }
+        await dropped.translate()
+        XCTAssertEqual(dropped.output, "привет")
+        XCTAssertEqual(dropped.outputNote, "Online translation is not reachable right now.")
+        XCTAssertEqual(dropped.remedies, [.retry], "the connection may come back")
+    }
+
+    /// Text past the cap is not sent, and the answer says how much was.
+    func testACutOnlineAnswerSaysHowMuchWasTranslated() async {
+        let translator = onlineTranslator { _, _ in OnlineTranslation.Reply(text: "привет", sentCharacters: 4_800) }
+        await translator.translate()
+        XCTAssertEqual(translator.output, "привет")
+        XCTAssertEqual(translator.outputNote,
+                       Translator.onlineCapNote(sent: 4_800, locale: Locale(identifier: appLanguage)))
+        XCTAssertEqual(Translator.onlineCapNote(sent: 4_800, locale: Locale(identifier: "en_US")),
+                       "Only the first 4,800 characters were translated online.")
+        // Rounded down: still true, and a number Russian's one plural form fits.
+        XCTAssertEqual(Translator.onlineCapNote(sent: 4_763, locale: Locale(identifier: "en_US")),
+                       "Only the first 4,700 characters were translated online.")
+        XCTAssertEqual(translator.remedies, [])
+
+        // The note belongs to that answer and goes with it.
+        translator.clear()
+        XCTAssertNil(translator.outputNote)
+
+        let whole = onlineTranslator { _, _ in OnlineTranslation.Reply(text: "привет", sentCharacters: nil) }
+        await whole.translate()
+        XCTAssertNil(whole.outputNote)
     }
 
     /// The notice belongs to the text it was about. A keystroke, Clear or a
