@@ -244,6 +244,33 @@ final class LockCardPaneTests: XCTestCase {
         XCTAssertTrue(LockScreenCard.showsSeekBar(duration: 180))
     }
 
+    /// The open pane's glyph used to differ from its sibling by one opacity step,
+    /// white against cardSecondary, which a pale cover or low vision loses
+    /// (M-17). It wears a filled well now; the bare siblings wear none, and
+    /// Increase Contrast adds the hairline edge.
+    func testTheOpenPaneWearsAWell() {
+        let open = LockScreenCard.paneButtonLook(open: true, increaseContrast: false)
+        XCTAssertEqual(open.wellOpacity, Theme.cardFillOpacity(increaseContrast: false))
+        XCTAssertFalse(open.outlined)
+
+        let closed = LockScreenCard.paneButtonLook(open: false, increaseContrast: false)
+        XCTAssertEqual(closed.wellOpacity, 0)
+        XCTAssertFalse(closed.outlined)
+
+        let contrast = LockScreenCard.paneButtonLook(open: true, increaseContrast: true)
+        XCTAssertEqual(contrast.wellOpacity, Theme.cardFillOpacity(increaseContrast: true))
+        XCTAssertTrue(contrast.outlined)
+        XCTAssertFalse(LockScreenCard.paneButtonLook(open: false, increaseContrast: true).outlined)
+    }
+
+    /// The output button is a glyph; a locked-Mac user could not tell where the
+    /// sound goes without opening the picker (M-24). Its value is the device.
+    func testTheOutputButtonNamesTheDevice() {
+        XCTAssertEqual(LockScreenCard.outputName(outputs: Self.sevenOutputs, current: 42), "AirPods Pro")
+        XCTAssertNil(LockScreenCard.outputName(outputs: Self.sevenOutputs, current: 999))
+        XCTAssertNil(LockScreenCard.outputName(outputs: Self.sevenOutputs, current: nil))
+    }
+
     static let sevenOutputs: [AudioOutputs.Output] = [
         .init(id: 41, name: "MacBook Pro Speakers", transport: kAudioDeviceTransportTypeBuiltIn),
         .init(id: 42, name: "AirPods Pro", transport: kAudioDeviceTransportTypeBluetooth),
