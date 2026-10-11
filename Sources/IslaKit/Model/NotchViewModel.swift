@@ -69,7 +69,22 @@ final class NotchViewModel: ObservableObject {
         static let rightRail: [Tab] = []
     }
 
-    @Published var isOpen = false
+    @Published var isOpen = false {
+        didSet {
+            // Opening ends a charger or headphones moment and a track peek
+            // (F-033). They were cleared only on sleep and lock, so a panel
+            // opened half a second into the 2.2 s moment and closed a second
+            // later snapped the pill back to "Charging" for what was left of
+            // it. Cleared here, inside the open's own `withAnimation`, they
+            // leave with the open rather than after it; the controller's
+            // pending fold then finds nothing to fold. Only on false to true:
+            // `@Published` runs this on every write, and a moment presented
+            // while shut must survive a redundant `isOpen = false`.
+            guard isOpen, !oldValue else { return }
+            ambient = nil
+            isPeeking = false
+        }
+    }
     @Published var isDropTargeted = false
     /// Briefly true when a new track has just arrived and is showing itself.
     @Published var isPeeking = false

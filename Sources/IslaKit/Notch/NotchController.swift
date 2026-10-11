@@ -1431,6 +1431,13 @@ final class NotchController {
             // Grow the interactive area first so the pointer never falls
             // through a region the animation has not covered yet.
             applyActiveRect(open: true)
+            // The view model ends the moment and the peek as `isOpen` flips
+            // (F-033); their timers go here, so neither lands on a panel that
+            // has since closed and folds a pill nobody asked to see.
+            peekWork?.cancel()
+            peekWork = nil
+            ambientWork?.cancel()
+            ambientWork = nil
             withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = true }
             // Only for the tab that draws the clock. Opening onto Settings or
             // the Shelf leaves it off; the tab sink in `build` starts it the
@@ -1631,14 +1638,26 @@ final class NotchController {
         // panel open, Mac locked, displays asleep — is not shown, and a
         // sentence for something nobody can see would be the voice lying.
         Announcer.shared.announce(activity.accessibilityLabel)
+        scheduleAmbientFold(after: NotchMetrics.ambientDuration)
+    }
+
+    /// Folds the moment after `delay`, or, with the pointer resting on the
+    /// pill, asks again a second later (`ambientRecheck`). One work item at a
+    /// time, always in `ambientWork`, so a lock, a dark display or an open
+    /// cancels the whole chain with one call.
+    private func scheduleAmbientFold(after delay: TimeInterval) {
         let work = DispatchWorkItem { [weak self] in
-            guard let vm = self?.viewModel else { return }
+            guard let self, let vm = self.viewModel, vm.ambient != nil else { return }
+            if let wait = Self.ambientRecheck(pointerInside: self.pointer.isInside) {
+                self.scheduleAmbientFold(after: wait)
+                return
+            }
             withAnimation(Theme.pill(appearing: false, reduceMotion: SystemAppearance.shared.reduceMotion)) {
                 vm.ambient = nil
             }
         }
         ambientWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.ambientDuration, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     /// Whether a charger or headphones moment may show now. Pure, so each
@@ -1654,6 +1673,17 @@ final class NotchController {
     ) -> Bool {
         switchOn && !isOpen && !isDropTargeted && !isLocked
             && !pointerInside && !pointerUnderGrownPill && !screensAsleep
+    }
+
+    /// How long a moment due to fold waits before asking again, or nil to
+    /// fold now. Pure, so the rule is a test.
+    ///
+    /// A pointer resting on the pill is someone reading it (F-033). The fixed
+    /// 2.2 s took the pill back from under them; it now waits a second at a
+    /// time until the pointer has gone, so it folds at most a second after
+    /// they move away.
+    nonisolated static func ambientRecheck(pointerInside: Bool) -> TimeInterval? {
+        pointerInside ? 1.0 : nil
     }
 
     /// Whether the pointer watcher must treat the panel as held, with the
