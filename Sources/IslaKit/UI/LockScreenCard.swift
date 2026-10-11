@@ -740,28 +740,20 @@ struct LockScreenCard: View {
                         }
                 )
             }
-            .frame(height: 14)
-            // One adjustable element, the way the panel's scrubber is declared:
-            // a capsule with a drag gesture is nothing at all to assistive
-            // tech, and over the lock screen this is the only way to move the
-            // song without a pointer.
-            .accessibilityElement()
-            .accessibilityLabel(localized("Playback Position"))
-            .accessibilityValue(
-                localized(
-                    "%@ of %@",
-                    formatTime(fraction * media.duration),
-                    formatTime(media.duration)
-                )
+            // 22 pt to grab inside the 14 pt the card lays out, as the
+            // panel's scrubber does (F-014): the bar is drawn the same, the
+            // times under it do not move, and a finger that lands a little
+            // high or low still seeks.
+            .frame(height: 22)
+            // The same slider the panel's scrubber is: over the lock screen
+            // this is the only way to move the song without a pointer.
+            .playbackPositionAccessibility(
+                shown: fraction * media.duration,
+                duration: media.duration,
+                position: { media.position },
+                seek: { media.seek(to: $0) }
             )
-            .accessibilityAdjustableAction { direction in
-                let step = media.duration * 0.05
-                switch direction {
-                case .increment: media.seek(to: media.position + step)
-                case .decrement: media.seek(to: media.position - step)
-                @unknown default: break
-                }
-            }
+            .padding(.vertical, -4)
             HStack {
                 Text(formatTime(shownElapsed))
                 Spacer()
@@ -810,22 +802,14 @@ struct LockScreenCard: View {
                         }
                 )
             }
-            .frame(height: 14)
-            // The same contract as the seek bar above: heard as a percentage,
+            // The whole height of the rail to grab: the rail is 22 pt, so the
+            // strip grows into it without moving anything beside it (F-014).
+            .frame(height: 22)
+            // The same slider as the seek bar above, heard as a percentage and
             // moved in five-percent steps. This is the system's output volume,
-            // and it was invisible to VoiceOver.
-            .accessibilityElement()
-            .accessibilityLabel(localized("Volume"))
-            .accessibilityValue(Text(volumeLevel, format: .percent))
-            .accessibilityAdjustableAction { direction in
-                let step: Float = 0.05
-                let current = Float(volumeLevel)
-                let next: Float
-                switch direction {
-                case .increment: next = min(current + step, 1)
-                case .decrement: next = max(current - step, 0)
-                @unknown default: return
-                }
+            // and the dump found it as an AXUnknown with no value (H-023).
+            .volumeAccessibility(level: volumeLevel) { level in
+                let next = Float(level)
                 SystemVolume.set(next)
                 volume = SystemVolume.current() ?? next
             }
