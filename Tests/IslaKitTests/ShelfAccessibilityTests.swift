@@ -116,6 +116,47 @@ final class ShelfAccessibilityTests: XCTestCase {
         XCTAssertTrue(root.all(role: "AXImage").isEmpty, root.dump)
     }
 
+    private func words(_ root: AXNode) -> [String] {
+        root.all(role: "AXStaticText").map { $0.label.isEmpty ? $0.value : $0.label }
+    }
+
+    /// A drag over the empty Shelf changes the headline from what the Shelf
+    /// is for to what letting go will do (M-22). The second line, where
+    /// files come from and how many it holds, stays.
+    func testADragOverTheEmptyShelfSaysRelease() async {
+        let fixture = Fixture(files: [])
+        defer { fixture.release() }
+
+        let resting = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: paneSize)
+        XCTAssertFalse(words(resting).contains("Release to add to the Shelf"), resting.dump)
+
+        let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: true), size: paneSize)
+        XCTAssertTrue(words(root).contains("Release to add to the Shelf"), root.dump)
+        XCTAssertFalse(words(root).contains("Drop files here to keep them"), root.dump)
+        XCTAssertTrue(words(root).contains { $0.contains("Holds \(ShelfStore.limit).") }, root.dump)
+    }
+
+    /// Once the Shelf holds cards, the dashed well is gone and the window is
+    /// click-through everywhere but the panel, so a file dragged over the
+    /// strip had nothing that said it would land (M-22). The drag now raises
+    /// a pill that says so, and it is gone again the moment the drag is.
+    func testADragOverAPopulatedShelfSaysWhereTheFileGoes() async {
+        let fixture = Fixture(files: ["alpha.txt", "beta.txt"])
+        defer { fixture.release() }
+
+        let resting = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: paneSize)
+        XCTAssertFalse(words(resting).contains("Drop to keep on the Shelf"), resting.dump)
+
+        let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: true), size: paneSize)
+        XCTAssertTrue(words(root).contains("Drop to keep on the Shelf"), root.dump)
+        // The pill is drawn over the strip, not in place of it: both cards
+        // are still there underneath.
+        let names = Set(["alpha.txt", "beta.txt"])
+        XCTAssertEqual(root.all(role: "AXButton").filter { names.contains($0.label) }.count, 2, root.dump)
+        // Its glyph is drawing, as the empty well's is.
+        XCTAssertTrue(root.all(role: "AXImage").isEmpty, root.dump)
+    }
+
     /// Deselect sits beside the destructive Clear, so it must not be a 13 pt
     /// sliver: the target is at least the panel's minimum hit size.
     func testDeselectIsBigEnough() async {

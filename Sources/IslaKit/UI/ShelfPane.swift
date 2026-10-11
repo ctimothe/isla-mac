@@ -61,6 +61,22 @@ struct ShelfPane: View {
                     rehit()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // With cards on it the Shelf had no drop target at all: the
+                // dashed well is the empty state's, the window is click-
+                // through everywhere but the panel, and a file dragged over
+                // the strip got no word that letting go would keep it (M-22).
+                // The pill says so over the strip, not over the footer, and
+                // only fades: nothing grows or slides, so Reduce Motion has
+                // nothing to take away. The cards step back under it: at
+                // full strength their names and glyphs showed through the
+                // pill's glass and the sentence had to compete with them.
+                .opacity(isTargeted ? 0.4 : 1)
+                .overlay {
+                    if isTargeted {
+                        dropPill.transition(.opacity)
+                    }
+                }
+                .animation(Theme.contentAnimation, value: isTargeted)
                 footer
             }
         }
@@ -74,11 +90,41 @@ struct ShelfPane: View {
         hoveredID = frames.first(where: { $0.value.contains(hoverPoint) })?.key
     }
 
+    /// The lit edge of a drop target, the empty well's and the pill's alike,
+    /// so the two states of one gesture are drawn by one line.
+    private static let dropEdge = Color.white.opacity(0.6)
+    private static let dropDash = StrokeStyle(lineWidth: 1.5, dash: [6, 5])
+
+    /// What a drag over a strip of cards is told. Drawing, not a control: the
+    /// drop itself is taken by the window's own drag handling, so the pill
+    /// must never catch the pointer on its way there.
+    private var dropPill: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "square.and.arrow.down.on.square")
+                .islandFont(.caption, weight: .semibold)
+                .accessibilityHidden(true)
+            Text(localized("Drop to keep on the Shelf"))
+                .islandFont(.caption, weight: .semibold)
+                .lineLimit(1)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        // The sync pill's glass: it floats inside an opaque panel, so there
+        // is nothing behind it to sample.
+        .glassSurface(cornerRadius: 999, elevation: .pill, samplesBackdrop: false)
+        .overlay(Capsule().strokeBorder(Self.dropEdge, style: Self.dropDash))
+        // One element, the sentence: the glass underneath is an image too,
+        // and on its own it reached VoiceOver as a nameless "image".
+        .accessibilityElement(children: .combine)
+        .allowsHitTesting(false)
+    }
+
     private var dropHint: some View {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
             .strokeBorder(
-                isTargeted ? Color.white.opacity(0.6) : Theme.hairline,
-                style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])
+                isTargeted ? Self.dropEdge : Theme.hairline,
+                style: Self.dropDash
             )
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -95,7 +141,10 @@ struct ShelfPane: View {
                         .islandFont(.display, weight: .light)
                         .foregroundStyle(isTargeted ? .white : Theme.tertiary)
                         .accessibilityHidden(true)
-                    Text(localized("Drop files here to keep them"))
+                    // Under a drag the headline turns from what the Shelf is
+                    // for into what letting go will do (M-22); the line
+                    // below, where files come from and how many fit, stays.
+                    Text(isTargeted ? localized("Release to add to the Shelf") : localized("Drop files here to keep them"))
                         .islandFont(.body)
                         .foregroundStyle(isTargeted ? .white : Theme.secondary)
                     Text(localized("From Finder, Mail, Photos or a browser. Holds %d.", ShelfStore.limit))
