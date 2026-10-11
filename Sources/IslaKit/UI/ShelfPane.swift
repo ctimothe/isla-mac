@@ -119,7 +119,8 @@ struct ShelfPane: View {
     /// picked, so emptying the shelf is still one deliberate step away.
     ///
     /// The leading slot holds one line: the count while there is a
-    /// selection, otherwise the shelf's last notice, if it has one.
+    /// selection, otherwise the shelf's last notice, if it has one — except
+    /// that an AirDrop refusal is shown over the count (F-049).
     ///
     /// With cards picked the footer is the Shelf's action bar. Quick Look and
     /// AirDrop — the two things a shelf is most often kept for besides a drag
@@ -129,23 +130,19 @@ struct ShelfPane: View {
     /// and away from Remove, so a near miss on one never lands on the other.
     private var footer: some View {
         HStack(spacing: 10) {
-            if !shelf.selection.isEmpty {
+            // An AirDrop refusal takes the count's place for its four
+            // seconds (`Notice.showsOverSelection`): it answers the press of
+            // a verb in this very bar, which only shows with a selection. The
+            // count and its ✕ come back when it lapses.
+            if let notice = shelf.notice, shelf.selection.isEmpty || notice.showsOverSelection {
+                noticeLine(notice)
+            } else if !shelf.selection.isEmpty {
                 HStack(spacing: 2) {
                     Text(localized("%d selected", shelf.selection.count))
                         .islandFont(.caption, weight: .regular)
                         .foregroundStyle(Theme.tertiary)
                     ShelfBarButton(symbol: "xmark", title: localized("Deselect")) { shelf.clearSelection() }
                 }
-            } else if let notice = shelf.notice {
-                // Two lines at most: the eviction sentence ends on what
-                // matters most — the files themselves are untouched — and
-                // at the narrowest panel, in Russian, one line cut it off.
-                Text(notice.text)
-                    .islandFont(.caption, weight: .regular)
-                    .foregroundStyle(Theme.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .transition(.opacity)
             }
             Spacer(minLength: 0)
             if !shelf.selection.isEmpty {
@@ -176,6 +173,18 @@ struct ShelfPane: View {
         }
     }
 
+    private func noticeLine(_ notice: ShelfStore.Notice) -> some View {
+        // Two lines at most: the eviction sentence ends on what matters
+        // most — the files themselves are untouched — and at the narrowest
+        // panel, in Russian, one line cut it off.
+        Text(notice.text)
+            .islandFont(.caption, weight: .regular)
+            .foregroundStyle(Theme.secondary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .transition(.opacity)
+    }
+
     /// The selection's verbs, in the card menu's order. Each acts on the
     /// picked cards a drag would carry — in shelf order, without a card
     /// whose disk is away — and the bar goes quiet when that leaves nothing.
@@ -188,7 +197,7 @@ struct ShelfPane: View {
                 ShelfSharing.quickLook(cards.map(\.url))
             }
             ShelfBarButton(symbol: "dot.radiowaves.up.forward", title: localized("AirDrop")) {
-                ShelfSharing.airDrop(cards.map(\.url))
+                ShelfSharing.airDrop(cards.map(\.url), refusingOn: shelf)
             }
             ShelfBarButton(symbol: "doc.on.doc", title: localized("Copy")) {
                 if let first = cards.first { shelf.copy(first) }
@@ -355,7 +364,7 @@ private struct ShelfCard: View {
             Button("Quick Look") { ShelfSharing.quickLook(shelf.dragURLs(startingAt: item)) }
             Button("Open") { shelf.open(item) }
             Divider()
-            Button("AirDrop") { ShelfSharing.airDrop(shelf.dragURLs(startingAt: item)) }
+            Button("AirDrop") { ShelfSharing.airDrop(shelf.dragURLs(startingAt: item), refusingOn: shelf) }
             Button("Copy") { shelf.copy(item) }
             Divider()
             Button("Show in Finder") { shelf.reveal(item) }
@@ -388,7 +397,7 @@ private struct ShelfCard: View {
         .accessibilityAction(named: Text("Remove from Shelf")) { shelf.remove(item) }
         .accessibilityAction(named: Text("Show in Finder")) { shelf.reveal(item) }
         .accessibilityAction(named: Text("Copy")) { shelf.copy(item) }
-        .accessibilityAction(named: Text("AirDrop")) { ShelfSharing.airDrop(shelf.dragURLs(startingAt: item)) }
+        .accessibilityAction(named: Text("AirDrop")) { ShelfSharing.airDrop(shelf.dragURLs(startingAt: item), refusingOn: shelf) }
         .accessibilityAction(named: Text("Quick Look")) { ShelfSharing.quickLook(shelf.dragURLs(startingAt: item)) }
         // Translated before it reaches `Text`: a ternary of two literals is a
         // `String`, which `Text` shows verbatim.

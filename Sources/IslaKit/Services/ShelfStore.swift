@@ -181,8 +181,9 @@ final class ShelfStore: ObservableObject {
     /// own account — a drop that was already there, cards pushed past the
     /// cap. Nil most of the time; it lapses by itself after `noticeLifetime`.
     ///
-    /// The footer shows it only while nothing is selected, in the slot the
-    /// selection count uses, so one line shows at a time. Anything else that
+    /// The footer shows it in the slot the selection count uses, so one line
+    /// shows at a time: while nothing is selected, or over the count when the
+    /// notice says so (`Notice.showsOverSelection`). Anything else that
     /// needs to say a sentence in that slot raises its own case here and
     /// goes through `show(_:)`, rather than growing a second line.
     @Published private(set) var notice: Notice?
@@ -202,6 +203,17 @@ final class ShelfStore: ObservableObject {
         /// The shelf was full and this many of its oldest cards left it to
         /// make room. Their files stay where they are.
         case evicted(Int)
+        /// AirDrop was asked for and this Mac has no AirDrop service at all:
+        /// `NSSharingService(named: .sendViaAirDrop)` came back nil. Both
+        /// AirDrop cases used to be `NSSound.beep()` and nothing else, which
+        /// is silent at zero alert volume and says nothing to VoiceOver
+        /// (F-049). See `ShelfSharing.airDropRefusal`.
+        case airDropUnavailable
+        /// The service is there but `canPerform` turned these files down: a
+        /// file gone from disk, a managed Mac that forbids it. Bluetooth or
+        /// AirDrop being off is not this case; the system sheet opens and
+        /// says that itself.
+        case airDropCannotSend
 
         var text: String {
             switch self {
@@ -211,6 +223,23 @@ final class ShelfStore: ObservableObject {
                 return localized("The Shelf holds %d, so the oldest card left it. Its file is untouched.", ShelfStore.limit)
             case .evicted(let count):
                 return localized("The Shelf holds %d, so the %d oldest left it. Their files are untouched.", ShelfStore.limit, count)
+            case .airDropUnavailable:
+                return localized("AirDrop is not available on this Mac.")
+            case .airDropCannotSend:
+                return localized("AirDrop cannot send these files.")
+            }
+        }
+
+        /// Whether the footer shows this over the selection count. A drop's
+        /// result waits for the selection to be gone, as it always did. An
+        /// AirDrop refusal cannot wait: the action bar's AirDrop acts on the
+        /// selection, so there is always one when it is pressed, and a
+        /// refusal hidden behind "2 selected" would have been the beep's
+        /// silence over again.
+        var showsOverSelection: Bool {
+            switch self {
+            case .alreadyOnShelf, .evicted: return false
+            case .airDropUnavailable, .airDropCannotSend: return true
             }
         }
     }
