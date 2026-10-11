@@ -43,14 +43,18 @@ final class LocalLyricsDocumentTests: XCTestCase {
         XCTAssertEqual(document.granularity, .word)
     }
 
-    /// A stamp with no words is a gap between verses, not a broken file.
+    /// A stamp with no words is where the line before it ends — not a broken
+    /// file, and not a row.
     ///
     /// LRC writers mark the pause between stanzas with a bare timestamp, and
     /// LRCLIB emits one in most files. This threw `emptyTimeline`, and because
     /// that error aborts the whole parse, a single blank line rejected an
     /// otherwise perfect lyric — an imported file was called invalid, and an
-    /// online answer was cached as "this track has no lyrics".
-    func testABareTimestampIsAGapAndNotABrokenFile() throws {
+    /// online answer was cached as "this track has no lyrics". It was then
+    /// dropped, which threw the answer away: the lyric lab (L6, 540 tracks)
+    /// found finished lines lit through instrumentals for a median 28.9 s a
+    /// track, and 1,694 of these stamps saying exactly when each voice ended.
+    func testABareTimestampEndsTheLineBeforeIt() throws {
         let document = try LocalLyricsDocument.parse("""
         [00:10.58] Through your eyes I see
         [00:15.77] A smile you bring to me
@@ -61,6 +65,55 @@ final class LocalLyricsDocumentTests: XCTestCase {
             "Through your eyes I see", "A smile you bring to me", "Not a lot, just forever",
         ])
         XCTAssertEqual(document.granularity, .line)
+        XCTAssertNil(document.lines[0].end, "a line with no stamp after it runs to the next")
+        XCTAssertEqual(try XCTUnwrap(document.lines[1].end), 21.05, accuracy: 0.000_001)
+        XCTAssertNil(document.lines[2].end)
+        XCTAssertEqual(try LocalLyricsDocument.parse(document.serialize()), document)
+    }
+
+    /// Which line an empty stamp ends, in the cases a real file throws at it:
+    /// the outro stamp after the last line ends that line; a stamp before the
+    /// first sung line ends nothing; a second stamp in one gap does not move
+    /// the first; a stamp at the very moment of the line before it is not an
+    /// end; and the offset applies to an end exactly as to a start.
+    func testWhichLineAnEmptyStampEnds() throws {
+        let document = try LocalLyricsDocument.parse("""
+        [offset:500]
+        [00:01.00]
+        [00:05.00]a
+        [00:05.00]
+        [00:09.00]b
+        [00:12.00]
+        [00:14.00]
+        [00:20.00]c
+        [00:31.50]
+        """)
+        XCTAssertEqual(document.lines.map(\.text), ["a", "b", "c"])
+        XCTAssertEqual(document.lines.map(\.at), [4.5, 8.5, 19.5])
+        XCTAssertNil(document.lines[0].end, "a stamp at the line's own start ends nothing")
+        XCTAssertEqual(try XCTUnwrap(document.lines[1].end), 11.5, accuracy: 0.000_001, "the first stamp of a gap")
+        XCTAssertEqual(try XCTUnwrap(document.lines[2].end), 31, accuracy: 0.000_001, "the outro stamp ends the last line")
+        XCTAssertEqual(try LocalLyricsDocument.parse(document.serialize()), document)
+    }
+
+    /// `serialize` writes an end back only where `parse` would read it as the
+    /// same line's end. The editor can move a line past its own end, or past
+    /// the next line; written out blindly, that end would come back as the
+    /// end of some other line.
+    func testAnEndIsWrittenOnlyWhereItReadsBackAsTheSameLinesEnd() throws {
+        let document = LocalLyricsDocument(
+            metadata: LocalLyricsMetadata(),
+            lines: [
+                LyricsStore.Line(at: 10, text: "moved past its end", end: 8),
+                LyricsStore.Line(at: 12, text: "end beyond the next", end: 30),
+                LyricsStore.Line(at: 20, text: "kept", end: 24),
+            ],
+            offset: 0
+        )
+        XCTAssertEqual(
+            document.serialize(),
+            "[00:10.00]moved past its end\n[00:12.00]end beyond the next\n[00:20.00]kept\n[00:24.00]"
+        )
     }
 
     /// And a file that is nothing but gaps is still no lyric at all.
@@ -202,6 +255,6 @@ final class LocalLyricsDocumentTests: XCTestCase {
     }
 
     func testTheParserRevisionMovesWhenTheGrammarDoes() {
-        XCTAssertEqual(LocalLyricsDocument.parserRevision, 2)
+        XCTAssertEqual(LocalLyricsDocument.parserRevision, 3, "3: empty stamps became line ends")
     }
 }

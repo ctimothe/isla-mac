@@ -11,12 +11,27 @@ final class LyricsStore: ObservableObject {
         var text: String
         var words: [LyricWord] = []
         var isCredit: Bool = false
+        /// When the voice stops, where the source said so: an LRC file's
+        /// empty stamp after this line (`LocalLyricsDocument.parse`). Nil
+        /// means unknown — the line runs to the next one, as every line did
+        /// before 2026-10-11. Optional so that every timeline cached or
+        /// indexed before it existed still decodes; such a cache simply
+        /// carries no ends until it is fetched again.
+        ///
+        /// Stored as the source wrote it. Whether a surface honours it — a
+        /// breath of half a second must not blink the line off and on — is
+        /// `LyricSweep.effectiveEnd`'s decision, made in one place.
+        var end: TimeInterval?
 
-        init(at: TimeInterval, text: String, words: [LyricWord] = [], isCredit: Bool = false) {
+        init(
+            at: TimeInterval, text: String, words: [LyricWord] = [], isCredit: Bool = false,
+            end: TimeInterval? = nil
+        ) {
             self.at = at
             self.text = text
             self.words = words
             self.isCredit = isCredit
+            self.end = end
         }
     }
 

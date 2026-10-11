@@ -34,8 +34,10 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
     /// Revision 2 reads the dialects revision 1 refused (unknown tags, section
     /// labels, '<3', stacked stamps, comma and colon fractions, a leading byte
     /// order mark) and merges equal stamps into one line, so an answer cached
-    /// as unreadable under revision 1 is worth reading again.
-    static let parserRevision = 2
+    /// as unreadable under revision 1 is worth reading again. Revision 3
+    /// keeps an empty stamp as the end of the line before it
+    /// (`LyricsStore.Line.end`) instead of dropping it.
+    static let parserRevision = 3
 
     /// The longest minutes field a stamp may carry. Nothing sung runs for
     /// 999 minutes; the bound exists so `1e300` or `inf` can never reach
@@ -128,6 +130,22 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
         var lines: [LyricsStore.Line] = []
         for entry in collected {
             let at = max(0, entry.at - offset)
+            // A stamp with no words is where the voice of the line before it
+            // stopped. It was dropped until 2026-10-11, and every finished
+            // line stayed lit to the next stamp — through every instrumental
+            // and every outro (the lyric lab's L6: a median 28.9 s a track).
+            // It never becomes a row. After the sort, the next sung line
+            // cannot start before it, so the only test left is that it lies
+            // strictly after the line it ends: one at that line's own moment
+            // (or before any line at all) ends nothing. A second stamp in the
+            // same gap leaves the first alone, the earliest the voice was
+            // said to stop.
+            if entry.text.isEmpty {
+                if let last = lines.last, at > last.at, last.end == nil {
+                    lines[lines.count - 1].end = at
+                }
+                continue
+            }
             // Two word-less rows at one moment — an original and its
             // translation, the commonest bilingual LRC — are one line of two
             // rows. Kept apart, every search for that moment answered the
@@ -154,7 +172,7 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
         let offsetMilliseconds = writableOffsetMilliseconds
         if offsetMilliseconds != 0 { output.append("[offset:\(offsetMilliseconds)]") }
 
-        for line in lines {
+        for (index, line) in lines.enumerated() {
             let timestamp = formatTimestamp(line.at + offset)
             if line.words.isEmpty {
                 // A merged two-row line goes back out as the rows it was read
@@ -168,8 +186,22 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
                 }.joined(separator: " ")
                 output.append("[\(timestamp)]\(words)")
             }
+            if let end = Self.writableEnd(of: index, in: lines) {
+                output.append("[\(formatTimestamp(end + offset))]")
+            }
         }
         return output.joined(separator: "\n")
+    }
+
+    /// A line's end, when `parse` would read the bare stamp written for it
+    /// back as this same line's end: strictly after the line's start and no
+    /// later than the next line's. The editor moves lines without touching
+    /// their ends, and an end written past the next start would come back as
+    /// the end of that other line, an end nobody gave it.
+    private static func writableEnd(of index: Int, in lines: [LyricsStore.Line]) -> TimeInterval? {
+        guard let end = lines[index].end, end.isFinite, end > lines[index].at else { return nil }
+        if index + 1 < lines.count, end > lines[index + 1].at { return nil }
+        return end
     }
 
     private struct Entry {
@@ -223,9 +255,9 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
         // every second file. It used to throw `emptyTimeline`, and because that
         // error aborts the whole parse, one blank stanza break rejected an
         // otherwise perfect lyric: the file was reported invalid, and an online
-        // answer was cached as "this track has no lyrics". Dropped instead, so
-        // the line before it simply runs until the next one that has words.
-        guard !content.isEmpty else { return nil }
+        // answer was cached as "this track has no lyrics". It comes back with
+        // empty text, and `parse` makes it the end of the line before it.
+        guard !content.isEmpty else { return TimedLine(timestamps: timestamps, text: "", words: []) }
         let words = try parseWords(in: content, lineStart: timestamps[0], number: number)
         let text = words.isEmpty ? content : words.map(\.text).joined(separator: " ")
         return TimedLine(timestamps: timestamps, text: text, words: words)

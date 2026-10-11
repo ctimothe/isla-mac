@@ -81,17 +81,20 @@ enum LyricSweep {
     /// `swept` is what carries that distinction. A filled sweep across a line
     /// nobody has sung claims the voice is there, which is the same lie a swept
     /// producer credit tells.
+    ///
+    /// The same holds after a line's honoured end: the line coming is shown,
+    /// unswept, and in the outro the last line is. Read through `moment`, so
+    /// the Shortcuts action that asks for "the line playing right now" agrees
+    /// with every surface about when a line has stopped playing.
     static func displayed(
         lines: [LyricsStore.Line], at: TimeInterval
     ) -> (line: LyricsStore.Line, end: TimeInterval, swept: Bool)? {
-        guard let first = lines.first else { return nil }
-        let current = LyricsStore.current(in: lines, at: at)
-        guard let line = current.line else {
-            // The end matters even here: it is what the sweep will span once the
-            // voice arrives, and the caller reads it before that happens.
-            return (first, lines.count > 1 ? lines[1].at : first.at + 6, false)
-        }
-        return (line, current.next?.at ?? line.at + 6, true)
+        guard !lines.isEmpty else { return nil }
+        let moment = moment(in: lines, at: at)
+        // The end matters even when nothing is sung: it is what the sweep will
+        // span once the voice arrives, and the caller reads it before that.
+        let shown = moment.current ?? moment.centre
+        return (lines[shown], end(of: shown, in: lines), moment.current != nil)
     }
 
     /// The index of the line covering `at`, or nil before the song's first
@@ -116,8 +119,10 @@ enum LyricSweep {
     /// The index to centre a view on: the line being sung, or the first one
     /// when the voice has not reached it yet. Never nil for a song that has
     /// words, which is what keeps a paused track from showing an empty page.
+    /// Through a gap after a line's end it is the line coming, as `moment`
+    /// says — this is that moment's centre, not a second rule.
     static func centreIndex(in lines: [LyricsStore.Line], at: TimeInterval) -> Int {
-        index(in: lines, at: at) ?? 0
+        moment(in: lines, at: at).centre
     }
 
     /// The whole moment, from the one search: the line being sung, the line a
@@ -130,15 +135,23 @@ enum LyricSweep {
     /// unswept. The lyric lab counted 52,013 such disagreements over 540
     /// tracks, a median 12.9 s of every song. Centring on a line and claiming
     /// the voice is in it are two different statements.
+    ///
+    /// After a line's honoured end (`effectiveEnd`) nothing is current until
+    /// the next line starts — the same statement the intro makes — and the
+    /// surfaces centre on the line the voice reaches next. A finished line
+    /// used to stay lit to the next stamp, through every instrumental: the
+    /// lab measured a median 28.9 s a track, and 447 mid-song lines lit
+    /// through more than 8 s of silence. In the outro there is no next line,
+    /// so the centre stays on the last one, drawn unsung.
     static func moment(in lines: [LyricsStore.Line], at: TimeInterval) -> LyricMoment {
-        let current = index(in: lines, at: at)
-        let upcoming: Int?
-        if let current {
-            upcoming = current + 1 < lines.count ? current + 1 : nil
-        } else {
-            upcoming = lines.isEmpty ? nil : 0
+        guard let found = index(in: lines, at: at) else {
+            return LyricMoment(current: nil, centre: 0, upcoming: lines.isEmpty ? nil : 0)
         }
-        return LyricMoment(current: current, centre: current ?? 0, upcoming: upcoming)
+        let upcoming = found + 1 < lines.count ? found + 1 : nil
+        if let end = effectiveEnd(of: found, in: lines), at >= end {
+            return LyricMoment(current: nil, centre: upcoming ?? found, upcoming: upcoming)
+        }
+        return LyricMoment(current: found, centre: found, upcoming: upcoming)
     }
 
     /// The sweep a row is drawn with: none unless the voice is in it, none for
@@ -172,10 +185,36 @@ enum LyricSweep {
         return LyricResolution(at: at, moment: moment, fraction: fraction)
     }
 
-    /// When a line stops being sung: the next line's start, or a spoken length
-    /// borrowed for the last one.
+    /// The shortest silence a line goes dark for. Some LRCLIB files put the
+    /// empty stamp a breath before the next line; honoured, the line would
+    /// blink off and on again between two phrases of one verse, which reads
+    /// as a glitch rather than as the voice stopping.
+    static let minimumHonouredGap: TimeInterval = 1.5
+
+    /// When the line's voice stops, if the source said so and the silence
+    /// after it is worth showing: the line's own `end`, kept only when it
+    /// lies after the line's start and at least `minimumHonouredGap` before
+    /// the next line. The last line has no next line, so its end (the outro
+    /// stamp) is always honoured.
+    ///
+    /// The one place that decides it. `moment`, `end(of:in:)` and the
+    /// clock's boundary wakes (`LyricsCoordinator.registerBoundaries`) all
+    /// ask here, so a surface that went dark and a wake that fired for it
+    /// can never be answering two different rules.
+    static func effectiveEnd(of index: Int, in lines: [LyricsStore.Line]) -> TimeInterval? {
+        guard lines.indices.contains(index), let end = lines[index].end,
+              end.isFinite, end > lines[index].at else { return nil }
+        if index + 1 < lines.count, lines[index + 1].at - end < minimumHonouredGap { return nil }
+        return end
+    }
+
+    /// When a line stops being sung: where its voice ends when the source
+    /// said so, otherwise the next line's start, or a spoken length borrowed
+    /// for the last one. The honoured end matters to a word-timed line: its
+    /// last word used to stretch across the whole instrumental after it.
     static func end(of index: Int, in lines: [LyricsStore.Line]) -> TimeInterval {
         guard lines.indices.contains(index) else { return 0 }
+        if let end = effectiveEnd(of: index, in: lines) { return end }
         if index + 1 < lines.count { return lines[index + 1].at }
         return lines[index].at + 6
     }

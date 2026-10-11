@@ -150,6 +150,75 @@ final class SharedLyricTimelineTests: XCTestCase {
         XCTAssertEqual(LyricSweep.moment(in: lines, at: 0).distance(of: 1), 2)
     }
 
+    // MARK: - A line ends when its voice does (L-01)
+
+    /// A finished line used to stay lit until the next line's stamp, through
+    /// every instrumental: the lab measured a median 28.9 s a track, and 447
+    /// mid-song lines lit through more than 8 s of silence. From its end the
+    /// line is not current, and the surfaces centre on the line coming.
+    func testALineGoesDarkAtItsEnd() {
+        let lines = [
+            LyricsStore.Line(at: 10, text: "a", end: 15),
+            LyricsStore.Line(at: 26.3, text: "b"),
+        ]
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: 14.9), LyricMoment(current: 0, centre: 0, upcoming: 1))
+        XCTAssertEqual(
+            LyricSweep.moment(in: lines, at: 15), LyricMoment(current: nil, centre: 1, upcoming: 1),
+            "dark on the frame the voice stops"
+        )
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: 20), LyricMoment(current: nil, centre: 1, upcoming: 1))
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: 26.3), LyricMoment(current: 1, centre: 1, upcoming: nil))
+        XCTAssertEqual(LyricSweep.effectiveEnd(of: 0, in: lines), 15)
+        XCTAssertEqual(LyricSweep.end(of: 0, in: lines), 15, accuracy: 0.0001, "the sweep ends with the voice")
+    }
+
+    /// A breath is not a gap. An empty stamp 0.8 s before the next line would
+    /// blink the line off and on again, so a gap under `minimumHonouredGap`
+    /// keeps the line lit to the next stamp, as before.
+    func testAShortBreathKeepsTheLineLit() {
+        let lines = [
+            LyricsStore.Line(at: 10, text: "a", end: 25.5),
+            LyricsStore.Line(at: 26.3, text: "b"),
+        ]
+        XCTAssertEqual(LyricSweep.minimumHonouredGap, 1.5)
+        XCTAssertNil(LyricSweep.effectiveEnd(of: 0, in: lines))
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: 25.9).current, 0)
+        XCTAssertEqual(LyricSweep.end(of: 0, in: lines), 26.3, accuracy: 0.0001)
+        // An end at or before the line's own start, or past the next start,
+        // is not an end: a document built in code can hold either.
+        XCTAssertNil(LyricSweep.effectiveEnd(of: 0, in: [LyricsStore.Line(at: 10, text: "a", end: 10)]))
+        XCTAssertNil(LyricSweep.effectiveEnd(of: 0, in: [
+            LyricsStore.Line(at: 10, text: "a", end: 40), LyricsStore.Line(at: 20, text: "b"),
+        ]))
+    }
+
+    /// The outro: the last line's stamp ends it, and then nothing is sung —
+    /// but the caption keeps the last line, unswept, rather than falling back
+    /// to a status line ("Finding lyrics…") for the rest of the track.
+    func testTheOutroLeavesTheLastLineShownUnswept() throws {
+        let lines = [
+            LyricsStore.Line(at: 10, text: "a"),
+            LyricsStore.Line(at: 20, text: "b", end: 24),
+        ]
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: 30), LyricMoment(current: nil, centre: 1, upcoming: nil))
+        let inputs = LyricInputs(
+            position: 30, precisionSync: false, userOffset: 0, trackOffset: 0, wordTiming: false
+        )
+        let caption = try XCTUnwrap(MediaPane.captionResolution(lines: lines, inputs: inputs))
+        XCTAssertNil(caption.current)
+        XCTAssertEqual(caption.centre, 1)
+        XCTAssertEqual(caption.fraction, 0)
+        XCTAssertEqual(caption, LyricsStage.resolve(lines: lines, inputs: inputs))
+        XCTAssertEqual(caption, LockScreenCard.resolve(lines: lines, inputs: inputs))
+
+        // And the Shortcuts action, which reads `displayed`, no longer calls
+        // a finished line the one playing.
+        let shown = try XCTUnwrap(LyricSweep.displayed(lines: lines, at: 30))
+        XCTAssertEqual(shown.line.text, "b")
+        XCTAssertFalse(shown.swept)
+        XCTAssertEqual(shown.end, 24, accuracy: 0.0001)
+    }
+
     /// A bilingual LRC stamps the original and its translation at one time,
     /// and the parser keeps both. Keyed by timestamp, the two rows shared one
     /// id — drawn twice or skipped, and the scroll anchor could not tell them

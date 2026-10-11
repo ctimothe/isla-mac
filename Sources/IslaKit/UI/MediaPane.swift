@@ -563,12 +563,15 @@ struct MediaPane: View {
     /// lock card. The lyric lab calls this function rather than a copy of the
     /// caption's arithmetic.
     static func captionResolution(lines: [LyricsStore.Line], inputs: LyricInputs) -> LyricResolution? {
-        let resolution = LyricSweep.resolve(lines: lines, inputs: inputs)
-        // With neither a current line nor one coming there is nothing to
-        // caption. Whenever there is, it is the moment's centre — the row the
-        // stage and the card centre on — which is why the view draws `centre`.
-        guard (resolution.current ?? resolution.moment.upcoming) != nil else { return nil }
-        return resolution
+        // With no lines there is nothing to caption. Otherwise it is the
+        // moment's centre — the row the stage and the card centre on — which
+        // is why the view draws `centre`. That includes the outro after the
+        // last line's end, where nothing is sung and nothing is coming: the
+        // guard used to ask for a current or an upcoming line, which until
+        // line ends existed was only ever false for an empty lyric, and in
+        // the outro it would have swapped the last line for "Finding lyrics…".
+        guard !lines.isEmpty else { return nil }
+        return LyricSweep.resolve(lines: lines, inputs: inputs)
     }
 
     private var compactLyricsStatus: some View {
