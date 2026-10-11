@@ -117,11 +117,13 @@ final class AmbientMomentTests: XCTestCase {
     func testTheMomentKeepsTheTrackPeeksRestraint() {
         func allowed(
             switchOn: Bool = true, isOpen: Bool = false, isDropTargeted: Bool = false, isLocked: Bool = false,
-            pointerInside: Bool = false, pointerUnderGrownPill: Bool = false, screensAsleep: Bool = false
+            pointerInside: Bool = false, pointerUnderGrownPill: Bool = false, screensAsleep: Bool = false,
+            quiet: Bool = false
         ) -> Bool {
             NotchController.ambientAllowed(
                 switchOn: switchOn, isOpen: isOpen, isDropTargeted: isDropTargeted, isLocked: isLocked,
-                pointerInside: pointerInside, pointerUnderGrownPill: pointerUnderGrownPill, screensAsleep: screensAsleep
+                pointerInside: pointerInside, pointerUnderGrownPill: pointerUnderGrownPill,
+                screensAsleep: screensAsleep, quiet: quiet
             )
         }
         XCTAssertTrue(allowed())
@@ -132,6 +134,36 @@ final class AmbientMomentTests: XCTestCase {
         XCTAssertFalse(allowed(pointerInside: true), "the pointer is on the island")
         XCTAssertFalse(allowed(pointerUnderGrownPill: true), "the pill would grow under a still cursor")
         XCTAssertFalse(allowed(screensAsleep: true), "nobody can see it")
+        XCTAssertFalse(allowed(quiet: true), "a film, a talk or a projector is showing")
+    }
+
+    /// A Keynote talk mirrored to a projector, a laptop presenting through
+    /// HDMI with its lid shut, or a full-screen film must not get a 2.2 s pill
+    /// with a song title or a battery percentage on the audience's screen
+    /// (K-003). The resting pill stays — only the transient moments go quiet.
+    func testTransientMomentsGoQuietWhereAnAudienceMayBeWatching() {
+        func quiet(
+            fullScreen: Bool = false, mirrored: Bool = false, soleExternal: Bool = false
+        ) -> Bool {
+            NotchController.momentsQuiet(
+                fullScreenFrontmost: fullScreen, displayMirrored: mirrored, soleExternalDisplay: soleExternal
+            )
+        }
+        XCTAssertFalse(quiet(), "an ordinary desktop")
+        XCTAssertTrue(quiet(fullScreen: true), "a full-screen app is frontmost")
+        XCTAssertTrue(quiet(mirrored: true), "a projector mirrors the screen")
+        XCTAssertTrue(quiet(soleExternal: true), "a closed laptop driving only an external display")
+    }
+
+    /// A Mac with no battery (a Mini, a Studio) always has only external
+    /// displays, and that is a desk and not a presentation.
+    func testASoleExternalDisplayIsOnlyAClosedLaptop() {
+        XCTAssertTrue(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [false], hasInternalBattery: true))
+        XCTAssertTrue(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [false, false], hasInternalBattery: true))
+        XCTAssertFalse(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [false], hasInternalBattery: false))
+        XCTAssertFalse(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [true, false], hasInternalBattery: true))
+        XCTAssertFalse(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [true], hasInternalBattery: true))
+        XCTAssertFalse(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [], hasInternalBattery: true), "no displays reported")
     }
 
     func testThePillGrowsOnlyAsFarAsTheMomentNeeds() {
