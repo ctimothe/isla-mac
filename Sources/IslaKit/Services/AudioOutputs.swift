@@ -44,9 +44,25 @@ enum AudioOutputs {
         ) == noErr else { return [] }
 
         return ids.compactMap { id in
-            guard hasOutputStreams(id), let name = name(of: id) else { return nil }
+            guard hasOutputStreams(id),
+                  isListable(canBeDefault: flag(kAudioDevicePropertyDeviceCanBeDefaultDevice,
+                                                scope: kAudioDevicePropertyScopeOutput, of: id),
+                             isHidden: flag(kAudioDevicePropertyIsHidden,
+                                            scope: kAudioObjectPropertyScopeGlobal, of: id)),
+                  let name = name(of: id) else { return nil }
             return Output(id: id, name: name, transport: transport(of: id), dataSource: dataSource(of: id))
         }
+    }
+
+    /// Whether a device belongs in the picker (K-009). A Teams or Loopback
+    /// sub-device that says it cannot be the default output, or one CoreAudio
+    /// marks hidden, used to sit in the list as a row that did nothing when
+    /// tapped — `select` is refused for it. Nil is a device that does not
+    /// publish the property, which is most real outputs, so an unanswered
+    /// question lists the device rather than hiding a working one. Pure, so
+    /// the rule is held by a test without a sound card.
+    static func isListable(canBeDefault: Bool?, isHidden: Bool?) -> Bool {
+        canBeDefault != false && isHidden != true
     }
 
     /// The device everything currently plays through.
@@ -246,6 +262,20 @@ enum AudioOutputs {
         return value
     }
 
+    /// A UInt32 yes-or-no property, or nil when the device does not publish it.
+    private static func flag(
+        _ selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope, of id: AudioDeviceID
+    ) -> Bool? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectHasProperty(id, &address) else { return nil }
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr else { return nil }
+        return value != 0
+    }
+
     private static func hasOutputStreams(_ id: AudioDeviceID) -> Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreamConfiguration,
@@ -305,9 +335,10 @@ enum AudioOutputs {
 /// system's own lock-screen widgets follow these changes, and a card that
 /// imitates them follows them too.
 ///
-/// The machine is injected. `read` and the two listener closures default to
-/// the CoreAudio implementations at the foot of this class and are overridden
-/// by the tests, so every behaviour of the watch is driven without a sound
+/// The machine is injected. `read`, `readVolume`, the two listener closures
+/// and `debounce` default to the CoreAudio and main-queue implementations at
+/// the foot of this class and are overridden by the tests, so every behaviour
+/// of the watch is driven without a sound
 /// card. The glue itself is the one deliberately untested layer in this file;
 /// it stays thin — every decision is made by the tested code above it, and
 /// what remains is only the translation of those decisions into
@@ -323,20 +354,49 @@ final class AudioWatch: ObservableObject {
     typealias Read = () -> (outputs: [AudioOutputs.Output], current: AudioDeviceID?, volume: Float?)
 
     private let read: Read
+    /// The level alone, for the volume listener (F-045). Every write the lock
+    /// card's bar made fired that listener, and it used to run `read` — every
+    /// device's streams, name, transport and data source — once per pointer
+    /// event to learn one float.
+    private let readVolume: () -> Float?
     private var installListeners: () -> Void
     private var removeListeners: () -> Void
+    /// Runs the device-list re-read once a burst of notifications has settled.
+    private let debounce: (@escaping @Sendable () -> Void) -> Void
 
     /// The device the volume listener is attached to. The listener must follow
     /// the default, and this is what tells the watch when it has to move.
     private var listeningTo: AudioDeviceID?
     private var running = false
+    /// A device-list re-read is scheduled and has not run yet.
+    private var devicesReadPending = false
+
+    /// How long a device-list burst is given to settle. One plug sends the
+    /// list change several times as the device's streams come up, and a read
+    /// in the middle of that can catch a device with no name yet.
+    static let devicesSettle: TimeInterval = 0.15
 
     init(
         read: Read? = nil,
+        readVolume: (() -> Float?)? = nil,
         installListeners: (() -> Void)? = nil,
-        removeListeners: (() -> Void)? = nil
+        removeListeners: (() -> Void)? = nil,
+        debounce: ((@escaping @Sendable () -> Void) -> Void)? = nil
     ) {
         self.read = read ?? { (AudioOutputs.available(), AudioOutputs.current(), SystemVolume.current()) }
+        // An injected `read` answers for the volume too, unless the test says
+        // otherwise: the card's render tests inject only `read`, and must
+        // never reach the machine's own level through the default here.
+        if let readVolume {
+            self.readVolume = readVolume
+        } else if let read {
+            self.readVolume = { read().volume }
+        } else {
+            self.readVolume = { SystemVolume.current() }
+        }
+        self.debounce = debounce ?? { work in
+            DispatchQueue.main.asyncAfter(deadline: .now() + AudioWatch.devicesSettle, execute: work)
+        }
         self.installListeners = installListeners ?? {}
         self.removeListeners = removeListeners ?? {}
         // All stored properties are initialised, so the production defaults
@@ -361,12 +421,44 @@ final class AudioWatch: ObservableObject {
         }
     }
 
-    /// The one entry the CoreAudio listener blocks call — and the one the tests
-    /// drive in their place, and the card on a pane change. Re-reads are cheap
-    /// property gets, so there is nothing to debounce: every "something may
-    /// have moved" moment lands here and publishes only what actually moved.
+    /// The full re-read: the entry the default-output listener calls, the
+    /// tests drive in its place, and the card calls on a pane change. Every
+    /// "the route may have moved" moment lands here and publishes only what
+    /// actually moved. It enumerates every device, which is why the volume
+    /// listener no longer comes here (see `volumeChanged`).
     func systemAudioChanged() {
+        DebugTrail.note("audio watch: full read")
         refresh()
+    }
+
+    /// The volume listener's entry: the level and nothing else (F-045). A
+    /// volume change cannot move the default or the device list — those have
+    /// listeners of their own — so the full read it used to trigger answered
+    /// questions nobody had asked, 60 to 120 times a second during a drag on
+    /// the lock card's bar. Compared before it is assigned, like `apply`:
+    /// one stereo write fires the wildcard listener once per channel.
+    func volumeChanged() {
+        let fresh = readVolume()
+        if volume != fresh { volume = fresh }
+    }
+
+    /// The device-list listener's entry (K-009). Plugging in a DAC that macOS
+    /// does not select changes the list and not the default, and the watch
+    /// used to listen only to the default, so the picker never heard about
+    /// it. One plug sends a burst of these, folded into one full read once it
+    /// settles; a read that lands after `stop()` is dropped, because the card
+    /// it would publish to has gone.
+    func devicesChanged() {
+        guard running, !devicesReadPending else { return }
+        devicesReadPending = true
+        debounce { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.devicesReadPending = false
+                guard self.running else { return }
+                self.systemAudioChanged()
+            }
+        }
     }
 
     /// Which device the volume listener belongs on, given the one it is
@@ -452,6 +544,7 @@ final class AudioWatch: ObservableObject {
     // the block hops to the main actor before touching anything that matters.
     nonisolated(unsafe) private var systemListenerInstalled = false
     nonisolated(unsafe) private var systemListener: AudioObjectPropertyListenerBlock?
+    nonisolated(unsafe) private var devicesListener: AudioObjectPropertyListenerBlock?
     nonisolated(unsafe) private var volumeListener: AudioObjectPropertyListenerBlock?
 
     /// The default-output listener sits on the system object, which does not
@@ -475,6 +568,17 @@ final class AudioWatch: ObservableObject {
             systemListener = block
             AudioObjectAddPropertyListenerBlock(
                 AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, block
+            )
+            // The device list lives on the same object and comes and goes with
+            // the same registration (K-009): a device plugged in or pulled out
+            // without the default moving.
+            var devices = Self.devicesAddress
+            let devicesBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.devicesChanged() }
+            }
+            devicesListener = devicesBlock
+            AudioObjectAddPropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject), &devices, DispatchQueue.main, devicesBlock
             )
             systemListenerInstalled = true
         }
@@ -500,9 +604,24 @@ final class AudioWatch: ObservableObject {
                 )
             }
             systemListener = nil
+            if let block = devicesListener {
+                var devices = Self.devicesAddress
+                AudioObjectRemovePropertyListenerBlock(
+                    AudioObjectID(kAudioObjectSystemObject), &devices, DispatchQueue.main, block
+                )
+            }
+            devicesListener = nil
             systemListenerInstalled = false
         }
         if let device = removingVolumeFrom { removeVolumeListener(from: device) }
+    }
+
+    private nonisolated static var devicesAddress: AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
     }
 
     private nonisolated static var volumeAddress: AudioObjectPropertyAddress {
@@ -515,8 +634,10 @@ final class AudioWatch: ObservableObject {
 
     private nonisolated func addVolumeListener(to device: AudioDeviceID) {
         var address = Self.volumeAddress
+        // The level alone: a full read here enumerated every device once per
+        // write the lock card's bar made (F-045).
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.systemAudioChanged() }
+            MainActor.assumeIsolated { self?.volumeChanged() }
         }
         volumeListener = block
         AudioObjectAddPropertyListenerBlock(device, &address, DispatchQueue.main, block)

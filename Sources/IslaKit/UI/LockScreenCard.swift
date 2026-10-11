@@ -70,6 +70,9 @@ struct LockScreenCard: View {
     @State private var currentOutput: AudioDeviceID?
     @State private var volume: Float?
     @State private var draggingVolume: Float?
+    /// Paces the drag's CoreAudio writes; the bar itself draws from
+    /// `draggingVolume` at full rate (F-045).
+    @State private var volumeGate = VolumeWriteGate()
 
     /// Read through `@AppStorage` so changing it in Settings redraws the card
     /// while it is on screen, rather than at the next lock.
@@ -326,6 +329,9 @@ struct LockScreenCard: View {
                 // drag. A finger still down simply writes its place again on
                 // the next move, so nothing live is lost by clearing these.
                 scrubbing = nil
+                // A level the gate was still holding when the drag was cut
+                // short lands now, rather than never (F-045).
+                if let held = volumeGate.finish() { writeVolume(held) }
                 if draggingVolume != nil {
                     draggingVolume = nil
                     volume = audio.volume
@@ -986,6 +992,13 @@ struct LockScreenCard: View {
     /// device.
     private var volumeLevel: Double { Double(draggingVolume ?? volume ?? 0) }
 
+    /// One paced write from the volume drag, noted on the media trail so a
+    /// live session can count the writes a drag makes.
+    private func writeVolume(_ level: Float) {
+        DebugTrail.note("lock card: volume write \(level)")
+        SystemVolume.set(level)
+    }
+
     /// The system's output volume. Absent entirely for a device that has none
     /// to give, rather than a slider that moves and changes nothing.
     private var volumeBar: some View {
@@ -1006,9 +1019,25 @@ struct LockScreenCard: View {
                             guard width > 0 else { return }
                             let next = Float(min(max(value.location.x / width, 0), 1))
                             draggingVolume = next
-                            SystemVolume.set(next)
+                            // Every event wrote CoreAudio, 60 to 120 times a
+                            // second (F-045). The bar follows the finger from
+                            // `draggingVolume`; the write goes through the gate,
+                            // and a held level is handed over once its interval
+                            // has passed, so a finger at rest is heard at rest.
+                            if let write = volumeGate.offer(next, at: ProcessInfo.processInfo.systemUptime) {
+                                writeVolume(write)
+                            } else {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + VolumeWriteGate.interval) {
+                                    if let due = volumeGate.due(at: ProcessInfo.processInfo.systemUptime) {
+                                        writeVolume(due)
+                                    }
+                                }
+                            }
                         }
                         .onEnded { _ in
+                            // The level the gate still holds is where the
+                            // finger let go, and it always lands.
+                            if let held = volumeGate.finish() { writeVolume(held) }
                             volume = SystemVolume.current() ?? draggingVolume
                             draggingVolume = nil
                         }
