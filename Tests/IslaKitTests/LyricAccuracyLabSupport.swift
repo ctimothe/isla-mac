@@ -290,6 +290,9 @@ struct ReferenceLRC {
         let ms: Int
         let text: String
         let sourceLine: Int
+        /// The text opened with an enhanced-LRC `<mm:ss>` word marker; `text`
+        /// then holds the words with every marker taken out.
+        var wordTimed = false
     }
 
     var entries: [Entry] = []
@@ -307,11 +310,30 @@ struct ReferenceLRC {
 
     /// The non-empty entries, offset applied, in time order (stable for equal
     /// times, which is file order). This is what a correct reader should show.
-    var sung: [Entry] {
+    var sungRows: [Entry] {
         entries.filter { !$0.text.isEmpty }
-            .map { Entry(ms: max(0, $0.ms - offsetMs), text: $0.text, sourceLine: $0.sourceLine) }
+            .map { Entry(ms: max(0, $0.ms - offsetMs), text: $0.text, sourceLine: $0.sourceLine, wordTimed: $0.wordTimed) }
             .enumerated().sorted { ($0.element.ms, $0.offset) < ($1.element.ms, $1.offset) }
             .map(\.element)
+    }
+
+    /// `sungRows` with rows that share a moment read as one line of several
+    /// rows, joined by "\n" in file order: two rows at one stamp are one
+    /// thing sung (an original and its translation), and a reader that keeps
+    /// them apart can never show the first. Word-timed rows stay their own
+    /// lines, since their words cannot be interleaved.
+    var sung: [Entry] {
+        var merged: [Entry] = []
+        for row in sungRows {
+            if let last = merged.last, last.ms == row.ms, !last.wordTimed, !row.wordTimed {
+                merged[merged.count - 1] = Entry(
+                    ms: last.ms, text: last.text + "\n" + row.text, sourceLine: last.sourceLine
+                )
+            } else {
+                merged.append(row)
+            }
+        }
+        return merged
     }
 
     var emptyEntries: [Entry] { entries.filter { $0.text.isEmpty } }
@@ -369,11 +391,32 @@ struct ReferenceLRC {
             if stamps.count > 1 { result.multiStampLines += 1 }
             let text = rest.trimmingCharacters(in: .whitespaces)
             if text.contains("<") || text.contains(">") { result.angleBracketLines += 1 }
+            let words = wordTimedText(text)
             for stamp in stamps {
-                result.entries.append(Entry(ms: stamp, text: text, sourceLine: number))
+                result.entries.append(Entry(
+                    ms: stamp, text: words ?? text, sourceLine: number, wordTimed: words != nil
+                ))
             }
         }
         return result
+    }
+
+    /// A valid enhanced-LRC word marker, `<mm:ss>` with an optional '.', ','
+    /// or ':' fraction of up to three digits.
+    /// Written once and only read, which is why the unchecked isolation is safe.
+    nonisolated(unsafe) private static let wordMarker = try! Regex(#"<\s*[0-9]+:[0-9]{1,2}(?:[.,:][0-9]{0,3})?\s*>"#)
+
+    /// The words of a line that opens with a valid marker, every valid marker
+    /// taken out and the pieces between them joined by one space; nil for a
+    /// line that does not open with one, whose '<' (a "<3", an arrow) is text.
+    private static func wordTimedText(_ text: String) -> String? {
+        guard let first = text.firstMatch(of: wordMarker), first.range.lowerBound == text.startIndex else {
+            return nil
+        }
+        return text.split(separator: wordMarker)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     private static func metadataTag(_ line: String) -> (key: String, value: String)? {
@@ -384,8 +427,9 @@ struct ReferenceLRC {
         return (key.lowercased(), String(value))
     }
 
-    /// `mm:ss`, `mm:ss.f`, `mm:ss.ff`, `mm:ss.fff`, and the `mm:ss:ff` variant
-    /// some editors write, to integer milliseconds.
+    /// `mm:ss`, `mm:ss.f`, `mm:ss.ff`, `mm:ss.fff`, the `mm:ss,ff` of
+    /// European editors and the `mm:ss:ff` variant some editors write, to
+    /// integer milliseconds.
     private static func timestamp(_ raw: Substring, into result: inout ReferenceLRC) -> Int? {
         let text = raw.trimmingCharacters(in: .whitespaces)
         let parts = text.split(separator: ":", omittingEmptySubsequences: false)
@@ -396,7 +440,7 @@ struct ReferenceLRC {
         if parts.count == 3 {
             fraction = parts[2]
             result.colonFractionStamps += 1
-        } else if let dot = secondsPart.firstIndex(of: ".") {
+        } else if let dot = secondsPart.firstIndex(where: { $0 == "." || $0 == "," }) {
             fraction = secondsPart[secondsPart.index(after: dot)...]
             secondsPart = secondsPart[..<dot]
         }

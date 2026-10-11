@@ -70,6 +70,39 @@ manually bound even when it has no metadata tags. Automatic matching requires
 valid `title` and `artist` tags; `album`, duration, and a version label are
 stronger disambiguators.
 
+> **Amended 2026-10-11 — the LRC dialects real files use are accepted.**
+> "Ordinary LRC" was read narrowly, and one line outside that reading
+> rejected a whole file: listed as invalid locally, cached from LRCLIB as a
+> 14-day miss (audit G-002, F-009, G-007, G-019, F-010). The parser now
+> collects every stamped line, sorts by time (file order breaks ties), and
+> only then validates. Accepted:
+>
+> - a byte-order mark at the start of any line, and CR, LF or CRLF endings;
+> - any whole-line `[key:value]` tag whose key is letters or `#`
+>   (`[by:]`, `[re:]`, `[au:]`, `[#:]`, `[id:]`, `[tool:]` …) — the six it
+>   knows (`ti`, `ar`, `al`, `ve`, `length`, `offset`) are read, the rest are
+>   skipped;
+> - several stamps on one line (compressed LRC), whose stamps step backwards
+>   across lines by design;
+> - stamps written `mm:ss`, `mm:ss.f`, `mm:ss.ff`, `mm:ss.fff`, `mm:ss,ff` or
+>   `mm:ss:ff`;
+> - a non-stamp bracket after the stamps (`[00:12.00][Verse 1: Drake] …`) as
+>   text, and a line with no stamp (a section label, a credit) as nothing;
+> - a '<' that does not open a `<mm:ss>` word marker as text, so "I <3 you" is
+>   a line-timed lyric; word timing begins only when the content opens with a
+>   valid marker.
+>
+> Two word-less rows at one moment (an original and its translation) become
+> one line of two rows, written back as two rows under the same stamp; kept
+> apart, the first was never shown. Still refused, with the 1-based line
+> named in the error: a bracket that starts with a digit and holds ':' but is
+> not a valid stamp, word markers that step backwards or before their line, a
+> non-finite or out-of-range `[offset:]`, and minutes past 999. `serialize`
+> clamps to what `parse` reads back, so a document built in code can never
+> trap on export. `LocalLyricsDocument.parserRevision` is 2.
+>
+> Held by `LocalLyricsDocumentTests`.
+
 ## Identity and matching
 
 `LocalTrackIdentity` contains normalized title, artist, album, duration,
