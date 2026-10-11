@@ -260,7 +260,7 @@ Width, text size, font, column width, reading position, cue brightness and colou
 5. **Capture hiding.** The stage lives in `NotchPanel`, whose `sharingType` is already driven by the global **Hide from Screen Sharing** setting (default on). The tab shows its state. If it is off when a session starts, the session starts anyway and the chip says "Visible when sharing". Capture hiding is **not** a guarantee: it hides the panel from software capture only when the capture app honors it, never from a hardware mirror. The text on the tab says so and the validation matrix tests it (section 18).
 6. **Mirrored or sole external display.** If any active display is in a mirror set (`CGDisplayIsInMirrorSet`, the check `momentsAreQuiet` already makes), starting a session asks once, inline in the tab's control row through the arm-then-confirm control: "Your display is mirrored. People watching the mirror will see your script." Start Anyway arms and confirms; leaving the row cancels. The prompter is exempt from `momentsQuiet`, which suppresses transient moments only.
 7. **Quit.** Quit from Settings during a session asks first, through the panel's arm-then-confirm control (`ConfirmationArming` in `Confirmation.swift`; the island has no alert sheets, so every "ask once" in this document means that control, inline). Textream also cancels a quit Apple Event from another process while a session runs (`805882a`); Isla does not: it is `.accessory` with no Dock or menu-bar item to quit from, so an outside quit is a deliberate act, and refusing it would be the surprising behavior.
-8. **Keep display awake.** Default on, session-scoped: `ProcessInfo.beginActivity([.userInitiated, .idleSystemSleepDisabled, .idleDisplaySleepDisabled])` while `running` or `paused`, ended in every exit path. Recorded in `checklist.md`.
+8. **Keep display awake.** Default on, session-scoped: `ProcessInfo.beginActivity([.userInitiated, .idleSystemSleepDisabled, .idleDisplaySleepDisabled])` while `running` or user-`paused`, ended in every exit path. **Not** held while paused for lock or sleep, nor in `finished`: held literally, a Mac locked mid-session would keep its display lit indefinitely (ruling 20.4). Recorded in `checklist.md`.
 9. **Welcome and first run.** A commanded start during the first-run welcome retires it via `chooseTab`, like lyrics.
 10. **Menu bar, Dock.** None. The activation policy stays `.accessory`.
 11. **Window.** The window is not resized. No new window class is introduced in releases 1 to 3.
@@ -466,3 +466,35 @@ Resolved 2026-10-11. The owner asked for the most optimal choice on each open de
 - **D5. Stage height: standard 208 pt body** for release 1. A taller stage is a geometry change that touches the lock-transition invariants; reopen it only if the hardware reading test in release 1 shows four to five lines is too few.
 - **D6. Attribution: add the Textream MIT notice** to `THIRD_PARTY_NOTICES.md` with a provenance check (plan T0 and T12). The matcher and its constants were read from the source, so a clean-room claim could not be defended; the notice costs one paragraph and one grep.
 - **D7. Surfaces after the notch**: the external-display prompter stays release 5, optional, and not scheduled until releases 1 and 2 are in use. Remote, Director and the URL scheme never ship in Isla: they need a network listener, which breaks the rule that nothing leaves the machine by default and adds a security surface Textream itself has not secured.
+
+## 20. Rulings made during implementation
+
+Where the spec was silent or two statements disagreed, the implementer took the more conservative reading and pinned it with a test. They are binding from the commit that made them and are listed here so the next reader does not rediscover them.
+
+### 20.1 Script model (`PromptScript`, commit a0352fc)
+
+1. U+3000 is both Unicode whitespace and in the CJK range 3000-303F. Whitespace splitting runs first, so U+3000 separates words; the rest of 3000-303F becomes its own word.
+2. The content hash is FNV-1a 64 over the UTF-8 of the **original** text (not the collapsed text), because any edit, even whitespace, moves the `NSRange` mapping. Swift's `Hasher` is reseeded per launch and cannot be used. The layout cache key (`PromptLayoutKey`) adds font name, point size and column width.
+3. A collapsed offset that falls on the separator between words maps to the next word's start as a range start and the previous word's end as a range end. Offsets inside a surrogate pair or combining sequence floor to the start of that `Character`.
+4. Nested brackets: `[a [b] c]` is one cue from the first `[` to the first `]`; the trailing `c]` is not a cue.
+5. A grapheme is CJK only if its first scalar is.
+6. Direction needs a strong letter (general category L); digits, marks and punctuation inside RTL blocks are not strong.
+7. An emoji or `--` is non-speech and not a cue; `[]` is both.
+8. Callers use `collapsedCount` and word ranges, never `collapsedText.count` (a re-segmented string can merge a space with a following bare combining mark).
+
+### 20.2 Session and clock (`PrompterSession`, `PromptClock`, commit 215f255)
+
+1. Progress is fractional words (8.1); the session converts to a character offset for jumps and highlights.
+2. Cues and non-speech words take no reading time; progress jumps over them, so a cue-only page finishes at once (E-21).
+3. Speed clamps to 0.5-8 in steps of 0.5; NaN or infinity becomes 3.0.
+4. Resume is allowed from lock and sleep pauses too (the user resumes after unlock or wake); resuming at the end of a page returns to `finished` and restarts the countdown.
+5. Lock or sleep in `finished` moves to `paused` and cancels the countdown, so the next page never starts behind the lock screen.
+6. A second pause keeps the first reason. A user pause in `finished` does nothing.
+7. Next page and the page picker are refused while paused and when picking the current page. Next page never skips blank middle pages; only Start does (E-20).
+8. Tapping a word while `finished` returns to running and cancels the countdown; while paused it moves the position and stays paused.
+9. Changing auto-next does not touch a countdown already running; a delay outside 0/1/3/5 becomes 3.
+10. A placed start position is used only if it is on the selected page and the page hash still matches.
+11. Read marks mean "the page's end was reached" and persist after Stop until the next Start.
+12. **Keep-awake** is held only while running or user-paused, released for lock and sleep pauses and in `finished` (one switch, `wantsKeepAwake`, pinned by a test).
+
+Open for the stage task: whether paused time counts toward the elapsed readout (the spec is silent; T8 decides and records it here).
