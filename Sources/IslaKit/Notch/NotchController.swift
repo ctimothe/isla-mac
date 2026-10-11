@@ -203,6 +203,22 @@ final class NotchController {
         !screensAsleep
     }
 
+    /// Whether the media clock — the ten-a-second position ticker, and with
+    /// lyrics on the once-a-second Apple event into Spotify — should run for
+    /// what is on screen.
+    ///
+    /// Opening the panel used to start it on any tab. A panel left open on
+    /// Shelf, Clipboard or Settings while Spotify played paid eleven wake-ups a
+    /// second to move a scrubber nobody could see (F-015). Only the Music tab
+    /// and the lock card draw a scrubber or a lyric, so only they run it. The
+    /// lock card answers for itself with the panel closed, whatever tab was
+    /// left open — the lock path starts it, and `lockKeepsMediaRunning` holds
+    /// the dark-display exception there. Pure, so `MediaClockTests` can hold
+    /// the rule without a controller.
+    static func mediaClockWanted(isOpen: Bool, tab: NotchViewModel.Tab, locked: Bool) -> Bool {
+        locked || (isOpen && tab == .media)
+    }
+
     /// The lock screen is display-only for the panel: the compact pill keeps
     /// rendering — `MediaController` never stops with the shield up, so
     /// artwork, equalizer and the playing/paused state stay current — but
@@ -1137,6 +1153,25 @@ final class NotchController {
             }
             .store(in: &cancellables)
 
+        // The media clock follows the tab while the panel is open: on for
+        // Music, off for everything else (see `mediaClockWanted`). Coming back
+        // to Music goes through `setActive(true)` exactly as an open does, so
+        // the position is recomputed from the anchor, the feed is asked again
+        // and the shuffle and repeat switches are re-read — nothing drawn from
+        // a clock that stood still while Settings was up. Reads the value the
+        // publisher hands over, not `vm.tab`: `@Published` announces before it
+        // stores. Closed or locked, the open and lock paths own the clock, and
+        // a tab set before an open (the translate hot key) is read by the open.
+        vm.$tab
+            .removeDuplicates()
+            .sink { [weak self] tab in
+                MainActor.assumeIsolated {
+                    guard let vm = self?.viewModel, vm.isOpen, !vm.isLockedPresentation else { return }
+                    vm.media.setActive(Self.mediaClockWanted(isOpen: true, tab: tab, locked: false))
+                }
+            }
+            .store(in: &cancellables)
+
         // A track appearing or disappearing changes the collapsed shell's
         // width. Re-cut both pointer and hit-test regions after @Published has
         // committed the new value, without disturbing an already open panel.
@@ -1327,7 +1362,12 @@ final class NotchController {
             // through a region the animation has not covered yet.
             applyActiveRect(open: true)
             withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = true }
-            vm.media.setActive(true)
+            // Only for the tab that draws the clock. Opening onto Settings or
+            // the Shelf leaves it off; the tab sink in `build` starts it the
+            // moment Music comes up, with the same re-anchoring an open does.
+            if Self.mediaClockWanted(isOpen: true, tab: vm.tab, locked: vm.isLockedPresentation) {
+                vm.media.setActive(true)
+            }
         } else {
             // The keyboard goes first and the fold goes second — one run-loop
             // pass apart, never together. Dropped in the same pass, resigning
