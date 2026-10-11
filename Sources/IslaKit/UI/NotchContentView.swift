@@ -1012,6 +1012,7 @@ struct NotchContentView: View {
             )
         case .translate:
             TranslatePane(translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
+                .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
         case .settings:
             SettingsPane(
                 shelf: vm.shelf,

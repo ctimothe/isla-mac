@@ -1338,6 +1338,20 @@ final class NotchController {
             }
             .store(in: &cancellables)
 
+        // The I-beam over the Translate editor (PTR-02). The rect goes to zero
+        // with the tab, so the tracking area is re-cut on the same change that
+        // swaps the pane.
+        vm.$textInputRect
+            .removeDuplicates()
+            .sink { [weak self] rect in
+                MainActor.assumeIsolated {
+                    guard let root = self?.rootView else { return }
+                    root.textRects = [NotchRootView.textRect(fromTopLeft: rect, windowHeight: root.bounds.height)]
+                        .filter { !$0.isEmpty }
+                }
+            }
+            .store(in: &cancellables)
+
         // Driven by the deliberate request, not by which tab is showing: a
         // hover can land on the typing tab now, and that alone must not take
         // the keyboard away from the window underneath.

@@ -97,9 +97,15 @@ final class NotchViewModel: ObservableObject {
     /// Shelf until it comes into view.
     @Published private(set) var shelfHasNew = false
 
+    /// The Translate editor's frame in the window (top-left origin), for the
+    /// panel's I-beam. Zero on every other tab; the pane that reports it is
+    /// gone by then and a vanished view sends no last word.
+    @Published var textInputRect: CGRect = .zero
+
     @Published var tab: Tab = .media {
         didSet {
             if tab == .shelf { shelfHasNew = false }
+            if tab != .translate { textInputRect = .zero }
             // The shelf can hold files inside the folders macOS guards, and
             // looking at one raises a permission prompt. It is asked here,
             // with the shelf on screen, rather than at launch with nothing to

@@ -142,6 +142,8 @@ final class NotchRootView: NSView {
             removeTrackingArea(cursorArea)
             self.cursorArea = nil
         }
+        for area in textAreas { removeTrackingArea(area) }
+        textAreas = []
         guard !activeRect.isEmpty else { return }
         let area = NSTrackingArea(
             rect: activeRect,
@@ -150,10 +152,58 @@ final class NotchRootView: NSView {
         )
         addTrackingArea(area)
         cursorArea = area
+        // One more per text field (owner decision 24: native beats taste, and
+        // every Mac app shows an I-beam over a text field). Added after the
+        // panel's own so it is the more specific claim where the two overlap;
+        // clipped to the panel, so a field mid-slide never claims a point the
+        // panel does not take.
+        for rect in textRects {
+            let clipped = rect.intersection(activeRect)
+            guard !clipped.isNull, !clipped.isEmpty else { continue }
+            let text = NSTrackingArea(
+                rect: clipped,
+                options: [.cursorUpdate, .mouseEnteredAndExited, .activeAlways],
+                owner: self,
+                userInfo: ["text": true]
+            )
+            addTrackingArea(text)
+            textAreas.append(text)
+        }
+    }
+
+    /// Text inputs inside the panel, in this view's coordinates, that take an
+    /// I-beam. Reported by the Translate pane through the controller; empty on
+    /// every other tab, and re-cut whenever it changes.
+    var textRects: [CGRect] = [] {
+        didSet {
+            guard textRects != oldValue else { return }
+            refreshCursorArea()
+        }
+    }
+
+    private var textAreas: [NSTrackingArea] = []
+
+    /// The shape for a pointer at `point`, or nil when the point is not the
+    /// panel's to claim. Static so the rule is testable without a window.
+    static func cursor(at point: CGPoint, active: CGRect, text: [CGRect]) -> NSCursor? {
+        guard active.contains(point) else { return nil }
+        return text.contains(where: { $0.contains(point) }) ? .iBeam : .arrow
+    }
+
+    /// SwiftUI reports a frame from the top-left of the hosting view, which
+    /// fills this view; this view, like `activeRect`, counts from the bottom.
+    static func textRect(fromTopLeft rect: CGRect, windowHeight: CGFloat) -> CGRect {
+        guard !rect.isEmpty else { return .zero }
+        return CGRect(x: rect.minX, y: windowHeight - rect.maxY, width: rect.width, height: rect.height)
+    }
+
+    private func applyCursor(for event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        Self.cursor(at: point, active: activeRect, text: textRects)?.set()
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        NSCursor.arrow.set()
+        applyCursor(for: event)
     }
 
     /// The pointer can already be inside a freshly installed area — entering is
@@ -163,14 +213,20 @@ final class NotchRootView: NSView {
             onLockedHover?(true)
             return
         }
-        NSCursor.arrow.set()
+        applyCursor(for: event)
     }
 
     /// Leaving takes the edge away again. Without this the island kept a lit
     /// outline for the rest of the lock after one pass of the cursor.
+    ///
+    /// Leaving a text field restores the arrow while the pointer is still on
+    /// the panel: the panel's own area was entered long before and gets no
+    /// second notification.
     override func mouseExited(with event: NSEvent) {
         if event.trackingArea?.userInfo?["locked"] != nil {
             onLockedHover?(false)
+        } else if event.trackingArea?.userInfo?["text"] != nil {
+            applyCursor(for: event)
         }
     }
 
