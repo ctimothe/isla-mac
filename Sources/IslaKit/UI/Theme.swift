@@ -14,7 +14,45 @@ enum Theme {
     /// at the end of every open. Response is the time to reach the target, not
     /// a duration — Apple ships 0.4 for a move and 0.3 for a sheet, and this
     /// sits between them.
-    static let openAnimation = Animation.spring(response: 0.34, dampingFraction: 1.0)
+    static let openResponse: Double = 0.34
+    static let openAnimation = Animation.spring(response: openResponse, dampingFraction: 1.0)
+
+    /// The panel folding shut: the open's own spring, started a beat late.
+    ///
+    /// The open's rule is that the panel has height before the body has alpha;
+    /// the close has to be the same rule backwards, the body gone before the
+    /// shape comes for it. It was not. Shape and body started in the same
+    /// frame, the shape eats the 14 pt bottom padding in about 25 ms, and from
+    /// there the clip was cutting through the rail and the time label while
+    /// they were still 0.93 opaque (H-012; the visual lab's keyframes-close
+    /// t033–t050). A close read as a blind dropping rather than as the open
+    /// run backwards.
+    ///
+    /// Two halves fix it, and neither does alone. The body leaves on an
+    /// ease-out (`paneOut`), which is fastest at the start rather than the
+    /// end; and the shape waits 30 ms. Together the body is at about 0.26 when
+    /// the clip first touches it. Keeping the ease-in and only delaying the
+    /// shape leaves it at 0.88; dropping the delay and only flipping the curve
+    /// still leaves it near 0.6. A slower spring would also do it and would
+    /// lengthen every close, which is the one thing a close must not be.
+    ///
+    /// 30 ms is still immediate: the fade starts in the click's own frame and
+    /// is the response, and the shape follows inside two frames. It does
+    /// postpone the header strip and the cover's flight home by the same
+    /// 30 ms, since they ride the shell's transaction.
+    /// `PanelCloseTests.testTheBodyIsMostlyGoneBeforeTheClipReachesIt` holds
+    /// the 0.30 ceiling from these constants, and
+    /// `testTheHitAreaOutlastsTheDelayedClose` that the hit area still
+    /// shrinks only after the later settle.
+    static let closeShapeDelay: Double = 0.03
+    static let closeAnimation = openAnimation.delay(closeShapeDelay)
+
+    /// Reduce Motion gets the reduced open with no delay: the delay is
+    /// choreography between two moving things, and that is what was refused.
+    /// The lock path closes in a disabled transaction and never comes here.
+    static func close(reduceMotion: Bool) -> Animation {
+        reduceMotion ? open(reduceMotion: true) : closeAnimation
+    }
     /// The pill resizing around a track that just started. Also nothing anybody
     /// threw, so also critically damped.
     static let compactAnimation = Animation.spring(response: 0.28, dampingFraction: 1.0)
@@ -84,7 +122,18 @@ enum Theme {
     /// arrives, so the two are never both half-visible for long.
     static let paneAnimation = Animation.easeOut(duration: 0.18)
     static let paneIn = Animation.easeOut(duration: 0.20).delay(0.04)
-    static let paneOut = Animation.easeIn(duration: 0.12)
+    /// The outgoing pane, and on a close the whole body.
+    ///
+    /// Out is an ease-out, not the ease-in it was. An ease-in starts at zero
+    /// speed and ends at its fastest, so the leaving pane — and on a close,
+    /// the whole body — stayed nearly opaque for its first frames and was then
+    /// yanked away (H-028). The open's body arrives on an ease-out; the close
+    /// now releases on one, at its fastest in the frame the click lands. 0.10
+    /// rather than 0.12 because a curve that front-loads its change is
+    /// perceived as done sooner: 90 % is gone by 75 ms, against 113 ms on the
+    /// old curve, and it leaves at its peak speed instead of arriving at it.
+    static let paneOutDuration: Double = 0.10
+    static let paneOut = Animation.easeOut(duration: paneOutDuration)
 
     /// Every spring in this file that is **not** allowed to overshoot.
     ///
@@ -92,7 +141,7 @@ enum Theme {
     /// deliberately edit. It used to be hardcoded inside the test, which meant
     /// a fourth spring at 0.7 would have passed it without anyone noticing.
     static let criticallyDampedSprings: [Animation] = [
-        openAnimation, compactAnimation, pillUnfold, pillFold, pillContentOut, pillContentIn,
+        openAnimation, closeAnimation, compactAnimation, pillUnfold, pillFold, pillContentOut, pillContentIn,
         captionTurnOut, captionTurnIn,
     ]
 

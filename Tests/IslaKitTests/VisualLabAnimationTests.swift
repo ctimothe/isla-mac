@@ -151,7 +151,8 @@ final class VisualLabAnimationTests: VisualLabCase {
         }
         let body = Double(NotchMetrics.standardBodyHeight - LabGeometry.physicalNotch.height)
         var curves: [LabCurve] = [
-            try curve(Theme.openAnimation, "open-close", "panel open and close (shape, header, cover morph)", "Theme.swift openAnimation", travel: body),
+            try curve(Theme.openAnimation, "open-close", "panel open (shape, header, cover morph); the close is \"close\"", "Theme.swift openAnimation", travel: body),
+            try curve(Theme.close(reduceMotion: false), "close", "panel close (shape, header, cover morph), the open's spring after closeShapeDelay", "Theme.swift close(reduceMotion:)", travel: body),
             try curve(Theme.open(reduceMotion: true), "open-close-reduce-motion", "panel open/close under Reduce Motion", "Theme.swift open(reduceMotion:)"),
             try curve(Theme.compactAnimation, "compact", "pill resizing around a new track", "Theme.swift compactAnimation", travel: Double(NotchMetrics.compactMediaExtension)),
             try curve(Theme.pillUnfold, "pill-unfold", "pill growing out of the notch, and the peek widening", "Theme.swift pillUnfold", travel: Double(NotchMetrics.compactMediaExtension) / 2),
@@ -458,7 +459,9 @@ final class VisualLabAnimationTests: VisualLabCase {
         // Open and close.
         for closing in [false, true] {
             for ms in Self.keyframeTimes {
-                let s = value("open-close", ms)
+                // The close rides its own curve: the open's spring started
+                // `Theme.closeShapeDelay` late (H-012).
+                let s = value(closing ? "close" : "open-close", ms)
                 let p = closing ? 1 - s : s
                 let bodyAlpha = closing ? 1 - value("pane-out", ms) : value("pane-in", ms)
                 let headerAlpha = p

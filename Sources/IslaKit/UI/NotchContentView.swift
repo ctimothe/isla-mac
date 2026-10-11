@@ -279,11 +279,12 @@ struct NotchContentView: View {
                     //
                     // `Theme.paneIn`/`paneOut` is the pair this file already
                     // uses for tab swaps and the rule is `Theme`'s own: out fast
-                    // (0.12s), in slower and behind a small delay, so the two
-                    // states are never both half-present for long. Applied here
-                    // it means the panel has height before the body has alpha,
-                    // and on close the body is gone by 0.12s while the panel
-                    // still has 0.34s of collapse left to do on its own.
+                    // (0.10s, on an ease-out), in slower and behind a small
+                    // delay, so the two states are never both half-present for
+                    // long. Applied here it means the panel has height before
+                    // the body has alpha, and on close the body is mostly gone
+                    // before the shape — held back `Theme.closeShapeDelay` —
+                    // has eaten the bottom padding and reached it (H-012).
                     //
                     // Opacity only — deliberately not the `.scale` the pane
                     // switch adds. The far end of the artwork morph
@@ -364,7 +365,12 @@ struct NotchContentView: View {
                     if inside { vm.onIslandClick?() }
                 }
         )
-        .animation(Theme.open(reduceMotion: reduceMotion), value: isOpen)
+        // Open and close by direction, as the pill's fold and unfold are: the
+        // close waits `Theme.closeShapeDelay` so the body is gone before the
+        // clip comes for it (H-012). Must agree with the controller's own
+        // `withAnimation`, or the two transactions disagree about when the
+        // shape starts.
+        .animation(isOpen ? Theme.open(reduceMotion: reduceMotion) : Theme.close(reduceMotion: reduceMotion), value: isOpen)
         // The pointer arriving. Over a playing island that is a brightening on
         // a quick ease; over one resting hidden in the notch it is the island
         // growing out of the cutout with a single small bump — see

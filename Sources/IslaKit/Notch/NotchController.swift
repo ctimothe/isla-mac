@@ -1428,8 +1428,10 @@ final class NotchController {
         // the lock card: an open→closed animation still in flight across that
         // swap is what made the card and the pill slide in from the notch's
         // old position, at the old size, instead of simply being there.
+        // The animated close is `Theme.close`, the open's spring a beat late,
+        // so the body has faded before the shape's edge reaches it (H-012).
         if deferRectShrink {
-            withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = false }
+            withAnimation(Theme.close(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = false }
         } else {
             var instant = Transaction()
             instant.disablesAnimations = true
