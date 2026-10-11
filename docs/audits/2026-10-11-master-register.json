@@ -1618,5 +1618,175 @@
   "evidence": "OnlineLyrics.swift:32-36 decodes only syncedLyrics, instrumental and duration. L6: lyricsfile end_ms matched 11,901 of 11,901 lines and carries the same line ends as the gap stamps. L5: only 2 real word-timed lines exist in this corpus.",
   "fix": "Decode lyricsfile as a secondary source for line ends and word timing.",
   "live": false
+ },
+ {
+  "id": "K-001",
+  "src": "K",
+  "title": "After one 403, Spotify Web API calls stop for the rest of the process, and disconnecting does not clear the block",
+  "sev": "P2",
+  "cluster": "spotify-account",
+  "evidence": "refuse() sets apiBlocked = true (SpotifyAccount.swift:79-82). The only resets are in the success branches (:377, :418, :484). Every route to those branches is closed while the flag is set: trackMetadata returns at the guard `isConnected, !apiBlocked` (:465), the heart is drawn only when `!spotify.apiBlocked` (LockScreenCard.swift:836), and the heart's .task (:858) is the only caller of refreshSavedState. toggleSaved needs the heart. disconnect() (:290-297) resets saved, isConnected and the generation, but not apiBlocked, refusal or tokenUnavailable, and store() (:268-288) does not reset them either. SettingsPane.swift:491-492 shows the refusal whenever isConnected && apiBlocked. The doc comment at :34-36 says the flag 'clears on the next successful call', and no such call can happen. No test checks that the flag clears (SpotifyAccountTests:115 only checks that it is set).",
+  "fix": "Reset apiBlocked, refusal and tokenUnavailable in disconnect() and store(). Allow a cheap re-probe after a cooldown (for example on the next lock, or 10 minutes after the 403) so a fixed account can recover. Add a test that a refused account recovers.",
+  "live": false
+ },
+ {
+  "id": "K-002",
+  "src": "K",
+  "title": "Liked Songs calls endpoints Spotify retired for Development Mode apps (/me/tracks, /me/tracks/contains), and the refusal copy blames the listener for the owner's Premium",
+  "sev": "P2",
+  "cluster": "spotify-account",
+  "evidence": "refreshSavedState calls GET /v1/me/tracks/contains (SpotifyAccount.swift:358). toggleSaved calls PUT and DELETE /v1/me/tracks (:405-410). Spotify's February 2026 migration guide (developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide, fetched 2026-10-11) lists PUT /me/tracks, DELETE /me/tracks and GET /me/tracks/contains as replaced by PUT/DELETE /me/library and GET /me/library/contains, which take Spotify URIs. Existing Development Mode apps were moved over on 2026-03-09. The same guide says 'All Development Mode apps require the app owner to have an active Spotify Premium subscription', caps new apps at 5 users, and keeps GET /tracks/{id}. The built-in client is a Development Mode app: checklist.md:654 is still open, and the .notRegistered copy assumes it. Refusal.from maps any 403 message containing 'premium' to 'Liked Songs needs Spotify Premium.' (:63, :72), which addresses the listener. The guide does not say what status the retired endpoints return. A non-403 goes to the retry path and gives up after 3 tries, leaving the heart dimmed and disabled (LockScreenCard.swift:845-855). A 403 gives the generic or the wrong refusal.",
+  "fix": "Move to GET /me/library/contains?uris=spotify:track:<id> and PUT/DELETE /me/library with URIs. Re-read the 403 copy so the owner's Premium is not presented as the listener's. Add the endpoint status check to the owner's live script.",
+  "live": true
+ },
+ {
+  "id": "K-003",
+  "src": "K",
+  "title": "Track peeks and charger and headphone moments appear over full-screen apps, presentations, games and mirrored or sole projectors, and there is no Focus integration",
+  "sev": "P2",
+  "cluster": "shell-interaction",
+  "evidence": "sneakPeek checks only sneakPeekEnabled, isOpen, isDropTargeted, ambient, isLockedPresentation, pointer and pill visibility (NotchController.swift:1281-1300). ambientAllowed takes switchOn, isOpen, isDropTargeted, isLocked, pointerInside, pointerUnderGrownPill and screensAsleep (:1377-1383). A grep of Sources for presentationOptions, CGDisplayIsCaptured, CGDisplayIsInMirrorSet, SetFocusFilterIntent and FocusFilter finds nothing, and frontmostApplication appears only in ShelfSharing. The panel is .canJoinAllSpaces + .fullScreenAuxiliary at statusWindow+1 (NotchPanel.swift:146), so it draws over full-screen Spaces. sharingType = .none hides it from capture, not from a hardware mirror. activeSpaceChanged (NotchController.swift:149-170) folds an open panel but does not cancel peekWork or ambientWork. No recorded project decision covers suppressing transient moments. The island's own visibility in full screen (wave-a, S9-b) is a separate question and is left alone.",
+  "fix": "Add one pure 'quiet' input to sneakPeek and ambientAllowed (ambientAllowed is already pure and unit-tested): a full-screen app frontmost (NSApp.currentSystemPresentationOptions or the Space type), CGDisplayIsInMirrorSet or a sole external display while presenting, and a SetFocusFilterIntent parameter beside the existing App Intents. Add one Settings row, default on, with en and ru strings and a checklist.md entry. Cancel peekWork and ambientWork in activeSpaceChanged.",
+  "live": false
+ },
+ {
+  "id": "K-004",
+  "src": "K",
+  "title": "Translate keeps the old answer or old failure on screen while a new request runs, so Retry looks dead and Copy can copy a translation of different text",
+  "sev": "P3",
+  "cluster": "translate",
+  "evidence": "translate() never clears output or failure when it starts (Translator.swift:414-466). They change only in received() (:471-477), clear() (:400-407) and the engine-loop end. TranslatePane.outcome checks failure first, then output, and shows the 'Translating…' spinner only when both are empty (TranslatePane.swift:159-200). Retry bumps attempt (:390). The pane waits 320 ms and re-runs, and through that wait plus the engine time the same failure text stays up. An identical failure never visibly changes. copyOutput (:566-571) copies output even when outputSource no longer matches the input. Obstacles .appleIntelligenceOff, .modelNotReady and .needsDownload offer no Retry (:299-305), so after the user fixes the cause the message stays until they edit the text or reopen the panel.",
+  "fix": "While a run for different text is pending, dim or mark the output, compare outputSource with trimmed before enabling Copy, show the spinner over a failure while isTranslating, and add Retry to the obstacles the user can resolve outside Isla.",
+  "live": false
+ },
+ {
+  "id": "K-005",
+  "src": "K",
+  "title": "On macOS 15, Translate Online sends every language pair to MyMemory while the Settings note says only languages 'such as Uzbek' go online",
+  "sev": "P3",
+  "cluster": "translate",
+  "evidence": "Below macOS 26, capabilities() returns belowMinimumSystem with systemSupported and modelSupportsPair both false (Translator.swift:341-346). offeredOnDevice is therefore false, and engines() lists .online for every pair (:269-275). The Settings note reads 'Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet.' (SettingsPane.swift:462-463). The menus do mark every language (Online) once onDeviceLanguages is [] (:366-386), but they show no marker until that set loads.",
+  "fix": "On macOS 15, word the note as 'This Mac translates nothing itself; everything is sent to MyMemory', or show it on the Translate Online row itself.",
+  "live": false
+ },
+ {
+  "id": "K-006",
+  "src": "K",
+  "title": "Short Ukrainian text is called Russian even when it contains ї, є or ґ",
+  "sev": "P3",
+  "cluster": "translate",
+  "evidence": "byLetters settles only on әөүұңһ, ўҳ and қғ (TranslationLanguage.swift:125-133), and its comment says і alone decides nothing. Fewer than 3 words need recognizer confidence ≥ 0.95, otherwise the fallback is containsCyrillic ? .russian (:110-114). Ukrainian is an offered language (:44, :61). With the default Russian target, route(detected:target:) then flips Russian to English (Translator.swift:224-231). ї, є and ґ appear in no other offered Cyrillic language.",
+  "fix": "Add a byLetters rule: ї, є or ґ with no ы, ё, ъ or э means Ukrainian.",
+  "live": false
+ },
+ {
+  "id": "K-007",
+  "src": "K",
+  "title": "The localisation gate cannot catch an untranslated SwiftUI literal, a Russian value copied from English, or a third .lproj",
+  "sev": "P3",
+  "cluster": "localization",
+  "evidence": "test-localizations.sh collects only localized(\"…\") calls, Button(\"…\") literals, the welcome Copy block and intent titles. A literal in Text, Label, Toggle, Picker, .help or .accessibilityLabel is invisible to it. Today no such literal exists (grep of Sources), so this is a latent hole. Equal en and ru values are rejected only for InfoPlist.strings, not for Localizable. Both loops hard-code en and ru, and bundle.sh:57-59 writes CFBundleLocalizations [en, ru] while copying every Resources/*.lproj, so a new uz.lproj would ship untested and undeclared. CLAUDE.md calls this gate the guarantee that every user-facing string is localized.",
+  "fix": "Scrape the SwiftUI literal initialisers too, or fail on any bare literal outside an allowlist. Flag ru values equal to en except an allowlist (Spotify, AirDrop). Derive the locale list from Resources/*.lproj and check it against CFBundleLocalizations.",
+  "live": false
+ },
+ {
+  "id": "K-008",
+  "src": "K",
+  "title": "The lock-card volume bar appears for devices whose volume cannot be set, and a drag that spans a default-output change sets the new device to the finger's level",
+  "sev": "P3",
+  "cluster": "lock-card",
+  "evidence": "SystemVolume.current() decides the bar exists from AudioObjectHasProperty plus a successful read (SystemVolume.swift:17-31, 50-63) and never checks AudioObjectIsPropertySettable. set() does check it and returns false (:73-76), but both callers ignore the result (LockScreenCard.swift:719, :743). The bar follows the finger, then snaps back on release (:722), which is the 'slider that moves and changes nothing' the file comment rules out (:10-14). set() also re-reads AudioOutputs.current() on every call (:38) with no device latched at drag start, so after AirPods take over mid-drag the next onChanged writes the absolute finger fraction to the AirPods. The audio.$volume mirror is ignored while dragging (:187-189).",
+  "fix": "Hide the bar unless the property is settable. Latch the device id at drag start, and stop the drag if the default changes.",
+  "live": false
+ },
+ {
+  "id": "K-009",
+  "src": "K",
+  "title": "The lock-card output picker never hears about devices plugged in or removed unless the default output changes, lists devices that cannot be default, and a failed pick does nothing",
+  "sev": "P3",
+  "cluster": "lock-card",
+  "evidence": "AudioWatch registers only kAudioHardwarePropertyDefaultOutputDevice on the system object and VolumeScalar on the default device (AudioOutputs.swift:382-441). It has no kAudioHardwarePropertyDevices listener. Only AmbientWatch has one (AmbientWatch.swift:40), and its result is not shared. The feature inventory claims listeners re-read 'the device list'. available() filters on output channels and name only (:29-50, 168-181), never on kAudioDevicePropertyDeviceCanBeDefaultDevice or IsHidden. outputRow does `guard AudioOutputs.select(device.id) else { return }` (LockScreenCard.swift:561) with no feedback, no refresh and no haptic.",
+  "fix": "Listen for kAudioHardwarePropertyDevices while the card is up, debounced, and filter on CanBeDefaultDevice and IsHidden. When select fails, re-read the list and drop the row.",
+  "live": true
+ },
+ {
+  "id": "K-010",
+  "src": "K",
+  "title": "A cover over 4 MB never appears for that track: the app drops it, asks once, and the helper resends the same bytes",
+  "sev": "P3",
+  "cluster": "artwork",
+  "evidence": "The decoder keeps artwork only if the base64 and decoded data are ≤ 4 MB (NowPlayingPayloadDecoder.swift:34-38, 54), and drops it silently otherwise. The helper sends the full ArtworkData with no downscale (helper.m:293-298). With no cover showing, shouldAskForArtwork asks once (MediaController.swift:1588-1595, 1647-1656). The helper answers with the same oversized payload, it is dropped again, and alreadyAsked blocks a third try. The note placeholder follows after 2.5 s. No decoder test covers the cap.",
+  "fix": "Downscale in the helper (CGImageSource thumbnail to about 600 px) before base64, which also fixes the decode-size half of F-044 for this route.",
+  "live": false
+ },
+ {
+  "id": "K-011",
+  "src": "K",
+  "title": "On the scripting fallback every skip blanks the cover at once, with none of the helper route's 180 ms grace or same-album reuse",
+  "sev": "P3",
+  "cluster": "artwork",
+  "evidence": "refreshFromPlayers sets artwork = nil whenever state.key changes, then fetches (MediaController.swift:1852-1858). The helper route waits 180 ms before blanking (:1617-1627) and keeps the cover for an album-mate (:1596-1607), a fix that was filmed on 2026-09-21. The fallback is the route DMG users with a Gatekeeper-blocked helper land on (see memory isla-gatekeeper-dylib-block). On macOS 26 the lock card's samplesBackdrop also depends on artwork == nil (LockScreenCard.swift:155), so the card switches between real and drawn glass at each skip.",
+  "fix": "Apply the same grace and album-mate rule in refreshFromPlayers, ideally by sending both routes through one artwork-transition function.",
+  "live": false
+ },
+ {
+  "id": "K-012",
+  "src": "K",
+  "title": "Screen-capture pickup fills its 1,000-name memory with files from before the install, then forgets an arbitrary third, so removed cards can come back",
+  "sev": "P3",
+  "cluster": "shelf-integrity",
+  "evidence": "collect() inserts every capture-shaped name into `seen` before the date test (RecordingPickup.swift:76-83), so files from before the install count toward seenLimit = 1000 (:40). Above the cap, trimSeen keeps names whose file exists and then `Set(kept.prefix(seenLimit))` (:133-140). That choice is arbitrary, and Set order changes with each launch's hash seed. Evicted names that postdate `since` are offered again (:82). ShelfStore persists the set on every open (ShelfStore.swift:226). Once over the cap, every Shelf open also pays one fileExists per name per folder.",
+  "fix": "Do not record names older than `since`, and evict by date rather than by Set order.",
+  "live": false
+ },
+ {
+  "id": "K-013",
+  "src": "K",
+  "title": "The helper restart budget forgives by time since the first failure, so a helper that dies every 10-120 s is relaunched indefinitely",
+  "sev": "P3",
+  "cluster": "media-route",
+  "evidence": "recordFailure resets the window when more than 300 s have passed since windowStart (NowPlayingFailurePolicy.swift:36-38). recordSuccess() zeroes consecutiveFailures on any snapshot (:54-56). Delays are 2, 4, 8, 16, 32, 60, 60, 60 s (:50), 242 s in total, so a 9th failure inside 300 s needs lives averaging under about 7 s. Longer-lived crash loops reset to a 2 s delay each window: about 2,000 perl launches a day at a 10 s life. A plausible trigger is G-008, an uncaught exception on one player's metadata.",
+  "fix": "Forgive by how long the helper survived (for example, reset only after 5 minutes alive), or count failures in a sliding window rather than one anchored at the first failure.",
+  "live": false
+ },
+ {
+  "id": "K-014",
+  "src": "K",
+  "title": "With Spotify Automation denied, the 1 Hz precise-position poll keeps sending Apple events and logs an error every second, and episodes and ads are looked up five times each",
+  "sev": "P3",
+  "cluster": "media-route",
+  "evidence": "updatePrecisionSync gates on isActive, isPlaying, precisionPlayer and lyricsShown (MediaController.swift:714), and never on a refusal. Each failing run logs at error level (PlayerBridge.swift:494-498): about 3,600 persisted records an hour, which crowd Diagnostics' last half hour. spotifyTrackID returns nil for anything but spotify:track: (PlayerBridge.swift:80-88). requestSpotifyTrackID reads nil as 'no answer' and retries at 1, 2, 4 and 8 s (MediaController.swift:623-643), so every podcast episode, ad or local file costs 5 Apple events.",
+  "fix": "Treat -1743 as sticky for the session and stop the precision loop and the id lookup. Have the id script distinguish 'not a track' from 'no answer'.",
+  "live": false
+ },
+ {
+  "id": "K-015",
+  "src": "K",
+  "title": "Spotify sign-in edge cases: a second Connect breaks the first browser tab, a reconnect cannot pick a different account, and several failures are silent",
+  "sev": "P3",
+  "cluster": "spotify-account",
+  "evidence": "beginAuthorization overwrites verifier and authorizationState on every press (SpotifyAccount.swift:182, 185), so completing an earlier tab fails the constant-time state check and returns silently (:208-210). The authorize URL has no show_dialog=true (:188-196), so after Disconnect, Spotify reconnects the browser's signed-in account without a choice. NSWorkspace.open's result is ignored (:197). importLegacy reports success if any one of the three items copied (:529-537), and importLegacyAccount then hides the Import row unconditionally (:164-165). storeTokens discards TokenStore.write failures (:561-566), and store() still sets isConnected (:286).",
+  "fix": "Keep the pending flow until it completes or times out. Pass show_dialog=true after a disconnect. Surface an open, import or write failure on the Spotify row.",
+  "live": false
+ },
+ {
+  "id": "K-016",
+  "src": "K",
+  "title": "The Spotify track id can attach to the previous song for about a second after a skip, so the lock-card heart can show or like the wrong track",
+  "sev": "P3",
+  "cluster": "spotify-account",
+  "evidence": "requestSpotifyTrackID checks only `track?.key == key` and the pid after the script returns (MediaController.swift:626-628). The script asks Spotify for its current track at execution time (PlayerBridge.swift:80-88), and MediaRemote trails Spotify by about a second. The metadata guard (:672) checks the id against itself, so it cannot catch this. The mistake corrects itself when the next snapshot clears the id (:1403-1410).",
+  "fix": "Have the script return the name and artist with the id, and accept the id only when they match the snapshot.",
+  "live": true
+ },
+ {
+  "id": "K-017",
+  "src": "K",
+  "title": "On macOS 26 the lock card's whole content subtree is rebuilt when the cover appears or disappears, which can cut off a scrub or volume drag in progress",
+  "sev": "P3",
+  "cluster": "lock-card",
+  "evidence": "samplesBackdrop = style != .solid && media.artwork == nil (LockScreenCard.swift:155) feeds usesSystemGlass (GlassSurface.swift:242). body branches between content.glassEffect and drawn(content) (:253-259), which changes the identity of everything inside the card. An in-flight DragGesture is torn down without onEnded. scrubbing and draggingVolume are @State on the card (LockScreenCard.swift:60, 67) and survive, so the seek bar stays pinned to the old finger fraction and the volume mirror stays muted until the next drag. Triggered by K-011 on the fallback route, by the 180 ms blank on a coverless track, or by a decode failure.",
+  "fix": "Keep one view identity, for example by always applying both modifiers and toggling opacity or material, and reset scrubbing and draggingVolume when the track changes.",
+  "live": true
  }
 ]
