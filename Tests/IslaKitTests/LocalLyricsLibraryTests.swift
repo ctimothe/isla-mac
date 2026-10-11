@@ -197,6 +197,71 @@ final class LocalLyricsLibraryTests: XCTestCase {
         }
     }
 
+    /// An index written by a newer build can carry an origin this build has
+    /// never heard of. One such entry used to fail the whole decode, the
+    /// library opened empty and wrote that emptiness straight back: every
+    /// folder, binding and import record gone, the imported files orphaned.
+    /// Only the entry this build cannot read is dropped now.
+    func testAnUnknownOriginLosesOnlyThatEntry() throws {
+        let folder = try makeFolder(named: "Library")
+        try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: folder.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        guard case .ready(let candidate) = library.lookup(identity: identity()) else {
+            return XCTFail("the folder's document should resolve")
+        }
+        // Bound to a track its tags do not describe, so only the binding can
+        // find it: a lookup that resolves proves the binding survived.
+        let renamed = identity(title: "Renamed", duration: 240)
+        library.bind(candidate, to: renamed)
+
+        let index = root.appendingPathComponent("lyrics-local/index.json")
+        var json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: index)) as? [String: Any]
+        )
+        let documents = try XCTUnwrap(json["documents"] as? [[String: Any]])
+        json["documents"] = documents + [[
+            "id": UUID().uuidString, "origin": "cloud", "path": "/elsewhere/song.lrc",
+        ]]
+        var issues = (json["issues"] as? [[String: Any]]) ?? []
+        issues.append(["path": "/elsewhere/broken.lrc", "issue": "quarantined"])
+        json["issues"] = issues
+        try JSONSerialization.data(withJSONObject: json).write(to: index)
+
+        let relaunched = LocalLyricsLibrary(directory: root)
+        XCTAssertEqual(
+            relaunched.selectedFolders.map(\.standardizedFileURL.path),
+            [folder.standardizedFileURL.path],
+            "the folder outlives an entry this build cannot read"
+        )
+        guard case .ready(let bound) = relaunched.lookup(identity: renamed) else {
+            return XCTFail("the binding outlives an entry this build cannot read")
+        }
+        XCTAssertEqual(bound.id, candidate.id)
+    }
+
+    /// An index that cannot be read at all is moved aside before anything is
+    /// written, so the library's first save cannot destroy the only record of
+    /// the folders and bindings it held.
+    func testAnUnreadableIndexIsKeptAside() throws {
+        let directory = root.appendingPathComponent("lyrics-local", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let original = Data("{not json".utf8)
+        try original.write(to: directory.appendingPathComponent("index.json"))
+
+        _ = LocalLyricsLibrary(directory: root)
+
+        let kept = try fileManager.contentsOfDirectory(atPath: directory.path).filter {
+            $0.hasPrefix("index.unreadable-") && $0.hasSuffix(".json")
+        }
+        XCTAssertEqual(kept.count, 1, "the unreadable index is set aside, not overwritten")
+        let first = try XCTUnwrap(kept.first)
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent(first)), original)
+    }
+
     func testAmbiguousLookupUsesAnExplicitChooseCaption() {
         let caption = LyricsPresentation.compactCaption(
             for: .noLocalLyrics,

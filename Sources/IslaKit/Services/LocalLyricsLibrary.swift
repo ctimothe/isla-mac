@@ -105,16 +105,37 @@ final class LocalLyricsLibrary: ObservableObject {
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            documents = try container.decodeIfPresent([StoredDocument].self, forKey: .documents) ?? []
+            // The three lists that carry an enum are read an element at a
+            // time. An index written by a newer build sharing this Application
+            // Support folder can hold an origin or an issue this build has
+            // never heard of, and one such entry used to fail the whole
+            // decode: the library opened empty and saved that emptiness over
+            // every folder, binding and import record. Now only that entry is
+            // lost, the day this build next writes the index.
+            documents = try container.decodeIfPresent(
+                [Lossy<StoredDocument>].self, forKey: .documents
+            )?.compactMap(\.value) ?? []
             folders = try container.decodeIfPresent([StoredFolder].self, forKey: .folders) ?? []
             bindings = try container.decodeIfPresent([String: UUID].self, forKey: .bindings) ?? [:]
-            issues = try container.decodeIfPresent([StoredIssue].self, forKey: .issues) ?? []
+            issues = try container.decodeIfPresent(
+                [Lossy<StoredIssue>].self, forKey: .issues
+            )?.compactMap(\.value) ?? []
             unassignedImports = try container.decodeIfPresent(
-                [StoredUnassignedImport].self, forKey: .unassignedImports
-            ) ?? []
+                [Lossy<StoredUnassignedImport>].self, forKey: .unassignedImports
+            )?.compactMap(\.value) ?? []
             legacyMigrationCompleted = try container.decodeIfPresent(
                 Bool.self, forKey: .legacyMigrationCompleted
             ) ?? false
+        }
+    }
+
+    /// One element of a list that is kept when it decodes and dropped when it
+    /// does not, rather than taking the whole list down with it.
+    private struct Lossy<Element: Decodable>: Decodable {
+        let value: Element?
+
+        init(from decoder: Decoder) throws {
+            value = try? decoder.singleValueContainer().decode(Element.self)
         }
     }
 
@@ -622,10 +643,37 @@ final class LocalLyricsLibrary: ObservableObject {
     }
 
     private static func loadState(from url: URL, fileManager: FileManager) -> State {
-        guard fileManager.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url),
-              let state = try? JSONDecoder().decode(State.self, from: data)
-        else { return State() }
-        return state
+        guard fileManager.fileExists(atPath: url.path) else { return State() }
+        if let data = try? Data(contentsOf: url),
+           let state = try? JSONDecoder().decode(State.self, from: data) {
+            return state
+        }
+        // An index that is there but cannot be read used to be answered with
+        // an empty library, which the legacy migration and the first rescan
+        // then saved over it: every folder, binding and import record was
+        // gone with no copy left, and the imported files were orphaned. It is
+        // moved aside first, so that save lands next to it instead of on it.
+        setAside(url, fileManager: fileManager)
+        return State()
+    }
+
+    private static func setAside(_ url: URL, fileManager: FileManager) {
+        let formatter = ISO8601DateFormatter()
+        // No colons: Finder shows a colon in a file name as a slash.
+        formatter.formatOptions = [.withFullDate, .withTime, .withTimeZone]
+        let stamp = formatter.string(from: Date())
+        let directory = url.deletingLastPathComponent()
+        var destination = directory.appendingPathComponent("index.unreadable-\(stamp).json")
+        var attempt = 1
+        while fileManager.fileExists(atPath: destination.path) {
+            attempt += 1
+            destination = directory.appendingPathComponent("index.unreadable-\(stamp)-\(attempt).json")
+        }
+        do {
+            try fileManager.moveItem(at: url, to: destination)
+            Log.storage.error("local lyrics index unreadable, kept aside as \(destination.lastPathComponent, privacy: .public)")
+        } catch {
+            Log.storage.error("local lyrics index unreadable and could not be kept aside: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
+        }
     }
 }
