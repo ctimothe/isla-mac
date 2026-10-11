@@ -507,4 +507,80 @@ final class TranslatorTests: XCTestCase {
         translator.reset()
         XCTAssertNil(translator.notice)
     }
+
+    // MARK: - Clipboard text and the online engine (M-25)
+
+    /// A translator for Uzbek into Russian on a Mac that has neither — the
+    /// pair only MyMemory offers — with Translate Online on, and the online
+    /// engine replaced by a stand-in that answers and counts. The count it
+    /// returns is every request that would have left the Mac.
+    private func onlineOnlyTranslator() -> (Translator, () -> Int) {
+        defaults.set(true, forKey: NotchViewModel.onlineTranslationKey)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
+        translator.choose(source: .uzbek)
+        translator.choose(target: .russian)
+        translator.capabilitiesOverride = { _ in Translator.Capabilities(onlineEnabled: true) }
+        var requests = 0
+        translator.onlineTransport = { _, _, _ in
+            requests += 1
+            return "привет"
+        }
+        return (translator, { requests })
+    }
+
+    /// M-25: ⌃⌥⌘T or the Service put whatever was copied into the field, and
+    /// with Translate Online on and no engine on the Mac for the pair it went
+    /// to MyMemory 320 ms later — a copied password or private message left
+    /// the Mac with nobody deciding, at that moment, that it should. The
+    /// switch is consent to the engine, not to whatever was copied last. Such
+    /// text now waits behind one button, and the button is per text.
+    func testClipboardTextNeedsOneClickBeforeGoingOnline() async {
+        let (translator, requests) = onlineOnlyTranslator()
+
+        translator.fill(fromClipboard: "salom")
+        await translator.translate()
+        XCTAssertEqual(requests(), 0, "nothing leaves before the click")
+        XCTAssertNil(translator.engine)
+        XCTAssertEqual(translator.output, "")
+        XCTAssertNil(translator.failure, "waiting for a click is not a failure")
+        XCTAssertEqual(translator.consentPrompt, "This text came from the clipboard. Send it to MyMemory to translate?")
+        XCTAssertEqual(translator.remedies, [.sendOnline])
+
+        // The tab reappearing runs the pane's task again; it still asks.
+        await translator.translate()
+        XCTAssertEqual(requests(), 0, "a second run is not a click")
+
+        translator.sendOnline()
+        await translator.translate()
+        XCTAssertEqual(requests(), 1, "the click sends it, once")
+        XCTAssertEqual(translator.output, "привет")
+        XCTAssertEqual(translator.engine, .online)
+        XCTAssertNil(translator.consentPrompt)
+        XCTAssertEqual(translator.remedies, [])
+
+        // The next clipboard is a new question: the click was for "salom".
+        translator.fill(fromClipboard: "xayr")
+        await translator.translate()
+        XCTAssertEqual(requests(), 1, "consent is per text, not for the session")
+        XCTAssertEqual(translator.remedies, [.sendOnline])
+    }
+
+    /// Typing is the deliberate act the click stands in for, so typed text
+    /// goes as it always has. And Clear ends the clipboard's claim on the
+    /// field: the same words typed afterwards are typed words.
+    func testTypedTextIsNotGated() async {
+        let (translator, requests) = onlineOnlyTranslator()
+        translator.input = "salom"
+        await translator.translate()
+        XCTAssertEqual(requests(), 1)
+        XCTAssertEqual(translator.output, "привет")
+        XCTAssertNil(translator.consentPrompt)
+
+        translator.fill(fromClipboard: "xayr")
+        translator.reset()
+        translator.input = "xayr"
+        await translator.translate()
+        XCTAssertEqual(requests(), 2, "typed after Clear, not pasted by the hot key")
+    }
 }
+

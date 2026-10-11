@@ -237,6 +237,8 @@ struct TranslatePane: View {
     /// What the result column shows.
     enum Showing: Equatable {
         case translating
+        /// Clipboard text waiting for "Send to MyMemory" (M-25).
+        case asking
         case failure
         case covered
         case answer
@@ -250,8 +252,15 @@ struct TranslatePane: View {
     /// not displaced the same way: it stays up, dimmed by the caller while it
     /// is not the field's answer, rather than flashing to a spinner at every
     /// pause in typing.
-    static func showing(failure: Bool, output: Bool, covered: Bool, translating: Bool) -> Showing {
+    ///
+    /// The question about clipboard text sits where a failure would, and in
+    /// its place: it is what stands between the text and an answer, and a run
+    /// for other text takes it down before it lands (`Translator.translate`).
+    static func showing(
+        failure: Bool, output: Bool, covered: Bool, translating: Bool, asking: Bool = false
+    ) -> Showing {
         if translating, failure || !output { return .translating }
+        if asking { return .asking }
         if failure { return .failure }
         if output { return covered ? .covered : .answer }
         return .nothing
@@ -263,34 +272,15 @@ struct TranslatePane: View {
             failure: translator.failure != nil,
             output: !translator.output.isEmpty,
             covered: privacy.hides(.translate, Self.revealID),
-            translating: translator.isTranslating
+            translating: translator.isTranslating,
+            asking: translator.consentPrompt != nil
         ) {
+        case .asking:
+            // The same sentence-and-capsule as a failure, so "Send to
+            // MyMemory" is pressed the way "Turn On Translate Online" is.
+            offer(translator.consentPrompt ?? "")
         case .failure:
-            VStack(alignment: .leading, spacing: 6) {
-                Text(translator.failure ?? "")
-                    .islandFont(.body, weight: .regular)
-                    .foregroundStyle(Theme.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                // Capsules, the panel's shape for an offer. They were bare
-                // bold caption words, and the only way forward from the first
-                // error a newcomer meets did not look like something to press
-                // (H-007).
-                HStack(spacing: 8) {
-                    ForEach(translator.remedies, id: \.self) { remedy in
-                        remedyButton(remedy)
-                    }
-                }
-                .buttonStyle(OfferButtonStyle())
-                // Russian's "Включить «Переводить онлайн»" is wider than this
-                // column at a 480-point panel and breaks onto a second line.
-                // Centred, the two lines still read as one button; left-
-                // aligned, they read as a paragraph in a box. Set here rather
-                // than in the style, because centring moves a one-line label
-                // by a fraction of a point and the other offers were to stay
-                // pixel-for-pixel what they were.
-                .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            offer(translator.failure ?? "")
         case .covered:
             // The answer is the secret too, only in another language: covering
             // the source and leaving this column readable at headline size
@@ -525,6 +515,36 @@ struct TranslatePane: View {
         withAnimation(Theme.contentAnimation) { change() }
     }
 
+    /// A sentence and the buttons that answer it: a failure and its remedies,
+    /// or the question clipboard text waits behind (M-25).
+    private func offer(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(message)
+                .islandFont(.body, weight: .regular)
+                .foregroundStyle(Theme.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            // Capsules, the panel's shape for an offer. They were bare
+            // bold caption words, and the only way forward from the first
+            // error a newcomer meets did not look like something to press
+            // (H-007).
+            HStack(spacing: 8) {
+                ForEach(translator.remedies, id: \.self) { remedy in
+                    remedyButton(remedy)
+                }
+            }
+            .buttonStyle(OfferButtonStyle())
+            // Russian's "Включить «Переводить онлайн»" is wider than this
+            // column at a 480-point panel and breaks onto a second line.
+            // Centred, the two lines still read as one button; left-
+            // aligned, they read as a paragraph in a box. Set here rather
+            // than in the style, because centring moves a one-line label
+            // by a fraction of a point and the other offers were to stay
+            // pixel-for-pixel what they were.
+            .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
     @ViewBuilder
     private func remedyButton(_ remedy: Translator.Remedy) -> some View {
         switch remedy {
@@ -536,6 +556,8 @@ struct TranslatePane: View {
             Button(localized("Turn On Translate Online")) { translator.turnOnOnline() }
         case .retry:
             Button(localized("Retry")) { translator.retry() }
+        case .sendOnline:
+            Button(localized("Send to MyMemory")) { translator.sendOnline() }
         }
     }
 

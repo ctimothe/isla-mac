@@ -364,3 +364,5 @@
 "Type or paste text" = "Type or paste text";
 "The clipboard has no text." = "The clipboard has no text.";
 "Only the first %@ characters were kept." = "Only the first %@ characters were kept.";
+"This text came from the clipboard. Send it to MyMemory to translate?" = "This text came from the clipboard. Send it to MyMemory to translate?";
+"Send to MyMemory" = "Send to MyMemory";

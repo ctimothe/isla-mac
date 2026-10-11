@@ -232,6 +232,9 @@ final class FirstRunTests: XCTestCase {
             XCTAssertEqual(vm.tab, .translate)
             XCTAssertTrue(vm.wantsKeyboard, "the field that appears takes the keyboard")
             XCTAssertEqual(vm.translator.input, "bonjour")
+            // Marked as the clipboard's, so a pair only MyMemory offers
+            // waits for a click before it is sent (M-25).
+            XCTAssertEqual(vm.translator.clipboardOrigin, "bonjour")
         }
     }
 

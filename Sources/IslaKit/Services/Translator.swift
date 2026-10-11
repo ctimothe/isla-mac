@@ -88,6 +88,9 @@ final class Translator: ObservableObject {
         case translationLanguages
         case turnOnOnline
         case retry
+        /// Sends text that came from the clipboard to MyMemory, once, for
+        /// that text. See `consentPrompt`.
+        case sendOnline
     }
 
     static let sourceKey = "translate.source"
@@ -110,6 +113,31 @@ final class Translator: ObservableObject {
     @Published private(set) var isTranslating = false
     /// The engine behind what is on screen — the pane marks an online answer.
     @Published private(set) var engine: Engine?
+
+    /// The question the pane asks, over a `.sendOnline` button, instead of
+    /// sending text that came from the clipboard to MyMemory by itself. Not a
+    /// failure: nothing went wrong, and nothing has been tried.
+    @Published private(set) var consentPrompt: String?
+
+    /// The trimmed text ⌃⌥⌘T or the Service put in the field, while that is
+    /// still what the field holds. Read by `translate()` to hold such text
+    /// back from the online engine until `sendOnline()` (M-25). Typing makes
+    /// `trimmed` differ, and from then on the text is the person's own.
+    private(set) var clipboardOrigin: String?
+
+    /// The clipboard text `sendOnline()` was pressed for. One text, not a
+    /// session: the next ⌃⌥⌘T may bring a password, and a click for the
+    /// sentence before it says nothing about that.
+    private var onlineConsent: String?
+
+    /// The online engine itself: `OnlineTranslation` in the app, a counting
+    /// stand-in in a test, so a test can see what would have left the Mac
+    /// without anything leaving it. A closure rather than a session, because
+    /// nothing of the network may appear in this file
+    /// (`OnlineTranslationTests.testOnlyOneTranslationSourceReachesTheNetwork`).
+    var onlineTransport: (String, TranslationLanguage, TranslationLanguage) async throws -> String = {
+        try await OnlineTranslation.translate($0, from: $1, to: $2)
+    }
 
     /// `nil` detects the language from the text.
     @Published private(set) var source: TranslationLanguage?
@@ -330,6 +358,7 @@ final class Translator: ObservableObject {
         answered = nil
         engine = nil
         failure = nil
+        consentPrompt = nil
         remedies = []
     }
 
@@ -547,18 +576,46 @@ final class Translator: ObservableObject {
         retry()
     }
 
+    /// Text from ⌃⌥⌘T or the Service, which nobody typed and nobody may yet
+    /// have read. It goes in the field like any other, and is marked so that a
+    /// pair only the online engine offers waits for `sendOnline()` rather than
+    /// leaving 320 ms later (M-25). A pair this Mac translates itself is not
+    /// held: nothing leaves, so there is nothing to ask.
+    func fill(fromClipboard text: String) {
+        input = text
+        clipboardOrigin = trimmed
+        onlineConsent = nil
+    }
+
+    /// The pane's "Send to MyMemory": consent for the text in the field, and
+    /// only that text, and a new request so it is asked for at once. The
+    /// question comes down now rather than when the answer lands, so the
+    /// button cannot be pressed twice while the request is out.
+    func sendOnline() {
+        onlineConsent = trimmed
+        consentPrompt = nil
+        remedies = []
+        retry()
+    }
+
     func clear() {
         output = ""
         outputSource = nil
         answered = nil
         failure = nil
+        consentPrompt = nil
         remedies = []
         engine = nil
         isTranslating = false
     }
 
+    /// Clear, and Escape: the field is emptied, and with it the clipboard's
+    /// claim on it, so words typed into the empty field afterwards are typed
+    /// words even when they are the same words.
     func reset() {
         input = ""
+        clipboardOrigin = nil
+        onlineConsent = nil
         clear()
     }
 
@@ -594,11 +651,34 @@ final class Translator: ObservableObject {
         let capabilities = await capabilities(for: route)
         guard !Task.isCancelled, self.generation == generation else { return }
         let engines = Self.engines(given: capabilities)
+
+        // Clipboard text that only MyMemory can translate waits for a click
+        // (M-25). It used to go 320 ms after ⌃⌥⌘T whenever Translate Online
+        // was on, so a copied password or a private message left the Mac
+        // with nobody deciding, at that moment, that it should: the switch is
+        // consent to the engine, not to whatever was copied last. Asked here,
+        // after the engines are known, so a pair the Mac translates itself
+        // goes on at once — and since online is only ever listed for a pair
+        // the Mac does not offer at all, `contains` is the same as "online
+        // alone". Asked per text, not once for ever: a standing yes would be
+        // a second Translate Online switch.
+        if engines.contains(.online), clipboardOrigin == text, onlineConsent != text {
+            output = ""
+            outputSource = nil
+            answered = nil
+            engine = nil
+            failure = nil
+            consentPrompt = localized("This text came from the clipboard. Send it to MyMemory to translate?")
+            remedies = [.sendOnline]
+            return
+        }
+
         guard !engines.isEmpty else {
             let obstacle = Self.obstacle(for: route, given: capabilities)
             output = ""
             outputSource = nil
             engine = nil
+            consentPrompt = nil
             failure = obstacle.message
             remedies = Self.remedies(for: obstacle, onlineEnabled: capabilities.onlineEnabled)
             return
@@ -624,6 +704,7 @@ final class Translator: ObservableObject {
         output = ""
         outputSource = nil
         engine = nil
+        consentPrompt = nil
         failure = lastFailure
         remedies = [.retry]
     }
@@ -637,6 +718,7 @@ final class Translator: ObservableObject {
         answered = text == trimmed ? question : nil
         self.engine = engine
         failure = nil
+        consentPrompt = nil
         remedies = []
     }
 
@@ -656,7 +738,7 @@ final class Translator: ObservableObject {
             guard #available(macOS 26.0, *) else { throw EngineUnavailable() }
             return try await Self.askModel(text, route: route)
         case .online:
-            let translated = try await OnlineTranslation.translate(text, from: route.source, to: route.target)
+            let translated = try await onlineTransport(text, route.source, route.target)
             guard !translated.isEmpty else { throw OnlineTranslation.Failure.refused("") }
             return translated
         }

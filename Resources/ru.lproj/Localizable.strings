@@ -363,3 +363,5 @@
 "Type or paste text" = "Введите или вставьте текст";
 "The clipboard has no text." = "В буфере обмена нет текста.";
 "Only the first %@ characters were kept." = "Сохранены только первые %@ символов.";
+"This text came from the clipboard. Send it to MyMemory to translate?" = "Этот текст из буфера обмена. Отправить его в MyMemory для перевода?";
+"Send to MyMemory" = "Отправить в MyMemory";

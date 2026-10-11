@@ -1166,3 +1166,26 @@ a stack, and nothing showed it was needed.
   onto the Trash removes the card; pressing ⌘ mid-drag turns the copy into a
   move. Film one drag: the thumbnail stays under the pointer where it was
   grabbed.
+
+### Clipboard text waits for one click before it goes online — 2026-10-11 (sp/PV-04)
+
+Held for the owner: decision 21 is not yet confirmed, so this branch is built
+and tested but not merged until it is.
+
+- [x] **Text from ⌃⌥⌘T or the Service that only MyMemory can translate is not
+  sent by itself.** With Translate Online on, such text used to go 320 ms after
+  the hot key (M-25), so a copied password or private message left the Mac
+  with nobody deciding, at that moment, that it should. The result column now
+  says "This text came from the clipboard. Send it to MyMemory to translate?"
+  over a **Send to MyMemory** capsule, and nothing is sent until it is
+  pressed. The click is for that text alone: the next clipboard asks again.
+  Typed text, text typed after Clear, and any pair this Mac translates itself
+  are unchanged. Translate Online still defaults to off and is still the
+  switch that allows the engine at all.
+  `TranslatorTests.testClipboardTextNeedsOneClickBeforeGoingOnline`,
+  `testTypedTextIsNotGated`, `FirstRunTests.testAShortcutRetiresTheWelcome`.
+- [ ] **Physical check owed (script S5):** with Translate Online on, ⌃⌥⌘T on
+  copied Uzbek text shows "Send to MyMemory" and nothing reaches the network
+  until it is pressed (Little Snitch or `nettop -p Isla`); the press brings
+  the answer with its globe. ⌃⌥⌘T on English text into Russian translates at
+  once, on the Mac, with no question.

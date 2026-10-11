@@ -367,9 +367,12 @@ final class NotchViewModel: ObservableObject {
             // in full, and the hot key opens the panel at exactly the moment a
             // shared screen would catch it. Assigned directly rather than
             // through the editor, so this text does not count as typed and
-            // stays covered.
+            // stays covered. Filled as the clipboard's, too, so a pair only
+            // MyMemory offers waits for a click before any of it is sent
+            // (M-25): nobody has read this text yet, let alone chosen to send
+            // it off the Mac.
             privacy.conceal(TranslatePane.revealID)
-            translator.input = text
+            translator.fill(fromClipboard: text)
         }
         // After the text: setting `input` clears the notice.
         translator.notice = prepared.notice

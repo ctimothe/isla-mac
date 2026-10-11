@@ -343,6 +343,17 @@ transitions.
 > `OnlineTranslationTests`. A pair the framework offers but has not downloaded
 > names its language and opens System Settings' Translation Languages.
 
+> **Amended 2026-10-11 — clipboard text asks before it goes online (M-25,
+> owner decision 21, pending the owner's confirmation).** Text that ⌃⌥⌘T or
+> the Translate in Isla service puts in the field is no longer sent to MyMemory
+> by itself. When its pair is one only the online engine offers, the result
+> column asks "This text came from the clipboard. Send it to MyMemory to
+> translate?" over a **Send to MyMemory** button, and nothing leaves until it
+> is pressed. The press is for that text only. Typed text, text typed after
+> Clear, and every pair the Mac translates itself go on as before. Translate
+> Online stays the switch that allows the engine at all; the press is consent
+> for what was copied.
+
 ### Notes and Teleprompter
 
 > **Withdrawn 2026-08-22.** Both features were removed from the product by
