@@ -139,6 +139,103 @@ struct LockScreenCard: View {
     /// half of the rule people actually notice when it is broken.
     static let footerClearance: CGFloat = 20 + 22 + 8
 
+    // MARK: Output list
+
+    /// One row of the output list: the 26pt well and 5pt above and below it.
+    static let outputRowHeight: CGFloat = 26 + 5 * 2
+    static let outputRowSpacing: CGFloat = 2
+    /// What the popover spends on itself above the rows: 10pt of padding top
+    /// and bottom, and the "Output" heading with its own 4pt and the stack's
+    /// 2pt under it. An allowance rather than a measurement, rounded up, so
+    /// the arithmetic below errs towards one row fewer, never off the card.
+    static let outputPopoverChrome: CGFloat = 10 * 2 + 20
+
+    /// The devices in the order the picker lists them: the one playing first,
+    /// the rest in the order the system gives them.
+    ///
+    /// The list used to be `outputs.prefix(5)`, in the system's order and
+    /// nothing else. A Mac with a display, AirPods, an AirPlay speaker and a
+    /// virtual driver or two has more than five, and the device playing could
+    /// be the sixth — not shown, so not something anyone could pick again from
+    /// the lock screen (F-032). Pinning it first means the row that answers
+    /// "where is this going" is always the one in view; only that row moves,
+    /// so the order of the rest is still the one Control Center shows.
+    static func orderedOutputs(
+        _ outputs: [AudioOutputs.Output], current: AudioDeviceID?
+    ) -> [AudioOutputs.Output] {
+        guard let current, let index = outputs.firstIndex(where: { $0.id == current }) else { return outputs }
+        var ordered = outputs
+        ordered.insert(ordered.remove(at: index), at: 0)
+        return ordered
+    }
+
+    /// How many whole rows fit between the card's top edge and the footer the
+    /// list must not cover. Five on the standard card, four on the compact one —
+    /// which is why a fixed five was never right: on the compact card five rows
+    /// already ran off the top of the card.
+    static func outputRowsThatFit(_ size: NotchViewModel.LockCardSize) -> Int {
+        let room = Self.size(for: size).height - footerClearance - outputPopoverChrome
+        return max(1, Int((room + outputRowSpacing) / (outputRowHeight + outputRowSpacing)))
+    }
+
+    /// The height of the scrolling list, for `count` devices.
+    ///
+    /// Up to the cap, exactly as tall as its rows. Past it, the last visible
+    /// row is cut in half. The list scrolls without indicators — over the
+    /// shield an overlay scroller only appears once someone is already
+    /// scrolling — so a row sliced by the edge is the thing that says there is
+    /// more below. A list that ended on a whole row would look complete.
+    static func outputListHeight(count: Int, size: NotchViewModel.LockCardSize) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let fit = outputRowsThatFit(size)
+        let pitch = outputRowHeight + outputRowSpacing
+        if count <= fit { return CGFloat(count) * pitch - outputRowSpacing }
+        return CGFloat(fit - 1) * pitch + outputRowHeight / 2
+    }
+
+    /// The card tokens a picker row is drawn in.
+    enum OutputInk: Equatable {
+        case primary, cardTertiary, cardFill
+
+        @MainActor var color: Color {
+            switch self {
+            case .primary: return .white
+            case .cardTertiary: return Theme.cardTertiary
+            case .cardFill: return Theme.cardFill
+            }
+        }
+    }
+
+    /// What tells the selected row from the others.
+    struct OutputRowMarks: Equatable {
+        var checkmark: Bool
+        var semibold: Bool
+        var well: OutputInk
+        var glyph: OutputInk
+    }
+
+    /// The selected device carries a trailing checkmark and a semibold name;
+    /// the others carry neither, and their glyph steps down to the tertiary
+    /// ink. The well is the same neutral shape on every row.
+    ///
+    /// It used to be Control Center's grammar exactly — a white glyph in a
+    /// well of the person's own accent colour, and no tick, on the argument
+    /// that the tinted well *was* the tick. That argument fails on a light
+    /// accent: white on Yellow is about 1.4:1, so the glyph vanished and the
+    /// selection was told by colour alone (F-053). A dark glyph on light
+    /// accents would need luminance arithmetic and still lean on colour; the
+    /// accent with a checkmark added keeps a glyph that fails 3:1. A checkmark
+    /// and a weight are a shape and a stroke, and read the same under any
+    /// accent, any wallpaper and any colour vision.
+    static func outputRowMarks(selected: Bool) -> OutputRowMarks {
+        OutputRowMarks(
+            checkmark: selected,
+            semibold: selected,
+            well: .cardFill,
+            glyph: selected ? .primary : .cardTertiary
+        )
+    }
+
     /// White, always.
     ///
     /// The card used to pull an accent out of the cover and paint the sung
@@ -551,15 +648,10 @@ struct LockScreenCard: View {
 
     /// Where the sound goes, presented the way macOS presents it.
     ///
-    /// Control Center's output list is the reference, down to the grammar of a
-    /// selected row: the device's icon sits in a filled circle in the user's own
-    /// accent colour, and the name goes semibold. No tick — the tinted well *is*
-    /// the tick there, and adding one states the same thing twice.
-    ///
-    /// The accent is `controlAccentColor`, which is whatever the person chose in
-    /// System Settings. That is not the artwork tint this card used to carry: it
-    /// does not move with the music, and matching it is most of what makes a
-    /// control feel like it belongs to the system rather than to an app.
+    /// Control Center's output list is the reference for the shape of it: an
+    /// icon in a round well, the name beside it, the list hanging off the
+    /// control that raised it. The selected row departs from it on purpose —
+    /// see `outputRowMarks` for why the accent well became a checkmark.
     @ViewBuilder
     private var outputPicker: some View {
         if pane == .output {
@@ -596,9 +688,21 @@ struct LockScreenCard: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                     } else {
-                        ForEach(outputs.prefix(5)) { device in
-                            outputRow(device)
+                        // Every device, the current one first, in a list that
+                        // scrolls rather than grows: past what fits above the
+                        // footer it would cover the glyph that opened it, and
+                        // past the card's top edge it would be cut by the
+                        // window. `.basedOnSize` keeps a short list from
+                        // rubber-banding as if it had somewhere to go.
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(alignment: .leading, spacing: Self.outputRowSpacing) {
+                                ForEach(Self.orderedOutputs(outputs, current: currentOutput)) { device in
+                                    outputRow(device)
+                                }
+                            }
                         }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .frame(height: Self.outputListHeight(count: outputs.count, size: cardSize))
                     }
                 }
                 .padding(.vertical, 10)
@@ -643,6 +747,7 @@ struct LockScreenCard: View {
 
     private func outputRow(_ device: AudioOutputs.Output) -> some View {
         let selected = device.id == currentOutput
+        let marks = Self.outputRowMarks(selected: selected)
         return Button {
             guard AudioOutputs.select(device.id) else { return }
             // A discrete value committed, which is what this pattern is for.
@@ -654,24 +759,35 @@ struct LockScreenCard: View {
             pane = .player
         } label: {
             HStack(spacing: 10) {
-                // The filled well, in the system accent. This is the whole
-                // selected-state vocabulary in Control Center.
                 ZStack {
                     Circle()
-                        .fill(selected ? Color(nsColor: .controlAccentColor) : Theme.cardFill)
+                        .fill(marks.well.color)
                         .frame(width: 26, height: 26)
                     Image(systemName: device.symbol)
                         .islandFont(.subhead)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(marks.glyph.color)
                 }
                 Text(device.name)
-                    .islandFont(.subhead, weight: selected ? .semibold : .regular)
+                    .islandFont(.subhead, weight: marks.semibold ? .semibold : .regular)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 6)
+                if marks.checkmark {
+                    // Hidden from VoiceOver: the row already says "selected"
+                    // through its trait, and a second "checkmark" would be
+                    // the same fact twice.
+                    Image(systemName: "checkmark")
+                        .islandFont(.caption, weight: .semibold)
+                        .foregroundStyle(.white)
+                        .accessibilityHidden(true)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
+            // The row's height is arithmetic the list is cut to (see
+            // `outputListHeight`), so it is stated rather than left to the
+            // font: a taller name must not push the half-row off its half.
+            .frame(height: Self.outputRowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(OutputRowStyle())
