@@ -210,10 +210,55 @@ final class NotchViewModel: ObservableObject {
     /// pointer rule cancels them outright: the cursor is wherever it was left,
     /// the very next sample calls it "away", and the panel folds a third of a
     /// second after opening. A command opens until a command closes — the same
-    /// hotkey again, Escape, or a click outside. Hovering onto the panel and
+    /// hotkey again, Escape, a click outside, or ⌘-Tab to another app. Hovering onto the panel and
     /// off again hands control back to the pointer, which is what somebody
     /// reaching for it with the mouse means by leaving.
     @Published var isPinnedOpen = false
+
+    /// Whether a pinned panel holds Escape, through a hot key registered only
+    /// for as long as this answers true.
+    ///
+    /// "Escape" was the first way out the pin promised, and it was false: the
+    /// panel is key only while Translate asks for the keyboard, Escape is read
+    /// only in `NotchPanel.sendEvent`, so after ⌃⌥⌘I on Music the key went to
+    /// the app underneath and the panel stayed up (F-004). Making the panel key
+    /// would have answered it at the cost of dimming the frontmost window and
+    /// stopping its caret — the very rudeness the never-key panel exists to
+    /// avoid — so the pin holds Escape instead, and nothing else.
+    ///
+    /// It holds less than it could, on purpose:
+    /// - **not while the panel is key**: `sendEvent` already reads Escape then,
+    ///   and must keep reading it first, because an input method mid-composition
+    ///   owns it and Translate spends it on clearing the field;
+    /// - **not while this app is active**: Quick Look and AirDrop activate it
+    ///   from a Shelf card, and their windows answer Escape themselves;
+    /// - **never over the shield**: a key the lock screen's password field does
+    ///   not get is one taken from the person unlocking.
+    ///
+    /// The cost is that the one Escape pressed while a pin stands goes to Isla
+    /// and not to the app in front — a vim user reading lyrics loses one
+    /// keystroke, the one that also folds the panel they were reading. The pin
+    /// ends on that press, and the registration ends with it.
+    nonisolated static func claimsEscape(
+        pinned: Bool,
+        panelHasKeyboard: Bool,
+        appIsActive: Bool,
+        locked: Bool
+    ) -> Bool {
+        pinned && !panelHasKeyboard && !appIsActive && !locked
+    }
+
+    /// Whether another app coming to the front ends the pin.
+    ///
+    /// ⌘-Tab is the keyboard's click in another app, and a click in another app
+    /// already ends a pin (`NotchController.updatePinnedClickMonitor`). Without
+    /// this, switching apps from the keyboard left a pinned panel standing over
+    /// the menu bar of the app one had switched to. This app's own activation is
+    /// not another app: Quick Look and AirDrop activate Isla from inside a
+    /// pinned panel, and the panel must survive that.
+    func appActivated(ownPID: pid_t, activatedPID: pid_t) -> Bool {
+        isPinnedOpen && activatedPID != ownPID
+    }
 
     /// Whether the body is showing the welcome instead of the selected tab.
     ///

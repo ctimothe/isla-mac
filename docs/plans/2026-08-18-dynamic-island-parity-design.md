@@ -158,6 +158,27 @@ transitions.
 > the island; arrivals during a drag are no longer counted. Held by
 > `OpenOnClickTests` and `HoverRectTests`.
 
+> **Amended 2026-10-11 — the keyboard can end what the keyboard opened.** A
+> pinned panel (⌃⌥⌘I, Show Isla, ⌃⌥⌘L, the welcome, the island's
+> accessibility action) promised to close on Escape and did not: the panel is
+> key only while Translate asks for the keyboard, so Escape went to the app
+> underneath. And ⌘-Tab left it standing over the next app's menu bar. Now,
+> while a pin stands and the panel is not key, Isla holds plain Escape through
+> a transient Carbon hot key (no permission), registered when the pin starts
+> and given up the moment it ends, however it ends. Escape then does what it
+> does in a key panel: a pane that wants it first, the fold second. It is not
+> held while the panel is key (the panel reads Escape itself, after any input
+> method), while Isla is the active app (Quick Look and AirDrop windows answer
+> Escape), or over the lock screen. Another app coming to the front ends a pin
+> the way a click in another app already did; Isla's own activation does not.
+> Key status is unchanged: the panel still never becomes key outside Translate
+> and the shortcut recorder. Making keyboard-opened panels key was the other
+> route and was not taken here; it is owner decision 1. The cost is that the
+> one Escape pressed while a pin stands goes to Isla rather than to the app in
+> front, and that a Quick Look or AirDrop window closing ends the pin, because
+> macOS hands activation back to the previous app. Held by
+> `PinnedKeyboardTests`.
+
 > **Amended 2026-08-25.** The standard content size is now `480…620 × 208 pt`,
 > defaulting to `560`, chosen from Settings. The fixed maximum window is
 > unchanged at `700 × 444 pt` and is cut for the widest body: a narrower
