@@ -9,7 +9,12 @@ struct SettingsPane: View {
     @ObservedObject var shelf: ShelfStore
     let screenshotVault: ScreenshotVault
     @ObservedObject var lyrics: LyricsStore
-    @ObservedObject var media: MediaController
+    /// Held, not observed. The pane reads one published field of it,
+    /// `fallbackReason`, and receives that one below. Observing the whole
+    /// controller re-evaluated this, the largest pane in the app, on each of
+    /// the clock's ten ticks a second while music played (F-015). Diagnostics
+    /// and Try Again only call into it.
+    let media: MediaController
     @ObservedObject var localLyrics: LocalLyricsLibrary
     var onLyricsVisibilityChanged: () -> Void = {}
     var importLocalLyrics: () -> Void = {}
@@ -100,6 +105,10 @@ struct SettingsPane: View {
     /// has no other visible result.
     @State private var diagnosticsCopied: Date?
     @State private var collectingDiagnostics = false
+    /// `media.fallbackReason`, received on its own — see `media`. A
+    /// `@Published` publisher hands over its current value on subscription,
+    /// so a pane that appears with the reader already down says so at once.
+    @State private var fallbackReason: NowPlayingRouteFailure?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -254,7 +263,7 @@ struct SettingsPane: View {
                 section(localized("Music")) {
                     // Above everything: while the reader is down, every other
                     // switch here describes music the island cannot see.
-                    if let reason = media.fallbackReason {
+                    if let reason = fallbackReason {
                         noteRow(reason.explanation)
                         actionRow(symbol: SettingsIcon.tryAgain, title: localized("Try Again")) {
                             media.retryNowPlaying(userAsked: true)
@@ -644,6 +653,7 @@ struct SettingsPane: View {
             importRecordings = NotchViewModel.importRecordingsEnabled
             refreshUsage()
         }
+        .onReceive(media.$fallbackReason) { fallbackReason = $0 }
     }
 
     /// Lands the requested section at the top, then spends the request.
