@@ -206,7 +206,7 @@ final class NotchViewModel: ObservableObject {
     @Published var tab: Tab = .media {
         didSet {
             if tab == .shelf { shelfHasNew = false }
-            if tab != .translate { textInputRect = .zero }
+            if tab != .translate, tab != .prompter { textInputRect = .zero }
             // The shelf can hold files inside the folders macOS guards, and
             // looking at one raises a permission prompt. It is asked here,
             // with the shelf on screen, rather than at launch with nothing to
@@ -1522,6 +1522,13 @@ extension NotchViewModel {
         prompterStage = parts.map { PrompterStageModel(session: $0.session, settings: $0.settings) }
         guard let parts else { return }
         let session = parts.session
+        // The page the tab is on is the page a start begins on (ruling
+        // 20.3 #10). Mirrored from the tab's model, which outlives this view
+        // model, so a rebuilt panel starts where the last one was left and
+        // not at the first page.
+        parts.tab.$page
+            .sink { [weak self] page in self?.prompterPage = page }
+            .store(in: &prompterLinks)
         session.apply(parts.settings.values)
         // Live, and synchronous: a speed change in Settings reaches the
         // running clock before its next tick (8.1), and the keep-awake

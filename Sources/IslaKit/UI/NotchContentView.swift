@@ -1093,8 +1093,25 @@ struct NotchContentView: View {
                     confirm: { vm.confirmMirroredStart() },
                     cancel: { vm.cancelMirroredStart() }
                 )
-            } else {
-                PrompterTab()
+                // The editor is gone while the question stands, and a view
+                // that vanishes sends no last word: its I-beam rectangle
+                // would otherwise stay on the panel.
+                .onAppear { vm.textInputRect = .zero }
+            } else if let parts = vm.prompterParts {
+                PrompterTab(
+                    model: parts.tab,
+                    library: parts.library,
+                    session: parts.session,
+                    settings: parts.settings,
+                    privacy: vm.privacy,
+                    isPreparing: vm.isPreparingPrompter,
+                    captureHidden: vm.prompterCaptureHidden(),
+                    start: { vm.startPrompter() },
+                    resume: { vm.togglePrompter() },
+                    openSettings: { vm.chooseTab(.settings) },
+                    wantsKeyboard: $vm.wantsKeyboard
+                )
+                .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
             }
         case .settings:
             SettingsPane(

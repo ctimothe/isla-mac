@@ -729,6 +729,24 @@ final class PrompterHoldTests: XCTestCase {
         XCTAssertEqual(try session(feature).pageIndex, 2)
     }
 
+    /// T10: the tab's page follows the tab's model into the view model, and
+    /// a rebuilt panel (a fresh view model on the same parts) starts where
+    /// the last one was left, so a hot-key start after a display change does
+    /// not begin at page one.
+    func testARebuiltPanelStartsOnThePageTheTabWasOn() throws {
+        let feature = makeFeature()
+        try addScript(to: feature, pages: ["First page.", "Second page.", "Third page."])
+        let tab = try XCTUnwrap(feature.parts?.tab)
+        let first = try makeModel(feature)
+        tab.selectPage(2)
+        XCTAssertEqual(first.prompterPage, 2, "a page chosen in the tab is the page a start reads")
+
+        let rebuilt = try makeModel(feature)
+        XCTAssertEqual(rebuilt.prompterPage, 2)
+        rebuilt.togglePrompter()
+        XCTAssertEqual(try session(feature).pageIndex, 2)
+    }
+
     // MARK: Switch
 
     /// 4, 7.1 "Switch turned off", E-45: turning the switch off during a

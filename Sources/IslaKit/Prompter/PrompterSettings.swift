@@ -422,6 +422,18 @@ struct PrompterParts {
     let settings: PrompterSettings
     let library: PrompterLibrary
     let session: PrompterSession
+    /// What the tab is showing. Here, and not in the view model, because the
+    /// panel (and the view model with it) is rebuilt for a display change
+    /// while these parts are handed on unchanged: the page and the caret
+    /// survive the rebuild by living with the library they belong to.
+    let tab: PrompterTabModel
+
+    init(settings: PrompterSettings, library: PrompterLibrary, session: PrompterSession) {
+        self.settings = settings
+        self.library = library
+        self.session = session
+        tab = PrompterTabModel(library: library, session: session)
+    }
 }
 
 /// The Prompter's switch, `prompter.enabled` (spec section 4). Off by default,

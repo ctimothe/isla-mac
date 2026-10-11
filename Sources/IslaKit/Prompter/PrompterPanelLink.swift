@@ -147,7 +147,7 @@ extension PrompterParts {
     /// The script a start reads: the library's current one, or the first when
     /// none is current yet (the tab sets it; a fresh library has the sample).
     var currentScript: PrompterScriptRecord? {
-        library.currentScriptID.flatMap(library.script) ?? library.scripts.first
+        library.activeScript
     }
 
     /// The current script's page texts, or nil when no page has a word (E-20:
