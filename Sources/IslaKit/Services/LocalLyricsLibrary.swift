@@ -81,7 +81,7 @@ final class LocalLyricsLibrary: ObservableObject {
     /// conversion. Guessing Windows-1251 for every file that is not UTF-8 was
     /// rejected for exactly that reason — it decodes every byte sequence, so a
     /// GBK file would have come back as confident Cyrillic nonsense.
-    static let legacyEncodings: [String.Encoding] = [
+    nonisolated static let legacyEncodings: [String.Encoding] = [
         .windowsCP1251,
         encoding(.GB_18030_2000),
         .shiftJIS,
@@ -89,7 +89,7 @@ final class LocalLyricsLibrary: ObservableObject {
         .windowsCP1252,
     ]
 
-    private static func encoding(_ encoding: CFStringEncodings) -> String.Encoding {
+    private nonisolated static func encoding(_ encoding: CFStringEncodings) -> String.Encoding {
         String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(encoding.rawValue)))
     }
 
@@ -103,7 +103,7 @@ final class LocalLyricsLibrary: ObservableObject {
     /// for anything it can read; a byte order mark is believed next; only
     /// then are the legacy encodings scored. What comes back is a `String`,
     /// so a copy written into `imports/` is UTF-8 from then on.
-    static func readText(at url: URL) throws -> String {
+    nonisolated static func readText(at url: URL) throws -> String {
         let data = try Data(contentsOf: url)
         // The marks first, though strict UTF-8 is the commoner answer: ASCII
         // text in UTF-16 is full of NUL bytes, and NUL is valid UTF-8, so
@@ -249,6 +249,67 @@ final class LocalLyricsLibrary: ObservableObject {
         }
     }
 
+    /// What a folder file looked like when it was read, from the values the
+    /// directory walk prefetches. The status-change time is in it as well as
+    /// the modification date: a sync client or `cp -p` can put a file's
+    /// modification date back, and nothing can set the status-change time
+    /// back — and a file saved by replacing it is a new file with a new one.
+    private struct FileStamp: Equatable, Sendable {
+        let modified: Date
+        let changed: Date?
+        let size: Int
+
+        static let keys: [URLResourceKey] = [
+            .isRegularFileKey, .contentModificationDateKey, .attributeModificationDateKey, .fileSizeKey,
+        ]
+
+        init?(_ values: URLResourceValues) {
+            guard let modified = values.contentModificationDate, let size = values.fileSize else { return nil }
+            self.modified = modified
+            changed = values.attributeModificationDate
+            self.size = size
+        }
+    }
+
+    /// One folder file as a scan left it: the document it parsed to, or why
+    /// it could not be shown. A stamp of nil never matches, so a file whose
+    /// dates could not be read is read every time, as every file used to be.
+    private struct ScannedFile: Sendable {
+        enum Outcome: Sendable {
+            case parsed(LocalLyricsDocument)
+            case failed(FileIssue)
+        }
+
+        let stamp: FileStamp?
+        let outcome: Outcome
+    }
+
+    /// What one walk of the selected folders found, in folder order: plain
+    /// values, so the launch scan can make it off the main thread and hand
+    /// it back to be applied.
+    private struct FolderWalk: Sendable {
+        struct Folder: Sendable {
+            enum Finding: Sendable {
+                case unreachable
+                case unenumerable(path: String)
+                case files([(path: String, file: ScannedFile)])
+            }
+
+            let path: String
+            let finding: Finding
+        }
+
+        var folders: [Folder] = []
+        var scanned: [String: ScannedFile] = [:]
+    }
+
+    /// What a rescan compares against to tell whether anything is news.
+    private struct Baseline {
+        let documents: [StoredDocument]
+        let issues: [StoredIssue]
+        let folders: [StoredFolder]
+    }
+
     private struct Record {
         let stored: StoredDocument
         let document: LocalLyricsDocument
@@ -266,8 +327,25 @@ final class LocalLyricsLibrary: ObservableObject {
     private let indexURL: URL
     private let fileManager: FileManager
     private let onLookup: (LocalTrackIdentity) -> Void
+    /// How a folder file's text is read. A seam for the tests, which count
+    /// what a rescan reads; the app reads with `readText(at:)`. Sendable
+    /// because the launch scan calls it off the main thread.
+    private let readFile: @Sendable (URL) throws -> String
     private var state: State
     private var records: [UUID: Record] = [:]
+    /// Every folder file the last scan saw, by path, with the stamp it had
+    /// and what reading it gave. A rescan reads only a file whose stamp has
+    /// moved and takes everything else from here. In memory only: the first
+    /// scan after a launch still reads every file, though off the main thread.
+    private var scanned: [String: ScannedFile] = [:]
+    /// The launch scan of the selected folders, while it may still be out.
+    private var launchScan: Task<Void, Never>?
+    /// True until the launch scan has landed or been overtaken by a rescan:
+    /// a folder document with nothing read for it yet is waiting, not broken.
+    private var launchScanPending = false
+    /// Advanced by every explicit rescan, so a launch scan that started
+    /// before one cannot land after it with what it read earlier.
+    private var scanGeneration = 0
     private var folderWatch: FolderWatch?
     private var scheduledRescan: DispatchWorkItem?
     /// Set when a pending rescan must also re-make the watch: the root of a
@@ -280,8 +358,10 @@ final class LocalLyricsLibrary: ObservableObject {
         legacyV5Directory: URL? = nil,
         legacyV4Directory: URL? = nil,
         onLookup: @escaping (LocalTrackIdentity) -> Void = { _ in },
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        readFile: @escaping @Sendable (URL) throws -> String = { try LocalLyricsLibrary.readText(at: $0) }
     ) {
+        self.readFile = readFile
         root = directory.appendingPathComponent("lyrics-local", isDirectory: true)
         importsDirectory = root.appendingPathComponent("imports", isDirectory: true)
         indexURL = root.appendingPathComponent("index.json")
@@ -294,7 +374,16 @@ final class LocalLyricsLibrary: ObservableObject {
         migrateLegacyData(v5Directory: v5, v4Directory: v4)
         removeLegacyLrc3Caches(in: v4)
         reloadImportedRecords()
-        try? rescanFolders()
+        // Imports are read here, as before: they are the listener's own few
+        // files in Isla's own folder. The selected folders can hold thousands,
+        // and reading and parsing every one of them here held the main thread
+        // for the whole walk before the island first drew (F-043). Their walk
+        // runs off the main thread and lands a moment later.
+        if state.folders.isEmpty {
+            try? rescanFolders()
+        } else {
+            startLaunchScan()
+        }
         rebuildUnassignedImports()
     }
 
@@ -339,21 +428,184 @@ final class LocalLyricsLibrary: ObservableObject {
         state.documents.removeAll { $0.origin == .referencedFolder && $0.path.hasPrefix(path + "/") }
         records = records.filter { $0.value.stored.origin != .referencedFolder || !$0.value.stored.path.hasPrefix(path + "/") }
         state.issues.removeAll { $0.path.hasPrefix(path + "/") }
+        scanned = scanned.filter { !$0.key.hasPrefix(path + "/") }
         pruneDanglingBindings()
         persist()
         advanceRevision()
         if watching { installFolderWatchers() }
     }
 
+    /// Reads the selected folders again, on the main thread, and reads only
+    /// the files that changed since the last scan.
+    ///
+    /// Every rescan used to read and parse every `.lrc` in every folder, and
+    /// FSEvents brings one for any write anywhere under a watched folder: a
+    /// large library stalled the panel each time Finder or a sync client
+    /// touched it (F-043). A file whose stamp has not moved now keeps what
+    /// reading it gave last time, and its id with it; only news still
+    /// advances the revision.
     func rescanFolders() throws {
-        let previousDocuments = state.documents
-        let previousIssues = state.issues
-        let previousFolders = state.folders
-        let previousContent = records.mapValues(\.document)
-        // Before the table of ids below: a folder that moved has its
-        // documents' paths rewritten first, so they find their ids under the
-        // new path instead of minting new ones.
+        // An explicit rescan overtakes a launch scan still out — Rescan in
+        // Settings, a folder added in the first moments after launch. It
+        // cannot wait for it here without blocking the main thread, so it
+        // does the whole walk itself, and the launch scan, which may have
+        // read the folders before whatever this rescan was asked to see,
+        // is dropped when it lands.
+        scanGeneration &+= 1
+        if launchScanPending {
+            launchScan?.cancel()
+            launchScanPending = false
+        }
+        let before = baseline()
+        // Before the walk: a folder that moved has its documents' paths
+        // rewritten first, so they find their ids under the new path instead
+        // of minting new ones.
         let located = followMovedFolders()
+        let walk = Self.walk(
+            folderPlan(located), known: scanned, fileManager: fileManager, readFile: readFile
+        )
+        apply(walk, since: before)
+    }
+
+    /// Returns once the launch scan of the selected folders has landed, or
+    /// at once when there is none. A folder event waits on it rather than
+    /// overtaking it, so the scan's work is not thrown away; the tests wait
+    /// on it to read what it found.
+    func waitForFolderScan() async {
+        await launchScan?.value
+    }
+
+    /// Follows moved folders on the main thread — it rewrites the index —
+    /// and walks and parses the folders on a background task, which hands
+    /// what it found back to the main actor to apply.
+    ///
+    /// Until it lands, a song in one of the folders reads as no match, and
+    /// the revision it then advances sends the track on screen back through
+    /// resolution. The walk works on plain values: the folder list and a
+    /// copy of the stamps, which at launch are empty, so the first scan of a
+    /// session still parses every file — just not on the main thread.
+    private func startLaunchScan() {
+        let before = baseline()
+        let located = followMovedFolders()
+        // A folder found somewhere new is saved now rather than when the
+        // scan lands, so a rescan that overtakes the scan cannot lose it.
+        if state.folders != before.folders || state.documents != before.documents { persist() }
+        let plan = folderPlan(located)
+        let known = scanned
+        let fileManager = fileManager
+        let readFile = readFile
+        let generation = scanGeneration
+        launchScanPending = true
+        launchScan = Task.detached(priority: .userInitiated) { [weak self] in
+            let walk = Self.walk(plan, known: known, fileManager: fileManager, readFile: readFile)
+            await self?.finishLaunchScan(walk, since: before, generation: generation)
+        }
+    }
+
+    private func finishLaunchScan(_ walk: FolderWalk, since before: Baseline, generation: Int) {
+        launchScan = nil
+        guard generation == scanGeneration else { return }
+        launchScanPending = false
+        apply(walk, since: before)
+    }
+
+    private func baseline() -> Baseline {
+        Baseline(documents: state.documents, issues: state.issues, folders: state.folders)
+    }
+
+    private func folderPlan(_ located: [URL?]) -> [(path: String, url: URL?)] {
+        zip(state.folders, located).map { ($0.path, $1) }
+    }
+
+    /// Walks the folders and reads every `.lrc` whose stamp is not the one
+    /// in `known`. Touches nothing of the library's, so it runs on any
+    /// thread; a cancelled walk stops early, and its result is discarded.
+    private nonisolated static func walk(
+        _ plan: [(path: String, url: URL?)],
+        known: [String: ScannedFile],
+        fileManager: FileManager,
+        readFile: @Sendable (URL) throws -> String
+    ) -> FolderWalk {
+        var walk = FolderWalk()
+        walk.scanned.reserveCapacity(known.count)
+        for (path, url) in plan {
+            // A folder that cannot be reached — a disk unplugged, a share not
+            // mounted, a folder since deleted — must not cost the others. Its
+            // bookmark throws, and the rescan used to throw with it: the whole
+            // rescan was abandoned, and every folder after the missing one
+            // went unread for the session.
+            let hadAccess = url?.startAccessingSecurityScopedResource() ?? false
+            defer {
+                if hadAccess { url?.stopAccessingSecurityScopedResource() }
+            }
+            guard let url, (try? url.checkResourceIsReachable()) == true else {
+                walk.folders.append(.init(path: path, finding: .unreachable))
+                continue
+            }
+            // The stamp's values are fetched with the listing, so a file that
+            // has not changed costs no read and no parse — only its entry.
+            guard let enumerator = fileManager.enumerator(
+                at: url, includingPropertiesForKeys: FileStamp.keys, options: [.skipsHiddenFiles]
+            ) else {
+                walk.folders.append(.init(path: path, finding: .unenumerable(path: url.path)))
+                continue
+            }
+
+            var files: [(path: String, file: ScannedFile)] = []
+            let keys = Set(FileStamp.keys)
+            // Paths are kept in their standardized form — `/tmp`, not the
+            // `/private/tmp` the walk hands back — because that is how every
+            // index has saved them. Standardizing is most of what a file that
+            // has not changed costs, so it is done once per directory, not
+            // once per file.
+            var standardDirectories: [Substring: String] = [:]
+            for case let fileURL as URL in enumerator {
+                if Task.isCancelled { return walk }
+                guard fileURL.pathExtension.caseInsensitiveCompare("lrc") == .orderedSame,
+                      let values = try? fileURL.resourceValues(forKeys: keys),
+                      values.isRegularFile == true
+                else { continue }
+
+                let raw = fileURL.path
+                guard let slash = raw.lastIndex(of: "/") else { continue }
+                let directory = raw[..<slash]
+                let standard = standardDirectories[directory] ?? {
+                    let path = URL(fileURLWithPath: String(directory), isDirectory: true).standardizedFileURL.path
+                    standardDirectories[directory] = path
+                    return path
+                }()
+                let filePath = standard + raw[slash...]
+                let stamp = FileStamp(values)
+                // This walk's own reading first: a folder inside another one
+                // is walked twice, and its files are read once.
+                let file: ScannedFile
+                if let stamp, let earlier = walk.scanned[filePath] ?? known[filePath], earlier.stamp == stamp {
+                    file = earlier
+                } else {
+                    do {
+                        file = ScannedFile(stamp: stamp, outcome: .parsed(try LocalLyricsDocument.parse(readFile(fileURL))))
+                    } catch {
+                        file = ScannedFile(
+                            stamp: stamp,
+                            outcome: .failed(error is LocalLyricsDocument.Error ? .malformed : .unreadable)
+                        )
+                    }
+                }
+                walk.scanned[filePath] = file
+                files.append((filePath, file))
+            }
+            walk.folders.append(.init(path: path, finding: .files(files)))
+        }
+        return walk
+    }
+
+    /// Applies a walk to the index and the records, and announces it only
+    /// when something changed since `before`.
+    ///
+    /// Against the library as it is now, not as it was when the walk began:
+    /// the launch scan lands a moment after the listener can act, and an
+    /// import, a binding or a folder removed in that moment must stand.
+    private func apply(_ walk: FolderWalk, since before: Baseline) {
         // First id wins, rather than a trap: an index written before `seen`
         // below can hold one path twice, and this runs as the library opens.
         let existingIDs = Dictionary(
@@ -375,72 +627,61 @@ final class LocalLyricsLibrary: ObservableObject {
         // table above at every launch, and one arriving later got an id per
         // walk, so each lookup for its song became a choice between copies.
         var seen: Set<String> = []
+        var contentChanged = false
+        // A folder removed while the launch scan was out stays removed.
+        let selected = Set(state.folders.map(\.path))
 
-        for (folder, url) in zip(state.folders, located) {
-            // A folder that cannot be reached — a disk unplugged, a share not
-            // mounted, a folder since deleted — must not cost the others. Its
-            // bookmark throws, and this used to throw with it: the whole rescan
-            // was abandoned, and every folder after the missing one went unread
-            // for the session. It keeps the documents it had instead, so a
-            // track bound to one of them finds the same id when it is back.
-            let hadAccess = url?.startAccessingSecurityScopedResource() ?? false
-            defer {
-                if hadAccess { url?.stopAccessingSecurityScopedResource() }
-            }
-            guard let url, (try? url.checkResourceIsReachable()) == true else {
+        for folder in walk.folders where selected.contains(folder.path) {
+            switch folder.finding {
+            case .unreachable:
+                // It keeps the documents it had, so a track bound to one of
+                // them finds the same id when the folder is back.
                 let roots = [folder.path, URL(fileURLWithPath: folder.path).resolvingSymlinksInPath().path]
-                for document in previousDocuments where document.origin == .referencedFolder {
+                for document in state.documents where document.origin == .referencedFolder {
                     guard roots.contains(where: { document.path.hasPrefix($0 + "/") }),
                           seen.insert(document.path).inserted else { continue }
                     references.append(document)
                 }
                 issues.append(StoredIssue(path: folder.path, issue: .unreadable))
-                continue
-            }
-
-            guard let enumerator = fileManager.enumerator(
-                at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]
-            ) else {
-                issues.append(StoredIssue(path: url.path, issue: .unreadable))
-                continue
-            }
-
-            for case let fileURL as URL in enumerator {
-                guard fileURL.pathExtension.caseInsensitiveCompare("lrc") == .orderedSame,
-                      (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
-                else { continue }
-
-                let path = fileURL.standardizedFileURL.path
-                guard seen.insert(path).inserted else { continue }
-                do {
-                    let raw = try Self.readText(at: fileURL)
-                    let document = try LocalLyricsDocument.parse(raw)
-                    let stored = StoredDocument(
-                        id: existingIDs[path] ?? UUID(), origin: .referencedFolder, path: path
-                    )
-                    references.append(stored)
-                    records[stored.id] = Record(stored: stored, document: document)
-                } catch {
-                    issues.append(StoredIssue(
-                        path: path, issue: error is LocalLyricsDocument.Error ? .malformed : .unreadable
-                    ))
-                    // A file the library already knew keeps its id while it
-                    // is broken — saved half-edited from a text editor, or
-                    // briefly unreadable. It used to leave the index, so its
-                    // binding dangled and the fixed file came back under a
-                    // new id nothing was bound to. Kept without a record, the
-                    // binding answers `.malformed` until the file is fixed
-                    // and then finds the same document again.
-                    if let id = existingIDs[path] {
-                        references.append(StoredDocument(id: id, origin: .referencedFolder, path: path))
-                        records.removeValue(forKey: id)
+            case .unenumerable(let path):
+                issues.append(StoredIssue(path: path, issue: .unreadable))
+            case .files(let files):
+                for (path, file) in files {
+                    guard seen.insert(path).inserted else { continue }
+                    switch file.outcome {
+                    case .parsed(let document):
+                        let stored = StoredDocument(
+                            id: existingIDs[path] ?? UUID(), origin: .referencedFolder, path: path
+                        )
+                        references.append(stored)
+                        // A file taken from the stamps hands back the very
+                        // document it parsed to last time, so this costs no
+                        // more than a look at the same storage.
+                        if records[stored.id]?.document != document { contentChanged = true }
+                        records[stored.id] = Record(stored: stored, document: document)
+                    case .failed(let issue):
+                        issues.append(StoredIssue(path: path, issue: issue))
+                        // A file the library already knew keeps its id while
+                        // it is broken — saved half-edited from a text editor,
+                        // or briefly unreadable. It used to leave the index, so
+                        // its binding dangled and the fixed file came back
+                        // under a new id nothing was bound to. Kept without a
+                        // record, the binding answers `.malformed` until the
+                        // file is fixed and then finds the same document again.
+                        if let id = existingIDs[path] {
+                            references.append(StoredDocument(id: id, origin: .referencedFolder, path: path))
+                            if records.removeValue(forKey: id) != nil { contentChanged = true }
+                        }
                     }
                 }
             }
         }
+        scanned = walk.scanned
 
         let surviving = Set(references.map(\.id))
-        records = records.filter { $0.value.stored.origin == .imported || surviving.contains($0.key) }
+        let kept = records.filter { $0.value.stored.origin == .imported || surviving.contains($0.key) }
+        if kept.count != records.count { contentChanged = true }
+        records = kept
         state.documents = imports + references
         state.issues = issues
         let pruned = pruneDanglingBindings()
@@ -448,10 +689,11 @@ final class LocalLyricsLibrary: ObservableObject {
         // file added, renamed or removed at a folder's top level, `.lrc` or
         // not — and each one rewrote the index and advanced the revision,
         // which sends the track on screen back through resolution and can
-        // cancel and re-send its online lookup.
-        guard pruned || state.documents != previousDocuments || state.issues != previousIssues
-                || state.folders != previousFolders
-                || records.mapValues(\.document) != previousContent else { return }
+        // cancel and re-send its online lookup. What the records hold is
+        // tracked as it changes above, rather than copied and compared
+        // document by document, which was most of a quiet rescan's cost.
+        guard pruned || contentChanged || state.documents != before.documents
+                || state.issues != before.issues || state.folders != before.folders else { return }
         persist()
         advanceRevision()
     }
@@ -466,6 +708,12 @@ final class LocalLyricsLibrary: ObservableObject {
             // said honestly and the binding is kept — a disk plugged back in,
             // or a file fixed, finds the same id again.
             if let stored = state.documents.first(where: { $0.id == id }) {
+                // Not read yet: the launch scan is still walking its folder.
+                // Saying the file cannot be read would be untrue, and matching
+                // by tags could pick some other file for a song the listener
+                // chose one for. No match for that moment; the revision the
+                // scan advances asks again.
+                if launchScanPending, stored.origin == .referencedFolder { return .noMatch }
                 let path = location(of: stored)
                 return .invalid(state.issues.first { $0.path == path }?.issue ?? .unreadable)
             }
@@ -974,6 +1222,15 @@ final class LocalLyricsLibrary: ObservableObject {
                 editedFrom: document.editedFrom, savedAt: document.savedAt
             )
         }
+        // The stamps move with them: a rename does not touch the files, so a
+        // followed folder is not read again from scratch.
+        scanned = Dictionary(
+            scanned.map { path, file in
+                guard let root = roots.first(where: { path.hasPrefix($0 + "/") }) else { return (path, file) }
+                return (new + path.dropFirst(root.count), file)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     /// Whether two paths name the same folder, `/var` and `/private/var`
@@ -1027,6 +1284,10 @@ final class LocalLyricsLibrary: ObservableObject {
         scheduledRescan?.cancel()
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor in
+                // A folder event in the first moments after launch waits for
+                // the launch scan instead of overtaking it, and then reads
+                // only what changed since.
+                await self?.waitForFolderScan()
                 guard let self, self.watching else { return }
                 let reinstall = self.pendingReinstall
                 self.pendingReinstall = false
