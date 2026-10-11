@@ -38,8 +38,11 @@ final class SpotifyAccountTests: XCTestCase {
         return store
     }
 
-    private func stubSession(_ handler: @escaping (URLRequest) -> (Int, Data)?) -> URLSession {
-        StubURLProtocol.serve(handler)
+    private func stubSession(
+        _ handler: @escaping (URLRequest) -> (Int, Data)?,
+        delay: (@Sendable (URLRequest) -> TimeInterval)? = nil
+    ) -> URLSession {
+        StubURLProtocol.serve(handler, delay: delay)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         return URLSession(configuration: configuration)
@@ -347,6 +350,287 @@ final class SpotifyAccountTests: XCTestCase {
         XCTAssertFalse(account.tokenUnavailable)
         XCTAssertTrue(account.isConnected)
     }
+
+    // MARK: - A dead grant, a 401, and writes that cannot cross
+
+    private let renewedTokens = Data(#"{"access_token":"renewed","expires_in":3600}"#.utf8)
+
+    /// A 401 is Spotify saying the access token is no good — revoked early,
+    /// or the wall-clock expiry stamp was wrong. It used to go down the same
+    /// retry path as a dropped connection, with the same dead token, three
+    /// times. Now it buys exactly one refresh and the question is asked again
+    /// with the new token.
+    func testA401RefreshesOnceAndAsksAgain() async {
+        let id = likedID
+        let renewed = renewedTokens
+        let wire = Wire { request in
+            if request.url?.host == "accounts.spotify.com" { return (200, renewed) }
+            return request.value(forHTTPHeaderField: "Authorization") == "Bearer renewed"
+                ? (200, Data("[true]".utf8))
+                : (401, Data())
+        }
+        let account = await connectedAccount(session: stubSession(wire.answer))
+
+        await account.refreshSavedState(trackID: id)?.value
+
+        XCTAssertEqual(account.saved[id], true, "the retried lookup must land under the new token")
+        XCTAssertEqual(wire.seen.filter { $0.hasPrefix("POST /api/token") }.count, 1,
+                       "a 401 is worth exactly one refresh")
+        XCTAssertFalse(account.tokenUnavailable)
+    }
+
+    /// A fresh token that is refused too means refreshing will not help: stop
+    /// after one refresh and hide the heart, rather than loop.
+    func testASecond401StopsAndSaysTheTokenIsUnavailable() async {
+        let id = likedID
+        let renewed = renewedTokens
+        let wire = Wire { request in
+            request.url?.host == "accounts.spotify.com" ? (200, renewed) : (401, Data())
+        }
+        let account = await connectedAccount(session: stubSession(wire.answer))
+
+        await account.refreshSavedState(trackID: id)?.value
+
+        XCTAssertNil(account.saved[id])
+        XCTAssertTrue(account.tokenUnavailable)
+        XCTAssertTrue(account.isConnected, "a 401 alone is not a revoked grant")
+        XCTAssertEqual(wire.seen.filter { $0.hasPrefix("POST /api/token") }.count, 1)
+        XCTAssertEqual(wire.seen.filter { $0.hasPrefix("GET /v1/me/library/contains") }.count, 2)
+    }
+
+    /// Two taps in quick succession used to be two unordered tasks: the DELETE
+    /// could reach Spotify before the slower PUT, leaving the song liked under
+    /// a hollow heart. Writes for one track now go one at a time, and the last
+    /// tap decides where they stop.
+    func testAQuickDoubleTapEndsWhereTheLastTapPointed() async {
+        let id = likedID
+        let wire = Wire { request in
+            request.url?.path == "/v1/me/library" ? (200, Data()) : (404, Data())
+        }
+        let session = stubSession(wire.answer, delay: { request in
+            wire.note("sent \(request.httpMethod ?? "?")")
+            return request.httpMethod == "PUT" ? 0.2 : 0
+        })
+        let account = await connectedAccount(session: session)
+
+        let first = account.toggleSaved(trackID: id)
+        XCTAssertEqual(account.saved[id], true)
+        // A finger is slower than the main actor: by the second tap the PUT
+        // is already on the wire.
+        await waitUntil { wire.seen.contains("sent PUT") }
+        let second = account.toggleSaved(trackID: id)
+        XCTAssertEqual(account.saved[id], false, "the heart follows the latest tap at once")
+        await first?.value
+        await second?.value
+
+        XCTAssertEqual(wire.seen, [
+            "sent PUT",
+            "PUT /v1/me/library spotify:track:\(id)",
+            "sent DELETE",
+            "DELETE /v1/me/library spotify:track:\(id)",
+        ], "the DELETE must leave only after the PUT has been answered")
+        XCTAssertEqual(account.saved[id], false)
+    }
+
+    /// Removing Isla at spotify.com/account/apps used to leave Settings saying
+    /// Connected while every track change sent another refresh that could
+    /// never succeed. Spotify's `invalid_grant` is the one answer that means
+    /// the grant itself is gone: the account lets go of it and asks for a
+    /// reconnect.
+    func testARevokedGrantDisconnectsAndAsksToReconnect() async {
+        let store = makeStore()
+        await store.storeTokens(access: "spent", refresh: "revoked-refresh", expiresAt: "1")
+        let wire = Wire { request in
+            request.url?.host == "accounts.spotify.com"
+                ? (400, Data(#"{"error":"invalid_grant","error_description":"Refresh token revoked"}"#.utf8))
+                : (500, Data())
+        }
+        let account = SpotifyAccount(credentials: store, session: stubSession(wire.answer))
+        await waitForConnected(account)
+        XCTAssertTrue(account.isConnected)
+
+        let token = await account.freshAccessToken()
+
+        XCTAssertNil(token)
+        XCTAssertFalse(account.isConnected, "a revoked grant must not keep claiming Connected")
+        XCTAssertTrue(account.needsReconnect)
+        let left = await store.readTokens()
+        XCTAssertNil(left.refresh, "the dead refresh token must not be offered again")
+        XCTAssertNil(left.access)
+
+        _ = await account.freshAccessToken()
+        account.refreshSavedState(trackID: likedID)
+        XCTAssertEqual(wire.seen.count, 1, "a revoked account sends no further token requests")
+    }
+
+    /// Offline, or Spotify having a bad minute, is not a revoked grant. Only
+    /// `invalid_grant` lets go of the account; anything else keeps it, or a
+    /// laptop that woke without Wi-Fi would sign its user out.
+    func testAFailedRefreshKeepsTheAccount() async {
+        let store = makeStore()
+        await store.storeTokens(access: "spent", refresh: "test-refresh", expiresAt: "1")
+        let session = stubSession { request in
+            request.url?.host == "accounts.spotify.com"
+                ? (400, Data(#"{"error":"invalid_request"}"#.utf8))
+                : (500, Data())
+        }
+        let account = SpotifyAccount(credentials: store, session: session)
+        await waitForConnected(account)
+
+        let token = await account.freshAccessToken()
+
+        XCTAssertNil(token)
+        XCTAssertTrue(account.isConnected)
+        XCTAssertFalse(account.needsReconnect)
+        let left = await store.readTokens()
+        XCTAssertEqual(left.refresh, "test-refresh")
+    }
+
+    /// Connect with a consent page captured instead of opened, returning the
+    /// `state` the callback must carry.
+    private func beginSignIn(_ account: SpotifyAccount, opened: () -> URL?) throws -> String {
+        account.beginAuthorization()
+        let authorize = try XCTUnwrap(opened(), "Connect must open the consent page through the seam")
+        return try XCTUnwrap(
+            URLComponents(url: authorize, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "state" })?.value
+        )
+    }
+
+    /// Pressing Cancel on Spotify's consent page comes back as
+    /// `error=access_denied` with no code, and used to be dropped without a
+    /// word: Settings went on offering Connect as if nothing had happened.
+    func testACancelledSignInIsReported() async throws {
+        var opened: URL?
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { opened = $0 }
+        )
+        let state = try beginSignIn(account) { opened }
+
+        var callback = URLComponents(string: "isla://spotify-callback")!
+        callback.queryItems = [.init(name: "error", value: "access_denied"), .init(name: "state", value: state)]
+        account.handleCallback(callback.url!)
+
+        XCTAssertEqual(account.signInOutcome, .cancelled)
+        XCTAssertFalse(account.isConnected)
+    }
+
+    /// The browser can come back after Isla has been relaunched, when the
+    /// verifier that began the flow is gone. That cannot complete, and it is
+    /// said rather than swallowed.
+    func testACallbackWithNoSignInPendingIsReportedAsExpired() async {
+        let account = SpotifyAccount(credentials: makeStore(), session: stubSession { _ in (500, Data()) })
+
+        account.handleCallback(URL(string: "isla://spotify-callback?code=late&state=gone")!)
+
+        XCTAssertEqual(account.signInOutcome, .expired)
+    }
+
+    /// The code came back but Spotify would not exchange it.
+    func testAFailedExchangeIsReported() async throws {
+        var opened: URL?
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { opened = $0 }
+        )
+        let state = try beginSignIn(account) { opened }
+
+        var callback = URLComponents(string: "isla://spotify-callback")!
+        callback.queryItems = [.init(name: "code", value: "granted-code"), .init(name: "state", value: state)]
+        account.handleCallback(callback.url!)
+        await waitUntil { account.signInOutcome != nil }
+
+        XCTAssertEqual(account.signInOutcome, .failed)
+        XCTAssertFalse(account.isConnected)
+    }
+
+    /// A completed grant clears what the last attempt, or a revoked grant,
+    /// left on screen.
+    func testASuccessfulSignInClearsTheReconnectNote() async throws {
+        let tokens = Data(#"{"access_token":"granted","refresh_token":"granted-refresh","expires_in":3600}"#.utf8)
+        let store = makeStore()
+        await store.storeTokens(access: "spent", refresh: "revoked-refresh", expiresAt: "1")
+        // The refresh is refused as revoked, then the new grant's exchange is
+        // answered — in that order, the only two requests this test makes.
+        let wire = Wire(queue: [
+            (400, Data(#"{"error":"invalid_grant"}"#.utf8)),
+            (200, tokens),
+        ])
+        let session = stubSession(wire.answer)
+        var opened: URL?
+        let account = SpotifyAccount(credentials: store, session: session, openURL: { opened = $0 })
+        await waitForConnected(account)
+        _ = await account.freshAccessToken()
+        XCTAssertTrue(account.needsReconnect)
+
+        let state = try beginSignIn(account) { opened }
+        var callback = URLComponents(string: "isla://spotify-callback")!
+        callback.queryItems = [.init(name: "code", value: "granted-code"), .init(name: "state", value: state)]
+        account.handleCallback(callback.url!)
+        await waitUntil { account.isConnected }
+
+        XCTAssertTrue(account.isConnected)
+        XCTAssertFalse(account.needsReconnect)
+        XCTAssertNil(account.signInOutcome)
+    }
+
+    /// Last tap wins, all the way: two taps that land before anything has
+    /// left cancel out and send nothing, and three taps while a PUT is in
+    /// flight end on that PUT without a further request.
+    func testTapsThatCancelOutSendNothingMore() async {
+        let id = likedID
+        let wire = Wire { request in
+            request.url?.path == "/v1/me/library" ? (200, Data()) : (404, Data())
+        }
+        let session = stubSession(wire.answer, delay: { request in
+            request.httpMethod == "PUT" ? 0.2 : 0
+        })
+        let account = await connectedAccount(session: session)
+
+        account.toggleSaved(trackID: id)
+        await account.toggleSaved(trackID: id)?.value
+        XCTAssertEqual(wire.seen, [], "a tap undone in the same beat is nothing to tell Spotify")
+        XCTAssertEqual(account.saved[id], false)
+
+        account.toggleSaved(trackID: id)
+        await waitUntil { account.saved[id] == true }
+        try? await Task.sleep(for: .milliseconds(50))
+        account.toggleSaved(trackID: id)
+        await account.toggleSaved(trackID: id)?.value
+
+        XCTAssertEqual(wire.seen, ["PUT /v1/me/library spotify:track:\(id)"])
+        XCTAssertEqual(account.saved[id], true)
+    }
+
+    /// A write Spotify refuses puts the heart back where Spotify last agreed,
+    /// not merely one step back from the latest tap.
+    func testAFailedWriteFallsBackToWhatSpotifyLastAgreed() async {
+        let id = likedID
+        let session = stubSession({ _ in (500, Data()) }, delay: { _ in 0.1 })
+        let account = await connectedAccount(session: session)
+
+        account.toggleSaved(trackID: id)
+        try? await Task.sleep(for: .milliseconds(30))
+        account.toggleSaved(trackID: id)
+        await account.toggleSaved(trackID: id)?.value
+
+        XCTAssertEqual(account.saved[id], false,
+                       "the last tap pointed at saved, but nothing was ever saved, so the heart ends hollow")
+    }
+
+    /// A disconnect clears `saved`, and a lookup that was already on the wire
+    /// used to write the old account's answer straight back into it.
+    func testADisconnectDuringALookupLeavesNothingBehind() async {
+        let session = stubSession({ _ in (200, Data("[true]".utf8)) }, delay: { _ in 0.2 })
+        let account = await connectedAccount(session: session)
+
+        let lookup = account.refreshSavedState(trackID: likedID)
+        try? await Task.sleep(for: .milliseconds(50))
+        account.disconnect()
+        await lookup?.value
+
+        XCTAssertTrue(account.saved.isEmpty, "a disconnected account must not keep the old answer")
+        XCTAssertFalse(account.isConnected)
+    }
 }
 
 /// Records every request the stub is asked and answers it, from the
@@ -372,6 +656,12 @@ private final class Wire: @unchecked Sendable {
 
     var seen: [String] { lock.withLock { lines } }
 
+    /// Puts a line of the test's own into the same log, so an event that is
+    /// not an answer — a request leaving — can be ordered against answers.
+    func note(_ line: String) {
+        lock.withLock { lines.append(line) }
+    }
+
     func answer(_ request: URLRequest) -> (Int, Data)? {
         let uris = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
             .queryItems?.first(where: { $0.name == "uris" })?.value
@@ -391,9 +681,20 @@ private final class StubURLProtocol: URLProtocol {
     // Lock-guarded: answers are served on the session's background queue, off
     // the test's actor, so every access goes through `lock`.
     nonisolated(unsafe) private static var handler: ((URLRequest) -> (Int, Data)?)?
+    nonisolated(unsafe) private static var delay: (@Sendable (URLRequest) -> TimeInterval)?
 
-    static func serve(_ handler: @escaping (URLRequest) -> (Int, Data)?) {
-        lock.withLock { self.handler = handler }
+    /// `delay` holds a request on the wire before it is answered — and before
+    /// the handler sees it, so a handler that logs records answers in the
+    /// order they came back, which is what tells sequential writes from
+    /// overlapping ones.
+    static func serve(
+        _ handler: @escaping (URLRequest) -> (Int, Data)?,
+        delay: (@Sendable (URLRequest) -> TimeInterval)? = nil
+    ) {
+        lock.withLock {
+            self.handler = handler
+            self.delay = delay
+        }
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -401,6 +702,15 @@ private final class StubURLProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        let wait = Self.lock.withLock { Self.delay?(request) } ?? 0
+        guard wait > 0 else { return answer() }
+        // Asynchronously, never by sleeping here: the session may start every
+        // protocol on one thread, and a sleep would serialise requests the
+        // code under test sent concurrently — hiding the very race asserted.
+        DispatchQueue.global().asyncAfter(deadline: .now() + wait) { [self] in answer() }
+    }
+
+    private func answer() {
         let answer = Self.lock.withLock { Self.handler?(request) }
         guard let (status, body) = answer,
               let url = request.url,

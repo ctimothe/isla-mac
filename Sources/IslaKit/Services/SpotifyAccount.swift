@@ -125,11 +125,47 @@ final class SpotifyAccount: ObservableObject {
     /// because the lookup has not landed.
     @Published private(set) var saved: [String: Bool] = [:]
 
-    /// True when there is an account on file but its tokens cannot be read —
-    /// the keychain prompt was dismissed, or the stored refresh token has been
-    /// revoked. The heart hides rather than sitting there doing nothing when a
-    /// user presses it, which is what it used to do.
+    /// True when there is an account on file but no usable token for it — the
+    /// keychain prompt was dismissed, a refresh could not get through, or a
+    /// freshly refreshed token was refused as well. The heart hides rather
+    /// than sitting there doing nothing when a user presses it, which is what
+    /// it used to do. A grant Spotify has revoked outright is not this: that
+    /// disconnects, and says so through `needsReconnect`.
     @Published private(set) var tokenUnavailable = false
+
+    /// True once Spotify has answered a refresh with `invalid_grant` — the
+    /// user removed Isla at spotify.com/account/apps, or the grant otherwise
+    /// died — and the account has let go of it. Settings used to go on saying
+    /// Connected over a dead grant, while every track change sent another
+    /// refresh that could never succeed. Cleared by the next grant and by a
+    /// deliberate disconnect.
+    @Published private(set) var needsReconnect = false
+
+    /// How the last sign-in attempt ended, when it ended without an account.
+    /// Every one of these used to return silently, leaving Settings offering
+    /// Connect as if the button had never been pressed. Nil while an attempt
+    /// is pending, after a success, and before anything was tried.
+    @Published private(set) var signInOutcome: SignInOutcome?
+
+    enum SignInOutcome: Equatable {
+        /// Cancel was pressed on Spotify's consent page (`access_denied`).
+        case cancelled
+        /// The browser came back when no sign-in was pending — Isla was
+        /// relaunched between Connect and approval, so the verifier that began
+        /// the flow is gone and the code cannot be exchanged.
+        case expired
+        /// Spotify answered the callback with another error, or would not
+        /// exchange the code it had just issued.
+        case failed
+    }
+
+    /// Liked Songs writes, one runner per track. A tap records where the heart
+    /// should end up; the runner sends PUT or DELETE, one at a time, until
+    /// Spotify's last answer matches the latest tap. Each tap used to be its
+    /// own unordered task, so a quick double tap could have the DELETE arrive
+    /// before the slower PUT — the song liked on Spotify under a hollow heart.
+    private var desiredSaved: [String: Bool] = [:]
+    private var savedWriters: [String: Task<Void, Never>] = [:]
 
     private var verifier: String?
     /// Random value tying a callback to the request that started it. Without
@@ -233,6 +269,9 @@ final class SpotifyAccount: ObservableObject {
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded()
         let state = Data((0..<32).map { _ in UInt8.random(in: 0...255) }).base64URLEncoded()
         authorizationState = state
+        // A new attempt: whatever the last one ended in no longer describes
+        // what is happening.
+        signInOutcome = nil
 
         var components = URLComponents(string: "https://accounts.spotify.com/authorize")!
         components.queryItems = [
@@ -250,18 +289,35 @@ final class SpotifyAccount: ObservableObject {
     /// The browser lands back here through the app's URL scheme.
     func handleCallback(_ url: URL) {
         guard url.host == "spotify-callback" || url.path.contains("spotify-callback"),
-              let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
-              let code = items.first(where: { $0.name == "code" })?.value,
-              let verifier, let clientID else { return }
+              let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        else { return }
+        guard let verifier, let expected = authorizationState else {
+            // Nothing is pending, so nothing can be exchanged: most likely Isla
+            // was relaunched between Connect and approval and the verifier went
+            // with the old process. Said, because the user has just approved
+            // something and deserves to know it did not take. Not said over a
+            // working account, where this is far more likely a callback opened
+            // twice after it already succeeded than a sign-in that was lost.
+            if !isConnected { signInOutcome = .expired }
+            return
+        }
         // The callback has to name the request it answers, and that request has
-        // to be one this app made and has not already consumed.
-        guard let expected = authorizationState,
-              let returned = items.first(where: { $0.name == "state" })?.value,
+        // to be one this app made and has not already consumed. One that does
+        // not is not ours to report on, so it is dropped without a word.
+        guard let returned = items.first(where: { $0.name == "state" })?.value,
               constantTimeEquals(returned, expected) else { return }
         // Single-use, both of them: a verifier or state left lying around is a
         // second chance for a callback nobody asked for.
         authorizationState = nil
         self.verifier = nil
+        guard let code = items.first(where: { $0.name == "code" })?.value, let clientID else {
+            // No code means Spotify sent an error instead. `access_denied` is
+            // the Cancel button on the consent page; anything else is a
+            // failure the user did not choose.
+            let error = items.first(where: { $0.name == "error" })?.value
+            signInOutcome = error == "access_denied" ? .cancelled : .failed
+            return
+        }
         Task {
             await exchange(code: code, verifier: verifier, clientID: clientID)
         }
@@ -288,14 +344,23 @@ final class SpotifyAccount: ObservableObject {
             "client_id=\(Self.formEncoded(clientID))",
             "code_verifier=\(Self.formEncoded(verifier))",
         ].joined(separator: "&")
-        guard let tokens = await tokenRequest(body: body) else { return }
+        guard case .tokens(let tokens) = await tokenRequest(body: body) else {
+            // Even `invalid_grant` here is only a failed sign-in — a code that
+            // expired or was already spent — never a reason to touch the
+            // account that may already be connected.
+            signInOutcome = .failed
+            return
+        }
         let generation = credentialGeneration
         await store(tokens)
         // A new grant is Spotify's fresh answer about this account. Whatever
         // it refused before, under this account or the last one, no longer
         // stands; the next lookup finds out again. Skipped when a disconnect
         // overtook the write, which has cleared it already.
-        if credentialGeneration == generation { forgetRefusal() }
+        if credentialGeneration == generation {
+            forgetRefusal()
+            signInOutcome = nil
+        }
     }
 
     /// `application/x-www-form-urlencoded` escaping: everything outside the
@@ -311,14 +376,40 @@ final class SpotifyAccount: ObservableObject {
         let expires_in: Int
     }
 
-    private func tokenRequest(body: String) async -> Tokens? {
+    /// What the token endpoint said, kept apart because the two failures mean
+    /// opposite things. Every non-200 used to collapse into nil, so a grant
+    /// the user had revoked looked exactly like a café with no Wi-Fi — and
+    /// since only the first may disconnect, neither did.
+    private enum TokenResult {
+        case tokens(Tokens)
+        /// OAuth's `invalid_grant`: the refresh token (or code) is dead and
+        /// asking again cannot help.
+        case invalidGrant
+        /// Anything else — offline, a 5xx, a malformed body, any other 400.
+        /// Never disconnects: the next attempt may well work.
+        case failed
+    }
+
+    private func tokenRequest(body: String) async -> TokenResult {
         var request = URLRequest(url: URL(string: "https://accounts.spotify.com/api/token")!)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(body.utf8)
-        guard let (data, response) = try? await session.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-        return try? JSONDecoder().decode(Tokens.self, from: data)
+        guard let (data, response) = try? await session.data(for: request) else { return .failed }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 200 {
+            guard let tokens = try? JSONDecoder().decode(Tokens.self, from: data) else { return .failed }
+            return .tokens(tokens)
+        }
+        // RFC 6749 §5.2: an error response is a 400 whose JSON body names the
+        // error. Only that exact code counts, so a Spotify outage that happens
+        // to answer 400 with some other body never signs anyone out.
+        if status == 400,
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           object["error"] as? String == "invalid_grant" {
+            return .invalidGrant
+        }
+        return .failed
     }
 
     private func store(_ tokens: Tokens) async {
@@ -341,18 +432,46 @@ final class SpotifyAccount: ObservableObject {
         guard credentialGeneration == generation else { return }
         isConnected = true
         canImportLegacyAccount = false
+        // Tokens Spotify just issued are proof the account works.
+        needsReconnect = false
     }
 
     func disconnect() {
         refreshTask?.cancel()
         refreshTask = nil
+        dropAccountState()
+        // A deliberate disconnect is its own explanation; the reconnect note
+        // and the last attempt's outcome are about an account that is gone.
+        needsReconnect = false
+        signInOutcome = nil
+        Task { [credentials] in await credentials.clear() }
+    }
+
+    /// Everything that belongs to the account being let go, shared by a
+    /// disconnect and a revoked grant. The generation bump is what every
+    /// in-flight lookup and write checks after its awaits: without it, a
+    /// lookup already on the wire wrote the old account's answer back into
+    /// `saved` after the disconnect had cleared it.
+    private func dropAccountState() {
         credentialGeneration += 1
         saved = [:]
+        desiredSaved = [:]
+        savedWriters = [:]
         isConnected = false
         // The refusal belonged to the account just removed. Kept, it showed
         // in Settings under the next account and hid that one's heart too.
         forgetRefusal()
-        Task { [credentials] in await credentials.clear() }
+    }
+
+    /// Spotify said `invalid_grant` to a refresh: the user removed Isla at
+    /// spotify.com/account/apps, or the grant died some other way. Holding on
+    /// to it meant Settings said Connected forever and every track change sent
+    /// one more refresh that could never succeed. The tokens go — they will
+    /// never work again — and Settings asks for a reconnect.
+    private func letGoOfRevokedGrant() async {
+        dropAccountState()
+        needsReconnect = true
+        await credentials.clear()
     }
 
     /// One refresh at a time, shared by every caller that arrives while it is
@@ -366,8 +485,27 @@ final class SpotifyAccount: ObservableObject {
     /// refresh token, which invalidates the account.
     /// Internal, not private: the media controller authenticates its catalogue
     /// lookup with this, and tests prove the cached-token path through it.
-    func freshAccessToken() async -> String? {
-        if let existing = refreshTask { return await existing.value }
+    ///
+    /// `rejected` is an access token the Web API has just answered 401 to.
+    /// The cached token is then skipped even though its stamp says it is
+    /// still good — Spotify invalidated it early, or the stamp was written by
+    /// a clock that was wrong — and a refresh is spent instead. Naming the
+    /// token rather than passing a bare "force" flag lets two callers that
+    /// were refused together share one refresh: the second finds a different
+    /// token cached by the time it asks, and uses it. Spending the rotating
+    /// refresh token twice would invalidate the account.
+    func freshAccessToken(rejecting rejected: String? = nil) async -> String? {
+        var joined: Task<String?, Never>?
+        if let existing = refreshTask {
+            let token = await existing.value
+            guard let rejected, token == rejected else { return token }
+            joined = existing
+        }
+        // Joined a lookup that only read back the token that was refused. If
+        // someone else started a refresh while we waited, that is the one to
+        // share; checked once, not looped, because the task just awaited may
+        // still be registered until its owner resumes.
+        if let current = refreshTask, current != joined { return await current.value }
 
         let generation = credentialGeneration
         let task = Task { [weak self] () -> String? in
@@ -375,19 +513,32 @@ final class SpotifyAccount: ObservableObject {
             let stored = await self.credentials.readTokens()
             if let expires = stored.expires,
                Date().timeIntervalSince1970 < expires,
-               let token = stored.access {
+               let token = stored.access,
+               token != rejected {
                 return token
             }
             guard let refresh = stored.refresh, let clientID = self.clientID else { return nil }
             let body = "grant_type=refresh_token"
                 + "&refresh_token=\(Self.formEncoded(refresh))"
                 + "&client_id=\(Self.formEncoded(clientID))"
-            guard let tokens = await self.tokenRequest(body: body) else { return nil }
+            let result = await self.tokenRequest(body: body)
             // A disconnect that happened while this was in flight wins: storing
-            // now would put the tokens the user just revoked back on disk.
+            // now would put the tokens the user just revoked back on disk, and
+            // letting go of a grant would bump the generation a second time.
             guard self.credentialGeneration == generation else { return nil }
-            await self.store(tokens)
-            return tokens.access_token
+            switch result {
+            case .tokens(let tokens):
+                await self.store(tokens)
+                return tokens.access_token
+            case .invalidGrant:
+                await self.letGoOfRevokedGrant()
+                return nil
+            case .failed:
+                // Offline, or Spotify having a bad minute. The account stays:
+                // clearing it on any failed refresh would sign out everybody
+                // whose laptop woke up before its Wi-Fi did.
+                return nil
+            }
         }
         refreshTask = task
         let token = await task.value
@@ -421,6 +572,55 @@ final class SpotifyAccount: ObservableObject {
         return components?.url
     }
 
+    /// How one authorised Web-API call ended.
+    private enum Reply {
+        case answered(status: Int, body: Data)
+        /// The request never got an HTTP answer: offline, or dropped.
+        case unreachable
+        /// No usable token, or a freshly refreshed one was refused as well.
+        case noToken
+        /// The account changed while the call was in flight — a disconnect,
+        /// or a revoked grant let go. Whatever came back belongs to an
+        /// account that is gone, and must not be written anywhere.
+        case overtaken
+    }
+
+    /// One Web-API call with the account's token, and the one 401 retry.
+    ///
+    /// A 401 is Spotify saying the access token is no good: revoked early, or
+    /// the wall-clock expiry stamp was written by a wrong clock. It used to be
+    /// treated like a dropped connection and retried with the same dead token
+    /// until the attempts ran out. Now it buys exactly one refresh, past the
+    /// cached token, and the question is asked again; a second 401 means
+    /// refreshing will not help, and the call stops there.
+    ///
+    /// The credential generation is checked after every await, because each is
+    /// a point where a disconnect can land.
+    private func send(_ request: (_ token: String) -> URLRequest) async -> Reply {
+        let generation = credentialGeneration
+        var rejected: String?
+        for _ in 0..<2 {
+            let token = await freshAccessToken(rejecting: rejected)
+            guard credentialGeneration == generation else { return .overtaken }
+            guard let token else { return .noToken }
+            tokenUnavailable = false
+            let reply = try? await session.data(for: request(token))
+            guard credentialGeneration == generation else { return .overtaken }
+            guard let (data, response) = reply else { return .unreachable }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard status == 401 else { return .answered(status: status, body: data) }
+            rejected = token
+        }
+        return .noToken
+    }
+
+    private static func bearer(_ url: URL, _ token: String, method: String = "GET") -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
     /// Returns the lookup's task so a test can wait for the answer; the
     /// heart fires and forgets. Inside a refusal's cooldown it asks nothing.
     @discardableResult
@@ -428,34 +628,32 @@ final class SpotifyAccount: ObservableObject {
         guard isConnected, saved[trackID] == nil, mayAsk(),
               let url = Self.libraryURL("library/contains", trackID: trackID) else { return nil }
         return Task {
-            guard let token = await freshAccessToken() else {
+            switch await send({ Self.bearer(url, $0) }) {
+            case .overtaken:
+                return
+            case .noToken:
                 // No usable token. Say so, so the heart can hide instead of
                 // pretending: an unliked-looking heart that does nothing when
                 // pressed is worse than no heart at all.
                 tokenUnavailable = true
-                return
-            }
-            tokenUnavailable = false
-            var request = URLRequest(url: url)
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            guard let (data, response) = try? await session.data(for: request) else {
+            case .unreachable:
                 // Offline or refused mid-flight. Retried, because the entry
                 // stays nil and nothing else would ever ask again — the heart
                 // would show hollow for a liked song for the rest of the track.
-                return retrySavedState(trackID: trackID, attempt: attempt)
+                retrySavedState(trackID: trackID, attempt: attempt)
+            case .answered(let status, let data):
+                if status == 403 { return refuse(data) }
+                guard status == 200,
+                      let flags = try? JSONDecoder().decode([Bool].self, from: data),
+                      let flag = flags.first else {
+                    return retrySavedState(trackID: trackID, attempt: attempt)
+                }
+                apiBlocked = false
+                // A tap that landed while this was on the wire has already put
+                // the heart where the user wants it, and its write is on the
+                // way; the answer to a question asked before it is stale.
+                if saved[trackID] == nil { saved[trackID] = flag }
             }
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            if status == 403 {
-                refuse(data)
-                return
-            }
-            guard status == 200,
-                  let flags = try? JSONDecoder().decode([Bool].self, from: data),
-                  let flag = flags.first else {
-                return retrySavedState(trackID: trackID, attempt: attempt)
-            }
-            apiBlocked = false
-            saved[trackID] = flag
         }
     }
 
@@ -469,32 +667,62 @@ final class SpotifyAccount: ObservableObject {
         }
     }
 
+    /// Returns the track's writer, so a test can wait until Spotify agrees
+    /// with the last tap; the heart fires and forgets. A tap while a write is
+    /// already running joins it rather than starting a second.
     @discardableResult
     func toggleSaved(trackID: String) -> Task<Void, Never>? {
         guard isConnected, let url = Self.libraryURL("library", trackID: trackID) else { return nil }
-        let wants = !(saved[trackID] ?? false)
+        let before = saved[trackID] ?? false
+        let wants = !before
         // Optimistic: the heart answers the tap now; a failed request puts
         // it back rather than leaving the tap looking ignored.
         saved[trackID] = wants
-        return Task {
-            guard let token = await freshAccessToken() else {
-                saved[trackID] = !wants
-                tokenUnavailable = true
-                return
-            }
-            tokenUnavailable = false
-            var request = URLRequest(url: url)
-            request.httpMethod = wants ? "PUT" : "DELETE"
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            let reply = try? await session.data(for: request)
-            let status = reply.flatMap { ($0.1 as? HTTPURLResponse)?.statusCode }
-            if status == 403 { refuse(reply?.0) }
-            if !(status.map { (200..<300).contains($0) } ?? false) {
-                saved[trackID] = !wants
-            } else {
-                apiBlocked = false
-            }
+        desiredSaved[trackID] = wants
+        if let running = savedWriters[trackID] { return running }
+        let generation = credentialGeneration
+        let writer = Task {
+            await writeSaved(trackID: trackID, url: url, confirmed: before, generation: generation)
         }
+        savedWriters[trackID] = writer
+        return writer
+    }
+
+    /// Sends PUT or DELETE, one at a time, until Spotify's last answer is
+    /// where the latest tap pointed — so a third tap that lands while the
+    /// first PUT is in flight costs nothing, and a second sends exactly one
+    /// DELETE after it. `confirmed` is the last state Spotify is known to
+    /// hold, which is what the heart falls back to when a write fails.
+    private func writeSaved(trackID: String, url: URL, confirmed: Bool, generation: Int) async {
+        var confirmed = confirmed
+        // The loop condition is re-read after every await, and nothing awaits
+        // between the last check and the cleanup below, so a tap can never
+        // slip in after the writer has decided to stop and be left unsent.
+        while let wants = desiredSaved[trackID], wants != confirmed {
+            let reply = await send { Self.bearer(url, $0, method: wants ? "PUT" : "DELETE") }
+            // A disconnect has cleared `saved` and these maps already, and a
+            // new account may have a writer of its own for this track by now.
+            guard credentialGeneration == generation else { return }
+            switch reply {
+            case .answered(let status, _) where (200..<300).contains(status):
+                confirmed = wants
+                apiBlocked = false
+                continue
+            case .answered(403, let data):
+                refuse(data)
+            case .noToken:
+                tokenUnavailable = true
+            default:
+                break
+            }
+            // Failed: the heart goes back to what Spotify last agreed to, and
+            // any taps queued behind the failure are dropped with it rather
+            // than retried into the same wall.
+            saved[trackID] = confirmed
+            break
+        }
+        desiredSaved[trackID] = nil
+        savedWriters[trackID] = nil
     }
 
     // MARK: - Track identity
@@ -539,19 +767,21 @@ final class SpotifyAccount: ObservableObject {
     /// network failure, a refused status, or an unrecognised payload all mean
     /// "unknown", and the caller falls back to title/artist matching.
     func trackMetadata(id: String) async -> TrackMetadata? {
-        guard isConnected, mayAsk() else { return nil }
-        guard let token = await freshAccessToken() else {
+        guard isConnected, mayAsk(),
+              let url = URL(string: "https://api.spotify.com/v1/tracks/\(id)") else { return nil }
+        let data: Data, status: Int
+        switch await send({ Self.bearer(url, $0) }) {
+        case .overtaken, .unreachable:
+            return nil
+        case .noToken:
             // Same contract as the saved-state lookup: without a usable
             // token the features that need the id hide rather than sit dead.
             tokenUnavailable = true
             return nil
+        case .answered(let answeredStatus, let body):
+            status = answeredStatus
+            data = body
         }
-        tokenUnavailable = false
-        guard let url = URL(string: "https://api.spotify.com/v1/tracks/\(id)") else { return nil }
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        guard let (data, response) = try? await session.data(for: request) else { return nil }
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 403 {
             refuse(data)
             return nil
