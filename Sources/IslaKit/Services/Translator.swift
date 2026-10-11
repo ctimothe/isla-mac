@@ -115,6 +115,14 @@ final class Translator: ObservableObject {
     /// swap then would replace what was just typed with a stale translation.
     private var outputSource: String?
 
+    /// Whether the answer on screen is the answer to what the field holds now.
+    /// For the debounce and the engine's time after an edit it is not: it is
+    /// the previous text's, and it used to look and copy exactly like a
+    /// current one, so Copy pressed in that window pasted a translation of the
+    /// sentence before the edit (K-004). The pane dims such an answer and
+    /// disables Copy; `swap()` and `copyOutput()` refuse it outright.
+    var answersInput: Bool { !output.isEmpty && outputSource == trimmed }
+
     /// The last detection, so the recognizer runs once per text rather than
     /// once per read — the pane reads the route on every keystroke's render.
     private var detection: (text: String, language: TranslationLanguage)?
@@ -124,6 +132,19 @@ final class Translator: ObservableObject {
     private var generation = 0
 
     private var attempt = 0
+
+    /// The request the answer on screen was given for, keyed on the trimmed
+    /// text. The pane's task re-runs on every appearance of the tab, and every
+    /// run used to translate again: switching Music → Translate → Music sent
+    /// the same Uzbek sentence to MyMemory once per return and spent the day's
+    /// quota on text whose answer was already on screen (G-026). Trimmed,
+    /// because a trailing space is not a new question and was a new request.
+    /// Anything that is — other text, another language, Retry — makes a
+    /// `Request` that differs from this one, so only a true repeat is skipped.
+    private var answered: Request?
+
+    /// What `answered` is compared against.
+    private var question: Request { Request(text: trimmed, attempt: attempt, source: source, target: target) }
 
     private let defaults: UserDefaults
 
@@ -226,10 +247,11 @@ final class Translator: ObservableObject {
         source = target
         target = from
         if source == target { source = nil }
-        if !output.isEmpty, outputSource == trimmed {
+        if answersInput {
             input = output
             output = ""
             outputSource = nil
+            answered = nil
             engine = nil
         }
         remember()
@@ -241,6 +263,7 @@ final class Translator: ObservableObject {
     private func clearAnswer() {
         output = ""
         outputSource = nil
+        answered = nil
         engine = nil
         failure = nil
         remedies = []
@@ -463,6 +486,7 @@ final class Translator: ObservableObject {
     func clear() {
         output = ""
         outputSource = nil
+        answered = nil
         failure = nil
         remedies = []
         engine = nil
@@ -477,6 +501,18 @@ final class Translator: ObservableObject {
     func translate() async {
         let text = trimmed
         guard !text.isEmpty else { clear(); return }
+
+        // Already answered: the tab reappearing, or an edit that came back to
+        // the text on screen, asks nothing new (G-026). Checked before the
+        // capability lookup, the first thing that could reach an engine. The
+        // generation still moves on, so a run for text in between — "salomx"
+        // typed and deleted while its run was out — cannot land over the
+        // answer this keeps, and the flag that run raised comes down here.
+        if answersInput, answered == question {
+            generation += 1
+            isTranslating = false
+            return
+        }
 
         // Stamped, so a cancelled run cannot clear the flag its successor
         // raised. The pane cancels the previous task on every keystroke, but
@@ -534,6 +570,7 @@ final class Translator: ObservableObject {
     func received(_ translated: String, for text: String, by engine: Engine) {
         output = translated
         outputSource = text
+        answered = text == trimmed ? question : nil
         self.engine = engine
         failure = nil
         remedies = []
@@ -627,7 +664,7 @@ final class Translator: ObservableObject {
     }
 
     func copyOutput() {
-        guard !output.isEmpty else { return }
+        guard answersInput else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(output, forType: .string)
