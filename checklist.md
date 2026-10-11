@@ -177,6 +177,8 @@ material owes those settings an answer. `defaults write
 com.ctimothe.isla drawnGlass -bool true` forces the drawn recipe
 everywhere, for the one surface whose backdrop cannot be checked from a
 build machine.
+Amended 2026-10-11 (F-012): the lock card no longer depends on the hatch. It
+always draws the recipe, in code, so `drawnGlass` now matters to the panel only.
 
 Haptic feedback was added on 2026-08-25, at two moments only: an output
 device chosen, and a click on a lyric landing the song on that line. It
@@ -543,6 +545,14 @@ Open, for the owner — each is a design decision, not a defect:
 
 - [ ] `LockScreenCard` still carries 22 white/black literals and a scrim over
   real glass on macOS 26 — a second, untracked theme.
+  **Half closed, 2026-10-11 (F-012):** there is no real glass on the card any
+  more. The card and its output popover always draw the recipe
+  (`LockScreenCard.glassRouting`, `preferDrawn: true`), as the Lock-screen card
+  entry above has always recorded, so the scrim now sits on recipe over recipe.
+  That also keeps the card's content one view across a cover appearing or going
+  (K-017). The literals remain open. Owed one look on a locked macOS 26 Mac
+  with a coverless song; if the system material read better there, amend this
+  record, not the code (`GlassRoutingTests`).
 - [ ] `SettingsPane.choiceRow` is a hand-rolled segmented control; a native
   `Picker(.segmented)` would restore arrow keys and radio-group VoiceOver but
   look like AppKit on a dark pane.
