@@ -1175,7 +1175,33 @@ final class MediaController: ObservableObject {
 
     // MARK: - Transport
 
-    func togglePlayPause() {
+    /// Whether a transport command has somewhere truthful to go: a song on
+    /// the island, and a route that reaches the player showing it.
+    ///
+    /// Every on-screen control is already hidden without a track (MediaPane,
+    /// LockScreenCard), so what this decides is the Shortcuts actions and
+    /// anything bound to them (J-005). With Music Only hiding a paused YouTube
+    /// tab, Play or Pause went to the helper with no pid, the helper handed it
+    /// to whoever owned Now Playing — the hidden tab — and the video started
+    /// while the intent reported success. A command for nothing shown now
+    /// goes nowhere and says so.
+    ///
+    /// Not "the displayed pid is known": a helper without the pid symbol
+    /// reports pid 0 for every track, and refusing those would end transport
+    /// there altogether.
+    private var transportReachesShownPlayer: Bool {
+        guard track != nil else { return false }
+        return heldScriptablePlayer != nil || feedAvailable || activeApp != nil
+    }
+
+    /// False, and nothing sent, when the island shows nothing to play or
+    /// pause — see `transportReachesShownPlayer`. The check comes before the
+    /// intent is touched: a tap with no player used to leave a command in
+    /// flight that no report would ever resolve, and every tap after it was
+    /// coalesced behind that one and never sent (J-006).
+    @discardableResult
+    func togglePlayPause() -> Bool {
+        guard transportReachesShownPlayer else { return false }
         let target = playbackIntent.toggle(at: Date())
         // The latest tap owns the icon immediately. Reports from before the
         // command completed are reconciled without repainting it backwards.
@@ -1183,15 +1209,21 @@ final class MediaController: ObservableObject {
         setAnchor(position)
         updateTicker()
         if let target { dispatchPlayback(target) }
+        return true
     }
 
-    func next() {
+    @discardableResult
+    func next() -> Bool {
+        guard transportReachesShownPlayer else { return false }
         trace("cmd next")
         beginAwaitingTrackChange("cmd next")
-        dispatch(feed: .next, transport: .next, key: .next)
+        dispatch(feed: .next, transport: .next)
+        return true
     }
 
-    func previous() {
+    @discardableResult
+    func previous() -> Bool {
+        guard transportReachesShownPlayer else { return false }
         trace("cmd previous")
         // A few seconds in, most players answer "previous" by restarting the
         // song, and the start of the same song is then the right thing to show
@@ -1202,7 +1234,8 @@ final class MediaController: ObservableObject {
         } else {
             beginAwaitingTrackChange("cmd previous")
         }
-        dispatch(feed: .previous, transport: .previous, key: .previous)
+        dispatch(feed: .previous, transport: .previous)
+        return true
     }
 
     // MARK: - A skip the island has not caught up with
@@ -1319,30 +1352,41 @@ final class MediaController: ObservableObject {
         isHolding ? displayedPlayerApp : nil
     }
 
+    /// Sends a command through the helper. Injectable for the same reason as
+    /// `sendToPlayer`: a test sees what reached the helper without one running.
+    lazy var sendToFeed: (NowPlayingFeed.Command, pid_t?) -> Void = { [unowned self] command, pid in
+        self.feed.send(command, playerPID: pid)
+    }
+
+    /// There used to be a fourth branch, a system media key for when no route
+    /// reached a player. Posting one needs Accessibility, which Isla never
+    /// asks for, so it silently did nothing (J-006); and with nothing shown it
+    /// would have reached whichever session macOS picked, the very one the
+    /// island had declined to show. Asking for that permission, for a route
+    /// that matters only when the island has nothing to show, was rejected:
+    /// the verbs refuse that case before they get here instead.
     private func dispatch(
         feed command: NowPlayingFeed.Command,
-        transport action: PlayerBridge.Transport,
-        key: PlayerBridge.MediaKey
+        transport action: PlayerBridge.Transport
     ) {
         if let held = heldScriptablePlayer {
             sendToPlayer(action, held)
         } else if feedAvailable {
-            feed.send(command, playerPID: displayedPlayerPID)
+            // Only with a song shown. Without one the helper, given no pid,
+            // hands the command to whoever owns Now Playing — a session the
+            // island may have filtered out. The verbs check this already;
+            // the queued tap `apply` sends is the other way in.
+            guard track != nil else { return }
+            sendToFeed(command, displayedPlayerPID)
         } else if let activeApp {
             sendToPlayer(action, activeApp)
-        } else {
-            PlayerBridge.postMediaKey(key.rawValue)
         }
     }
 
     private func dispatchPlayback(_ playing: Bool) {
         // The per-client command set has no toggle of its own (#23), so the
         // desired state travels explicitly.
-        dispatch(
-            feed: playing ? .play : .pause,
-            transport: playing ? .play : .pause,
-            key: .playPause
-        )
+        dispatch(feed: playing ? .play : .pause, transport: playing ? .play : .pause)
     }
 
     // MARK: - Feed

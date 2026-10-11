@@ -297,30 +297,6 @@ enum PlayerBridge {
         runScript(Script.command(action.body(for: app), on: app), app: app, priority: .transport) { _ in }
     }
 
-    /// System-wide media key, used when no scriptable player is running.
-    /// Requires Accessibility permission; silently does nothing without it.
-    static func postMediaKey(_ key: Int32) {
-        for down in [true, false] {
-            let flags: Int = down ? 0xA00 : 0xB00
-            guard let event = NSEvent.otherEvent(
-                with: .systemDefined,
-                location: .zero,
-                modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(flags)),
-                timestamp: 0,
-                windowNumber: 0,
-                context: nil,
-                subtype: 8,
-                data1: (Int(key) << 16) | flags,
-                data2: -1
-            ) else { continue }
-            event.cgEvent?.post(tap: .cghidEventTap)
-        }
-    }
-
-    enum MediaKey: Int32 {
-        case playPause = 16, next = 17, previous = 18
-    }
-
     // MARK: - Artwork
 
     static func artwork(for state: PlayerState, completion: @escaping (NSImage?) -> Void) {
