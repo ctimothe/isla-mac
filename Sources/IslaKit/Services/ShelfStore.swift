@@ -309,7 +309,7 @@ final class ShelfStore: ObservableObject {
     private struct DiskPass: Sendable {
         var verdicts: [URL: Verdict] = [:]
         var dates: [URL: Date] = [:]
-        var recordings: (urls: [URL], dates: [URL: Date], seen: Set<String>)?
+        var recordings: (urls: [URL], dates: [URL: Date], seen: Set<String>, missing: [URL])?
     }
 
     /// The pass, applied in one write: gone cards leave, offline ones dim,
@@ -341,7 +341,7 @@ final class ShelfStore: ObservableObject {
         }
         var arrived: [URL] = []
         if let found = pass.recordings {
-            settle(found.seen)
+            settle(found.seen, missing: found.missing)
             arrived = merge(found.urls, dates: found.dates, into: &cards)
         }
         if changed || !arrived.isEmpty {
@@ -369,7 +369,7 @@ final class ShelfStore: ObservableObject {
     func importNewRecordings(from folder: URL? = nil) {
         guard let pickup = pickupInputs(from: folder) else { return }
         let result = RecordingPickup.fresh(in: pickup.folders, since: pickup.since, seen: pickup.seen)
-        settle(result.seen)
+        settle(result.seen, missing: result.missing)
         guard !result.urls.isEmpty else { return }
         add(result.urls, dates: result.dates)
     }
@@ -393,10 +393,13 @@ final class ShelfStore: ObservableObject {
         )
     }
 
-    /// Persisted even when nothing is offered: settling old files is what
-    /// keeps them settled, and a denied folder simply reports nothing.
-    private func settle(_ seen: Set<String>) {
+    /// Persisted even when nothing is offered, and a denied folder simply
+    /// reports nothing. Capture folders the scan found deleted leave the
+    /// remembered list here, on the main thread that owns defaults, so a
+    /// retired folder is probed once more at most rather than on every open.
+    private func settle(_ seen: Set<String>, missing: [URL]) {
         defaults.set(Array(seen.suffix(RecordingPickup.seenLimit)), forKey: RecordingPickup.seenKey)
+        RecordingPickup.forget(missing, defaults: defaults)
     }
 
     /// What became of a card's file, as far as the disk can say.

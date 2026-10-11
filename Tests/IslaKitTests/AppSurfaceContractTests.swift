@@ -44,4 +44,21 @@ final class AppSurfaceContractTests: XCTestCase {
             "the open shortcut is the only route in that needs no pointer and no icon"
         )
     }
+
+    /// A Shelf card or a lyrics folder can live on an external disk or a
+    /// network share, and macOS asks before Isla reads either. With no usage
+    /// string declared, that prompt carried no reason at all (J-021); with one
+    /// declared, `test-localizations.sh` holds the en and ru rows to it.
+    func testInfoPlistDeclaresVolumeUsageStrings() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let bundle = try String(
+            contentsOf: root.appendingPathComponent("Scripts/bundle.sh"), encoding: .utf8
+        )
+        for key in ["NSRemovableVolumesUsageDescription", "NSNetworkVolumesUsageDescription"] {
+            XCTAssertTrue(bundle.contains("<key>\(key)</key>"), "Info.plist must declare \(key)")
+        }
+    }
 }

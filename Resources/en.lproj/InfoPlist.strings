@@ -2,6 +2,8 @@
    repeat Info.plist, so a key that drifts between the two is caught by
    Scripts/test-localizations.sh. */
 "NSAppleEventsUsageDescription" = "Isla asks Music and Spotify for shuffle, repeat and the exact position of the song, and controls them when Now Playing is unavailable.";
-"NSDesktopFolderUsageDescription" = "Isla shows new screenshots and recordings saved to the Desktop, and files you put on the Shelf from there.";
-"NSDocumentsFolderUsageDescription" = "Isla shows files you put on the Shelf from Documents.";
-"NSDownloadsFolderUsageDescription" = "Isla shows files you put on the Shelf from Downloads.";
+"NSDesktopFolderUsageDescription" = "Isla shows new screenshots and recordings saved to the Desktop and files you put on the Shelf from there, and reads lyrics folders you add there.";
+"NSDocumentsFolderUsageDescription" = "Isla shows files you put on the Shelf from Documents, and reads lyrics folders you add there.";
+"NSDownloadsFolderUsageDescription" = "Isla shows files you put on the Shelf from Downloads, and reads lyrics folders you add there.";
+"NSRemovableVolumesUsageDescription" = "Isla shows files you put on the Shelf from an external disk, and reads lyrics folders you add there.";
+"NSNetworkVolumesUsageDescription" = "Isla shows files you put on the Shelf from a network volume, and reads lyrics folders you add there.";
