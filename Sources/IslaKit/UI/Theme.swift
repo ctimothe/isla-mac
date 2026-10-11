@@ -93,7 +93,39 @@ enum Theme {
     /// a fourth spring at 0.7 would have passed it without anyone noticing.
     static let criticallyDampedSprings: [Animation] = [
         openAnimation, compactAnimation, pillUnfold, pillFold, pillContentOut, pillContentIn,
+        captionTurnOut, captionTurnIn,
     ]
+
+    /// The Music pane's caption giving one lyric line up to the next
+    /// (`AnyTransition.lyricLine`): the old line leaving and the new one
+    /// arriving, each on a curve of its own.
+    ///
+    /// Both used to ride `lyricScroll`, the stage page's 0.42 s spring, so
+    /// they crossed at the same instant: from 62 to 158 ms of every turn both
+    /// lines were at least a quarter opaque under up to 3 pt of blur, and the
+    /// visual lab's keyframes t083–t200 showed the two printed over each other
+    /// (H-014). The one place lyrics are read without opening the stage
+    /// stuttered on every line.
+    ///
+    /// The pill content's rule fixes it: out fast, in behind a short delay.
+    /// The old line is under a quarter opaque by 78 ms and the new one passes
+    /// a quarter at 85 ms, so they never share the slot legibly; by 120 ms the
+    /// new line is at 0.52 and the old at 0.08. In is 0.29 rather than the
+    /// round 0.30, which reached 0.499 at 120 ms and missed the half it was
+    /// chosen for. `MotionValuesTests.testTheCaptionTurnNeverOverprints`
+    /// holds all of it from the closed form of these three constants.
+    ///
+    /// Critically damped, unlike the page they used to share: a line that
+    /// fades out of a one-line slot has no travel to overshoot that anyone
+    /// could read as momentum, only a ghost that brightens again. And
+    /// `lyricScroll` itself stays where it is — it still carries the stage's
+    /// page, which must stay slower than the word sweep.
+    static let captionTurnOutResponse: Double = 0.18
+    static let captionTurnInResponse: Double = 0.29
+    static let captionTurnInDelay: Double = 0.04
+    static let captionTurnOut = Animation.spring(response: captionTurnOutResponse, dampingFraction: 1.0)
+    static let captionTurnIn = Animation.spring(response: captionTurnInResponse, dampingFraction: 1.0)
+        .delay(captionTurnInDelay)
 
     /// The lyrics page moving to the next line.
     ///

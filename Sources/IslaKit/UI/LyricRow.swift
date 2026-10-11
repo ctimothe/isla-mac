@@ -427,10 +427,16 @@ struct LyricLineTurn: ViewModifier {
     /// relation to `MediaPane.captionHeight`.
     static let travel: CGFloat = 7
 
+    /// The softening a line wears while fully away. It was 3 pt, and with
+    /// both lines half there at once the blur is what turned an overlap into
+    /// a smear (H-014); 2 pt still reads as the line going out of focus
+    /// rather than sliding as a sharp block.
+    static let maxBlur: CGFloat = 2
+
     func body(content: Content) -> some View {
         content
             .offset(y: progress * Self.travel * direction)
-            .blur(radius: progress * 3)
+            .blur(radius: progress * Self.maxBlur)
             .opacity(1 - progress)
     }
 }
@@ -438,17 +444,26 @@ struct LyricLineTurn: ViewModifier {
 extension AnyTransition {
     /// One line giving way to the next. Reduce Motion keeps the change and
     /// drops the travel, as every reduced variant here does.
+    ///
+    /// Each side carries its own curve (`Theme.captionTurnOut` and
+    /// `captionTurnIn`), which overrides whatever animation the line change
+    /// arrived in — the caller's `lyricScroll` on the line index — for the
+    /// turn only. On that one shared spring both lines crossed at once and
+    /// printed over each other for about 97 ms of every turn (H-014). The
+    /// reduced variant stays a plain crossfade on the caller's 0.12 s ease:
+    /// no travel and no blur, so the overlap is two sharp lines for a few
+    /// frames rather than a smear sliding across them.
     static func lyricLine(reduceMotion: Bool) -> AnyTransition {
         guard !reduceMotion else { return .opacity }
         return .asymmetric(
             insertion: .modifier(
                 active: LyricLineTurn(progress: 1, direction: 1),
                 identity: LyricLineTurn(progress: 0, direction: 1)
-            ),
+            ).animation(Theme.captionTurnIn),
             removal: .modifier(
                 active: LyricLineTurn(progress: 1, direction: -1),
                 identity: LyricLineTurn(progress: 0, direction: -1)
-            )
+            ).animation(Theme.captionTurnOut)
         )
     }
 }

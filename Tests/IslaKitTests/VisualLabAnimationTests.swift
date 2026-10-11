@@ -159,8 +159,12 @@ final class VisualLabAnimationTests: VisualLabCase {
             try curve(Theme.pill(appearing: true, reduceMotion: true), "pill-reduce-motion", "pill fold/unfold under Reduce Motion", "Theme.swift pill(appearing:reduceMotion:)"),
             try curve(Theme.pillContentIn, "pill-content-in", "cover and equalizer arriving in the pill (blur 5→0, scale 0.72→1, opacity)", "Theme.swift pillContentIn"),
             try curve(Theme.pillContentOut, "pill-content-out", "cover and equalizer leaving the pill", "Theme.swift pillContentOut"),
-            try curve(Theme.lyricScroll, "lyric-scroll", "stage page step, caption line turn, lock-card lyric window, row brightening", "Theme.swift lyricScroll",
+            try curve(Theme.lyricScroll, "lyric-scroll", "stage page step, lock-card lyric window, row brightening", "Theme.swift lyricScroll",
                       travel: Double(LyricsStage.slotHeight + LyricsStage.slotSpacing)),
+            try curve(Theme.captionTurnOut, "caption-turn-out", "caption line leaving its slot (opacity, blur 2→0, 7 pt up)", "Theme.swift captionTurnOut",
+                      travel: Double(LyricLineTurn.travel)),
+            try curve(Theme.captionTurnIn, "caption-turn-in", "caption line arriving in its slot (opacity, blur 2→0, 7 pt from below)", "Theme.swift captionTurnIn",
+                      travel: Double(LyricLineTurn.travel)),
             try curve(Theme.lyricScroll(reduceMotion: true), "lyric-scroll-reduce-motion", "lyric page under Reduce Motion", "Theme.swift lyricScroll(reduceMotion:)"),
             try curve(Theme.hoverNudge, "hover-nudge", "resting island waking under the pointer (travel: each side, resting → awake)", "Theme.swift hoverNudge",
                       travel: Double(NotchContentView.awakeShape(notch: LabGeometry.physicalNotch, shoulder: Theme.collapsedTopRadius).width
@@ -472,12 +476,14 @@ final class VisualLabAnimationTests: VisualLabCase {
             }
         }
 
-        // The caption's line turn and the stage's page step, both on the lyric spring.
+        // The caption's line turn, each line on its own curve (H-014), and
+        // the stage's page step on the lyric spring.
         for ms in Self.keyframeTimes {
             let s = value("lyric-scroll", ms)
+            let out = value("caption-turn-out", ms), arriving = value("caption-turn-in", ms)
             try await frame("caption-line-turn", ms, size: CGSize(width: 420, height: 72),
-                            notes: note + String(format: " lyric spring progress %.3f (LyricLineTurn on both lines).", s)) {
-                AnyView(CaptionTurnKeyframe(progress: s))
+                            notes: note + String(format: " outgoing progress %.3f, incoming %.3f (LyricLineTurn on both lines).", out, arriving)) {
+                AnyView(CaptionTurnKeyframe(outgoing: out, incoming: arriving))
             }
             try await frame("stage-page-step", ms, size: CGSize(width: 488, height: 162),
                             notes: note + String(format: " lyric spring progress %.3f: page offset %.1f pt.", s,
@@ -649,9 +655,11 @@ private struct OpenKeyframe: View {
 }
 
 /// The caption slot during a line change, with the real `LyricLineTurn` on
-/// both lines and the real `KaraokeText` drawing them.
+/// both lines and the real `KaraokeText` drawing them. Each line has its own
+/// progress because each rides its own curve (`Theme.captionTurnOut`/`In`).
 private struct CaptionTurnKeyframe: View {
-    let progress: Double
+    let outgoing: Double
+    let incoming: Double
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -661,10 +669,10 @@ private struct CaptionTurnKeyframe: View {
                 Color.clear
                 KaraokeText(text: "Walk the length of the block and back", fraction: 1,
                             tracking: Theme.tracking(forSize: Theme.TypeRole.body.size))
-                    .modifier(LyricLineTurn(progress: progress, direction: -1))
+                    .modifier(LyricLineTurn(progress: outgoing, direction: -1))
                 KaraokeText(text: "Sit in the waiting room again", fraction: 0,
                             tracking: Theme.tracking(forSize: Theme.TypeRole.body.size))
-                    .modifier(LyricLineTurn(progress: 1 - progress, direction: 1))
+                    .modifier(LyricLineTurn(progress: 1 - incoming, direction: 1))
             }
             .frame(height: MediaPane.captionHeight)
             .clipped()

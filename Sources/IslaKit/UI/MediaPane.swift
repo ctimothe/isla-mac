@@ -563,7 +563,13 @@ struct MediaPane: View {
                 .onHover { captionHover = $0 }
                 // On the lyric spring, like the page and the row: the song
                 // carries this motion, so it is allowed the momentum the
-                // 0.16 s content ease was refusing it.
+                // 0.16 s content ease was refusing it. The line turn itself
+                // does not ride it: `AnyTransition.lyricLine` attaches its
+                // own out-fast, in-behind pair (`Theme.captionTurnOut`/`In`),
+                // because on this one spring the old and new lines crossed
+                // at once and smeared over each other (H-014). What is left
+                // here is the reduced crossfade and anything else in the row
+                // that changes with the line.
                 .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: index)
                 .animation(Theme.contentAnimation, value: captionHover)
                 .accessibilityLabel(localized("Lyrics"))
