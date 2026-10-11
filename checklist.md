@@ -1091,3 +1091,38 @@ and owner decision 4. H-004, the cover switches' titles, belongs to sp/PV-02.
 - [ ] **Physical check owed (VoiceOver on):** VO-Up on Panel Width resizes the
   panel at once; the rotor's Headings list shows nine; Glass reads as a radio
   group, "1 of 3"; Russian VoiceOver reads "560 пт" as points, not a weekday.
+
+### Lyric context lines clear 3:1 — 2026-10-11 (vt/CT-02)
+
+Closes F-051 and owner decision 9 (lyric context-line contrast), which the
+plan had split with ly/LY-20; LY-20 was dropped in review and its record is
+this one. Supersedes the "Lyric neighbour 0.34/0.44, floor 0.28/0.38" line
+of the v0.3 Increase Contrast entry above.
+
+- [x] **Accessibility over the depth preference.** The context floor was
+  white 0.28 (2.27:1 over black) and the neighbour 0.34 (2.89:1), under 3:1
+  by a recorded choice of depth over contrast. `LyricRow.Ramp.panel` is now
+  floor 0.36 (3.13:1), neighbour 0.42 (3.95:1), unswept 0.50, reading 0.46;
+  under Increase Contrast 0.42 (3.95:1), 0.46 (4.58:1), 0.50, 0.48. Depth
+  still reads as four steps, 0.36 → 0.42 → 0.50 → full white, and stays
+  opacity-only: blurring the far lines was weighed and rejected again.
+- [x] **The lock card has its own ramp.** It drew the panel's greys over a
+  cover-lit backdrop, where the floor measured 2.1:1 and the neighbour 2.5:1
+  over a white cover. `LyricRow.Ramp.card`: floor 0.50, neighbour
+  `cardTertiary` (0.62), unswept `cardSecondary` (0.75); under Increase
+  Contrast 0.62, 0.75, 0.85. Over the backdrop `LockCardLegibility` solves
+  for a white cover the floor is 3.5:1 (3.6:1 under Increase Contrast) and
+  the neighbour 4.5:1, in Tinted and Transparent. The interlude marker takes
+  the same surface, so a marker and a line at one depth are one grey.
+- [x] **Credits are never bold** (F-051). The credit branch passed the
+  caller's `.bold` through under a comment saying it never would; it draws
+  at `.medium` now. Its dim state follows the ramp's floor instead of a
+  fixed 0.34 that Increase Contrast never moved.
+- `ContrastRampTests` (`testLyricContextClearsThreeToOne`,
+  `testCardLyricsHoldOverTheBrightestCover`, `testCreditsAreNeverBold`) hold
+  all three. Visual lab renders `lock-card/clear-standard-lyrics__light-ir`
+  and `glass-standard-lyrics__dark-ir` were re-read: every context line reads,
+  and the floor still sits visibly under the neighbour.
+- [ ] **Look owed on the Mac:** the lyrics page in a dark room, and the lock
+  card over a pale cover, to confirm the narrower floor-to-neighbour step
+  (0.06 on the panel) still reads as depth.

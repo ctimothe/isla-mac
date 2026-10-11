@@ -676,6 +676,9 @@ struct LockScreenCard: View {
             accent: accent,
             reduceMotion: reduceMotion,
             wordTimingEnabled: wordTimingEnabled,
+            // The card's own steps. The panel's were tuned against black, and
+            // over a pale cover its context lines dissolved (2.1:1 at the floor).
+            surface: .card,
             seek: {
                 // The song landing on a line somebody pointed at.
                 Haptics.alignment()
@@ -710,7 +713,8 @@ struct LockScreenCard: View {
                 : nil,
             fontSize: Theme.TypeRole.title.size,
             weight: .bold,
-            reduceMotion: reduceMotion
+            reduceMotion: reduceMotion,
+            surface: .card
         )
     }
 

@@ -40,6 +40,11 @@ struct LyricRow: View {
     /// A line timeline, or an unmeasured player clock, highlights the whole
     /// current line. It must never animate a made-up word progression.
     var wordTimingEnabled = false
+    /// What the row is drawn over, and so which `Ramp` of greys it takes. A
+    /// surface rather than a ramp because the row reads Increase Contrast
+    /// itself, at draw time, the way it always has: a ramp handed in by the
+    /// caller would be the setting as it stood when the caller last ran.
+    var surface: Surface = .panel
     /// The reader has scrolled away by hand. Every line on screen is then
     /// something being read rather than context around the voice, so none is
     /// dimmed to depth — the way the system's own lyrics clear as soon as a
@@ -51,50 +56,137 @@ struct LyricRow: View {
     /// right-click menu can offer to copy all of it as well as this line.
     var allText: String?
 
-    /// The dimmest a context line may go.
+    enum Surface {
+        /// The island's own black.
+        case panel
+        /// The lock card, lit from behind by the song's cover.
+        case card
+
+        func ramp(increaseContrast: Bool) -> Ramp {
+            switch self {
+            case .panel: .panel(increaseContrast: increaseContrast)
+            case .card: .card(increaseContrast: increaseContrast)
+            }
+        }
+    }
+
+    /// The greys a lyric is drawn in, from the far context lines up to the
+    /// sung line's unsung words — one set per surface, because the panel and
+    /// the card sit on different backdrops.
     ///
-    /// The falloff below sits at white 0.18, which is 1.54:1 over black —
-    /// a line nobody can read and barely a line at all. The floor lifts it to
-    /// 0.28 (2.27:1) for everyone and to 0.38 (3.39:1) under Increase Contrast,
-    /// past the 3.0 `ContrastRampTests` holds. Depth survives: the sung line
-    /// still arrives at full white through `KaraokeText`, and the neighbour
-    /// (0.34, 0.44 under Increase Contrast) still sits between floor and song.
+    /// Depth is opacity alone and these are its steps; the sung words arrive
+    /// at full white through `KaraokeText`. Blurring the far lines by distance
+    /// was weighed and rejected: an early cut did that, and at reading size it
+    /// was smeared type rather than depth.
+    struct Ramp: Equatable {
+        /// The dimmest a context line may go: every line two or more rows
+        /// from the lit one.
+        let floor: Double
+        /// The line one step from the lit one.
+        let neighbour: Double
+        /// The lit row before the voice fills it: the sung line's unsung
+        /// words, and the interlude marker while it plays. Above every other
+        /// step, so the row the song is in is never the dimmest thing on
+        /// screen.
+        let unswept: Double
+        /// Every line while the reader scrolls by hand: read as text rather
+        /// than as depth, and still under `unswept`.
+        let reading: Double
+
+        /// Over the panel's black.
+        ///
+        /// The floor was 0.28 (2.27:1 over black) and the neighbour 0.34
+        /// (2.89:1), by a recorded preference for depth over contrast; both
+        /// were under WCAG's 3:1 even for the large type a lyric is set in
+        /// (owner decision 9). They are 0.36 (3.13:1) and 0.42 (3.95:1) now,
+        /// and 0.42 (3.95:1) and 0.46 (4.58:1) under Increase Contrast. Depth
+        /// still reads as four steps — 0.36, 0.42, 0.50, full white — and the
+        /// floor and the neighbour stay apart at both settings: the neighbour
+        /// once sat *below* the floor under Increase Contrast, the near line
+        /// dimmer than the far ones (`testLyricNeighbourSitsAboveTheFalloffFloor`).
+        /// Reading stays at 0.46, the panel's own tertiary label at 4.58:1.
+        static func panel(increaseContrast: Bool) -> Ramp {
+            increaseContrast
+                ? Ramp(floor: 0.42, neighbour: 0.46, unswept: 0.50, reading: 0.48)
+                : Ramp(floor: 0.36, neighbour: 0.42, unswept: 0.50, reading: 0.46)
+        }
+
+        /// Over the lock card, which is lit by the song's cover.
+        ///
+        /// The card drew the panel's greys, which were tuned against black,
+        /// over a backdrop that `LockCardLegibility` only guarantees to be dark
+        /// enough for `Theme.cardTertiary` — and in the visual lab's light
+        /// renders the context lines dissolved into a pale cover (about 2.1:1
+        /// for the floor, 2.5:1 for the neighbour). The card's ramp starts
+        /// where its own type does: the neighbour is `cardTertiary`, so over
+        /// the palest cover it clears AA exactly as the times beside it do,
+        /// and the floor sits one step under it and still holds 3:1. The
+        /// unswept words step up to `cardSecondary`, the artist line's grey.
+        /// `testCardLyricsHoldOverTheBrightestCover` measures every step over
+        /// a white cover in both styles the cover lights.
+        static func card(increaseContrast: Bool) -> Ramp {
+            // The tokens themselves rather than their values today (0.62 and
+            // 0.75; 0.75 and 0.85 under Increase Contrast): the wash is solved
+            // for `cardTertiary`, so a neighbour that follows the token keeps
+            // its AA if the token ever moves.
+            let tertiary = Theme.cardTertiaryOpacity(increaseContrast: increaseContrast)
+            return Ramp(
+                floor: increaseContrast ? 0.62 : 0.50,
+                neighbour: tertiary,
+                unswept: Theme.cardSecondaryOpacity(increaseContrast: increaseContrast),
+                // The card has no reading mode — it holds a window of the song
+                // and never scrolls by hand — so this is only ever the
+                // neighbour's grey, for completeness.
+                reading: tertiary
+            )
+        }
+
+        /// The opacity of a row that is not lit: everything at reading
+        /// strength while the reader scrolls by hand, the neighbour one step
+        /// from the lit row, the floor for everything further out. One
+        /// function so a line and an interlude marker at the same depth are
+        /// the same grey.
+        func context(distance: Int, reading isReading: Bool) -> Double {
+            if isReading { return reading }
+            return distance == 1 ? neighbour : floor
+        }
+    }
+
+    // The panel's steps by name, kept because the contrast and display tests
+    // were written against them. Each is the ramp, not a second copy of its
+    // numbers.
+
     static func falloffFloor(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.38 : 0.28
+        Ramp.panel(increaseContrast: increaseContrast).floor
     }
 
-    /// The neighbour one step from the sung line.
-    ///
-    /// It used to sit at 0.34 at every setting, which put it *below* the far
-    /// floor once Increase Contrast raised that to 0.38 — the near line dimmer
-    /// than the far ones, depth inside out. 0.44 keeps it between floor and song.
     static func neighbourOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.44 : 0.34
+        Ramp.panel(increaseContrast: increaseContrast).neighbour
     }
 
-    /// Every line while the reader scrolls by hand: bright enough to read as
-    /// text rather than as depth — 0.46 is the panel's own tertiary label at
-    /// 4.58:1 — and still under the 0.5 the sung line's unsung words sit at,
-    /// so the line being sung is never the dimmer one even then.
     static func readingOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.48 : 0.46
+        Ramp.panel(increaseContrast: increaseContrast).reading
     }
 
-    /// The opacity of a row that is not lit: everything at reading strength
-    /// while the reader scrolls by hand, the neighbour one step from the lit
-    /// row, the floor for everything further out. One function so a line and
-    /// an interlude marker at the same depth are the same grey.
-    static func contextOpacity(distance: Int, reading: Bool, increaseContrast: Bool) -> Double {
-        if reading { return readingOpacity(increaseContrast: increaseContrast) }
-        guard distance != 1 else { return neighbourOpacity(increaseContrast: increaseContrast) }
-        return falloffFloor(increaseContrast: increaseContrast)
+    /// A credit's weight, whatever the caller asked of the lyric. Both
+    /// surfaces pass `.bold`, and the credit branch used to hand that straight
+    /// through under a comment saying "never bold" — so "Produced by" came out
+    /// bold italic, dressed as the line being sung (F-051).
+    static let creditWeight: Font.Weight = .medium
+
+    /// A credit's grey: lit like the row the song is in while it is the
+    /// current one, and otherwise a context line at the ramp's floor. It was a
+    /// fixed 0.34 (2.89:1) that Increase Contrast never moved.
+    static func creditOpacity(isCurrent: Bool, ramp: Ramp) -> Double {
+        // Never under the ramp's unswept step: on the card, whose steps run
+        // brighter, a fixed 0.68 would have left the current credit dimmer
+        // than an ordinary lit line.
+        isCurrent ? max(0.68, ramp.unswept) : ramp.floor
     }
 
-    /// What the lit row is drawn at before the voice fills it: the sung
-    /// line's unsung words, and the interlude marker while it plays. Above
-    /// every context opacity at every setting, so the row the song is in is
-    /// never the dimmer one.
-    static let litBaseOpacity: Double = 0.5
+    static func creditOpacity(isCurrent: Bool, increaseContrast: Bool) -> Double {
+        creditOpacity(isCurrent: isCurrent, ramp: .panel(increaseContrast: increaseContrast))
+    }
 
     var body: some View {
         Button { seek?() } label: {
@@ -133,11 +225,12 @@ struct LyricRow: View {
         if line.isCredit {
             // Never swept, never bold. A credit is on screen because the song
             // has not started, and dressing it as the current lyric would claim
-            // somebody is singing "Produced by".
+            // somebody is singing "Produced by". The weight is the row's own,
+            // not the caller's: the caller's is the lyric's, and it is bold.
             Text(line.text)
-                .islandFont(fontSize, weight: weight)
+                .islandFont(fontSize, weight: Self.creditWeight)
                 .italic()
-                .foregroundStyle(.white.opacity(isCurrent ? 0.68 : 0.34))
+                .foregroundStyle(.white.opacity(Self.creditOpacity(isCurrent: isCurrent, ramp: ramp)))
                 .lineLimit(lineLimit)
         } else {
             // The sung line lighting up is a motion, not a cut. This used to
@@ -172,8 +265,10 @@ struct LyricRow: View {
                         tracking: Theme.tracking(forSize: fontSize),
                         // Brighter than any neighbour even before the sweep
                         // arrives: the line being sung must never be the darkest
-                        // thing on screen.
-                        base: .white.opacity(Self.litBaseOpacity),
+                        // thing on screen. The surface's own step, so on the
+                        // card — whose neighbour is 0.62 — the sung line's
+                        // unsung words do not fall under it at the panel's 0.5.
+                        base: .white.opacity(ramp.unswept),
                         lineLimit: lineLimit
                     )
                     .transition(.opacity)
@@ -181,12 +276,12 @@ struct LyricRow: View {
                     // Depth through opacity alone. An early cut blurred and
                     // fractionally scaled these, which at reading size is not
                     // depth — it is smeared type, because subpixel scaling
-                    // rasterises every glyph soft. Clamped to `falloffFloor`,
+                    // rasterises every glyph soft. Clamped to the ramp's floor,
                     // never the bare 0.18: without the clamp the far lines sat
                     // at 1.54:1, unreadable as text.
                     Text(line.text)
                         .islandFont(fontSize, weight: weight)
-                        .foregroundStyle(.white.opacity(falloffOpacity))
+                        .foregroundStyle(.white.opacity(ramp.context(distance: distance, reading: reading)))
                         .lineLimit(lineLimit)
                         .truncationMode(.tail)
                         .transition(.opacity)
@@ -196,15 +291,12 @@ struct LyricRow: View {
         }
     }
 
-    /// The context opacity for a non-sung line: the neighbour one step away,
-    /// or the floor for everything further out. The floor always clears the
-    /// old 0.18, so no `max` guard is needed — the clamp *is* the value.
+    /// This surface's steps at the setting as it stands now. The floor always
+    /// clears the old 0.18, so no `max` guard is needed — the clamp *is* the
+    /// value.
     @MainActor
-    private var falloffOpacity: Double {
-        Self.contextOpacity(
-            distance: distance, reading: reading,
-            increaseContrast: SystemAppearance.shared.increaseContrast
-        )
+    private var ramp: Ramp {
+        surface.ramp(increaseContrast: SystemAppearance.shared.increaseContrast)
     }
 }
 
@@ -227,9 +319,9 @@ struct LyricRow: View {
 /// Reduce Motion it moves only with the published position, a step at a time,
 /// with no animation between.
 ///
-/// Drawn in the line's own greys — `LyricRow.contextOpacity` while another row
-/// is lit, the lit row's base while it plays — so it sits in the page's depth
-/// rather than on top of it.
+/// Drawn in the line's own greys — its surface's `LyricRow.Ramp` context step
+/// while another row is lit, the ramp's unswept step while it plays — so it
+/// sits in the page's depth rather than on top of it.
 struct InterludeMarker: View {
     /// How far through the interlude the clock is, 0 to 1, as last published.
     let progress: Double
@@ -247,6 +339,9 @@ struct InterludeMarker: View {
     var weight: Font.Weight = .bold
     var reading = false
     var reduceMotion = false
+    /// The same surface as the lines around it, so on the lock card a marker
+    /// is the card's grey and not the panel's dimmer one beside a card line.
+    var surface: LyricRow.Surface = .panel
 
     /// How long the track is. Short on purpose: a progress bar the width of
     /// a lyric would read as a second scrubber, and this is a rest in the
@@ -308,12 +403,8 @@ struct InterludeMarker: View {
 
     @MainActor
     private var opacity: Double {
-        isCurrent
-            ? LyricRow.litBaseOpacity
-            : LyricRow.contextOpacity(
-                distance: distance, reading: reading,
-                increaseContrast: SystemAppearance.shared.increaseContrast
-            )
+        let ramp = surface.ramp(increaseContrast: SystemAppearance.shared.increaseContrast)
+        return isCurrent ? ramp.unswept : ramp.context(distance: distance, reading: reading)
     }
 }
 
