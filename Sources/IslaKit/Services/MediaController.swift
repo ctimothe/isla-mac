@@ -2079,7 +2079,7 @@ final class MediaController: ObservableObject {
         // first, and without a list of its own it captured it strongly: the
         // `weak` never covered the decode, and the compiler said so.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let rep = NSBitmapImageRep(data: data), let cgImage = rep.cgImage else {
+            guard let image = Self.artworkImage(data) else {
                 // An undecodable payload must not leave the previous track's
                 // cover standing: the deferred blank was already cancelled on
                 // the strength of this data existing, and no later snapshot
@@ -2090,15 +2090,51 @@ final class MediaController: ObservableObject {
                 }
                 return
             }
-            let image = NSImage(
-                cgImage: cgImage,
-                size: NSSize(width: rep.pixelsWide, height: rep.pixelsHigh)
-            )
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.artworkKey == key else { return }
                 self.artwork = image
             }
         }
+    }
+
+    /// The longest side, in pixels, a cover is ever decoded at.
+    ///
+    /// The largest sharp use is the lock card's 118 pt cover, 236 px on a
+    /// Retina screen; every other use is blurred by 44 to 60 pt, where detail
+    /// past this is thrown away by the blur anyway. 512 leaves headroom for a
+    /// 3x display without holding the source's own size.
+    nonisolated static let artworkMaxPixel = 512
+
+    /// A cover decoded no larger than `maxPixel` on its long side.
+    ///
+    /// Covers used to be decoded at the source's full size and held for the
+    /// whole track: Apple Music hands over 1400 to 3000 px routinely, which is
+    /// 8 to 36 MB of RGBA standing in memory to fill a 118 pt square
+    /// (audit F-044). ImageIO's thumbnail path decodes straight to the smaller
+    /// size, so the full bitmap never exists, and it never scales a smaller
+    /// image up. `ShouldCacheImmediately` makes the decode happen here, on the
+    /// caller's background queue, rather than lazily on the main thread at the
+    /// first draw, which is the stutter the background decode was added for.
+    /// The transform flag honours an EXIF orientation a JPEG cover may carry.
+    nonisolated static func downsampledArtwork(_ data: Data, maxPixel: Int = artworkMaxPixel) -> CGImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard !data.isEmpty,
+              let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+        ] as CFDictionary
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options)
+    }
+
+    /// The cover as the views take it: its point size equals its pixel size,
+    /// as it always has. Every view draws it resizable into a fixed frame, so
+    /// a smaller size changes how much is held, not how anything is laid out.
+    nonisolated static func artworkImage(_ data: Data) -> NSImage? {
+        guard let cgImage = downsampledArtwork(data) else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 
     private func clear() {
