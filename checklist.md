@@ -260,6 +260,27 @@ check: session S2 (`docs/audits/2026-10-11-live-validation-script.md`).
 - [ ] Three-run performance medians meet the approved Cyclop 0.6.5 gates.
   Blocked: CPU peaked at `0.3%` rather than absolute `0.0%`, and helper RSS
   measured `19.05 MiB` versus `19.03 MiB` for Cyclop.
+  Awake-idle budget, 2026-10-11 (ms/MS-25, F-054): measured with
+  `bash Scripts/measure-idle.sh <scenario> [samples]`, which samples the
+  running Isla with `top` every 5 s, holds the display awake for the run,
+  and takes rates from counter deltas rather than the lifetime total. The
+  figure it replaces, about 0.3 idle wake-ups a second, is a lifetime
+  average: the installed 0.2.0 (2) build showed 66,360 idle wake-ups over
+  59.7 h of uptime, 0.31/s, display sleep included. Owner decision 19 is
+  kept: the 8 Hz pointer sampler and the 2 s geometry watchdog stay, and a
+  change to either goes back to the owner with these numbers. Budget for the
+  panel closed and idle: CPU at or below 0.1 %, RSS at or below 88 MB, and
+  the awake idle wake-up and context-switch rates as S17 measures them.
+  Before numbers, on a build of the tree before MS-12, MS-13, MS-15 and
+  MS-16 land (live session S17; samples default to 60 = 5 min, 12 = 1 min):
+  - [ ] Panel closed, idle, 5 min (`closed-idle`): _
+  - [ ] Panel closed, music playing, 5 min (`closed-playing`): _
+  - [ ] Music tab open, playing, 1 min (`tab-music 12`): _
+  - [ ] Settings tab open, playing, 1 min (`tab-settings 12`): _
+  - [ ] Shelf tab open, playing, 1 min (`tab-shelf 12`): _
+  - [ ] Clipboard tab open, playing, 1 min (`tab-clipboard 12`): _
+  - [ ] After MS-12 and MS-13: the four tab rows again, and `closed-idle`
+    still inside the budget.
 - [ ] Developer ID signing, notarization, stapling, and Gatekeeper validation pass.
 
 ## Release verdict
