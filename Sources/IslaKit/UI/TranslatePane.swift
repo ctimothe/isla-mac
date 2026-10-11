@@ -158,11 +158,19 @@ struct TranslatePane: View {
                 // through to the editor underneath to place the caret.
                 .overlay(alignment: .topLeading) {
                     if Self.showsPlaceholder(input: translator.input, covered: covered) {
-                        Text(localized("Type or paste text"))
-                            .font(.system(size: font))
-                            .foregroundStyle(Theme.tertiary)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(localized("Type or paste text"))
+                                .font(.system(size: font))
+                                .foregroundStyle(Theme.tertiary)
+                                .accessibilityHidden(true)
+                            // Under the invitation, where the eye already
+                            // is: an empty field after ⌃⌥⌘T is exactly the
+                            // moment to say the clipboard held no text.
+                            if let notice = translator.notice {
+                                noticeLine(notice)
+                            }
+                        }
+                        .allowsHitTesting(false)
                     }
                 }
                 .contentShape(Rectangle())
@@ -170,6 +178,14 @@ struct TranslatePane: View {
                 // Escape before it reaches the responder chain, and the reset
                 // lives in `NotchViewModel.consumeEscape`. A handler here was
                 // dead code that looked like the behaviour.
+            // With text in the field the invitation is gone, and a line over
+            // the text would sit on top of it, so the notice moves below the
+            // editor: a cut clipboard, or an image pressed over a sentence
+            // that was already there.
+            if let notice = translator.notice,
+               !Self.showsPlaceholder(input: translator.input, covered: covered) {
+                noticeLine(notice)
+            }
         }
         .padding(10)
         .background(
@@ -524,6 +540,19 @@ struct TranslatePane: View {
     }
 
     // MARK: - Shared
+
+    /// How text arrived by hot key or Service: none on the clipboard, or cut
+    /// to the limit (`Translator.prepareCommandInput`). Caption-sized and
+    /// tertiary — it is a remark about the field, not the field — and read by
+    /// VoiceOver, unlike the placeholder it may sit under, because it says
+    /// something the field does not.
+    private func noticeLine(_ text: String) -> some View {
+        Text(text)
+            .islandFont(.caption, weight: .regular)
+            .foregroundStyle(Theme.tertiary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
 
     /// What stands in for either column while the pane is covered. Clicking
     /// the dust uncovers it, the same gesture the clipboard rows use, and one

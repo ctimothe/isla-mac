@@ -362,3 +362,5 @@
 "%@ · in %@" = "%@ · in %@";
 "Text to translate" = "Text to translate";
 "Type or paste text" = "Type or paste text";
+"The clipboard has no text." = "The clipboard has no text.";
+"Only the first %@ characters were kept." = "Only the first %@ characters were kept.";

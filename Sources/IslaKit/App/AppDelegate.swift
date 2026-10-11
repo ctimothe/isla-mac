@@ -46,9 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // change while the app runs.
         HotKeyCenter.shared.install([
             .openPanel: { [weak self] in self?.togglePanel() },
+            // No text is passed on as `nil`, not dropped here: with an image
+            // on the clipboard the shortcut used to do nothing at all, which
+            // looked like a shortcut that was never registered (F-040). The
+            // pane says so now.
             .translateClipboard: { [weak self] in
-                guard let text = NSPasteboard.general.string(forType: .string) else { return }
-                self?.controller?.translate(text)
+                self?.controller?.translateCommanded(NSPasteboard.general.string(forType: .string))
             },
             .showLyrics: { [weak self] in self?.controller?.toggleLyrics() },
         ])
@@ -107,8 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         userData: String?,
         error: AutoreleasingUnsafeMutablePointer<NSString>?
     ) {
-        guard let text = pasteboard.string(forType: .string) else { return }
-        controller?.translate(text)
+        // Capped like the hot key's text: a selection can be a whole document.
+        controller?.translateCommanded(pasteboard.string(forType: .string))
     }
 
     func applicationWillTerminate(_ notification: Notification) {

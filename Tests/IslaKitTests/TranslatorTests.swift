@@ -453,4 +453,58 @@ final class TranslatorTests: XCTestCase {
         }
         XCTAssertEqual(strokes, ["Theme.swift"], "one capsule style, drawn in Theme")
     }
+
+    // MARK: - Text that arrives by hot key or Service
+
+    /// F-040: with an image on the clipboard ⌃⌥⌘T did nothing at all, which is
+    /// indistinguishable from a shortcut that is not registered. No text, or
+    /// only whitespace, is now a sentence the pane can show, and no text to
+    /// put in the field — so what was typed there stays.
+    func testCommandInputWithNoTextSaysSo() {
+        for raw in [nil, "  \n", ""] as [String?] {
+            let prepared = Translator.prepareCommandInput(raw)
+            XCTAssertNil(prepared.text, "\(String(describing: raw)) is not text")
+            XCTAssertEqual(prepared.notice, "The clipboard has no text.")
+        }
+        let plain = Translator.prepareCommandInput("  hello\n")
+        XCTAssertEqual(plain.text, "hello")
+        XCTAssertNil(plain.notice)
+    }
+
+    /// J-017: a multi-megabyte clipboard went whole into a `TextEditor` the pane
+    /// re-measures on every body pass, on the main thread. It is cut to the
+    /// limit before anything sees it, and the pane says it was cut.
+    func testCommandInputIsCapped() {
+        let english = Locale(identifier: "en_US")
+        let prepared = Translator.prepareCommandInput(String(repeating: "a", count: 25_000), locale: english)
+        XCTAssertEqual(prepared.text?.count, 20_000)
+        XCTAssertEqual(prepared.notice, "Only the first 20,000 characters were kept.")
+
+        let exact = Translator.prepareCommandInput(String(repeating: "a", count: 20_000), locale: english)
+        XCTAssertEqual(exact.text?.count, 20_000)
+        XCTAssertNil(exact.notice, "the limit itself is not a cut")
+
+        // Leading whitespace does not count against the limit: a log indented
+        // by more than the limit's worth of blanks is not "no text".
+        let indented = String(repeating: " ", count: 30_000) + "word"
+        XCTAssertEqual(Translator.prepareCommandInput(indented).text, "word")
+
+        // Counted in characters, not UTF-16 units: a cut never splits a
+        // flag or an accented letter into a broken glyph.
+        let flags = String(repeating: "🇺🇿", count: 20_001)
+        XCTAssertEqual(Translator.prepareCommandInput(flags, locale: english).text, String(repeating: "🇺🇿", count: 20_000))
+    }
+
+    /// The notice belongs to the text it was about. A keystroke, Clear or a
+    /// swap replaces that text, and the sentence goes with it.
+    func testANoticeGoesWithTheNextEdit() {
+        let translator = Translator(defaults: defaults, preferredLanguages: ["en"])
+        translator.notice = "The clipboard has no text."
+        translator.input = "h"
+        XCTAssertNil(translator.notice)
+
+        translator.notice = "The clipboard has no text."
+        translator.reset()
+        XCTAssertNil(translator.notice)
+    }
 }

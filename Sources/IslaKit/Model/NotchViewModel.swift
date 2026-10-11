@@ -309,8 +309,9 @@ final class NotchViewModel: ObservableObject {
     /// where the rail's Settings icon is, so hiding the rail would leave that
     /// sentence pointing at nothing.
     ///
-    /// Lowered by anything that ends the panel it opened, and set by exactly two
-    /// things — Get Started and a tab picked out of the rail. Everything else
+    /// Lowered by anything that ends the panel it opened, and set by exactly
+    /// three things — Get Started, a tab picked out of the rail, and a shortcut
+    /// that asks for a tab (⌃⌥⌘T, ⌃⌥⌘L, the Service). Everything else
     /// that takes it off screen leaves `hasCompletedFirstRun` alone, so the
     /// welcome is shown once per account *until it is answered*, not once per
     /// account full stop.
@@ -325,12 +326,12 @@ final class NotchViewModel: ObservableObject {
         select(.media)
     }
 
-    /// A tab the user picked out of the rail.
+    /// A tab the user picked out of the rail, or asked for by shortcut.
     ///
     /// Distinct from `select` because `select` is also how the *machinery* moves
-    /// the panel to a tab — the pointer arriving, a file being dragged on, a
-    /// translation arriving by hotkey — and none of those is an answer to
-    /// anything. `pointerArrived()` in particular selects Music on a closed
+    /// the panel to a tab — the pointer arriving, a file being dragged on — and
+    /// none of those is an answer to anything. A hot key used to count as
+    /// machinery too, and its tab opened invisibly behind the welcome (J-018). `pointerArrived()` in particular selects Music on a closed
     /// island, and the pointer arrives by definition on the way to the Get
     /// Started button, so dismissing
     /// the welcome from `select` would have wiped it out from under the cursor
@@ -342,6 +343,41 @@ final class NotchViewModel: ObservableObject {
             Self.completeFirstRun()
         }
         select(tab)
+    }
+
+    /// Text that ⌃⌥⌘T or the "Translate in Isla" service brought, already
+    /// through `Translator.prepareCommandInput`. The controller decides
+    /// whether the panel may open at all (the lock refusal) and holds it open;
+    /// this decides what the pane shows.
+    ///
+    /// Through `chooseTab`, not `select`: a shortcut is somebody asking for
+    /// this tab as much as a click on the rail is, and the welcome prints the
+    /// shortcut, so the first thing a new user does with it is press it.
+    /// Through `select` the text landed in a field the welcome was covering,
+    /// the keyboard went to it unseen and the panel folded (J-018).
+    ///
+    /// No text leaves the field as it was — an image on the clipboard is not
+    /// a reason to throw away a sentence somebody typed — and only the notice
+    /// says what happened (F-040).
+    func receiveCommandedTranslation(_ prepared: Translator.CommandInput) {
+        if let text = prepared.text {
+            // Covered again before the text lands. The pane's reveal is keyed
+            // to the pane, not to its text, so a pane uncovered for the last
+            // thing translated would otherwise show this clipboard's contents
+            // in full, and the hot key opens the panel at exactly the moment a
+            // shared screen would catch it. Assigned directly rather than
+            // through the editor, so this text does not count as typed and
+            // stays covered.
+            privacy.conceal(TranslatePane.revealID)
+            translator.input = text
+        }
+        // After the text: setting `input` clears the notice.
+        translator.notice = prepared.notice
+        // Spoken too: the keyboard lands in the field, and VoiceOver reads the
+        // field, not the line under it, so a blind user would hear the panel
+        // open on an unchanged field and nothing about why.
+        if let notice = prepared.notice { Announcer.shared.announce(notice) }
+        chooseTab(.translate)
     }
 
     /// The pointer is on the island. Drawn as an outline, not as an opening.
@@ -662,7 +698,7 @@ final class NotchViewModel: ObservableObject {
         case refuseWithShake
     }
 
-    /// The verdict for `toggle()` and `translate(_:)`, asked before either
+    /// The verdict for `toggle()` and `translateCommanded(_:)`, asked before either
     /// touches a tab, the translator, the pin or `setOpen`.
     func verdictForDeliberateOpen() -> CommandVerdict {
         isLockedPresentation ? .refuseWithShake : .proceed
