@@ -7,6 +7,9 @@ import UniformTypeIdentifiers
 struct LocalLyricsEditorView: View {
     @StateObject private var draft: LocalLyricsDraft
     private let editor: LocalLyricsEditor
+    /// The document this draft was opened from, recorded on the copy so the
+    /// library can tell an edit from an unrelated file with the same tags.
+    private let editedFrom: UUID?
     private let binding: LocalTrackIdentity?
     private let onSaved: (LocalLyricsCandidate) -> Void
     private let onDismiss: () -> Void
@@ -16,12 +19,14 @@ struct LocalLyricsEditorView: View {
     init(
         document: LocalLyricsDocument,
         editor: LocalLyricsEditor,
+        editedFrom: UUID?,
         binding: LocalTrackIdentity?,
         onSaved: @escaping (LocalLyricsCandidate) -> Void,
         onDismiss: @escaping () -> Void
     ) {
         _draft = StateObject(wrappedValue: LocalLyricsDraft(document: document))
         self.editor = editor
+        self.editedFrom = editedFrom
         self.binding = binding
         self.onSaved = onSaved
         self.onDismiss = onDismiss
@@ -147,7 +152,7 @@ struct LocalLyricsEditorView: View {
 
     private func save() {
         do {
-            let saved = try editor.saveOwnedCopy(draft, binding: binding)
+            let saved = try editor.saveOwnedCopy(draft, editedFrom: editedFrom, binding: binding)
             onSaved(saved)
         } catch {
             errorMessage = localized("This LRC file is invalid.")

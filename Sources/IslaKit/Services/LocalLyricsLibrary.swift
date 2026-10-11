@@ -21,6 +21,10 @@ struct LocalLyricsCandidate: Identifiable, Equatable, Sendable {
     let id: UUID
     let document: LocalLyricsDocument
     let origin: Origin
+    /// When this copy was saved from the editor; nil for anything that is
+    /// not an edit. A copy carries its source's tags word for word, so the
+    /// chooser drew the two as identical buttons until this was shown.
+    var editedAt: Date? = nil
 
     var timeline: LyricTimeline {
         document.timeline(documentID: id)
@@ -163,6 +167,12 @@ final class LocalLyricsLibrary: ObservableObject {
         let id: UUID
         let origin: LocalLyricsCandidate.Origin
         let path: String
+        /// The document an editor save was made from (nil for a file the
+        /// listener imported), and when any import was written. Optional so
+        /// an index from any earlier build decodes unchanged — a copy saved
+        /// before these existed simply reads as an import.
+        var editedFrom: UUID? = nil
+        var savedAt: Date? = nil
     }
 
     private struct StoredFolder: Codable, Equatable {
@@ -188,9 +198,13 @@ final class LocalLyricsLibrary: ObservableObject {
         var issues: [StoredIssue] = []
         var unassignedImports: [StoredUnassignedImport] = []
         var legacyMigrationCompleted = false
+        /// Its own flag, not the migration's: everyone upgrading from 0.1.0
+        /// has already finished that migration, which never knew lrc3.
+        var legacyLrc3Removed = false
 
         enum CodingKeys: String, CodingKey {
             case documents, folders, bindings, issues, unassignedImports, legacyMigrationCompleted
+            case legacyLrc3Removed
         }
 
         init() {}
@@ -218,6 +232,9 @@ final class LocalLyricsLibrary: ObservableObject {
             legacyMigrationCompleted = try container.decodeIfPresent(
                 Bool.self, forKey: .legacyMigrationCompleted
             ) ?? false
+            legacyLrc3Removed = try container.decodeIfPresent(
+                Bool.self, forKey: .legacyLrc3Removed
+            ) ?? false
         }
     }
 
@@ -236,7 +253,10 @@ final class LocalLyricsLibrary: ObservableObject {
         let document: LocalLyricsDocument
 
         var candidate: LocalLyricsCandidate {
-            LocalLyricsCandidate(id: stored.id, document: document, origin: stored.origin)
+            LocalLyricsCandidate(
+                id: stored.id, document: document, origin: stored.origin,
+                editedAt: stored.editedFrom == nil ? nil : stored.savedAt
+            )
         }
     }
 
@@ -268,6 +288,7 @@ final class LocalLyricsLibrary: ObservableObject {
         let v5 = legacyV5Directory ?? directory.appendingPathComponent("lyrics-v5", isDirectory: true)
         let v4 = legacyV4Directory ?? directory.appendingPathComponent("lyrics", isDirectory: true)
         migrateLegacyData(v5Directory: v5, v4Directory: v4)
+        removeLegacyLrc3Caches(in: v4)
         reloadImportedRecords()
         try? rescanFolders()
         rebuildUnassignedImports()
@@ -278,14 +299,18 @@ final class LocalLyricsLibrary: ObservableObject {
         return try importDocument(raw, binding: binding)
     }
 
-    func importDocument(_ raw: String, binding: LocalTrackIdentity?) throws -> LocalLyricsCandidate {
+    func importDocument(
+        _ raw: String, binding: LocalTrackIdentity?, editedFrom: UUID? = nil
+    ) throws -> LocalLyricsCandidate {
         let document = try LocalLyricsDocument.parse(raw)
         let id = UUID()
         let destination = importsDirectory.appendingPathComponent("\(id.uuidString).lrc")
         try fileManager.createDirectory(at: importsDirectory, withIntermediateDirectories: true)
         try Data(raw.utf8).write(to: destination, options: .atomic)
 
-        let stored = StoredDocument(id: id, origin: .imported, path: destination.path)
+        let stored = StoredDocument(
+            id: id, origin: .imported, path: destination.path, editedFrom: editedFrom, savedAt: Date()
+        )
         let record = Record(stored: stored, document: document)
         state.documents.append(stored)
         records[id] = record
@@ -469,14 +494,58 @@ final class LocalLyricsLibrary: ObservableObject {
                 && abs(($0.document.duration ?? .greatestFiniteMagnitude) - identity.duration) <= 2
         }
         if albumMatches.count == 1 { return .ready(albumMatches[0]) }
-        if albumMatches.count > 1 { return .ambiguous(albumMatches) }
+        if albumMatches.count > 1 {
+            return newestEdit(among: albumMatches).map(LocalLyricsLookup.ready) ?? .ambiguous(albumMatches)
+        }
 
         let durationMatches = titleArtist.filter {
             abs(($0.document.duration ?? .greatestFiniteMagnitude) - identity.duration) <= 0.5
         }
         if durationMatches.count == 1 { return .ready(durationMatches[0]) }
-        if durationMatches.count > 1 { return .ambiguous(durationMatches) }
+        if durationMatches.count > 1 {
+            return newestEdit(among: durationMatches).map(LocalLyricsLookup.ready) ?? .ambiguous(durationMatches)
+        }
         return .noMatch
+    }
+
+    /// The newest edit, when every candidate is one source and copies saved
+    /// from it — directly, or from an earlier copy of it.
+    ///
+    /// Save Copy writes its copy with the source's tags, which is right: it
+    /// is the same song. But once the binding that pointed at the copy was
+    /// gone — Clear Bindings, or the song playing in another player — the
+    /// source and every copy matched equally, and the song asked the
+    /// listener to choose between identical buttons (J-025). The newest save
+    /// is the one they meant. Two files that merely share tags are a real
+    /// choice and still ask; older copies are kept, never deleted, and still
+    /// offered whenever the chooser is shown.
+    private func newestEdit(among candidates: [LocalLyricsCandidate]) -> LocalLyricsCandidate? {
+        let stored = Dictionary(
+            state.documents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
+        )
+        // A source deleted since keeps its id in its copies' lineage, so its
+        // copies still group; a cycle, which only a hand-edited index could
+        // hold, ends at the first repeat.
+        func lineage(_ id: UUID) -> UUID {
+            var current = id
+            var visited: Set<UUID> = [id]
+            while let parent = stored[current]?.editedFrom, visited.insert(parent).inserted {
+                current = parent
+            }
+            return current
+        }
+        guard candidates.contains(where: { stored[$0.id]?.editedFrom != nil }),
+              Set(candidates.map { lineage($0.id) }).count == 1
+        else { return nil }
+        // Order in the index breaks a tie in the clock: copies are appended
+        // as they are saved.
+        let order = Dictionary(
+            state.documents.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first }
+        )
+        func age(_ candidate: LocalLyricsCandidate) -> (Date, Int) {
+            (stored[candidate.id]?.savedAt ?? .distantPast, order[candidate.id] ?? -1)
+        }
+        return candidates.max { age($0) < age($1) }
     }
 
     func bind(_ candidate: LocalLyricsCandidate, to identity: LocalTrackIdentity) {
@@ -653,7 +722,10 @@ final class LocalLyricsLibrary: ObservableObject {
         var imported: [StoredDocument] = []
         var issues: [StoredIssue] = []
         for stored in state.documents where stored.origin == .imported {
-            let current = StoredDocument(id: stored.id, origin: .imported, path: importPath(for: stored))
+            let current = StoredDocument(
+                id: stored.id, origin: .imported, path: importPath(for: stored),
+                editedFrom: stored.editedFrom, savedAt: stored.savedAt
+            )
             imported.append(current)
             do {
                 let raw = try Self.readText(at: URL(fileURLWithPath: current.path))
@@ -741,10 +813,35 @@ final class LocalLyricsLibrary: ObservableObject {
     }
 
     private static func removeLegacyCacheEntries(in directory: URL, fileManager: FileManager) {
-        for entry in files(in: directory, fileManager: fileManager) where entry.lastPathComponent.hasSuffix(".lrc5.json")
-            || entry.lastPathComponent.hasSuffix(".lrc4.json") {
+        let suffixes = [".lrc5.json", ".lrc4.json", ".lrc3.json"]
+        for entry in files(in: directory, fileManager: fileManager)
+        where suffixes.contains(where: entry.lastPathComponent.hasSuffix) {
             try? fileManager.removeItem(at: entry)
         }
+    }
+
+    /// Removes the LRCLIB answers 0.1.0 cached as `<key>.lrc3.json`, once.
+    ///
+    /// They sit in the same folder the migration reads, and the migration
+    /// removed only lrc4 and lrc5 — and runs once, so for everyone already
+    /// past it, third-party lyric text stayed on disk for good (J-016). Only
+    /// lrc3 goes here, by its exact suffix: an lrc4 file can still carry a
+    /// listener's timing nudge, which only the migration knows how to keep,
+    /// and a `.lrc` of the listener's own in the same folder is theirs.
+    ///
+    /// Never from inside a test process on the real support directory: every
+    /// `NotchStores()` a test builds opens it, and those files and that flag
+    /// belong to whichever Isla is installed, which removes them itself.
+    private func removeLegacyLrc3Caches(in v4Directory: URL) {
+        guard !state.legacyLrc3Removed,
+              !(PlayerBridge.isRunningTests && LyricsStore.isLiveSupportDirectory(v4Directory))
+        else { return }
+        for entry in Self.files(in: v4Directory, fileManager: fileManager)
+        where entry.lastPathComponent.hasSuffix(".lrc3.json") {
+            try? fileManager.removeItem(at: entry)
+        }
+        state.legacyLrc3Removed = true
+        persist()
     }
 
     private static func legacyCacheKey(

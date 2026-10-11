@@ -126,6 +126,7 @@ struct MediaPane: View {
                     LocalLyricsEditorView(
                         document: candidate.document,
                         editor: LocalLyricsEditor(library: localLibrary),
+                        editedFrom: candidate.id,
                         binding: currentLocalTrackIdentity(),
                         onSaved: { _ in editingCandidate = nil },
                         onDismiss: { editingCandidate = nil }
