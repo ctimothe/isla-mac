@@ -115,6 +115,15 @@ final class PrivacyMode: ObservableObject {
         revealed.insert(id)
     }
 
+    /// Covers one row again without folding the panel. The Translate pane's
+    /// reveal is keyed to the pane rather than to its text, so when ⌃⌥⌘T puts
+    /// a new clipboard secret into a pane the user had uncovered for the
+    /// previous one, the reveal would otherwise carry straight over to the new
+    /// text, which nobody has chosen to show.
+    func conceal(_ id: String) {
+        revealed.remove(id)
+    }
+
     func toggle(_ id: String) {
         if revealed.contains(id) { revealed.remove(id) } else { revealed.insert(id) }
     }

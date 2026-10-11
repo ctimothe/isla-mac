@@ -554,6 +554,13 @@ final class NotchController {
         guard !trimmed.isEmpty else { return }
         peekWork?.cancel()
         vm.isPeeking = false
+        // Covered again before the text lands. The pane's reveal is keyed to
+        // the pane, not to its text, so a pane uncovered for the last thing
+        // translated would otherwise show this clipboard's contents in full,
+        // and the hot key opens the panel at exactly the moment a shared
+        // screen would catch it. Assigned directly rather than through the
+        // editor, so this text does not count as typed and stays covered.
+        vm.privacy.conceal(TranslatePane.revealID)
         vm.translator.input = trimmed
         // Through `select`, so the field that appears can be typed into. Set
         // directly, the tab changed without ever raising `wantsKeyboard`, and

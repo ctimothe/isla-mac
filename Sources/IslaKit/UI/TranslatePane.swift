@@ -21,10 +21,32 @@ struct TranslatePane: View {
 
     @FocusState private var focused: Bool
 
+    /// The one reveal id for the whole pane: uncovering the source uncovers
+    /// the answer beside it, since one without the other hides nothing.
+    static let revealID = "translate.source"
+
     /// Covered until deliberately revealed, like a clipboard row. The reveal is
-    /// per-session and keyed to the pane, not to any particular text.
+    /// per-session and keyed to the pane, not to any particular text; the
+    /// controller conceals it again when the hot key brings in new text.
     private var covered: Bool {
-        privacy.hides(.translate, "translate.source") && !translator.input.isEmpty
+        privacy.hides(.translate, Self.revealID) && !translator.input.isEmpty
+    }
+
+    /// What the editor writes through. A keystroke is the person at the
+    /// keyboard, and the cover is against a passing camera, not against them:
+    /// covering what they type made the field go to dust on the first letter
+    /// and turned the click meant to place the caret into a reveal (F-021).
+    /// So typing uncovers the pane. Text that arrives without a keystroke, the
+    /// hot key and the Service, is assigned to the translator directly and
+    /// never passes through here, so a clipboard secret stays covered. The
+    /// comparison keeps an editor that writes back the text it was just given
+    /// from counting as a keystroke.
+    static func typed(_ text: String, privacy: PrivacyMode, translator: Translator) {
+        guard text != translator.input else { return }
+        // Only while covering: a reveal recorded with the cover off would
+        // leave the pane already uncovered the moment it is turned on.
+        if privacy.covers(.translate) { privacy.reveal(revealID) }
+        translator.input = text
     }
     /// Measured once, off the layout path. See `body`.
     @State private var paneSize: CGSize = .zero
@@ -88,16 +110,20 @@ struct TranslatePane: View {
             // which is precisely when the hitch showed. An editor takes the
             // rectangle it is given and re-wraps inside it, so a new line
             // costs nothing outside its own bounds.
-            TextEditor(text: $translator.input)
+            //
+            // Bound through `typed`, not straight to the translator, so that
+            // only a keystroke uncovers the pane: see `typed`.
+            TextEditor(text: Binding(
+                get: { translator.input },
+                set: { Self.typed($0, privacy: privacy, translator: translator) }
+            ))
+                // Transparent rather than removed: the editor has to stay in
+                // the tree to keep the keyboard focus the hot key gave it, so
+                // the first keystroke lands here and uncovers what it typed.
                 .opacity(covered ? 0 : 1)
                 .overlay {
                     if covered {
-                        // Clicking the dust uncovers it, the same gesture the
-                        // clipboard rows use — the cover is against a passing
-                        // camera, not against the person at the keyboard.
-                        SpoilerField(seed: 0x5DEECE66D)
-                            .contentShape(Rectangle())
-                            .onTapGesture { privacy.reveal("translate.source") }
+                        dust(seed: 0x5DEECE66D)
                     }
                 }
                 .textEditorStyle(.plain)
@@ -172,6 +198,17 @@ struct TranslatePane: View {
                 .foregroundStyle(.white)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else if !translator.output.isEmpty, privacy.hides(.translate, Self.revealID) {
+            // The answer is the secret too, only in another language: covering
+            // the source and leaving this column readable at headline size
+            // hid nothing (F-002), and the accessibility tree handed the
+            // translation to anything that asked. Replaced rather than
+            // overlaid, as `SpoilerField` promises: the text is not in the
+            // view tree at all while it is hidden. Copy stays offered in the
+            // header, so the result can be pasted somewhere without ever being
+            // shown on a screen somebody else is watching.
+            dust(seed: 0xA24BAED4963EE407)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if !translator.output.isEmpty {
             ScrollView(showsIndicators: false) {
                 Text(translator.output)
@@ -339,6 +376,25 @@ struct TranslatePane: View {
     }
 
     // MARK: - Shared
+
+    /// What stands in for either column while the pane is covered. Clicking
+    /// the dust uncovers it, the same gesture the clipboard rows use, and one
+    /// reveal uncovers both columns. Each column gets its own seed, or the two
+    /// would draw the same dust side by side and read as one texture copied.
+    ///
+    /// Announced as "Hidden", the word a covered clipboard row uses, with a
+    /// press that does what the click does. Unlabelled, the source's dust was
+    /// simply absent from the tree, and a screen reader must not be the hole
+    /// in a feature about not showing things.
+    private func dust(seed: UInt64) -> some View {
+        SpoilerField(seed: seed)
+            .contentShape(Rectangle())
+            .onTapGesture { privacy.reveal(Self.revealID) }
+            .accessibilityElement()
+            .accessibilityLabel(Text(localized("Hidden")))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { privacy.reveal(Self.revealID) }
+    }
 
     /// A column heading: the language, set the way every header in the panel
     /// is set, with the small chevron that says it opens.
