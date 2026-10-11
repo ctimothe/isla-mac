@@ -65,7 +65,11 @@ final class NotchStores {
             library: library,
             isEnabled: lyricsEnabled ?? { NotchViewModel.showLyricsEnabled },
             isOnlineEnabled: { NotchViewModel.onlineLyricsEnabled },
-            presentation: lyrics
+            presentation: lyrics,
+            // A test process never listens to the Mac's real output: its
+            // reading would land in the shared lead model under every other
+            // test's feet. The tests inject their own.
+            outputLatency: PlayerBridge.isRunningTests ? nil : OutputLatencyMonitor()
         )
     }
 

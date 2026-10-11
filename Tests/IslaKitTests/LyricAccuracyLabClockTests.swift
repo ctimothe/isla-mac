@@ -407,8 +407,10 @@ final class LyricAccuracyLabClockTests: XCTestCase {
         // The crossfade a line lights with: `LyricRow` animates `isCurrent` on
         // `Theme.lyricScroll`, a spring. Its rise times, from its constants.
         let response = Theme.lyricScrollResponse, damping = Theme.lyricScrollDamping
-        let spring = SpringRise(response: response, damping: damping)
-        let rise10 = spring.time(toReach: 0.1), rise50 = spring.time(toReach: 0.5), rise90 = spring.time(toReach: 0.9)
+        func rise(_ level: Double) -> Double {
+            Theme.springRiseTime(response: response, damping: damping, level: level)
+        }
+        let rise10 = rise(0.1), rise50 = rise(0.5), rise90 = rise(0.9)
 
         // ITU-R BT.1359-1 (1998), detectability: sound before picture by more
         // than 45 ms, or after it by more than 125 ms. Here the picture is the
@@ -475,13 +477,37 @@ final class LyricAccuracyLabClockTests: XCTestCase {
                 }
                 lead += 0.005
             }
+            // The production lead with this scenario's route reported to the
+            // model, exactly as `LyricsCoordinator` reports a live one — so
+            // the lab measures the lead the app would use on that route, not
+            // a restated constant. While the term is not applied the lead is
+            // the same on every route, which this asserts.
+            let savedModel = LyricSweep.model
+            LyricSweep.model.outputLatency = scenario.outputLatency
             let shipped = LyricSweep.lead(precisionSync: false, userOffset: 0)
             let owner = LyricSweep.lead(precisionSync: false, userOffset: Self.ownerDelay)
+            let modelTerms = LyricSweep.model.trail
+            // What the follow-up that applies the term would ship, for its
+            // reviewer: the same sum with this route's latency in place of
+            // the reference one.
+            let leadIfApplied = LyricSweep.model.lead + LyricSweep.model.appliedOutputLatency
+                - scenario.outputLatency
+            LyricSweep.model = savedModel
+            if !LyricLeadModel.appliesOutputLatency {
+                XCTAssertEqual(
+                    shipped, savedModel.lead, accuracy: 1e-12,
+                    "\(scenario.name): an unapplied output latency must not move the lead"
+                )
+            }
             defaultInWindow.append(inWindow(lead: shipped, low: detectEarly, high: detectLate))
             optimalLeads.append(best.lead)
             results.append([
                 "scenario": scenario.name,
                 "outputLatencyS": scenario.outputLatency,
+                "productionLeadTerms": modelTerms,
+                "leadIfOutputLatencyApplied": leadIfApplied,
+                "medianOffsetMsIfOutputLatencyApplied": (LabStats.percentile(base, 0.5) - leadIfApplied) * 1000,
+                "undetectableShareIfOutputLatencyApplied": inWindow(lead: leadIfApplied, low: detectEarly, high: detectLate),
                 "offsetBeforeLeadMs": LabStats.summary(base, scale: 1000),
                 "shippedLead": shipped,
                 "shippedMedianOffsetMs": (LabStats.percentile(base, 0.5) - shipped) * 1000,
@@ -566,31 +592,9 @@ func fmt(_ value: Any?) -> String {
     return String(format: "%.3f", double)
 }
 
-// MARK: - The spring a line lights with
-
-/// SwiftUI's `spring(response:dampingFraction:)` as a damped oscillator with
-/// natural frequency 2π/response, started at rest. Its step response says
-/// when a crossfade on that spring is a tenth, half and nine-tenths there.
-struct SpringRise {
-    let response: Double
-    let damping: Double
-
-    func value(at t: Double) -> Double {
-        let omega = 2 * Double.pi / response
-        if damping < 1 {
-            let damped = omega * sqrt(1 - damping * damping)
-            return 1 - exp(-damping * omega * t)
-                * (cos(damped * t) + (damping * omega / damped) * sin(damped * t))
-        }
-        return 1 - exp(-omega * t) * (1 + omega * t)
-    }
-
-    func time(toReach level: Double) -> Double {
-        var t = 0.0
-        while t < 5, value(at: t) < level { t += 0.0001 }
-        return t
-    }
-}
+// The spring a line lights with used to be modelled here as `SpringRise`; it
+// is `Theme.springRiseTime` now, so the lab and the lead model compute one
+// number from one place.
 
 // MARK: - Real timers
 
@@ -721,54 +725,25 @@ final class CPUBurner: Sendable {
 /// latency, safety offset, IO buffer and stream latency, in frames, over the
 /// nominal sample rate. Read-only, and reported — not measured acoustically.
 /// The device's name is deliberately not recorded.
+///
+/// The reading is the app's own (`AudioOutputs.outputLatency(of:)`), the one
+/// `OutputLatencyMonitor` feeds the lead model, so the lab reports the number
+/// the app sees rather than a second implementation of it.
 enum LabAudio {
     static func defaultOutputLatency() -> [String: Any] {
-        var device = AudioDeviceID(0)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr,
-              device != 0 else { return ["available": false] }
-
-        func value<T>(_ selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope, of object: AudioObjectID, _ initial: T) -> T? {
-            var result = initial
-            var size = UInt32(MemoryLayout<T>.size)
-            var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
-            return AudioObjectGetPropertyData(object, &address, 0, nil, &size, &result) == noErr ? result : nil
-        }
-        let output = kAudioDevicePropertyScopeOutput
-        let rate = value(kAudioDevicePropertyNominalSampleRate, scope: kAudioObjectPropertyScopeGlobal, of: device, Float64(0)) ?? 0
-        let latency = value(kAudioDevicePropertyLatency, scope: output, of: device, UInt32(0)) ?? 0
-        let safety = value(kAudioDevicePropertySafetyOffset, scope: output, of: device, UInt32(0)) ?? 0
-        let buffer = value(kAudioDevicePropertyBufferFrameSize, scope: kAudioObjectPropertyScopeGlobal, of: device, UInt32(0)) ?? 0
-        let transport = value(kAudioDevicePropertyTransportType, scope: kAudioObjectPropertyScopeGlobal, of: device, UInt32(0)) ?? 0
-
-        var streamLatency: UInt32 = 0
-        var streamsSize: UInt32 = 0
-        var streamsAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyStreams, mScope: output, mElement: kAudioObjectPropertyElementMain
-        )
-        if AudioObjectGetPropertyDataSize(device, &streamsAddress, 0, nil, &streamsSize) == noErr, streamsSize > 0 {
-            var streams = [AudioStreamID](repeating: 0, count: Int(streamsSize) / MemoryLayout<AudioStreamID>.size)
-            if AudioObjectGetPropertyData(device, &streamsAddress, 0, nil, &streamsSize, &streams) == noErr,
-               let first = streams.first {
-                streamLatency = value(kAudioStreamPropertyLatency, scope: kAudioObjectPropertyScopeGlobal, of: first, UInt32(0)) ?? 0
-            }
-        }
-        let frames = Double(latency) + Double(safety) + Double(buffer) + Double(streamLatency)
+        guard let device = AudioOutputs.current(),
+              let reading = AudioOutputs.outputLatency(of: device) else { return ["available": false] }
+        let transport = AudioOutputs.transport(of: device)
         let fourCC = String(bytes: [24, 16, 8, 0].map { UInt8((transport >> $0) & 0xFF) }, encoding: .ascii) ?? "?"
         return [
             "available": true,
             "transport": fourCC,
-            "sampleRate": rate,
-            "deviceLatencyFrames": Int(latency),
-            "safetyOffsetFrames": Int(safety),
-            "bufferFrames": Int(buffer),
-            "streamLatencyFrames": Int(streamLatency),
-            "totalSeconds": rate > 0 ? frames / rate : Double.nan,
+            "sampleRate": reading.sampleRate,
+            "deviceLatencyFrames": Int(reading.deviceFrames),
+            "safetyOffsetFrames": Int(reading.safetyOffsetFrames),
+            "bufferFrames": Int(reading.bufferFrames),
+            "streamLatencyFrames": Int(reading.streamFrames),
+            "totalSeconds": reading.seconds ?? Double.nan,
         ]
     }
 }

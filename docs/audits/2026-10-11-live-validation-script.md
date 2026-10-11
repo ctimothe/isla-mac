@@ -121,3 +121,10 @@ Everything the headless work could not settle, as short sessions to run on a phy
 - Settles: F-015, F-016, F-054, checklist.md:210-212 CPU gate, memory: duplicate registrations
 - Pass: Non-music tabs show near-zero CPU, wake-ups are recorded next to the checklist's 0.3 percent figure, no process survives Quit, and one registration exists.
 
+
+## 18. S-LEAD Lyric lead per player and per route (20 min)
+
+Added 2026-10-11 by ly/LY-08. Run after S16 if both are scheduled; S16's filmed offsets can be reused. 1. Quit Isla, then relaunch it with the media trail: `DI_MEDIA=1 /Applications/Isla.app/Contents/MacOS/Isla &`. Show Lyrics on, Lyric Delay 0, stage open. 2. Spotify on built-in speakers: play a track with a trusted LRC for 30 s; does the line light with the voice? Then use the delay preview (LY-16, once merged; the Settings slider otherwise) to find the Lyric Delay that centres it, and write it down. 3. Switch the output to AirPods from the lock card or Control Centre and repeat step 2. 4. Repeat steps 2 and 3 with Apple Music. 5. Run `grep 'output latency' /tmp/di-debug.log` and record, per route, the reported latency and the lead line beside each by-ear correction. 6. Set Lyric Delay back to the value it had before the session. 7. Run `Scripts/measure-sync.sh` against live Spotify (owed since 2026-09-20) and record the anchor lag it measures after LY-06 and LY-07. 8. Quit Isla and relaunch it from /Applications without the variable.
+
+- Settles: L-02 (whether CoreAudio's reported latency tracks the by-ear difference between routes, per player), the anchorLag term, and whether `LyricLeadModel.appliesOutputLatency` can be turned on and for which players
+- Pass: The four by-ear corrections and four reported latencies are recorded in checklist.md under "The lyric lead is a sum of named terms". If, per player, the difference between the AirPods and built-in corrections is within 30 ms of the difference between their reported latencies, the term can be applied for that player in a follow-up; otherwise that player compensates already, or the route reports wrongly, and it stays unapplied for it.

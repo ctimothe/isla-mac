@@ -131,6 +131,10 @@ final class LyricsCoordinator: ObservableObject {
     /// updates a playing stream sends does not restart the clock each time.
     private var noLengthKey: String?
     private weak var presentation: LyricsStore?
+    /// The route's reported output latency, for the lead model. Running only
+    /// while Show Lyrics is on (`syncOutputLatencyWatch`); nil in a
+    /// coordinator built without one, which is every test that does not ask.
+    private let outputLatency: OutputLatencyMonitor?
     private var observers = Set<AnyCancellable>()
     private var logicalTrackKey: String?
     private var currentIdentity: LocalTrackIdentity?
@@ -146,8 +150,10 @@ final class LyricsCoordinator: ObservableObject {
         onlineCache: OnlineLyricsCache? = nil,
         onlineLookUp: @escaping (LocalTrackIdentity) async -> OnlineLyrics.Outcome = {
             await OnlineLyrics.lookUp($0)
-        }
+        },
+        outputLatency: OutputLatencyMonitor? = nil
     ) {
+        self.outputLatency = outputLatency
         self.media = media
         self.library = library
         self.isEnabled = isEnabled
@@ -157,6 +163,7 @@ final class LyricsCoordinator: ObservableObject {
         self.presentation = presentation
         self.onlineCache = onlineCache ?? OnlineLyricsCache()
         self.onlineLookUp = onlineLookUp
+        outputLatency?.onChange = { [weak self] seconds in self?.outputLatencyChanged(seconds) }
     }
 
     func start() {
@@ -176,6 +183,7 @@ final class LyricsCoordinator: ObservableObject {
 
     func stop() {
         observers.removeAll()
+        outputLatency?.stop()
         logicalTrackKey = nil
         currentIdentity = nil
         onlineTimeline = nil
@@ -260,6 +268,7 @@ final class LyricsCoordinator: ObservableObject {
     private func reconcileTrack(
         track: MediaController.Track?, duration: TimeInterval, force: Bool = false
     ) {
+        syncOutputLatencyWatch()
         // Three different answers, which this guard used to fold into one:
         // off, nothing to search for, and no length to identify a recording
         // by. Folded, a stream said "Lyrics are off." with the switch on.
@@ -491,6 +500,40 @@ final class LyricsCoordinator: ObservableObject {
         }
         presentation?.present(availability)
         registerBoundaries()
+    }
+
+    /// Runs the output-latency watch exactly while Show Lyrics is on and the
+    /// coordinator is started. Every visibility change and every track change
+    /// pass through `reconcileTrack`, which calls this first, so the switch in
+    /// Settings, the lyrics page's own "Show Lyrics" and a Shortcut all reach
+    /// it. Turning lyrics off removes the CoreAudio listener rather than
+    /// leaving it to wake for a lead nothing reads.
+    private func syncOutputLatencyWatch() {
+        guard let outputLatency else { return }
+        if isEnabled(), !observers.isEmpty {
+            outputLatency.start()
+        } else {
+            outputLatency.stop()
+        }
+    }
+
+    /// The default output moved, and with it the route's reported latency.
+    ///
+    /// The number goes into the lead model, where the DI_MEDIA trail records
+    /// it with every other term — that line is what the owner's S-LEAD
+    /// session reads off each route. While the term is not applied
+    /// (`LyricLeadModel.appliesOutputLatency`) the lead does not move, and
+    /// nothing else happens. Once it is, a changed lead must re-register the
+    /// boundaries: the wake already armed was computed with the old lead and
+    /// would turn the next line early or late by the difference, once.
+    private func outputLatencyChanged(_ seconds: TimeInterval?) {
+        let before = LyricSweep.model.lead
+        LyricSweep.model.outputLatency = seconds ?? LyricLeadModel.referenceOutputLatency
+        if DebugTrail.openLyrics || DebugTrail.media {
+            let reported = seconds.map { String(format: "%.1f ms", $0 * 1000) } ?? "unknown"
+            DebugTrail.note("output latency \(reported); \(LyricSweep.model.trail)")
+        }
+        if LyricSweep.model.lead != before { registerBoundaries() }
     }
 
     /// Hands the clock every line's timestamp, so it can wake the surfaces on

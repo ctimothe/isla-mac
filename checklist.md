@@ -918,3 +918,45 @@ copy, and when a read comes back empty; nothing is read to find out.
   Privacy & Security root instead, record that here). Set Allow, reopen the
   tab, copy: the copy appears without a relaunch. Copy Diagnostics shows the
   state each time.
+
+### The lyric lead is a sum of named terms — 2026-10-11 (ly/LY-08)
+
+- [x] **The lead is the sum the lyric lab named, not one constant.**
+  `LyricLeadModel` holds anchorLag 138 ms, timerWake 0.1 ms, half a frame and
+  one compositor frame (120 Hz), the onset crossfade's rise 103.9 ms
+  (`Theme.springRiseTime` on `lyricScroll`'s own constants, closing L-09
+  without changing the motion), anticipation 40 ms, minus the route's output
+  latency, minus `unmeasuredPlayerDelay` 67.2 ms — a named placeholder for
+  the part of the shipped 0.20 s nobody has measured, chosen so the built-in
+  route sums to 0.200 s. No stored correction moved and no migration ran.
+- [x] **The route's output latency is read live and logged, not applied.**
+  `OutputLatencyMonitor` re-reads CoreAudio's latency for the default output
+  (device + safety offset + buffer + stream latency over the nominal rate)
+  when the default output changes, and only while Show Lyrics is on. Reads
+  only: nothing leaves the machine and no setting changes. With `DI_MEDIA=1`
+  every reading writes the full term list to `/tmp/di-debug.log`.
+  `LyricLeadModel.appliesOutputLatency` is `false` and the frame rate stays
+  at 120 Hz, so on every route and display the lead is today's 0.20 s:
+  applying either would silently move corrections tuned by ear on an
+  unrecorded route (the owner's +0.247 s by about 173 ms between AirPods
+  and built-in speakers), and a player whose position already includes its
+  output latency would count it twice.
+- [ ] **Owner session owed (S-LEAD in
+  `docs/audits/2026-10-11-live-validation-script.md`):** per player and per
+  route, CoreAudio's reported latency from the trail beside the by-ear
+  correction. Applying the term (with any migration of stored corrections)
+  and wiring the island screen's real refresh rate are a follow-up gated on
+  those numbers. `Scripts/measure-sync.sh` is still owed a run to re-measure
+  anchorLag after LY-06 and LY-07.
+- Tests: `LyricSweepTests.testTheLeadIsTheSumOfItsNamedTerms`,
+  `…testTheBuiltInRouteKeepsTheShippedLead`,
+  `…testTheMeasuredOutputLatencyIsNotAppliedYet`,
+  `…testTheOnsetRiseIsTheLyricSpringsHalfway`,
+  `…testAnUnknownFrameRateCountsAsSixtyHertz`,
+  `AudioOutputsTests.testOutputLatencyArithmetic`,
+  `…testTheMonitorListensOnlyWhileStarted`,
+  `…testARouteChangeIsReportedOnceWhenTheLatencyMoves`,
+  `LyricsCoordinatorTests.testTheOutputLatencyWatchRunsOnlyWhileLyricsAreOn`,
+  `…testAReportedOutputLatencyReachesTheModelButNotTheLead`; the lab's L7 now
+  evaluates the production lead with each scenario's latency reported to the
+  model (needs the corpus, `Scripts/lyric-lab.sh`).

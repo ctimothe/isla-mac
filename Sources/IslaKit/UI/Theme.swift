@@ -114,6 +114,53 @@ enum Theme {
         reduceMotion ? .easeOut(duration: 0.12) : lyricScroll
     }
 
+    /// How long a spring started at rest takes to cover `level` of its
+    /// travel: SwiftUI's `spring(response:dampingFraction:)` as a damped
+    /// oscillator with natural frequency 2π/response, read at its first
+    /// crossing of `level`.
+    ///
+    /// The lyric lead needs it. `LyricRow` lights a line on `lyricScroll`,
+    /// so the line the voice reaches is only half lit about 104 ms after the
+    /// clock calls it — the largest render term the lyric lab found (L-09),
+    /// and one no constant tracked: retune the spring and the line's
+    /// perceived onset moves with it. `LyricLeadModel` reads the rise from
+    /// here, from the same two constants the animation is built from, so the
+    /// lead follows any change to them. The lab carried this as a private
+    /// `SpringRise`; it lives here now so the app and the lab compute one
+    /// number.
+    ///
+    /// Closed form per damping regime, scanned in 1 ms steps for the first
+    /// crossing and then bisected: an underdamped spring passes `level`
+    /// again on the way back from its overshoot, and only the first crossing
+    /// is the one the eye sees.
+    static func springRiseTime(response: Double, damping: Double, level: Double) -> TimeInterval {
+        guard response > 0, damping > 0, level > 0 else { return 0 }
+        let omega = 2 * Double.pi / response
+        func value(_ t: Double) -> Double {
+            if damping < 1 {
+                let damped = omega * (1 - damping * damping).squareRoot()
+                return 1 - exp(-damping * omega * t)
+                    * (cos(damped * t) + (damping * omega / damped) * sin(damped * t))
+            }
+            if damping == 1 { return 1 - exp(-omega * t) * (1 + omega * t) }
+            let spread = omega * (damping * damping - 1).squareRoot()
+            let fast = -damping * omega - spread, slow = -damping * omega + spread
+            return 1 - (fast * exp(slow * t) - slow * exp(fast * t)) / (fast - slow)
+        }
+        let step = 0.001, limit = 10.0
+        var high = step
+        while value(high) < level {
+            high += step
+            if high > limit { return limit }
+        }
+        var low = high - step
+        for _ in 0..<40 {
+            let mid = (low + high) / 2
+            if value(mid) < level { low = mid } else { high = mid }
+        }
+        return high
+    }
+
     // A skip delivers its new title and cover in 68ms, so the crossfade is
     // what the wait actually is. Short enough to read as immediate, long
     // enough that the swap is still a fade rather than a cut.
