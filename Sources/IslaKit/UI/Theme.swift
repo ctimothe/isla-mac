@@ -85,7 +85,7 @@ enum Theme {
 
     /// The fold or the unfold, by where the pill is going.
     static func pill(appearing: Bool, reduceMotion: Bool) -> Animation {
-        guard !reduceMotion else { return .easeOut(duration: 0.15) }
+        guard !reduceMotion else { return reducedMotion }
         return appearing ? pillUnfold : pillFold
     }
 
@@ -113,7 +113,7 @@ enum Theme {
         .delay(pillContentInDelay)
 
     static func pillContent(shown: Bool, reduceMotion: Bool) -> Animation {
-        guard !reduceMotion else { return .easeOut(duration: 0.15) }
+        guard !reduceMotion else { return reducedMotion }
         return shown ? pillContentIn : pillContentOut
     }
 
@@ -216,9 +216,9 @@ enum Theme {
 
     /// Reduce Motion refuses the travel, and a spring is nothing but travel —
     /// so the page still moves to the next line, it just stops carrying
-    /// anything there. Same short ease every other reduced variant here uses.
+    /// anything there. Same `reducedMotion` every other variant here uses.
     static func lyricScroll(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .easeOut(duration: 0.12) : lyricScroll
+        reduceMotion ? reducedMotion : lyricScroll
     }
 
     /// How long a spring started at rest takes to cover `level` of its
@@ -274,19 +274,51 @@ enum Theme {
     static let artworkAnimation = Animation.easeOut(duration: 0.16)
 
     /// Motion-aware variants. Reduce Motion asks for the state change to
-    /// still happen, just without the travel — so the spring becomes a short
-    /// fade and scale transitions become plain opacity, rather than the panel
-    /// snapping between states with no transition at all.
+    /// still happen, just without the travel — so the spring becomes
+    /// `reducedMotion`, which carries nothing past its end and starts and
+    /// stops at rest, and scale transitions become plain opacity, rather
+    /// than the panel snapping between states with no transition at all.
     static func open(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .easeOut(duration: 0.12) : openAnimation
+        reduceMotion ? reducedMotion : openAnimation
     }
 
     static func compact(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .easeOut(duration: 0.12) : compactAnimation
+        reduceMotion ? reducedMotion : compactAnimation
     }
+
+    /// The one curve for every travel Reduce Motion still has to make: the
+    /// shell opening and closing, the pill and its content, the lyric page,
+    /// the hover nudge.
+    ///
+    /// These were ease-outs of 0.12 and 0.15 s, on the reasoning that shorter
+    /// is calmer. It is not. An ease-out leaves at its fastest, so the
+    /// reduced open jumped 38.6 pt in its first frame and peaked at
+    /// 2,518 pt/s, twice the 1,197 pt/s of the spring it stands in for (F-055,
+    /// raised to P2 by Wave B): the people who asked for calm got the most
+    /// abrupt path in the app, and a bezier that cannot merge on a reversal
+    /// besides. An ease-in-out starts and ends at rest; at 0.24 s it moves
+    /// 1.7 pt in the first frame and peaks at about 1,264 pt/s over the
+    /// panel's 176 pt. A shorter ease-out was the other answer and makes the
+    /// first-frame jump worse, not better. A true dissolve of the shell (two
+    /// shape layers and a black slab fading in) was rejected for its cost.
+    ///
+    /// Opacity-only changes do not come here: a fade is not motion, and they
+    /// keep `contentAnimation` with the setting on.
+    /// `MotionValuesTests.testReduceMotionNeverJumpsTheFirstFrame` holds
+    /// every variant to this one description and samples its first frame.
+    static let reducedMotion = Animation.easeInOut(duration: 0.24)
 
     static func scaleIn(_ scale: CGFloat, reduceMotion: Bool) -> AnyTransition {
         reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: scale))
+    }
+
+    /// The tab swap's scales: the arriving pane from 0.97, the leaving one
+    /// to 1.02, and 1 for both under Reduce Motion, so the swap is a plain
+    /// crossfade. The swap built its scale inline beside `scaleIn`, which
+    /// exists for exactly this, and so every tab switch still zoomed with the
+    /// setting on (F-017).
+    static func paneSwapScales(reduceMotion: Bool) -> (insertion: CGFloat, removal: CGFloat) {
+        reduceMotion ? (1, 1) : (0.97, 1.02)
     }
 
     // MARK: - Type
@@ -399,7 +431,7 @@ enum Theme {
     static let hoverNudge = Animation.spring(response: 0.34, dampingFraction: hoverNudgeDamping)
 
     static func hoverNudge(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .easeOut(duration: 0.12) : hoverNudge
+        reduceMotion ? reducedMotion : hoverNudge
     }
 
     static let collapsedTopRadius: CGFloat = 6
