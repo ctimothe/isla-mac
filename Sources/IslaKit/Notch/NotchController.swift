@@ -1306,6 +1306,11 @@ final class NotchController {
 
         peekWork?.cancel()
         vm.isPeeking = true
+        // Spoken only once every refusal above has passed, so VoiceOver hears
+        // a new track exactly when a sighted person sees one — and the Peek
+        // at New Tracks switch silences both. The pill's own label, so the
+        // announcement and what VoiceOver reads on the pill are one sentence.
+        Announcer.shared.announce(vm.compactAccessibilityLabel)
 
         let work = DispatchWorkItem { [weak self] in
             guard let self, let vm = self.viewModel else { return }
@@ -1364,6 +1369,10 @@ final class NotchController {
             vm.isPeeking = false
             vm.ambient = activity
         }
+        // After the guard, never before it: a moment refused — switch off,
+        // panel open, Mac locked, displays asleep — is not shown, and a
+        // sentence for something nobody can see would be the voice lying.
+        Announcer.shared.announce(activity.accessibilityLabel)
         let work = DispatchWorkItem { [weak self] in
             guard let vm = self?.viewModel else { return }
             withAnimation(Theme.pill(appearing: false, reduceMotion: SystemAppearance.shared.reduceMotion)) {

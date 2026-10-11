@@ -177,6 +177,17 @@ struct LockScreenCard: View {
             // every new song had to be opened again by hand.
             .onAppear { readAudio() }
             .onChange(of: pane) { _, _ in readAudio() }
+            // A skip on the card swaps the title in place, which a sighted
+            // listener sees and a VoiceOver user used to have to go and find.
+            // Only a change is spoken, not the card arriving: the shield going
+            // up is not news about the music. The card exists only while it is
+            // presented — its window is destroyed at unlock — so nothing here
+            // speaks for a Mac that is not locked, and the island's own peek is
+            // refused over the shield, so the two never say one track twice.
+            .onChange(of: media.track?.key) { _, _ in
+                guard let now = media.track else { return }
+                Announcer.shared.announce(now.artist.isEmpty ? now.title : "\(now.title), \(now.artist)")
+            }
             // The machine moves on its own while the card stands here — a
             // device connecting mid-lock, the volume keys — and the card used
             // to miss every bit of it until a pane switch re-read. The watch's

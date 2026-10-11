@@ -464,6 +464,24 @@ final class NotchViewModel: ObservableObject {
     func nudgeLockedIsland() {
         guard isLockedPresentation else { return }
         lockedHoverNudges += 1
+        // The shake says "not here" only to someone who can see it, and under
+        // Reduce Motion it does not play at all. Every refusal comes through
+        // here — the click, ⌃⌥⌘I, the translate and lyrics keys, the AX
+        // action — so this is the one place the refusal is also spoken. The
+        // announcer's repeat window keeps a click that arrives by two routes
+        // to one sentence.
+        Announcer.shared.announce(localized("Unlock your Mac to open Isla."))
+    }
+
+    /// What the compact island says it is: "Playing: title, artist".
+    ///
+    /// The pill's accessibility label and the peek's announcement are the
+    /// same sentence, kept here so the two cannot drift. Empty with no track,
+    /// which the announcer refuses to speak.
+    var compactAccessibilityLabel: String {
+        guard let track = media.track else { return "" }
+        let state = compactMediaActivity == .playing ? localized("Playing") : localized("Paused")
+        return "\(state): \(track.title), \(track.artist)"
     }
 
     /// What a deliberate open command — ⌃⌥⌘I, the translate shortcut, the
