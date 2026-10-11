@@ -411,16 +411,19 @@ struct ReferenceLRC {
     nonisolated(unsafe) private static let wordMarker = try! Regex(#"<\s*[0-9]+:[0-9]{1,2}(?:[.,:][0-9]{0,3})?\s*>"#)
 
     /// The words of a line that opens with a valid marker, every valid marker
-    /// taken out and the pieces between them joined by one space; nil for a
+    /// taken out and the pieces between them joined by nothing; nil for a
     /// line that does not open with one, whose '<' (a "<3", an arrow) is text.
+    /// Joined by nothing, as a lyric's own spacing sits inside the pieces: a
+    /// space per piece read a per-character Chinese line as '我 爱 你' (G-018),
+    /// and the 44 lines of LRCLIB 36877652 then counted as text mismatches
+    /// that were the oracle's, not the parser's.
     private static func wordTimedText(_ text: String) -> String? {
         guard let first = text.firstMatch(of: wordMarker), first.range.lowerBound == text.startIndex else {
             return nil
         }
         return text.split(separator: wordMarker)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+            .joined()
+            .trimmingCharacters(in: .whitespaces)
     }
 
     private static func metadataTag(_ line: String) -> (key: String, value: String)? {
