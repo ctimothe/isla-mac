@@ -1342,3 +1342,18 @@ arrives, but a person singing along reads the next line before they sing it.
   before the voice reaches it and turns with the existing caption turn;
   across a long instrumental it still waits for the end of the previous line.
   Off restores the exact-on-the-voice turn.
+- [x] **Amended 2026-10-11 (ly/READ-02): the default is Auto.** Owner's
+  listening test: a fixed 0.5 s was perfect on a slow ballad of long lines,
+  a bit much elsewhere, and never to go below 0.30 s. The row is now Off,
+  Auto (default), 0.3 s, 0.5 s (0.25 s and 0.75 s removed); Auto is
+  `clamp(0.30 + 0.004 × characters of the next line, 0.30, 0.50)` and the
+  45 percent and final-word limits still apply on top (the 45 percent rule can
+  still take one short transition under 0.30 s). `lyrics.readAhead`: absent =
+  Auto, 0 = Off, other numbers snap to 0.3 or 0.5. Lab L9 over the 540-track
+  corpus: 22,686 of 23,693 transitions turn early; Auto's early time p5/p25/
+  p50/p75/p95 = 0.336/0.376/0.412/0.456/0.500 s, 10 percent of turns at the
+  0.50 s ceiling, 140 pulled under 0.30 s by the 45 percent rule, 0 before a
+  previous line's final word. `ReadingLeadTests`, `SettingsPaneTests`.
+- [ ] **Physical check owed (READ-02):** on the ballad, Auto feels like the
+  0.5 s that was perfect; on a faster song with shorter lines it turns
+  about 0.35 to 0.45 s early and does not feel like too much.

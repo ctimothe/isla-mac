@@ -268,6 +268,37 @@ final class SettingsPaneTests: XCTestCase {
                        root.dump)
     }
 
+    /// ly/READ-02: "Show next line early" is one radio group of four options
+    /// — Off, Auto, 0.3 s, 0.5 s — with Auto on until the listener chooses,
+    /// and the old 0.25 s and 0.75 s gone. The row sits on a LyricsStore over a
+    /// private suite: the pane's own store reads the owner's real defaults,
+    /// where a stored 0.5 s from READ-01 would make Auto look unselected.
+    func testShowNextLineEarlyOffersFourOptionsWithAutoSelected() async throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let stores = isolated.stores
+        let lyrics = LyricsStore(
+            offsetsDirectory: isolated.temp.appendingPathComponent("offsets"), defaults: isolated.suite
+        )
+        let pane = SettingsPane(
+            shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: lyrics,
+            media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
+            hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
+            updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) }),
+            automation: AutomationAccess()
+        )
+        let root = await AXProbe.tree(of: pane, size: CGSize(width: 488, height: 900))
+        let group = try XCTUnwrap(
+            root.all(role: "AXRadioGroup").first { $0.label == localized("Show next line early") },
+            root.dump
+        )
+        let buttons = group.all(role: "AXRadioButton")
+        let name = { (node: AXNode) in node.title.isEmpty ? node.label : node.title }
+        XCTAssertEqual(buttons.map(name), ["Off", "Auto", "0.3 s", "0.5 s"].map { localized($0) }, root.dump)
+        XCTAssertEqual(buttons.filter { $0.value == "1" }.map(name), [localized("Auto")], root.dump)
+        XCTAssertTrue(root.all { name($0) == localized("0.25 s") || name($0) == localized("0.75 s") }.isEmpty, root.dump)
+    }
+
     // MARK: - Settings › Spotify
 
     /// A grant Spotify revoked used to leave Settings offering a bare Connect

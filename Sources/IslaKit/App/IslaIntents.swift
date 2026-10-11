@@ -136,7 +136,7 @@ struct CurrentLyricIntent: AppIntent {
         )
         // `swept` false means the voice has not reached the first line yet, and
         // a line nobody has sung is not the line playing right now.
-        guard let shown = LyricSweep.displayed(lines: lines, at: at, readAhead: 0), shown.swept else { return "" }
+        guard let shown = LyricSweep.displayed(lines: lines, at: at, readAhead: .off), shown.swept else { return "" }
         return shown.line.text
     }
 }
