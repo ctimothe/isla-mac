@@ -39,20 +39,41 @@ final class RecordingPickupTests: XCTestCase {
         ])
     }
 
-    /// Everything the scan meets is remembered, including what it does not
-    /// offer: a recording older than the first run must not surface on a
-    /// later open just because it was never marked.
-    func testOldRecordingIsNeverOfferedYetNeverReconsidered() throws {
+    /// A recording from before the first run is never offered, on any open —
+    /// and it is not remembered either. `since` never moves, so the date alone
+    /// settles it; remembering it as well is what filled the 1,000-name memory
+    /// with files from before the install on a Desktop full of old captures,
+    /// and pushed out the names of cards a person had removed (K-012).
+    func testOldRecordingIsNeverOfferedAndNeverRemembered() throws {
         let dir = try folder()
         try write("old.mov", in: dir, modified: 30)
+        let since = Date()
 
-        let first = RecordingPickup.fresh(in: [dir], since: Date(), seen: [])
+        let first = RecordingPickup.fresh(in: [dir], since: since, seen: [])
         XCTAssertTrue(first.urls.isEmpty)
+        XCTAssertTrue(first.seen.isEmpty, "a file from before the install takes no room in the memory")
 
-        let second = RecordingPickup.fresh(
-            in: [dir], since: .distantPast, seen: first.seen
-        )
-        XCTAssertTrue(second.urls.isEmpty, "seen once means settled, whatever since says")
+        let second = RecordingPickup.fresh(in: [dir], since: since, seen: first.seen)
+        XCTAssertTrue(second.urls.isEmpty, "the date settles it on every open")
+    }
+
+    /// Past the cap, the memory lets go of the oldest captures first, by the
+    /// file's date. It used to keep an arbitrary 1,000 by `Set` order, which
+    /// changes with every launch's hash seed, so a card removed yesterday came
+    /// back on roughly one open in three (K-012).
+    func testTheMemoryForgetsTheOldestCapturesFirst() throws {
+        let dir = try folder()
+        try write("Screen Recording old.mov", in: dir, modified: 3)
+        try write("Screen Recording middle.mov", in: dir, modified: 2)
+        try write("Screen Recording new.mov", in: dir, modified: 1)
+        var seen: Set<String> = [
+            "Screen Recording old.mov", "Screen Recording middle.mov",
+            "Screen Recording new.mov", "Screen Recording trashed.mov",
+        ]
+
+        RecordingPickup.trimSeen(&seen, folders: [dir], limit: 2)
+
+        XCTAssertEqual(seen, ["Screen Recording middle.mov", "Screen Recording new.mov"])
     }
 
     /// Anything that is not a capture is left where it is.
@@ -126,18 +147,77 @@ final class RecordingPickupTests: XCTestCase {
         let suite = "isla-capture-folders-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
+        let dir = try folder()
+        let plist = dir.appendingPathComponent("com.apple.screencapture.plist")
+        try (["showsCursor": true] as NSDictionary).write(to: plist)
+        let earlier = try folder()
+        defaults.set([earlier.path], forKey: RecordingPickup.knownFoldersKey)
 
-        let folders = RecordingPickup.captureFolders(defaults: defaults)
-        XCTAssertFalse(folders.isEmpty)
+        let folders = RecordingPickup.captureFolders(defaults: defaults, preferencesFile: plist)
         XCTAssertEqual(
             defaults.stringArray(forKey: RecordingPickup.knownFoldersKey), folders.map(\.path),
             "what was scanned is written back, so a later change keeps it in the list"
         )
-        // The Desktop is always in the list: it is where the system saves when
-        // nothing is configured.
+        // With nothing configured the Desktop is the current folder, so it
+        // leads the list; the folder left behind follows it.
         let desktop = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Desktop", isDirectory: true).path
-        XCTAssertTrue(folders.map(\.path).contains(desktop))
+        XCTAssertEqual(folders.map(\.path), [desktop, earlier.path])
+    }
+
+    /// The Desktop is scanned only when captures go there. It used to be
+    /// appended to every list, so a person whose screenshots go to ~/Pictures
+    /// was still asked for the Desktop the first time the Shelf opened (J-021).
+    func testDesktopIsNotAddedWhenALocationIsConfigured() throws {
+        let suite = "isla-capture-folders-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let dir = try folder()
+        let plist = dir.appendingPathComponent("com.apple.screencapture.plist")
+        try (["location": dir.path] as NSDictionary).write(to: plist)
+
+        let folders = RecordingPickup.captureFolders(defaults: defaults, preferencesFile: plist)
+
+        let desktop = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Desktop", isDirectory: true).path
+        XCTAssertFalse(folders.map(\.path).contains(desktop))
+        XCTAssertEqual(folders.map(\.path), [dir.path])
+    }
+
+    /// A remembered folder that no longer exists is dropped from the list, so
+    /// a retired capture folder is not probed again on every Shelf open
+    /// (J-021). Three kinds stay: the current folder (Screenshot.app may just
+    /// not have made it yet), a folder under /Volumes (its disk is unplugged,
+    /// not gone), and a folder that exists (refused or not).
+    func testAFolderThatNoLongerExistsIsForgotten() throws {
+        let suite = "isla-capture-folders-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let present = try folder()
+        let gone = FileManager.default.temporaryDirectory
+            .appendingPathComponent("isla-never-created-\(UUID())", isDirectory: true)
+        let current = FileManager.default.temporaryDirectory
+            .appendingPathComponent("isla-current-\(UUID())", isDirectory: true)
+        let unplugged = URL(fileURLWithPath: "/Volumes/isla-unplugged-\(UUID())", isDirectory: true)
+        defaults.set(
+            [current.path, present.path, gone.path, unplugged.path],
+            forKey: RecordingPickup.knownFoldersKey
+        )
+
+        let result = RecordingPickup.fresh(
+            in: [current, present, gone, unplugged], since: .distantPast, seen: []
+        )
+        XCTAssertEqual(
+            Set(result.missing.map(\.path)), [current.path, gone.path, unplugged.path],
+            "missing is what the disk said, and nothing else"
+        )
+
+        RecordingPickup.forget(result.missing, defaults: defaults, current: current)
+
+        XCTAssertEqual(
+            defaults.stringArray(forKey: RecordingPickup.knownFoldersKey),
+            [current.path, present.path, unplugged.path]
+        )
     }
 
     func testMissingFolderIsEmptyNotAnError() {
@@ -175,5 +255,69 @@ final class RecordingPickupTests: XCTestCase {
     func testALockScreenScreenshotIsACapture() {
         XCTAssertTrue(RecordingPickup.isCapture(
             URL(fileURLWithPath: "/tmp/LWScreenShot 2026-09-21 at 19.25.00.png")))
+    }
+
+    // MARK: - Captures on any system language (G-001)
+
+    /// A Russian Mac names its stills "Снимок экрана …", and none of them
+    /// reached the Shelf: the localized word was asked of a framework table
+    /// that has no such key, so only the English prefixes were ever tried.
+    func testARussianScreenshotIsACapture() throws {
+        let dir = try folder()
+        try write("Снимок экрана 2026-10-11 в 15.04.05.png", in: dir)
+        XCTAssertTrue(RecordingPickup.isCapture(
+            dir.appendingPathComponent("Снимок экрана 2026-10-11 в 15.04.05.png")))
+    }
+
+    /// The system marks every capture it writes, whatever the file is called:
+    /// a still carrying the mark is a capture even with a name no prefix
+    /// knows, and one with neither the mark nor a prefix is somebody's own.
+    func testTheCaptureAttributeAloneMakesACapture() throws {
+        let dir = try folder()
+        try write("IMG.png", in: dir)
+        try write("IMG 2.png", in: dir)
+        let marked = dir.appendingPathComponent("IMG.png")
+        let plain = dir.appendingPathComponent("IMG 2.png")
+        let value = try PropertyListSerialization.data(fromPropertyList: true, format: .binary, options: 0)
+        let status = value.withUnsafeBytes { bytes in
+            setxattr(marked.path, CaptureMetadata.screenCaptureAttribute, bytes.baseAddress, bytes.count, 0, 0)
+        }
+        XCTAssertEqual(status, 0, "the fixture needs the attribute set")
+
+        XCTAssertTrue(CaptureMetadata.hasScreenCaptureAttribute(marked))
+        XCTAssertFalse(CaptureMetadata.hasScreenCaptureAttribute(plain))
+        XCTAssertTrue(RecordingPickup.isCapture(marked, prefixes: []))
+        XCTAssertFalse(RecordingPickup.isCapture(plain, prefixes: []))
+    }
+
+    /// The words come from Screenshot's own table, every language in it, so
+    /// a Mac whose language changed still recognises what it captured before.
+    /// A word carrying a soft hyphen (Dutch) is matched without it as well:
+    /// the table hyphenates for display, and a filename need not.
+    func testPrefixesComeFromTheSystemTable() throws {
+        let dir = try folder()
+        let table = dir.appendingPathComponent("Localizable.loctable")
+        let fixture: NSDictionary = [
+            "LocProvenance": ["Screenshot": 1],
+            "ru": ["Screenshot": "Снимок экрана", "Screen Recording": "Запись экрана", "Done": "Готово"],
+            "de": ["Screenshot": "Bildschirmfoto", "Screen Recording": "Bildschirmaufnahme"],
+            "nl": ["Screenshot": "Scherm\u{00AD}afbeelding"],
+        ]
+        let data = try PropertyListSerialization.data(fromPropertyList: fixture, format: .binary, options: 0)
+        try data.write(to: table)
+
+        let words = RecordingPickup.captureWords(inTable: table)
+        for word in ["Снимок экрана", "Запись экрана", "Bildschirmfoto", "Bildschirmaufnahme", "Schermafbeelding"] {
+            XCTAssertTrue(words.contains(word), "\(word) is missing from \(words)")
+        }
+        XCTAssertFalse(words.contains("Готово"), "only the two capture words are taken")
+
+        let prefixes = RecordingPickup.capturePrefixes(customName: nil, systemWords: words)
+        XCTAssertTrue(prefixes.contains("Screenshot"), "the English defaults stay")
+        XCTAssertTrue(prefixes.contains("Bildschirmfoto"))
+        XCTAssertTrue(
+            RecordingPickup.captureWords(inTable: dir.appendingPathComponent("absent.loctable")).isEmpty,
+            "a macOS that moves the table yields no extra words, not a crash"
+        )
     }
 }

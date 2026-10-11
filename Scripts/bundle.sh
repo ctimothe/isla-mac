@@ -85,11 +85,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSAppleEventsUsageDescription</key>
     <string>Isla asks Music and Spotify for shuffle, repeat and the exact position of the song, and controls them when Now Playing is unavailable.</string>
     <key>NSDesktopFolderUsageDescription</key>
-    <string>Isla shows new screenshots and recordings saved to the Desktop, and files you put on the Shelf from there.</string>
+    <string>Isla shows new screenshots and recordings saved to the Desktop and files you put on the Shelf from there, and reads lyrics folders you add there.</string>
     <key>NSDocumentsFolderUsageDescription</key>
-    <string>Isla shows files you put on the Shelf from Documents.</string>
+    <string>Isla shows files you put on the Shelf from Documents, and reads lyrics folders you add there.</string>
     <key>NSDownloadsFolderUsageDescription</key>
-    <string>Isla shows files you put on the Shelf from Downloads.</string>
+    <string>Isla shows files you put on the Shelf from Downloads, and reads lyrics folders you add there.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Isla shows files you put on the Shelf from an external disk, and reads lyrics folders you add there.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>Isla shows files you put on the Shelf from a network volume, and reads lyrics folders you add there.</string>
     <key>NSHumanReadableCopyright</key><string>MIT License</string>
 </dict>
 </plist>

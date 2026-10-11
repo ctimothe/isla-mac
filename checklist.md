@@ -730,3 +730,41 @@ downloads in total, and no outside issues.
 - [ ] **Physical check owed:** lock the Mac with a white or pastel cover
   playing, in Tinted and in Transparent: the artist line, the times and the
   lyric status read; then a dark cover looks as it did before.
+
+### Screenshots reach the Shelf on any system language — 2026-10-11 (sp/SH-03)
+
+Amends the **Screen-capture pickup** scope record above.
+
+- [x] **A still counts when the system marked it a capture, or by its
+  name.** The localized prefix was asked of ScreenCaptureKit's table, which
+  has no such key, so a Russian, German or Ukrainian Mac never sent one
+  still to the Shelf (G-001). A still now counts when it carries
+  `com.apple.metadata:kMDItemIsScreenCapture` (`CaptureMetadata`) or starts
+  with a capture word, and the words are every language's "Screenshot" and
+  "Screen Recording" from screencaptureui's own table, read once per launch,
+  with the English words, `LWScreenShot` and the custom name kept. A movie
+  still counts on its type alone (decision 13, unchanged).
+- [x] **The Desktop is scanned only when captures go there.** It is no
+  longer appended to every folder list; it arrives only as the default when
+  no location is configured. A remembered folder the disk reports as not
+  there (not one it refused) leaves the list after the scan, except the
+  current one and anything under /Volumes, which is an unplugged disk (J-021).
+- [x] **The capture memory holds only what was offered.** A file from before
+  the first run is settled by its date and no longer takes one of the 1,000
+  remembered names; past the cap the oldest files go first, by date, not by
+  `Set` order (K-012).
+- [x] **Permission prompts name every reason.** Desktop, Documents and
+  Downloads also name lyrics folders, and external-disk and network-volume
+  prompts are declared for the first time.
+- Tests: `RecordingPickupTests` (testARussianScreenshotIsACapture,
+  testTheCaptureAttributeAloneMakesACapture, testPrefixesComeFromTheSystemTable,
+  testDesktopIsNotAddedWhenALocationIsConfigured,
+  testAFolderThatNoLongerExistsIsForgotten,
+  testOldRecordingIsNeverOfferedAndNeverRemembered,
+  testTheMemoryForgetsTheOldestCapturesFirst),
+  `AppSurfaceContractTests.testInfoPlistDeclaresVolumeUsageStrings`.
+- [ ] **Physical check owed (S9):** on a Mac set to Russian, ⇧⌘3 to a file;
+  the still arrives on the Shelf the next time it opens.
+- [ ] **Physical check owed (S2):** after `tccutil reset`, with captures set
+  to ~/Pictures, opening the Shelf raises no Desktop prompt, and each prompt
+  that does appear names what triggered it.
