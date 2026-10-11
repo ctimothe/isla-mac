@@ -89,11 +89,14 @@ struct HotKeyBinding: Equatable, Hashable {
         return text + Self.keyName(keyCode)
     }
 
-    /// The key's name on a US keyboard. Fixed rather than read from the
-    /// current layout, because macOS menus also show the Latin letter while a
-    /// Cyrillic layout is active, and a shortcut should read the same
-    /// whichever layout was active when it was set.
+    /// The key's name on the user's Latin keyboard layout, the way macOS menus
+    /// write it, so on QWERTZ the key a shortcut was recorded on reads "Z" and
+    /// not the US "Y" (G-039). A Cyrillic layout is not asked, because macOS
+    /// menus also show the Latin letter while one is active. Keys a layout
+    /// cannot print as one character (arrows, F-keys, Return) keep the glyph
+    /// from the table, and so does everything when the layout cannot be read.
     static func keyName(_ keyCode: UInt32) -> String {
+        if let name = KeyboardLayoutNames.name(for: Int(keyCode)) { return name }
         if let name = names[Int(keyCode)] { return name }
         return "#\(keyCode)"
     }
@@ -205,6 +208,15 @@ final class HotKeyCenter: ObservableObject {
     /// The action whose shortcut Settings is recording right now.
     @Published private(set) var recording: HotKeyAction?
 
+    /// The last combination one action took from another, for the note in
+    /// Settings. Cleared by the next recording or a restore of the defaults.
+    struct Displaced: Equatable {
+        let binding: HotKeyBinding
+        let from: HotKeyAction
+        let to: HotKeyAction
+    }
+    @Published private(set) var displaced: Displaced?
+
     private let defaults: UserDefaults
     private let registrar: Registrar
     private var handlers: [HotKeyAction: () -> Void] = [:]
@@ -246,11 +258,18 @@ final class HotKeyCenter: ObservableObject {
     /// combination already held by another action moves here, and the other
     /// action is cleared. Two actions on one key cannot both fire, and letting
     /// one of them fail with no sign is how the old defaults behaved.
+    ///
+    /// The move is kept (it is what System Settings does) but no longer
+    /// silent: `displaced` says which action lost its shortcut, because
+    /// "Open the panel" is the keyboard and VoiceOver way in and used to be
+    /// unbound with no sign (J-023).
     func setBinding(_ binding: HotKeyBinding?, for action: HotKeyAction) {
+        displaced = nil
         if let binding {
             for other in HotKeyAction.allCases where other != action && bindings[other] == binding {
                 bindings[other] = nil
                 HotKeyBinding.store(nil, for: other, in: defaults)
+                displaced = Displaced(binding: binding, from: other, to: action)
             }
         }
         bindings[action] = binding
@@ -259,6 +278,7 @@ final class HotKeyCenter: ObservableObject {
     }
 
     func restoreDefaults() {
+        displaced = nil
         for action in HotKeyAction.allCases {
             defaults.removeObject(forKey: action.defaultsKey)
             bindings[action] = action.defaultBinding
@@ -272,6 +292,7 @@ final class HotKeyCenter: ObservableObject {
     /// reaches the panel, until the recording ends.
     func beginRecording(_ action: HotKeyAction) {
         removeMonitor()
+        displaced = nil
         recording = action
         unregisterAll()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

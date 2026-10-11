@@ -186,6 +186,71 @@ final class HotKeyTests: XCTestCase {
     }
 }
 
+// MARK: - A shortcut taken from another action, and key names by layout
+
+extension HotKeyTests {
+    /// Recording a combination another action owns used to unbind that action
+    /// silently, "Open the panel" included, which is the keyboard and
+    /// VoiceOver way in.
+    func testTakingAnotherActionsKeyIsReported() {
+        let center = HotKeyCenter(defaults: defaults, registrar: FakeRegistrar().register)
+        let taken = HotKeyAction.openPanel.defaultBinding
+        center.setBinding(taken, for: .showLyrics)
+        XCTAssertEqual(center.displaced?.binding, taken)
+        XCTAssertEqual(center.displaced?.from, .openPanel)
+        XCTAssertEqual(center.displaced?.to, .showLyrics)
+        XCTAssertNil(center.bindings[.openPanel])
+
+        center.beginRecording(.translateClipboard)
+        XCTAssertNil(center.displaced, "the next recording clears the note")
+        center.endRecording()
+
+        center.setBinding(HotKeyBinding(keyCode: UInt32(kVK_ANSI_N), modifiers: HotKeyBinding.defaultModifiers), for: .showLyrics)
+        XCTAssertNil(center.displaced, "a free combination displaces nothing")
+    }
+
+    func testRestoringDefaultsClearsTheDisplacedNote() {
+        let center = HotKeyCenter(defaults: defaults, registrar: FakeRegistrar().register)
+        center.setBinding(HotKeyAction.openPanel.defaultBinding, for: .showLyrics)
+        center.restoreDefaults()
+        XCTAssertNil(center.displaced)
+    }
+
+    private func layout(_ id: String) throws -> TISInputSource {
+        let filter = [kTISPropertyInputSourceID as String: id] as CFDictionary
+        guard let list = TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource],
+              let source = list.first
+        else { throw XCTSkip("\(id) is not installed on this Mac") }
+        return source
+    }
+
+    /// QWERTZ prints Z where the US key code for Y is. The old fixed US table
+    /// made Settings and the welcome say one key while another fired.
+    func testKeyNamesFollowTheGermanLayout() throws {
+        let german = try layout("com.apple.keylayout.German")
+        XCTAssertEqual(KeyboardLayoutNames.name(for: kVK_ANSI_Y, in: german), "Z")
+        XCTAssertEqual(KeyboardLayoutNames.name(for: kVK_ANSI_Z, in: german), "Y")
+        XCTAssertNil(KeyboardLayoutNames.name(for: kVK_LeftArrow, in: german), "arrows keep their glyph from the table")
+        XCTAssertNil(KeyboardLayoutNames.name(for: kVK_Space, in: german))
+    }
+
+    /// A Cyrillic layout has no Latin letters, so the name comes from the
+    /// ASCII-capable layout, the way macOS menus keep showing the Latin one.
+    func testANonLatinLayoutFallsBackToLatin() throws {
+        let russian = try layout("com.apple.keylayout.Russian")
+        let name = KeyboardLayoutNames.name(for: kVK_ANSI_I, in: russian)
+        XCTAssertEqual(name, KeyboardLayoutNames.name(for: kVK_ANSI_I))
+        XCTAssertTrue(name?.unicodeScalars.allSatisfy { $0.value < 0x250 } ?? false, "got \(name ?? "nil")")
+    }
+
+    func testTheBindingUsesTheLayoutNameAndKeepsGlyphsForOtherKeys() {
+        XCTAssertEqual(HotKeyBinding(keyCode: UInt32(kVK_LeftArrow), modifiers: UInt32(cmdKey)).displayString, "⌘←")
+        XCTAssertEqual(HotKeyBinding(keyCode: UInt32(kVK_F5), modifiers: UInt32(cmdKey)).displayString, "⌘F5")
+        let name = KeyboardLayoutNames.name(for: kVK_ANSI_I)
+        XCTAssertEqual(HotKeyBinding.keyName(UInt32(kVK_ANSI_I)), name ?? "I")
+    }
+}
+
 @MainActor
 private final class FakeRegistrar {
     var live: Set<HotKeyBinding> = []

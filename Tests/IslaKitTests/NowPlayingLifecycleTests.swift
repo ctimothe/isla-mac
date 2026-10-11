@@ -234,4 +234,46 @@ final class NowPlayingLifecycleTests: XCTestCase {
         )
         XCTAssertEqual(verdict, .settleAdopt)
     }
+
+    // MARK: - The helper's environment and signature (G-028)
+
+    /// PERL5OPT or PERL5LIB set through `launchctl setenv` would load another
+    /// party's code into /usr/bin/perl as Isla's child, under Isla's
+    /// permissions, and DYLD_* would do the same to perl itself. The child
+    /// gets an allow-list and a fixed PATH. Nothing here launches the helper.
+    func testHelperEnvironmentDropsPerlAndDyldVariables() {
+        let environment = NowPlayingFeed.helperEnvironment(from: [
+            "PERL5OPT": "-Mx", "PERL5LIB": "/tmp", "PERLLIB": "/tmp", "DYLD_INSERT_LIBRARIES": "/x",
+            "HOME": "/Users/a", "PATH": "/evil", "SECRET_TOKEN": "t",
+        ])
+        XCTAssertEqual(environment, ["PATH": "/usr/bin:/bin", "HOME": "/Users/a"])
+    }
+
+    func testHelperEnvironmentKeepsLocaleAndTemporaryDirectory() {
+        let environment = NowPlayingFeed.helperEnvironment(from: [
+            "LANG": "ru_RU.UTF-8", "LC_ALL": "ru_RU.UTF-8", "LC_CTYPE": "UTF-8", "TMPDIR": "/var/folders/x/T/",
+            "LCX": "not a locale variable", "PERL5OPT": "-Mx",
+        ])
+        XCTAssertEqual(environment, [
+            "PATH": "/usr/bin:/bin", "LANG": "ru_RU.UTF-8", "LC_ALL": "ru_RU.UTF-8",
+            "LC_CTYPE": "UTF-8", "TMPDIR": "/var/folders/x/T/",
+        ])
+    }
+
+    /// Report-only: the verdict is a word for Diagnostics, never a reason to
+    /// refuse the helper. A path that is not an .app (tests, `swift run`) is
+    /// skipped, and an unsigned one is named as such.
+    func testTheSignatureVerdictIsAWordAndSkipsNonBundles() throws {
+        XCTAssertEqual(
+            NowPlayingFeed.helperSignatureVerdict(bundleURL: URL(fileURLWithPath: "/usr/bin")),
+            "not checked (not an app bundle)"
+        )
+        let bundle = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NowPlayingLifecycleTests-\(UUID().uuidString)/Fake.app")
+        try FileManager.default.createDirectory(at: bundle.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bundle.deletingLastPathComponent()) }
+        let verdict = NowPlayingFeed.helperSignatureVerdict(bundleURL: bundle)
+        XCTAssertNotEqual(verdict, "valid", "an unsigned bundle is not valid")
+        XCTAssertTrue(["unsigned", "invalid", "unreadable"].contains { verdict.hasPrefix($0) }, verdict)
+    }
 }

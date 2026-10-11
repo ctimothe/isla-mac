@@ -37,6 +37,10 @@ enum Diagnostics {
         var appQuarantined: Bool
         var helperQuarantined: Bool
         var signature: String
+        /// Whether the bundle's seal, the helper dylib included, verifies.
+        /// Report-only (G-028): a mismatch here is evidence for an issue, not
+        /// a reason the helper was refused.
+        var helperSignature: String = "not checked"
         var lockScreenSPI: Bool
         /// Privacy & Security > Paste from Other Apps, as the system answers
         /// it for Isla. Under Don't Allow the clipboard poll stops itself and
@@ -67,6 +71,7 @@ enum Diagnostics {
         lines.append("  app quarantined: \(yesNo(snapshot.appQuarantined))")
         lines.append("  helper quarantined: \(yesNo(snapshot.helperQuarantined))")
         lines.append("  signature: \(snapshot.signature)")
+        lines.append("  helper signature: \(snapshot.helperSignature)")
         lines.append("  lock-screen SPI: \(snapshot.lockScreenSPI ? "available" : "missing")")
         lines.append("")
         lines.append("Settings")
@@ -156,6 +161,7 @@ enum Diagnostics {
             appQuarantined: isQuarantined(Bundle.main.bundlePath),
             helperQuarantined: helper.map(isQuarantined) ?? false,
             signature: signature(of: Bundle.main.bundleURL),
+            helperSignature: NowPlayingFeed.helperSignature,
             lockScreenSPI: SkyLight.shared != nil,
             pasteFromOtherApps: clipboardAccess,
             settings: settings,

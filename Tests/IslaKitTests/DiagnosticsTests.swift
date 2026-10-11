@@ -37,6 +37,14 @@ final class DiagnosticsTests: XCTestCase {
         }
     }
 
+    /// Report-only for now: the helper's seal is shown, not enforced.
+    func testTheReportShowsTheHelperSignature() {
+        var snapshot = sample()
+        snapshot.helperSignature = "valid"
+        XCTAssertTrue(Diagnostics.render(snapshot).contains("helper signature: valid"))
+        XCTAssertTrue(Diagnostics.render(sample()).contains("helper signature: not checked"))
+    }
+
     func testAnEmptyLogSaysSo() {
         XCTAssertTrue(Diagnostics.render(sample(log: [])).contains("nothing logged"))
     }

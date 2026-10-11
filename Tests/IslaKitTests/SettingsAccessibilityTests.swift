@@ -167,6 +167,60 @@ final class SettingsAccessibilityTests: XCTestCase {
         XCTAssertEqual(commits.last ?? 0, 560, accuracy: 0.5)
     }
 
+    /// With Show Lyrics off, Word Karaoke, Lyric Delay and Look Up Lyrics
+    /// Online looked live and did nothing (M-34). They dim, and say why where
+    /// a pointer or VoiceOver lands. The runner's own defaults hold the
+    /// switch, as the neighbouring tests' do, and are put back.
+    func testLyricsDependentsSayWhy() async {
+        let defaults = UserDefaults.standard
+        let had = defaults.object(forKey: NotchViewModel.showLyricsKey)
+        defer {
+            if let had { defaults.set(had, forKey: NotchViewModel.showLyricsKey) }
+            else { defaults.removeObject(forKey: NotchViewModel.showLyricsKey) }
+        }
+        defaults.set(false, forKey: NotchViewModel.showLyricsKey)
+        let (root, isolated) = await probePane()
+        defer { isolated.release() }
+        let reason = localized("Needs Show Lyrics")
+        for title in ["Word Karaoke", "Look Up Lyrics Online"] {
+            guard let row = root.first(label: localized(title)) else { return XCTFail("no \(title) row\n\(root.dump)") }
+            XCTAssertFalse(row.enabled, "\(title) still looks live\n\(root.dump)")
+            XCTAssertEqual(row.help, reason, "\(title) does not say why\n\(root.dump)")
+        }
+        let delay = root.all(role: "AXSlider").first { $0.label == localized("Lyric Delay") }
+        XCTAssertEqual(delay?.enabled, false, root.dump)
+        XCTAssertTrue(delay.map(Self.spoken)?.hasSuffix(reason) ?? false,
+                      "VoiceOver hears why Lyric Delay is dimmed\n\(root.dump)")
+        XCTAssertEqual(root.first(label: localized("Show Lyrics"))?.enabled, true, "the switch itself stays live")
+
+        defaults.set(true, forKey: NotchViewModel.showLyricsKey)
+        let (live, liveIsolated) = await probePane()
+        defer { liveIsolated.release() }
+        XCTAssertEqual(live.first(label: localized("Word Karaoke"))?.enabled, true, live.dump)
+        XCTAssertEqual(live.first(label: localized("Word Karaoke"))?.help, "", "no reason when nothing is waiting")
+    }
+
+    /// Nothing in Isla said why the island moved or looked differently under
+    /// Reduce Motion, Reduce Transparency or Increase Contrast.
+    func testFollowingYourMacLine() async {
+        let appearance = SystemAppearance.shared
+        defer { appearance.resetForTests() }
+        appearance.overrideForTests(reduceTransparency: false, increaseContrast: false, reduceMotion: false)
+        let (none, noneIsolated) = await probePane()
+        defer { noneIsolated.release() }
+        XCTAssertTrue(none.all { $0.role == "AXStaticText" && $0.value.hasPrefix(localized("Following your Mac: %@", "")) }.isEmpty,
+                      "the line is only there when a setting is on\n\(none.dump)")
+
+        appearance.overrideForTests(reduceTransparency: false, increaseContrast: true, reduceMotion: true)
+        let (root, isolated) = await probePane()
+        defer { isolated.release() }
+        let expected = localized("Following your Mac: %@",
+                                 [localized("Reduce Motion"), localized("Increase Contrast")].joined(separator: ", "))
+        XCTAssertEqual(expected, "Following your Mac: Reduce Motion, Increase Contrast")
+        XCTAssertFalse(root.all { $0.role == "AXStaticText" && ($0.value == expected || $0.label == expected) }.isEmpty,
+                       root.dump)
+    }
+
     /// What a radio button is called: SwiftUI names a segment by its title
     /// on some releases and by its label on others.
     private static func name(_ node: AXNode) -> String {
