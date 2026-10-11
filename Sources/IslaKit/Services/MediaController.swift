@@ -1247,9 +1247,14 @@ final class MediaController: ObservableObject {
     /// a music source takes Now Playing back.
     private var searchedUnder: pid_t?
 
-    /// A song loaded in any running music player, playing or paused.
-    var loadedSong: (@escaping (PlayerState?) -> Void) -> Void = { reply in
-        PlayerBridge.currentState { state in
+    /// A song loaded in any running music player, playing or paused. Both
+    /// the search under a film and the scripting fallback ask through here.
+    ///
+    /// Lazy only so the default can name the player on screen: with nothing
+    /// playing, that one wins the tie (`PlayerBridge.choose`), so two paused
+    /// players no longer trade places on every announcement.
+    lazy var loadedSong: (@escaping (PlayerState?) -> Void) -> Void = { [weak self] reply in
+        PlayerBridge.currentState(prefer: self?.displayedPlayerApp ?? self?.activeApp) { state in
             MainActor.assumeIsolated { reply(state) }
         }
     }
@@ -1717,6 +1722,8 @@ final class MediaController: ObservableObject {
         // exactly the path that loses the cover, and remembering that we already
         // asked would make the loss permanent.
         artworkRequestedFor = []
+        // Same reason, for the fallback's own tries.
+        fallbackArtworkAttempts = [:]
         isPlaying = false
         duration = 0
         position = 0
@@ -1781,10 +1788,13 @@ final class MediaController: ObservableObject {
             observers.append(center.addObserver(
                 forName: app.changeNotification, object: nil, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.activeApp = app
-                    self?.refreshFromPlayers()
-                }
+                // The announcer is not made the active app here any more. It
+                // used to be, before anyone had answered, so a paused Music
+                // announcing anything took the transport — and, as the
+                // preferred player, the island — from a Spotify still on
+                // screen. The active app is whichever one the island shows,
+                // set when `refreshFromPlayers` shows it.
+                MainActor.assumeIsolated { self?.refreshFromPlayers() }
             })
         }
         refreshFromPlayers()
@@ -1828,35 +1838,86 @@ final class MediaController: ObservableObject {
         receive(snapshot)
     }
 
-    private func refreshFromPlayers() {
-        PlayerBridge.currentState { [weak self] state in
-            guard let self else { return }
+    /// Asks the scriptable players what they hold and shows it, the way the
+    /// helper route shows a snapshot: through `apply`.
+    ///
+    /// This used to build the track by hand, and every feature `apply` grew
+    /// since was missing here. With no pid, the displayed player was unknown,
+    /// so shuffle, repeat, precision sync, Spotify's broadcasts and the heart
+    /// all switched off and lyric nudges were saved under "other". With no
+    /// track-change branch, a skip in Apple Music two minutes into a song
+    /// kept the old clock under the new title: `adopt` held the rewind for a
+    /// second reading this route never sends. And its own `app|…` key made
+    /// every hand-over between routes re-announce an unchanged song. One
+    /// path, so none of that can drift apart again.
+    ///
+    /// Internal so a test can stand in for a player's announcement.
+    func refreshFromPlayers() {
+        loadedSong { [weak self] state in
+            // A reply that lands after the helper is back describes a route
+            // no longer in charge; shown, it replaced the helper's song with
+            // whatever the script had found a moment earlier.
+            guard let self, !self.feedAvailable else { return }
             guard let state else { return self.clear() }
-
-            let playerChanged = self.activeApp != state.app
+            let pid = self.pidForPlayer(state.app)
+            // `apply` holds off a paused stranger until it has kept claiming
+            // the session for `foreignHoldWindow`, and on the helper route the
+            // two-second heartbeat brings that moment. Nothing re-asks here, so
+            // a hold for a player that has quit never ended: Spotify's last
+            // song stayed on the island over a paused Music. A player that is
+            // gone has nothing left to show.
+            if let shown = self.displayedPlayerPID, shown != pid, !self.isProcessRunning(shown) {
+                self.clear()
+            }
+            var snapshot = NowPlayingFeed.Snapshot()
+            snapshot.title = state.title
+            snapshot.artist = state.artist
+            snapshot.album = state.album
+            snapshot.duration = state.duration
+            snapshot.elapsed = state.position
+            snapshot.isPlaying = state.isPlaying
+            snapshot.rate = state.isPlaying ? 1 : 0
+            snapshot.takenAt = Date()
+            snapshot.playerPID = pid
+            snapshot.source = state.app.displayName
+            let key = "\(pid ?? 0)|\(state.title)|\(state.artist)|\(state.album)"
+            // Read before `apply`, which moves `artworkKey` on to the new song
+            // whether or not its cover has come.
+            let coverShown = self.artworkKey == key && self.artwork != nil
+            self.trace(String(format: "fallback: %@ from %@ playing=%d at %.2f",
+                              state.title, state.app.displayName, state.isPlaying ? 1 : 0, state.position))
+            self.apply(snapshot)
+            // Only once the island shows it: a stranger `apply` held off must
+            // not take the transport from the song still on screen.
+            guard self.displayedPlayerPID == pid, self.track?.key == key else { return }
             self.activeApp = state.app
-            self.sourceName = state.app.displayName
-            self.track = Track(title: state.title, artist: state.artist, album: state.album, key: state.key)
-            let queuedTarget: Bool?
-            if playerChanged {
-                self.playbackIntent = PlaybackIntent(reported: state.isPlaying)
-                queuedTarget = nil
-            } else {
-                queuedTarget = self.playbackIntent.reconcile(reported: state.isPlaying, at: Date())
-            }
-            self.isPlaying = self.playbackIntent.desired
-            self.duration = state.duration
-            self.adopt(state.position)
-            self.updateTicker()
-            if let queuedTarget { self.dispatchPlayback(queuedTarget) }
+            self.displayedIsMusic = true
+            if !coverShown { self.fallbackArtwork(for: state, key: key) }
+        }
+    }
 
-            guard self.artworkKey != state.key else { return }
-            self.artworkKey = state.key
-            self.artwork = nil
-            PlayerBridge.artwork(for: state) { [weak self] image in
-                guard let self, self.artworkKey == state.key else { return }
-                self.artwork = image
-            }
+    /// Covers asked of a player on the fallback route, by track key: one
+    /// entry, reset when the track changes.
+    private var fallbackArtworkAttempts: [String: Int] = [:]
+
+    /// Fetches the cover for a song shown on the fallback route.
+    ///
+    /// The key used to be recorded before the fetch, so one failed CDN
+    /// request cost the song its cover for as long as it played. Two tries
+    /// per song now: the next refresh retries a failure, and a cover that
+    /// truly does not exist is not polled. Whatever `apply` decided about the
+    /// old cover — kept for an album-mate, or blanked after its 180 ms grace —
+    /// stands until this one lands.
+    private func fallbackArtwork(for state: PlayerState, key: String) {
+        if fallbackArtworkAttempts[key] == nil { fallbackArtworkAttempts = [key: 0] }
+        guard let attempts = fallbackArtworkAttempts[key], attempts < 2 else { return }
+        fallbackArtworkAttempts[key] = attempts + 1
+        heldArtwork(state) { [weak self] image in
+            guard let self, self.track?.key == key, let image else { return }
+            self.blankArtwork?.cancel()
+            self.blankArtwork = nil
+            self.artworkKey = key
+            self.artwork = image
         }
     }
 

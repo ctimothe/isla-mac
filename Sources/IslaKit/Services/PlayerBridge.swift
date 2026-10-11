@@ -42,8 +42,10 @@ struct PlayerState {
     var duration: TimeInterval
     var position: TimeInterval
     var artworkURL: URL?
-    /// Identity of the track, used to decide when artwork must be refetched.
-    var key: String { "\(app.rawValue)|\(title)|\(artist)|\(album)" }
+    // No `key` of its own any more. It was "app|title|artist|album" against
+    // the helper route's "pid|title|artist|album", and the mismatch made every
+    // hand-over between the two routes re-announce an unchanged song. A song
+    // found here is keyed by `MediaController.apply`, like every other.
 }
 
 enum PlayerBridge {
@@ -101,8 +103,9 @@ enum PlayerBridge {
     }
 
     /// Never launches a player: only already-running ones are queried, and a
-    /// playing app wins over a merely-open one.
-    static func currentState(completion: @escaping (PlayerState?) -> Void) {
+    /// playing app wins over a merely-open one. See `choose(among:prefer:)`
+    /// for what `preferred` buys.
+    static func currentState(prefer preferred: PlayerApp? = nil, completion: @escaping (PlayerState?) -> Void) {
         let candidates = PlayerApp.allCases.filter(\.isRunning)
         guard !candidates.isEmpty else { return completion(nil) }
 
@@ -116,8 +119,22 @@ enum PlayerBridge {
             }
         }
         group.notify(queue: .main) {
-            completion(results.first(where: \.isPlaying) ?? results.first)
+            completion(choose(among: results, prefer: preferred))
         }
+    }
+
+    /// Which of several players' answers to show.
+    ///
+    /// Sound first: a playing player wins over a paused one. Past that, the
+    /// player already on screen wins. Without it the tie went to whichever
+    /// answered first in `allCases` order, so with Music and Spotify both
+    /// paused, the island swapped from the shown one to Music on the next
+    /// announcement either of them made. The fallback has no heartbeat to
+    /// settle a swap like that, so it stuck until the next one.
+    static func choose(among results: [PlayerState], prefer preferred: PlayerApp?) -> PlayerState? {
+        let playing = results.filter(\.isPlaying)
+        let pool = playing.isEmpty ? results : playing
+        return pool.first { $0.app == preferred } ?? pool.first
     }
 
     // MARK: - Shuffle & repeat
