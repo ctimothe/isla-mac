@@ -363,3 +363,5 @@
 "Type or paste text" = "Введите или вставьте текст";
 "The clipboard has no text." = "В буфере обмена нет текста.";
 "Only the first %@ characters were kept." = "Сохранены только первые %@ символов.";
+"AirDrop is not available on this Mac." = "AirDrop недоступен на этом Mac.";
+"AirDrop cannot send these files." = "AirDrop не может отправить эти файлы.";

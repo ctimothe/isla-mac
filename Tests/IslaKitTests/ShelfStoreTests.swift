@@ -309,6 +309,48 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertNil(store.notice)
     }
 
+    /// An AirDrop that cannot happen says why, in words. It used to be
+    /// `NSSound.beep()` alone, silent at zero alert volume and nothing at
+    /// all to VoiceOver (F-049). The two causes read differently because
+    /// they mean different things to do: a Mac without AirDrop will never
+    /// send, a refused batch of files might go another way.
+    func testAirDropRefusalsAreWorded() {
+        XCTAssertEqual(
+            ShelfSharing.airDropRefusal(serviceAvailable: false, canPerform: false)?.text,
+            "AirDrop is not available on this Mac."
+        )
+        XCTAssertEqual(
+            ShelfSharing.airDropRefusal(serviceAvailable: true, canPerform: false)?.text,
+            "AirDrop cannot send these files."
+        )
+        XCTAssertNil(ShelfSharing.airDropRefusal(serviceAvailable: true, canPerform: true))
+    }
+
+    /// The refusal goes through the same footer notice as a drop's result,
+    /// and lapses the same way: a moment, not a state.
+    func testANoticeClearsItself() async throws {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = quietStore(defaults)
+        store.noticeLifetime = .milliseconds(150)
+
+        store.show(.airDropCannotSend)
+        XCTAssertEqual(store.notice, .airDropCannotSend)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertNil(store.notice)
+    }
+
+    /// An AirDrop refusal answers a press on the selection's own verb, so
+    /// it is shown over the selection count; a drop's result is not, and
+    /// keeps waiting for the selection to be gone, as it did.
+    func testOnlyARefusalIsShownOverASelection() {
+        XCTAssertTrue(ShelfStore.Notice.airDropUnavailable.showsOverSelection)
+        XCTAssertTrue(ShelfStore.Notice.airDropCannotSend.showsOverSelection)
+        XCTAssertFalse(ShelfStore.Notice.alreadyOnShelf.showsOverSelection)
+        XCTAssertFalse(ShelfStore.Notice.evicted(2).showsOverSelection)
+    }
+
     /// With cards picked, the footer's destructive verb is "Remove 2" and
     /// acts on those two only. Beside a selection it used to be Clear, which
     /// emptied the whole shelf (H-015).
