@@ -49,6 +49,9 @@ final class NotchController {
     /// Monotonic stamp for the deferred half of closing: any newer open or
     /// close outdates the one still in flight.
     private var openGeneration = 0
+    /// Stamp of the panel `build()` last made. The synthetic-notch looks a
+    /// build schedules do nothing once a newer build has outdated them.
+    private var buildGeneration = 0
 
     func install() {
         stores.onScreenshot = { [weak self] url in
@@ -149,7 +152,6 @@ final class NotchController {
         lockPresence.onUnlock = { [weak self] in self?.screenUnlocked() }
         lockPresence.start()
         startGeometryWatchdog()
-        verifySyntheticNotch()
         // Verification hook, environment-gated like the panel's own: the lock
         // card is the one surface that cannot be screenshotted where it lives,
         // because the shield owns the screen while it is up. Launched with
@@ -421,12 +423,31 @@ final class NotchController {
     /// settling its displays. A launch that lands in that window would draw the
     /// synthetic pill for the rest of the session, since nothing else asks
     /// again. Two later looks cost nothing and end that.
+    ///
+    /// Asked at the end of every `build()`, not only at launch: a display
+    /// reconfiguration or a wake rebuilds the panel while the built-in display
+    /// is just as unsettled, and a synthetic pill drawn then stayed for the
+    /// session (F-047). The generation stamp bounds that — each build's looks
+    /// belong to it alone, so a rebuild storm leaves one pair of live looks.
+    nonisolated static func syntheticRecheckDelays(
+        isPhysical: Bool, generation: Int, current: Int
+    ) -> [TimeInterval] {
+        guard !isPhysical, generation == current else { return [] }
+        return [1.5, 5.0]
+    }
+
     private func verifySyntheticNotch() {
-        guard viewModel?.geometry.isPhysical == false else { return }
-        for delay in [1.5, 5.0] {
+        let generation = buildGeneration
+        let delays = Self.syntheticRecheckDelays(
+            isPhysical: viewModel?.geometry.isPhysical ?? true,
+            generation: generation,
+            current: buildGeneration
+        )
+        for delay in delays {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 MainActor.assumeIsolated {
-                    guard let self, self.viewModel?.geometry.isPhysical == false else { return }
+                    guard let self, self.buildGeneration == generation,
+                          self.viewModel?.geometry.isPhysical == false else { return }
                     guard let fresh = NotchGeometry.current(), fresh.isPhysical else { return }
                     self.geometryTrace("late notch found, rebuilding")
                     self.rebuild()
@@ -980,6 +1001,7 @@ final class NotchController {
         showingWelcome: Bool = false
     ) {
         guard let geometry = NotchGeometry.current() else { return }
+        buildGeneration += 1
         let vm = NotchViewModel(geometry: geometry, stores: stores)
         // Before any rect is cut. The tab decides how far down the panel
         // reaches, and restoring it afterwards left every rect cut for the
@@ -1371,6 +1393,7 @@ final class NotchController {
         // pill vanishes from the shield at the exact moment a display
         // changes. Last, so it also undoes the reopen just above.
         if lockPresence.isLocked { screenLocked() }
+        verifySyntheticNotch()
     }
 
     // MARK: - Open / close
