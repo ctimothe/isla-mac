@@ -55,8 +55,8 @@ struct ClipboardPane: View {
             } else {
                 ScrollView(showsIndicators: false) {
                     // One clock for every covered row in the list — see
-                    // `SpoilerClock`.
-                    SpoilerClock {
+                    // `SpoilerClock` — and only while one is covered.
+                    SpoilerClock(active: spoilerClockActive) {
                         LazyVStack(spacing: 3) {
                             ForEach(clipboard.items) { item in
                                 ClipRow(item: item, clipboard: clipboard, privacy: privacy)
@@ -74,6 +74,25 @@ struct ClipboardPane: View {
         // user back from System Settings expects history to resume, so the
         // system is asked again here rather than on a timer.
         .onAppear { clipboard.recheckAccess() }
+    }
+
+    /// Whether the list's spoiler clock has anything to animate. The tab
+    /// used to run it unconditionally, and covers are off by default, so an
+    /// unchanging list redrew twenty times a second (F-016). Needs the
+    /// section covered and a row still hidden: revealing the last row stops
+    /// the clock, covering the section again starts it.
+    static func spoilerClockActive(covers: Bool, hiddenCount: Int) -> Bool {
+        covers && hiddenCount > 0
+    }
+
+    private var spoilerClockActive: Bool {
+        let covers = privacy.covers(.clipboard)
+        // Only walked when the section covers: `hides` is false for every
+        // row otherwise. The history holds at most 40 rows.
+        let hidden = covers
+            ? clipboard.items.filter { privacy.hides(.clipboard, $0.id.uuidString) }.count
+            : 0
+        return Self.spoilerClockActive(covers: covers, hiddenCount: hidden)
     }
 
     /// The glyph alone used to be the whole empty tab, and VoiceOver read it

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import XCTest
 @testable import IslaKit
 
@@ -37,5 +38,29 @@ final class PrivacyModeTests: XCTestCase {
         XCTAssertTrue(privacy.hides(.translate, "translate.source"))
         // Only that one: a clipboard row the user uncovered stays uncovered.
         XCTAssertFalse(privacy.hides(.clipboard, "clip-1"))
+    }
+
+    /// The Clipboard tab wrapped its list in a 20 Hz `SpoilerClock` whatever
+    /// the cover said, so on a default install, where nothing is covered, an
+    /// unchanging list redrew twenty times a second (F-016). The clock runs
+    /// only while the section covers and at least one row is still hidden:
+    /// revealing the last row stops it, covering again starts it.
+    func testTheClipboardClockRunsOnlyForACoveredRow() {
+        XCTAssertFalse(ClipboardPane.spoilerClockActive(covers: false, hiddenCount: 0))
+        XCTAssertFalse(ClipboardPane.spoilerClockActive(covers: true, hiddenCount: 0))
+        XCTAssertTrue(ClipboardPane.spoilerClockActive(covers: true, hiddenCount: 3))
+    }
+
+    /// Stopped means stopped: an inactive clock's schedule hands the
+    /// timeline nothing past the frame it is drawn with, so the view is not
+    /// woken again; an active one keeps producing frames.
+    func testAnInactiveSpoilerClockSchedulesNoFurtherFrames() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        let idle = SpoilerClock<EmptyView>.schedule(active: false)
+            .entries(from: start, mode: .normal)
+        XCTAssertLessThanOrEqual(Array(idle.prefix(3)).count, 1)
+        let running = SpoilerClock<EmptyView>.schedule(active: true)
+            .entries(from: start, mode: .normal)
+        XCTAssertEqual(Array(running.prefix(3)).count, 3)
     }
 }
