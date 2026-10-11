@@ -34,7 +34,7 @@ final class ClipboardAccessNoticeTests: XCTestCase {
         XCTAssertEqual(open.count, 1, root.dump)
         XCTAssertTrue(open.first?.actionNames.contains("AXPress") ?? false, root.dump)
         // What was kept before the refusal stays usable.
-        XCTAssertEqual(root.all(role: "AXButton").filter { $0.label == "Copy Entry" }.count, 1, root.dump)
+        XCTAssertEqual(root.all(role: "AXButton").filter { $0.label == "copied before the switch" }.count, 1, root.dump)
     }
 
     func testAnEmptyDeniedHistoryStillSaysWhy() async {

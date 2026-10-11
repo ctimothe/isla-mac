@@ -314,9 +314,16 @@ final class VisualLabPanelTests: VisualLabCase {
             .text("Meet at the north entrance, 18:30 — bring the cable."),
             .text("Привет! Как дела?"),
             .text("let answer = try await translator.translate()"),
-            .text(String(repeating: "A long note that runs on and on past the edge of the row. ", count: 4)),
+            .text(Self.longNote),
         ], into: clipboard)
     }
+
+    /// The newest entry `fill` records, so the top row.
+    private static let longNote = String(repeating: "A long note that runs on and on past the edge of the row. ", count: 4)
+
+    /// What the top row is called. Rows are named by their preview now, not
+    /// all "Copy Entry", so a press has to name the row it means.
+    private static var topRowName: String { ClipItem(payload: .text(longNote), date: .distantPast).preview }
 
     func testClipboard() async throws {
         let session = try makeSession()
@@ -350,8 +357,8 @@ final class VisualLabPanelTests: VisualLabCase {
             }), variant, height: size.height)
         }
         try await shoot.shoot("row-just-copied", variants: [.base], size: size,
-                              notes: "A row's copy action, pressed through accessibility: the checkmark it flashes for 1.1 s. Copies onto the lab's private pasteboard.",
-                              interact: { LabAccessibility.press(localized("Copy Entry"), in: $0) }) { variant in
+                              notes: "A row's copy action, pressed through accessibility: the checkmark and the word Copied it shows for 1.1 s. Copies onto the lab's private pasteboard.",
+                              interact: { LabAccessibility.press(Self.topRowName, in: $0) }) { variant in
             Self.scene(try await self.openPanel(session, tab: .clipboard, prepare: { self.fill(session, $0.clipboard) }),
                        variant, height: size.height)
         }
