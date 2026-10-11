@@ -978,10 +978,20 @@ final class NotchViewModel: ObservableObject {
     }
 
     /// Whether a pane wants this Escape for itself. Consulted before the panel
-    /// folds, so that Escape means the nearest reversible thing first: clear
-    /// the translation being typed, hand the keyboard back from the notes.
-    /// Pressing it again, with nothing left to undo, closes the panel.
+    /// folds, so that Escape cancels the nearest thing first and only the
+    /// press after that, with nothing left to cancel, closes the panel.
+    ///
+    /// An armed two-press confirmation goes first (owner decision 3): Escape
+    /// is cancel on macOS, and it used to fold the panel around a red "Clear
+    /// Everything" instead of taking the question back. Disarming loses
+    /// nothing.
+    ///
+    /// Then the text being typed into Translate, which this clears — the way
+    /// a search field and Spotlight spend a first Escape (owner decision 15).
+    /// That one is not reversible: there is no undo for the cleared field, and
+    /// an earlier version of this comment said otherwise.
     func consumeEscape() -> Bool {
+        if ArmedConfirmations.shared.disarmAll() { return true }
         switch tab {
         case .translate where !translator.input.isEmpty:
             translator.reset()
