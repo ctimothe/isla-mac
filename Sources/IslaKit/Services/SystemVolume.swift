@@ -1,3 +1,4 @@
+import AudioToolbox
 import CoreAudio
 import Foundation
 
@@ -13,9 +14,83 @@ import Foundation
 /// call answers honestly with nil or false, and the caller hides the control
 /// rather than showing a slider that moves and changes nothing.
 enum SystemVolume {
-    /// 0…1 for the current default output, or nil when it has no volume to give.
+    /// The control a write goes through, in the order it is tried.
+    enum Control: Equatable {
+        /// The virtual main volume (`kAudioHardwareServiceDeviceProperty_VirtualMainVolume`):
+        /// the system's own scalar over whatever the device has, which keeps
+        /// the balance between the channels it drives. The menu bar's slider
+        /// and the volume keys move this one.
+        case virtualMain
+        /// A real main volume element.
+        case main
+        /// The two stereo channels, scaled together by `channelLevels`.
+        case channels
+    }
+
+    /// Which control a write goes through, given which ones the device can
+    /// set — or nil, and no bar, when it can set none (K-008).
+    ///
+    /// The bar used to exist whenever a level could be *read*. A fixed-volume
+    /// DAC or an HDMI output publishes a level it will not take, so the bar
+    /// followed the finger and snapped back at release — the slider that moves
+    /// and changes nothing that this file was written to rule out. The virtual
+    /// main volume goes first because it keeps a hearing-balance setting
+    /// where the user put it (G-023); writing one scalar to both channels
+    /// reset it to centre at the first touch.
+    static func control(virtualMain: Bool, main: Bool, channels: Bool) -> Control? {
+        if virtualMain { return .virtualMain }
+        if main { return .main }
+        if channels { return .channels }
+        return nil
+    }
+
+    /// Both channels moved to `setting`, keeping their balance (G-023).
+    ///
+    /// The level is the two channels' average — what `current()` reads back
+    /// for a device like this — so one factor scales both and the bar lands
+    /// where the finger asked. Near the top the louder side reaches 1 first;
+    /// it stops there and the quieter side keeps its ratio to it, so the
+    /// balance outranks the last few percent of level. Silent channels carry
+    /// no balance to keep, and both take the level.
+    static func channelLevels(
+        setting: Float, from current: (left: Float, right: Float)
+    ) -> (left: Float, right: Float) {
+        let target = min(max(setting, 0), 1)
+        let left = max(current.left, 0)
+        let right = max(current.right, 0)
+        let average = (left + right) / 2
+        guard average > 0 else { return (target, target) }
+        var factor = target / average
+        let louder = max(left, right)
+        if louder * factor > 1 { factor = 1 / louder }
+        return (min(left * factor, 1), min(right * factor, 1))
+    }
+
+    /// Whether moving the level to `newLevel` lifts the mute. Raising the
+    /// level of a muted Mac unmutes it, as the volume keys do; a drag to the
+    /// very bottom leaves the mute alone, and a device that is not muted is
+    /// never written to for it.
+    static func unmutes(muted: Bool, newLevel: Float) -> Bool {
+        muted && newLevel > 0
+    }
+
+    /// 0…1 for the current default output, or nil when it has no volume to
+    /// give — including one it would show but not take (K-008).
     static func current() -> Float? {
         guard let device = AudioOutputs.current() else { return nil }
+        return level(device: device)
+    }
+
+    /// 0…1 for `device`, or nil when nothing on it can be set.
+    static func level(device: AudioDeviceID) -> Float? {
+        guard let control = control(device: device) else { return nil }
+        // Read through the control the write goes through, so the bar at
+        // release shows the level the drag set rather than an average that a
+        // kept balance pulls off the finger.
+        if control == .virtualMain,
+           let virtual = scalar(device: device, selector: virtualMainSelector, channel: kAudioObjectPropertyElementMain) {
+            return virtual
+        }
         if let main = scalar(device: device, channel: kAudioObjectPropertyElementMain) {
             return main
         }
@@ -31,28 +106,116 @@ enum SystemVolume {
         }
     }
 
-    /// True when the write landed. Clamped, because a scalar outside 0…1 is
-    /// rejected by CoreAudio with an error the caller cannot do anything about.
+    /// True when the write landed on `device`. The caller names the device —
+    /// the lock card latches the one its drag began on (K-008) — because this
+    /// used to re-read the default on every call, and AirPods that took over
+    /// mid-drag were sent the finger's level for the speakers. Clamped,
+    /// because a scalar outside 0…1 is rejected by CoreAudio with an error the
+    /// caller cannot do anything about.
     @discardableResult
-    static func set(_ value: Float) -> Bool {
-        guard let device = AudioOutputs.current() else { return false }
+    static func set(_ value: Float, device: AudioDeviceID) -> Bool {
         let clamped = min(max(value, 0), 1)
+        if write(clamped, device: device, selector: virtualMainSelector, channel: kAudioObjectPropertyElementMain) {
+            return true
+        }
         if write(clamped, device: device, channel: kAudioObjectPropertyElementMain) { return true }
-        // Both channels together, so a stereo device does not drift into
-        // permanent imbalance from being driven one side at a time.
-        let left = write(clamped, device: device, channel: 1)
-        let right = write(clamped, device: device, channel: 2)
-        return left || right
+        // Both channels together and in proportion, so a balance set off
+        // centre stays where it was put (G-023). A device with one channel
+        // settable simply takes the level on that one.
+        let left = scalar(device: device, channel: 1)
+        let right = scalar(device: device, channel: 2)
+        let levels = channelLevels(setting: clamped, from: (left ?? right ?? 0, right ?? left ?? 0))
+        let wroteLeft = write(levels.left, device: device, channel: 1)
+        let wroteRight = write(levels.right, device: device, channel: 2)
+        return wroteLeft || wroteRight
+    }
+
+    // MARK: - Mute
+
+    /// Whether `device` is muted. A device with no mute control is not.
+    static func isMuted(device: AudioDeviceID) -> Bool {
+        var address = muteAddress
+        guard AudioObjectHasProperty(device, &address) else { return false }
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr else {
+            return false
+        }
+        return value != 0
+    }
+
+    /// Whether the default output is muted, for the watch's reads.
+    static func isMuted() -> Bool {
+        guard let device = AudioOutputs.current() else { return false }
+        return isMuted(device: device)
+    }
+
+    /// True when the mute landed. Inside the recorded "Output volume"
+    /// capability: it is the same system-wide setting the volume keys move.
+    @discardableResult
+    static func setMuted(_ muted: Bool, device: AudioDeviceID) -> Bool {
+        var address = muteAddress
+        guard AudioObjectHasProperty(device, &address) else { return false }
+        var settable: DarwinBoolean = false
+        guard AudioObjectIsPropertySettable(device, &address, &settable) == noErr,
+              settable.boolValue else { return false }
+        var value: UInt32 = muted ? 1 : 0
+        let size = UInt32(MemoryLayout<UInt32>.size)
+        return AudioObjectSetPropertyData(device, &address, 0, nil, size, &value) == noErr
+    }
+
+    private static var muteAddress: AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
     }
 
     // MARK: - One property
 
-    private static func scalar(device: AudioDeviceID, channel: AudioObjectPropertyElement) -> Float? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyVolumeScalar,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: channel
+    /// The virtual main volume's selector. It belongs to AudioToolbox, which
+    /// answers for it through the ordinary `AudioObject…PropertyData` calls:
+    /// the `AudioHardwareService…` functions it was once read through are
+    /// deprecated since macOS 10.11 in favour of exactly that.
+    private static let virtualMainSelector = AudioObjectPropertySelector(
+        kAudioHardwareServiceDeviceProperty_VirtualMainVolume
+    )
+
+    /// Which control a write to `device` would go through, read from the
+    /// device: the pure `control(virtualMain:main:channels:)` over what it
+    /// can actually set.
+    private static func control(device: AudioDeviceID) -> Control? {
+        control(
+            virtualMain: settable(device: device, selector: virtualMainSelector, channel: kAudioObjectPropertyElementMain),
+            main: settable(device: device, channel: kAudioObjectPropertyElementMain),
+            channels: settable(device: device, channel: 1) || settable(device: device, channel: 2)
         )
+    }
+
+    private static func address(
+        _ selector: AudioObjectPropertySelector, channel: AudioObjectPropertyElement
+    ) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioDevicePropertyScopeOutput, mElement: channel)
+    }
+
+    private static func settable(
+        device: AudioDeviceID,
+        selector: AudioObjectPropertySelector = kAudioDevicePropertyVolumeScalar,
+        channel: AudioObjectPropertyElement
+    ) -> Bool {
+        var address = address(selector, channel: channel)
+        guard AudioObjectHasProperty(device, &address) else { return false }
+        var settable: DarwinBoolean = false
+        return AudioObjectIsPropertySettable(device, &address, &settable) == noErr && settable.boolValue
+    }
+
+    private static func scalar(
+        device: AudioDeviceID,
+        selector: AudioObjectPropertySelector = kAudioDevicePropertyVolumeScalar,
+        channel: AudioObjectPropertyElement
+    ) -> Float? {
+        var address = address(selector, channel: channel)
         guard AudioObjectHasProperty(device, &address) else { return nil }
         var value: Float32 = 0
         var size = UInt32(MemoryLayout<Float32>.size)
@@ -63,20 +226,53 @@ enum SystemVolume {
     }
 
     private static func write(
-        _ value: Float, device: AudioDeviceID, channel: AudioObjectPropertyElement
+        _ value: Float,
+        device: AudioDeviceID,
+        selector: AudioObjectPropertySelector = kAudioDevicePropertyVolumeScalar,
+        channel: AudioObjectPropertyElement
     ) -> Bool {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyVolumeScalar,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: channel
-        )
-        guard AudioObjectHasProperty(device, &address) else { return false }
-        var settable: DarwinBoolean = false
-        guard AudioObjectIsPropertySettable(device, &address, &settable) == noErr,
-              settable.boolValue else { return false }
+        guard settable(device: device, selector: selector, channel: channel) else { return false }
+        var address = address(selector, channel: channel)
         var scalar = Float32(value)
         let size = UInt32(MemoryLayout<Float32>.size)
         return AudioObjectSetPropertyData(device, &address, 0, nil, size, &scalar) == noErr
+    }
+}
+
+/// Which device a lock-card volume drag writes to (K-008).
+///
+/// `SystemVolume.set` used to re-read the default output on every write, so a
+/// drag to 80% for the speakers that AirPods interrupted sent the AirPods —
+/// previously at 20% — straight to 80%. The drag latches the default it began
+/// on, and a default that moves under it ends the drag: the rest of the
+/// gesture writes nothing, and the next touch starts over on the new device.
+/// Pure, so the rule is held by a test rather than by the view.
+struct VolumeDragLatch {
+    /// The device this drag writes to, once its first event has latched it.
+    private(set) var device: AudioDeviceID?
+    /// The default moved under this drag; it writes nothing more until it ends.
+    private(set) var stopped = false
+
+    /// The device to write this event's level to, or nil to write nothing.
+    mutating func target(current: AudioDeviceID?) -> AudioDeviceID? {
+        guard !stopped else { return nil }
+        if device == nil { device = current }
+        return device
+    }
+
+    /// The default output is now `now`. True when that ends a running drag.
+    mutating func defaultMoved(to now: AudioDeviceID?) -> Bool {
+        guard let device, !stopped, now != device else { return false }
+        self.device = nil
+        stopped = true
+        return true
+    }
+
+    /// The finger lifted, or the drag was cut short: the next touch latches
+    /// afresh.
+    mutating func end() {
+        device = nil
+        stopped = false
     }
 }
 

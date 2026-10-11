@@ -232,6 +232,44 @@ final class AudioWatchTests: XCTestCase {
         XCTAssertEqual(watch.volume, 0.9)
     }
 
+    // MARK: - Mute (G-023)
+
+    /// A muted Mac drew a live-looking bar: mute was never read. The watch
+    /// reads it with the level — at start, on a full read, and on the volume
+    /// listener, which the mute key fires too — and publishes it beside it.
+    func testMuteIsReadWithTheLevel() {
+        var muted = true
+        var fullReads = 0
+        let watch = AudioWatch(
+            read: { fullReads += 1; return ([], 4, 0.5) },
+            readVolume: { 0.5 },
+            readMuted: { muted },
+            installListeners: {},
+            removeListeners: {}
+        )
+        watch.start()
+        XCTAssertTrue(watch.muted, "the first frame knows the Mac is muted")
+        let fullAfterStart = fullReads
+
+        muted = false
+        watch.volumeChanged()
+        XCTAssertFalse(watch.muted, "the mute key fires the volume listener, and the watch hears it")
+        XCTAssertEqual(fullReads, fullAfterStart, "still without enumerating the devices (F-045)")
+
+        muted = true
+        watch.systemAudioChanged()
+        XCTAssertTrue(watch.muted)
+    }
+
+    /// The card's render tests inject only `read`: the mute, like the level,
+    /// must then never come from the machine.
+    func testAnInjectedReadNeverReadsTheMachinesMute() {
+        let watch = AudioWatch(read: { ([], 2, 0.4) }, installListeners: {}, removeListeners: {})
+        watch.start()
+        watch.volumeChanged()
+        XCTAssertFalse(watch.muted)
+    }
+
     // MARK: - Devices that come and go while the card is up (K-009)
 
     /// Plugging in a USB DAC that macOS does not select changes the device

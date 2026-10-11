@@ -79,8 +79,10 @@ extension View {
 
     /// Declares a drawn volume bar as the output volume: a slider heard as a
     /// percentage, stepped by 5%. `set` receives the new level, already
-    /// clamped to 0...1.
-    func volumeAccessibility(level: Double, set: @escaping (Double) -> Void) -> some View {
+    /// clamped to 0...1. A muted output is heard as "Muted" rather than as a
+    /// level nobody can hear (G-023); the increment still raises it, which
+    /// unmutes, as the volume keys do.
+    func volumeAccessibility(level: Double, muted: Bool = false, set: @escaping (Double) -> Void) -> some View {
         let label = localized("Volume")
         return self
             .accessibilityRepresentation {
@@ -93,7 +95,9 @@ extension View {
             // 0.42 widened to a Double is 0.41999998…, which the bare
             // `.percent` style spoke as "41.999999 percent" — found by the
             // test that first read this value back.
-            .accessibilityValue(Text(level, format: .percent.precision(.fractionLength(0))))
+            .accessibilityValue(
+                muted ? Text(localized("Muted")) : Text(level, format: .percent.precision(.fractionLength(0)))
+            )
             .accessibilityAdjustableAction { direction in
                 switch direction {
                 case .increment: set(min(level + SeekAccessibility.volumeStep, 1))

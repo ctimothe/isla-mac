@@ -131,6 +131,12 @@ are the exception the design did not anticipate:
   system-wide setting, recorded on the same terms. Absent entirely for a
   device that publishes no volume control rather than shown as a slider
   that moves and changes nothing.
+  Since 2026-10-11 (G-023, K-008) it also reads the output's mute and
+  **unmutes** it when the bar is raised above zero, as the volume keys do —
+  the same system-wide setting, recorded on the same terms. Writes go
+  through the virtual main volume first, so a balance set off centre is
+  kept; the bar shows only when some volume control is settable, and a drag
+  writes only to the device it began on.
 - **Screen-capture pickup** (Settings, default on, added 2026-09-11; widened
   to stills and to every folder captures have been sent on 2026-09-21) shows
   what Screenshot.app saved — its configured location, the Desktop, and any
