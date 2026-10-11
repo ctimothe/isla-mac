@@ -749,7 +749,10 @@ final class SpotifyAccount: ObservableObject {
 
     private func retrySavedState(trackID: String, attempt: Int) {
         guard attempt < 3 else { return }
-        let delay = pow(2.0, Double(attempt + 1))
+        // Two, four, then eight seconds. A shift rather than `pow`: Xcode 26.6's
+        // compiler (the CI runner's) fails with "failed to produce diagnostic"
+        // on `pow(2.0, Double(attempt + 1))` here, which Xcode 27 accepts.
+        let delay = TimeInterval(1 << (attempt + 1))
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             MainActor.assumeIsolated {
                 self?.refreshSavedState(trackID: trackID, attempt: attempt + 1)
