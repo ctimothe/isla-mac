@@ -482,9 +482,15 @@ final class OnlineLyricsCache {
     /// Whether a remembered miss still stands: asked by the search too,
     /// inside its lifetime, and — for words the parser refused — refused by
     /// a parser no older than this one.
+    ///
+    /// A miss checked "in the future" is not believed. Its age is the clock
+    /// now minus the stamp, and nothing refused a negative one, so a miss
+    /// written while the clock ran a day fast stood for the fortnight plus
+    /// the day (G-037). A negative age is a clock that was wrong, and asking
+    /// once more costs one request.
     private func isBelieved(_ miss: Entry, now: Date) -> Bool {
-        guard miss.searched == true,
-              now.timeIntervalSince(miss.checkedAt) < Self.missLifetime else { return false }
+        let age = now.timeIntervalSince(miss.checkedAt)
+        guard miss.searched == true, age >= 0, age < Self.missLifetime else { return false }
         return miss.parserRevision.map { $0 >= parserRevision } ?? true
     }
 

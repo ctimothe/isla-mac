@@ -39,6 +39,22 @@ enum RecordingPickup {
     /// forever with names of files long trashed.
     static let seenLimit = 1000
 
+    /// The `since` a scan may use: the stored one, unless it is ahead of the
+    /// clock, and then the clock.
+    ///
+    /// The stamp is written once, at the first launch, with whatever the
+    /// clock said. A Mac whose clock ran ahead then — a new VM, or a first
+    /// boot before NTP answered — stored a moment that had not happened yet,
+    /// and every capture until real time caught up was judged older than the
+    /// feature. None reached the Shelf, and nothing ever moved the stamp back,
+    /// so fixing the clock did not help (G-037). A stamp in the future can
+    /// only be a clock that was wrong; the present is the nearest honest
+    /// answer. Captures from the skewed stretch that were already passed over
+    /// are not recovered: nothing about them was remembered, by design.
+    static func effectiveSince(stored: Date, now: Date = Date()) -> Date {
+        min(stored, now)
+    }
+
     /// Captures in `folders` that finished after `since` and were never
     /// offered, oldest first — the shelf inserts each at the front, so
     /// ascending lands them in the order they were recorded. Every capture

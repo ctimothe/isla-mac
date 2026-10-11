@@ -57,6 +57,22 @@ final class RecordingPickupTests: XCTestCase {
         XCTAssertTrue(second.urls.isEmpty, "the date settles it on every open")
     }
 
+    /// A `since` stamped while the clock ran ahead is held to the present.
+    /// The stamp is written once, at the first launch, so a Mac whose clock
+    /// was a year fast then (a new VM, or before NTP) judged every capture
+    /// for the next year as older than the feature, and none reached the
+    /// Shelf even after the clock was put right (G-037). A stamp in the past
+    /// is the ordinary case and passes through untouched.
+    func testAFutureSinceIsClampedToNow() {
+        let now = Date()
+        let ahead = now.addingTimeInterval(365 * 86400)
+        XCTAssertEqual(RecordingPickup.effectiveSince(stored: ahead, now: now), now)
+
+        let behind = now.addingTimeInterval(-86400)
+        XCTAssertEqual(RecordingPickup.effectiveSince(stored: behind, now: now), behind)
+        XCTAssertEqual(RecordingPickup.effectiveSince(stored: now, now: now), now)
+    }
+
     /// Past the cap, the memory lets go of the oldest captures first, by the
     /// file's date. It used to keep an arbitrary 1,000 by `Set` order, which
     /// changes with every launch's hash seed, so a card removed yesterday came

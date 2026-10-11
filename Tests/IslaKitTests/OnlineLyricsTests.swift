@@ -129,6 +129,34 @@ final class OnlineLyricsTests: XCTestCase {
         XCTAssertTrue(cache.cached(track) == nil, "Retry must mean retry")
     }
 
+    /// A miss stamped in the future is asked about again. Its age was the
+    /// clock now minus the stamp, with nothing refusing a negative answer, so
+    /// a miss written while the clock ran a day fast was believed for the
+    /// fortnight plus the day (G-037). A negative age is a clock that was
+    /// wrong, not a miss that is fresh.
+    func testAMissStampedInTheFutureIsAskedAgain() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ahead = Date().addingTimeInterval(86400).timeIntervalSinceReferenceDate
+        let stored: [String: Any] = [
+            OnlineLyricsCache.key(track): ["checkedAt": ahead, "searched": true],
+        ]
+        try JSONSerialization.data(withJSONObject: stored)
+            .write(to: directory.appendingPathComponent("cache.json"))
+
+        let cache = OnlineLyricsCache(directory: directory)
+        XCTAssertTrue(cache.cached(track) == nil, "a miss from the future is not believed")
+
+        // The same miss stamped an hour ago, the ordinary case, still stands.
+        let recent = Date().addingTimeInterval(-3600).timeIntervalSinceReferenceDate
+        try JSONSerialization.data(withJSONObject: [
+            OnlineLyricsCache.key(track): ["checkedAt": recent, "searched": true],
+        ]).write(to: directory.appendingPathComponent("cache.json"))
+        XCTAssertEqual(OnlineLyricsCache(directory: directory).cached(track), .some(nil))
+    }
+
     /// The cache keeps its newest answers, not every answer ever. A hit carries
     /// the song's whole timeline, and nothing used to leave: every song ever
     /// looked up stayed in memory and in the file, re-encoded whole at each new
