@@ -639,6 +639,14 @@ struct LockScreenCard: View {
             distance: resolution.moment.distance(of: index),
             at: resolution.at,
             end: LyricSweep.end(of: index, in: lines),
+            // The sung row's edge read per frame from the running clock, as
+            // on the stage and the caption.
+            clock: index == resolution.current
+                ? LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+                    precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
+                    trackOffset: lyrics.trackOffset
+                ))
+                : nil,
             fontSize: Theme.TypeRole.title.size,
             weight: .bold,
             lineLimit: 1,

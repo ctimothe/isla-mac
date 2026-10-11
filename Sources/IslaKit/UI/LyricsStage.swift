@@ -353,11 +353,13 @@ struct LyricsStage: View {
     /// borrow. `Theme.contentAnimation` is 0.16s — it is the curve for a badge
     /// appearing — and one page step here is a whole slot, 48pt, moved because
     /// the song moved. At 0.16s the page beat the thing it exists to carry:
-    /// `KaraokeText` sweeps a line over `.linear(duration: 0.25)`, so the new
-    /// line was already parked at the reading centre with its sweep still
-    /// crossing it. The page has to be the slower of the two, and it is the one
-    /// animation in this app allowed a little overshoot — see the comment on
-    /// `Theme.lyricScroll` for why the momentum rule permits exactly this one.
+    /// the new line was parked at the reading centre before the line it
+    /// replaced had finished lighting up. The page has to be the slower motion,
+    /// and it is the one animation in this app allowed a little overshoot —
+    /// see the comment on `Theme.lyricScroll` for why the momentum rule permits
+    /// exactly this one. The sweep inside a line is no longer an animation at
+    /// all: `KaraokeText` places its edge from the clock on every frame, and
+    /// refuses the transaction this page turn runs in.
     ///
     /// The Reduce Motion branch is now inside `Theme.lyricScroll(reduceMotion:)`
     /// rather than being a bare assignment here. It still refuses the spring —
@@ -428,6 +430,9 @@ struct LyricsStage: View {
             distance: moment.distance(of: index),
             at: now,
             end: LyricSweep.end(of: index, in: lines),
+            // Only the sung row reads the clock per frame; every other row is
+            // lit whole or not at all.
+            clock: isCurrent ? LyricSweep.frameClock(media: media, lead: lead) : nil,
             // The stage reads at arm's length and lets a long line wrap; the
             // card holds one line at a glance. Wrapping is the only thing
             // either surface still decides for itself — both read at the title
