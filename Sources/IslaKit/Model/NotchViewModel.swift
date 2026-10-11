@@ -155,9 +155,16 @@ final class NotchViewModel: ObservableObject {
     /// *opens* the panel, never whether arriving takes back a panel that is
     /// already open. A step of its own inside `pointerCrossed` because a drag
     /// arriving must not run it; see there.
+    ///
+    /// Music only for an arrival at the *closed* island: that is the glance at a
+    /// track the island exists for. A panel already open is not being arrived
+    /// at, it is being used — ⌃⌥⌘I opens on whatever tab was left, and the hand
+    /// that then went for a Clipboard row had the pane swap to Music under it
+    /// (J-008, 2026-10-11). The pin still goes either way: the pointer reaching
+    /// the panel is what hands it back, whatever tab it is on.
     func pointerArrived() {
         isPinnedOpen = false
-        select(.media)
+        if !isOpen { select(.media) }
     }
 
     /// What the pointer crossing the panel's boundary asks the panel to do.
@@ -323,8 +330,9 @@ final class NotchViewModel: ObservableObject {
     /// Distinct from `select` because `select` is also how the *machinery* moves
     /// the panel to a tab — the pointer arriving, a file being dragged on, a
     /// translation arriving by hotkey — and none of those is an answer to
-    /// anything. `pointerArrived()` in particular selects Music, and the pointer
-    /// arrives by definition on the way to the Get Started button, so dismissing
+    /// anything. `pointerArrived()` in particular selects Music on a closed
+    /// island, and the pointer arrives by definition on the way to the Get
+    /// Started button, so dismissing
     /// the welcome from `select` would have wiped it out from under the cursor
     /// reaching for it. Reaching for a tab is a decision; the pointer crossing
     /// the panel is not.
