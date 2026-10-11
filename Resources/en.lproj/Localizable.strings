@@ -410,3 +410,5 @@
 "0.5 s" = "0.5 s";
 "0.3 s" = "0.3 s";
 "The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change." = "The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change.";
+"Sync Here" = "Sync Here";
+"These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here." = "These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here.";

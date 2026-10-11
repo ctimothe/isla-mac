@@ -1357,3 +1357,24 @@ arrives, but a person singing along reads the next line before they sing it.
 - [ ] **Physical check owed (READ-02):** on the ballad, Auto feels like the
   0.5 s that was perfect; on a faster song with shorter lines it turns
   about 0.35 to 0.45 s early and does not feel like too much.
+
+## ly/VERSION-01 (2026-10-11): lyrics timed for a longer version
+
+- [x] **Detection, notice, Sync Here.** An online timeline whose last stamp runs
+  more than 3 s past the track's length is flagged (`LyricTimeline.overrun`);
+  the lyrics stage then shows one inline notice and every row offers Sync Here
+  (context menu and VoiceOver action) that sets the per-track delay so that line
+  is current now. The per-track range is now +/-45 s (was +/-1.5 s); the online
+  cache is format 3. **Display only: nothing leaves the machine, no account, no
+  system-wide setting, and no new request** beyond the one-time background
+  refresh of an already-cached hit that the cache already makes for any format
+  change. Tests: `LyricVersionMismatchTests`.
+- [x] **Lab L10** (`LyricAccuracyLabVersionTests`, 540-track corpus): 61 of 535
+  records with a length are stamped more than 3 s past their own end (11.4 %),
+  1,236 lines past the end; overrun p50 56 s, p95 284 s.
+- [ ] **Physical check owed (VERSION-01):** on *We Are The People* (Empire Of
+  The Sun) from Yandex Music, the notice shows on the stage; right-click the
+  line being sung, choose Sync Here, and the lines land on the voice, the
+  notice goes, and Reset (hold the readout) brings it back. The compact caption
+  and the lock card show no notice and are not hidden for a mismatched lyric
+  (the owner decides later); they read the same lead, so they follow a sync.

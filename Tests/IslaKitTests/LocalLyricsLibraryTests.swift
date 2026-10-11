@@ -830,7 +830,8 @@ final class LocalLyricsLibraryTests: XCTestCase {
         let track = identity()
         try write(studioLRC, to: legacyOverrides.appendingPathComponent("old.lrc"))
         let legacyEntry = legacyV4.appendingPathComponent(legacyV4Name(for: track))
-        try write(legacyV4Entry(trackOffset: 9), to: legacyEntry)
+        // Past the track layer's ±45 s (it was ±1.5 s, and 9 was enough).
+        try write(legacyV4Entry(trackOffset: 99), to: legacyEntry)
 
         _ = LocalLyricsLibrary(
             directory: root,

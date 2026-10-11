@@ -138,20 +138,39 @@ enum OnlineLyrics {
     /// 3 of the parser (an empty stamp is a line end), so the last line is the
     /// last sung one.
     static func fits(_ timeline: LyricTimeline, duration: TimeInterval) -> Bool {
-        guard duration > 0, let last = timeline.lines.map(\.at).max() else { return true }
-        return last <= duration + durationTolerance
+        guard let past = Self.overrun(of: timeline, duration: duration) else { return true }
+        return past <= durationTolerance
+    }
+
+    /// How far the last sung stamp runs past the end of a track this long, or
+    /// nil when the length is unknown (zero, negative or not finite) or there
+    /// is no line. Negative when the words end before the track does.
+    ///
+    /// The one measurement of "timed for a longer version": `fits` is
+    /// `overrun <= durationTolerance`, the ranking compares it, and the
+    /// timeline carries it to the stage (`LyricTimeline.overrun`). It is read
+    /// off the whole answer, before `reachable` drops the lines past the end.
+    static func overrun(of timeline: LyricTimeline, duration: TimeInterval) -> TimeInterval? {
+        guard duration > 0, duration.isFinite, let last = timeline.lines.map(\.at).max() else { return nil }
+        return last - duration
     }
 
     /// The lines the clock can reach on a track this long, or nil when none
     /// can. A timeline that does not fit is still kept rather than refused —
     /// refusing would have turned about one track in eight into a miss with
     /// no better row to offer — but without the lines that could never show.
+    ///
+    /// The timeline that comes back carries its `overrun`, measured before
+    /// the drop.
     private static func reachable(_ timeline: LyricTimeline, duration: TimeInterval) -> LyricTimeline? {
-        guard duration > 0 else { return timeline }
+        guard duration > 0, duration.isFinite else { return timeline }
+        let overrun = Self.overrun(of: timeline, duration: duration)
         let kept = timeline.lines.filter { $0.at <= duration }
         guard !kept.isEmpty else { return nil }
-        guard kept.count < timeline.lines.count else { return timeline }
-        return LyricTimeline(lines: kept, granularity: timeline.granularity, documentID: timeline.documentID)
+        return LyricTimeline(
+            lines: kept, granularity: timeline.granularity, documentID: timeline.documentID,
+            overrun: overrun
+        )
     }
 
     /// The whole round trip. The transport is a parameter so the tests never
@@ -180,7 +199,7 @@ enum OnlineLyrics {
     ) async -> Outcome {
         guard let request = request(for: identity) else { return .none }
         // The best answer that overran the track, held in case nothing fits
-        // better. The exact query's comes first and outranks a search row.
+        // better: the one that overruns least, the exact query's winning a tie.
         var overrunning: LyricTimeline?
         var unreadable = false
         do {
@@ -220,7 +239,7 @@ enum OnlineLyrics {
                 if candidate.sawUnreadable { unreadable = true }
                 if let match = candidate.match {
                     if match.fits { return .found(match.timeline) }
-                    overrunning = overrunning ?? match.timeline
+                    if overruns(match.timeline, lessThan: overrunning) { overrunning = match.timeline }
                 }
             } catch {
                 searchFailed = true
@@ -233,6 +252,14 @@ enum OnlineLyrics {
         // the parser improves.
         if searchFailed { return .failed }
         return unreadable ? .unreadable : .none
+    }
+
+    /// Whether `candidate` runs less far past the track's end than `held`, or
+    /// nothing is held. A tie keeps what is held, so the exact query's answer
+    /// outranks a search row of the same overrun.
+    private static func overruns(_ candidate: LyricTimeline, lessThan held: LyricTimeline?) -> Bool {
+        guard let held else { return true }
+        return (candidate.overrun ?? .infinity) < (held.overrun ?? .infinity)
     }
 
     // MARK: - Search
@@ -283,7 +310,8 @@ enum OnlineLyrics {
     /// The timed candidate that is this recording, if one is: the same title
     /// once editions are set aside, the main artist among its artists, and the
     /// length within tolerance. A row whose words fit the track beats one
-    /// whose words run past its end; among equals the closest length wins.
+    /// whose words run past its end; among rows that run past it, the one
+    /// that runs least wins; among equals the closest length wins.
     /// The timeline comes back without lines past the end of the track.
     static func bestMatch(in rows: [SearchRow], for identity: LocalTrackIdentity) -> LyricTimeline? {
         bestCandidate(in: rows, for: identity).match?.timeline
@@ -297,7 +325,7 @@ enum OnlineLyrics {
         let wantTitle = comparable(baseTitle(identity.title))
         let wantArtist = comparable(primaryArtist(identity.artist))
         guard !wantTitle.isEmpty, !wantArtist.isEmpty else { return (nil, false) }
-        var best: (fits: Bool, difference: TimeInterval, timeline: LyricTimeline)?
+        var best: (fits: Bool, overrun: TimeInterval, difference: TimeInterval, timeline: LyricTimeline)?
         var sawUnreadable = false
         for row in rows where row.instrumental != true {
             guard let synced = row.syncedLyrics,
@@ -321,9 +349,19 @@ enum OnlineLyrics {
             }
             let timeline = document.timeline(documentID: nil)
             let fits = fits(timeline, duration: identity.duration)
-            let better = best.map { fits != $0.fits ? fits : difference < $0.difference } ?? true
+            let overrun = max(Self.overrun(of: timeline, duration: identity.duration) ?? 0, 0)
+            // Fitting first. Among rows that all run past the end, the one
+            // that runs least is the nearest to the recording playing: LRCLIB
+            // copies one timeline onto many releases, so twenty rows listed
+            // from 5 s to 312 s can carry identical stamps, and the listed
+            // length ranks nothing. Only then the closest length.
+            let better = best.map { held in
+                if fits != held.fits { return fits }
+                if !fits, overrun != held.overrun { return overrun < held.overrun }
+                return difference < held.difference
+            } ?? true
             guard better, let kept = reachable(timeline, duration: identity.duration) else { continue }
-            best = (fits, difference, kept)
+            best = (fits, overrun, difference, kept)
         }
         return (best.map { ($0.timeline, $0.fits) }, sawUnreadable)
     }
@@ -417,6 +455,11 @@ final class OnlineLyricsCache {
         /// for an ordinary miss, which is a fact about the catalogue and not
         /// about the parser.
         var parserRevision: Int?
+        /// For a hit, how far its last stamp ran past the track's end
+        /// (`LyricTimeline.overrun`). The cached lines are the reachable ones,
+        /// so it cannot be recomputed from them. Nil for a hit cached before
+        /// it was kept, which format 3 asks about once more.
+        var overrun: Double?
     }
 
     /// What a hit written now carries. Format 2 hits keep their line ends
@@ -429,7 +472,12 @@ final class OnlineLyricsCache {
     /// in the background (`needsRefresh`). Only a found answer replaces it.
     /// Anything else leaves the old words up and stamps the hit with this
     /// format, so the refresh costs one request per song and not one per play.
-    static let format = 2
+    ///
+    /// Format 3 (2026-10-11, ly/VERSION-01) keeps each hit's `overrun`. A
+    /// format 2 hit has none, so a song already cached as timed for a longer
+    /// cut would never be flagged nor re-ranked; it is asked about once, in
+    /// the background, like a format 1 hit.
+    static let format = 3
 
     private let directory: URL?
     private let capacity: Int
@@ -473,7 +521,7 @@ final class OnlineLyricsCache {
     func cached(_ identity: LocalTrackIdentity) -> LyricTimeline?? {
         guard let entry = entries[Self.key(identity)] else { return nil }
         if let lines = entry.lines {
-            return .some(LyricTimeline(lines: lines, granularity: .line, documentID: nil))
+            return .some(LyricTimeline(lines: lines, granularity: .line, documentID: nil, overrun: entry.overrun))
         }
         guard isBelieved(entry, now: Date()) else { return nil }
         return .some(nil)
@@ -498,7 +546,9 @@ final class OnlineLyricsCache {
         let key = Self.key(identity)
         switch outcome {
         case .found(let timeline):
-            entries[key] = Entry(lines: timeline.lines, checkedAt: Date(), format: Self.format)
+            entries[key] = Entry(
+                lines: timeline.lines, checkedAt: Date(), format: Self.format, overrun: timeline.overrun
+            )
         case .none, .unreadable:
             // Only the background refresh of an old hit asks about a song
             // with a hit (Retry forgets first). Its "nothing better" keeps

@@ -141,8 +141,16 @@ struct LyricsStage: View {
             ambience
             VStack(spacing: 0) {
                 header
+                // One row, one event: an import's failure is what the listener
+                // just did, so it speaks first; the version mismatch is a
+                // standing state and speaks when nothing else does. Never a
+                // toast as well.
                 if let notice {
                     noticeRow(notice)
+                } else if lyrics.showsVersionMismatchNotice {
+                    noticeRow(localized(
+                        "These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here."
+                    ))
                 }
                 if case .ready = lyrics.availability,
                    case .synced(let lines) = lyrics.state,
@@ -512,7 +520,12 @@ struct LyricsStage: View {
                 // tap away from a stage that no longer moves.
                 following = true
             },
-            allText: Self.plainText(lines)
+            allText: Self.plainText(lines),
+            // A credit is metadata the app inferred, not a line anybody
+            // sang, so it is no line to sync to.
+            syncHere: line.isCredit ? nil : {
+                syncHere(toLineAt: line.at)
+            }
         )
         .frame(maxHeight: .infinity, alignment: .center)
         // A row lighting is depth through opacity alone — `LyricRow` gave up
@@ -520,6 +533,18 @@ struct LyricsStage: View {
         // rather than switching on in one frame (F-055).
         .animation(Theme.contentAnimation, value: isCurrent)
         .accessibilityHint(localized("Jumps the song to this line"))
+    }
+
+    /// "Sync Here" on a row: the voice is on this line now, so this track's
+    /// delay becomes the one that makes it current at this moment. The clock
+    /// is read at the click, extrapolated rather than the last published
+    /// tick, which is up to 0.1 s old. The page follows again afterwards,
+    /// since the sung line has just moved under the reader.
+    private func syncHere(toLineAt lineAt: TimeInterval) {
+        lyrics.syncTrackOffset(
+            toLineAt: lineAt, position: media.extrapolatedPosition(), precisionSync: media.precisionSync
+        )
+        following = true
     }
 
     /// The silence before a line, in the slot a line would take. No seek and

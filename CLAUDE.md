@@ -240,7 +240,10 @@ alone reads ahead of the voice (Settings "Show next line early", default Auto,
 where the 45 percent cap binds):
 `LyricSweep.readingMoment` is the one function that picks its line, and
 `readAheadStart` the one that says when it turns — the boundary wakes ask the
-same function, so route nothing else around them.
+same function, so route nothing else around them. A catalogue timeline stamped
+past the track's end (`LyricTimeline.overrun`, flagged above
+`OnlineLyrics.durationTolerance`) is timed for a longer version: the stage says
+so and every row offers Sync Here (`LyricSweep.syncDelay`, per-track range ±45 s).
 
 ## Hard constraints
 
