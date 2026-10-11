@@ -1,10 +1,17 @@
 /* Isla — русский. Ключи — английский текст, поэтому строка без перевода
    просто останется английской, а не превратится в идентификатор. */
 
+/* Глоссарий. Один термин — одно слово во всей таблице; держит
+   Tests/IslaKitTests/LocalizationGlossaryTests.swift.
+   Clipboard — «Буфер обмена» (не «Буфер»). Источник: остальные строки таблицы.
+   Output — «Выход», Sound Output — «Выход звука». Источник: Пункт управления,
+   Sound.loctable («Output» → «Выход», «Output device» → «Устройство выхода звука»).
+   pt — «пт». Источник: AppKit, Ruler.loctable и FontManager.loctable. */
+
 /* Вкладки */
 "Music" = "Музыка";
 "Shelf" = "Полка";
-"Clipboard" = "Буфер";
+"Clipboard" = "Буфер обмена";
 "Translate" = "Перевод";
 "Settings" = "Настройки";
 
@@ -54,12 +61,10 @@
 "Hide" = "Скрыть";
 "Playing" = "Воспроизводится";
 "Paused" = "На паузе";
-"Translation needs macOS 26 or newer." = "Для перевода нужна macOS 26 или новее.";
 "This Mac does not support Apple Intelligence." = "Этот Mac не поддерживает Apple Intelligence.";
 "Turn on Apple Intelligence to translate." = "Включите Apple Intelligence для перевода.";
 "The on-device model is still downloading." = "Локальная модель ещё загружается.";
 "This text could not be translated." = "Этот текст не удалось перевести.";
-"This text is too long to translate at once." = "Этот текст слишком длинный для одного перевода.";
 "The translation could not be completed." = "Не удалось выполнить перевод.";
 "Hide from Screen Recording" = "Скрыть от записи экрана";
 "Translating…" = "Перевод…";
@@ -71,7 +76,6 @@
 "Swap Languages" = "Поменять языки местами";
 "Translate From" = "Исходный язык";
 "Translate To" = "Язык перевода";
-"%@ is translated online. Turn on Translate Online to use it." = "%@: перевод есть только онлайн. Включите «Переводить онлайн».";
 "%@ is not downloaded for translation on this Mac." = "%@: язык не загружен для перевода на этом Mac.";
 "Online translation is not reachable right now." = "Онлайн-перевод сейчас недоступен.";
 "Today's free online translations are used up." = "Бесплатный онлайн-перевод на сегодня исчерпан.";
@@ -100,8 +104,6 @@
 "Word Karaoke" = "Караоке по словам";
 "Lyrics stay on this Mac." = "Тексты песен остаются на этом Mac.";
 "Local Lyrics Library" = "Библиотека локальных текстов";
-"No local lyrics." = "Нет локального текста.";
-"No lyrics found." = "Текст не найден.";
 "Import LRC…" = "Импортировать LRC…";
 "Add Lyrics Folder…" = "Добавить папку с текстами…";
 "Remove %@" = "Удалить %@";
@@ -147,7 +149,6 @@
 "Export LRC" = "Экспортировать LRC";
 "This LRC file is invalid." = "Этот LRC-файл недействителен.";
 "Choose local lyrics…" = "Выберите локальный текст…";
-"No lyrics for this track." = "Для этого трека нет текста.";
 "Finding lyrics…" = "Ищем текст песни…";
 "Jumps the song to this line" = "Перематывает песню к этой строке";
 "Opens the full lyrics" = "Открывает полный текст";
@@ -164,7 +165,7 @@
 "Open %@" = "Открыть %@";
 "Sync" = "К строке";
 "Back to the current line" = "Вернуться к текущей строке";
-"Sound Output" = "Вывод звука";
+"Sound Output" = "Выход звука";
 "Glass" = "Стекло";
 "Solid" = "Сплошное";
 "Lock Screen" = "Экран блокировки";
@@ -175,17 +176,15 @@
 "Compact" = "Компактный";
 
 /* Lock card panes */
-"Lyrics are off." = "Текст песен выключен.";
+"Lyrics are off." = "Текст песни выключен.";
 "No output devices." = "Нет устройств вывода.";
 "Open on Hover" = "Открывать при наведении";
-"Output" = "Вывод";
+"Output" = "Выход";
 
 /* Первый запуск */
 "Isla is running." = "Isla работает.";
-"It lives at the notch. Click it to open." = "Она живёт у выреза. Нажмите на неё, чтобы открыть.";
 "Open the panel" = "Открыть панель";
 "Translate the clipboard" = "Перевести из буфера обмена";
-"Quit and everything else lives in Settings, at the bottom left." = "Выход и всё остальное — в настройках, внизу слева.";
 "Get Started" = "Начать";
 
 "Volume" = "Громкость";
@@ -255,7 +254,6 @@
 
 /* Отказы Spotify */
 "Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet." = "Spotify отказал этой учётной записи. Пока Spotify не проверит Isla, доступ есть только у вручную добавленных учётных записей, поэтому «Любимые треки» здесь пока не работают.";
-"Spotify refused this account. Liked Songs needs Spotify Premium." = "Spotify отказал этой учётной записи. Для «Любимых треков» нужен Spotify Premium.";
 "Spotify refused this account's library request." = "Spotify отказал в доступе к медиатеке этой учётной записи.";
 
 /* Диагностика */
@@ -295,3 +293,128 @@
 /* Зарядка и наушники */
 "Power adapter connected" = "Адаптер питания подключён";
 "Power adapter connected, %d percent" = "Адаптер питания подключён: %d %%";
+
+/* Полка: карточка, чей диск не подключён */
+"Disk not connected" = "Диск не подключён";
+
+/* Текст песни: почему его нет, простыми словами */
+"No lyrics on this Mac." = "На этом Mac нет текста этой песни.";
+"No lyrics found for this song." = "Текст этой песни не найден.";
+"Can't read the lyrics file for this song." = "Не удаётся прочитать файл с текстом этой песни.";
+"No lyrics for live audio." = "Для прямого эфира текста нет.";
+"This track has no title to look up." = "У этого трека нет названия для поиска.";
+"Unlock your Mac to open Isla." = "Разблокируйте Mac, чтобы открыть Isla.";
+"Drop files here to keep them" = "Перетащите сюда файлы, чтобы держать их под рукой";
+"From Finder, Mail, Photos or a browser. Holds %d." = "Из Finder, Почты, Фото или браузера. Помещается %d.";
+"Select" = "Выбрать";
+"Selected" = "Выбрано";
+
+/* Privacy card: what each switch protects (H-004, F-008, J-001) */
+"Cover Clipboard Rows" = "Скрывать строки буфера обмена";
+"Cover Translate Text" = "Скрывать текст в Переводе";
+"Covered text shows as moving dots until you click it, and is covered again when the panel closes." = "Скрытый текст выглядит как движущиеся точки, пока вы не щёлкнете по нему, и снова скрывается, когда панель закрывается.";
+"Asks macOS to leave Isla out of screenshots, recordings and screen sharing. Some sharing apps may still show it, so cover Clipboard and Translate before you share." = "Просит macOS не показывать Isla на снимках, записях и при демонстрации экрана. Некоторые приложения всё равно могут её показать, поэтому перед демонстрацией скройте буфер обмена и Перевод.";
+"Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on." = "Скопированный текст не сохраняется. Пока включено «Сохранять скриншоты из буфера», скопированное проверяется на скриншоты.";
+"Opens the panel" = "Открывает панель";
+"Closes the panel" = "Закрывает панель";
+"Tabs" = "Вкладки";
+"Welcome" = "Добро пожаловать";
+"%@ is translated online only. Turning on Translate Online sends this text to MyMemory." = "%@: перевод есть только онлайн. Если включить «Переводить онлайн», текст уйдёт в MyMemory.";
+"Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory." = "На этом Mac для перевода нужна macOS 26 или новее. Если включить «Переводить онлайн», текст уйдёт в MyMemory.";
+"Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet." = "До macOS 26 этот Mac ничего не переводит сам: всё отправляется в MyMemory через интернет.";
+"%@. Press again to confirm." = "%@. Нажмите ещё раз, чтобы подтвердить.";
+"Copied" = "Скопировано";
+"macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS не разрешает Isla читать скопированное, поэтому новое не сохраняется.";
+"Open Privacy Settings" = "Открыть настройки конфиденциальности";
+"Nothing copied yet" = "Пока ничего не скопировано";
+"Text and files you copy appear here. Copies from password managers are skipped." = "Здесь появится то, что вы копируете. Копии из менеджеров паролей не сохраняются.";
+"Turn On" = "Включить";
+"Something is playing that Music Only keeps off the island." = "Сейчас играет то, что «Только музыка» не показывает на острове.";
+"Open Settings" = "Открыть настройки";
+"Isla's Now Playing reader answered with nothing while a player was playing. Only Music and Spotify can be seen." = "Модуль Isla для чтения Now Playing ничего не сообщал, хотя плеер играл. Видны только Музыка и Spotify.";
+"Couldn't read this file as text." = "Не удалось прочитать этот файл как текст.";
+"Line %d of this file has a time Isla can't read." = "В строке %d этого файла время, которое Isla не может прочитать.";
+"This file has no timed lyrics." = "В этом файле нет текста со временем.";
+"Couldn't read: %@" = "Не удалось прочитать: %@";
+"Edited %@" = "Изменено %@";
+"%d points" = "%d пт";
+"%.2f seconds" = "%.2f секунды";
+"Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify отказал в «Любимых треках» и сослался на Premium. Spotify требует его от регистрации самой Isla, так что дело может быть не в вашей подписке.";
+"Instrumental" = "Проигрыш";
+"Edit Lyrics for %@" = "Редактировать текст: %@";
+"Insert Line After" = "Вставить строку ниже";
+"Line %d has a time Isla can't use." = "В строке %d время, которое Isla не может использовать.";
+"Allowed" = "Разрешено";
+"Not allowed" = "Не разрешено";
+"Not asked yet" = "Ещё не запрашивалось";
+"Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation." = "Isla не может читать плеер, которым ей не разрешено управлять. Разрешите Isla в разделе «Конфиденциальность и безопасность» › «Автоматизация».";
+"Open Automation Settings…" = "Открыть настройки автоматизации…";
+"Remove %d" = "Убрать %d";
+"Remove %d from Shelf" = "Убрать с полки: %d";
+"Already on the Shelf" = "Уже на полке";
+"The Shelf holds %d, so the oldest card left it. Its file is untouched." = "На полке помещается %d, поэтому самая старая карточка убрана. Сам файл не тронут.";
+"The Shelf holds %d, so the %d oldest left it. Their files are untouched." = "На полке помещается %d, поэтому самые старые убраны: %d. Сами файлы не тронуты.";
+"%.2f s later" = "на %.2f с позже";
+"%.2f s earlier" = "на %.2f с раньше";
+"On time" = "Без сдвига";
+"Move until the line lights with the voice." = "Сдвигайте, пока строка не загорится вместе с голосом.";
+"Earlier" = "Раньше";
+"Later" = "Позже";
+"Copy Translation" = "Копировать перевод";
+"%@ · %@ · in %@" = "%@ · %@ · в %@";
+"%@ · in %@" = "%@ · в %@";
+"Text to translate" = "Текст для перевода";
+"Type or paste text" = "Введите или вставьте текст";
+"The clipboard has no text." = "В буфере обмена нет текста.";
+"Only the first %@ characters were kept." = "Сохранены только первые %@ символов.";
+"Muted" = "Звук выключен";
+"AirDrop is not available on this Mac." = "AirDrop недоступен на этом Mac.";
+"AirDrop cannot send these files." = "AirDrop не может отправить эти файлы.";
+"Release to add to the Shelf" = "Отпустите, чтобы положить на полку";
+"Drop to keep on the Shelf" = "Отпустите, чтобы оставить на полке";
+"Moved 1 file to the Trash." = "Перемещён в Корзину 1 файл.";
+"Moved %d files to the Trash." = "Перемещено в Корзину файлов: %d.";
+"Only the first %@ characters were translated online." = "Онлайн переведены только первые %@ символов.";
+"This text is too long to translate at once. Shorten it and try again." = "Этот текст слишком длинный для перевода за раз. Сократите его и попробуйте снова.";
+"Isla %@" = "Isla %@";
+"No Dock or menu-bar icon. Click the notch or press %@ to come back." = "Значка в Dock и строке меню нет. Нажмите на вырез или %@, чтобы вернуться.";
+"No Dock or menu-bar icon. Click the notch to come back." = "Значка в Dock и строке меню нет. Нажмите на вырез, чтобы вернуться.";
+"Nothing leaves your Mac unless you turn it on." = "Ничто не покидает ваш Mac, пока вы это не включите.";
+"What's playing, with lyrics (%@)" = "Что играет — с текстом песни (%@)";
+"What's playing, with lyrics" = "Что играет — с текстом песни";
+"Files you drop on the notch" = "Файлы, брошенные на вырез";
+"What you copied, kept in memory" = "Скопированное, только в памяти";
+"%@ translates what you copied" = "%@ переводит скопированное";
+"Translates what you copied" = "Переводит скопированное";
+"Privacy, shortcuts and Quit" = "Приватность, сочетания клавиш и выход";
+"Needs your approval in Login Items." = "Нужно ваше разрешение в разделе «Объекты входа».";
+"Open Login Items…" = "Открыть «Объекты входа»…";
+"Launch at Login failed: %@" = "Не удалось включить автозапуск: %@";
+"Reset Lyric Timing" = "Сбросить смещение текста";
+"Lyric timing correction" = "Смещение текста песни";
+"GitHub is limiting checks right now. Try again in an hour." = "GitHub сейчас ограничивает проверки. Попробуйте через час.";
+"GitHub did not answer properly. Try again later." = "GitHub ответил с ошибкой. Попробуйте позже.";
+"%@ now belongs to “%@”. “%@” has no shortcut." = "%@ теперь у действия «%@». У «%@» больше нет сочетания клавиш.";
+"Needs Show Lyrics" = "Нужен переключатель «Показывать текст песни»";
+"Following your Mac: %@" = "Как на вашем Mac: %@";
+"Reduce Motion" = "Уменьшение движения";
+"Reduce Transparency" = "Понижение прозрачности";
+"Increase Contrast" = "Увеличение контраста";
+"A file from the drag could not be received." = "Не удалось получить файл из перетаскивания.";
+"New screenshot" = "Новый скриншот";
+"Isla could not open your browser for Spotify sign-in." = "Isla не смогла открыть браузер для входа в Spotify.";
+"The account was not imported. Try again, or connect it anew." = "Учётная запись не перенесена. Повторите попытку или подключите её заново.";
+"Spotify signed you in, but Isla could not save the account on this Mac." = "Вход в Spotify выполнен, но Isla не смогла сохранить учётную запись на этом Mac.";
+"Spotify ended Isla's access. Connect again to use Liked Songs." = "Spotify отозвал доступ Isla. Подключитесь снова, чтобы пользоваться «Любимыми треками».";
+"Spotify sign-in was cancelled." = "Вход в Spotify отменён.";
+"Spotify sign-in did not finish. Try connecting again." = "Вход в Spotify не завершился. Попробуйте подключиться ещё раз.";
+"Disconnect" = "Отключить";
+"Isla forgets the account on this Mac. Your Spotify library stays as it is." = "Isla забудет аккаунт на этом Mac. Ваша медиатека Spotify останется как есть.";
+"The heart on the lock screen adds the song to your Liked Songs." = "Сердечко на экране блокировки добавляет песню в «Любимые треки».";
+"Show next line early" = "Следующая строка заранее";
+"Auto" = "Авто";
+"0.5 s" = "0,5 с";
+"0.3 s" = "0,3 с";
+"The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change." = "Однострочный текст на острове переключается на следующую строку чуть раньше, чем её запоют; в режиме «Авто» длинным строкам даётся больше времени. Подсветка слов не меняется.";
+"Sync Here" = "Синхронизировать здесь";
+"These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here." = "Текст рассчитан на более длинную версию песни и может отставать. Нажмите правой кнопкой на строке, которая сейчас поётся, и выберите «Синхронизировать здесь».";

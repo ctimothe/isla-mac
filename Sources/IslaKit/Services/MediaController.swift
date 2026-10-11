@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// Now Playing for whatever the system is playing — browser tabs included.
 ///
@@ -126,8 +127,39 @@ final class MediaController: ObservableObject {
     /// routinely play at 1.5× or 2×, and the ticker extrapolating at 1×
     /// regardless meant the bar fell behind between polls and lurched forward
     /// on each one; below 1× it ran ahead and was yanked back.
+    ///
+    /// A change re-anchors first, at where the old rate has carried the clock.
+    /// The anchor stores a position and a moment, not a rate, so without that
+    /// the new rate was applied backwards over every second since the anchor
+    /// was set. Usually the snapshot carrying the new rate re-anchors anyway,
+    /// but not when its position is not adopted — a seek still unconfirmed,
+    /// precision sync steering, a stale or held reading — and then the next
+    /// tick jumped (by 0.8s in the lab's L4, for a 1x → 2x change one second
+    /// after a seek) and the lyric wake was armed seconds off. Doing it here
+    /// rather than in each branch of `apply` that declines a position means a
+    /// new branch cannot forget it.
     private var playbackRate: Double = 1 {
+        willSet {
+            if newValue != playbackRate, isPlaying, anchor != nil {
+                let nowMono = monotonicNow()
+                anchor = (extrapolatedPosition(at: nowMono), nowMono)
+            }
+        }
         didSet { if playbackRate != oldValue { armBoundaryTimer() } }
+    }
+
+    /// Where the clock stands at `nowMono` (now, by default): the anchor run
+    /// forward at the player's rate while playing, capped at the track's end;
+    /// the published position otherwise. The one copy of that arithmetic —
+    /// the tick, the rate change and the re-base all read it, and so should
+    /// anything that needs the live position between ticks, because
+    /// `position` is only as fresh as the last tick. Separate copies are how
+    /// the lyric surfaces once came to disagree (see `LyricSweep`). Only the
+    /// lyric wake runs its own, uncapped, and says why.
+    func extrapolatedPosition(at nowMono: TimeInterval? = nil) -> TimeInterval {
+        guard isPlaying, let anchor else { return position }
+        let value = anchor.position + ((nowMono ?? monotonicNow()) - anchor.atMono) * playbackRate
+        return duration > 0 ? min(value, duration) : value
     }
     /// Where we asked the player to jump, when — and from where, because the
     /// pre-seek trajectory is the only thing that can unmask a reading taken
@@ -227,11 +259,23 @@ final class MediaController: ObservableObject {
     /// on the beat. Between boundaries nothing extra runs.
     private var lyricBoundaries: [TimeInterval] = []
     private var lyricLead: @MainActor () -> TimeInterval = { 0 }
-    private var boundaryTimer: Timer?
+    private var boundaryTimer: DispatchSourceTimer?
+    /// When the armed wake is due, on the wall clock. A dispatch source has no
+    /// fire date to read back the way a `Timer` did, so it is recorded at the
+    /// moment of arming from the same delay the source is scheduled with.
+    private var lyricWakeDate: Date?
 
-    /// When the next lyric wake is scheduled for, if one is. Read from the
-    /// armed timer rather than recomputed, so a test sees what was scheduled.
-    var lyricWakeDateForTests: Date? { boundaryTimer?.fireDate }
+    /// When the next lyric wake is scheduled for, if one is. Recorded when the
+    /// wake is armed rather than recomputed, so a test sees what was scheduled.
+    var lyricWakeDateForTests: Date? { lyricWakeDate }
+    /// The one armed wake, if any: tests read its construction back from
+    /// libdispatch and check a re-arm cancels the source it replaces.
+    var lyricWakeSourceForTests: DispatchSourceTimer? { boundaryTimer }
+    /// Called inside the wake's handler, right after the tick it ran.
+    var onLyricWakeForTests: (@MainActor () -> Void)?
+    /// What the coordinator registered, sorted: every line's start and every
+    /// end `LyricSweep.effectiveEnd` honours.
+    var lyricBoundariesForTests: [TimeInterval] { lyricBoundaries }
 
     func setLyricBoundaries(_ boundaries: [TimeInterval], lead: @escaping @MainActor () -> TimeInterval) {
         lyricBoundaries = boundaries.sorted()
@@ -253,21 +297,80 @@ final class MediaController: ObservableObject {
         return ((next - lead) - position) / rate
     }
 
-    private func armBoundaryTimer() {
-        boundaryTimer?.invalidate()
+    /// Runs `handler` on the main queue `delay` seconds from now, as close to
+    /// on time as the machine allows, passing how late it actually ran.
+    ///
+    /// This was a Foundation `Timer` with tolerance 0 on the main run loop
+    /// whose block hopped to `tick()` through a `Task { @MainActor }`. The
+    /// lyric lab (L4b) measured it 4ms late at the median and 10ms at p99 on
+    /// an idle Mac, and 17.7ms at worst with every core busy — later than a
+    /// whole 60Hz frame, on the one wake whose point is the frame a line is
+    /// due on. Tolerance 0 does not exempt a run-loop timer from the run loop's
+    /// and the kernel's coalescing, and that, not the hop (about 0.05ms), was
+    /// the 4ms. A `.strict` dispatch source with zero leeway is exempt: idle,
+    /// it runs 0.07ms late at the median and 0.2ms at p99. With every core
+    /// busy it still runs up to about 11ms late (p50 1.8ms), and that part is
+    /// the main thread waiting for a core, which no choice of timer changes.
+    ///
+    /// The handler runs on the source's own turn of the main queue — the main
+    /// actor's executor, which is what `assumeIsolated` checks — so the tick
+    /// is not queued behind whatever else is waiting. A strict timer costs a
+    /// little more energy per wake than a coalesced one; there is only ever one
+    /// armed, for the next line, and only while a lyric timeline is registered
+    /// on an open panel that is playing.
+    ///
+    /// Static and nonisolated so the lab measures this very construction
+    /// rather than a copy of it that could drift. A display link was the other
+    /// candidate and was rejected: a wake every frame, for an event every few
+    /// seconds.
+    nonisolated static func scheduleLyricWake(
+        after delay: TimeInterval,
+        _ handler: @escaping @MainActor (_ late: TimeInterval) -> Void
+    ) -> DispatchSourceTimer {
+        let source = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+        let deadline = DispatchTime.now() + max(delay, 0)
+        source.schedule(deadline: deadline, repeating: .never, leeway: .nanoseconds(0))
+        source.setEventHandler {
+            let late = Double(Int64(DispatchTime.now().uptimeNanoseconds) - Int64(deadline.uptimeNanoseconds)) / 1e9
+            MainActor.assumeIsolated { handler(late) }
+        }
+        source.resume()
+        return source
+    }
+
+    /// Cancels the armed lyric wake, if there is one. A dispatch source keeps
+    /// firing after the last reference to it goes unless it is cancelled, so
+    /// every path that drops one comes through here.
+    private func cancelLyricWake() {
+        boundaryTimer?.cancel()
         boundaryTimer = nil
+        lyricWakeDate = nil
+    }
+
+    private func armBoundaryTimer() {
+        cancelLyricWake()
         guard isPlaying, isActive, let anchor, !lyricBoundaries.isEmpty else { return }
+        // Deliberately not `extrapolatedPosition()`: that one stops at the
+        // track's end, and lyric files do stamp lines past it. A clock pinned
+        // at the end would re-arm the same unreachable boundary on every wake
+        // for as long as the player kept saying it was playing.
         let now = anchor.position + (monotonicNow() - anchor.atMono) * playbackRate
         guard let delay = Self.nextLyricWake(
             boundaries: lyricBoundaries, lead: lyricLead(), position: now, rate: playbackRate
         ) else { return }
-        let timer = Timer(timeInterval: max(delay, 0.001), repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.tick() }
+        // The millisecond floor the run-loop timer had, kept so the arithmetic
+        // the lab checks (L4a) still means what it meant.
+        let wait = max(delay, 0.001)
+        lyricWakeDate = Date().addingTimeInterval(wait)
+        boundaryTimer = Self.scheduleLyricWake(after: wait) { [weak self] late in
+            guard let self else { return }
+            // In the shipping app the lateness depends on App Nap and the
+            // process's task role, which no xctest run reproduces; a DI_MEDIA
+            // trail is how a real run shows it.
+            self.trace(String(format: "lyric wake late=%.3fms", late * 1000))
+            self.tick()
+            self.onLyricWakeForTests?()
         }
-        // No tolerance: the whole point is the frame the line is due on.
-        timer.tolerance = 0
-        RunLoop.main.add(timer, forMode: .common)
-        boundaryTimer = timer
     }
     /// How long an active panel waits for an authoritative reading before it
     /// settles for the position it has. Long enough for the ~150ms a real fix
@@ -356,9 +459,107 @@ final class MediaController: ObservableObject {
     /// Whether the panel is open — the ticker below runs only then.
     private var isActive = false
 
+    // MARK: - Automation consent
+
+    /// What is showing the clock while it is active.
+    ///
+    /// Two surfaces activate it, and they differ in the one thing that matters
+    /// here: a system prompt raised over the lock card sits under the shield,
+    /// where nobody can answer it. Only the panel may raise the first one.
+    enum Surface { case panel, lockCard }
+    private var surface: Surface = .panel
+
+    /// Where macOS stands on scripting a player. Production reads
+    /// `AutomationAccess`; tests pin it, since a test must never reach a real
+    /// player or TCC.
+    var automationConsent: (PlayerApp) -> AutomationConsent = { app in
+        MainActor.assumeIsolated { AutomationAccess.shared.status(app) }
+    }
+
+    /// Whether a Spotify account is connected. The track id exists for the
+    /// lock-card heart alone, and the heart is drawn only for a connected
+    /// account, so without one the lookup was an Apple Event for nothing.
+    var spotifyAccountConnected: () -> Bool = {
+        MainActor.assumeIsolated { SpotifyAccount.shared.isConnected }
+    }
+
+    /// Asks Spotify which track it is playing. A seam so a test can count the
+    /// questions: under test the bridge answers nothing, so a lookup sent at
+    /// the wrong moment was invisible until it could be counted.
+    var spotifyTrackIDLookup: (@escaping @MainActor (PlayerBridge.SpotifyTrackLookup) -> Void) -> Void = { reply in
+        PlayerBridge.spotifyTrackID(completion: reply)
+    }
+
+    /// Whether a background question may be sent to `app` now.
+    ///
+    /// Isla launched at login with Spotify playing and the panel closed, and
+    /// "Isla wants to control Spotify" appeared unprompted, with nothing on
+    /// screen to say what Isla was (G-005). The fallback did the same for
+    /// every running player at launch (J-003). So: a player macOS already
+    /// allows is asked as before; a refused one is never asked from the
+    /// background, which also ends the once-a-second -1743 the position poll
+    /// logged after a refusal (K-014); and one that would prompt is asked
+    /// only once the panel is open, the moment the prompt is in context. Not
+    /// on the lock card, which activates the clock too.
+    ///
+    /// A tap is not gated: it is the user's own action, and its prompt
+    /// arrives in context by definition.
+    private func mayScript(_ app: PlayerApp) -> Bool {
+        let consent = automationConsent(app)
+        if consent == .allowed { return true }
+        return consent != .denied && isActive && surface == .panel
+    }
+
+    private var mayScriptAnyPlayer: Bool {
+        PlayerApp.allCases.contains { mayScript($0) }
+    }
+
+    /// A question about a held song that consent kept back, so the panel
+    /// opening — or the grant arriving — asks it then. Without it a song
+    /// paused under a film while the panel was shut opened still reading as
+    /// playing, because the one question that would have said so was skipped.
+    private var owedPlayerQuestion = false
+
+    /// Asks what consent kept back, now that it may be asked. Each question
+    /// carries its own gate, so this asks nothing a surface may not.
+    private func payOwedQuestions() {
+        updatePrecisionSync()
+        if spotifyTrackID == nil, let key = track?.key {
+            requestSpotifyTrackID(for: key, playerPID: displayedPlayerPID, attempt: 0)
+        }
+        if owedPlayerQuestion {
+            if isHolding {
+                syncHeldPlayer()
+            } else if searchedUnder != nil, track == nil {
+                adoptLoadedSong()
+            }
+        }
+        if !feedAvailable { refreshFromPlayers() }
+    }
+
+    private var consentWatch: AnyCancellable?
+
+    /// The consent changed: a prompt answered, a refusal learnt from a
+    /// script, or the read-only check at launch. The last is what lets a Mac
+    /// that already allows Isla get its heart without opening anything; a
+    /// refusal stops the position poll at once rather than on its next tick.
+    func automationConsentChanged() {
+        payOwedQuestions()
+        if isActive { refreshPlaybackModes() }
+    }
+
     // MARK: - Lifecycle
 
     func start() {
+        // Read-only, never a prompt: whether macOS already allows each running
+        // player, so a Mac that granted access keeps everything it had.
+        // Delivered on the next pass, because `@Published` announces before it
+        // stores and the consent read on delivery must be the new one.
+        consentWatch = AutomationAccess.shared.$consents
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.automationConsentChanged() } }
+        AutomationAccess.shared.refresh()
         feed.onUpdate = { [weak self] snapshot in self?.feedDelivered(snapshot) }
         feed.onUnavailable = { [weak self] reason in self?.switchToScriptingFallback(reason) }
         feed.start()
@@ -376,6 +577,7 @@ final class MediaController: ObservableObject {
             queue: .main
         ) { [weak self] note in
             MainActor.assumeIsolated {
+                self?.hearAnnouncement(from: .spotify, note.userInfo ?? [:])
                 self?.applySpotifyBroadcast(note)
                 // And, for a song held under a film, the only report that the
                 // song paused or resumed: MediaRemote is describing the film.
@@ -386,8 +588,11 @@ final class MediaController: ObservableObject {
             forName: PlayerApp.music.changeNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.playerAnnouncedChange(.music) }
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                self?.hearAnnouncement(from: .music, note.userInfo ?? [:])
+                self?.playerAnnouncedChange(.music)
+            }
         }
     }
 
@@ -413,8 +618,20 @@ final class MediaController: ObservableObject {
     /// Spotify's own announcement, as its fields. Internal so a test can hand
     /// one in without Spotify.
     func receiveSpotifyBroadcast(_ info: [AnyHashable: Any]) {
-        guard displayedPlayerIsSpotify,
-              let position = info["Playback Position"] as? Double else { return }
+        // Remembered whatever is on screen: on a skip the announcement comes
+        // before any report names the new song, so it is the report, when it
+        // catches up, that takes the id from here.
+        if let uri = info["Track ID"] as? String, uri.hasPrefix(Self.spotifyTrackPrefix),
+           let name = info["Name"] as? String, !name.isEmpty {
+            lastSpotifyAnnouncement = SpotifyAnnouncement(
+                id: String(uri.dropFirst(Self.spotifyTrackPrefix.count)),
+                name: name,
+                artist: info["Artist"] as? String ?? ""
+            )
+        }
+        guard displayedPlayerIsSpotify else { return }
+        adoptAnnouncedTrackID()
+        guard let position = info["Playback Position"] as? Double else { return }
         guard pendingSeek == nil else { return }
         if broadcastNamesAnotherSong(info) {
             beginAwaitingTrackChange("Spotify announced another song")
@@ -462,6 +679,7 @@ final class MediaController: ObservableObject {
         fallbackReason = nil
         retryingNowPlaying = false
         isActive = false
+        consentWatch = nil
         precisionTimer?.invalidate()
         precisionTimer = nil
         if let spotifyStateObserver {
@@ -473,13 +691,14 @@ final class MediaController: ObservableObject {
         }
         musicStateObserver = nil
         isHolding = false
+        announcements = [:]
+        lastFullRecordAt = nil
         feed.stop()
         observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
         observers.removeAll()
         ticker?.invalidate()
         ticker = nil
-        boundaryTimer?.invalidate()
-        boundaryTimer = nil
+        cancelLyricWake()
     }
 
     /// Panel visibility. The position ticker hangs off this: it exists to move
@@ -488,9 +707,10 @@ final class MediaController: ObservableObject {
     /// never lost, because the anchor records where it stood and when: opening
     /// computes it from there instantly, and the feed's fresh answer corrects
     /// whatever drifted a beat later.
-    func setActive(_ active: Bool) {
+    func setActive(_ active: Bool, surface: Surface = .panel) {
         trace("setActive \(active ? 1 : 0)")
         isActive = active
+        if active { self.surface = surface }
         // Only a playing track can have moved while the panel was shut. A
         // paused one is exactly where it was left, so what is already known
         // about it stays authoritative — and clearing the flag there stranded
@@ -511,15 +731,18 @@ final class MediaController: ObservableObject {
             }
         }
         updateTicker()
-        updatePrecisionSync()
-        guard active else { return }
+        guard active else { return updatePrecisionSync() }
+        // Every panel open re-reads consent: the user may have changed it in
+        // System Settings, and an update resets it (J-002).
+        if surface == .panel { AutomationAccess.shared.refresh() }
         refreshPlaybackModes()
+        // Whatever consent kept back while nothing was open — the heart's id,
+        // the held song's state, the position poll, the fallback's read — is
+        // asked now, if this surface may ask. The panel may; the lock card
+        // only where macOS already allows it.
+        payOwedQuestions()
         tick()
-        if feedAvailable {
-            feed.refresh()
-        } else {
-            refreshFromPlayers()
-        }
+        if feedAvailable { feed.refresh() }
     }
 
     // MARK: - Shuffle & repeat
@@ -534,6 +757,7 @@ final class MediaController: ObservableObject {
             return
         }
         supportsRepeatOne = app == .music
+        guard mayScript(app) else { return }
         PlayerBridge.playbackModes(of: app) { [weak self] modes in
             guard let self, self.displayedPlayerApp == app else { return }
             self.shuffleEnabled = modes?.shuffle
@@ -611,25 +835,58 @@ final class MediaController: ObservableObject {
 
     /// Asks Spotify which track this is, and asks again if it does not answer.
     ///
-    /// Everything Spotify-specific hangs off this id: the word-synced lyrics
-    /// database is keyed by it, and so is the heart, which is simply not drawn
+    /// The lock-card heart is the id's one reader, and it is simply not drawn
     /// while the id is nil. One attempt was not enough. The very first lookup
-    /// after launch routinely fails — it is the call that triggers macOS's
+    /// after a grant routinely fails — it is the call that triggers macOS's
     /// one-time automation consent, and it returns nothing while the dialog is
     /// still on screen — and a script can also come back empty if Spotify is
     /// mid-track-change. The id then stayed nil for the rest of that track, so
     /// the heart never appeared for the song that happened to be playing at
     /// launch, which is exactly when somebody would look for it.
+    ///
+    /// Spotify's own announcement usually supplies the id first, with no
+    /// Apple Event at all (`adoptAnnouncedTrackID`); this is for the track that
+    /// was playing before any announcement was heard. It asks only where
+    /// `mayScript` lets it, and only for a connected account, since without
+    /// one there is no heart to draw (G-005).
     private func requestSpotifyTrackID(for key: String, playerPID: pid_t?, attempt: Int) {
-        guard displayedPlayerIsSpotify else { return }
-        PlayerBridge.spotifyTrackID { [weak self] id in
-            guard let self,
-                  self.track?.key == key,
-                  self.displayedPlayerPID == playerPID else { return }
-            if let id {
-                self.spotifyTrackID = id
-                Task { [weak self] in await self?.requestSpotifyMetadata(trackID: id, forKey: key) }
+        // The key first: a retry scheduled for a song since skipped asked
+        // Spotify again only to drop the answer.
+        guard track?.key == key, displayedPlayerIsSpotify, spotifyTrackID == nil,
+              spotifyTrackIDLookupKey != key,
+              spotifyAccountConnected(), mayScript(.spotify) else { return }
+        // One question in flight per track. The panel opening and the consent
+        // arriving can both ask for the same missing id a moment apart.
+        spotifyTrackIDLookupKey = key
+        spotifyTrackIDLookup { [weak self] answer in
+            guard let self else { return }
+            if self.spotifyTrackIDLookupKey == key { self.spotifyTrackIDLookupKey = nil }
+            guard self.track?.key == key,
+                  self.displayedPlayerPID == playerPID,
+                  self.spotifyTrackID == nil else { return }
+            switch answer {
+            case let .track(id, name, artist):
+                // MediaRemote trails Spotify by about a second, so right after
+                // a skip the script names the next song while the island still
+                // shows this one. The key guard above cannot see that — it is
+                // still this track's key — and the heart then liked the song
+                // the user had just skipped to (K-016). A mismatch is a
+                // non-answer: asked again, by when the report has caught up or
+                // the key has moved on.
+                if Self.names(self.track, name: name, artist: artist) {
+                    self.spotifyTrackID = id
+                    // No catalogue request follows. One went to the Web API
+                    // for every track, and its ISRC and exact duration had no
+                    // reader (G-005); `requestSpotifyMetadata` stays for the
+                    // lyrics work that may want it.
+                    return
+                }
+            case .notATrack:
+                // An episode, an ad or a local file. It has no id to find, and
+                // asking four more times cost four more Apple Events (K-014).
                 return
+            case .noAnswer:
+                break
             }
             // Backing off, and giving up well before it could become a poll.
             guard attempt < 4 else { return }
@@ -642,13 +899,60 @@ final class MediaController: ObservableObject {
         }
     }
 
+    /// The track whose id is being asked for, while the question is out.
+    private var spotifyTrackIDLookupKey: String?
+
+    private static let spotifyTrackPrefix = "spotify:track:"
+
+    /// Spotify's last announcement that named a catalogue track.
+    private struct SpotifyAnnouncement {
+        var id: String
+        var name: String
+        var artist: String
+    }
+    private var lastSpotifyAnnouncement: SpotifyAnnouncement?
+
+    /// Takes the heart's id from Spotify's own announcement when it names the
+    /// song on screen. The announcement is a distributed notification that
+    /// needs no permission at all, so on a fresh grant — or none — the heart
+    /// usually has its id after the first play, pause or skip without a single
+    /// Apple Event.
+    private func adoptAnnouncedTrackID() {
+        guard spotifyTrackID == nil, displayedPlayerIsSpotify,
+              let announced = lastSpotifyAnnouncement,
+              Self.names(track, name: announced.name, artist: announced.artist) else { return }
+        spotifyTrackID = announced.id
+    }
+
+    /// Whether Spotify's name and artist describe the track on screen.
+    ///
+    /// The name must match, ignoring case and surrounding space. The artist is
+    /// looser: MediaRemote and Spotify's scripting do not always list the same
+    /// performers for a song with several, so one containing the other is a
+    /// match, and an empty side says nothing either way.
+    private static func names(_ track: Track?, name: String, artist: String) -> Bool {
+        guard let track else { return false }
+        let trimmed = { (text: String) in text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        guard trimmed(name) == trimmed(track.title) else { return false }
+        let theirs = trimmed(artist)
+        let ours = trimmed(track.artist)
+        if theirs.isEmpty || ours.isEmpty { return true }
+        return theirs == ours || theirs.contains(ours) || ours.contains(theirs)
+    }
+
     /// Fetches the catalogue's exact identity for the resolved Spotify track.
     ///
+    /// Nothing calls this any more. It ran beside every resolved id, and its
+    /// answer — `spotifyISRC`, `spotifyExactDuration` — had no reader outside
+    /// this file, so every Spotify track cost a request to api.spotify.com for
+    /// nothing (G-005). It and its fields stay, tested, for the lyric matching
+    /// they were built for to wire up or delete.
+    ///
     /// One attempt, not the retry loop above: a lookup that fails simply
-    /// leaves the fields nil and title/artist matching covers the track. The
-    /// next track change refetches, so a failure never needs polling for the
-    /// rest of the song — and a failed lookup must never raise anything,
-    /// because there is no user-grantable permission behind it.
+    /// leaves the fields nil and title/artist matching covers the track. A
+    /// failure never needs polling for the rest of the song — and a failed
+    /// lookup must never raise anything, because there is no user-grantable
+    /// permission behind it.
     func requestSpotifyMetadata(trackID: String, forKey key: String) async {
         let metadata: SpotifyAccount.TrackMetadata?
         if let provider = spotifyMetadataProvider {
@@ -711,7 +1015,12 @@ final class MediaController: ObservableObject {
         // a scrubber cannot show the tenth of a second it buys. Without this
         // gate it ran whenever the panel was open on Spotify or Music, one
         // AppleScript compile a second for a number nothing was drawing.
-        let wanted = isActive && isPlaying && precisionPlayer != nil && lyricsShown()
+        //
+        // And only where the player may be asked. With Automation refused it
+        // kept sending an Apple Event a second and logging -1743 for each,
+        // about 3,600 log records an hour crowding Diagnostics (K-014); over
+        // the lock card it would raise the first prompt under the shield.
+        let wanted = isActive && isPlaying && precisionPlayer.map(mayScript) == true && lyricsShown()
         if precisionSync != wanted { precisionSync = wanted }
         guard wanted else {
             precisionTimer?.invalidate()
@@ -761,12 +1070,21 @@ final class MediaController: ObservableObject {
     /// displayed, no seek in flight, sane value) stay with the caller.
     func handleSpotifyPlaybackState(position broadcastPosition: TimeInterval) {
         setAnchor(broadcastPosition)
+        // Unsettled only when a correction can actually be asked for. Over the
+        // lock card on a Mac that has not granted Automation, none can, and
+        // nothing else settles the position there: the card's lyric would
+        // have waited on an answer that was never going to come. The
+        // broadcast's own millisecond reading is then the best there is.
+        guard let player = precisionPlayer, isActive, mayScript(player) else { return }
         positionSettled = false
         precisionCorrect()
     }
 
     private func precisionCorrect() {
-        guard !precisionInFlight, let player = precisionPlayer else { return }
+        // Active, as well as allowed: the answer is dropped below unless the
+        // clock is on screen, so asking with everything closed — on every
+        // Spotify announcement — was an Apple Event for nothing.
+        guard !precisionInFlight, isActive, let player = precisionPlayer, mayScript(player) else { return }
         precisionInFlight = true
         let askedMono = monotonicNow()
         // The seek verdict below is the one place the wall clock stays: it
@@ -857,7 +1175,33 @@ final class MediaController: ObservableObject {
 
     // MARK: - Transport
 
-    func togglePlayPause() {
+    /// Whether a transport command has somewhere truthful to go: a song on
+    /// the island, and a route that reaches the player showing it.
+    ///
+    /// Every on-screen control is already hidden without a track (MediaPane,
+    /// LockScreenCard), so what this decides is the Shortcuts actions and
+    /// anything bound to them (J-005). With Music Only hiding a paused YouTube
+    /// tab, Play or Pause went to the helper with no pid, the helper handed it
+    /// to whoever owned Now Playing — the hidden tab — and the video started
+    /// while the intent reported success. A command for nothing shown now
+    /// goes nowhere and says so.
+    ///
+    /// Not "the displayed pid is known": a helper without the pid symbol
+    /// reports pid 0 for every track, and refusing those would end transport
+    /// there altogether.
+    private var transportReachesShownPlayer: Bool {
+        guard track != nil else { return false }
+        return heldScriptablePlayer != nil || feedAvailable || activeApp != nil
+    }
+
+    /// False, and nothing sent, when the island shows nothing to play or
+    /// pause — see `transportReachesShownPlayer`. The check comes before the
+    /// intent is touched: a tap with no player used to leave a command in
+    /// flight that no report would ever resolve, and every tap after it was
+    /// coalesced behind that one and never sent (J-006).
+    @discardableResult
+    func togglePlayPause() -> Bool {
+        guard transportReachesShownPlayer else { return false }
         let target = playbackIntent.toggle(at: Date())
         // The latest tap owns the icon immediately. Reports from before the
         // command completed are reconciled without repainting it backwards.
@@ -865,15 +1209,21 @@ final class MediaController: ObservableObject {
         setAnchor(position)
         updateTicker()
         if let target { dispatchPlayback(target) }
+        return true
     }
 
-    func next() {
+    @discardableResult
+    func next() -> Bool {
+        guard transportReachesShownPlayer else { return false }
         trace("cmd next")
         beginAwaitingTrackChange("cmd next")
-        dispatch(feed: .next, transport: .next, key: .next)
+        dispatch(feed: .next, transport: .next)
+        return true
     }
 
-    func previous() {
+    @discardableResult
+    func previous() -> Bool {
+        guard transportReachesShownPlayer else { return false }
         trace("cmd previous")
         // A few seconds in, most players answer "previous" by restarting the
         // song, and the start of the same song is then the right thing to show
@@ -884,7 +1234,8 @@ final class MediaController: ObservableObject {
         } else {
             beginAwaitingTrackChange("cmd previous")
         }
-        dispatch(feed: .previous, transport: .previous, key: .previous)
+        dispatch(feed: .previous, transport: .previous)
+        return true
     }
 
     // MARK: - A skip the island has not caught up with
@@ -1001,30 +1352,41 @@ final class MediaController: ObservableObject {
         isHolding ? displayedPlayerApp : nil
     }
 
+    /// Sends a command through the helper. Injectable for the same reason as
+    /// `sendToPlayer`: a test sees what reached the helper without one running.
+    lazy var sendToFeed: (NowPlayingFeed.Command, pid_t?) -> Void = { [unowned self] command, pid in
+        self.feed.send(command, playerPID: pid)
+    }
+
+    /// There used to be a fourth branch, a system media key for when no route
+    /// reached a player. Posting one needs Accessibility, which Isla never
+    /// asks for, so it silently did nothing (J-006); and with nothing shown it
+    /// would have reached whichever session macOS picked, the very one the
+    /// island had declined to show. Asking for that permission, for a route
+    /// that matters only when the island has nothing to show, was rejected:
+    /// the verbs refuse that case before they get here instead.
     private func dispatch(
         feed command: NowPlayingFeed.Command,
-        transport action: PlayerBridge.Transport,
-        key: PlayerBridge.MediaKey
+        transport action: PlayerBridge.Transport
     ) {
         if let held = heldScriptablePlayer {
             sendToPlayer(action, held)
         } else if feedAvailable {
-            feed.send(command, playerPID: displayedPlayerPID)
+            // Only with a song shown. Without one the helper, given no pid,
+            // hands the command to whoever owns Now Playing — a session the
+            // island may have filtered out. The verbs check this already;
+            // the queued tap `apply` sends is the other way in.
+            guard track != nil else { return }
+            sendToFeed(command, displayedPlayerPID)
         } else if let activeApp {
             sendToPlayer(action, activeApp)
-        } else {
-            PlayerBridge.postMediaKey(key.rawValue)
         }
     }
 
     private func dispatchPlayback(_ playing: Bool) {
         // The per-client command set has no toggle of its own (#23), so the
         // desired state travels explicitly.
-        dispatch(
-            feed: playing ? .play : .pause,
-            transport: playing ? .play : .pause,
-            key: .playPause
-        )
+        dispatch(feed: playing ? .play : .pause, transport: playing ? .play : .pause)
     }
 
     // MARK: - Feed
@@ -1247,9 +1609,22 @@ final class MediaController: ObservableObject {
     /// a music source takes Now Playing back.
     private var searchedUnder: pid_t?
 
-    /// A song loaded in any running music player, playing or paused.
-    var loadedSong: (@escaping (PlayerState?) -> Void) -> Void = { reply in
-        PlayerBridge.currentState { state in
+    /// A song loaded in any running music player, playing or paused. Both
+    /// the search under a film and the scripting fallback ask through here.
+    ///
+    /// Lazy only so the default can name the player on screen: with nothing
+    /// playing, that one wins the tie (`PlayerBridge.choose`), so two paused
+    /// players no longer trade places on every announcement.
+    ///
+    /// Only the players that may be asked now are asked: with Spotify allowed
+    /// and Music never asked, a closed panel's search reads Spotify and leaves
+    /// Music's prompt for the panel.
+    lazy var loadedSong: (@escaping (PlayerState?) -> Void) -> Void = { [weak self] reply in
+        PlayerBridge.currentState(
+            prefer: self?.displayedPlayerApp ?? self?.activeApp,
+            asking: { app in MainActor.assumeIsolated { self?.mayScript(app) ?? false } },
+            announced: self?.announcedStates() ?? [:]
+        ) { state in
             MainActor.assumeIsolated { reply(state) }
         }
     }
@@ -1270,6 +1645,13 @@ final class MediaController: ObservableObject {
 
     /// Shows a song found in a music player while a film owns Now Playing.
     private func adoptLoadedSong() {
+        // The search runs on a film's arrival, panel open or not. With nothing
+        // open and no player allowed, it waits for the panel.
+        guard mayScriptAnyPlayer else {
+            owedPlayerQuestion = true
+            return
+        }
+        owedPlayerQuestion = false
         loadedSong { [weak self] state in
             guard let self, !self.isHolding, self.searchedUnder != nil,
                   let state, let pid = self.pidForPlayer(state.app) else { return }
@@ -1297,7 +1679,9 @@ final class MediaController: ObservableObject {
     /// song that has none — adopted, or changed under the film — asks its
     /// player for one.
     private func fetchHeldArtwork(_ state: PlayerState) {
-        guard let key = track?.key else { return }
+        // Music's cover is a script; Spotify's is a download from the address
+        // its state already gave, and asks Spotify nothing.
+        guard let key = track?.key, state.app != .music || mayScript(.music) else { return }
         heldArtwork(state) { [weak self] image in
             guard let self, self.track?.key == key, let image else { return }
             self.blankArtwork?.cancel()
@@ -1317,6 +1701,15 @@ final class MediaController: ObservableObject {
     /// question.
     private func syncHeldPlayer() {
         guard let app = displayedPlayerApp else { return }
+        // A film taking over with the panel shut, or over the lock card, is
+        // not a moment the user can be asked anything in. The song stays as
+        // last known — exactly what an unanswered question leaves — and the
+        // question is put when the panel opens.
+        guard mayScript(app) else {
+            owedPlayerQuestion = true
+            return
+        }
+        owedPlayerQuestion = false
         let pid = displayedPlayerPID
         heldPlayerState(app) { [weak self] reply in
             guard let self, self.isHolding, self.displayedPlayerPID == pid else { return }
@@ -1430,6 +1823,9 @@ final class MediaController: ObservableObject {
         if trackChanged || playerChanged {
             // A new song is a new line for the regression too.
             correctionWindow = []
+            // Spotify's announcement of this song usually came first, and its
+            // id costs nothing; the lookup is for when it did not.
+            adoptAnnouncedTrackID()
             requestSpotifyTrackID(for: key, playerPID: snapshot.playerPID, attempt: 0)
         }
         if playerChanged {
@@ -1461,6 +1857,14 @@ final class MediaController: ObservableObject {
             queuedTarget = nil
         } else {
             queuedTarget = playbackIntent.reconcile(reported: reportedPlaying, at: now)
+        }
+        // A resume the player reports starts the clock where the track stopped.
+        // The anchor kept through a pause is only re-based by a reading the
+        // player publishes, and a paused session often publishes none, so it
+        // can be minutes old; the re-base in `adopt` runs the clock forward
+        // from it, and would credit every paused minute as playback.
+        if !isPlaying, playbackIntent.desired, anchor != nil {
+            anchor = (position, monotonicNow())
         }
         // Same reason as `track` above: unconditional writes to @Published are
         // what turned a quiet 2s poll into a full SwiftUI invalidation.
@@ -1675,7 +2079,7 @@ final class MediaController: ObservableObject {
         // first, and without a list of its own it captured it strongly: the
         // `weak` never covered the decode, and the compiler said so.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let rep = NSBitmapImageRep(data: data), let cgImage = rep.cgImage else {
+            guard let image = Self.artworkImage(data) else {
                 // An undecodable payload must not leave the previous track's
                 // cover standing: the deferred blank was already cancelled on
                 // the strength of this data existing, and no later snapshot
@@ -1686,15 +2090,51 @@ final class MediaController: ObservableObject {
                 }
                 return
             }
-            let image = NSImage(
-                cgImage: cgImage,
-                size: NSSize(width: rep.pixelsWide, height: rep.pixelsHigh)
-            )
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.artworkKey == key else { return }
                 self.artwork = image
             }
         }
+    }
+
+    /// The longest side, in pixels, a cover is ever decoded at.
+    ///
+    /// The largest sharp use is the lock card's 118 pt cover, 236 px on a
+    /// Retina screen; every other use is blurred by 44 to 60 pt, where detail
+    /// past this is thrown away by the blur anyway. 512 leaves headroom for a
+    /// 3x display without holding the source's own size.
+    nonisolated static let artworkMaxPixel = 512
+
+    /// A cover decoded no larger than `maxPixel` on its long side.
+    ///
+    /// Covers used to be decoded at the source's full size and held for the
+    /// whole track: Apple Music hands over 1400 to 3000 px routinely, which is
+    /// 8 to 36 MB of RGBA standing in memory to fill a 118 pt square
+    /// (audit F-044). ImageIO's thumbnail path decodes straight to the smaller
+    /// size, so the full bitmap never exists, and it never scales a smaller
+    /// image up. `ShouldCacheImmediately` makes the decode happen here, on the
+    /// caller's background queue, rather than lazily on the main thread at the
+    /// first draw, which is the stutter the background decode was added for.
+    /// The transform flag honours an EXIF orientation a JPEG cover may carry.
+    nonisolated static func downsampledArtwork(_ data: Data, maxPixel: Int = artworkMaxPixel) -> CGImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard !data.isEmpty,
+              let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+        ] as CFDictionary
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options)
+    }
+
+    /// The cover as the views take it: its point size equals its pixel size,
+    /// as it always has. Every view draws it resizable into a fixed frame, so
+    /// a smaller size changes how much is held, not how anything is laid out.
+    nonisolated static func artworkImage(_ data: Data) -> NSImage? {
+        guard let cgImage = downsampledArtwork(data) else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 
     private func clear() {
@@ -1717,6 +2157,8 @@ final class MediaController: ObservableObject {
         // exactly the path that loses the cover, and remembering that we already
         // asked would make the loss permanent.
         artworkRequestedFor = []
+        // Same reason, for the fallback's own tries.
+        fallbackArtworkAttempts = [:]
         isPlaying = false
         duration = 0
         position = 0
@@ -1764,6 +2206,11 @@ final class MediaController: ObservableObject {
         guard feedAvailable else { return }
         feedAvailable = false
         fallbackReason = reason
+        // Every other reason arrives with the helper already down. This one
+        // has it up and publishing, and it is not to be listened to: its
+        // records are empty, and on the fallback they would only be dropped.
+        // A retry starts a fresh one.
+        if reason == .reportsNothing { feed.stop() }
         // The hold and the search describe the helper's view of Now Playing,
         // which this route no longer has. Left set, taps kept going to a held
         // song the fallback was no longer showing.
@@ -1780,11 +2227,14 @@ final class MediaController: ObservableObject {
         for app in PlayerApp.allCases {
             observers.append(center.addObserver(
                 forName: app.changeNotification, object: nil, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.activeApp = app
-                    self?.refreshFromPlayers()
-                }
+            ) { [weak self] note in
+                // The announcer is not made the active app here any more. It
+                // used to be, before anyone had answered, so a paused Music
+                // announcing anything took the transport — and, as the
+                // preferred player, the island — from a Spotify still on
+                // screen. The active app is whichever one the island shows,
+                // set when `refreshFromPlayers` shows it.
+                MainActor.assumeIsolated { self?.fallbackHeard(app, note.userInfo ?? [:]) }
             })
         }
         refreshFromPlayers()
@@ -1816,8 +2266,17 @@ final class MediaController: ObservableObject {
 
     /// The feed's way in. The first snapshot of a retry is the proof the
     /// helper works, so the fallback goes then, and not before.
+    ///
+    /// Not any snapshot, though (G-009). The fallback used to go on the
+    /// helper's first record, empty or not, and an empty one is what a
+    /// MediaRemote still waking answers, or one closed to perl: the island
+    /// went blank over a Spotify the fallback had been showing. An empty
+    /// record is proof only when it agrees with the fallback, which then
+    /// shows nothing either; otherwise the fallback keeps working, the retry
+    /// stays open, and the first record with a song in it hands over.
     func feedDelivered(_ snapshot: NowPlayingFeed.Snapshot) {
         if retryingNowPlaying {
+            guard !snapshot.isEmpty || track == nil else { return }
             retryingNowPlaying = false
             observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
             observers.removeAll()
@@ -1825,38 +2284,210 @@ final class MediaController: ObservableObject {
             fallbackReason = nil
             Log.media.notice("Now Playing is back")
         }
+        // A record from a helper this route has already given up on describes
+        // nothing the island should show; the fallback is in charge.
+        guard feedAvailable else { return }
         receive(snapshot)
+        watchForEmptyRoute(after: snapshot)
     }
 
-    private func refreshFromPlayers() {
-        PlayerBridge.currentState { [weak self] state in
-            guard let self else { return }
+    /// When the helper last published a record with a song in it, on the
+    /// monotonic clock.
+    private var lastFullRecordAt: TimeInterval?
+
+    /// How long the helper may answer with nothing after a player said it
+    /// plays before the route counts as closed. Several of the helper's
+    /// five-second heartbeats, and long enough for MediaRemote to catch up
+    /// with a player's own announcement, which it can trail by a second.
+    static let emptyRouteLimit: TimeInterval = 10
+
+    /// Falls back when the helper keeps answering with nothing while Music
+    /// or Spotify says it is playing (G-009).
+    ///
+    /// A MediaRemote closed to perl, as 15.4 once closed it, raises no error
+    /// here: the helper stays up and publishes records with every field
+    /// blank, which is also exactly what an idle Mac publishes. So emptiness
+    /// alone proves nothing — a rule of "N empty records" would fire on every
+    /// idle Mac. What does is a scriptable player that is running and
+    /// announced it plays, after the last record that had a song in it, and
+    /// ten seconds of nothing since. The island said "Nothing is playing" over
+    /// that Spotify indefinitely, and Settings showed no problem.
+    private func watchForEmptyRoute(after snapshot: NowPlayingFeed.Snapshot) {
+        let now = monotonicNow()
+        guard snapshot.isEmpty else {
+            lastFullRecordAt = now
+            return
+        }
+        let unanswered = announcements.contains { app, heard in
+            heard.state.isPlaying
+                && heard.heardAt > (lastFullRecordAt ?? -.infinity)
+                && now - heard.heardAt >= Self.emptyRouteLimit
+                && pidForPlayer(app) != nil
+        }
+        guard unanswered else { return }
+        trace("route: only empty records for \(Int(Self.emptyRouteLimit)) s after a player announced it plays")
+        switchToScriptingFallback(.reportsNothing)
+    }
+
+    /// Asks the scriptable players what they hold and shows it, the way the
+    /// helper route shows a snapshot: through `apply`.
+    ///
+    /// This used to build the track by hand, and every feature `apply` grew
+    /// since was missing here. With no pid, the displayed player was unknown,
+    /// so shuffle, repeat, precision sync, Spotify's broadcasts and the heart
+    /// all switched off and lyric nudges were saved under "other". With no
+    /// track-change branch, a skip in Apple Music two minutes into a song
+    /// kept the old clock under the new title: `adopt` held the rewind for a
+    /// second reading this route never sends. And its own `app|…` key made
+    /// every hand-over between routes re-announce an unchanged song. One
+    /// path, so none of that can drift apart again.
+    ///
+    /// Internal so a test can stand in for a player's announcement.
+    func refreshFromPlayers() {
+        // J-003: a DMG user whose helper is refused lands here at launch, and
+        // reading every running player there raised one Automation prompt per
+        // player over whatever they were doing, with no panel to explain it.
+        // Where no player may be asked yet, the panel opening asks — and
+        // until then the players' own announcements are what the island
+        // shows. Before, it showed nothing over a song that was playing.
+        guard mayScriptAnyPlayer else {
+            guard !feedAvailable else { return }
+            let running = PlayerApp.allCases.filter { pidForPlayer($0) != nil }
+            let replies = Dictionary(uniqueKeysWithValues: running.map { ($0, PlayerBridge.StateReply.unknown) })
+            // Nothing heard is nothing known, and the island keeps what it
+            // shows rather than blank a song nobody has said is gone.
+            guard let state = PlayerBridge.choose(
+                replies: replies, announced: announcedStates(), prefer: displayedPlayerApp ?? activeApp
+            ) else { return }
+            return showFromPlayers(state)
+        }
+        loadedSong { [weak self] state in
+            // A reply that lands after the helper is back describes a route
+            // no longer in charge; shown, it replaced the helper's song with
+            // whatever the script had found a moment earlier.
+            guard let self, !self.feedAvailable else { return }
             guard let state else { return self.clear() }
+            self.showFromPlayers(state)
+        }
+    }
 
-            let playerChanged = self.activeApp != state.app
-            self.activeApp = state.app
-            self.sourceName = state.app.displayName
-            self.track = Track(title: state.title, artist: state.artist, album: state.album, key: state.key)
-            let queuedTarget: Bool?
-            if playerChanged {
-                self.playbackIntent = PlaybackIntent(reported: state.isPlaying)
-                queuedTarget = nil
-            } else {
-                queuedTarget = self.playbackIntent.reconcile(reported: state.isPlaying, at: Date())
-            }
-            self.isPlaying = self.playbackIntent.desired
-            self.duration = state.duration
-            self.adopt(state.position)
-            self.updateTicker()
-            if let queuedTarget { self.dispatchPlayback(queuedTarget) }
+    /// Shows one player's state on the fallback, asked or heard, through
+    /// `apply` as a snapshot.
+    private func showFromPlayers(_ state: PlayerState) {
+        let pid = pidForPlayer(state.app)
+        // `apply` holds off a paused stranger until it has kept claiming
+        // the session for `foreignHoldWindow`, and on the helper route the
+        // two-second heartbeat brings that moment. Nothing re-asks here, so
+        // a hold for a player that has quit never ended: Spotify's last
+        // song stayed on the island over a paused Music. A player that is
+        // gone has nothing left to show.
+        if let shown = displayedPlayerPID, shown != pid, !isProcessRunning(shown) {
+            clear()
+        }
+        // Music's announcement says nothing of where the song is. Read as
+        // 0:00, a pause at 2:00 sent the bar and the lyric back to the start;
+        // the song on screen keeps the place its clock has carried it to, and
+        // only a song not on screen starts from its beginning.
+        let same = displayedPlayerPID == pid
+            && track?.title == state.title && track?.artist == state.artist
+        var snapshot = NowPlayingFeed.Snapshot()
+        snapshot.title = state.title
+        snapshot.artist = state.artist
+        snapshot.album = state.album
+        snapshot.duration = state.duration > 0 || !same ? state.duration : duration
+        snapshot.elapsed = state.positionKnown ? state.position : (same ? extrapolatedPosition() : 0)
+        snapshot.isPlaying = state.isPlaying
+        snapshot.rate = state.isPlaying ? 1 : 0
+        snapshot.takenAt = Date()
+        snapshot.playerPID = pid
+        snapshot.source = state.app.displayName
+        let key = "\(pid ?? 0)|\(state.title)|\(state.artist)|\(state.album)"
+        // Read before `apply`, which moves `artworkKey` on to the new song
+        // whether or not its cover has come.
+        let coverShown = artworkKey == key && artwork != nil
+        trace(String(format: "fallback: %@ from %@ playing=%d at %.2f",
+                     state.title, state.app.displayName, state.isPlaying ? 1 : 0, snapshot.elapsed))
+        apply(snapshot)
+        // Only once the island shows it: a stranger `apply` held off must
+        // not take the transport from the song still on screen.
+        guard displayedPlayerPID == pid, track?.key == key else { return }
+        activeApp = state.app
+        displayedIsMusic = true
+        if !coverShown { fallbackArtwork(for: state, key: key) }
+    }
 
-            guard self.artworkKey != state.key else { return }
-            self.artworkKey = state.key
-            self.artwork = nil
-            PlayerBridge.artwork(for: state) { [weak self] image in
-                guard let self, self.artworkKey == state.key else { return }
-                self.artwork = image
-            }
+    // MARK: - Players' own announcements
+
+    /// The last song each player announced, and when, on the monotonic clock.
+    /// An announcement that names no song — a stop, or keys not understood —
+    /// removes the entry: it says the old one no longer stands.
+    private var announcements: [PlayerApp: (state: PlayerState, heardAt: TimeInterval)] = [:]
+
+    /// Keeps what a player's own announcement says, for a moment when the
+    /// player cannot or may not be asked (`PlayerAnnouncement`). Kept on both
+    /// routes: the search for a song under a film reads it as well.
+    func hearAnnouncement(from app: PlayerApp, _ info: [AnyHashable: Any]) {
+        announcements[app] = PlayerAnnouncement.state(from: info, app: app).map { ($0, monotonicNow()) }
+    }
+
+    /// A player's announcement on the fallback route: kept, then shown the
+    /// way the route shows everything. Two observers hear it — the one
+    /// `start()` keeps and the fallback's own — and their order is not
+    /// promised, so this one keeps it too rather than refresh before the
+    /// other has. Internal so a test can stand in for the player.
+    func fallbackHeard(_ app: PlayerApp, _ info: [AnyHashable: Any]) {
+        hearAnnouncement(from: app, info)
+        refreshFromPlayers()
+    }
+
+    /// The announced states as they stand now.
+    ///
+    /// A player that has quit takes its announcement with it, or its last
+    /// song would speak for it after the next launch. And a playing song is
+    /// aged to now: an announcement is read again whenever the *other* player
+    /// announces, by when a Spotify heard playing at 0:12 twenty seconds ago
+    /// is at 0:32, and reading 0:12 dragged the clock backwards.
+    func announcedStates() -> [PlayerApp: PlayerState] {
+        announcements = announcements.filter { pidForPlayer($0.key) != nil }
+        let now = monotonicNow()
+        return announcements.mapValues { heard in
+            var state = heard.state
+            guard state.isPlaying, state.positionKnown else { return state }
+            let aged = state.position + max(0, now - heard.heardAt)
+            state.position = state.duration > 0 ? min(aged, state.duration) : aged
+            return state
+        }
+    }
+
+    /// Covers asked of a player on the fallback route, by track key: one
+    /// entry, reset when the track changes.
+    private var fallbackArtworkAttempts: [String: Int] = [:]
+
+    /// Fetches the cover for a song shown on the fallback route.
+    ///
+    /// The key used to be recorded before the fetch, so one failed CDN
+    /// request cost the song its cover for as long as it played. Two tries
+    /// per song now: the next refresh retries a failure, and a cover that
+    /// truly does not exist is not polled. Whatever `apply` decided about the
+    /// old cover — kept for an album-mate, or blanked after its 180 ms grace —
+    /// stands until this one lands.
+    private func fallbackArtwork(for state: PlayerState, key: String) {
+        // Before an attempt is counted: a cover consent kept back is not a
+        // cover that failed, and the next refresh asks again.
+        guard state.app != .music || mayScript(.music) else { return }
+        // Nor is a Spotify song with no cover address — the one its own
+        // announcement describes, which carries none. Counted, it spent both
+        // tries before the answer that has one, once Spotify could be asked.
+        guard state.app != .spotify || state.artworkURL != nil else { return }
+        if fallbackArtworkAttempts[key] == nil { fallbackArtworkAttempts = [key: 0] }
+        guard let attempts = fallbackArtworkAttempts[key], attempts < 2 else { return }
+        fallbackArtworkAttempts[key] = attempts + 1
+        heldArtwork(state) { [weak self] image in
+            guard let self, self.track?.key == key, let image else { return }
+            self.blankArtwork?.cancel()
+            self.blankArtwork = nil
+            self.artworkKey = key
+            self.artwork = image
         }
     }
 
@@ -2032,8 +2663,9 @@ final class MediaController: ObservableObject {
                          confirmed ? "REWIND-CONFIRMED" : "REWIND-HELD"))
             guard confirmed else {
                 // Keep the clock running under the held reading, so the ignored
-                // difference cannot accumulate into the next comparison.
-                anchor = (position, nowMono)
+                // difference cannot accumulate into the next comparison — from
+                // where it stands now, not from the last tick (see below).
+                anchor = (extrapolatedPosition(at: nowMono), nowMono)
                 return
             }
             position = value
@@ -2048,9 +2680,15 @@ final class MediaController: ObservableObject {
             position = value
             anchor = (value, nowMono)
         } else {
-            // Keep what is on screen and re-base the clock under it, so the
-            // ignored difference cannot accumulate into the next comparison.
-            anchor = (position, nowMono)
+            // Keep the clock and re-base it, so the ignored difference cannot
+            // accumulate into the next comparison. On the clock as it runs,
+            // not on `position`: that is the last tick, up to a grid interval
+            // old, and re-basing on it threw the interval away on every such
+            // reading — the lab's clock-fidelity run left the anchor behind a
+            // perfect player 36% of the time, by up to 50ms. `delta` is still
+            // measured against what is on screen, so which readings are taken
+            // and which are held is unchanged.
+            anchor = (extrapolatedPosition(at: nowMono), nowMono)
         }
     }
 
@@ -2063,8 +2701,7 @@ final class MediaController: ObservableObject {
         // sites that happened to remember.
         updatePrecisionSync()
         guard isPlaying, isActive else {
-            boundaryTimer?.invalidate()
-            boundaryTimer = nil
+            cancelLyricWake()
             return
         }
         let timer = Timer(timeInterval: Self.positionTickInterval, repeats: true) { [weak self] _ in
@@ -2082,9 +2719,8 @@ final class MediaController: ObservableObject {
     /// Advances the bar from the anchor. Internal so tests can drive the clock
     /// without waiting on the quarter-second timer.
     func tick() {
-        guard let anchor, isPlaying else { return }
-        let value = anchor.position + (monotonicNow() - anchor.atMono) * playbackRate
-        position = duration > 0 ? min(value, duration) : value
+        guard anchor != nil, isPlaying else { return }
+        position = extrapolatedPosition()
         // Whether this was the grid or a boundary, the next boundary is armed
         // from the position just published.
         armBoundaryTimer()

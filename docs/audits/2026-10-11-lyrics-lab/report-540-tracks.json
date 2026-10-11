@@ -1,0 +1,3179 @@
+{
+  "L1_parse_fidelity" : {
+    "discrepancyClasses" : {
+      "angle_brackets_in_text" : {
+        "lines" : 44,
+        "tracks" : 1
+      },
+      "bom" : {
+        "lines" : 1,
+        "tracks" : 1
+      },
+      "colon_fraction_mm_ss_ff" : {
+        "lines" : 3,
+        "tracks" : 1
+      },
+      "crlf_or_cr" : {
+        "lines" : 4,
+        "tracks" : 4
+      },
+      "duplicate_stamps" : {
+        "lines" : 1,
+        "tracks" : 1
+      },
+      "empty_lines_dropped" : {
+        "lines" : 1694,
+        "tracks" : 517
+      },
+      "lines_beyond_track_duration" : {
+        "lines" : 1249,
+        "tracks" : 69
+      },
+      "metadata_tags_isla_does_not_know" : {
+        "lines" : 1,
+        "tracks" : 1
+      },
+      "offset_tag" : {
+        "lines" : 2,
+        "tracks" : 2
+      },
+      "three_digit_milliseconds" : {
+        "lines" : 58,
+        "tracks" : 1
+      },
+      "untimed_text_lines" : {
+        "lines" : 3,
+        "tracks" : 1
+      }
+    },
+    "islaOutcomes" : {
+      "found" : 537,
+      "none" : 3
+    },
+    "lineCountMismatches" : 1,
+    "lineCountMismatchTracks" : {
+      "36975922" : {
+        "firstDivergingLine" : 0,
+        "isla" : 37,
+        "metadataTags" : 0,
+        "reference" : 38,
+        "unparseableStampLines" : 0,
+        "untimedTextLines" : 0
+      }
+    },
+    "linesCompared" : 25396,
+    "linesOnlyInIsla" : 0,
+    "refusedByIsla" : {
+      "invalidTimestamp" : 2
+    },
+    "refusedIDs" : {
+      "invalidTimestamp" : [
+        34486419,
+        36877652
+      ]
+    },
+    "refusedPerCategory" : {
+      "mandarin-cantopop" : 2
+    },
+    "summary" : "540 tracks; Isla accepted 537, refused 2 the reference reads; 25396 lines matched to the ms with 0 text mismatches; 1 sung lines missing from Isla (1 tracks), 0 extra; 1694 empty gap stamps dropped by design",
+    "sungLinesMissingFromIsla" : 1,
+    "textMismatches" : 0,
+    "timestampAbsErrorMs" : {
+      "max" : 0,
+      "mean" : 0,
+      "min" : 0,
+      "n" : 25396,
+      "p50" : 0,
+      "p95" : 0,
+      "p99" : 0
+    },
+    "tracks" : 540,
+    "tracksCompared" : 537,
+    "tracksWithoutSyncedLyrics" : 0,
+    "unalignedStamps" : 1,
+    "verdict" : "fail"
+  },
+  "L2_index_exactness" : {
+    "boundaryChecks" : 25396,
+    "boundaryIndexNotThisLine" : 1,
+    "boundaryMinus1msNotPreviousLine" : 0,
+    "boundaryOracleMisses" : 0,
+    "entryPointDisagreements" : {
+      "displayed.end_vs_LyricSweep.end" : 0,
+      "displayed.swept_vs_index_nil" : 0,
+      "index_vs_displayed.line" : 0,
+      "index_vs_LyricsStore.current" : 0
+    },
+    "randomSeekChecks" : 1074000,
+    "randomSeekOracleMisses" : 0,
+    "shadowedLinesDuplicateStamp" : 1,
+    "shadowedTrackIDs" : [
+      38110650
+    ],
+    "summary" : "25396 boundaries, 1074000 random seeks, 160587382 1 ms steps: 0 disagreements; 1 lines never reachable (duplicate stamp)",
+    "sweep1msEvaluations" : 160587382,
+    "sweepMonotonicViolations" : 0,
+    "sweepOracleMisses" : 0,
+    "tracks" : 537,
+    "verdict" : "concern"
+  },
+  "L3_frame_grid_activation" : {
+    "60Hz" : {
+      "activationErrorMs" : {
+        "max" : 16.661567000000002,
+        "mean" : 8.3134820000000005,
+        "min" : 0.0021559999999999999,
+        "n" : 24154,
+        "p50" : 8.2940640000000005,
+        "p95" : 15.894213000000001,
+        "p99" : 16.447892
+      },
+      "activationsLaterThanOneFrame" : 0,
+      "doubledLines" : 0,
+      "linesUnreachedBeyondTrackEnd" : 1207,
+      "perCategoryErrorMs" : {
+        "arabic-turkish-hindi" : {
+          "max" : 16.420048000000001,
+          "mean" : 8.0685110000000009,
+          "min" : 0.021509,
+          "n" : 1012,
+          "p50" : 8.1713079999999998,
+          "p95" : 15.076658999999999,
+          "p99" : 16.365984000000001
+        },
+        "classical-opera-art-song" : {
+          "max" : 16.161975999999999,
+          "mean" : 8.1251370000000005,
+          "min" : 0.68705499999999997,
+          "n" : 613,
+          "p50" : 8.2666950000000003,
+          "p95" : 15.505011,
+          "p99" : 15.857661
+        },
+        "country-folk" : {
+          "max" : 16.452629000000002,
+          "mean" : 8.4924160000000004,
+          "min" : 0.112895,
+          "n" : 1485,
+          "p50" : 8.4005410000000005,
+          "p95" : 15.759841,
+          "p99" : 16.298684999999999
+        },
+        "duets-choirs-overlaps" : {
+          "max" : 16.661567000000002,
+          "mean" : 8.4486930000000005,
+          "min" : 0.34029399999999999,
+          "n" : 1359,
+          "p50" : 8.5758510000000001,
+          "p95" : 15.865064,
+          "p99" : 16.661567000000002
+        },
+        "electronic-sparse-vocals" : {
+          "max" : 16.571583,
+          "mean" : 8.2025450000000006,
+          "min" : 0.042563999999999998,
+          "n" : 1549,
+          "p50" : 8.2249820000000007,
+          "p95" : 15.382244,
+          "p99" : 16.446532999999999
+        },
+        "hiphop-fast-rap" : {
+          "max" : 16.439069,
+          "mean" : 8.3158429999999992,
+          "min" : 0.162019,
+          "n" : 1988,
+          "p50" : 8.4314940000000007,
+          "p95" : 15.648020000000001,
+          "p99" : 16.351903
+        },
+        "hiphop-slow-trap" : {
+          "max" : 16.501662,
+          "mean" : 8.2879629999999995,
+          "min" : 0.158915,
+          "n" : 1672,
+          "p50" : 8.2120800000000003,
+          "p95" : 15.949812,
+          "p99" : 16.501662
+        },
+        "jazz-standards" : {
+          "max" : 16.647293999999999,
+          "mean" : 8.1924609999999998,
+          "min" : 0.0053749999999999996,
+          "n" : 619,
+          "p50" : 8.2394339999999993,
+          "p95" : 15.940274,
+          "p99" : 16.438109000000001
+        },
+        "jpop-anime" : {
+          "max" : 16.647901999999998,
+          "mean" : 8.2972780000000004,
+          "min" : 0.095412999999999998,
+          "n" : 1089,
+          "p50" : 8.2862360000000006,
+          "p95" : 15.983752000000001,
+          "p99" : 16.647901999999998
+        },
+        "kpop" : {
+          "max" : 16.527249999999999,
+          "mean" : 8.4090620000000005,
+          "min" : 0.035864,
+          "n" : 1413,
+          "p50" : 8.2954299999999996,
+          "p95" : 15.871892000000001,
+          "p99" : 16.527249999999999
+        },
+        "latin-spanish-portuguese" : {
+          "max" : 16.506564999999998,
+          "mean" : 8.1842220000000001,
+          "min" : 0.024065,
+          "n" : 1404,
+          "p50" : 7.694636,
+          "p95" : 15.749635,
+          "p99" : 16.506564999999998
+        },
+        "live-remaster-variants" : {
+          "max" : 16.411339000000002,
+          "mean" : 8.3690739999999995,
+          "min" : 0.32201600000000002,
+          "n" : 1008,
+          "p50" : 8.5027179999999998,
+          "p95" : 15.718063000000001,
+          "p99" : 16.106301999999999
+        },
+        "long-tracks-over-7min" : {
+          "max" : 16.323361999999999,
+          "mean" : 8.4151070000000008,
+          "min" : 0.076492000000000004,
+          "n" : 1258,
+          "p50" : 8.5367080000000009,
+          "p95" : 16.135389,
+          "p99" : 16.323361999999999
+        },
+        "mandarin-cantopop" : {
+          "max" : 16.475109,
+          "mean" : 8.1828369999999993,
+          "min" : 0.0021559999999999999,
+          "n" : 785,
+          "p50" : 8.0922859999999996,
+          "p95" : 15.920610999999999,
+          "p99" : 16.475109
+        },
+        "metal-fast-hardcore" : {
+          "max" : 16.594923999999999,
+          "mean" : 8.2222419999999996,
+          "min" : 0.074418999999999999,
+          "n" : 929,
+          "p50" : 7.9084820000000002,
+          "p95" : 15.932636,
+          "p99" : 16.44642
+        },
+        "pop-global-hits" : {
+          "max" : 16.638325999999999,
+          "mean" : 8.69468,
+          "min" : 0.0123,
+          "n" : 1514,
+          "p50" : 8.8142879999999995,
+          "p95" : 16.149032999999999,
+          "p99" : 16.638325999999999
+        },
+        "rnb-soul" : {
+          "max" : 16.656226,
+          "mean" : 8.2779430000000005,
+          "min" : 0.122917,
+          "n" : 2255,
+          "p50" : 8.1992580000000004,
+          "p95" : 15.934848000000001,
+          "p99" : 16.367056999999999
+        },
+        "rock-classic" : {
+          "max" : 16.614170999999999,
+          "mean" : 8.339283,
+          "min" : 0.036186000000000003,
+          "n" : 973,
+          "p50" : 8.4678159999999991,
+          "p95" : 16.229426,
+          "p99" : 16.614170999999999
+        },
+        "russian-ukrainian" : {
+          "max" : 16.128530000000001,
+          "mean" : 7.9105049999999997,
+          "min" : 0.051181999999999998,
+          "n" : 826,
+          "p50" : 7.7566189999999997,
+          "p95" : 15.419425,
+          "p99" : 16.128530000000001
+        },
+        "short-tracks-and-long-intros" : {
+          "max" : 16.595561,
+          "mean" : 8.5043000000000006,
+          "min" : 0.45865800000000001,
+          "n" : 403,
+          "p50" : 8.7429729999999992,
+          "p95" : 15.929754000000001,
+          "p99" : 16.434104000000001
+        }
+      },
+      "periodMs" : 16.666667,
+      "preRollLinesNeverShown" : 0,
+      "preRollLinesShownAtPlaybackStart" : 33,
+      "shadowedLinesDuplicateStamp" : 1,
+      "skippedLinesTwoBoundariesInOneFrame" : 0,
+      "skippedTrackIDs" : [
+
+      ],
+      "smallestGapBetweenLinesMs" : 0,
+      "unreachedTrackIDs" : [
+        19249595,
+        19907895,
+        33652937,
+        33789481,
+        34352634,
+        34389491,
+        34390084,
+        34395297,
+        34408571,
+        34433089,
+        34445254,
+        34614827,
+        34622954,
+        34639633,
+        34676982,
+        34709495,
+        34714759,
+        34939299,
+        34988565,
+        35912324,
+        35970416,
+        36068088,
+        36233759,
+        36844742,
+        36845281,
+        36848287,
+        36848809,
+        36941634,
+        36955083,
+        36957019,
+        36970510,
+        36974727,
+        36979682,
+        36982552,
+        36983469,
+        36985489,
+        36991211,
+        36994501,
+        36997306,
+        37010244,
+        37016979,
+        37021429,
+        37054841,
+        37061358,
+        37077948,
+        37094250,
+        37110804,
+        37116867,
+        37118205,
+        37123489,
+        37174976,
+        37185975,
+        37246769,
+        37300217,
+        37300645,
+        37313642,
+        37356761,
+        37390557,
+        37428621,
+        37433083,
+        37459221,
+        37464389,
+        37468460,
+        37469369,
+        37472656,
+        37484182,
+        37511795,
+        37522251
+      ]
+    },
+    "120Hz" : {
+      "activationErrorMs" : {
+        "max" : 8.3301929999999995,
+        "mean" : 4.158703,
+        "min" : 0.000233,
+        "n" : 24154,
+        "p50" : 4.1595750000000002,
+        "p95" : 7.9037189999999997,
+        "p99" : 8.2682359999999999
+      },
+      "activationsLaterThanOneFrame" : 0,
+      "doubledLines" : 0,
+      "linesUnreachedBeyondTrackEnd" : 1207,
+      "perCategoryErrorMs" : {
+        "arabic-turkish-hindi" : {
+          "max" : 8.2917330000000007,
+          "mean" : 4.065239,
+          "min" : 0.029425,
+          "n" : 1012,
+          "p50" : 4.0123239999999996,
+          "p95" : 7.8235080000000004,
+          "p99" : 8.2917330000000007
+        },
+        "classical-opera-art-song" : {
+          "max" : 8.2998700000000003,
+          "mean" : 4.1350699999999998,
+          "min" : 0.011768000000000001,
+          "n" : 613,
+          "p50" : 4.0566370000000003,
+          "p95" : 7.9628259999999997,
+          "p99" : 8.2998700000000003
+        },
+        "country-folk" : {
+          "max" : 8.3105980000000006,
+          "mean" : 4.2617459999999996,
+          "min" : 0.016330000000000001,
+          "n" : 1485,
+          "p50" : 4.3736309999999996,
+          "p95" : 7.9180169999999999,
+          "p99" : 8.1628439999999998
+        },
+        "duets-choirs-overlaps" : {
+          "max" : 8.1361329999999992,
+          "mean" : 4.1154130000000002,
+          "min" : 0.091794000000000001,
+          "n" : 1359,
+          "p50" : 4.2215939999999996,
+          "p95" : 7.8982260000000002,
+          "p99" : 8.1040379999999992
+        },
+        "electronic-sparse-vocals" : {
+          "max" : 8.2849920000000008,
+          "mean" : 4.194115,
+          "min" : 0.031746999999999997,
+          "n" : 1549,
+          "p50" : 4.3312400000000002,
+          "p95" : 7.7286919999999997,
+          "p99" : 8.1857170000000004
+        },
+        "hiphop-fast-rap" : {
+          "max" : 8.1932639999999992,
+          "mean" : 4.1124910000000003,
+          "min" : 0.021212999999999999,
+          "n" : 1988,
+          "p50" : 4.0926809999999998,
+          "p95" : 7.7522159999999998,
+          "p99" : 8.1932639999999992
+        },
+        "hiphop-slow-trap" : {
+          "max" : 8.3281419999999997,
+          "mean" : 4.2213690000000001,
+          "min" : 0.13059399999999999,
+          "n" : 1672,
+          "p50" : 4.3185359999999999,
+          "p95" : 7.8922509999999999,
+          "p99" : 8.3157300000000003
+        },
+        "jazz-standards" : {
+          "max" : 8.3063319999999994,
+          "mean" : 4.3629980000000002,
+          "min" : 0.0051339999999999997,
+          "n" : 619,
+          "p50" : 4.3912149999999999,
+          "p95" : 8.0635650000000005,
+          "p99" : 8.3063319999999994
+        },
+        "jpop-anime" : {
+          "max" : 8.287039,
+          "mean" : 4.199363,
+          "min" : 0.014317,
+          "n" : 1089,
+          "p50" : 4.3987889999999998,
+          "p95" : 8.1749510000000001,
+          "p99" : 8.287039
+        },
+        "kpop" : {
+          "max" : 8.2853899999999996,
+          "mean" : 4.2261680000000004,
+          "min" : 0.0072639999999999996,
+          "n" : 1413,
+          "p50" : 4.329631,
+          "p95" : 7.8869790000000002,
+          "p99" : 8.2347339999999996
+        },
+        "latin-spanish-portuguese" : {
+          "max" : 8.0194910000000004,
+          "mean" : 3.8717899999999998,
+          "min" : 0.025382999999999999,
+          "n" : 1404,
+          "p50" : 3.6114000000000002,
+          "p95" : 7.5161300000000004,
+          "p99" : 8.0194910000000004
+        },
+        "live-remaster-variants" : {
+          "max" : 8.3261070000000004,
+          "mean" : 4.2590909999999997,
+          "min" : 0.106603,
+          "n" : 1008,
+          "p50" : 4.2504679999999997,
+          "p95" : 7.8756199999999996,
+          "p99" : 8.1140209999999993
+        },
+        "long-tracks-over-7min" : {
+          "max" : 8.2773810000000001,
+          "mean" : 3.9734099999999999,
+          "min" : 0.027449999999999999,
+          "n" : 1258,
+          "p50" : 3.8262960000000001,
+          "p95" : 7.7962150000000001,
+          "p99" : 8.2159739999999992
+        },
+        "mandarin-cantopop" : {
+          "max" : 8.2213809999999992,
+          "mean" : 3.8957950000000001,
+          "min" : 0.013828999999999999,
+          "n" : 785,
+          "p50" : 3.6216780000000002,
+          "p95" : 7.8553889999999997,
+          "p99" : 8.2213809999999992
+        },
+        "metal-fast-hardcore" : {
+          "max" : 8.3072560000000006,
+          "mean" : 4.294403,
+          "min" : 0.090616000000000002,
+          "n" : 929,
+          "p50" : 4.3904100000000001,
+          "p95" : 8.0700199999999995,
+          "p99" : 8.3072560000000006
+        },
+        "pop-global-hits" : {
+          "max" : 8.3185690000000001,
+          "mean" : 4.0993130000000004,
+          "min" : 0.069207000000000005,
+          "n" : 1514,
+          "p50" : 4.0340389999999999,
+          "p95" : 7.9044369999999997,
+          "p99" : 8.2942119999999999
+        },
+        "rnb-soul" : {
+          "max" : 8.3203499999999995,
+          "mean" : 4.398231,
+          "min" : 0.076966000000000007,
+          "n" : 2255,
+          "p50" : 4.5389710000000001,
+          "p95" : 8.1313759999999995,
+          "p99" : 8.3188929999999992
+        },
+        "rock-classic" : {
+          "max" : 8.3301929999999995,
+          "mean" : 4.2213289999999999,
+          "min" : 0.001181,
+          "n" : 973,
+          "p50" : 3.9941970000000002,
+          "p95" : 8.1559519999999992,
+          "p99" : 8.2738010000000006
+        },
+        "russian-ukrainian" : {
+          "max" : 8.2507680000000008,
+          "mean" : 4.0638290000000001,
+          "min" : 0.052837000000000002,
+          "n" : 826,
+          "p50" : 4.0590330000000003,
+          "p95" : 7.6434340000000001,
+          "p99" : 8.1658770000000001
+        },
+        "short-tracks-and-long-intros" : {
+          "max" : 8.2396820000000002,
+          "mean" : 3.8195519999999998,
+          "min" : 0.000233,
+          "n" : 403,
+          "p50" : 3.7300840000000002,
+          "p95" : 7.5328109999999997,
+          "p99" : 8.1185829999999992
+        }
+      },
+      "periodMs" : 8.3333329999999997,
+      "preRollLinesNeverShown" : 0,
+      "preRollLinesShownAtPlaybackStart" : 33,
+      "shadowedLinesDuplicateStamp" : 1,
+      "skippedLinesTwoBoundariesInOneFrame" : 0,
+      "skippedTrackIDs" : [
+
+      ],
+      "smallestGapBetweenLinesMs" : 0,
+      "unreachedTrackIDs" : [
+        19249595,
+        19907895,
+        33652937,
+        33789481,
+        34352634,
+        34389491,
+        34390084,
+        34395297,
+        34408571,
+        34433089,
+        34445254,
+        34614827,
+        34622954,
+        34639633,
+        34676982,
+        34709495,
+        34714759,
+        34939299,
+        34988565,
+        35912324,
+        35970416,
+        36068088,
+        36233759,
+        36844742,
+        36845281,
+        36848287,
+        36848809,
+        36941634,
+        36955083,
+        36957019,
+        36970510,
+        36974727,
+        36979682,
+        36982552,
+        36983469,
+        36985489,
+        36991211,
+        36994501,
+        36997306,
+        37010244,
+        37016979,
+        37021429,
+        37054841,
+        37061358,
+        37077948,
+        37094250,
+        37110804,
+        37116867,
+        37118205,
+        37123489,
+        37174976,
+        37185975,
+        37246769,
+        37300217,
+        37300645,
+        37313642,
+        37356761,
+        37390557,
+        37428621,
+        37433083,
+        37459221,
+        37464389,
+        37468460,
+        37469369,
+        37472656,
+        37484182,
+        37511795,
+        37522251
+      ]
+    },
+    "lead" : 0.20000000000000001,
+    "summary" : "frame-grid error 60 Hz p50 8.294 max 16.662 ms; 120 Hz p50 4.160 max 8.330 ms (clock assumed perfect); 1207 lines in 68 tracks are stamped past the track's end and never shown",
+    "tracks" : 537,
+    "verdict" : "concern"
+  },
+  "L4_timer_scheduling" : {
+    "arithmetic" : {
+      "armedDelayErrorMs" : {
+        "max" : 5.7000000000000003e-05,
+        "mean" : 9.9999999999999995e-07,
+        "min" : 0,
+        "n" : 1440,
+        "p50" : 0,
+        "p95" : 0,
+        "p99" : 4.3000000000000002e-05
+      },
+      "checks" : 1440,
+      "method" : "real MediaController, monotonicNow seam frozen and stepped; fire date read from lyricWakeDateForTests; expected delay computed independently",
+      "missingWake" : 0,
+      "perScenarioErrorMs" : {
+        "on-boundary@0.5x" : {
+          "max" : 4.8000000000000001e-05,
+          "mean" : 3.9999999999999998e-06,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 3.8000000000000002e-05,
+          "p99" : 4.8000000000000001e-05
+        },
+        "on-boundary@1.0x" : {
+          "max" : 4.8000000000000001e-05,
+          "mean" : 3.9999999999999998e-06,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 3.8000000000000002e-05,
+          "p99" : 4.8000000000000001e-05
+        },
+        "on-boundary@1.25x" : {
+          "max" : 4.8000000000000001e-05,
+          "mean" : 3.0000000000000001e-06,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 1.7e-05,
+          "p99" : 4.8000000000000001e-05
+        },
+        "on-boundary@2.0x" : {
+          "max" : 5.7000000000000003e-05,
+          "mean" : 3.9999999999999998e-06,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 4.3000000000000002e-05,
+          "p99" : 5.7000000000000003e-05
+        },
+        "rate-change@1.0x" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 180,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "rate-change@1.25x" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "register@0.5x" : {
+          "max" : 4.8000000000000001e-05,
+          "mean" : 1.9999999999999999e-06,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 4.8000000000000001e-05
+        },
+        "register@1.0x" : {
+          "max" : 2.4000000000000001e-05,
+          "mean" : 9.9999999999999995e-07,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 2.4000000000000001e-05
+        },
+        "register@1.25x" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "register@2.0x" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "seek-back@1.0x" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 180,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "seek-back@1.25x" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "seek-forward@1.0x" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 180,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "seek-forward@1.25x" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "tick@0.5x" : {
+          "max" : 1.1e-05,
+          "mean" : 1.9999999999999999e-06,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 1.1e-05,
+          "p99" : 1.1e-05
+        },
+        "tick@1.0x" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "tick@1.25x" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "tick@2.0x" : {
+          "max" : 3.4999999999999997e-05,
+          "mean" : 9.0000000000000002e-06,
+          "min" : 0,
+          "n" : 60,
+          "p50" : 0,
+          "p95" : 3.4999999999999997e-05,
+          "p99" : 3.4999999999999997e-05
+        }
+      },
+      "rateChangeWhileSeekPending" : {
+        "armedWakeErrorMs" : {
+          "max" : 17360.015011,
+          "mean" : 172.17940400000001,
+          "min" : -2919.9869779999999,
+          "n" : 240,
+          "p50" : 200.010943,
+          "p95" : 800.01496299999997,
+          "p99" : 800.01595499999996
+        },
+        "nextTickPositionJumpMs" : {
+          "max" : 800,
+          "mean" : 100,
+          "min" : -400,
+          "n" : 240,
+          "p50" : -200,
+          "p95" : 800,
+          "p99" : 800
+        },
+        "note" : "apply() sets playbackRate before deciding whether to adopt the snapshot's position; when it does not adopt (seek pending, precision sync steering, stale or held reading) the anchor is not re-based and the new rate rescales all the time since the anchor was set"
+      },
+      "wrongOrRearmedBoundary" : 0
+    },
+    "clockFidelityUnderSnapshots" : {
+      "anchorErrorAfterSnapshotMs" : {
+        "max" : 0.010015,
+        "mean" : -9.773199,
+        "min" : -49.892462000000002,
+        "n" : 300,
+        "p50" : 0.0039119999999999997,
+        "p95" : 0.005117,
+        "p99" : 0.0059839999999999997
+      },
+      "anchorErrorMs" : {
+        "max" : 0.010015,
+        "mean" : -9.5613430000000008,
+        "min" : -49.893408000000001,
+        "n" : 6300,
+        "p50" : 0.002928,
+        "p95" : 0.0040959999999999998,
+        "p99" : 0.0050549999999999996
+      },
+      "meanLagWhileBehindMs" : -26.555496999999999,
+      "method" : "real MediaController; exact 1x player; snapshot every 2 s (helper poll) with zero age; 0.1 s grid tick; anchor read back from the armed wake",
+      "shareOfTimeBehindOver1ms" : 0.35999999999999999,
+      "sign" : "negative = the clock runs behind the player",
+      "simulatedSeconds" : 600,
+      "snapshots" : 300,
+      "snapshotsRebasedOnStalePosition" : 114,
+      "snapshotsTaken" : 186
+    },
+    "idle" : {
+      "callbackLatenessMs" : {
+        "max" : 9.9042650000000005,
+        "mean" : 4.0258820000000002,
+        "min" : 0.066280000000000006,
+        "n" : 300,
+        "p50" : 3.3173560000000002,
+        "p95" : 9.3046430000000004,
+        "p99" : 9.8401309999999995
+      },
+      "early" : 0,
+      "hopOver1ms" : 254,
+      "hopOver8_33ms" : 36,
+      "hopOver16_67ms" : 0,
+      "mainActorHopLatenessMs" : {
+        "max" : 9.970307,
+        "mean" : 4.0802709999999998,
+        "min" : 0.103354,
+        "n" : 300,
+        "p50" : 3.3812519999999999,
+        "p95" : 9.3686579999999999,
+        "p99" : 9.8993780000000005
+      },
+      "timers" : 300
+    },
+    "idleWithoutTicker" : {
+      "callbackLatenessMs" : {
+        "max" : 10.119795999999999,
+        "mean" : 4.7240489999999999,
+        "min" : 0.123262,
+        "n" : 300,
+        "p50" : 4.4958590000000003,
+        "p95" : 9.1383460000000003,
+        "p99" : 9.8503830000000008
+      },
+      "early" : 0,
+      "hopOver1ms" : 274,
+      "hopOver8_33ms" : 48,
+      "hopOver16_67ms" : 0,
+      "mainActorHopLatenessMs" : {
+        "max" : 10.16891,
+        "mean" : 4.78911,
+        "min" : 0.15032300000000001,
+        "n" : 300,
+        "p50" : 4.5628549999999999,
+        "p95" : 9.2029569999999996,
+        "p99" : 9.8873379999999997
+      },
+      "timers" : 300
+    },
+    "loaded" : {
+      "burnerQoS" : "userInitiated",
+      "burnerThreads" : 12,
+      "callbackLatenessMs" : {
+        "max" : 13.391852,
+        "mean" : 5.1314070000000003,
+        "min" : 0.058651000000000002,
+        "n" : 300,
+        "p50" : 4.9608949999999998,
+        "p95" : 10.302543999999999,
+        "p99" : 12.912869000000001
+      },
+      "early" : 0,
+      "hopOver1ms" : 271,
+      "hopOver8_33ms" : 56,
+      "hopOver16_67ms" : 0,
+      "mainActorHopLatenessMs" : {
+        "max" : 13.422847000000001,
+        "mean" : 5.16561,
+        "min" : 0.091672000000000003,
+        "n" : 300,
+        "p50" : 4.9958229999999997,
+        "p95" : 10.340571000000001,
+        "p99" : 12.976884999999999
+      },
+      "timers" : 300
+    },
+    "mainThreadQoS" : 33,
+    "strictDispatchTimer" : {
+      "construction" : "DispatchSource.makeTimerSource(flags: .strict, queue: .main), leeway 0 — an alternative, not what Isla uses",
+      "latenessMs" : {
+        "max" : 0.49854100000000001,
+        "mean" : 0.097081000000000001,
+        "min" : 0.045749999999999999,
+        "n" : 300,
+        "p50" : 0.085375000000000006,
+        "p95" : 0.173458,
+        "p99" : 0.27083299999999999
+      }
+    },
+    "summary" : "arithmetic: 1440 arms, 0 wrong; rate change during a pending seek jumps the clock p50 -200.000 ms; snapshot re-base leaves the anchor behind a perfect player 36.000% of the time, mean -9.561 ms, worst -49.893 ms; strict dispatch timer late p50 0.085 ms; Foundation Timer main-actor wake late p50\/p99 idle 3.381\/9.899 ms, loaded 4.996\/12.977 ms",
+    "timerConstruction" : "Timer(timeInterval: max(delay, 0.001), repeats: false) { Task { @MainActor in … } }, tolerance 0, RunLoop.main .common; a 100 ms repeating ticker (tolerance 5 ms) runs beside it as in an open panel",
+    "verdict" : "concern"
+  },
+  "L5_word_sweep" : {
+    "equalLengthDifferentDurations" : {
+      "expectedLong" : 0.75,
+      "expectedShort" : 0.25,
+      "fractionAtLongMidpoint" : 0.75,
+      "fractionAtShortMidpoint" : 0.25,
+      "ok" : 1
+    },
+    "jumpThreshold" : "a frame-to-frame advance more than one character beyond what the true word timing advances in that frame: one glyph is the smallest step a reader sees as a jump rather than motion",
+    "karaokeAnimationModel" : {
+      "label" : "MODEL (additive linear 0.25 s animation over 0.1 s publishes)",
+      "lagMs" : {
+        "max" : 1499.9999989999999,
+        "mean" : 175.42487399999999,
+        "min" : 0.85714199999999996,
+        "n" : 2182374,
+        "p50" : 174.999999,
+        "p95" : 196.41416699999999,
+        "p99" : 230.95833200000001
+      },
+      "linesModelled" : 4000
+    },
+    "reachableForLRCLIB" : false,
+    "real" : {
+      "cumulativeShareMismatchAtWordEnd" : 0,
+      "deviationChars" : {
+        "max" : 0,
+        "mean" : 0,
+        "min" : 0,
+        "n" : 2,
+        "p50" : 0,
+        "p95" : 0,
+        "p99" : 0
+      },
+      "frameExcessAdvanceChars120Hz" : {
+        "max" : 0,
+        "mean" : 0,
+        "min" : 0,
+        "n" : 591,
+        "p50" : 0,
+        "p95" : 0,
+        "p99" : 0
+      },
+      "framesJumpingOverOneChar" : 0,
+      "label" : "REAL word timing from lyricsfile",
+      "lines" : 2,
+      "linesDeviatingOverOneChar" : 0,
+      "monotonicViolations" : 0,
+      "nonZeroBeforeStart" : 0,
+      "perCategoryDeviationChars" : {
+        "latin-spanish-portuguese" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 2,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        }
+      },
+      "reachedOneEarly" : 0,
+      "reachedOneLate" : 0,
+      "tracksWithHasWordSync" : 1,
+      "words" : 12,
+      "wordsVoicedUnder50ms" : 0,
+      "wordsWithEndMs" : 0
+    },
+    "subFloorWord" : {
+      "fractionAtEnd" : 0.5,
+      "fractionJustBeforeEnd" : 0.099000000000000005,
+      "note" : "a word under 50 ms reaches only (duration\/0.05) of its share, then leaps to full at its end"
+    },
+    "summary" : "real word lines 2, synthetic 25395; invariant failures 0; end=nil max deviation 11.242 chars vs end set 4.976; animation lag p50 175.000 ms (MODEL)",
+    "syntheticEndNil" : {
+      "cumulativeShareMismatchAtWordEnd" : 0,
+      "deviationChars" : {
+        "max" : 11.241773,
+        "mean" : 2.3723990000000001,
+        "min" : 0.33355699999999999,
+        "n" : 25395,
+        "p50" : 2.3524370000000001,
+        "p95" : 4.1984089999999998,
+        "p99" : 5.1472049999999996
+      },
+      "frameExcessAdvanceChars120Hz" : {
+        "max" : 3.6222219999999998,
+        "mean" : 0,
+        "min" : -4.6022410000000002,
+        "n" : 14912873,
+        "p50" : -0.002905,
+        "p95" : 0.046658999999999999,
+        "p99" : 0.098642999999999995
+      },
+      "framesJumpingOverOneChar" : 198,
+      "label" : "SYNTHETIC, word end nil (what Isla's LRC parser produces)",
+      "lines" : 25395,
+      "linesDeviatingOverOneChar" : 22437,
+      "monotonicViolations" : 0,
+      "nonZeroBeforeStart" : 0,
+      "perCategoryDeviationChars" : {
+        "arabic-turkish-hindi" : {
+          "max" : 5.3444500000000001,
+          "mean" : 1.7794479999999999,
+          "min" : 0.40704499999999999,
+          "n" : 1077,
+          "p50" : 1.6422330000000001,
+          "p95" : 3.465201,
+          "p99" : 4.3356880000000002
+        },
+        "classical-opera-art-song" : {
+          "max" : 5.7291670000000003,
+          "mean" : 2.6842299999999999,
+          "min" : 0.70486800000000005,
+          "n" : 617,
+          "p50" : 2.6558860000000002,
+          "p95" : 4.091132,
+          "p99" : 4.7754479999999999
+        },
+        "country-folk" : {
+          "max" : 6.1032929999999999,
+          "mean" : 2.5988159999999998,
+          "min" : 0.66917199999999999,
+          "n" : 1525,
+          "p50" : 2.5951119999999999,
+          "p95" : 4.0568790000000003,
+          "p99" : 4.8874360000000001
+        },
+        "duets-choirs-overlaps" : {
+          "max" : 6.1331509999999998,
+          "mean" : 2.473608,
+          "min" : 0.334173,
+          "n" : 1362,
+          "p50" : 2.4302860000000002,
+          "p95" : 4.038348,
+          "p99" : 4.7163120000000003
+        },
+        "electronic-sparse-vocals" : {
+          "max" : 7.2916670000000003,
+          "mean" : 2.2861030000000002,
+          "min" : 0.41151300000000002,
+          "n" : 1708,
+          "p50" : 2.1938559999999998,
+          "p95" : 3.9020060000000001,
+          "p99" : 5.2065250000000001
+        },
+        "hiphop-fast-rap" : {
+          "max" : 9.6266669999999994,
+          "mean" : 2.938377,
+          "min" : 0.66924099999999997,
+          "n" : 2129,
+          "p50" : 2.8676469999999998,
+          "p95" : 4.7355359999999997,
+          "p99" : 5.5395289999999999
+        },
+        "hiphop-slow-trap" : {
+          "max" : 8.0505960000000005,
+          "mean" : 2.9134799999999998,
+          "min" : 0.468277,
+          "n" : 1674,
+          "p50" : 2.822838,
+          "p95" : 4.6512710000000004,
+          "p99" : 5.4978100000000003
+        },
+        "jazz-standards" : {
+          "max" : 6.3626440000000004,
+          "mean" : 2.4060090000000001,
+          "min" : 0.66688499999999995,
+          "n" : 621,
+          "p50" : 2.3506659999999999,
+          "p95" : 3.735668,
+          "p99" : 4.5675629999999998
+        },
+        "jpop-anime" : {
+          "max" : 7.2916670000000003,
+          "mean" : 1.432423,
+          "min" : 0.41009200000000001,
+          "n" : 1170,
+          "p50" : 0.76235200000000003,
+          "p95" : 3.6458330000000001,
+          "p99" : 4.3262640000000001
+        },
+        "kpop" : {
+          "max" : 7.5778660000000002,
+          "mean" : 1.760894,
+          "min" : 0.410111,
+          "n" : 1527,
+          "p50" : 1.230769,
+          "p95" : 4.1666670000000003,
+          "p99" : 5.7309419999999998
+        },
+        "latin-spanish-portuguese" : {
+          "max" : 10.092117999999999,
+          "mean" : 2.7618619999999998,
+          "min" : 0.404858,
+          "n" : 1528,
+          "p50" : 2.7156829999999998,
+          "p95" : 4.2690960000000002,
+          "p99" : 5.1472049999999996
+        },
+        "live-remaster-variants" : {
+          "max" : 5.5263309999999999,
+          "mean" : 2.2899129999999999,
+          "min" : 0.469974,
+          "n" : 1021,
+          "p50" : 2.2430699999999999,
+          "p95" : 3.8880569999999999,
+          "p99" : 4.7208610000000002
+        },
+        "long-tracks-over-7min" : {
+          "max" : 6.5690799999999996,
+          "mean" : 2.5756549999999998,
+          "min" : 0.410219,
+          "n" : 1430,
+          "p50" : 2.5066760000000001,
+          "p95" : 4.1666670000000003,
+          "p99" : 4.9759149999999996
+        },
+        "mandarin-cantopop" : {
+          "max" : 3.6156890000000002,
+          "mean" : 0.68297600000000003,
+          "min" : 0.33355699999999999,
+          "n" : 848,
+          "p50" : 0.66940999999999995,
+          "p95" : 0.76264399999999999,
+          "p99" : 2.3789030000000002
+        },
+        "metal-fast-hardcore" : {
+          "max" : 5.5231849999999998,
+          "mean" : 2.619621,
+          "min" : 0.46987400000000001,
+          "n" : 934,
+          "p50" : 2.6041669999999999,
+          "p95" : 4.1053569999999997,
+          "p99" : 5.1835800000000001
+        },
+        "pop-global-hits" : {
+          "max" : 8.2480720000000005,
+          "mean" : 2.5202849999999999,
+          "min" : 0.62190900000000005,
+          "n" : 1521,
+          "p50" : 2.3543500000000002,
+          "p95" : 4.3319520000000002,
+          "p99" : 6.3582979999999996
+        },
+        "rnb-soul" : {
+          "max" : 9.0513960000000004,
+          "mean" : 2.4207260000000002,
+          "min" : 0.40569,
+          "n" : 2338,
+          "p50" : 2.271458,
+          "p95" : 4.2223790000000001,
+          "p99" : 5.0049279999999996
+        },
+        "rock-classic" : {
+          "max" : 9.6743590000000008,
+          "mean" : 2.3153670000000002,
+          "min" : 0.46491199999999999,
+          "n" : 975,
+          "p50" : 2.2443810000000002,
+          "p95" : 3.8964669999999999,
+          "p99" : 4.5329459999999999
+        },
+        "russian-ukrainian" : {
+          "max" : 11.241773,
+          "mean" : 2.4580570000000002,
+          "min" : 0.47236699999999998,
+          "n" : 836,
+          "p50" : 2.4295740000000001,
+          "p95" : 3.748624,
+          "p99" : 4.7158800000000003
+        },
+        "short-tracks-and-long-intros" : {
+          "max" : 5.4698760000000002,
+          "mean" : 2.4782959999999998,
+          "min" : 0.66847699999999999,
+          "n" : 554,
+          "p50" : 2.4449510000000001,
+          "p95" : 3.8730159999999998,
+          "p99" : 4.4115539999999998
+        }
+      },
+      "reachedOneEarly" : 0,
+      "reachedOneLate" : 0,
+      "words" : 174454,
+      "wordsVoicedUnder50ms" : 490
+    },
+    "syntheticEndSet" : {
+      "cumulativeShareMismatchAtWordEnd" : 0,
+      "deviationChars" : {
+        "max" : 4.9759149999999996,
+        "mean" : 0.0067390000000000002,
+        "min" : 0,
+        "n" : 25395,
+        "p50" : 0,
+        "p95" : 0,
+        "p99" : 0
+      },
+      "frameExcessAdvanceChars120Hz" : {
+        "max" : 4.1782750000000002,
+        "mean" : 0,
+        "min" : -4.6022410000000002,
+        "n" : 14912873,
+        "p50" : 0,
+        "p95" : 0,
+        "p99" : 0
+      },
+      "framesJumpingOverOneChar" : 229,
+      "label" : "SYNTHETIC, word end set to the voice's end",
+      "lines" : 25395,
+      "linesDeviatingOverOneChar" : 61,
+      "monotonicViolations" : 0,
+      "nonZeroBeforeStart" : 0,
+      "perCategoryDeviationChars" : {
+        "arabic-turkish-hindi" : {
+          "max" : 1.2755259999999999,
+          "mean" : 0.0011839999999999999,
+          "min" : 0,
+          "n" : 1077,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "classical-opera-art-song" : {
+          "max" : 2.587135,
+          "mean" : 0.0090360000000000006,
+          "min" : 0,
+          "n" : 617,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "country-folk" : {
+          "max" : 3.8357519999999998,
+          "mean" : 0.031780999999999997,
+          "min" : 0,
+          "n" : 1525,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 1.876601
+        },
+        "duets-choirs-overlaps" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 1362,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "electronic-sparse-vocals" : {
+          "max" : 1.8292090000000001,
+          "mean" : 0.0014809999999999999,
+          "min" : 0,
+          "n" : 1708,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "hiphop-fast-rap" : {
+          "max" : 4.1318099999999998,
+          "mean" : 0.0035119999999999999,
+          "min" : 0,
+          "n" : 2129,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "hiphop-slow-trap" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 1674,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "jazz-standards" : {
+          "max" : 4.0254060000000003,
+          "mean" : 0.012918000000000001,
+          "min" : 0,
+          "n" : 621,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "jpop-anime" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 1170,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "kpop" : {
+          "max" : 1.9611799999999999,
+          "mean" : 0.002,
+          "min" : 0,
+          "n" : 1527,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "latin-spanish-portuguese" : {
+          "max" : 2.9260619999999999,
+          "mean" : 0.0069959999999999996,
+          "min" : 0,
+          "n" : 1528,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "live-remaster-variants" : {
+          "max" : 2.7621540000000002,
+          "mean" : 0.0048979999999999996,
+          "min" : 0,
+          "n" : 1021,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "long-tracks-over-7min" : {
+          "max" : 4.9759149999999996,
+          "mean" : 0.021770000000000001,
+          "min" : 0,
+          "n" : 1430,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "mandarin-cantopop" : {
+          "max" : 0.62783500000000003,
+          "mean" : 0.000941,
+          "min" : 0,
+          "n" : 848,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "metal-fast-hardcore" : {
+          "max" : 4.9243980000000001,
+          "mean" : 0.0052719999999999998,
+          "min" : 0,
+          "n" : 934,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "pop-global-hits" : {
+          "max" : 0.30946600000000002,
+          "mean" : 0.000203,
+          "min" : 0,
+          "n" : 1521,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "rnb-soul" : {
+          "max" : 0.92156899999999997,
+          "mean" : 0.00039399999999999998,
+          "min" : 0,
+          "n" : 2338,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "rock-classic" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 975,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        },
+        "russian-ukrainian" : {
+          "max" : 4.1782750000000002,
+          "mean" : 0.049007000000000002,
+          "min" : 0,
+          "n" : 836,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 2.0582410000000002
+        },
+        "short-tracks-and-long-intros" : {
+          "max" : 0,
+          "mean" : 0,
+          "min" : 0,
+          "n" : 554,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 0
+        }
+      },
+      "reachedOneEarly" : 0,
+      "reachedOneLate" : 0,
+      "words" : 174454,
+      "wordsVoicedUnder50ms" : 490
+    },
+    "verdict" : "concern",
+    "whyNotReachable" : "LyricsPresentation.usesWordTiming needs granularity .word, precision sync and the karaoke switch; an LRCLIB timeline is .line (OnlineLyrics.swift:15-17), so every LRCLIB line is drawn fully lit (fraction 1) for its whole slot"
+  },
+  "L6_gap_behaviour" : {
+    "definition" : "stale = time a line is still drawn current (until the next stamp less the lead; the last line until the track ends) after its voice ended; truth = the earlier of an empty LRC stamp and lyricsfile end_ms",
+    "estimateSweepPath" : {
+      "finishesMoreThan100msAfterVoiceEnds" : 54,
+      "finishesMoreThan100msBeforeVoiceEnds" : 1473,
+      "fullAtMidGap" : 1015,
+      "linesWithKnownEnd" : 1782,
+      "midGapChecks" : 1021,
+      "note" : "LyricSweep.fraction without word timing (LyricsStore.sweepSpan); unreachable from the views for LRCLIB, measured for completeness",
+      "sitsFullSecondsPerLine" : {
+        "max" : 584.12,
+        "mean" : 11.713081000000001,
+        "min" : 0,
+        "n" : 1782,
+        "p50" : 4.75,
+        "p95" : 42.380000000000003,
+        "p99" : 115.43000000000001
+      }
+    },
+    "lead" : 0.20000000000000001,
+    "lyricsfileLineMatch" : {
+      "matched" : 24184,
+      "toleranceMs" : 150,
+      "unmatched" : 0
+    },
+    "overall" : {
+      "fullyLitSecondsInGapsOver8sPerTrack" : {
+        "max" : 608.88,
+        "mean" : 26.102699999999999,
+        "min" : 0,
+        "n" : 537,
+        "p50" : 0,
+        "p95" : 95.370000000000005,
+        "p99" : 364.56
+      },
+      "midSongGapsOver8s" : 447,
+      "outrosOver8s" : 295,
+      "outroStaleSecondsPerTrack" : {
+        "max" : 2601.7800000000002,
+        "mean" : 37.938474999999997,
+        "min" : 0,
+        "n" : 537,
+        "p50" : 9.4199999999999999,
+        "p95" : 126.839974,
+        "p99" : 475.66000000000003
+      },
+      "residualIfLinesEndAtEmptyStamps" : 57.481000000000002,
+      "residualIfLinesEndAtEndMs" : 0.37,
+      "staleRemovedByEmptyStampClockShare" : 0.99842299999999995,
+      "staleSecondsPerTrack" : {
+        "max" : 2685.3800000000001,
+        "mean" : 67.885907000000003,
+        "min" : 0,
+        "n" : 537,
+        "p50" : 28.870000000000001,
+        "p95" : 223.22999999999999,
+        "p99" : 679.17999999999995
+      },
+      "staleShareOfTrackTime" : {
+        "max" : 0.91544599999999998,
+        "mean" : 0.17586499999999999,
+        "min" : 0,
+        "n" : 537,
+        "p50" : 0.12489699999999999,
+        "p95" : 0.53058399999999994,
+        "p99" : 0.77174699999999996
+      },
+      "staleVsEmptyStampTruthPerTrack" : {
+        "max" : 2685.3800000000001,
+        "mean" : 67.778865999999994,
+        "min" : 0,
+        "n" : 537,
+        "p50" : 28.870000000000001,
+        "p95" : 223.22999999999999,
+        "p99" : 679.17999999999995
+      },
+      "staleVsEndMsTruthPerTrack" : {
+        "max" : 2685.3800000000001,
+        "mean" : 67.885217999999995,
+        "min" : 0,
+        "n" : 537,
+        "p50" : 28.870000000000001,
+        "p95" : 223.22999999999999,
+        "p99" : 679.17999999999995
+      },
+      "totalStaleSeconds" : 36454.732203,
+      "tracks" : 537,
+      "tracksWithInformativeEndMs" : 474,
+      "tracksWithLyricsfile" : 537
+    },
+    "perCategory" : {
+      "arabic-turkish-hindi" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 226.31999999999999,
+          "mean" : 40.654400000000003,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 9.0700000000000003,
+          "p95" : 109.09999999999999,
+          "p99" : 226.31999999999999
+        },
+        "midSongGapsOver8s" : 33,
+        "outrosOver8s" : 11,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 98.143332999999998,
+          "mean" : 19.614933000000001,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 6.5599999999999996,
+          "p95" : 85.290000000000006,
+          "p99" : 98.143332999999998
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 258.76999999999998,
+          "mean" : 62.095332999999997,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 64.170000000000002,
+          "p95" : 136.36000000000001,
+          "p99" : 258.76999999999998
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.53058399999999994,
+          "mean" : 0.185164,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0.16520099999999999,
+          "p95" : 0.47993400000000003,
+          "p99" : 0.53058399999999994
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 258.76999999999998,
+          "mean" : 62.095332999999997,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 64.170000000000002,
+          "p95" : 136.36000000000001,
+          "p99" : 258.76999999999998
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 258.76999999999998,
+          "mean" : 62.095332999999997,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 64.170000000000002,
+          "p95" : 136.36000000000001,
+          "p99" : 258.76999999999998
+        },
+        "totalStaleSeconds" : 1552.383333,
+        "tracks" : 25,
+        "tracksWithInformativeEndMs" : 23,
+        "tracksWithLyricsfile" : 25
+      },
+      "classical-opera-art-song" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 76.870000000000005,
+          "mean" : 8.7017389999999999,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 0,
+          "p95" : 27.809999999999999,
+          "p99" : 76.870000000000005
+        },
+        "midSongGapsOver8s" : 11,
+        "outrosOver8s" : 15,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 167.75,
+          "mean" : 25.337963999999999,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 14.5,
+          "p95" : 62.350000000000001,
+          "p99" : 167.75
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0.34999999999999998,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 0.99958400000000003,
+        "staleSecondsPerTrack" : {
+          "max" : 167.75,
+          "mean" : 36.596224999999997,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 32.049999999999997,
+          "p95" : 112.53,
+          "p99" : 167.75
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.52586200000000005,
+          "mean" : 0.14402599999999999,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 0.13466400000000001,
+          "p95" : 0.36183300000000002,
+          "p99" : 0.52586200000000005
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 167.75,
+          "mean" : 36.581007999999997,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 32.049999999999997,
+          "p95" : 112.53,
+          "p99" : 167.75
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 167.75,
+          "mean" : 36.596224999999997,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 32.049999999999997,
+          "p95" : 112.53,
+          "p99" : 167.75
+        },
+        "totalStaleSeconds" : 841.71317799999997,
+        "tracks" : 23,
+        "tracksWithInformativeEndMs" : 22,
+        "tracksWithLyricsfile" : 23
+      },
+      "country-folk" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 77.109999999999999,
+          "mean" : 14.610908999999999,
+          "min" : 0,
+          "n" : 44,
+          "p50" : 0,
+          "p95" : 44.969999999999999,
+          "p99" : 77.109999999999999
+        },
+        "midSongGapsOver8s" : 31,
+        "outrosOver8s" : 30,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 277.52999999999997,
+          "mean" : 30.446280000000002,
+          "min" : 0,
+          "n" : 44,
+          "p50" : 13.91,
+          "p95" : 96.049999999999997,
+          "p99" : 277.52999999999997
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 319.37,
+          "mean" : 49.219008000000002,
+          "min" : 0,
+          "n" : 44,
+          "p50" : 34,
+          "p95" : 124.39,
+          "p99" : 319.37
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.70657099999999995,
+          "mean" : 0.19296199999999999,
+          "min" : 0,
+          "n" : 44,
+          "p50" : 0.17152300000000001,
+          "p95" : 0.51689799999999997,
+          "p99" : 0.70657099999999995
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 319.37,
+          "mean" : 49.219008000000002,
+          "min" : 0,
+          "n" : 44,
+          "p50" : 34,
+          "p95" : 124.39,
+          "p99" : 319.37
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 319.37,
+          "mean" : 49.219008000000002,
+          "min" : 0,
+          "n" : 44,
+          "p50" : 34,
+          "p95" : 124.39,
+          "p99" : 319.37
+        },
+        "totalStaleSeconds" : 2165.6363409999999,
+        "tracks" : 44,
+        "tracksWithInformativeEndMs" : 39,
+        "tracksWithLyricsfile" : 44
+      },
+      "duets-choirs-overlaps" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 26.16,
+          "mean" : 3.9683999999999999,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0,
+          "p95" : 25.91,
+          "p99" : 26.16
+        },
+        "midSongGapsOver8s" : 7,
+        "outrosOver8s" : 7,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 252.22,
+          "mean" : 18.410240000000002,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 6.04,
+          "p95" : 62.409999999999997,
+          "p99" : 252.22
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 260.5,
+          "mean" : 25.713439999999999,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 9.9499999999999993,
+          "p95" : 71.709999999999994,
+          "p99" : 260.5
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.62171799999999999,
+          "mean" : 0.087444999999999995,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0.050869999999999999,
+          "p95" : 0.256054,
+          "p99" : 0.62171799999999999
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 260.5,
+          "mean" : 25.713439999999999,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 9.9499999999999993,
+          "p95" : 71.709999999999994,
+          "p99" : 260.5
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 260.5,
+          "mean" : 25.713439999999999,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 9.9499999999999993,
+          "p95" : 71.709999999999994,
+          "p99" : 260.5
+        },
+        "totalStaleSeconds" : 642.83600000000001,
+        "tracks" : 25,
+        "tracksWithInformativeEndMs" : 24,
+        "tracksWithLyricsfile" : 25
+      },
+      "electronic-sparse-vocals" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 211.72,
+          "mean" : 35.641316000000003,
+          "min" : 0,
+          "n" : 38,
+          "p50" : 22.100000000000001,
+          "p95" : 121.33,
+          "p99" : 211.72
+        },
+        "midSongGapsOver8s" : 54,
+        "outrosOver8s" : 17,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 145.53999999999999,
+          "mean" : 21.028683999999998,
+          "min" : 0,
+          "n" : 38,
+          "p50" : 2.8700000000000001,
+          "p95" : 96.290000000000006,
+          "p99" : 145.53999999999999
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 214.06,
+          "mean" : 59.962895000000003,
+          "min" : 0,
+          "n" : 38,
+          "p50" : 33.380000000000003,
+          "p95" : 204.55000000000001,
+          "p99" : 214.06
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.86314500000000005,
+          "mean" : 0.22858300000000001,
+          "min" : 0,
+          "n" : 38,
+          "p50" : 0.16048100000000001,
+          "p95" : 0.61237600000000003,
+          "p99" : 0.86314500000000005
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 214.06,
+          "mean" : 59.962895000000003,
+          "min" : 0,
+          "n" : 38,
+          "p50" : 33.380000000000003,
+          "p95" : 204.55000000000001,
+          "p99" : 214.06
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 214.06,
+          "mean" : 59.962895000000003,
+          "min" : 0,
+          "n" : 38,
+          "p50" : 33.380000000000003,
+          "p95" : 204.55000000000001,
+          "p99" : 214.06
+        },
+        "totalStaleSeconds" : 2278.5900000000001,
+        "tracks" : 38,
+        "tracksWithInformativeEndMs" : 27,
+        "tracksWithLyricsfile" : 38
+      },
+      "hiphop-fast-rap" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 16.82,
+          "mean" : 0.67279999999999995,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0,
+          "p95" : 0,
+          "p99" : 16.82
+        },
+        "midSongGapsOver8s" : 1,
+        "outrosOver8s" : 8,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 107.41,
+          "mean" : 10.877065999999999,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 3.46,
+          "p95" : 44.020000000000003,
+          "p99" : 107.41
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 107.41,
+          "mean" : 12.683866,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 5.6100000000000003,
+          "p95" : 44.020000000000003,
+          "p99" : 107.41
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.34206999999999999,
+          "mean" : 0.051126999999999999,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0.02018,
+          "p95" : 0.18974099999999999,
+          "p99" : 0.34206999999999999
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 107.41,
+          "mean" : 12.683866,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 5.6100000000000003,
+          "p95" : 44.020000000000003,
+          "p99" : 107.41
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 107.41,
+          "mean" : 12.683866,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 5.6100000000000003,
+          "p95" : 44.020000000000003,
+          "p99" : 107.41
+        },
+        "totalStaleSeconds" : 317.09664400000003,
+        "tracks" : 25,
+        "tracksWithInformativeEndMs" : 18,
+        "tracksWithLyricsfile" : 25
+      },
+      "hiphop-slow-trap" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 16.82,
+          "mean" : 1.0908,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0,
+          "p95" : 10.449999999999999,
+          "p99" : 16.82
+        },
+        "midSongGapsOver8s" : 2,
+        "outrosOver8s" : 16,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 164.61000000000001,
+          "mean" : 21.518825,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 12.93,
+          "p95" : 49.350000000000001,
+          "p99" : 164.61000000000001
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 166.53,
+          "mean" : 24.403625000000002,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 17.670000000000002,
+          "p95" : 51.759999999999998,
+          "p99" : 166.53
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.37847700000000001,
+          "mean" : 0.105659,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0.077840999999999994,
+          "p95" : 0.25335000000000002,
+          "p99" : 0.37847700000000001
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 166.53,
+          "mean" : 24.403625000000002,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 17.670000000000002,
+          "p95" : 51.759999999999998,
+          "p99" : 166.53
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 166.53,
+          "mean" : 24.403625000000002,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 17.670000000000002,
+          "p95" : 51.759999999999998,
+          "p99" : 166.53
+        },
+        "totalStaleSeconds" : 610.09061499999996,
+        "tracks" : 25,
+        "tracksWithInformativeEndMs" : 24,
+        "tracksWithLyricsfile" : 25
+      },
+      "jazz-standards" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 66.370000000000005,
+          "mean" : 9.6712000000000007,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0,
+          "p95" : 43.43,
+          "p99" : 66.370000000000005
+        },
+        "midSongGapsOver8s" : 10,
+        "outrosOver8s" : 18,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 475.66000000000003,
+          "mean" : 32.9116,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 12.16,
+          "p95" : 40,
+          "p99" : 475.66000000000003
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 488.20999999999998,
+          "mean" : 47.038400000000003,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 25.629999999999999,
+          "p95" : 91.290000000000006,
+          "p99" : 488.20999999999998
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.81640500000000005,
+          "mean" : 0.16469300000000001,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0.118214,
+          "p95" : 0.375668,
+          "p99" : 0.81640500000000005
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 488.20999999999998,
+          "mean" : 47.038400000000003,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 25.629999999999999,
+          "p95" : 91.290000000000006,
+          "p99" : 488.20999999999998
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 488.20999999999998,
+          "mean" : 47.038400000000003,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 25.629999999999999,
+          "p95" : 91.290000000000006,
+          "p99" : 488.20999999999998
+        },
+        "totalStaleSeconds" : 1175.96,
+        "tracks" : 25,
+        "tracksWithInformativeEndMs" : 23,
+        "tracksWithLyricsfile" : 25
+      },
+      "jpop-anime" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 84,
+          "mean" : 13.5936,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0,
+          "p95" : 41.789999999999999,
+          "p99" : 84
+        },
+        "midSongGapsOver8s" : 22,
+        "outrosOver8s" : 16,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 2299.7800000000002,
+          "mean" : 108.701125,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 13.43,
+          "p95" : 84.810000000000002,
+          "p99" : 2299.7800000000002
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 2319.7399999999998,
+          "mean" : 124.427925,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 21.629999999999999,
+          "p95" : 109.51000000000001,
+          "p99" : 2319.7399999999998
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.91544599999999998,
+          "mean" : 0.158026,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0.095285999999999996,
+          "p95" : 0.38290200000000002,
+          "p99" : 0.91544599999999998
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 2319.7399999999998,
+          "mean" : 124.427925,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 21.629999999999999,
+          "p95" : 109.51000000000001,
+          "p99" : 2319.7399999999998
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 2319.7399999999998,
+          "mean" : 124.427925,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 21.629999999999999,
+          "p95" : 109.51000000000001,
+          "p99" : 2319.7399999999998
+        },
+        "totalStaleSeconds" : 3110.6981249999999,
+        "tracks" : 25,
+        "tracksWithInformativeEndMs" : 20,
+        "tracksWithLyricsfile" : 25
+      },
+      "kpop" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 14.5,
+          "mean" : 0.91679999999999995,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0,
+          "p95" : 8.4199999999999999,
+          "p99" : 14.5
+        },
+        "midSongGapsOver8s" : 2,
+        "outrosOver8s" : 8,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 706.04999999999995,
+          "mean" : 39.187199999999997,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 4.9500000000000002,
+          "p95" : 94.840000000000003,
+          "p99" : 706.04999999999995
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 729.65999999999997,
+          "mean" : 42.095999999999997,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 6.5099999999999998,
+          "p95" : 116.95,
+          "p99" : 729.65999999999997
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.78458099999999997,
+          "mean" : 0.086456000000000005,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0.032277,
+          "p95" : 0.41325099999999998,
+          "p99" : 0.78458099999999997
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 729.65999999999997,
+          "mean" : 42.095999999999997,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 6.5099999999999998,
+          "p95" : 116.95,
+          "p99" : 729.65999999999997
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 729.65999999999997,
+          "mean" : 42.095999999999997,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 6.5099999999999998,
+          "p95" : 116.95,
+          "p99" : 729.65999999999997
+        },
+        "totalStaleSeconds" : 1052.4000000000001,
+        "tracks" : 25,
+        "tracksWithInformativeEndMs" : 21,
+        "tracksWithLyricsfile" : 25
+      },
+      "latin-spanish-portuguese" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 106.67,
+          "mean" : 13.0052,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0,
+          "p95" : 53.149999999999999,
+          "p99" : 106.67
+        },
+        "midSongGapsOver8s" : 18,
+        "outrosOver8s" : 10,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 46.479999999999997,
+          "mean" : 9.8612730000000006,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 6.1542709999999996,
+          "p95" : 45.590000000000003,
+          "p99" : 46.479999999999997
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0.49099999999999999,
+        "residualIfLinesEndAtEndMs" : 0.37,
+        "staleRemovedByEmptyStampClockShare" : 0.99922599999999995,
+        "staleSecondsPerTrack" : {
+          "max" : 126.40000000000001,
+          "mean" : 25.375713000000001,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 14.217551,
+          "p95" : 100.121,
+          "p99" : 126.40000000000001
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.49763800000000002,
+          "mean" : 0.10758,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0.060412,
+          "p95" : 0.36144799999999999,
+          "p99" : 0.49763800000000002
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 126.40000000000001,
+          "mean" : 25.356072999999999,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 14.217551,
+          "p95" : 99.629999999999995,
+          "p99" : 126.40000000000001
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 126.40000000000001,
+          "mean" : 25.360913,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 14.217551,
+          "p95" : 99.751000000000005,
+          "p99" : 126.40000000000001
+        },
+        "totalStaleSeconds" : 634.39282200000002,
+        "tracks" : 25,
+        "tracksWithInformativeEndMs" : 19,
+        "tracksWithLyricsfile" : 25
+      },
+      "live-remaster-variants" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 215.06,
+          "mean" : 43.884799999999998,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 37.630000000000003,
+          "p95" : 122.45,
+          "p99" : 215.06
+        },
+        "midSongGapsOver8s" : 35,
+        "outrosOver8s" : 16,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 285.94999999999999,
+          "mean" : 53.800443000000001,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 14.779999999999999,
+          "p95" : 147.56,
+          "p99" : 285.94999999999999
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 285.94999999999999,
+          "mean" : 104.54204300000001,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 86,
+          "p95" : 260.35000000000002,
+          "p99" : 285.94999999999999
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.62734900000000005,
+          "mean" : 0.30186499999999999,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0.296935,
+          "p95" : 0.53664400000000001,
+          "p99" : 0.62734900000000005
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 285.94999999999999,
+          "mean" : 104.54204300000001,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 86,
+          "p95" : 260.35000000000002,
+          "p99" : 285.94999999999999
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 285.94999999999999,
+          "mean" : 104.54204300000001,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 86,
+          "p95" : 260.35000000000002,
+          "p99" : 285.94999999999999
+        },
+        "totalStaleSeconds" : 2613.551066,
+        "tracks" : 25,
+        "tracksWithInformativeEndMs" : 24,
+        "tracksWithLyricsfile" : 25
+      },
+      "long-tracks-over-7min" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 608.88,
+          "mean" : 178.92080000000001,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 64.409999999999997,
+          "p95" : 577.66999999999996,
+          "p99" : 608.88
+        },
+        "midSongGapsOver8s" : 53,
+        "outrosOver8s" : 19,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 2601.7800000000002,
+          "mean" : 202.65039899999999,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 56.850000000000001,
+          "p95" : 486.57999999999998,
+          "p99" : 2601.7800000000002
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 2685.3800000000001,
+          "mean" : 387.60999900000002,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 198.50999999999999,
+          "p95" : 817.73000000000002,
+          "p99" : 2685.3800000000001
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.88189799999999996,
+          "mean" : 0.35383599999999998,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0.40514699999999998,
+          "p95" : 0.77174699999999996,
+          "p99" : 0.88189799999999996
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 2685.3800000000001,
+          "mean" : 387.60999900000002,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 198.50999999999999,
+          "p95" : 817.73000000000002,
+          "p99" : 2685.3800000000001
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 2685.3800000000001,
+          "mean" : 387.60999900000002,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 198.50999999999999,
+          "p95" : 817.73000000000002,
+          "p99" : 2685.3800000000001
+        },
+        "totalStaleSeconds" : 9690.2499740000003,
+        "tracks" : 25,
+        "tracksWithInformativeEndMs" : 23,
+        "tracksWithLyricsfile" : 25
+      },
+      "mandarin-cantopop" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 83.599999999999994,
+          "mean" : 17.424783000000001,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 19.539999999999999,
+          "p95" : 49.259999999999998,
+          "p99" : 83.599999999999994
+        },
+        "midSongGapsOver8s" : 16,
+        "outrosOver8s" : 18,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 56.469999999999999,
+          "mean" : 20.213557999999999,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 17.460000000000001,
+          "p95" : 40.979999999999997,
+          "p99" : 56.469999999999999
+        },
+        "residualIfLinesEndAtEmptyStamps" : 30.079999999999998,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 0.96816899999999995,
+        "staleSecondsPerTrack" : {
+          "max" : 99.939999999999998,
+          "mean" : 41.086601000000002,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 40.5,
+          "p95" : 93.339986999999994,
+          "p99" : 99.939999999999998
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.428873,
+          "mean" : 0.159,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 0.18976100000000001,
+          "p95" : 0.30941200000000002,
+          "p99" : 0.428873
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 99.939999999999998,
+          "mean" : 39.778775000000003,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 40.5,
+          "p95" : 93.339986999999994,
+          "p99" : 99.939999999999998
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 99.939999999999998,
+          "mean" : 41.086601000000002,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 40.5,
+          "p95" : 93.339986999999994,
+          "p99" : 99.939999999999998
+        },
+        "totalStaleSeconds" : 944.99182399999995,
+        "tracks" : 23,
+        "tracksWithInformativeEndMs" : 20,
+        "tracksWithLyricsfile" : 23
+      },
+      "metal-fast-hardcore" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 226.03,
+          "mean" : 52.877200000000002,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 37.890000000000001,
+          "p95" : 195.47999999999999,
+          "p99" : 226.03
+        },
+        "midSongGapsOver8s" : 47,
+        "outrosOver8s" : 12,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 260.56,
+          "mean" : 37.878506999999999,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 6.9566670000000004,
+          "p95" : 237.38999999999999,
+          "p99" : 260.56
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 463.42000000000002,
+          "mean" : 97.656907000000004,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 67.010000000000005,
+          "p95" : 352.82999999999998,
+          "p99" : 463.42000000000002
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.64739400000000002,
+          "mean" : 0.261355,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 0.28004299999999999,
+          "p95" : 0.56791700000000001,
+          "p99" : 0.64739400000000002
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 463.42000000000002,
+          "mean" : 97.656907000000004,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 67.010000000000005,
+          "p95" : 352.82999999999998,
+          "p99" : 463.42000000000002
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 463.42000000000002,
+          "mean" : 97.656907000000004,
+          "min" : 0,
+          "n" : 25,
+          "p50" : 67.010000000000005,
+          "p95" : 352.82999999999998,
+          "p99" : 463.42000000000002
+        },
+        "totalStaleSeconds" : 2441.4226669999998,
+        "tracks" : 25,
+        "tracksWithInformativeEndMs" : 22,
+        "tracksWithLyricsfile" : 25
+      },
+      "pop-global-hits" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 58.57,
+          "mean" : 6.8799999999999999,
+          "min" : 0,
+          "n" : 24,
+          "p50" : 0,
+          "p95" : 39.090000000000003,
+          "p99" : 58.57
+        },
+        "midSongGapsOver8s" : 11,
+        "outrosOver8s" : 9,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 105.25,
+          "mean" : 15.157083,
+          "min" : 0,
+          "n" : 24,
+          "p50" : 4.1299869999999999,
+          "p95" : 63.18,
+          "p99" : 105.25
+        },
+        "residualIfLinesEndAtEmptyStamps" : 24.02,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 0.96055100000000004,
+        "staleSecondsPerTrack" : {
+          "max" : 105.25,
+          "mean" : 25.370415999999999,
+          "min" : 0,
+          "n" : 24,
+          "p50" : 12.220000000000001,
+          "p95" : 94.120000000000005,
+          "p99" : 105.25
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.38732499999999997,
+          "mean" : 0.10875700000000001,
+          "min" : 0,
+          "n" : 24,
+          "p50" : 0.04811,
+          "p95" : 0.34966799999999998,
+          "p99" : 0.38732499999999997
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 105.25,
+          "mean" : 24.369582999999999,
+          "min" : 0,
+          "n" : 24,
+          "p50" : 9.0299999999999994,
+          "p95" : 94.120000000000005,
+          "p99" : 105.25
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 105.25,
+          "mean" : 25.370415999999999,
+          "min" : 0,
+          "n" : 24,
+          "p50" : 12.220000000000001,
+          "p95" : 94.120000000000005,
+          "p99" : 105.25
+        },
+        "totalStaleSeconds" : 608.88998700000002,
+        "tracks" : 24,
+        "tracksWithInformativeEndMs" : 21,
+        "tracksWithLyricsfile" : 24
+      },
+      "rnb-soul" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 75.739999999999995,
+          "mean" : 9.2116670000000003,
+          "min" : 0,
+          "n" : 48,
+          "p50" : 0,
+          "p95" : 41.759999999999998,
+          "p99" : 75.739999999999995
+        },
+        "midSongGapsOver8s" : 21,
+        "outrosOver8s" : 26,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 340.70999999999998,
+          "mean" : 22.786992999999999,
+          "min" : 0,
+          "n" : 48,
+          "p50" : 11.98,
+          "p95" : 81.150000000000006,
+          "p99" : 340.70999999999998
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 416.44999999999999,
+          "mean" : 36.858243000000002,
+          "min" : 0,
+          "n" : 48,
+          "p50" : 20.649999999999999,
+          "p95" : 98.120000000000005,
+          "p99" : 416.44999999999999
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.541547,
+          "mean" : 0.12224,
+          "min" : 0,
+          "n" : 48,
+          "p50" : 0.096240000000000006,
+          "p95" : 0.31564199999999998,
+          "p99" : 0.541547
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 416.44999999999999,
+          "mean" : 36.858243000000002,
+          "min" : 0,
+          "n" : 48,
+          "p50" : 20.649999999999999,
+          "p95" : 98.120000000000005,
+          "p99" : 416.44999999999999
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 416.44999999999999,
+          "mean" : 36.858243000000002,
+          "min" : 0,
+          "n" : 48,
+          "p50" : 20.649999999999999,
+          "p95" : 98.120000000000005,
+          "p99" : 416.44999999999999
+        },
+        "totalStaleSeconds" : 1769.1956419999999,
+        "tracks" : 48,
+        "tracksWithInformativeEndMs" : 45,
+        "tracksWithLyricsfile" : 48
+      },
+      "rock-classic" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 187.21000000000001,
+          "mean" : 30.850435000000001,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 22.100000000000001,
+          "p95" : 93.459999999999994,
+          "p99" : 187.21000000000001
+        },
+        "midSongGapsOver8s" : 28,
+        "outrosOver8s" : 19,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 131.56687099999999,
+          "mean" : 36.755018,
+          "min" : 1.8600000000000001,
+          "n" : 23,
+          "p50" : 16.260000000000002,
+          "p95" : 130.31,
+          "p99" : 131.56687099999999
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 256.66000000000003,
+          "mean" : 72.741105000000005,
+          "min" : 8.1300000000000008,
+          "n" : 23,
+          "p50" : 54.439999999999998,
+          "p95" : 155.16,
+          "p99" : 256.66000000000003
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.58867000000000003,
+          "mean" : 0.24951999999999999,
+          "min" : 0.060221999999999998,
+          "n" : 23,
+          "p50" : 0.23549800000000001,
+          "p95" : 0.51039500000000004,
+          "p99" : 0.58867000000000003
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 256.66000000000003,
+          "mean" : 72.741105000000005,
+          "min" : 8.1300000000000008,
+          "n" : 23,
+          "p50" : 54.439999999999998,
+          "p95" : 155.16,
+          "p99" : 256.66000000000003
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 256.66000000000003,
+          "mean" : 72.741105000000005,
+          "min" : 8.1300000000000008,
+          "n" : 23,
+          "p50" : 54.439999999999998,
+          "p95" : 155.16,
+          "p99" : 256.66000000000003
+        },
+        "totalStaleSeconds" : 1673.045421,
+        "tracks" : 23,
+        "tracksWithInformativeEndMs" : 23,
+        "tracksWithLyricsfile" : 23
+      },
+      "russian-ukrainian" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 72.909999999999997,
+          "mean" : 25.123042999999999,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 21.75,
+          "p95" : 62.270000000000003,
+          "p99" : 72.909999999999997
+        },
+        "midSongGapsOver8s" : 25,
+        "outrosOver8s" : 13,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 157.33000000000001,
+          "mean" : 30.375154999999999,
+          "min" : 0,
+          "n" : 23,
+          "p50" : 12.74,
+          "p95" : 96.590000000000003,
+          "p99" : 157.33000000000001
+        },
+        "residualIfLinesEndAtEmptyStamps" : 0,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 1,
+        "staleSecondsPerTrack" : {
+          "max" : 161.38,
+          "mean" : 61.423850999999999,
+          "min" : 2.54,
+          "n" : 23,
+          "p50" : 60.619999999999997,
+          "p95" : 157.33000000000001,
+          "p99" : 161.38
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.72169700000000003,
+          "mean" : 0.25931799999999999,
+          "min" : 0.0095490000000000002,
+          "n" : 23,
+          "p50" : 0.23527799999999999,
+          "p95" : 0.585256,
+          "p99" : 0.72169700000000003
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 161.38,
+          "mean" : 61.423850999999999,
+          "min" : 2.54,
+          "n" : 23,
+          "p50" : 60.619999999999997,
+          "p95" : 157.33000000000001,
+          "p99" : 161.38
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 161.38,
+          "mean" : 61.423850999999999,
+          "min" : 2.54,
+          "n" : 23,
+          "p50" : 60.619999999999997,
+          "p95" : 157.33000000000001,
+          "p99" : 161.38
+        },
+        "totalStaleSeconds" : 1412.748564,
+        "tracks" : 23,
+        "tracksWithInformativeEndMs" : 23,
+        "tracksWithLyricsfile" : 23
+      },
+      "short-tracks-and-long-intros" : {
+        "fullyLitSecondsInGapsOver8sPerTrack" : {
+          "max" : 193.78,
+          "mean" : 33.932499999999997,
+          "min" : 0,
+          "n" : 16,
+          "p50" : 23.579999999999998,
+          "p95" : 193.78,
+          "p99" : 193.78
+        },
+        "midSongGapsOver8s" : 20,
+        "outrosOver8s" : 7,
+        "outroStaleSecondsPerTrack" : {
+          "max" : 132.53,
+          "mean" : 18.732500000000002,
+          "min" : 0,
+          "n" : 16,
+          "p50" : 4.5599999999999996,
+          "p95" : 132.53,
+          "p99" : 132.53
+        },
+        "residualIfLinesEndAtEmptyStamps" : 2.54,
+        "residualIfLinesEndAtEndMs" : 0,
+        "staleRemovedByEmptyStampClockShare" : 0.99723600000000001,
+        "staleSecondsPerTrack" : {
+          "max" : 206.43000000000001,
+          "mean" : 57.427500000000002,
+          "min" : 0,
+          "n" : 16,
+          "p50" : 34.090000000000003,
+          "p95" : 206.43000000000001,
+          "p99" : 206.43000000000001
+        },
+        "staleShareOfTrackTime" : {
+          "max" : 0.53233299999999995,
+          "mean" : 0.220773,
+          "min" : 0,
+          "n" : 16,
+          "p50" : 0.13343099999999999,
+          "p95" : 0.53233299999999995,
+          "p99" : 0.53233299999999995
+        },
+        "staleVsEmptyStampTruthPerTrack" : {
+          "max" : 206.43000000000001,
+          "mean" : 57.268749999999997,
+          "min" : 0,
+          "n" : 16,
+          "p50" : 34.090000000000003,
+          "p95" : 206.43000000000001,
+          "p99" : 206.43000000000001
+        },
+        "staleVsEndMsTruthPerTrack" : {
+          "max" : 206.43000000000001,
+          "mean" : 57.427500000000002,
+          "min" : 0,
+          "n" : 16,
+          "p50" : 34.090000000000003,
+          "p95" : 206.43000000000001,
+          "p99" : 206.43000000000001
+        },
+        "totalStaleSeconds" : 918.84000000000003,
+        "tracks" : 16,
+        "tracksWithInformativeEndMs" : 13,
+        "tracksWithLyricsfile" : 16
+      }
+    },
+    "summary" : "537 tracks: stale p50 28.870 s\/track, share p50 0.125, 447 mid-song lines lit through >8 s of silence, 295 outros; ending lines at the empty stamps Isla already receives removes 0.998 of it",
+    "verdict" : "fail"
+  },
+  "L7_lead_calibration" : {
+    "assumed" : {
+      "catalogueStampBias" : "0 s — LRCLIB stamps are taken as the vocal onset; not measurable without audio",
+      "outputLatency" : "scenarios; whether Spotify's player position already compensates for it is unknown",
+      "perceivedOnset" : "the crossfade's 50% point"
+    },
+    "criterion" : {
+      "acceptabilityMs" : [
+        -185,
+        90
+      ],
+      "detectabilityMs" : [
+        -125,
+        45
+      ],
+      "sign" : "offset = display − voice heard; positive = line lights after the voice (sound leads picture)",
+      "standard" : "ITU-R BT.1359-1 (1998)",
+      "targetMs" : -40
+    },
+    "measured" : {
+      "crossfadeSpring" : {
+        "damping" : 0.85999999999999999,
+        "response" : 0.41999999999999998,
+        "rise10Ms" : 34.700000000000003,
+        "rise50Ms" : 103.90000000000001,
+        "rise90Ms" : 215.80000000000001
+      },
+      "defaultOutputDevice" : {
+        "available" : true,
+        "bufferFrames" : 512,
+        "deviceLatencyFrames" : 60,
+        "safetyOffsetFrames" : 48,
+        "sampleRate" : 48000,
+        "streamLatencyFrames" : 690,
+        "totalSeconds" : 0.027292,
+        "transport" : "bltn"
+      },
+      "frameGrid" : "uniform over one period (L3), plus one period of compositor latency (assumed)",
+      "timerWakeMs_idle" : {
+        "max" : 9.970307,
+        "mean" : 4.0802709999999998,
+        "min" : 0.103354,
+        "n" : 300,
+        "p50" : 3.3812519999999999,
+        "p95" : 9.3686579999999999,
+        "p99" : 9.8993780000000005
+      },
+      "timerWakeMs_loaded" : {
+        "max" : 13.422847000000001,
+        "mean" : 5.16561,
+        "min" : 0.091672000000000003,
+        "n" : 300,
+        "p50" : 4.9958229999999997,
+        "p95" : 10.340571000000001,
+        "p99" : 12.976884999999999
+      }
+    },
+    "measuredElsewhere" : {
+      "anchorLagModel" : "uniform ±0.04 s around published lag − grid\/2; the spread is assumed",
+      "anchorLagUsedS" : 0.13800000000000001,
+      "olderRun" : "2026-09-13 measured −0.103 s with the 0.25 s grid, i.e. an anchor lag near −0.02 s; the two runs disagree by ~0.16 s and the lab cannot say which holds today",
+      "publishedLagSource" : "Scripts\/measure-sync.sh, live Spotify, 2026-09-21 (commit 03a3059, checklist.md); 0.1 s grid",
+      "publishedPositionLagBehindPlayerS" : 0.188
+    },
+    "ownerCorrection" : {
+      "effectiveLead" : -0.047,
+      "impliedHiddenDelaySIfOwnerAimsAtWindowCentre" : 0.34554499999999999,
+      "impliedHiddenDelaySIfOwnerAimsAtZero" : 0.30554500000000001,
+      "userOffset" : -0.247
+    },
+    "perceivedOnsetSensitivity" : {
+      "note" : "if the eye takes the line as lit at the crossfade's 10% point instead of its 50% point, every optimum lead and every implied hidden delay moves by this much",
+      "shiftS" : -0.069199999999999998
+    },
+    "scenarios" : [
+      {
+        "offsetBeforeLeadMs" : {
+          "max" : 323.12510600000002,
+          "mean" : 270.73853100000002,
+          "min" : 219.699004,
+          "n" : 20000,
+          "p50" : 270.40444000000002,
+          "p95" : 308.02401300000002,
+          "p99" : 314.866556
+        },
+        "optimalLead" : 0.31,
+        "optimalMedianOffsetMs" : -39.595559999999999,
+        "optimalUndetectableShare" : 1,
+        "outputLatencyS" : 0,
+        "ownerEffectiveLead" : -0.047,
+        "ownerMedianOffsetMs" : 317.40444000000002,
+        "ownerUndetectableShare" : 0,
+        "scenario" : "60Hz, output 0 (player position already compensated)",
+        "shippedAcceptableShare" : 0.74104999999999999,
+        "shippedLead" : 0.20000000000000001,
+        "shippedMedianOffsetMs" : 70.404439999999994,
+        "shippedUndetectableShare" : 0.1757
+      },
+      {
+        "offsetBeforeLeadMs" : {
+          "max" : 307.39153099999999,
+          "mean" : 258.47952800000002,
+          "min" : 211.154348,
+          "n" : 20000,
+          "p50" : 258.54491400000001,
+          "p95" : 294.977934,
+          "p99" : 300.42811
+        },
+        "optimalLead" : 0.29999999999999999,
+        "optimalMedianOffsetMs" : -41.455086000000001,
+        "optimalUndetectableShare" : 1,
+        "outputLatencyS" : 0,
+        "ownerEffectiveLead" : -0.047,
+        "ownerMedianOffsetMs" : 305.54491400000001,
+        "ownerUndetectableShare" : 0,
+        "scenario" : "120Hz, output 0",
+        "shippedAcceptableShare" : 0.88875000000000004,
+        "shippedLead" : 0.20000000000000001,
+        "shippedMedianOffsetMs" : 58.544913999999999,
+        "shippedUndetectableShare" : 0.33715000000000001
+      },
+      {
+        "offsetBeforeLeadMs" : {
+          "max" : 310.503218,
+          "mean" : 259.74042300000002,
+          "min" : 211.92487600000001,
+          "n" : 20000,
+          "p50" : 259.88577299999997,
+          "p95" : 295.73931499999998,
+          "p99" : 301.35905500000001
+        },
+        "optimalLead" : 0.29999999999999999,
+        "optimalMedianOffsetMs" : -40.114227,
+        "optimalUndetectableShare" : 1,
+        "outputLatencyS" : 0,
+        "ownerEffectiveLead" : -0.047,
+        "ownerMedianOffsetMs" : 306.88577299999997,
+        "ownerUndetectableShare" : 0,
+        "scenario" : "120Hz, output 0, CPU loaded",
+        "shippedAcceptableShare" : 0.88300000000000001,
+        "shippedLead" : 0.20000000000000001,
+        "shippedMedianOffsetMs" : 59.885773,
+        "shippedUndetectableShare" : 0.31285000000000002
+      },
+      {
+        "offsetBeforeLeadMs" : {
+          "max" : 287.02758299999999,
+          "mean" : 238.52649500000001,
+          "min" : 191.84006400000001,
+          "n" : 20000,
+          "p50" : 238.647716,
+          "p95" : 274.82461599999999,
+          "p99" : 280.28655600000002
+        },
+        "optimalLead" : 0.28000000000000003,
+        "optimalMedianOffsetMs" : -41.352283999999997,
+        "optimalUndetectableShare" : 1,
+        "outputLatencyS" : 0.02,
+        "ownerEffectiveLead" : -0.047,
+        "ownerMedianOffsetMs" : 285.647716,
+        "ownerUndetectableShare" : 0,
+        "scenario" : "120Hz, wired\/built-in output 0.020 s (assumed)",
+        "shippedAcceptableShare" : 1,
+        "shippedLead" : 0.20000000000000001,
+        "shippedMedianOffsetMs" : 38.647716000000003,
+        "shippedUndetectableShare" : 0.57755000000000001
+      },
+      {
+        "offsetBeforeLeadMs" : {
+          "max" : 107.450772,
+          "mean" : 58.400905999999999,
+          "min" : 11.564201000000001,
+          "n" : 20000,
+          "p50" : 58.363135999999997,
+          "p95" : 94.691029999999998,
+          "p99" : 100.38036
+        },
+        "optimalLead" : 0.10000000000000001,
+        "optimalMedianOffsetMs" : -41.636864000000003,
+        "optimalUndetectableShare" : 1,
+        "outputLatencyS" : 0.20000000000000001,
+        "ownerEffectiveLead" : -0.047,
+        "ownerMedianOffsetMs" : 105.363136,
+        "ownerUndetectableShare" : 0,
+        "scenario" : "120Hz, Bluetooth output 0.200 s (assumed)",
+        "shippedAcceptableShare" : 0.99570000000000003,
+        "shippedLead" : 0.20000000000000001,
+        "shippedMedianOffsetMs" : -141.636864,
+        "shippedUndetectableShare" : 0.29049999999999998
+      },
+      {
+        "offsetBeforeLeadMs" : {
+          "max" : 279.76759199999998,
+          "mean" : 231.04106300000001,
+          "min" : 184.392909,
+          "n" : 20000,
+          "p50" : 230.64707100000001,
+          "p95" : 267.67870399999998,
+          "p99" : 273.20497999999998
+        },
+        "optimalLead" : 0.27000000000000002,
+        "optimalMedianOffsetMs" : -39.352929000000003,
+        "optimalUndetectableShare" : 1,
+        "outputLatencyS" : 0.027292,
+        "ownerEffectiveLead" : -0.047,
+        "ownerMedianOffsetMs" : 277.64707099999998,
+        "ownerUndetectableShare" : 0,
+        "scenario" : "120Hz, this Mac's default output as CoreAudio reports it",
+        "shippedAcceptableShare" : 1,
+        "shippedLead" : 0.20000000000000001,
+        "shippedMedianOffsetMs" : 30.647071,
+        "shippedUndetectableShare" : 0.67215000000000003
+      }
+    ],
+    "summary" : "shipped lead 0.20 s keeps 17.570% of line onsets undetectable at 60 Hz with zero output latency; optimal lead per scenario 0.310\/0.300\/0.300\/0.280\/0.100\/0.270 s; owner's −0.247 s implies ≈346 ms of delay the model does not contain",
+    "verdict" : "concern"
+  },
+  "L8_cross_surface_agreement" : {
+    "disagreements" : {
+      "owner -0.247: before first line: stage none\/0.0, caption 0\/0.0, card 0\/1.0" : 13168,
+      "precision: before first line: stage none\/0.0, caption 0\/0.0, card 0\/1.0" : 12935,
+      "standard: before first line: stage none\/0.0, caption 0\/0.0, card 0\/1.0" : 12986,
+      "word timing (SYNTHETIC words): before first line: stage none\/0.0, caption 0\/0.0, card 0\/0.0" : 12924
+    },
+    "introSecondsWhereCardDrawsLineOneSungPerTrack" : {
+      "max" : 458.67000000000002,
+      "mean" : 22.610391,
+      "min" : 0,
+      "n" : 537,
+      "p50" : 12.890000000000001,
+      "p95" : 76.019999999999996,
+      "p99" : 182.58000000000001
+    },
+    "samples" : 953448,
+    "summary" : "953448 samples × 3 surfaces: 52013 disagreements, 0 tracks disagreeing after the first line; intro where the lock card draws line 1 as sung while the stage draws none: p50 12.890 s\/track",
+    "tracksWithDisagreementAfterFirstLine" : [
+
+    ],
+    "verdict" : "fail",
+    "viewsComputingTimeInline" : [
+      "LyricsStage.now = media.position + LyricSweep.lead(...) (LyricsStage.swift:76-83) — same terms as LyricSweep.position, restated",
+      "MediaPane.lyricsLine: LyricSweep.position(...) then LyricSweep.displayed (MediaPane.swift:481-487)",
+      "LockScreenCard.lyricsPane: LyricSweep.position(...) then LyricSweep.centreIndex (LockScreenCard.swift:365-371)",
+      "The stage asks LyricSweep.index (nil before the first line); the card asks centreIndex (0 before it) and passes isCurrent to LyricRow, which draws fraction 1 for line timing; the caption asks displayed and draws fraction 0 when unswept"
+    ]
+  },
+  "meta" : {
+    "corpus" : "\/private\/tmp\/claude-501\/-Users-ctimothe-code-projects-production-dynamic-island\/48ae4d81-9edf-4a35-a3fd-12960e5f9d5e\/scratchpad\/lyrics-corpus",
+    "harnessVersion" : "2026-10-11.1",
+    "host" : {
+      "activeProcessorCount" : 12,
+      "os" : "Version 27.0.1 (Build 26A434)"
+    },
+    "load" : {
+      "indexEntries" : 540,
+      "indexPresent" : true,
+      "unreadableFiles" : 0
+    },
+    "tracks" : 540,
+    "tracksPerCategory" : {
+      "arabic-turkish-hindi" : 25,
+      "classical-opera-art-song" : 24,
+      "country-folk" : 44,
+      "duets-choirs-overlaps" : 25,
+      "electronic-sparse-vocals" : 38,
+      "hiphop-fast-rap" : 25,
+      "hiphop-slow-trap" : 25,
+      "jazz-standards" : 25,
+      "jpop-anime" : 25,
+      "kpop" : 25,
+      "latin-spanish-portuguese" : 25,
+      "live-remaster-variants" : 25,
+      "long-tracks-over-7min" : 25,
+      "mandarin-cantopop" : 25,
+      "metal-fast-hardcore" : 25,
+      "pop-global-hits" : 24,
+      "rnb-soul" : 48,
+      "rock-classic" : 23,
+      "russian-ukrainian" : 23,
+      "short-tracks-and-long-intros" : 16
+    },
+    "updatedAt" : "2026-10-11T00:43:50Z"
+  }
+}

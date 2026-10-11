@@ -44,6 +44,15 @@ enum OnlineLyrics {
         /// The network or the service failed. Distinct from `none` so a retry
         /// is worth offering and a miss is not cached as final.
         case failed
+        /// The endpoint has timed words for this recording and the parser
+        /// refused them. Shown as a miss, but remembered under the parser
+        /// revision that refused it, so a release that reads more asks again.
+        ///
+        /// It used to be `none`, and `none` is believed for two weeks: one
+        /// '<3' or one `[by:]` in LRCLIB's text, and the song said "No lyrics
+        /// found" for 14 days — through the very update that learned to read
+        /// it.
+        case unreadable
     }
 
     /// The exact-match query. Duration is included on purpose: it is what keeps
@@ -85,20 +94,83 @@ enum OnlineLyrics {
     /// app's whole standard is that a lyric on screen is where the voice
     /// actually is — showing an untimed wall of text on a stage that scrolls
     /// with the song would be inventing exactly what the design forbids.
-    static func timeline(from data: Data, status: Int) -> Outcome {
+    ///
+    /// `duration` is the length of the recording playing, and lines stamped
+    /// past it are dropped: the clock stops at the end of the track, so they
+    /// can never light, and a stage that lists them shows words the song
+    /// playing does not have. Zero means unknown and keeps every line.
+    static func timeline(from data: Data, status: Int, duration: TimeInterval = 0) -> Outcome {
+        read(data, status: status, duration: duration).outcome
+    }
+
+    /// `timeline(from:status:duration:)`, and whether the words fitted the
+    /// track before any were dropped — which `lookUp` needs, to decide
+    /// whether a better-fitting row is worth searching for.
+    private static func read(
+        _ data: Data, status: Int, duration: TimeInterval
+    ) -> (outcome: Outcome, fits: Bool) {
         // 404 is the service's honest "no such recording"; anything else that
         // is not a success is a failure to retry, not an answer.
-        if status == 404 { return .none }
-        guard (200..<300).contains(status) else { return .failed }
+        if status == 404 { return (.none, false) }
+        guard (200..<300).contains(status) else { return (.failed, false) }
         guard let response = try? JSONDecoder().decode(Response.self, from: data) else {
-            return .failed
+            return (.failed, false)
         }
-        if response.instrumental == true { return .none }
+        if response.instrumental == true { return (.none, false) }
         guard let synced = response.syncedLyrics,
-              !synced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let document = try? LocalLyricsDocument.parse(synced)
-        else { return .none }
-        return .found(document.timeline(documentID: nil))
+              !synced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return (.none, false) }
+        guard let document = try? LocalLyricsDocument.parse(synced) else { return (.unreadable, false) }
+        let timeline = document.timeline(documentID: nil)
+        // Nothing reachable at all is nothing timed to this cut.
+        guard let kept = reachable(timeline, duration: duration) else { return (.none, false) }
+        return (.found(kept), fits(timeline, duration: duration))
+    }
+
+    /// Whether a timeline was written for a recording of this length: its last
+    /// sung stamp no later than the end, give or take `durationTolerance`.
+    ///
+    /// The lyric lab (2026-10-11) found 1,249 lines in 69 of 540 LRCLIB
+    /// answers stamped past their own record's length, 1,207 of which never
+    /// showed. Both the exact query and the search compared lengths and
+    /// never the stamps, so a row timed to an extended cut was taken as long
+    /// as its listed length agreed. Lines carry no empty rows since revision
+    /// 3 of the parser (an empty stamp is a line end), so the last line is the
+    /// last sung one.
+    static func fits(_ timeline: LyricTimeline, duration: TimeInterval) -> Bool {
+        guard let past = Self.overrun(of: timeline, duration: duration) else { return true }
+        return past <= durationTolerance
+    }
+
+    /// How far the last sung stamp runs past the end of a track this long, or
+    /// nil when the length is unknown (zero, negative or not finite) or there
+    /// is no line. Negative when the words end before the track does.
+    ///
+    /// The one measurement of "timed for a longer version": `fits` is
+    /// `overrun <= durationTolerance`, the ranking compares it, and the
+    /// timeline carries it to the stage (`LyricTimeline.overrun`). It is read
+    /// off the whole answer, before `reachable` drops the lines past the end.
+    static func overrun(of timeline: LyricTimeline, duration: TimeInterval) -> TimeInterval? {
+        guard duration > 0, duration.isFinite, let last = timeline.lines.map(\.at).max() else { return nil }
+        return last - duration
+    }
+
+    /// The lines the clock can reach on a track this long, or nil when none
+    /// can. A timeline that does not fit is still kept rather than refused —
+    /// refusing would have turned about one track in eight into a miss with
+    /// no better row to offer — but without the lines that could never show.
+    ///
+    /// The timeline that comes back carries its `overrun`, measured before
+    /// the drop.
+    private static func reachable(_ timeline: LyricTimeline, duration: TimeInterval) -> LyricTimeline? {
+        guard duration > 0, duration.isFinite else { return timeline }
+        let overrun = Self.overrun(of: timeline, duration: duration)
+        let kept = timeline.lines.filter { $0.at <= duration }
+        guard !kept.isEmpty else { return nil }
+        return LyricTimeline(
+            lines: kept, granularity: timeline.granularity, documentID: timeline.documentID,
+            overrun: overrun
+        )
     }
 
     /// The whole round trip. The transport is a parameter so the tests never
@@ -113,14 +185,23 @@ enum OnlineLyrics {
     /// came back "No lyrics found". The search matches on title and main
     /// artist, and holds the duration to three seconds so a live version or a
     /// different edit is never taken for the recording playing.
+    ///
+    /// An exact answer whose words run past the end of the track is the
+    /// wrong cut's timing under the right recording's name, so it is not
+    /// final either: the search is asked for a row that fits. If none does,
+    /// the exact answer is kept, with only the lines the clock can reach —
+    /// a found lyric is never turned into a miss by being checked harder.
     static func lookUp(
         _ identity: LocalTrackIdentity,
         transport: @Sendable (URLRequest) async throws -> (Data, URLResponse) = { request in
-            try await URLSession.shared.data(for: request)
+            try await PrivateNetwork.session.data(for: request)
         }
     ) async -> Outcome {
         guard let request = request(for: identity) else { return .none }
-        let exact: Outcome
+        // The best answer that overran the track, held in case nothing fits
+        // better: the one that overruns least, the exact query's winning a tie.
+        var overrunning: LyricTimeline?
+        var unreadable = false
         do {
             let (data, response) = try await transport(request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -130,12 +211,18 @@ enum OnlineLyrics {
                (try? JSONDecoder().decode(Response.self, from: data))?.instrumental == true {
                 return .none
             }
-            exact = timeline(from: data, status: status)
+            let exact = read(data, status: status, duration: identity.duration)
+            switch exact.outcome {
+            case .found(let timeline):
+                if exact.fits { return .found(timeline) }
+                overrunning = timeline
+            case .failed: return .failed
+            case .unreadable: unreadable = true
+            case .none: break
+            }
         } catch {
             return .failed
         }
-        if case .found = exact { return exact }
-        if exact == .failed { return .failed }
 
         var searchFailed = false
         for query in searchQueries(for: identity) {
@@ -148,14 +235,31 @@ enum OnlineLyrics {
                     searchFailed = true
                     continue
                 }
-                if let match = bestMatch(in: rows, for: identity) { return .found(match) }
+                let candidate = bestCandidate(in: rows, for: identity)
+                if candidate.sawUnreadable { unreadable = true }
+                if let match = candidate.match {
+                    if match.fits { return .found(match.timeline) }
+                    if overruns(match.timeline, lessThan: overrunning) { overrunning = match.timeline }
+                }
             } catch {
                 searchFailed = true
             }
         }
+        if let overrunning { return .found(overrunning) }
         // A search that could not be asked says nothing about the catalogue,
-        // so it is a failure to retry, not a miss to remember.
-        return searchFailed ? .failed : .none
+        // so it is a failure to retry, not a miss to remember. Words the
+        // parser refused are not a miss either: they are asked again once
+        // the parser improves.
+        if searchFailed { return .failed }
+        return unreadable ? .unreadable : .none
+    }
+
+    /// Whether `candidate` runs less far past the track's end than `held`, or
+    /// nothing is held. A tie keeps what is held, so the exact query's answer
+    /// outranks a search row of the same overrun.
+    private static func overruns(_ candidate: LyricTimeline, lessThan held: LyricTimeline?) -> Bool {
+        guard let held else { return true }
+        return (candidate.overrun ?? .infinity) < (held.overrun ?? .infinity)
     }
 
     // MARK: - Search
@@ -205,12 +309,24 @@ enum OnlineLyrics {
 
     /// The timed candidate that is this recording, if one is: the same title
     /// once editions are set aside, the main artist among its artists, and the
-    /// length within tolerance — the closest length winning.
+    /// length within tolerance. A row whose words fit the track beats one
+    /// whose words run past its end; among rows that run past it, the one
+    /// that runs least wins; among equals the closest length wins.
+    /// The timeline comes back without lines past the end of the track.
     static func bestMatch(in rows: [SearchRow], for identity: LocalTrackIdentity) -> LyricTimeline? {
+        bestCandidate(in: rows, for: identity).match?.timeline
+    }
+
+    /// `bestMatch`, and what `lookUp` needs besides: whether the winner fits
+    /// the track, and whether a row that matched was refused by the parser.
+    static func bestCandidate(
+        in rows: [SearchRow], for identity: LocalTrackIdentity
+    ) -> (match: (timeline: LyricTimeline, fits: Bool)?, sawUnreadable: Bool) {
         let wantTitle = comparable(baseTitle(identity.title))
         let wantArtist = comparable(primaryArtist(identity.artist))
-        guard !wantTitle.isEmpty, !wantArtist.isEmpty else { return nil }
-        var best: (difference: TimeInterval, timeline: LyricTimeline)?
+        guard !wantTitle.isEmpty, !wantArtist.isEmpty else { return (nil, false) }
+        var best: (fits: Bool, overrun: TimeInterval, difference: TimeInterval, timeline: LyricTimeline)?
+        var sawUnreadable = false
         for row in rows where row.instrumental != true {
             guard let synced = row.syncedLyrics,
                   !synced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -223,21 +339,61 @@ enum OnlineLyrics {
                       abs(length - identity.duration) <= durationTolerance else { continue }
                 difference = abs(length - identity.duration)
             }
-            guard best.map({ difference < $0.difference }) ?? true,
-                  let document = try? LocalLyricsDocument.parse(synced) else { continue }
-            best = (difference, document.timeline(documentID: nil))
+            // Every matching row is read now, not only one that would win on
+            // length: whether its words fit is in the words, and it ranks
+            // ahead of length. A listed length within a second of the track's
+            // said nothing about the 40 s of stamps after its end.
+            guard let document = try? LocalLyricsDocument.parse(synced) else {
+                sawUnreadable = true
+                continue
+            }
+            let timeline = document.timeline(documentID: nil)
+            let fits = fits(timeline, duration: identity.duration)
+            let overrun = max(Self.overrun(of: timeline, duration: identity.duration) ?? 0, 0)
+            // Fitting first. Among rows that all run past the end, the one
+            // that runs least is the nearest to the recording playing: LRCLIB
+            // copies one timeline onto many releases, so twenty rows listed
+            // from 5 s to 312 s can carry identical stamps, and the listed
+            // length ranks nothing. Only then the closest length.
+            let better = best.map { held in
+                if fits != held.fits { return fits }
+                if !fits, overrun != held.overrun { return overrun < held.overrun }
+                return difference < held.difference
+            } ?? true
+            guard better, let kept = reachable(timeline, duration: identity.duration) else { continue }
+            best = (fits, overrun, difference, kept)
         }
-        return best?.timeline
+        return (best.map { ($0.timeline, $0.fits) }, sawUnreadable)
     }
+
+    /// A bracketed edition in any of the brackets titles arrive in: ASCII,
+    /// and the full-width and CJK pairs a Japanese or Chinese catalogue uses
+    /// — "Title（Remastered）" never matched its own LRCLIB row. Each pair
+    /// closes with its own partner.
+    private static let bracketedEdition =
+        #"\s*(?:\([^)]*\)|\[[^\]]*\]|（[^）]*）|［[^］]*］|【[^】]*】|「[^」]*」|『[^』]*』|〔[^〕]*〕)"#
 
     /// A title without the edition a service appends to it: a bracketed
     /// "(feat. …)" or "[Live]", and a trailing " - 2011 Remaster",
     /// " - Demo - September 1996", " - Radio Edit".
+    ///
+    /// A title that is nothing but brackets is the title: "(Nice Dream)"
+    /// stripped to nothing, and `bestMatch` gives up on an empty title before
+    /// it reads a single row, so that song could never be found by search.
     static func baseTitle(_ title: String) -> String {
         var text = title
-        while let range = text.range(of: #"\s*[\(\[][^\)\]]*[\)\]]"#, options: .regularExpression) {
+        while let range = text.range(of: bracketedEdition, options: .regularExpression) {
             text.removeSubrange(range)
         }
+        let bare = withoutTrailingEdition(text)
+        if !bare.isEmpty { return bare }
+        let kept = withoutTrailingEdition(title)
+        return kept.isEmpty ? title.trimmingCharacters(in: .whitespacesAndNewlines) : kept
+    }
+
+    /// The " - 2011 Remaster" half of `baseTitle`.
+    private static func withoutTrailingEdition(_ title: String) -> String {
+        var text = title
         let editions = [
             "remaster", "live", "demo", "version", "edit", "mix", "mono", "stereo",
             "acoustic", "radio", "single", "deluxe", "bonus", "session", "take",
@@ -279,7 +435,9 @@ enum OnlineLyrics {
 /// Both answers are kept. A hit spares the network on every replay; a miss
 /// spares it too, which matters more — a library full of tracks LRCLIB does not
 /// have would otherwise ask again on every single play. A failure is never
-/// cached, because the next attempt may well work.
+/// cached, because the next attempt may well work. Words the parser refused
+/// are kept as a miss tied to the parser's revision, so the next play does not
+/// ask again but the next parser does.
 @MainActor
 final class OnlineLyricsCache {
     private struct Entry: Codable {
@@ -290,10 +448,42 @@ final class OnlineLyricsCache {
         /// otherwise the songs it would now find stayed "No lyrics found" for
         /// the rest of the miss's two-week life.
         var searched: Bool?
+        /// For a hit, the cache format it was last asked under; nil is
+        /// format 1. See `OnlineLyricsCache.format`.
+        var format: Int?
+        /// For an unreadable answer, the parser revision that refused it. Nil
+        /// for an ordinary miss, which is a fact about the catalogue and not
+        /// about the parser.
+        var parserRevision: Int?
+        /// For a hit, how far its last stamp ran past the track's end
+        /// (`LyricTimeline.overrun`). The cached lines are the reachable ones,
+        /// so it cannot be recomputed from them. Nil for a hit cached before
+        /// it was kept, which format 3 asks about once more.
+        var overrun: Double?
     }
+
+    /// What a hit written now carries. Format 2 hits keep their line ends
+    /// (`LyricsStore.Line.end`, 2026-10-11); a format 1 hit was cached before
+    /// ends existed, so its lines stay lit to the next stamp — through every
+    /// instrumental, a median 28.9 s a track in the lyric lab.
+    ///
+    /// Such a hit is still shown at once, because dropping it would leave the
+    /// stage blank until the network answered, and is asked about once more
+    /// in the background (`needsRefresh`). Only a found answer replaces it.
+    /// Anything else leaves the old words up and stamps the hit with this
+    /// format, so the refresh costs one request per song and not one per play.
+    ///
+    /// Format 3 (2026-10-11, ly/VERSION-01) keeps each hit's `overrun`. A
+    /// format 2 hit has none, so a song already cached as timed for a longer
+    /// cut would never be flagged nor re-ranked; it is asked about once, in
+    /// the background, like a format 1 hit.
+    static let format = 3
 
     private let directory: URL?
     private let capacity: Int
+    /// The parser revision this cache reads with. A parameter only so a test
+    /// can stand in for the next release; the app uses the parser's own.
+    private let parserRevision: Int
     private var entries: [String: Entry] = [:]
     private var flush: Task<Void, Never>?
 
@@ -309,10 +499,12 @@ final class OnlineLyricsCache {
 
     init(
         directory: URL? = AppPaths.live.supportFile("lyrics-online"),
-        capacity: Int = OnlineLyricsCache.defaultCapacity
+        capacity: Int = OnlineLyricsCache.defaultCapacity,
+        parserRevision: Int = LocalLyricsDocument.parserRevision
     ) {
         self.directory = directory
         self.capacity = capacity
+        self.parserRevision = parserRevision
         load()
     }
 
@@ -329,24 +521,60 @@ final class OnlineLyricsCache {
     func cached(_ identity: LocalTrackIdentity) -> LyricTimeline?? {
         guard let entry = entries[Self.key(identity)] else { return nil }
         if let lines = entry.lines {
-            return .some(LyricTimeline(lines: lines, granularity: .line, documentID: nil))
+            return .some(LyricTimeline(lines: lines, granularity: .line, documentID: nil, overrun: entry.overrun))
         }
-        guard entry.searched == true,
-              Date().timeIntervalSince(entry.checkedAt) < Self.missLifetime else { return nil }
+        guard isBelieved(entry, now: Date()) else { return nil }
         return .some(nil)
     }
 
+    /// Whether a remembered miss still stands: asked by the search too,
+    /// inside its lifetime, and — for words the parser refused — refused by
+    /// a parser no older than this one.
+    ///
+    /// A miss checked "in the future" is not believed. Its age is the clock
+    /// now minus the stamp, and nothing refused a negative one, so a miss
+    /// written while the clock ran a day fast stood for the fortnight plus
+    /// the day (G-037). A negative age is a clock that was wrong, and asking
+    /// once more costs one request.
+    private func isBelieved(_ miss: Entry, now: Date) -> Bool {
+        let age = now.timeIntervalSince(miss.checkedAt)
+        guard miss.searched == true, age >= 0, age < Self.missLifetime else { return false }
+        return miss.parserRevision.map { $0 >= parserRevision } ?? true
+    }
+
     func remember(_ outcome: OnlineLyrics.Outcome, for identity: LocalTrackIdentity) {
+        let key = Self.key(identity)
         switch outcome {
         case .found(let timeline):
-            entries[Self.key(identity)] = Entry(lines: timeline.lines, checkedAt: Date())
-        case .none:
-            entries[Self.key(identity)] = Entry(lines: nil, checkedAt: Date(), searched: true)
+            entries[key] = Entry(
+                lines: timeline.lines, checkedAt: Date(), format: Self.format, overrun: timeline.overrun
+            )
+        case .none, .unreadable:
+            // Only the background refresh of an old hit asks about a song
+            // with a hit (Retry forgets first). Its "nothing better" keeps
+            // the words on screen and settles the refresh.
+            if var hit = entries[key], hit.lines != nil {
+                hit.format = Self.format
+                hit.checkedAt = Date()
+                entries[key] = hit
+            } else {
+                entries[key] = Entry(
+                    lines: nil, checkedAt: Date(), searched: true,
+                    parserRevision: outcome == .unreadable ? parserRevision : nil
+                )
+            }
         case .failed:
             return
         }
         trim()
         save()
+    }
+
+    /// A remembered hit from before line ends existed, still to be asked
+    /// about once. See `format`.
+    func needsRefresh(_ identity: LocalTrackIdentity) -> Bool {
+        guard let entry = entries[Self.key(identity)], entry.lines != nil else { return false }
+        return (entry.format ?? 1) < Self.format
     }
 
     /// Forget one recording's answer, so Retry can really ask again.
@@ -357,17 +585,16 @@ final class OnlineLyricsCache {
 
     private var file: URL? { directory?.appendingPathComponent("cache.json") }
 
-    /// Misses past their lifetime, and misses from before the search existed,
-    /// are left behind: `cached` would ask again for either, so all they kept
-    /// was their room.
+    /// Misses past their lifetime, misses from before the search existed, and
+    /// refusals by an older parser are left behind: `cached` would ask again
+    /// for any of them, so all they kept was their room.
     private func load() {
         guard let file, let data = try? Data(contentsOf: file),
               let decoded = try? JSONDecoder().decode([String: Entry].self, from: data)
         else { return }
         let now = Date()
         entries = decoded.filter { _, entry in
-            entry.lines != nil
-                || (entry.searched == true && now.timeIntervalSince(entry.checkedAt) < Self.missLifetime)
+            entry.lines != nil || isBelieved(entry, now: now)
         }
         trim()
     }

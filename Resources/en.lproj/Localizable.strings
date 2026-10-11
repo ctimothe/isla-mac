@@ -55,12 +55,10 @@
 "Hide" = "Hide";
 "Playing" = "Playing";
 "Paused" = "Paused";
-"Translation needs macOS 26 or newer." = "Translation needs macOS 26 or newer.";
 "This Mac does not support Apple Intelligence." = "This Mac does not support Apple Intelligence.";
 "Turn on Apple Intelligence to translate." = "Turn on Apple Intelligence to translate.";
 "The on-device model is still downloading." = "The on-device model is still downloading.";
 "This text could not be translated." = "This text could not be translated.";
-"This text is too long to translate at once." = "This text is too long to translate at once.";
 "The translation could not be completed." = "The translation could not be completed.";
 "Hide from Screen Recording" = "Hide from Screen Recording";
 "Translating…" = "Translating…";
@@ -72,7 +70,6 @@
 "Swap Languages" = "Swap Languages";
 "Translate From" = "Translate From";
 "Translate To" = "Translate To";
-"%@ is translated online. Turn on Translate Online to use it." = "%@ is translated online. Turn on Translate Online to use it.";
 "%@ is not downloaded for translation on this Mac." = "%@ is not downloaded for translation on this Mac.";
 "Online translation is not reachable right now." = "Online translation is not reachable right now.";
 "Today's free online translations are used up." = "Today's free online translations are used up.";
@@ -101,8 +98,6 @@
 "Word Karaoke" = "Word Karaoke";
 "Lyrics stay on this Mac." = "Lyrics stay on this Mac.";
 "Local Lyrics Library" = "Local Lyrics Library";
-"No local lyrics." = "No local lyrics.";
-"No lyrics found." = "No lyrics found.";
 "Import LRC…" = "Import LRC…";
 "Add Lyrics Folder…" = "Add Lyrics Folder…";
 "Remove %@" = "Remove %@";
@@ -148,7 +143,6 @@
 "Export LRC" = "Export LRC";
 "This LRC file is invalid." = "This LRC file is invalid.";
 "Choose local lyrics…" = "Choose local lyrics…";
-"No lyrics for this track." = "No lyrics for this track.";
 "Finding lyrics…" = "Finding lyrics…";
 "Jumps the song to this line" = "Jumps the song to this line";
 "Opens the full lyrics" = "Opens the full lyrics";
@@ -183,10 +177,8 @@
 
 /* First run */
 "Isla is running." = "Isla is running.";
-"It lives at the notch. Click it to open." = "It lives at the notch. Click it to open.";
 "Open the panel" = "Open the panel";
 "Translate the clipboard" = "Translate the clipboard";
-"Quit and everything else lives in Settings, at the bottom left." = "Quit and everything else lives in Settings, at the bottom left.";
 "Get Started" = "Get Started";
 
 "Volume" = "Volume";
@@ -256,7 +248,6 @@
 
 /* Spotify refusals */
 "Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet." = "Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet.";
-"Spotify refused this account. Liked Songs needs Spotify Premium." = "Spotify refused this account. Liked Songs needs Spotify Premium.";
 "Spotify refused this account's library request." = "Spotify refused this account's library request.";
 
 /* Diagnostics */
@@ -296,3 +287,128 @@
 /* Charging and headphones */
 "Power adapter connected" = "Power adapter connected";
 "Power adapter connected, %d percent" = "Power adapter connected, %d percent";
+
+/* Shelf: a card whose disk is not plugged in */
+"Disk not connected" = "Disk not connected";
+
+/* Lyrics: why a song has none, in plain words */
+"No lyrics on this Mac." = "No lyrics on this Mac.";
+"No lyrics found for this song." = "No lyrics found for this song.";
+"Can't read the lyrics file for this song." = "Can't read the lyrics file for this song.";
+"No lyrics for live audio." = "No lyrics for live audio.";
+"This track has no title to look up." = "This track has no title to look up.";
+"Unlock your Mac to open Isla." = "Unlock your Mac to open Isla.";
+"Drop files here to keep them" = "Drop files here to keep them";
+"From Finder, Mail, Photos or a browser. Holds %d." = "From Finder, Mail, Photos or a browser. Holds %d.";
+"Select" = "Select";
+"Selected" = "Selected";
+
+/* Privacy card: what each switch protects (H-004, F-008, J-001) */
+"Cover Clipboard Rows" = "Cover Clipboard Rows";
+"Cover Translate Text" = "Cover Translate Text";
+"Covered text shows as moving dots until you click it, and is covered again when the panel closes." = "Covered text shows as moving dots until you click it, and is covered again when the panel closes.";
+"Asks macOS to leave Isla out of screenshots, recordings and screen sharing. Some sharing apps may still show it, so cover Clipboard and Translate before you share." = "Asks macOS to leave Isla out of screenshots, recordings and screen sharing. Some sharing apps may still show it, so cover Clipboard and Translate before you share.";
+"Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on." = "Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on.";
+"Opens the panel" = "Opens the panel";
+"Closes the panel" = "Closes the panel";
+"Tabs" = "Tabs";
+"Welcome" = "Welcome";
+"%@ is translated online only. Turning on Translate Online sends this text to MyMemory." = "%@ is translated online only. Turning on Translate Online sends this text to MyMemory.";
+"Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory." = "Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory.";
+"Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet." = "Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet.";
+"%@. Press again to confirm." = "%@. Press again to confirm.";
+"Copied" = "Copied";
+"macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS is not letting Isla read what you copy, so nothing new is kept.";
+"Open Privacy Settings" = "Open Privacy Settings";
+"Nothing copied yet" = "Nothing copied yet";
+"Text and files you copy appear here. Copies from password managers are skipped." = "Text and files you copy appear here. Copies from password managers are skipped.";
+"Turn On" = "Turn On";
+"Something is playing that Music Only keeps off the island." = "Something is playing that Music Only keeps off the island.";
+"Open Settings" = "Open Settings";
+"Isla's Now Playing reader answered with nothing while a player was playing. Only Music and Spotify can be seen." = "Isla's Now Playing reader answered with nothing while a player was playing. Only Music and Spotify can be seen.";
+"Couldn't read this file as text." = "Couldn't read this file as text.";
+"Line %d of this file has a time Isla can't read." = "Line %d of this file has a time Isla can't read.";
+"This file has no timed lyrics." = "This file has no timed lyrics.";
+"Couldn't read: %@" = "Couldn't read: %@";
+"Edited %@" = "Edited %@";
+"%d points" = "%d points";
+"%.2f seconds" = "%.2f seconds";
+"Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause.";
+"Instrumental" = "Instrumental";
+"Edit Lyrics for %@" = "Edit Lyrics for %@";
+"Insert Line After" = "Insert Line After";
+"Line %d has a time Isla can't use." = "Line %d has a time Isla can't use.";
+"Allowed" = "Allowed";
+"Not allowed" = "Not allowed";
+"Not asked yet" = "Not asked yet";
+"Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation." = "Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation.";
+"Open Automation Settings…" = "Open Automation Settings…";
+"Remove %d" = "Remove %d";
+"Remove %d from Shelf" = "Remove %d from Shelf";
+"Already on the Shelf" = "Already on the Shelf";
+"The Shelf holds %d, so the oldest card left it. Its file is untouched." = "The Shelf holds %d, so the oldest card left it. Its file is untouched.";
+"The Shelf holds %d, so the %d oldest left it. Their files are untouched." = "The Shelf holds %d, so the %d oldest left it. Their files are untouched.";
+"%.2f s later" = "%.2f s later";
+"%.2f s earlier" = "%.2f s earlier";
+"On time" = "On time";
+"Move until the line lights with the voice." = "Move until the line lights with the voice.";
+"Earlier" = "Earlier";
+"Later" = "Later";
+"Copy Translation" = "Copy Translation";
+"%@ · %@ · in %@" = "%@ · %@ · in %@";
+"%@ · in %@" = "%@ · in %@";
+"Text to translate" = "Text to translate";
+"Type or paste text" = "Type or paste text";
+"The clipboard has no text." = "The clipboard has no text.";
+"Only the first %@ characters were kept." = "Only the first %@ characters were kept.";
+"Muted" = "Muted";
+"AirDrop is not available on this Mac." = "AirDrop is not available on this Mac.";
+"AirDrop cannot send these files." = "AirDrop cannot send these files.";
+"Release to add to the Shelf" = "Release to add to the Shelf";
+"Drop to keep on the Shelf" = "Drop to keep on the Shelf";
+"Moved 1 file to the Trash." = "Moved 1 file to the Trash.";
+"Moved %d files to the Trash." = "Moved %d files to the Trash.";
+"Only the first %@ characters were translated online." = "Only the first %@ characters were translated online.";
+"This text is too long to translate at once. Shorten it and try again." = "This text is too long to translate at once. Shorten it and try again.";
+"Isla %@" = "Isla %@";
+"No Dock or menu-bar icon. Click the notch or press %@ to come back." = "No Dock or menu-bar icon. Click the notch or press %@ to come back.";
+"No Dock or menu-bar icon. Click the notch to come back." = "No Dock or menu-bar icon. Click the notch to come back.";
+"Nothing leaves your Mac unless you turn it on." = "Nothing leaves your Mac unless you turn it on.";
+"What's playing, with lyrics (%@)" = "What's playing, with lyrics (%@)";
+"What's playing, with lyrics" = "What's playing, with lyrics";
+"Files you drop on the notch" = "Files you drop on the notch";
+"What you copied, kept in memory" = "What you copied, kept in memory";
+"%@ translates what you copied" = "%@ translates what you copied";
+"Translates what you copied" = "Translates what you copied";
+"Privacy, shortcuts and Quit" = "Privacy, shortcuts and Quit";
+"Needs your approval in Login Items." = "Needs your approval in Login Items.";
+"Open Login Items…" = "Open Login Items…";
+"Launch at Login failed: %@" = "Launch at Login failed: %@";
+"Reset Lyric Timing" = "Reset Lyric Timing";
+"Lyric timing correction" = "Lyric timing correction";
+"GitHub is limiting checks right now. Try again in an hour." = "GitHub is limiting checks right now. Try again in an hour.";
+"GitHub did not answer properly. Try again later." = "GitHub did not answer properly. Try again later.";
+"%@ now belongs to “%@”. “%@” has no shortcut." = "%@ now belongs to “%@”. “%@” has no shortcut.";
+"Needs Show Lyrics" = "Needs Show Lyrics";
+"Following your Mac: %@" = "Following your Mac: %@";
+"Reduce Motion" = "Reduce Motion";
+"Reduce Transparency" = "Reduce Transparency";
+"Increase Contrast" = "Increase Contrast";
+"A file from the drag could not be received." = "A file from the drag could not be received.";
+"New screenshot" = "New screenshot";
+"Isla could not open your browser for Spotify sign-in." = "Isla could not open your browser for Spotify sign-in.";
+"The account was not imported. Try again, or connect it anew." = "The account was not imported. Try again, or connect it anew.";
+"Spotify signed you in, but Isla could not save the account on this Mac." = "Spotify signed you in, but Isla could not save the account on this Mac.";
+"Spotify ended Isla's access. Connect again to use Liked Songs." = "Spotify ended Isla's access. Connect again to use Liked Songs.";
+"Spotify sign-in was cancelled." = "Spotify sign-in was cancelled.";
+"Spotify sign-in did not finish. Try connecting again." = "Spotify sign-in did not finish. Try connecting again.";
+"Disconnect" = "Disconnect";
+"Isla forgets the account on this Mac. Your Spotify library stays as it is." = "Isla forgets the account on this Mac. Your Spotify library stays as it is.";
+"The heart on the lock screen adds the song to your Liked Songs." = "The heart on the lock screen adds the song to your Liked Songs.";
+"Show next line early" = "Show next line early";
+"Auto" = "Auto";
+"0.5 s" = "0.5 s";
+"0.3 s" = "0.3 s";
+"The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change." = "The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change.";
+"Sync Here" = "Sync Here";
+"These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here." = "These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here.";

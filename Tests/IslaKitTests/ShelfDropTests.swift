@@ -12,41 +12,103 @@ import XCTest
 final class ShelfDropTests: XCTestCase {
 
     func testAPromisedFileArrivingOffTheMainQueueIsDelivered() {
-        let view = NotchRootView(frame: .zero)
-        let delivered = expectation(description: "the coalesced batch reaches onDrop")
+        let inbox = PromisedDropInbox(shelf: ShelfStore(defaults: privateDefaults()))
+        let delivered = expectation(description: "the coalesced batch reaches onBatch")
         var received: [URL] = []
-        view.onDrop = { urls in
+        inbox.onBatch = { urls in
             received = urls
             delivered.fulfill()
-            return true
         }
 
         let url = URL(fileURLWithPath: "/tmp/isla-promise-test.txt")
         let queue = OperationQueue()
         queue.qualityOfService = .userInitiated
-        queue.addOperation { view.promisedFileArrived(url, error: nil) }
+        queue.addOperation { inbox.arrived(url: url, error: nil) }
 
         wait(for: [delivered], timeout: 3)
         XCTAssertEqual(received, [url])
     }
 
-    /// A cancelled or failed promise still calls the reader, with an error.
-    /// It must be logged and dropped, never delivered as a file.
+    /// A cancelled promise still calls the reader, with an error. It is
+    /// dropped, never delivered as a file, and a cancel is the user's own
+    /// doing, so it says nothing either.
     func testAFailedPromiseDeliversNothing() {
-        let view = NotchRootView(frame: .zero)
-        view.onDrop = { _ in
-            XCTFail("a failed promise must not reach the shelf")
-            return false
-        }
+        let shelf = ShelfStore(defaults: privateDefaults())
+        let inbox = PromisedDropInbox(shelf: shelf)
+        inbox.onBatch = { _ in XCTFail("a failed promise must not reach the shelf") }
 
         let queue = OperationQueue()
         queue.addOperation {
-            view.promisedFileArrived(nil, error: CocoaError(.userCancelled))
+            inbox.arrived(url: nil, error: CocoaError(.userCancelled))
         }
 
         let settled = expectation(description: "the coalesce window closes")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { settled.fulfill() }
         wait(for: [settled], timeout: 3)
+        XCTAssertNil(shelf.notice, "a cancelled promise is not a failure to report")
+    }
+
+    /// F-035, the promise half: a Mail or Photos transfer that fails used to
+    /// only log, so the drop looked accepted and then nothing appeared.
+    func testAFailedPromiseRaisesOneNotice() {
+        let shelf = ShelfStore(defaults: privateDefaults())
+        let inbox = PromisedDropInbox(shelf: shelf)
+        inbox.onBatch = { _ in XCTFail("a failed promise must not reach the shelf") }
+
+        let queue = OperationQueue()
+        queue.addOperation {
+            inbox.arrived(url: nil, error: CocoaError(.fileReadUnknown))
+        }
+
+        let raised = expectation(description: "the notice appears")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { raised.fulfill() }
+        wait(for: [raised], timeout: 3)
+        XCTAssertEqual(shelf.notice, .promiseFailed)
+    }
+
+    /// G-025: the receivers used to hold the root view weakly, so a display
+    /// change in the middle of a transfer (which rebuilds the panel) dropped
+    /// the file, and it was trashed seven days later. The inbox belongs to the
+    /// session; the view is only where the drag came in.
+    func testAPromiseArrivingAfterTheViewIsGoneIsStillDelivered() {
+        let inbox = PromisedDropInbox(shelf: ShelfStore(defaults: privateDefaults()))
+        let delivered = expectation(description: "the batch survives the view")
+        var received: [URL] = []
+        inbox.onBatch = { urls in
+            received = urls
+            delivered.fulfill()
+        }
+
+        weak var weakView: NotchRootView?
+        autoreleasepool {
+            let view = NotchRootView(frame: .zero)
+            view.promises = inbox
+            weakView = view
+        }
+
+        let url = URL(fileURLWithPath: "/tmp/isla-late-promise.txt")
+        let queue = OperationQueue()
+        queue.addOperation { inbox.arrived(url: url, error: nil) }
+
+        wait(for: [delivered], timeout: 3)
+        XCTAssertEqual(received, [url])
+        _ = weakView
+    }
+
+    /// G-025: a late promise has no pointer behind it, and the Mac may be
+    /// locked or asleep by the time it lands. Then it joins the shelf quietly.
+    func testALatePromiseDoesNotOpenThePanelOverALockedOrSleepingMac() {
+        XCTAssertEqual(NotchController.promiseArrivalPlan(locked: true, asleep: false), .addQuietly)
+        XCTAssertEqual(NotchController.promiseArrivalPlan(locked: false, asleep: true), .addQuietly)
+        XCTAssertEqual(NotchController.promiseArrivalPlan(locked: true, asleep: true), .addQuietly)
+        XCTAssertEqual(NotchController.promiseArrivalPlan(locked: false, asleep: false), .addAndOpen)
+    }
+
+    private func privateDefaults() -> UserDefaults {
+        let name = "isla.test.shelfdrop.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+        return defaults
     }
 
     /// A drag over the island asks what it carries once, not on every move.
@@ -68,6 +130,79 @@ final class ShelfDropTests: XCTestCase {
         let next = CountingDrag(pasteboard: pasteboard, sequence: 42)
         XCTAssertEqual(view.draggingUpdated(next), .copy)
         XCTAssertGreaterThan(next.pasteboardReads, 0, "a new drag is asked afresh")
+    }
+
+    // MARK: - Dragging a card out (F-020, F-038)
+
+    /// A card dragged into a Finder folder on the same disk used to move the
+    /// user's original, because Move was on offer and Finder prefers it
+    /// there. Copy is the default now; ⌘, Finder's own way to ask for a move,
+    /// puts Move (and the Trash) back. Nothing is offered inside the app.
+    func testDragOutCopiesUnlessCommandIsHeld() {
+        typealias Drag = ShelfDragSource.DragView
+        XCTAssertEqual(Drag.operationMask(context: .outsideApplication, modifiers: []), [.copy, .link])
+        XCTAssertEqual(Drag.operationMask(context: .outsideApplication, modifiers: [.shift]), [.copy, .link])
+        let held = Drag.operationMask(context: .outsideApplication, modifiers: [.command])
+        XCTAssertTrue(held.contains(.move))
+        XCTAssertTrue(held.contains(.generic), "AppKit narrows a ⌘-drag to Generic at the destination")
+        XCTAssertTrue(held.contains(.delete), "⌘-dragging onto the Trash still works")
+        XCTAssertEqual(Drag.operationMask(context: .withinApplication, modifiers: []), [])
+        XCTAssertEqual(Drag.operationMask(context: .withinApplication, modifiers: [.command]), [])
+    }
+
+    /// The drag lifts the card's own thumbnail from where it sits on the card,
+    /// so a grab in the middle of the picture keeps the pointer in the middle
+    /// of it. It used to be a 48 pt file icon pinned to the card's corner.
+    /// The box is the thumbnail's frame in the card, top-left origin as
+    /// SwiftUI measures it; the answer is in the drag view's own, unflipped
+    /// coordinates.
+    func testDragFrameSitsOverTheThumbnail() {
+        typealias Drag = ShelfDragSource.DragView
+        let bounds = NSRect(x: 0, y: 0, width: 86, height: 92)
+        let box = CGRect(x: 9, y: 8, width: 68, height: 40)
+
+        XCTAssertEqual(
+            Drag.dragFrame(index: 0, thumbnail: box, imageSize: NSSize(width: 68, height: 40), bounds: bounds),
+            NSRect(x: 9, y: 44, width: 68, height: 40)
+        )
+        XCTAssertEqual(
+            Drag.dragFrame(index: 1, thumbnail: box, imageSize: NSSize(width: 68, height: 40), bounds: bounds),
+            NSRect(x: 18, y: 35, width: 68, height: 40),
+            "a group still fans out by the same step"
+        )
+        XCTAssertEqual(
+            Drag.dragFrame(index: 0, thumbnail: box, imageSize: NSSize(width: 64, height: 64), bounds: bounds),
+            NSRect(x: 23, y: 44, width: 40, height: 40),
+            "a square icon is fitted the way the card fits it, centred in the box"
+        )
+        XCTAssertEqual(
+            Drag.dragFrame(index: 0, thumbnail: .zero, imageSize: NSSize(width: 86, height: 92), bounds: bounds),
+            bounds,
+            "before the card has been measured, the card itself"
+        )
+    }
+
+    /// Only a drop that may have taken the file away is followed up. A copy
+    /// leaves the original where it was, and the card with it.
+    func testOnlyADropThatMayHaveMovedTheFileIsFollowed() {
+        let view = ShelfDragSource.DragView()
+        let url = URL(fileURLWithPath: "/tmp/isla-moved.png")
+        var moved: [[URL]] = []
+        var presses: [Bool] = []
+        view.onMoved = { moved.append($0) }
+        view.onPress = { presses.append($0) }
+
+        view.draggedURLs = [url]
+        view.ended(with: .copy)
+        XCTAssertEqual(moved, [])
+        XCTAssertEqual(presses, [false], "the press ends with the drag either way")
+
+        for operation: NSDragOperation in [.move, .generic, .delete] {
+            view.draggedURLs = [url]
+            view.ended(with: operation)
+        }
+        XCTAssertEqual(moved, [[url], [url], [url]])
+        XCTAssertTrue(view.draggedURLs.isEmpty, "nothing is followed twice")
     }
 }
 

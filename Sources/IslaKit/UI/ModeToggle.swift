@@ -28,7 +28,9 @@ struct ModeToggle: View {
                 Image(systemName: symbol)
                     .font(.system(size: glyphSize, weight: .semibold))
                     .foregroundStyle(isOn ? accent : Theme.tertiary)
-                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                    // On the symbol, not `isOn`: repeat goes from "all" to
+                    // "one" staying on, and the row's animation never saw it.
+                    .symbolSwap(value: symbol, reduceMotion: reduceMotion)
                 Circle()
                     .fill(isOn ? accent : .clear)
                     .frame(width: 3, height: 3)

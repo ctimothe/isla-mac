@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// The lock screen's player, in a window of its own.
@@ -65,6 +66,56 @@ final class LockCardWindow {
     /// outlive the surface that drew from them.
     private var audioWatch: AudioWatch?
 
+    /// Runs the watch only while there is a track (see `watch(_:following:)`).
+    /// Cancelled at dismiss, before the watch is stopped, so nothing can
+    /// restart a watch whose card is already gone.
+    private var watchFollowing: AnyCancellable?
+
+    /// Whether the card's CoreAudio listeners should be installed.
+    ///
+    /// The window is made on every lock, track or not, and it used to start
+    /// the watch on every lock too — device and volume listeners running for
+    /// the whole of a lock with nothing playing, feeding a volume rail the card
+    /// never draws, because without a track it draws nothing at all (F-026).
+    /// Pure, so the rule is held by a test rather than by the subscription
+    /// that acts on it.
+    static func watchShouldRun(hasTrack: Bool) -> Bool { hasTrack }
+
+    /// Starts the watch when a track appears and stops it when the track goes,
+    /// for as long as the returned subscription is held.
+    ///
+    /// Keyed on presence, not on the track: a skip replaces one track with
+    /// another without ever passing through nil, and is no reason to tear the
+    /// listeners down and put them back. `@Published` hands its current value
+    /// to a new subscriber synchronously, so a lock with a song already
+    /// playing starts the watch before the card's first frame, exactly as the
+    /// eager start used to — and a song started mid-lock starts it then, which
+    /// the eager start could never have needed to do.
+    static func watch(_ watch: AudioWatch, following media: MediaController) -> AnyCancellable {
+        media.$track
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak watch] hasTrack in
+                MainActor.assumeIsolated {
+                    if watchShouldRun(hasTrack: hasTrack) {
+                        watch?.start()
+                    } else {
+                        watch?.stop()
+                    }
+                }
+            }
+    }
+
+    /// The card answers clicks only while it has something on it. Read at the
+    /// moment of the click rather than captured at present, so a song started
+    /// while locked makes the card clickable without presenting anything
+    /// again, and a song that ends hands the centre of the display back to the
+    /// login window. Weak, because the root view must not keep the media
+    /// controller alive — and a controller that is gone has nothing to show.
+    static func interactive(following media: MediaController) -> () -> Bool {
+        { [weak media] in media?.track != nil }
+    }
+
     /// Puts the card on screen above the shield.
     func present(
         media: MediaController,
@@ -91,9 +142,14 @@ final class LockCardWindow {
             return
         }
 
+        // Not started here. The window is made on every lock so that a song
+        // started mid-lock has somewhere to appear without a second
+        // presentation racing the shield's own window ordering — but with
+        // nothing playing the card draws nothing, and its listeners would run
+        // for the whole lock for nobody. The track decides.
         let watch = AudioWatch()
-        watch.start()
         audioWatch = watch
+        watchFollowing = Self.watch(watch, following: media)
 
         let panel = NotchPanel(contentRect: frame)
         // The card answers clicks — transport, scrubbing, the output picker —
@@ -120,6 +176,7 @@ final class LockCardWindow {
         }
         let root = LockCardRootView(frame: CGRect(origin: .zero, size: frame.size))
         root.cardRect = cardRect
+        root.isInteractive = Self.interactive(following: media)
         root.autoresizingMask = [.width, .height]
         root.addSubview(hosting)
         panel.contentView = root
@@ -172,6 +229,8 @@ final class LockCardWindow {
     /// lock, and a dismissed card must not keep hearing the machine.
     func dismiss(presence: LockScreenPresence) {
         guard let panel else { return }
+        watchFollowing?.cancel()
+        watchFollowing = nil
         audioWatch?.stop()
         audioWatch = nil
         presence.apply(to: panel, locked: false)
@@ -194,11 +253,21 @@ final class LockCardWindow {
 /// The panel takes mouse events because the transport and the scrubber need
 /// them; without this the transparent margin would swallow clicks aimed at the
 /// login window and there would be nothing on screen to explain why.
+///
+/// The card's own rect obeys the same rule while the card is empty. The window
+/// is made on every lock, track or not, and with nothing playing the card
+/// draws nothing — yet the whole 460x300 rect at the centre of the display
+/// still took clicks, so a click on the login UI there went into a window
+/// nobody could see (F-026).
 final class LockCardRootView: NSView {
     var cardRect: CGRect = .zero
+    /// Whether the card has anything on it to click. Defaults to true so a
+    /// root built without a media controller behaves as the card always did;
+    /// `LockCardWindow.present` wires it to the track.
+    var isInteractive: () -> Bool = { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard cardRect.contains(point) else { return nil }
+        guard cardRect.contains(point), isInteractive() else { return nil }
         return super.hitTest(point)
     }
 }

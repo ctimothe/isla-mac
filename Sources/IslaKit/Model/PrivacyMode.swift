@@ -36,6 +36,19 @@ final class PrivacyMode: ObservableObject {
             case .translate: return localized("Translate")
             }
         }
+
+        /// The switch's name in Settings, which says what it does rather than
+        /// which tab it belongs to. Titled with `title` alone ("Clipboard",
+        /// in Russian just "Буфер"), right under Clipboard History, the switch
+        /// read as a second way to turn the tab off, and users left the cover
+        /// alone for fear of losing the feature (H-004). The menu and the
+        /// panel keep `title`: there the tab's name is the point.
+        var settingsTitle: String {
+            switch self {
+            case .clipboard: return localized("Cover Clipboard Rows")
+            case .translate: return localized("Cover Translate Text")
+            }
+        }
     }
 
     static let key = "privacyMode.sections"
@@ -113,6 +126,15 @@ final class PrivacyMode: ObservableObject {
 
     func reveal(_ id: String) {
         revealed.insert(id)
+    }
+
+    /// Covers one row again without folding the panel. The Translate pane's
+    /// reveal is keyed to the pane rather than to its text, so when ⌃⌥⌘T puts
+    /// a new clipboard secret into a pane the user had uncovered for the
+    /// previous one, the reveal would otherwise carry straight over to the new
+    /// text, which nobody has chosen to show.
+    func conceal(_ id: String) {
+        revealed.remove(id)
     }
 
     func toggle(_ id: String) {

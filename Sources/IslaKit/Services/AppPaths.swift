@@ -59,16 +59,70 @@ struct AppPaths: Sendable {
 
     /// Trashes drop folders older than a week, so the inbox does not grow for
     /// the life of the install. Called on launch, off the main thread.
-    static func pruneDropInbox(using fm: FileManager = .default) {
-        let root = live.supportDirectory.appendingPathComponent("Dropped", isDirectory: true)
+    ///
+    /// - Parameter keeping: the files the Shelf's cards point at. A folder
+    ///   holding any of them stays, however old. The prune used to go by age
+    ///   alone, and a Mail attachment or a Photos original kept on the Shelf
+    ///   for a project went to the Trash at the first relaunch after a week —
+    ///   and the next Shelf open dropped its card, because a file in the Trash
+    ///   is a deleted card (F-019). Refreshing the folder's date whenever the
+    ///   Shelf opens was the other way out, and was turned down: it writes to
+    ///   the user's files to keep a cache from eating them.
+    /// - Parameter discard: what happens to a folder that goes. The Trash by
+    ///   default, so a mistake here is recoverable; tests pass a recorder so
+    ///   nothing of theirs ever lands in the owner's Trash.
+    static func pruneDropInbox(
+        root: URL = live.supportDirectory.appendingPathComponent("Dropped", isDirectory: true),
+        keeping: Set<URL> = [],
+        now: Date = Date(),
+        using fm: FileManager = .default,
+        discard: ((URL) -> Void)? = nil
+    ) {
+        // A test that reached this through the stores, with no recorder of its
+        // own, would be pruning the owner's real inbox into the owner's real
+        // Trash. Tests pass a temporary root and a recorder; the Trash is the
+        // app's alone.
+        if discard == nil, PlayerBridge.isRunningTests { return }
+        let discard = discard ?? { try? fm.trashItem(at: $0, resultingItemURL: nil) }
         guard let entries = try? fm.contentsOfDirectory(
             at: root, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]
         ) else { return }
-        let cutoff = Date().addingTimeInterval(-7 * 24 * 60 * 60)
-        for entry in entries {
+        // Compared by folder name: the listing above spells its URLs however
+        // it likes, and a name inside one root means one folder.
+        let used = Set(keeping.compactMap { dropFolder(containing: $0, root: root) })
+        let cutoff = now.addingTimeInterval(-7 * 24 * 60 * 60)
+        for entry in entries where !used.contains(entry.lastPathComponent) {
             let modified = (try? entry.resourceValues(forKeys: [.contentModificationDateKey]))?
-                .contentModificationDate ?? Date()
-            if modified < cutoff { try? fm.trashItem(at: entry, resultingItemURL: nil) }
+                .contentModificationDate ?? now
+            if modified < cutoff { discard(entry) }
         }
+    }
+
+    /// The name of the drop folder under `root` that `url` lives in — the
+    /// `<uuid>` of `Dropped/<uuid>/mail.pdf` — or nil for a file anywhere else.
+    ///
+    /// By path components, never by string prefix: `Dropped` is a prefix of
+    /// `DroppedElsewhere`, and a prefix test would let a file there protect a
+    /// folder it has nothing to do with. And against the root as written and
+    /// as the disk resolves it, because a card's URL comes back from its
+    /// bookmark resolved — `/private/var/…` where the root says `/var/…` —
+    /// and a card that failed to match its own folder is exactly the card the
+    /// prune would trash. Only the root, which is Isla's own folder, is
+    /// resolved; the card's URL is only tidied, never looked up, so a card on
+    /// an unplugged or hung disk costs the prune nothing.
+    static func dropFolder(containing url: URL, root: URL) -> String? {
+        let components = url.standardizedFileURL.pathComponents
+        var spellings = [root.standardizedFileURL.pathComponents]
+        if let resolved = realpath(root.path, nil) {
+            // Standardized as well, which is what folds realpath's
+            // `/private/var` back into the `/var` the card's tidied URL uses.
+            spellings.append(URL(fileURLWithPath: String(cString: resolved)).standardizedFileURL.pathComponents)
+            free(resolved)
+        }
+        for base in spellings where components.count > base.count
+            && Array(components.prefix(base.count)) == base {
+            return components[base.count]
+        }
+        return nil
     }
 }

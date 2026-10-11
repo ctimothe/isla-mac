@@ -12,16 +12,58 @@ struct LyricTimeline: Equatable, Sendable {
     let lines: [LyricsStore.Line]
     let granularity: Granularity
     let documentID: UUID?
+    /// The last sung stamp minus the length of the track it was fetched for,
+    /// in seconds; nil when it is not known or not asked.
+    ///
+    /// Only the catalogue sets it (`OnlineLyrics`), at the moment it knows
+    /// both the whole answer and the track: LRCLIB holds one timeline per
+    /// recording family copied onto every release, so a candidate's listed
+    /// length says nothing about its stamps, and a 248 s track was shown the
+    /// words of a 267 s cut, ten seconds late, with nothing to say so. The
+    /// lines past the track's end are dropped from `lines`, so the figure
+    /// cannot be recovered from what is left; it travels beside them, and
+    /// through the cache. A file the listener imported never carries one:
+    /// its stamps are theirs.
+    let overrun: TimeInterval?
 
-    init(lines: [LyricsStore.Line], granularity: Granularity, documentID: UUID? = nil) {
+    /// The lyric was made for a longer version of the song than the one
+    /// playing: its last stamp is further past the end than two services
+    /// rounding one file would differ (`OnlineLyrics.durationTolerance`).
+    var timedForLongerVersion: Bool {
+        (overrun ?? 0) > OnlineLyrics.durationTolerance
+    }
+
+    init(
+        lines: [LyricsStore.Line], granularity: Granularity, documentID: UUID? = nil,
+        overrun: TimeInterval? = nil
+    ) {
         self.lines = lines
         self.granularity = granularity
         self.documentID = documentID
+        self.overrun = overrun
     }
 }
 
 enum LyricsAvailability: Equatable, Sendable {
+    /// Why a playing track cannot be looked up at all, by any source.
+    enum Reason: Equatable, Sendable {
+        /// A stream, a radio station or a browser tab: no length, and length
+        /// is what both the local matcher (±2s) and the catalogue identify a
+        /// recording by.
+        case noLength
+        /// Nothing to search for.
+        case noTitle
+    }
+
+    /// Show Lyrics is off, or nothing is playing (which no surface draws).
+    ///
+    /// Only that. It used to also mean "no title" and "no length", so every
+    /// stream said "Lyrics are off." beside a Show Lyrics button that rewrote
+    /// an already-true switch and could not work.
     case disabled
+    /// Lyrics are on and a track is playing, but nothing can look it up.
+    /// Said plainly, with no offer: nothing the listener can press would help.
+    case cannotLookUp(Reason)
     /// Asked, with nothing to say yet — and deliberately drawn as nothing.
     ///
     /// A track change resolves in one of two ways: from memory, which is
@@ -95,7 +137,28 @@ final class LyricsCoordinator: ObservableObject {
     /// 67ms and 100ms and was gone — a loading state nobody could read. 0.6s
     /// clears both with room to spare.
     static var quietGrace: TimeInterval = 0.6
+
+    /// How long a track may play with no length before it is called live
+    /// audio.
+    ///
+    /// Players publish the title before the length (see `reconcileTrack`), so
+    /// every ordinary song passes through "no length" on its way in. Said at
+    /// once, each skip would flash "No lyrics for live audio." for the frame
+    /// before its length landed. Over this, the length is not coming: a
+    /// stream, a radio station or a browser tab. Until then the slot is held
+    /// empty, the same quiet wait a lookup gets.
+    static var noLengthGrace: TimeInterval = 1.5
+    /// Settles a track with no length into `.cannotLookUp(.noLength)` once
+    /// `noLengthGrace` has passed. Cancelled the moment a length arrives.
+    private var noLengthTask: Task<Void, Never>?
+    /// The track `noLengthTask` is timing, so the steady stream of identical
+    /// updates a playing stream sends does not restart the clock each time.
+    private var noLengthKey: String?
     private weak var presentation: LyricsStore?
+    /// The route's reported output latency, for the lead model. Running only
+    /// while Show Lyrics is on (`syncOutputLatencyWatch`); nil in a
+    /// coordinator built without one, which is every test that does not ask.
+    private let outputLatency: OutputLatencyMonitor?
     private var observers = Set<AnyCancellable>()
     private var logicalTrackKey: String?
     private var currentIdentity: LocalTrackIdentity?
@@ -111,8 +174,10 @@ final class LyricsCoordinator: ObservableObject {
         onlineCache: OnlineLyricsCache? = nil,
         onlineLookUp: @escaping (LocalTrackIdentity) async -> OnlineLyrics.Outcome = {
             await OnlineLyrics.lookUp($0)
-        }
+        },
+        outputLatency: OutputLatencyMonitor? = nil
     ) {
+        self.outputLatency = outputLatency
         self.media = media
         self.library = library
         self.isEnabled = isEnabled
@@ -122,6 +187,7 @@ final class LyricsCoordinator: ObservableObject {
         self.presentation = presentation
         self.onlineCache = onlineCache ?? OnlineLyricsCache()
         self.onlineLookUp = onlineLookUp
+        outputLatency?.onChange = { [weak self] seconds in self?.outputLatencyChanged(seconds) }
     }
 
     func start() {
@@ -136,11 +202,19 @@ final class LyricsCoordinator: ObservableObject {
             .dropFirst()
             .sink { [weak self] _ in self?.recheckCurrentTrack() }
             .store(in: &observers)
+        // `$readAhead` publishes before the property changes, so the new value
+        // is taken from the event rather than read back from the store.
+        presentation?.$readAhead
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] choice in self?.registerBoundaries(readAhead: choice) }
+            .store(in: &observers)
         reconcileTrack(track: media.track, duration: media.duration)
     }
 
     func stop() {
         observers.removeAll()
+        outputLatency?.stop()
         logicalTrackKey = nil
         currentIdentity = nil
         onlineTimeline = nil
@@ -149,12 +223,19 @@ final class LyricsCoordinator: ObservableObject {
         lookUpTask = nil
         admitWaitTask?.cancel()
         admitWaitTask = nil
+        cancelNoLengthWait()
         resetRetries()
         localLookup = nil
         hasLocalOverride = false
         presentation?.presentLocalOverride(false)
         availability = .disabled
         presentation?.present(.disabled)
+    }
+
+    private func cancelNoLengthWait() {
+        noLengthTask?.cancel()
+        noLengthTask = nil
+        noLengthKey = nil
     }
 
     private func resetRetries() {
@@ -191,43 +272,73 @@ final class LyricsCoordinator: ObservableObject {
         recheckCurrentTrack()
     }
 
-    func importLocalFile(at url: URL) throws {
-        guard let currentIdentity else { return }
-        _ = try library.importDocument(at: url, binding: currentIdentity)
-        markLocalOverride()
+    /// Imports a file for the song that was playing when Import was pressed.
+    ///
+    /// `identity` is taken by the caller before the open panel runs, not read
+    /// here after it returns. It used to be `currentIdentity` at this point:
+    /// browsing for a file through a track change bound the next song to
+    /// this one's words for good (G-013). With nothing playing when Import
+    /// was pressed, the file is kept unbound and matches by its own tags —
+    /// it used to be dropped without a word.
+    func importLocalFile(at url: URL, for identity: LocalTrackIdentity?) throws {
+        _ = try library.importDocument(at: url, binding: identity)
+        syncLocalOverride()
     }
 
     func selectLocalCandidate(_ candidate: LocalLyricsCandidate) {
         guard let currentIdentity else { return }
         library.bind(candidate, to: currentIdentity)
-        markLocalOverride()
+        syncLocalOverride()
     }
 
     func removeLocalBinding() {
         guard let currentIdentity else { return }
         library.removeBinding(for: currentIdentity)
-        hasLocalOverride = false
-        presentation?.presentLocalOverride(false)
+        syncLocalOverride()
     }
 
-    private func markLocalOverride() {
-        hasLocalOverride = true
-        presentation?.presentLocalOverride(true)
+    /// Reads whether the track on screen is bound from the library itself.
+    ///
+    /// Remove Local Binding is drawn from this flag, and it used to be a
+    /// session's memory: set by an import or a choice made since launch,
+    /// cleared by every track change. Skip away and back, or relaunch, and a
+    /// song still bound to its file had no way to unbind it from the page —
+    /// only Settings' Clear Bindings and Timing Corrections, which takes every
+    /// binding with it.
+    /// The saved binding is the truth, so it is asked on every resolve.
+    private func syncLocalOverride() {
+        let bound = currentIdentity.map { library.hasBinding(for: $0) } ?? false
+        if hasLocalOverride != bound { hasLocalOverride = bound }
+        if presentation?.hasLocalOverride != bound { presentation?.presentLocalOverride(bound) }
     }
 
     private func reconcileTrack(
         track: MediaController.Track?, duration: TimeInterval, force: Bool = false
     ) {
-        guard isEnabled(), let track, !track.title.isEmpty, duration > 0 else {
-            logicalTrackKey = nil
-            currentIdentity = nil
-            localLookup = nil
-            hasLocalOverride = false
-            presentation?.presentLocalOverride(false)
-            availability = .disabled
-            presentation?.present(.disabled)
+        syncOutputLatencyWatch()
+        // Three different answers, which this guard used to fold into one:
+        // off, nothing to search for, and no length to identify a recording
+        // by. Folded, a stream said "Lyrics are off." with the switch on.
+        guard isEnabled(), let track else {
+            cancelNoLengthWait()
+            forgetTrack()
+            publishUnidentified(.disabled)
             return
         }
+        guard !track.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelNoLengthWait()
+            forgetTrack()
+            publishUnidentified(.cannotLookUp(.noTitle))
+            return
+        }
+        guard duration > 0 else {
+            awaitLength(of: track)
+            return
+        }
+        // A length arrived, inside the grace or long after it: this is a
+        // track like any other now, and the durationMoved check below sees a
+        // new identity because the wait kept none.
+        cancelNoLengthWait()
 
         // A track change, or a correction to the one already showing.
         //
@@ -263,9 +374,58 @@ final class LyricsCoordinator: ObservableObject {
             recordingID: nil
         )
         if let currentIdentity { presentation?.activateTrackOffset(for: currentIdentity) }
+        resolveCurrentTrack()
+    }
+
+    /// Drops the identified track and everything asked on its behalf.
+    ///
+    /// The generation is bumped so a lookup, retry or admit-wait still in
+    /// flight for the song before cannot land on top of the state published
+    /// here. The old guard never cancelled them, which was harmless while it
+    /// only ever published "off"; now a stale answer would reach
+    /// `publishAvailability` with no identity and overwrite "live audio" with
+    /// "off".
+    private func forgetTrack() {
+        logicalTrackKey = nil
+        currentIdentity = nil
+        localLookup = nil
+        onlineTimeline = nil
+        lookUpGeneration += 1
+        lookUpTask?.cancel()
+        lookUpTask = nil
+        admitWaitTask?.cancel()
+        admitWaitTask = nil
+        resetRetries()
         hasLocalOverride = false
         presentation?.presentLocalOverride(false)
-        resolveCurrentTrack()
+    }
+
+    /// A state with no track identity behind it: nothing to look up, so no
+    /// line boundaries for the clock either. The old guard left the previous
+    /// song's boundaries armed, waking the surfaces on its line times while a
+    /// stream played.
+    private func publishUnidentified(_ state: LyricsAvailability) {
+        availability = state
+        presentation?.present(state)
+        media.setLyricBoundaries([], lead: { 0 })
+    }
+
+    /// Holds a track with no length quiet for `noLengthGrace`, then calls it
+    /// live audio. Repeated updates for the same track keep the clock running
+    /// rather than restart it; a length arriving cancels it in `reconcileTrack`.
+    private func awaitLength(of track: MediaController.Track) {
+        forgetTrack()
+        guard noLengthKey != track.key else { return }
+        noLengthTask?.cancel()
+        noLengthKey = track.key
+        publishUnidentified(.resolving)
+        let key = track.key
+        let grace = Self.noLengthGrace
+        noLengthTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(grace))
+            guard !Task.isCancelled, let self, self.noLengthKey == key else { return }
+            self.publishUnidentified(.cannotLookUp(.noLength))
+        }
     }
 
     private func recheckCurrentTrack() {
@@ -278,6 +438,8 @@ final class LyricsCoordinator: ObservableObject {
         localLookup = nil
         publishAvailability()
         localLookup = library.lookup(identity: identity)
+        // After the lookup, which prunes a binding whose document is gone.
+        syncLocalOverride()
         publishAvailability()
         lookUpOnlineIfNeeded(for: identity)
     }
@@ -296,6 +458,7 @@ final class LyricsCoordinator: ObservableObject {
             // costs one request each rather than one per play.
             onlineTimeline = remembered
             publishAvailability()
+            if remembered != nil, onlineCache.needsRefresh(identity) { refreshOldHit(identity) }
             return
         }
         let generation = lookUpGeneration
@@ -316,6 +479,33 @@ final class LyricsCoordinator: ObservableObject {
             try? await Task.sleep(for: .seconds(Self.quietGrace))
             guard !Task.isCancelled, let self, self.lookUpGeneration == generation else { return }
             self.waitIsWorthAdmitting = true
+            self.publishAvailability()
+        }
+    }
+
+    /// Asks once more about a hit cached before lines carried their ends,
+    /// while that hit is already on screen.
+    ///
+    /// Without this, every song looked up before 2026-10-11 kept its lines
+    /// lit through each instrumental for as long as the cache held it — the
+    /// stale highlight line ends exist to remove. Dropping those hits instead
+    /// would blank the stage until the network answered. So the old words
+    /// show at once, the same four fields go to the same service the
+    /// listener already turned on, and only a found answer replaces them; any
+    /// other answer is settled in the cache (`OnlineLyricsCache.remember`) so
+    /// the song is not asked about again. Quiet throughout: no wait to admit,
+    /// no retry schedule, and a failure leaves the old words up and asks on
+    /// the song's next play. A skip cancels it like any other lookup.
+    private func refreshOldHit(_ identity: LocalTrackIdentity) {
+        let generation = lookUpGeneration
+        lookUpTask?.cancel()
+        lookUpTask = Task { [weak self] in
+            guard let self else { return }
+            let outcome = await self.onlineLookUp(identity)
+            guard !Task.isCancelled, self.lookUpGeneration == generation else { return }
+            self.onlineCache.remember(outcome, for: identity)
+            guard case .found(let timeline) = outcome else { return }
+            self.onlineTimeline = timeline
             self.publishAvailability()
         }
     }
@@ -355,21 +545,83 @@ final class LyricsCoordinator: ObservableObject {
         case .ambiguous: availability = .noLocalLyrics
         case nil: availability = waitIsWorthAdmitting ? .findingLocalLyrics : .resolving
         }
+        // The store has to know which file is showing, not just which song:
+        // a nudge belongs to the file it corrected (J-024). This is where a
+        // file first shows, and where an import, a binding, a retimed edit or
+        // the catalogue's answer replaces it, so the file is told here — and
+        // before the words are presented, so they never draw for one frame
+        // with the last file's correction.
+        if case .ready(let timeline) = availability {
+            presentation?.activateTrackOffset(for: identity, documentID: timeline.documentID)
+        }
         presentation?.present(availability)
         registerBoundaries()
+    }
+
+    /// Runs the output-latency watch exactly while Show Lyrics is on and the
+    /// coordinator is started. Every visibility change and every track change
+    /// pass through `reconcileTrack`, which calls this first, so the switch in
+    /// Settings, the lyrics page's own "Show Lyrics" and a Shortcut all reach
+    /// it. Turning lyrics off removes the CoreAudio listener rather than
+    /// leaving it to wake for a lead nothing reads.
+    private func syncOutputLatencyWatch() {
+        guard let outputLatency else { return }
+        if isEnabled(), !observers.isEmpty {
+            outputLatency.start()
+        } else {
+            outputLatency.stop()
+        }
+    }
+
+    /// The default output moved, and with it the route's reported latency.
+    ///
+    /// The number goes into the lead model, where the DI_MEDIA trail records
+    /// it with every other term — that line is what the owner's S-LEAD
+    /// session reads off each route. While the term is not applied
+    /// (`LyricLeadModel.appliesOutputLatency`) the lead does not move, and
+    /// nothing else happens. Once it is, a changed lead must re-register the
+    /// boundaries: the wake already armed was computed with the old lead and
+    /// would turn the next line early or late by the difference, once.
+    private func outputLatencyChanged(_ seconds: TimeInterval?) {
+        let before = LyricSweep.model.lead
+        LyricSweep.model.outputLatency = seconds ?? LyricLeadModel.referenceOutputLatency
+        if DebugTrail.openLyrics || DebugTrail.media {
+            let reported = seconds.map { String(format: "%.1f ms", $0 * 1000) } ?? "unknown"
+            DebugTrail.note("output latency \(reported); \(LyricSweep.model.trail)")
+        }
+        if LyricSweep.model.lead != before { registerBoundaries() }
     }
 
     /// Hands the clock every line's timestamp, so it can wake the surfaces on
     /// the frame a line is due instead of on its quarter-second grid. The lead
     /// is read at each wake, so a nudge takes effect on the next one.
-    private func registerBoundaries() {
+    ///
+    /// A line going dark at its honoured end is a change of line too, so
+    /// those ends are boundaries beside the starts. Without them the line
+    /// went dark on the next quarter-second tick, up to 250 ms after the
+    /// voice — the same random lateness the wakes exist to remove.
+    ///
+    /// The caption's early turns (`LyricSweep.readAheadStart`) are boundaries
+    /// too, for the same reason: a turn left to the quarter-second grid would
+    /// land up to 250 ms late, which is half the beat it brings forward.
+    /// Under Auto each transition has its own early time (it follows the
+    /// length of the line turned to), which is why the choice is handed to
+    /// `readAheadStart` per transition rather than turned into one number
+    /// here. They are re-registered when the setting changes (`start`), which
+    /// passes the new value because the store has not written it yet when
+    /// that event arrives.
+    private func registerBoundaries(readAhead: LyricReadAhead? = nil) {
         guard case .ready(let timeline) = availability else {
             media.setLyricBoundaries([], lead: { 0 })
             return
         }
         let media = self.media
         let presentation = self.presentation
-        media.setLyricBoundaries(timeline.lines.map(\.at)) {
+        let lines = timeline.lines
+        let ends = lines.indices.compactMap { LyricSweep.effectiveEnd(of: $0, in: lines) }
+        let ahead = readAhead ?? presentation?.readAhead ?? .off
+        let early = lines.indices.compactMap { LyricSweep.readAheadStart(before: $0, in: lines, readAhead: ahead) }
+        media.setLyricBoundaries(lines.map(\.at) + ends + early) {
             LyricSweep.lead(
                 precisionSync: media.precisionSync,
                 userOffset: presentation?.userOffset ?? 0,

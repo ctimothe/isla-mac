@@ -180,7 +180,7 @@ struct RevealEye: View {
             Image(systemName: hidden ? "eye" : "eye.slash")
                 .islandFont(.caption, weight: .semibold)
                 .foregroundStyle(Theme.secondary)
-                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                .symbolSwap(value: hidden, reduceMotion: reduceMotion)
                 // A 10pt glyph is a 10pt target; the row's own background is a
                 // control, so a near miss does something else.
                 .frame(width: 22, height: 22)

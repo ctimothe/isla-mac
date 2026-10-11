@@ -37,7 +37,16 @@ enum Diagnostics {
         var appQuarantined: Bool
         var helperQuarantined: Bool
         var signature: String
+        /// Whether the bundle's seal, the helper dylib included, verifies.
+        /// Report-only (G-028): a mismatch here is evidence for an issue, not
+        /// a reason the helper was refused.
+        var helperSignature: String = "not checked"
         var lockScreenSPI: Bool
+        /// Privacy & Security > Paste from Other Apps, as the system answers
+        /// it for Isla. Under Don't Allow the clipboard poll stops itself and
+        /// history goes quiet; "my clipboard history is empty" was a report
+        /// nothing in here could explain (J-001).
+        var pasteFromOtherApps: ClipboardAccess = .unknown
         var settings: [(String, String)]
         var shortcuts: [(String, String)]
         var log: [String]
@@ -62,10 +71,12 @@ enum Diagnostics {
         lines.append("  app quarantined: \(yesNo(snapshot.appQuarantined))")
         lines.append("  helper quarantined: \(yesNo(snapshot.helperQuarantined))")
         lines.append("  signature: \(snapshot.signature)")
+        lines.append("  helper signature: \(snapshot.helperSignature)")
         lines.append("  lock-screen SPI: \(snapshot.lockScreenSPI ? "available" : "missing")")
         lines.append("")
         lines.append("Settings")
         for (name, value) in snapshot.settings { lines.append("  \(name): \(value)") }
+        lines.append("  Paste from Other Apps: \(describe(snapshot.pasteFromOtherApps))")
         lines.append("")
         lines.append("Shortcuts")
         for (name, value) in snapshot.shortcuts { lines.append("  \(name): \(value)") }
@@ -78,10 +89,30 @@ enum Diagnostics {
 
     private static func yesNo(_ value: Bool) -> String { value ? "yes" : "no" }
 
+    /// `unknown` is the system's `.default`, which AppKit reports until Isla
+    /// has raised its first pasteboard alert (it is not listed in System
+    /// Settings until then), or a macOS before 15.4 that has no such switch.
+    /// `ClipboardStore` reads both as allowed.
+    private static func describe(_ access: ClipboardAccess) -> String {
+        switch access {
+        case .unknown: return "default"
+        case .ask: return "ask"
+        case .allowed: return "allowed"
+        case .denied: return "denied"
+        }
+    }
+
     // MARK: - Reading the live app
 
+    /// - Parameter clipboardAccess: what the system answers now, not what
+    ///   the clipboard store last acted on. A seam, because a test cannot
+    ///   set the switch, and reading the access behaviour reads no content.
     @MainActor
-    static func current(media: MediaController, hotKeys: HotKeyCenter? = nil, includeLog: Bool = true) -> Snapshot {
+    static func current(
+        media: MediaController, hotKeys: HotKeyCenter? = nil,
+        clipboardAccess: ClipboardAccess = ClipboardStore.systemAccess(of: .general),
+        includeLog: Bool = true
+    ) -> Snapshot {
         let hotKeys = hotKeys ?? .shared
         let info = Bundle.main.infoDictionary ?? [:]
         let helper = Bundle.main.path(forResource: ProductIdentity.helperResourceName, ofType: "dylib")
@@ -130,7 +161,9 @@ enum Diagnostics {
             appQuarantined: isQuarantined(Bundle.main.bundlePath),
             helperQuarantined: helper.map(isQuarantined) ?? false,
             signature: signature(of: Bundle.main.bundleURL),
+            helperSignature: NowPlayingFeed.helperSignature,
             lockScreenSPI: SkyLight.shared != nil,
+            pasteFromOtherApps: clipboardAccess,
             settings: settings,
             shortcuts: shortcuts,
             log: includeLog ? recentLog() : []

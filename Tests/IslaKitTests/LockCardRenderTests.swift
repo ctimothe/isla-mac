@@ -76,6 +76,64 @@ final class LockCardRenderTests: XCTestCase {
             )
         }
 
+        // The wrapped state (H-019): the line being sung is too long for one
+        // row, so it takes two and the window narrows around it. At both
+        // sizes, because the compact card's middle is the one with no room to
+        // spare — there the sung line stands alone.
+        let wrapped = LyricsStore()
+        wrapped.present(.ready(LyricTimeline(
+            lines: [
+                .init(at: 2, text: "The line the song already passed"),
+                .init(at: 12, text: "A first line that is long enough to need the second row the stage allows it"),
+                .init(at: 22, text: LockCardPaneTests.longSungLine),
+                .init(at: 32, text: "Short again"),
+                .init(at: 42, text: "And the one after that"),
+                .init(at: 52, text: "The last one here"),
+            ],
+            granularity: .line
+        )))
+        let hadSize = defaults.object(forKey: NotchViewModel.lockCardSizeKey)
+        defer {
+            if let hadSize { defaults.set(hadSize, forKey: NotchViewModel.lockCardSizeKey) }
+            else { defaults.removeObject(forKey: NotchViewModel.lockCardSizeKey) }
+        }
+        for size in NotchViewModel.LockCardSize.allCases {
+            defaults.set(size.rawValue, forKey: NotchViewModel.lockCardSizeKey)
+            let renderer = ImageRenderer(
+                content: LockScreenCard(media: media, lyrics: wrapped, initialPane: .lyrics)
+            )
+            renderer.scale = 1
+            let image = try XCTUnwrap(renderer.nsImage, "the wrapped \(size.rawValue) card must render")
+            XCTAssertEqual(image.size, LockScreenCard.size(for: size),
+                           "a two-row sung line changed the \(size.rawValue) card's size")
+
+            // And the rows themselves, drawn as the card draws them, stand no
+            // taller than the plain window the card was laid out for.
+            let width = LockScreenCard.lyricTextWidth(for: size)
+            let layout = LockScreenCard.lyricLayout(
+                currentText: LockCardPaneTests.longSungLine, width: width, cardSize: size
+            )
+            XCTAssertEqual(layout.currentLineLimit, 2)
+            let plainRoom = LockScreenCard.lyricStackHeight(
+                LockScreenCard.LyricLayout(window: LockScreenCard.visibleLyricLines(for: size), currentLineLimit: 1)
+            )
+            let centre = layout.window / 2
+            let stack = VStack(alignment: .leading, spacing: LockScreenCard.lyricRowSpacing) {
+                ForEach(0..<layout.window, id: \.self) { row in
+                    LyricRow(
+                        line: .init(at: 22, text: row == centre ? LockCardPaneTests.longSungLine : "Short again"),
+                        isCurrent: row == centre, distance: abs(row - centre), at: 26, end: 32,
+                        fontSize: Theme.TypeRole.title.size, weight: .bold,
+                        lineLimit: row == centre ? layout.currentLineLimit : 1
+                    )
+                }
+            }
+            let drawn = NSHostingController(rootView: stack.frame(width: width))
+                .sizeThatFits(in: CGSize(width: width, height: 400)).height
+            XCTAssertLessThanOrEqual(drawn, plainRoom + 0.5,
+                                     "\(size.rawValue): the wrapped rows draw \(drawn)pt in \(plainRoom)pt")
+        }
+
         // Optional artifact for eyes, not assertions.
         if let path = ProcessInfo.processInfo.environment["SHOT_OUT"] {
             let sheet = ImageRenderer(content: Sheet(media: media, lyrics: lyrics))

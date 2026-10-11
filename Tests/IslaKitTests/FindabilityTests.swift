@@ -27,6 +27,19 @@ final class FindabilityTests: XCTestCase {
         XCTAssertNil(LyricsPresentation.offer(for: .findingLocalLyrics, localLookup: nil, onlineEnabled: false))
     }
 
+    /// A stream used to read as "off" and offer Show Lyrics, which rewrote an
+    /// already-true switch. A track nothing can look up offers nothing at all.
+    func testATrackThatCannotBeLookedUpOffersNothing() {
+        for reason in [LyricsAvailability.Reason.noLength, .noTitle] {
+            for online in [false, true] {
+                XCTAssertNil(LyricsPresentation.offer(
+                    for: .cannotLookUp(reason), localLookup: nil, onlineEnabled: online
+                ))
+            }
+            XCTAssertFalse(LyricsPresentation.canRetry(.cannotLookUp(reason)))
+        }
+    }
+
     func testTheDisabledCaptionNoLongerSendsYouToSettings() {
         let caption = LyricsPresentation.compactCaption(for: .disabled, currentLine: nil)
         XCTAssertFalse(caption.contains("Settings"), caption)
@@ -98,5 +111,18 @@ final class FindabilityTests: XCTestCase {
         XCTAssertEqual(SpotifyAccount.Refusal.from(premium), .premiumRequired)
         XCTAssertEqual(SpotifyAccount.Refusal.from(Data("<html>".utf8)), .other)
         XCTAssertEqual(SpotifyAccount.Refusal.from(nil), .other)
+    }
+
+    /// Spotify demands Premium of the developer who registered a Development
+    /// Mode app, not of everyone who uses it. The note used to tell the
+    /// listener their own plan was the problem — something a Premium listener
+    /// could do nothing about, and a free listener would pay to not fix.
+    func testAPremiumRefusalDoesNotAddressTheListener() {
+        let explanation = SpotifyAccount.Refusal.premiumRequired.explanation
+        XCTAssertEqual(
+            explanation,
+            "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause."
+        )
+        XCTAssertFalse(explanation.contains("needs Spotify Premium"))
     }
 }

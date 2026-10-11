@@ -511,6 +511,122 @@ final class MediaControllerTests: XCTestCase {
         XCTAssertNil(controller.lyricWakeDateForTests, "a line already passed arms nothing")
     }
 
+    /// A playing, open controller with nothing between it and a real player.
+    private func playingLyricController(at elapsed: TimeInterval = 50) -> MediaController {
+        let controller = MediaController()
+        // The precision loop would ask a real Spotify or Music for its clock.
+        controller.lyricsShown = { false }
+        controller.setActive(true)
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.duration = 200
+        playing.elapsed = elapsed
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 7
+        controller.apply(playing)
+        return controller
+    }
+
+    /// The pieces of libdispatch's own description of a timer source that say
+    /// how it was scheduled: `flags` (bit 0x1 is DISPATCH_TIMER_STRICT), and
+    /// `target` and `deadline`, which are equal exactly when the leeway is
+    /// zero — the kernel may fire anywhere between the two.
+    private func timerFields(_ source: DispatchSourceTimer) -> (flags: UInt64, target: UInt64, deadline: UInt64)? {
+        // The source's own `target = com.apple.main-thread` precedes the timer
+        // block, so only the text after "timer = {" is searched.
+        let text = (source as AnyObject).debugDescription ?? ""
+        guard let timer = text.range(of: "timer = {") else { return nil }
+        let block = text[timer.upperBound...]
+        func field(_ name: String) -> UInt64? {
+            guard let range = block.range(of: "\(name) = 0x") else { return nil }
+            return UInt64(block[range.upperBound...].prefix { $0.isHexDigit }, radix: 16)
+        }
+        guard let flags = field("flags"), let target = field("target"),
+              let deadline = field("deadline") else { return nil }
+        return (flags, target, deadline)
+    }
+
+    /// The wake is one strict dispatch timer with no leeway, and only one.
+    ///
+    /// It was a Foundation `Timer` with tolerance 0 on the main run loop,
+    /// which still ran 4ms late at the median and 10ms at p99 idle (lab L4b),
+    /// up to 17.7ms under load — later than a whole 60Hz frame, on the one
+    /// event whose point is the frame a line is due on. Tolerance 0 does not
+    /// stop the run loop and the kernel coalescing a timer; `.strict` does.
+    /// The lateness itself is the lab's to measure (`Scripts/lyric-lab.sh`):
+    /// a real-clock bound here would be a claim about how busy the CI machine
+    /// is. What this pins is the construction, read back from libdispatch, and
+    /// that re-arming never leaves a second source running — a strict timer
+    /// is a costlier wake, so there may only ever be the next line's.
+    func testALyricWakeIsOneStrictTimerWithNoLeeway() throws {
+        let controller = playingLyricController()
+        defer { controller.setActive(false) }
+        let start = controller.position
+        controller.setLyricBoundaries([start + 5, start + 10], lead: { 0 })
+
+        let first = try XCTUnwrap(controller.lyricWakeSourceForTests, "a line ahead arms a wake")
+        let fields = try XCTUnwrap(
+            timerFields(first),
+            "libdispatch's timer description changed shape: \((first as AnyObject).debugDescription ?? "nil")"
+        )
+        XCTAssertEqual(fields.flags & 0x1, 0x1, "the wake must be a strict timer, exempt from coalescing")
+        XCTAssertEqual(fields.target, fields.deadline, "the wake must carry no leeway")
+
+        // Every re-arm replaces the source and cancels the one it replaces.
+        controller.tick()
+        let second = try XCTUnwrap(controller.lyricWakeSourceForTests)
+        XCTAssertFalse(first === second, "a re-arm builds a fresh source")
+        XCTAssertTrue(first.isCancelled, "the replaced wake must not stay armed beside the new one")
+        XCTAssertFalse(second.isCancelled)
+
+        controller.setLyricBoundaries([start + 7], lead: { 0 })
+        let third = try XCTUnwrap(controller.lyricWakeSourceForTests)
+        XCTAssertTrue(second.isCancelled)
+
+        // Closing the panel takes the wake with it.
+        controller.setActive(false)
+        XCTAssertNil(controller.lyricWakeSourceForTests)
+        XCTAssertNil(controller.lyricWakeDateForTests)
+        XCTAssertTrue(third.isCancelled, "a closed panel keeps no exact wake armed")
+    }
+
+    /// The wake publishes the position on its own queue turn.
+    ///
+    /// The old wake was a timer block that started a `Task { @MainActor }`,
+    /// so `tick()` ran on a later turn of the main queue than the one the
+    /// timer fired on, behind whatever else had been queued meanwhile. Now the
+    /// handler calls `tick()` itself: by the time the test hook — called right
+    /// after it, in the same handler — looks, the boundary's position is
+    /// already published and the next line's wake already armed.
+    func testAWakeTicksWithoutAHop() {
+        let controller = playingLyricController()
+        defer { controller.setActive(false) }
+        let start = controller.position
+        let boundary = start + 0.03
+        let fired = expectation(description: "the lyric wake fires")
+        var seenPosition: TimeInterval?
+        var seenNextWake: Date?
+        controller.onLyricWakeForTests = { [unowned controller] in
+            guard seenPosition == nil else { return }
+            seenPosition = controller.position
+            seenNextWake = controller.lyricWakeDateForTests
+            fired.fulfill()
+        }
+        controller.setLyricBoundaries([boundary, start + 5], lead: { 0 })
+        wait(for: [fired], timeout: 5)
+
+        guard let seenPosition else { return XCTFail("the wake never ran") }
+        // A dispatch timer never fires before its deadline, and the clock it
+        // is armed on is the one the anchor runs on, so the published position
+        // has reached the boundary.
+        XCTAssertGreaterThanOrEqual(seenPosition, boundary - 0.0005, "the tick ran before the hook")
+        guard let seenNextWake else { return XCTFail("the tick re-arms for the next line before the hook runs") }
+        XCTAssertGreaterThan(seenNextWake.timeIntervalSinceNow, 4, "the next wake is the line at +5s")
+    }
+
     /// And a player that publishes nothing at all still gives up its lyrics.
     ///
     /// The reset is right while playing — the position really may have moved
@@ -837,6 +953,104 @@ final class MediaControllerTests: XCTestCase {
                        "a wall-clock jump with the monotonic clock frozen must not move the bar")
     }
 
+    /// A playing snapshot of "Track" at `elapsed`, stamped now, for the clock
+    /// tests below that step `monotonicNow` by hand.
+    private func clockSnapshot(
+        elapsed: TimeInterval, rate: Double = 1, playing: Bool = true
+    ) -> NowPlayingFeed.Snapshot {
+        var s = NowPlayingFeed.Snapshot()
+        s.title = "Track"
+        s.artist = "Artist"
+        s.album = "Album"
+        s.duration = 200
+        s.elapsed = elapsed
+        s.rate = rate
+        s.isPlaying = playing
+        s.takenAt = Date()
+        s.playerPID = 1
+        return s
+    }
+
+    /// A rate change the controller does not adopt a position from — here the
+    /// reading lands while our own seek is still unconfirmed — must not rescale
+    /// the time the clock already ran at the old rate. The lab's L4 measured
+    /// the next tick jumping by up to 0.8s, and the lyric wake armed off by
+    /// seconds, because the new rate was applied backwards to the anchor.
+    func testARateChangeWhileASeekIsPendingKeepsTheClockContinuous() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let controller = MediaController()
+        controller.lyricsShown = { false }
+        controller.sendToPlayer = { _, _ in }
+        controller.monotonicNow = { clock.now }
+        controller.apply(clockSnapshot(elapsed: 10))
+
+        controller.seek(to: 40)
+        // A full second, not the lab's 0.8: a reading exactly 0.8 from the
+        // target sits on the seek judge's own boundary, and a few microseconds
+        // of aging decide which side of it the test lands on.
+        clock.now += 1.0
+        controller.tick()
+        let standing = controller.position
+        XCTAssertEqual(standing, 41, accuracy: 0.001)
+
+        // The player now says 2x, at a position the pending seek discards.
+        controller.apply(clockSnapshot(elapsed: standing, rate: 2))
+        clock.now += 0.1
+        controller.tick()
+        XCTAssertEqual(controller.position, standing + 0.2, accuracy: 0.001,
+                       "the new rate runs from the moment it was reported, not from the anchor")
+    }
+
+    /// A reading inside the forward jitter is not taken, and the clock re-bases
+    /// under it — on where the clock is *now*, not on the last tick it
+    /// published, which can be a grid interval old. Re-basing on the tick threw
+    /// that interval away on every such reading: the lab's clock-fidelity run
+    /// left the anchor behind a perfect player 36% of the time, by up to 50ms.
+    func testASnapshotInsideTheJitterRebasesOnTheRunningClock() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let controller = MediaController()
+        controller.lyricsShown = { false }
+        controller.monotonicNow = { clock.now }
+        controller.apply(clockSnapshot(elapsed: 10))
+        XCTAssertEqual(controller.position, 10, accuracy: 0.001)
+
+        // No tick: the published position is still 10.0 while the clock is at
+        // 10.03, and the reading agrees with the clock.
+        clock.now += 0.03
+        controller.apply(clockSnapshot(elapsed: 10.03))
+        clock.now += 0.1
+        controller.tick()
+        XCTAssertEqual(controller.position, 10.13, accuracy: 0.001,
+                       "a re-base must not lose the time since the last tick")
+    }
+
+    /// The re-base above extrapolates from the anchor, which is only sound if
+    /// the clock was running since it was set. A pause leaves the anchor where
+    /// the track stopped; resuming must start the clock from there, not credit
+    /// the paused minutes as playback.
+    func testResumingAfterALongPauseStartsTheClockWhereItStopped() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let controller = MediaController()
+        controller.lyricsShown = { false }
+        controller.monotonicNow = { clock.now }
+        controller.apply(clockSnapshot(elapsed: 10))
+        clock.now += 2
+        controller.tick()
+        controller.apply(clockSnapshot(elapsed: 12, rate: 0, playing: false))
+        XCTAssertFalse(controller.isPlaying)
+
+        clock.now += 300
+        controller.apply(clockSnapshot(elapsed: 12))
+        XCTAssertTrue(controller.isPlaying)
+        clock.now += 0.1
+        controller.tick()
+        XCTAssertEqual(controller.position, 12.1, accuracy: 0.01,
+                       "five paused minutes are not five minutes of playback")
+    }
+
     /// A Spotify play/pause/track-change broadcast re-anchors at once: the
     /// reading is unsettled until the authoritative correction lands, and the
     /// correction is asked for immediately rather than on the next poll.
@@ -899,6 +1113,111 @@ final class MediaControllerTests: XCTestCase {
         // Leave no timers or watchdogs running into the next test: the panel
         // is closed, so the loop and the ticker stop with it.
         controller.setActive(false)
+    }
+
+    // MARK: - Transport acts only on what the island shows (J-005, J-006)
+
+    /// Music Only hides a paused YouTube tab, the island shows nothing, and a
+    /// Shortcut runs Play or Pause. The command used to go to the helper with
+    /// no pid, the helper handed it to whoever owned Now Playing — the hidden
+    /// tab — and the video started while the intent reported success.
+    func testTransportWithNothingShownSendsNothing() {
+        let controller = MediaController()
+        controller.isolateFromPlayers()
+        controller.lyricsShown = { false }
+        var sent: [String] = []
+        controller.sendToFeed = { command, _ in sent.append("\(command)") }
+        XCTAssertNil(controller.track)
+
+        XCTAssertFalse(controller.togglePlayPause(), "nothing shown, nothing to play or pause")
+        XCTAssertFalse(controller.next(), "nothing shown, nothing to skip")
+        XCTAssertFalse(controller.previous(), "nothing shown, nothing to step back from")
+
+        XCTAssertEqual(sent, [], "no command may reach the helper, which would pick the hidden session")
+        XCTAssertFalse(controller.isPlaying, "the icon must not claim a playback nobody can see")
+    }
+
+    /// On the fallback with no player there used to be one more route: a
+    /// system media key Isla had no Accessibility permission to post. Worse,
+    /// the first toggle left a command in flight that no report would ever
+    /// resolve, so every later toggle was coalesced behind it and never sent
+    /// — even once a player turned up.
+    func testATapWithNoPlayerIsNotSwallowedByTheOneBefore() {
+        let media = MediaController()
+        media.isolateFromPlayers()
+        media.musicOnly = { false }
+        media.lyricsShown = { false }
+        media.bundleIdentifierForPID = { $0 == 77 ? PlayerApp.spotify.bundleID : nil }
+        media.isProcessRunning = { _ in true }
+        var sent: [(PlayerBridge.Transport, PlayerApp)] = []
+        media.sendToPlayer = { sent.append(($0, $1)) }
+        media.switchToScriptingFallback(.keptStopping)
+
+        XCTAssertFalse(media.togglePlayPause())
+        XCTAssertFalse(media.togglePlayPause())
+        XCTAssertTrue(sent.isEmpty)
+
+        // Spotify turns up, paused. The fallback shows it through `apply`.
+        media.pidForPlayer = { $0 == .spotify ? 77 : nil }
+        media.loadedSong = { reply in
+            reply(PlayerState(
+                app: .spotify, isPlaying: false, title: "A", artist: "B", album: "C",
+                duration: 240, position: 10, artworkURL: nil
+            ))
+        }
+        media.refreshFromPlayers()
+        let drained = expectation(description: "main queue drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 2)
+        XCTAssertNotNil(media.track)
+
+        XCTAssertTrue(media.togglePlayPause(), "the first tap on a shown song is taken")
+        XCTAssertEqual(sent.count, 1, "and sent, not coalesced behind the taps that had no player")
+        if let (action, app) = sent.first {
+            XCTAssertEqual(app, .spotify)
+            if case .play = action {} else { XCTFail("a paused song is asked to play, got \(action)") }
+        }
+        media.stop()
+    }
+
+    /// The panel closed, the ticker stopped: the published position is as old
+    /// as the last tick, and the running clock is where the song is.
+    func testTheCurrentPositionRunsOnWithThePanelClosed() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let controller = MediaController()
+        controller.lyricsShown = { false }
+        controller.monotonicNow = { clock.now }
+        controller.apply(clockSnapshot(elapsed: 10))
+
+        clock.now += 5
+        XCTAssertEqual(controller.extrapolatedPosition(), 15, accuracy: 0.01)
+        XCTAssertEqual(controller.position, 10, accuracy: 0.01, "no tick ran, so nothing was published")
+    }
+
+    /// Get Current Lyric from a Stream Deck with the panel shut (G-024). It
+    /// read the published position, frozen at the last tick or snapshot, and
+    /// the helper repeats an unchanged payload only every five seconds — so
+    /// the answer could be the line from several seconds earlier.
+    func testGetCurrentLyricReadsTheRunningClock() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let controller = MediaController()
+        controller.lyricsShown = { false }
+        controller.monotonicNow = { clock.now }
+        controller.apply(clockSnapshot(elapsed: 10))
+        let lines = [
+            LyricsStore.Line(at: 0, text: "first"),
+            LyricsStore.Line(at: 12, text: "second"),
+            LyricsStore.Line(at: 30, text: "third"),
+        ]
+        XCTAssertEqual(
+            CurrentLyricIntent.line(in: lines, media: controller, userOffset: 0, trackOffset: 0), "first")
+
+        clock.now += 5
+        XCTAssertEqual(
+            CurrentLyricIntent.line(in: lines, media: controller, userOffset: 0, trackOffset: 0), "second",
+            "five seconds on, the song is at 0:15 whether or not a tick published it")
     }
 
     /// Five corrections are regressed, not one snapped: the window the

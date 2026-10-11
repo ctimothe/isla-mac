@@ -73,6 +73,15 @@ are the exception the design did not anticipate:
   from it are line-level, so the word sweep stays off for them. The design
   doc carries the dated amendment and `OfflineLyricsIsolationTests` bounds
   the exception to one file and one service.
+  2026-10-11 (LY-09): a hit cached before lines carried their ends is shown
+  at once and asked about **once more** in the background on its next play —
+  one extra request per previously cached song, inside this same switch and
+  with the same four fields. Only a found answer replaces it; a miss leaves
+  the old words up and settles it. A timed answer the parser cannot read is
+  remembered as a miss tied to the parser revision, and asked again only once
+  a newer parser ships. Answers stamped past the track's end lose the lines
+  that can never show, and a search row that fits the track outranks one that
+  does not (`OnlineLyricsTests`, `OnlineLyricsSearchTests`).
 - **Translate Online** (Settings › Translate, default off, added 2026-09-21)
   sends a pair no engine on this Mac offers at all — Uzbek and Kazakh — to
   MyMemory (translated.net): free, no account, no key. It receives the text and
@@ -95,7 +104,15 @@ are the exception the design did not anticipate:
   feed with. `UpdateCheckTests` holds the default and the request.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
-  keychain.
+  keychain. Since 2026-10-11 the heart asks `GET /me/library/contains` and
+  saves with `PUT`/`DELETE /me/library`, naming the track as
+  `spotify:track:<id>`: Spotify retired the old saved-tracks endpoints for
+  Development Mode apps on 2026-03-09. The scopes are unchanged
+  (`user-library-read user-library-modify`); whether the new endpoints need
+  more for a track is owed to the live run (script S10, step 7), and adding
+  a scope would make every connected user consent again, so it is the
+  owner's call. A refusal is asked about again after ten minutes, and a
+  disconnect or a new grant clears it (`SpotifyAccountTests`).
 - **Lock-screen card** (Settings › Lock Screen, default on) presents the
   player over the shield, in a window of its own, finished as Transparent,
   Tinted or Solid and sized Standard or Compact. The
@@ -114,6 +131,12 @@ are the exception the design did not anticipate:
   system-wide setting, recorded on the same terms. Absent entirely for a
   device that publishes no volume control rather than shown as a slider
   that moves and changes nothing.
+  Since 2026-10-11 (G-023, K-008) it also reads the output's mute and
+  **unmutes** it when the bar is raised above zero, as the volume keys do —
+  the same system-wide setting, recorded on the same terms. Writes go
+  through the virtual main volume first, so a balance set off centre is
+  kept; the bar shows only when some volume control is settable, and a drag
+  writes only to the device it began on.
 - **Screen-capture pickup** (Settings, default on, added 2026-09-11; widened
   to stills and to every folder captures have been sent on 2026-09-21) shows
   what Screenshot.app saved — its configured location, the Desktop, and any
@@ -127,8 +150,37 @@ are the exception the design did not anticipate:
   Copied recordings already landed through the clipboard; this covers the
   native save-to-disk flow no pasteboard ever sees. The first scan touches a
   folder macOS guards, so the system asks once, with the shelf on screen to
-  explain it, and the grant sticks; denied means the shelf shows what it
-  holds. Nothing watches in the background.
+  explain it, and that installed build keeps the grant (see the amendment of
+  2026-10-11 below); denied means the shelf shows what it holds. Nothing
+  watches in the background.
+  *Amended 2026-10-11 (sp/SH-05, owner decision 17, reversible):* dragging
+  out copies by default; ⌘ moves, and a moved file keeps its card. The drag
+  still carries the original as its source; only the default operation
+  changed, so a same-disk drop into Finder now duplicates the file.
+  *Amended 2026-10-11 (ms/MS-20, J-002):* "once" means once per installed
+  version, not once ever. While Isla is ad-hoc signed (`Scripts/bundle.sh`
+  signs with `-` unless a Developer ID is given), every update is a new
+  binary to macOS: TCC keys an ad-hoc grant to the binary's cdhash, which
+  every build changes, so each permission — Desktop, Documents and Downloads
+  for this scan, Automation for Music and Spotify — is asked once per
+  installed version, after an update and after every reinstall alike.
+  Developer ID signing would make grants survive updates, because its
+  designated requirement names the team rather than the hash; that is an
+  owner decision, tracked under the Developer ID gate below. MS-02 already
+  brings the re-asked Automation prompt in context, on the first panel open.
+  Live check: session S2 (`codesign -d -r-` on two builds shows two cdhash
+  requirements, and a reinstall brings the prompt back).
+- **Spotify covers** (no setting, recorded 2026-10-11, sp/PV-03, G-030) are
+  fetched from Spotify's image server when Spotify is playing and Now
+  Playing cannot describe it — the scripting fallback and a held cover —
+  because Spotify's scripting dictionary names its artwork only by address.
+  The request carries the cover's https address and nothing about the
+  listener beyond the IP any request carries. It predates every switch above
+  and was never listed: a code comment called it "the one thing the app ever
+  fetches" and the README said nothing left the Mac unless turned on. Both
+  are corrected and the README's privacy table lists it. Gating it behind a
+  switch is left to the owner. Like every request Isla makes, it goes through
+  `PrivateNetwork.session`, which keeps no cache, cookies or credentials.
 
 The status-item menu, and then the whole status item, were removed on
 2026-08-25 by owner decision. A window was built first and withdrawn the
@@ -168,6 +220,8 @@ material owes those settings an answer. `defaults write
 com.ctimothe.isla drawnGlass -bool true` forces the drawn recipe
 everywhere, for the one surface whose backdrop cannot be checked from a
 build machine.
+Amended 2026-10-11 (F-012): the lock card no longer depends on the hatch. It
+always draws the recipe, in code, so `drawnGlass` now matters to the panel only.
 
 Haptic feedback was added on 2026-08-25, at two moments only: an output
 device chosen, and a click on a lyric landing the song on that line. It
@@ -183,6 +237,45 @@ frame that never resizes.
 Privacy defaults were also corrected on 2026-08-21: the panel is now
 hidden from screen capture by default, and clipboard-screenshot saving
 is off by default with a 200-file cap once enabled.
+
+Amended 2026-10-11 (F-008, H-004, J-001): "hidden from screen capture"
+promises more than the mechanism is known to deliver. Hide from Screen
+Recording sets `sharingType = .none` on the panel and does nothing else,
+and whether ScreenCaptureKit capture and sharing apps on macOS 26 and 27
+honour it is unproven until live session S7
+(`docs/audits/2026-10-11-live-validation-script.md` §7). The switch stays
+on by default, because it does hold for the capture paths that respect it,
+but Settings now says only that it *asks* macOS, that some sharing apps
+may still show Isla, and to cover Clipboard and Translate before sharing.
+The covers are titled by what they do (Cover Clipboard Rows, Cover
+Translate Text) with a note on how covered text looks, and the Clipboard
+History off-note no longer claims copies are not read while Save Clipboard
+Screenshots keeps the poll alive. S7 decides whether the capture note
+becomes a stronger warning or, if every path honours `.none`, a firmer
+sentence.
+
+Amended 2026-10-11 (G-005, J-003, K-014, K-016; ms/MS-02): the Automation
+note above promised that nothing is requested at launch, and three paths
+broke it. The Spotify track-id lookup ran on every track with the panel
+closed, the scripting fallback read every running player the moment it took
+over, and the search for a song under a film asked the players whenever a
+film appeared. Isla now sends no background Apple Event to a player unless
+macOS already allows it (`AutomationAccess`, checked read-only with
+`AEDeterminePermissionToAutomateTarget` at launch and on every panel open,
+and corrected by every script's outcome). The prompt appears the first time
+the panel opens on Music or Spotify, never at launch and never over the lock
+screen, where the card asks a player only what is already allowed. A tap on
+play, pause or skip is the user's own action and is not gated. Once access is
+refused (-1743), the background stops asking, which ends the once-a-second
+position poll that logged an error for every refusal. With no Spotify account
+connected, no track-id lookup is made at all, since the lock-card heart is the
+id's only reader. The id usually comes from Spotify's own playback
+announcement, which needs no permission, and a scripted id is accepted only
+when its name and artist match the song on screen. No per-track catalogue
+request (`GET /v1/tracks/{id}`) is made any more: its ISRC and exact duration
+had no reader. Accepted cost: right after a fresh grant, the heart can be
+missing on the lock card until Spotify's first play, pause or skip. Live
+check: session S2 (`docs/audits/2026-10-11-live-validation-script.md`).
 
 ## Manual parity gates
 
@@ -210,7 +303,31 @@ is off by default with a 200-file cap once enabled.
 - [ ] Three-run performance medians meet the approved Cyclop 0.6.5 gates.
   Blocked: CPU peaked at `0.3%` rather than absolute `0.0%`, and helper RSS
   measured `19.05 MiB` versus `19.03 MiB` for Cyclop.
+  Awake-idle budget, 2026-10-11 (ms/MS-25, F-054): measured with
+  `bash Scripts/measure-idle.sh <scenario> [samples]`, which samples the
+  running Isla with `top` every 5 s, holds the display awake for the run,
+  and takes rates from counter deltas rather than the lifetime total. The
+  figure it replaces, about 0.3 idle wake-ups a second, is a lifetime
+  average: the installed 0.2.0 (2) build showed 66,360 idle wake-ups over
+  59.7 h of uptime, 0.31/s, display sleep included. Owner decision 19 is
+  kept: the 8 Hz pointer sampler and the 2 s geometry watchdog stay, and a
+  change to either goes back to the owner with these numbers. Budget for the
+  panel closed and idle: CPU at or below 0.1 %, RSS at or below 88 MB, and
+  the awake idle wake-up and context-switch rates as S17 measures them.
+  Before numbers, on a build of the tree before MS-12, MS-13, MS-15 and
+  MS-16 land (live session S17; samples default to 60 = 5 min, 12 = 1 min):
+  - [ ] Panel closed, idle, 5 min (`closed-idle`): _
+  - [ ] Panel closed, music playing, 5 min (`closed-playing`): _
+  - [ ] Music tab open, playing, 1 min (`tab-music 12`): _
+  - [ ] Settings tab open, playing, 1 min (`tab-settings 12`): _
+  - [ ] Shelf tab open, playing, 1 min (`tab-shelf 12`): _
+  - [ ] Clipboard tab open, playing, 1 min (`tab-clipboard 12`): _
+  - [ ] After MS-12 and MS-13: the four tab rows again, and `closed-idle`
+    still inside the budget.
 - [ ] Developer ID signing, notarization, stapling, and Gatekeeper validation pass.
+  Also what lets a privacy grant survive an update: until this lands, every
+  ad-hoc release asks again for Desktop, Documents, Downloads and Automation
+  (J-002, ms/MS-20, 2026-10-11), and its release notes say so.
 
 ## Release verdict
 
@@ -254,6 +371,15 @@ Closed from the 2026-09-03 audit (`docs/audits/2026-09-03-synthesis.md`):
   carried. Not a window, not a tab, not a status item: the 2026-08-25
   withdrawal stands (`FirstRunTests`, `TabContractTests`). Validated by hand
   on 2026-09-10 - see the run recorded at the foot of this section.
+  **Amended 2026-10-11 (H-020):** the pane is two columns. One line sits
+  level with each rail icon and says what that tab is, with the live lyrics
+  and translate shortcuts in their lines. Beside them: Isla is running, no Dock
+  or menu-bar icon, click the notch or press the open shortcut to come back,
+  nothing leaves your Mac unless you turn it on, Get Started. No rail tab is
+  lit or selected while it shows. Measured at the 480 pt minimum against the
+  154 pt body: en 150, ru 151 (`FirstRunTests`). The render is owed to the
+  owner's eye, and the first-run pass owes a look on hardware that each legend
+  sits level with its icon.
 - [x] `PointerWatcher.tick`'s ordinary inside-to-outside transition now
   carries an `isDragging()` guard, so dragging a file *out* of the Shelf no
   longer closes the panel mid-drag. Recorded here as open when Task 3
@@ -495,9 +621,19 @@ Open, for the owner — each is a design decision, not a defect:
 
 - [ ] `LockScreenCard` still carries 22 white/black literals and a scrim over
   real glass on macOS 26 — a second, untracked theme.
-- [ ] `SettingsPane.choiceRow` is a hand-rolled segmented control; a native
+  **Half closed, 2026-10-11 (F-012):** there is no real glass on the card any
+  more. The card and its output popover always draw the recipe
+  (`LockScreenCard.glassRouting`, `preferDrawn: true`), as the Lock-screen card
+  entry above has always recorded, so the scrim now sits on recipe over recipe.
+  That also keeps the card's content one view across a cover appearing or going
+  (K-017). The literals remain open. Owed one look on a locked macOS 26 Mac
+  with a coverless song; if the system material read better there, amend this
+  record, not the code (`GlassRoutingTests`).
+- [x] `SettingsPane.choiceRow` is a hand-rolled segmented control; a native
   `Picker(.segmented)` would restore arrow keys and radio-group VoiceOver but
   look like AppKit on a dark pane.
+  **Closed 2026-10-11 (ax/SET-02, owner decision 4)** — see the dated section
+  "Settings reads cleanly to VoiceOver".
 - [x] Hovering the rail for 150 ms switches tabs. macOS does not navigate on
   hover outside menus; kept because it is documented and cheap to cancel.
   **Decided by the owner, 2026-09-21: a click only.** A fast pass across the
@@ -508,7 +644,9 @@ Open, for the owner — each is a design decision, not a defect:
 - [ ] No focus rings and no keyboard shortcuts inside the panel (⌘, ⌘W,
   Return-to-confirm). Escape is handled at the window. An `.accessory` app
   has no menu bar to carry these, so it is a per-panel binding while key.
-- [ ] Escape does not disarm a two-press confirmation; it closes the panel.
+- [x] Escape does not disarm a two-press confirmation; it closes the panel.
+  **Closed 2026-10-11 (ax/AN-02, owner decision 3)** — see the dated section
+  "Two-press confirmations speak, wait and cancel".
 - [ ] `Toggle("", isOn:)` with a detached label: clicking the label text does
   not flip the switch, which a native labelled `Toggle` gives for free.
 - [ ] `TranslatePane`'s font ladder `[27, 20, 15, 11]` shares only its last
@@ -521,6 +659,19 @@ Open, for the owner — each is a design decision, not a defect:
 - [ ] `scripts/check` is tracked in lowercase while every other script is
   under `Scripts/`; one directory on this Mac's case-insensitive disk, two on
   a case-sensitive one.
+- [x] **The detached-label toggle above is closed, 2026-10-11 (SET-01, H-002,
+  owner decision 2).** Every Settings switch is one `Toggle` whose label is
+  the row's icon and title, drawn by `PanelSwitchStyle` (`Theme.swift`): the
+  whole 26 pt row is the target, so a click on the words flips it, and the
+  style draws its own on-state — the person's `controlAccentColor` on, a well
+  shaded into the card off, a 1 pt white-0.7 outline under Increase Contrast —
+  because AppKit's switch only shows one in a key window and this panel is not
+  key outside Translate. VoiceOver still finds one AXCheckBox per row, named
+  by its title, valued 0 or 1 (`SettingsPaneTests`); on vs off clears 3:1 for
+  all eight accents over the card (`ContrastRampTests`). Reversible. Owed on
+  the Mac: a click on "Launch at Login" text flips it; VoiceOver's reading of
+  the row ("switch" or "toggle button", on or off); Graphite and Yellow
+  accents by eye; the visual lab's panel-settings renders reviewed.
 
 ### Native motion — 2026-09-21
 
@@ -683,3 +834,547 @@ downloads in total, and no outside issues.
   is refused where the grown pill would land under a still cursor. Show
   Charging appears only on Macs with a battery. Every refusal has a test
   (`NotchController.ambientAllowed`).
+
+### Lyric Delay runs the way its label says — 2026-10-11 (ly/LY-01)
+
+- [x] **A positive delay shows lyrics later.** `LyricSweep.lead` added the
+  listener's corrections, so Lyric Delay, the Set Lyric Delay action and the
+  stage's Lyrics Earlier/Later nudges all ran backwards against their labels
+  and the note under the slider — the AirPods listener the 2026-09-21 delay
+  was added for followed the note and doubled the error. The lead now
+  subtracts them. Every stored correction (defaults, `offsets.json`,
+  `unassigned-offsets.json`) is negated once on first launch, so no listener's
+  timing moves: the owner's −0.247 s reads +0.247 s at the same effective
+  lead, −0.047 s (lab L7 and L8 rerun on the 540-track corpus, unchanged).
+  A build from before this change, run after it, reads every correction
+  inverted. Design amendment: `docs/superpowers/specs/2026-09-14-line-synced-lyrics-design.md`.
+- [ ] **Physical check owed:** on the installed build, Settings → Music shows
+  Lyric Delay +0.25 s where it showed −0.25 s, lyrics (and any per-track
+  nudge on the lyrics page) sit exactly where they sat before the upgrade,
+  and dragging the slider right moves lines later.
+
+### The lock card reads over a pale cover — 2026-10-11 (vt/LC-01)
+
+- [x] **White type holds AA over the palest cover.** The cover that lights
+  the Tinted card sat under a fixed 0.34 black wash, which over a near-white
+  cover left a 0.66 grey: the artist line measured 1.76:1 and the elapsed
+  time and lyric status 1.59:1 (F-003). The wash is now solved per cover by
+  `LockCardLegibility`: the 90th-percentile brightness of the part of the
+  artwork the card shows (zoomed 1.5× and cropped to the card), drawn at
+  8×8, cached once per image, and the least black at or above the old
+  value (0.34, Transparent 0.2, Increase Contrast 0.56) at which
+  `cardTertiary` clears 4.5:1. A cover whose bright end is at or under 0.3
+  keeps exactly the light it had; a white one is washed to about 0.70. The
+  card tokens rose with it, rounded up as before: `cardSecondary`
+  0.62 → 0.75, `cardTertiary` 0.50 → 0.62 (Increase Contrast unchanged at
+  0.85 / 0.75). Over a white cover the artist line is now 5.7:1.
+  `ContrastRampTests` holds AA at the brightest cover and at every brightness
+  between; `LockCardCoverLightTests` holds the reading. In the visual lab's
+  Tinted render (a mid cover with a pale disc) the dimmest label measures
+  4.8:1 at the disc's brightest point, where it was 1.9:1. The cost: a cover
+  with one pale feature dims the whole card, its dark parts included.
+- **Divergence, deliberate:** Transparent guarantees 4.5:1 only over the
+  cover's share of the card. The 38% of wallpaper that also shows through is
+  behind the login shield, where no window is given a backdrop to measure,
+  so it is not modelled. Tinted and Solid guarantee 4.5:1, and Increase
+  Contrast already makes Transparent opaque.
+- [ ] **Physical check owed:** lock the Mac with a white or pastel cover
+  playing, in Tinted and in Transparent: the artist line, the times and the
+  lyric status read; then a dark cover looks as it did before.
+
+### Screenshots reach the Shelf on any system language — 2026-10-11 (sp/SH-03)
+
+Amends the **Screen-capture pickup** scope record above.
+
+- [x] **A still counts when the system marked it a capture, or by its
+  name.** The localized prefix was asked of ScreenCaptureKit's table, which
+  has no such key, so a Russian, German or Ukrainian Mac never sent one
+  still to the Shelf (G-001). A still now counts when it carries
+  `com.apple.metadata:kMDItemIsScreenCapture` (`CaptureMetadata`) or starts
+  with a capture word, and the words are every language's "Screenshot" and
+  "Screen Recording" from screencaptureui's own table, read once per launch,
+  with the English words, `LWScreenShot` and the custom name kept. A movie
+  still counts on its type alone (decision 13, unchanged).
+- [x] **The Desktop is scanned only when captures go there.** It is no
+  longer appended to every folder list; it arrives only as the default when
+  no location is configured. A remembered folder the disk reports as not
+  there (not one it refused) leaves the list after the scan, except the
+  current one and anything under /Volumes, which is an unplugged disk (J-021).
+- [x] **The capture memory holds only what was offered.** A file from before
+  the first run is settled by its date and no longer takes one of the 1,000
+  remembered names; past the cap the oldest files go first, by date, not by
+  `Set` order (K-012).
+- [x] **Permission prompts name every reason.** Desktop, Documents and
+  Downloads also name lyrics folders, and external-disk and network-volume
+  prompts are declared for the first time.
+- Tests: `RecordingPickupTests` (testARussianScreenshotIsACapture,
+  testTheCaptureAttributeAloneMakesACapture, testPrefixesComeFromTheSystemTable,
+  testDesktopIsNotAddedWhenALocationIsConfigured,
+  testAFolderThatNoLongerExistsIsForgotten,
+  testOldRecordingIsNeverOfferedAndNeverRemembered,
+  testTheMemoryForgetsTheOldestCapturesFirst),
+  `AppSurfaceContractTests.testInfoPlistDeclaresVolumeUsageStrings`.
+- [ ] **Physical check owed (S9):** on a Mac set to Russian, ⇧⌘3 to a file;
+  the still arrives on the Shelf the next time it opens.
+- [ ] **Physical check owed (S2):** after `tccutil reset`, with captures set
+  to ~/Pictures, opening the Shelf raises no Desktop prompt, and each prompt
+  that does appear names what triggered it.
+
+### Escape and ⌘-Tab end a panel the keyboard opened — 2026-10-11 (ax/KB-01)
+
+- [x] **Escape folds a pinned panel from any tab.** After ⌃⌥⌘I, Escape went
+  to the app underneath, because the panel is key only while Translate asks
+  for the keyboard and Escape is read only in `NotchPanel.sendEvent` (F-004).
+  While a pin stands and the panel is not key, `NotchController` now holds
+  plain Escape through a transient `GlobalHotKey` (Carbon, no permission),
+  driven by `isPinnedOpen`, so every way a pin ends gives it back. The press
+  runs the panel's own two steps: `consumeEscape()`, then the fold. Not held
+  while the panel is key, while Isla is active (Quick Look, AirDrop), or
+  locked (`NotchViewModel.claimsEscape`).
+- [x] **⌘-Tab ends a pin** like a click in another app:
+  `NSWorkspace.didActivateApplicationNotification` for any other pid clears
+  the pin and folds the panel (`NotchViewModel.appActivated`).
+- **Divergence from the plan, deliberate:** KB-01 as planned made
+  keyboard-opened panels key. That would change the Shell invariant in
+  `CLAUDE.md` and settle owner decision 1, so key status is unchanged here;
+  the plan's key-status tests were dropped. The one Escape pressed while a
+  pin stands goes to Isla, not to the frontmost app (a vim user reading
+  lyrics loses that keystroke), and closing a Quick Look or AirDrop window
+  opened from a pinned panel ends the pin.
+- Tests: `PinnedKeyboardTests` (testOnlyAPinnedPanelWithoutTheKeyboardClaimsEscape,
+  testThePointerArrivingGivesEscapeBack, testSwitchingToAnotherAppEndsAPin).
+- [ ] **Physical check owed (S5):** ⌃⌥⌘I then Escape closes it; ⌃⌥⌘I then
+  ⌘-Tab closes it; ⌃⌥⌘L then Escape closes it; with no pin up, Escape in
+  TextEdit or Terminal still reaches them; in Translate with text, the first
+  Escape clears the field and the second closes; a click-open never steals
+  the caret; with Quick Look open from a pinned Shelf, Escape closes Quick
+  Look and not the panel. Confirm macOS registers an unmodified
+  Escape hot key (a refusal is logged: "macOS refused the transient Escape
+  hot key").
+
+### Two-press confirmations speak, wait and cancel — 2026-10-11 (ax/AN-02)
+
+- [x] **Escape disarms an armed confirmation before it closes anything**
+  (owner decision 3). `NotchViewModel.consumeEscape()` asks
+  `ArmedConfirmations.shared` first: the first Escape turns "Clear
+  Everything" back into "Clear", the second folds the panel. Escape reaches
+  Isla only where it already did — a key panel, or a pin from ⌃⌥⌘I/⌃⌥⌘L
+  through KB-01's transient hot key; a pointer-opened Shelf or Clipboard is
+  not key, and Escape there still goes to the frontmost app.
+- [x] **Arming is announced** — "Clear Everything. Press again to confirm."
+  through `Announcer` — and lapses after 8 s instead of 3 s while VoiceOver
+  is on (read at each arming). The lapse waits while the pointer rests on the
+  armed word and restarts in full when it leaves.
+- [x] **Caption confirmations have a 24x20 floor** (`Theme.minimumHitSize`,
+  F-014): Clear measured 27x13 in the probe, now at least 27x20. Shelf's and
+  Clipboard's footers are 7 pt taller, which comes out of the list viewport.
+- [x] **Copy says Copied** (M-06): while the tick shows, the button's label
+  and help are "Copied", and "Copied" is announced once. `CopyButton` takes a
+  title for a pane that has to name what it copies.
+- Decision 15 kept: the first Escape in Translate still clears the typed text
+  (as a search field and Spotlight do); only `consumeEscape`'s comment, which
+  called that reversible, was corrected.
+- Tests: `ConfirmationTests` (testEscapeDisarmsBeforeItCloses,
+  testAWithdrawnConfirmationClaimsNothing,
+  testArmingIsAnnouncedAndLastsLongerUnderVoiceOver,
+  testCaptionButtonsAreBigEnough, testCopyButtonSaysCopied,
+  testCopyButtonTakesATitle).
+- [ ] **Physical check owed:** with VoiceOver on, Clear on the Shelf is heard
+  as "Clear Everything. Press again to confirm." and stays armed for 8 s;
+  without it, a click arms Clear, the word stays red while the pointer rests
+  on it and turns back 3 s after the pointer leaves; ⌃⌥⌘I, Shelf, arm Clear,
+  Escape disarms and a second Escape closes; Copy in Translate is read as
+  "Copied" after a press. Review the visual lab's clipboard and shelf footers.
+### Pasteboard privacy: what Isla does under each answer — 2026-10-11 (sp/CB-02)
+
+Records Isla's behaviour under Privacy & Security > Paste from Other Apps
+(`NSPasteboard.accessBehavior`, macOS 15.4 and later), which before this was
+recorded nowhere (J-001). `ClipboardStore` asks the system on start, on every
+copy, and when a read comes back empty; nothing is read to find out.
+
+- [x] **Allow, or `.default`** (Isla has never raised an alert, or a macOS
+  before 15.4): the half-second poll runs, the type list decides what is read,
+  and only what History or Save Clipboard Screenshots wants is read (sp/CB-01).
+- [x] **Ask:** every content read may raise the system's alert, so each copy
+  is read at most once per switch that wants it. The change count is spent
+  only once a read has answered: if Allow is chosen while the read waits, it
+  is read once more and recorded. A refused read is spent, and no alert is
+  ever retried for the same copy; the picture wait does not poll under Ask.
+- [x] **Don't Allow:** the poll stops itself (at start, or at the first copy
+  after the switch) and stays stopped. Copies made while refused are skipped,
+  not recorded later. The Clipboard tab says "macOS is not letting Isla read
+  what you copy, so nothing new is kept." above the list, with an Open Privacy
+  Settings button (`OfferButtonStyle`) that opens
+  `x-apple.systempreferences:com.apple.preference.security?Privacy_Pasteboard`
+  and falls back to the Privacy & Security root. What was kept before the
+  refusal stays in the list. Said only while History or Save Clipboard
+  Screenshots is on: with both off nothing is lost to the refusal.
+- [x] **Back to Allow:** opening the Clipboard tab asks the system again
+  (`recheckAccess` on appear) and restarts the poll from the pasteboard as it
+  is then, without a relaunch.
+- [x] **One failure surface:** the tab's inline notice only. Settings carries
+  no second banner for the same event.
+- [x] **Copy Diagnostics** carries `Paste from Other Apps:` with `default`,
+  `ask`, `allowed` or `denied`, read from the system when the report is made.
+- Tests: `DiagnosticsTests.testPasteboardAccessIsReported`,
+  `ClipboardAccessNoticeTests` (testADeniedPasteboardIsSaidWithAWayToFixIt,
+  testAnEmptyDeniedHistoryStillSaysWhy, testAnAllowedPasteboardSaysNothing,
+  testOpeningTheTabAfterAllowResumesHistory,
+  testTheButtonAimsAtPasteFromOtherApps), `ClipboardStoreTests` (sp/CB-01),
+  and the lab's `panel-clipboard/access-denied` renders
+  (`VisualLabPanelTests.testClipboard`).
+- [ ] **Physical check owed (S1 step 7):** under Don't Allow the Clipboard tab
+  shows the sentence, and Open Privacy Settings lands on Paste from Other Apps
+  (the `Privacy_Pasteboard` anchor is not documented; if it lands on the
+  Privacy & Security root instead, record that here). Set Allow, reopen the
+  tab, copy: the copy appears without a relaunch. Copy Diagnostics shows the
+  state each time.
+
+### The lyric lead is a sum of named terms — 2026-10-11 (ly/LY-08)
+
+- [x] **The lead is the sum the lyric lab named, not one constant.**
+  `LyricLeadModel` holds anchorLag 138 ms, timerWake 0.1 ms, half a frame and
+  one compositor frame (120 Hz), the onset crossfade's rise 103.9 ms
+  (`Theme.springRiseTime` on `lyricScroll`'s own constants, closing L-09
+  without changing the motion), anticipation 40 ms, minus the route's output
+  latency, minus `unmeasuredPlayerDelay` 67.2 ms — a named placeholder for
+  the part of the shipped 0.20 s nobody has measured, chosen so the built-in
+  route sums to 0.200 s. No stored correction moved and no migration ran.
+- [x] **The route's output latency is read live and logged, not applied.**
+  `OutputLatencyMonitor` re-reads CoreAudio's latency for the default output
+  (device + safety offset + buffer + stream latency over the nominal rate)
+  when the default output changes, and only while Show Lyrics is on. Reads
+  only: nothing leaves the machine and no setting changes. With `DI_MEDIA=1`
+  every reading writes the full term list to `/tmp/di-debug.log`.
+  `LyricLeadModel.appliesOutputLatency` is `false` and the frame rate stays
+  at 120 Hz, so on every route and display the lead is today's 0.20 s:
+  applying either would silently move corrections tuned by ear on an
+  unrecorded route (the owner's +0.247 s by about 173 ms between AirPods
+  and built-in speakers), and a player whose position already includes its
+  output latency would count it twice.
+- [ ] **Owner session owed (S-LEAD in
+  `docs/audits/2026-10-11-live-validation-script.md`):** per player and per
+  route, CoreAudio's reported latency from the trail beside the by-ear
+  correction. Applying the term (with any migration of stored corrections)
+  and wiring the island screen's real refresh rate are a follow-up gated on
+  those numbers. `Scripts/measure-sync.sh` is still owed a run to re-measure
+  anchorLag after LY-06 and LY-07.
+- Tests: `LyricSweepTests.testTheLeadIsTheSumOfItsNamedTerms`,
+  `…testTheBuiltInRouteKeepsTheShippedLead`,
+  `…testTheMeasuredOutputLatencyIsNotAppliedYet`,
+  `…testTheOnsetRiseIsTheLyricSpringsHalfway`,
+  `…testAnUnknownFrameRateCountsAsSixtyHertz`,
+  `AudioOutputsTests.testOutputLatencyArithmetic`,
+  `…testTheMonitorListensOnlyWhileStarted`,
+  `…testARouteChangeIsReportedOnceWhenTheLatencyMoves`,
+  `LyricsCoordinatorTests.testTheOutputLatencyWatchRunsOnlyWhileLyricsAreOn`,
+  `…testAReportedOutputLatencyReachesTheModelButNotTheLead`; the lab's L7 now
+  evaluates the production lead with each scenario's latency reported to the
+  model (needs the corpus, `Scripts/lyric-lab.sh`).
+
+### The pill folds no slower than it unfolds — 2026-10-11 (vt/MO-03)
+
+Amends **Native motion — 2026-09-21** above, which records the fold at 0.5 s
+and the content leaving at 0.22 s.
+
+- [x] **Leaving takes no longer than arriving.** The fold (`Theme.pillFold`)
+  settled in 529 ms against the unfold's 444 ms, and its content left on its
+  own curve in 233 ms, so for about 296 ms an empty black wing hung past the
+  notch (H-013). The fold is now 0.42 s, equal to the unfold and still above
+  the 0.4 floor that keeps it from reading as the old 0.28 s snap; the content
+  leaves on 0.20 s, the largest hundredth that keeps the cover under a tenth
+  opaque when the faster edge reaches it (0.087, was 0.066). Lab re-sample:
+  fold settles 444 ms, content-out 212 ms, bare wing about 232 ms. The audit's
+  0.32 s / 0.16 s was rejected as within 0.04 s of the snap the owner turned
+  down; it is the owner's to revisit after the live look. The peek's end and
+  the ambient fold ride the same curve and got quicker by the same amount.
+  `PillFoldTests.testLeavingIsNoSlowerThanArriving` and
+  `…testTheEmptyWingIsShort` hold it, beside the existing floor and
+  edge-versus-cover tests.
+- [x] **Decision 18, comments only.** The hover nudge's comment cited
+  `MotionValuesTests`; its assertion lives in
+  `RestingNotchTests.testTheHoverNudgeIsOneBumpNotAWobble`. The lyric scroll's
+  comment called its overshoot enough to read as carried; it is 0.24 pt over
+  a 48 pt step, and the hover nudge's is 0.58 pt over 15 pt. Both damping
+  values are unchanged until the owner compares them live.
+- [ ] **Physical check owed:** pause a song, unlocked and over the lock
+  screen, and watch the fold: no bare black wing lingering after the cover
+  has gone, and no snap. Then hover the resting island and step a lyric line
+  with both bumps in mind for decision 18.
+
+### Settings reads cleanly to VoiceOver — 2026-10-11 (ax/SET-02)
+
+Closes H-009 (row glyphs read by their system names) and H-024 (slider
+values without units, section titles that were not headings) in Settings,
+and owner decision 4. H-004, the cover switches' titles, belongs to sp/PV-02.
+
+- [x] **No row speaks its glyph.** Every row draws its symbol through
+  `RowIcon`, which is hidden from VoiceOver; `ConfirmRow` hides its own, and
+  a shortcut row hides its drawn title, which the well already carries. The
+  pane's first 1400 pt had five symbol stops ("Rectangle With A Filled
+  Top-Third Inset", "Skip Slide", …) and now has none.
+- [x] **Nine headings.** Each section title is a heading named in title case
+  ("General", not the drawn "GENERAL"), so the rotor can jump between them.
+- [x] **Sliders say their unit.** Panel Width speaks "560 points", Hover Delay
+  "0.25 seconds", Lyric Delay "+0.00 seconds" (ru "560 пт", "0.25 секунды"),
+  as the slider's value description, which is what VoiceOver reads; the
+  drawn title and short figure are no longer stops of their own. The three
+  rows are one `SettingsSliderRow`.
+- [x] **Glass and Card Size are radio groups.** The capsules stay drawn;
+  `SettingsChoiceRow` stands a `.radioGroup` picker in for them, so an
+  assistive client finds one group named by the row, one radio button per
+  option and the selected one on. `.segmented` was tried first and vends a tab
+  group of tab buttons with a detached label. The "Glass title equals its
+  first option" half of decision 4 was already stale (Transparent, Tinted,
+  Solid).
+- [x] **A VoiceOver step commits.** The plan expected an increment to skip
+  the commit, which lives in `onEditingChanged(false)`. On macOS 27 SwiftUI
+  brackets each accessibility increment as editing began, one write, editing
+  ended, so a step already commits once, at once; no debounce was added.
+  `SettingsAccessibilityTests` (`testNoRowSpeaksASymbolName`,
+  `testSectionTitlesAreHeadings`, `testSlidersCarryUnits`,
+  `testTheHoverDelaySaysSeconds`, `testCardStyleIsARadioGroup`,
+  `testAVoiceOverStepCommitsTheWidth`) hold all five.
+- [ ] **Physical check owed (VoiceOver on):** VO-Up on Panel Width resizes the
+  panel at once; the rotor's Headings list shows nine; Glass reads as a radio
+  group, "1 of 3"; Russian VoiceOver reads "560 пт" as points, not a weekday.
+
+### Lyric context lines clear 3:1 — 2026-10-11 (vt/CT-02)
+
+Closes F-051 and owner decision 9 (lyric context-line contrast), which the
+plan had split with ly/LY-20; LY-20 was dropped in review and its record is
+this one. Supersedes the "Lyric neighbour 0.34/0.44, floor 0.28/0.38" line
+of the v0.3 Increase Contrast entry above.
+
+- [x] **Accessibility over the depth preference.** The context floor was
+  white 0.28 (2.27:1 over black) and the neighbour 0.34 (2.89:1), under 3:1
+  by a recorded choice of depth over contrast. `LyricRow.Ramp.panel` is now
+  floor 0.36 (3.13:1), neighbour 0.42 (3.95:1), unswept 0.50, reading 0.46;
+  under Increase Contrast 0.42 (3.95:1), 0.46 (4.58:1), 0.50, 0.48. Depth
+  still reads as four steps, 0.36 → 0.42 → 0.50 → full white, and stays
+  opacity-only: blurring the far lines was weighed and rejected again.
+- [x] **The lock card has its own ramp.** It drew the panel's greys over a
+  cover-lit backdrop, where the floor measured 2.1:1 and the neighbour 2.5:1
+  over a white cover. `LyricRow.Ramp.card`: floor 0.50, neighbour
+  `cardTertiary` (0.62), unswept `cardSecondary` (0.75); under Increase
+  Contrast 0.62, 0.75, 0.85. Over the backdrop `LockCardLegibility` solves
+  for a white cover the floor is 3.5:1 (3.6:1 under Increase Contrast) and
+  the neighbour 4.5:1, in Tinted and Transparent. The interlude marker takes
+  the same surface, so a marker and a line at one depth are one grey.
+- [x] **Credits are never bold** (F-051). The credit branch passed the
+  caller's `.bold` through under a comment saying it never would; it draws
+  at `.medium` now. Its dim state follows the ramp's floor instead of a
+  fixed 0.34 that Increase Contrast never moved.
+- `ContrastRampTests` (`testLyricContextClearsThreeToOne`,
+  `testCardLyricsHoldOverTheBrightestCover`, `testCreditsAreNeverBold`) hold
+  all three. Visual lab renders `lock-card/clear-standard-lyrics__light-ir`
+  and `glass-standard-lyrics__dark-ir` were re-read: every context line reads,
+  and the floor still sits visibly under the neighbour.
+- [ ] **Look owed on the Mac:** the lyrics page in a dark room, and the lock
+  card over a pale cover, to confirm the narrower floor-to-neighbour step
+  (0.06 on the panel) still reads as depth.
+### A card dragged out copies, and follows a file it moved — 2026-10-11 (sp/SH-05)
+
+Closes F-020 (Move offered by default; a moved file left a dead card) and
+F-038 (generic 48 pt drag image at the card's corner, no press feedback).
+The M-21 count badge for a group drag was not built: the fan already reads as
+a stack, and nothing showed it was needed.
+
+- [x] **Copy unless ⌘.** Outside the app a drag offers Copy and Link; ⌘ adds
+  Move, Generic (what AppKit narrows a ⌘-drag to, and what Finder performs as
+  a move) and Delete (the Trash). Nothing is offered inside the app.
+  `ShelfDropTests.testDragOutCopiesUnlessCommandIsHeld`.
+- [x] **A moved card follows its file.** A drag that ends in Move, Generic or
+  Delete re-resolves each card's bookmark: a new place updates the card in
+  place (same id, still selected) and is saved; the Trash or a file no
+  bookmark can find (a move to another disk) removes the card. A file still
+  where it was is asked again at 0.3 s and 2 s, because Finder runs the move
+  after it accepts the drop. `ShelfStoreTests.testAMovedFileKeepsItsCard`,
+  `testAFileDraggedToTheTrashLeavesTheShelf`,
+  `testAFileThatCannotBeFollowedLeavesTheShelf`,
+  `testAMoveThatLandsAfterTheDragEndsIsStillFollowed`,
+  `ShelfDropTests.testOnlyADropThatMayHaveMovedTheFileIsFollowed`.
+- [x] **The drag lifts the thumbnail from where it was grabbed.** The image is
+  the card's cached preview, never a new QuickLook request, fitted into the
+  measured thumbnail box; the session starts from the mouse-down so the
+  pointer keeps its point on the picture; a group puts the grabbed card first
+  and fans the rest 9 pt behind it. `testDragFrameSitsOverTheThumbnail`,
+  `ShelfStoreTests.testAGroupDragLiftsTheGrabbedCardFirst`.
+- [x] **The press answers on the way down.** The card settles to
+  `Theme.pressScale` (0.97) on mouse-down and back on mouse-up or when the
+  drag ends; under Reduce Motion it dims to `Theme.pressDimOpacity` (0.85).
+- [ ] **Physical check owed (script S13 step 2):** a Desktop card dragged into
+  a Finder folder copies it (the original stays, the "+" badge shows); a
+  ⌘-drag moves it and the card's double-click opens the moved file; ⌘-dragging
+  onto the Trash removes the card; pressing ⌘ mid-drag turns the copy into a
+  move. Film one drag: the thumbnail stays under the pointer where it was
+  grabbed.
+### Third-party requests keep nothing on disk — 2026-10-11 (sp/PV-03)
+
+Closes G-016 (every request went through `URLSession.shared`, whose disk cache
+could keep a Translate Online text, sent in a GET's `q=`, and its answer in
+`~/Library/Caches/com.ctimothe.isla/Cache.db`) and G-030 (the Spotify cover
+fetch was unlisted and a comment called it the only request).
+
+- [x] **One session that keeps nothing.** `PrivateNetwork.session` is
+  ephemeral with no URL cache, no cookie jar, no credential store and
+  `.reloadIgnoringLocalCacheData`. LRCLIB, MyMemory, the Spotify Web API and
+  token exchange, the cover fetch and the update check all default to it.
+  `PrivateNetworkTests.testPrivateSessionKeepsNothing`,
+  `testNoSourceUsesTheSharedSession` (no source names `URLSession.shared` or
+  builds a session of its own; five uses before).
+- [x] **The old cache is emptied once.** The first launch of this build
+  removes every response in the shared URL cache and every cookie in the
+  shared jar, then sets `network.cachePurged.1` so it never runs again.
+  `PrivateNetworkTests.testTheOldCacheIsPurgedExactlyOnce`.
+- [x] **The cover fetch is named.** README's privacy table lists Spotify
+  covers with no setting; the capability list above records it.
+- [ ] **Live check owed:** with Translate Online on, translate one Uzbek
+  sentence, quit Isla, then
+  `sqlite3 ~/Library/Caches/com.ctimothe.isla/Cache.db "select count(*) from cfurl_cache_response where request_key like '%mymemory%'"`
+  answers 0 (or the file is absent). Also confirm the Spotify account still
+  connects, refreshes and hearts a track, and an update check still answers.
+### Show opens, reopening opens, a second copy hands over — 2026-10-11 (ax/KB-04)
+
+Closes F-024 (the Show Isla and Show Lyrics intents called the hot keys'
+toggles, so a Shortcut run on an open panel closed it, and Show Lyrics folded
+the words back to the player) and F-023 (no reopen handler and no
+single-instance guard: Spotlight → Isla did nothing visible while Isla ran,
+and a second copy drew a second island, spawned a second helper and fought the
+first for the hot keys and the Spotify callback).
+
+- [x] **Show never closes.** `NotchController.show()` and `showLyrics()` run
+  the lock refusal, then open only when `NotchViewModel.showVerdict` /
+  `showLyricsVerdict` say `.open`; an open panel keeps its tab and its pin.
+  The intents call these; ⌃⌥⌘I and ⌃⌥⌘L keep their toggles.
+  `ShowRouteTests`.
+- [x] **Reopening opens the panel.** `applicationShouldHandleReopen` calls
+  `show()` and returns false.
+- [x] **One Isla.** At launch, before the panel, the helper or the hot keys
+  exist, `LaunchGuard.olderCopy()` looks for another running process with the
+  bundle id. The newer copy (later launch date; equal or missing dates fall to
+  the lower pid) hands activation to the older one, posts the distributed
+  notification `com.ctimothe.isla.show` and quits; the older one answers with
+  `show()`. `ISLA_ALLOW_SECOND_INSTANCE=1` turns the guard off, and
+  `Scripts/test-lifecycle.sh` and `Scripts/measure-performance.sh` set it,
+  because they launch the build while the installed copy runs.
+  `LaunchGuardTests`.
+- **New inbound surface, recorded:** any local process can post
+  `com.ctimothe.isla.show`. It only opens the panel, through the same lock
+  refusal and shake as ⌃⌥⌘I, so it grants nothing a person at the keyboard
+  does not already have. It carries no payload and nothing is read from it.
+- [ ] **Physical check owed:** with the panel open, run the Show Isla
+  Shortcut — the panel stays open (it closed before); with the lyrics page
+  up, Show Lyrics leaves it up. Spotlight → Isla while it runs opens the
+  panel. With `/Applications/Isla` running, launch the build copy from
+  Finder: the build exits within a second, the installed panel opens and
+  stays open (the activation hand-over is what keeps the build's exit from
+  reading as ⌘-Tab), and `pgrep -x Isla` lists one process. Over the lock
+  screen, all three shake the pill and open nothing.
+  `./scripts/check lifecycle` stays green with the installed copy running.
+
+### Scope divergence: fixed type sizes (2026-10-11, provisional)
+
+Provisional, pending owner decision 10. The panel and the lock card draw
+their type at fixed roles (caption 10 pt, body 11 pt) and do not follow
+Dynamic Type or a larger-text setting: the windows are fixed-size and
+non-resizing, and a text size that grew would clip rows and the lock card.
+This is recorded as a divergence from the platform, not as a settled
+decision. The two options the accessibility plan lists are open: keep fixed
+sizes and say so in the product notes, or add a larger-text step to Settings
+that rescales the type roles and the row heights together. Contrast on the
+small labels is held in the meantime by `ContrastRampTests`
+(`testLabelsClearAAOnTheFillsTheySitOn`): `tertiaryOpacity` is 0.50, and
+labels on a brighter fill are raised per fill with `Theme.tertiary(over:)`.
+### Spotify sign-in survives edge cases — 2026-10-11 (kx/KX-02, closes K-015)
+
+- Connect pressed twice keeps one verifier and state for ten minutes
+  (`SpotifyAccount.pendingSignInLifetime`); the first approval consumes them
+  and the other tab's callback is dropped. The consent URL now always carries
+  `show_dialog=true` (documented in Spotify's authorization-code guide), so a
+  reconnect after Disconnect offers a way to switch account. Nothing new
+  leaves the machine; the authorize URL was already opened in the browser.
+- `signInProblem` says when the browser did not open, when the keychain import
+  moved no refresh token (the Import row stays), and when Spotify signed in
+  but no token could be written anywhere (the account is not claimed as
+  connected). One inline note in Settings › Spotify, no toast.
+  `SpotifyAccountTests`.
+- [ ] **Physical check owed:** press Connect twice, approve the first tab: the
+  account connects. Disconnect, then Connect: Spotify's consent page appears
+  with its "Not you?" switch.
+
+### Settings › Spotify says what happened, and disconnect asks — 2026-10-11 (ms/MS-09, closes M-32)
+
+- The section is a pure row model (`SettingsPane.spotifyRows`): a revoked
+  grant offers "Connect again", a cancelled or unfinished sign-in says so, a
+  local failure (`signInProblem`) leads, and one event gets one note. Disconnect
+  is a two-press `confirmRow` and says what stays: Isla forgets the account on
+  this Mac, the Spotify library is untouched. `SettingsPaneTests`.
+- **Account touch, recorded (owner decision 12, keep and disclose):** the
+  lock-screen card's heart writes to the connected account's Liked Songs while
+  the Mac is locked. Connecting the account is the opt-in and is off until the
+  person connects; without an account the heart does not exist. Settings now
+  states it while connected ("The heart on the lock screen adds the song to
+  your Liked Songs."). No new data leaves the Mac: the call is the same
+  `/v1/me/library` write the island's heart already makes.
+- Deferred: showing the account's display name, which needs a new
+  `GET /v1/me` request.
+### The one-line lyric reads ahead — 2026-10-11 (ly/READ-01)
+
+The owner's request: lyric timing is exact when a line lights as the voice
+arrives, but a person singing along reads the next line before they sing it.
+
+- [x] **The closed island's caption turns to the next line early.** For a
+  transition with no honoured end the caption shows the next line, unswept, at
+  `next.at - min(readAhead, 0.45 × (next.at - prev.at))`, never before the
+  previous line's final word starts. Honoured gaps, intro, outro, the stage,
+  the lock card, the Shortcuts "line playing right now" action (readAhead 0)
+  and the word sweep are unchanged. One pure function,
+  `LyricSweep.readingMoment`, picks the line; `readAheadStart` decides when,
+  and `LyricsCoordinator.registerBoundaries` arms a wake for the same moment.
+  `ReadingLeadTests`; lab case L9 in `LyricAccuracyLabSweepTests`.
+- [x] **Setting:** Settings > Music, "Show next line early" — Off, 0.25 s,
+  0.5 s (default), 0.75 s, stored in `lyrics.readAhead`, snapped to the nearest
+  option. **Display only: nothing leaves the machine, no account, no
+  system-wide setting.**
+- [ ] **Physical check owed:** with a continuous-singing track (no gap between
+  lines) closed on the island, the next line is on screen about half a second
+  before the voice reaches it and turns with the existing caption turn;
+  across a long instrumental it still waits for the end of the previous line.
+  Off restores the exact-on-the-voice turn.
+- [x] **Amended 2026-10-11 (ly/READ-02): the default is Auto.** Owner's
+  listening test: a fixed 0.5 s was perfect on a slow ballad of long lines,
+  a bit much elsewhere, and never to go below 0.30 s. The row is now Off,
+  Auto (default), 0.3 s, 0.5 s (0.25 s and 0.75 s removed); Auto is
+  `clamp(0.30 + 0.004 × characters of the next line, 0.30, 0.50)` and the
+  45 percent and final-word limits still apply on top (the 45 percent rule can
+  still take one short transition under 0.30 s). `lyrics.readAhead`: absent =
+  Auto, 0 = Off, other numbers snap to 0.3 or 0.5. Lab L9 over the 540-track
+  corpus: 22,686 of 23,693 transitions turn early; Auto's early time p5/p25/
+  p50/p75/p95 = 0.336/0.376/0.412/0.456/0.500 s, 10 percent of turns at the
+  0.50 s ceiling, 140 pulled under 0.30 s by the 45 percent rule, 0 before a
+  previous line's final word. `ReadingLeadTests`, `SettingsPaneTests`.
+- [ ] **Physical check owed (READ-02):** on the ballad, Auto feels like the
+  0.5 s that was perfect; on a faster song with shorter lines it turns
+  about 0.35 to 0.45 s early and does not feel like too much.
+
+## ly/VERSION-01 (2026-10-11): lyrics timed for a longer version
+
+- [x] **Detection, notice, Sync Here.** An online timeline whose last stamp runs
+  more than 3 s past the track's length is flagged (`LyricTimeline.overrun`);
+  the lyrics stage then shows one inline notice and every row offers Sync Here
+  (context menu and VoiceOver action) that sets the per-track delay so that line
+  is current now. The per-track range is now +/-45 s (was +/-1.5 s); the online
+  cache is format 3. **Display only: nothing leaves the machine, no account, no
+  system-wide setting, and no new request** beyond the one-time background
+  refresh of an already-cached hit that the cache already makes for any format
+  change. Tests: `LyricVersionMismatchTests`.
+- [x] **Lab L10** (`LyricAccuracyLabVersionTests`, 540-track corpus): 61 of 535
+  records with a length are stamped more than 3 s past their own end (11.4 %),
+  1,236 lines past the end; overrun p50 56 s, p95 284 s.
+- [ ] **Physical check owed (VERSION-01):** on *We Are The People* (Empire Of
+  The Sun) from Yandex Music, the notice shows on the stage; right-click the
+  line being sung, choose Sync Here, and the lines land on the voice, the
+  notice goes, and Reset (hold the readout) brings it back. The compact caption
+  and the lock card show no notice and are not hidden for a mismatched lyric
+  (the owner decides later); they read the same lead, so they follow a sync.

@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import IslaKit
 
@@ -263,6 +264,58 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertEqual(timeline.granularity, .line, "never a word sweep from a line timeline")
     }
 
+    /// A hit cached before line ends existed shows at once, from the cache,
+    /// and is asked about exactly once more in the background; the answer
+    /// with ends replaces it on screen. The next play reads the cache alone.
+    func testAnOldCachedHitShowsAtOnceAndIsRefreshedOnce() async throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        let online = root.appendingPathComponent("online", isDirectory: true)
+        try fileManager.createDirectory(at: online, withIntermediateDirectories: true)
+        let identity = LocalTrackIdentity(
+            playerID: "any", title: "Song", artist: "Artist", album: "Album", duration: 180, recordingID: nil
+        )
+        let oldLines = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode([LyricsStore.Line(at: 2, text: "Cached before ends")])
+        )
+        try JSONSerialization.data(withJSONObject: [
+            OnlineLyricsCache.key(identity): ["lines": oldLines, "checkedAt": Date().timeIntervalSinceReferenceDate],
+        ]).write(to: online.appendingPathComponent("cache.json"))
+        let fresh = LyricTimeline(
+            lines: [LyricsStore.Line(at: 2, text: "With an end", end: 5)], granularity: .line
+        )
+        var asked = 0
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true },
+            isOnlineEnabled: { true },
+            onlineCache: OnlineLyricsCache(directory: online),
+            onlineLookUp: { _ in asked += 1; return .found(fresh) }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        media.apply(playingSnapshot())
+        guard case .ready(let shown) = coordinator.availability else {
+            return XCTFail("the old hit shows at once, not after the network")
+        }
+        XCTAssertEqual(shown.lines.first?.text, "Cached before ends")
+
+        for _ in 0..<50 {
+            if case .ready(let timeline) = coordinator.availability, timeline.lines.first?.end != nil { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        guard case .ready(let refreshed) = coordinator.availability else { return XCTFail("still ready") }
+        XCTAssertEqual(refreshed.lines.first?.text, "With an end")
+        XCTAssertEqual(asked, 1)
+
+        // The next play is served by the cache alone.
+        coordinator.refreshVisibility()
+        try? await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(asked, 1, "refreshed once, not once per play")
+    }
+
     /// A length that arrives after the title corrects the identity.
     ///
     /// The player publishes the title before it knows the length, so the first
@@ -406,6 +459,231 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertGreaterThan(cancelled.value, 0, "the superseded request must be cancelled, not merely ignored")
     }
 
+    /// A line going dark is a change of line like any other, so the clock
+    /// wakes for it: an end it honours is a boundary beside every start. Left
+    /// to the quarter-second ticker, the line would linger up to 250 ms past
+    /// the voice at random. A breath-length end is not honoured, so it does
+    /// not wake anything.
+    func testLineEndsAreBoundaries() throws {
+        let url = root.appendingPathComponent("ends.lrc")
+        try Data("""
+        [ti:Song]
+        [ar:Artist]
+        [al:Album]
+        [length:03:00]
+        [00:10.00]One
+        [00:15.00]
+        [00:26.30]Two
+        [00:30.00]
+        [00:30.80]Three
+        [00:40.00]
+        """.utf8).write(to: url, options: .atomic)
+        let library = LocalLyricsLibrary(directory: root)
+        _ = try library.importDocument(at: url, binding: nil)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        media.apply(playingSnapshot())
+
+        guard case .ready = coordinator.availability else {
+            return XCTFail("the fixture: the local file is the answer, got \(coordinator.availability)")
+        }
+        XCTAssertEqual(media.lyricBoundariesForTests, [10, 15, 26.3, 30.8, 40])
+    }
+
+    /// Remove Local Binding is drawn from `hasLocalOverride`, which used to be
+    /// set only by an import or a choice made in this session and was reset by
+    /// every track change. After a skip back or a relaunch, a song still bound
+    /// to its file had no way to unbind it from the page. The flag is read
+    /// from the library's saved binding on every resolve now.
+    func testTheRemoveButtonSurvivesARelaunch() throws {
+        // First launch: the song is bound to an imported file.
+        do {
+            let library = LocalLyricsLibrary(directory: root)
+            let media = MediaController()
+            media.isolateFromPlayers()
+            let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+            coordinator.start()
+            media.apply(playingSnapshot())
+            try coordinator.importLocalFile(at: try writeLRC(), for: coordinator.currentLocalTrackIdentity)
+            XCTAssertTrue(coordinator.hasLocalOverride, "the fixture: the import binds the song")
+            coordinator.stop()
+        }
+
+        // The next launch: a new library and a new coordinator, nothing
+        // remembered from the session that made the binding.
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let store = LyricsStore(offsetsDirectory: root)
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true }, presentation: store
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        media.apply(playingSnapshot())
+        let identity = try XCTUnwrap(coordinator.currentLocalTrackIdentity)
+        XCTAssertTrue(library.hasBinding(for: identity), "the fixture: the binding was saved")
+        XCTAssertTrue(coordinator.hasLocalOverride, "a saved binding offers its remove button")
+        XCTAssertTrue(store.hasLocalOverride)
+
+        coordinator.removeLocalBinding()
+        XCTAssertFalse(coordinator.hasLocalOverride)
+        XCTAssertFalse(store.hasLocalOverride)
+    }
+
+    /// The coordinator tells the store which file is showing, so a nudge made
+    /// against one import does not shift a better-timed one imported over it
+    /// for the same song (J-024). Before, the store only ever heard the song.
+    func testImportingABetterTimedFileStartsItUncorrected() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let suite = "LyricsCoordinatorTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = LyricsStore(offsetsDirectory: root.appendingPathComponent("offsets"), defaults: defaults)
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true }, presentation: store
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.apply(playingSnapshot())
+        let identity = try XCTUnwrap(coordinator.currentLocalTrackIdentity)
+
+        try coordinator.importLocalFile(at: try writeUntaggedLRC(), for: identity)
+        guard case .ready(let first) = coordinator.availability else {
+            return XCTFail("the fixture: the bound import is showing")
+        }
+        store.nudgeTrackOffset(by: 0.5)
+        XCTAssertEqual(store.trackOffset, 0.5, accuracy: 1e-9)
+
+        try coordinator.importLocalFile(at: try writeLRC(), for: identity)
+        guard case .ready(let second) = coordinator.availability else {
+            return XCTFail("the fixture: the second import is showing")
+        }
+        XCTAssertNotEqual(first.documentID, second.documentID, "the fixture: another file")
+        XCTAssertEqual(store.trackOffset, 0, accuracy: 1e-9, "the new file starts uncorrected")
+    }
+
+    /// Import binds the song that was playing when Import was pressed, not
+    /// the one playing when the open panel returns. The identity used to be
+    /// read after `runModal`, so browsing through a track change bound song
+    /// B to song A's words for good (G-013). The file here carries no tags,
+    /// so only the binding can make either song find it.
+    func testImportBindsTheSongPlayingWhenImportWasPressed() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        media.apply(playingSnapshot())
+        let pressedFor = try XCTUnwrap(coordinator.currentLocalTrackIdentity)
+
+        var next = playingSnapshot()
+        next.title = "The Next Song"
+        next.takenAt = Date()
+        media.apply(next)
+        let nowPlaying = try XCTUnwrap(coordinator.currentLocalTrackIdentity)
+        XCTAssertNotEqual(nowPlaying, pressedFor, "the fixture: the track changed while the panel was up")
+
+        try coordinator.importLocalFile(at: try writeUntaggedLRC(), for: pressedFor)
+
+        guard case .ready(let candidate) = library.lookup(identity: pressedFor) else {
+            return XCTFail("the song Import was pressed for is the one bound")
+        }
+        XCTAssertEqual(candidate.timeline.lines.first?.text, "Untagged opening")
+        XCTAssertEqual(library.lookup(identity: nowPlaying), .noMatch, "the song playing now is untouched")
+        XCTAssertFalse(coordinator.hasLocalOverride, "and the page on screen offers no remove for it")
+    }
+
+    /// With nothing playing, Import used to return without a word and keep
+    /// nothing. The file is kept now, bound to no song, and matches by its
+    /// own tags when its song plays.
+    func testWithNothingPlayingAnImportIsKeptAndMatchesByItsTags() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+        XCTAssertNil(coordinator.currentLocalTrackIdentity, "the fixture: nothing is playing")
+
+        try coordinator.importLocalFile(at: try writeLRC(), for: nil)
+        media.apply(playingSnapshot())
+
+        guard case .ready(let candidate) = coordinator.localLookup else {
+            return XCTFail("the file imported with nothing playing matches its song by its tags")
+        }
+        XCTAssertEqual(candidate.timeline.lines.first?.text, "Local opening")
+        XCTAssertFalse(coordinator.hasLocalOverride, "matched by tags, not bound")
+    }
+
+    /// The failure is said once, in the section that asked, in words. Every
+    /// import, folder and rescan error used to be dropped with `try?`, so a
+    /// file Isla could not read closed the panel and nothing happened.
+    func testAnImportFailureIsReportedOnceWhereItWasAsked() throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        let url = root.appendingPathComponent("broken.lrc")
+        try Data("[00:01.00]a\n[00:7x.00]b".utf8).write(to: url, options: .atomic)
+        let revision = vm.localLyricsLibrary.revision
+
+        vm.importLocalLyricsFile(at: url, for: nil, from: .stage)
+
+        XCTAssertEqual(vm.lyricsNotice, NotchViewModel.LyricsNotice(
+            origin: .stage, text: localized("Line %d of this file has a time Isla can't read.", 2)
+        ))
+        XCTAssertEqual(vm.localLyricsLibrary.revision, revision, "and nothing else: no document, no binding")
+
+        // The next action starts clean: a good file from Settings clears it.
+        vm.importLocalLyricsFile(at: try writeLRC(), for: nil, from: .settings)
+        XCTAssertNil(vm.lyricsNotice)
+
+        // Each reason in its own words, said where it was asked.
+        let empty = root.appendingPathComponent("empty.lrc")
+        try Data("[ti:Song]\nno stamps here".utf8).write(to: empty, options: .atomic)
+        vm.importLocalLyricsFile(at: empty, for: nil, from: .settings)
+        XCTAssertEqual(vm.lyricsNotice, NotchViewModel.LyricsNotice(
+            origin: .settings, text: localized("This file has no timed lyrics.")
+        ))
+        let noise = root.appendingPathComponent("noise.lrc")
+        try Data([0x98, 0x81, 0xFF]).write(to: noise, options: .atomic)
+        vm.importLocalLyricsFile(at: noise, for: nil, from: .stage)
+        XCTAssertEqual(vm.lyricsNotice, NotchViewModel.LyricsNotice(
+            origin: .stage, text: localized("Couldn't read this file as text.")
+        ))
+    }
+
+    /// A notice is about the song it was raised over. A track change takes
+    /// it away, so it never sits under the next song's lyrics as if it were
+    /// about that one.
+    func testATrackChangeClearsTheNotice() async throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        let url = root.appendingPathComponent("broken.lrc")
+        try Data("[00:01.00]a\n[00:7x.00]b".utf8).write(to: url, options: .atomic)
+        vm.importLocalLyricsFile(at: url, for: nil, from: .stage)
+        XCTAssertNotNil(vm.lyricsNotice, "the fixture: a notice is up")
+
+        vm.media.apply(playingSnapshot())
+        XCTAssertNil(vm.lyricsNotice)
+    }
+
+    private func writeUntaggedLRC() throws -> URL {
+        let url = root.appendingPathComponent("untagged.lrc")
+        try Data("[00:01.00]Untagged opening\n[00:05.00]Second".utf8).write(to: url, options: .atomic)
+        return url
+    }
+
     private func writeLRC() throws -> URL {
         let url = root.appendingPathComponent("song.lrc")
         try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Local opening".utf8)
@@ -445,6 +723,192 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertEqual(
             coordinator.currentLocalTrackIdentity?.playerID, PlayerApp.spotify.rawValue,
             "the identity belongs to the player the song is playing in now"
+        )
+    }
+
+    /// A stream, a radio station or a browser tab publishes no length, and
+    /// every such track used to say "Lyrics are off." with a Show Lyrics
+    /// button that rewrote an already-true switch and could not work: the
+    /// guard that meant "the switch is off" also swallowed "this track has no
+    /// length". It now says what is true, and offers nothing it cannot do.
+    func testATrackWithNoLengthSaysSoAndOffersNothingThatCannotWork() async throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        LyricsCoordinator.noLengthGrace = 0.05
+        defer { LyricsCoordinator.noLengthGrace = 1.5 }
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        var live = playingSnapshot()
+        live.title = "Radio"
+        live.artist = "Station"
+        live.album = ""
+        live.duration = 0
+        media.apply(live)
+        XCTAssertEqual(coordinator.availability, .resolving, "quiet first: the length may yet arrive")
+
+        for _ in 0..<50 {
+            if coordinator.availability == .cannotLookUp(.noLength) { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(coordinator.availability, .cannotLookUp(.noLength))
+        XCTAssertNil(LyricsPresentation.offer(
+            for: coordinator.availability, localLookup: coordinator.localLookup, onlineEnabled: false
+        ))
+        XCTAssertNil(LyricsPresentation.offer(
+            for: coordinator.availability, localLookup: coordinator.localLookup, onlineEnabled: true
+        ))
+        XCTAssertEqual(
+            LyricsPresentation.compactCaption(for: coordinator.availability, currentLine: nil),
+            localized("No lyrics for live audio.")
+        )
+        XCTAssertFalse(LyricsPresentation.canRetry(coordinator.availability))
+        XCTAssertFalse(LyricsPresentation.canOpenLocalActions(coordinator.availability))
+    }
+
+    /// The player publishes the title before the length, so a real song
+    /// passes through "no length" on its way in. That moment must never be
+    /// drawn as live audio: the grace holds the slot quiet, and a length
+    /// arriving inside it resolves the track as any other.
+    func testADurationThatArrivesInsideTheGraceNeverShowsTheLiveState() async throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        // Wide enough that a busy machine cannot let the grace run out
+        // before the length lands at 20ms; the wait after it outlasts the
+        // grace, so a timer that was not cancelled would have fired.
+        LyricsCoordinator.noLengthGrace = 0.3
+        defer { LyricsCoordinator.noLengthGrace = 1.5 }
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        var published: [LyricsAvailability] = []
+        let watch = coordinator.$availability.sink { published.append($0) }
+        defer { watch.cancel() }
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        var early = playingSnapshot()
+        early.duration = 0
+        media.apply(early)
+        try? await Task.sleep(for: .milliseconds(20))
+
+        var known = early
+        known.duration = 180
+        known.takenAt = Date()
+        media.apply(known)
+        try? await Task.sleep(for: .milliseconds(450))
+
+        XCTAssertFalse(
+            published.contains { (state: LyricsAvailability) -> Bool in
+                if case .cannotLookUp = state { return true }
+                return false
+            },
+            "published \(published)"
+        )
+        XCTAssertEqual(coordinator.availability, .noLocalLyrics)
+    }
+
+    /// No title is nothing to look a song up by, which is not the switch
+    /// being off either. A truly empty title never becomes a track (the feed
+    /// reads it as nothing playing); a blank one does, and used to be sent to
+    /// the matcher and the catalogue as a title.
+    func testATrackWithNoTitleSaysItCannotBeLookedUp() {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        var untitled = playingSnapshot()
+        untitled.title = "   "
+        media.apply(untitled)
+
+        XCTAssertNotNil(media.track, "the fixture: a blank title is still a track")
+        XCTAssertEqual(coordinator.availability, .cannotLookUp(.noTitle))
+        XCTAssertEqual(
+            LyricsPresentation.compactCaption(for: coordinator.availability, currentLine: nil),
+            localized("This track has no title to look up.")
+        )
+    }
+
+    /// Off is the only state that says off.
+    func testWithLyricsOffANoLengthTrackStillSaysOff() {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { false })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        var live = playingSnapshot()
+        live.duration = 0
+        media.apply(live)
+        XCTAssertEqual(coordinator.availability, .disabled)
+    }
+
+    /// The output-latency listener is a lyrics concern: it runs while Show
+    /// Lyrics is on and nowhere else, so a listener who never turned lyrics
+    /// on never has a CoreAudio listener installed on their behalf.
+    func testTheOutputLatencyWatchRunsOnlyWhileLyricsAreOn() {
+        let saved = LyricSweep.model
+        defer { LyricSweep.model = saved }
+        var enabled = false
+        var installs = 0, removals = 0
+        let monitor = OutputLatencyMonitor(
+            read: { 0.0273 }, installListener: { installs += 1 }, removeListener: { removals += 1 }
+        )
+        let coordinator = LyricsCoordinator(
+            media: MediaController(), library: LocalLyricsLibrary(directory: root),
+            isEnabled: { enabled }, outputLatency: monitor
+        )
+        coordinator.start()
+        XCTAssertEqual(installs, 0, "lyrics are off: nothing to listen for")
+
+        enabled = true
+        coordinator.refreshVisibility()
+        XCTAssertEqual(installs, 1)
+        XCTAssertTrue(monitor.isRunning)
+
+        enabled = false
+        coordinator.refreshVisibility()
+        XCTAssertEqual(removals, 1)
+        XCTAssertFalse(monitor.isRunning)
+
+        enabled = true
+        coordinator.refreshVisibility()
+        coordinator.stop()
+        XCTAssertEqual(removals, 2, "stopping the coordinator takes the listener with it")
+    }
+
+    /// A route's reported latency reaches the lead model, where the DI_MEDIA
+    /// trail can show it — and, until the owner's live session says how each
+    /// player treats it, leaves the lead exactly where it was.
+    func testAReportedOutputLatencyReachesTheModelButNotTheLead() {
+        let saved = LyricSweep.model
+        defer { LyricSweep.model = saved }
+        var route: TimeInterval? = 0.0273
+        let monitor = OutputLatencyMonitor(read: { route }, installListener: {}, removeListener: {})
+        let coordinator = LyricsCoordinator(
+            media: MediaController(), library: LocalLyricsLibrary(directory: root),
+            isEnabled: { true }, outputLatency: monitor
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        let before = LyricSweep.lead(precisionSync: false, userOffset: 0)
+
+        route = 0.200
+        monitor.defaultOutputChanged()
+
+        XCTAssertEqual(LyricSweep.model.outputLatency, 0.200, accuracy: 1e-12)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), before, accuracy: 1e-12)
+
+        route = nil
+        monitor.defaultOutputChanged()
+        XCTAssertEqual(
+            LyricSweep.model.outputLatency, LyricLeadModel.referenceOutputLatency, accuracy: 1e-12,
+            "an unknown route falls back to the reference the model was calibrated on"
         )
     }
 

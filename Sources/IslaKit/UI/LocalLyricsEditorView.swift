@@ -7,31 +7,44 @@ import UniformTypeIdentifiers
 struct LocalLyricsEditorView: View {
     @StateObject private var draft: LocalLyricsDraft
     private let editor: LocalLyricsEditor
-    private let binding: LocalTrackIdentity?
+    /// The document, the song the copy will be bound to and that song's
+    /// name, all fixed when Edit was pressed. The source document's id is
+    /// recorded on the copy so the library can tell an edit from an
+    /// unrelated file with the same tags.
+    private let session: LocalLyricsEditor.EditingSession
     private let onSaved: (LocalLyricsCandidate) -> Void
     private let onDismiss: () -> Void
 
     @State private var errorMessage: String?
 
     init(
-        document: LocalLyricsDocument,
+        session: LocalLyricsEditor.EditingSession,
         editor: LocalLyricsEditor,
-        binding: LocalTrackIdentity?,
         onSaved: @escaping (LocalLyricsCandidate) -> Void,
         onDismiss: @escaping () -> Void
     ) {
-        _draft = StateObject(wrappedValue: LocalLyricsDraft(document: document))
+        _draft = StateObject(wrappedValue: LocalLyricsDraft(document: session.candidate.document))
         self.editor = editor
-        self.binding = binding
+        self.session = session
         self.onSaved = onSaved
         self.onDismiss = onDismiss
+    }
+
+    /// Names the song the save will be bound to. Nothing in the sheet said
+    /// which song it was editing, so a track change underneath it went
+    /// unnoticed until the wrong song showed the edited words (J-009).
+    private var heading: String {
+        guard let title = session.title else { return localized("Edit Lyrics") }
+        return localized("Edit Lyrics for %@", title)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(localized("Edit Lyrics"))
+                Text(heading)
                     .islandFont(.title, weight: .semibold)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Spacer()
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
@@ -52,31 +65,41 @@ struct LocalLyricsEditorView: View {
                         .islandFont(.caption, weight: .semibold)
                         .foregroundStyle(Theme.tertiary)
                         .padding(.top, 4)
-                    ForEach(draft.lines.indices, id: \.self) { index in
+                    // Keyed by each row's own id, never by index: removing a
+                    // row whose field held focus read `lines[index]` past the
+                    // end of an array that had just shrunk (J-015).
+                    ForEach($draft.rows) { $row in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             TextField(
                                 localized("Timestamp"),
-                                value: $draft.lines[index].at,
+                                value: timestamp(of: row.id),
                                 format: .number.precision(.fractionLength(2))
                             )
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 74)
                             .accessibilityLabel(localized("Timestamp"))
-                            TextField(localized("Lyrics"), text: $draft.lines[index].text, axis: .vertical)
+                            // An empty row is a pause — it saves as the end of
+                            // the line above it — and says so instead of
+                            // showing an empty field that looks like a slip.
+                            TextField(localized("Pause"), text: $row.line.text, axis: .vertical)
                                 .textFieldStyle(.roundedBorder)
                                 .lineLimit(1...3)
                                 .accessibilityLabel(localized("Lyrics"))
-                            Button { draft.lines.remove(at: index) } label: {
+                            Button { insertLine(after: row.id) } label: {
+                                Image(systemName: "plus.circle")
+                            }
+                            .buttonStyle(NotchButtonStyle(size: 22))
+                            .accessibilityLabel(localized("Insert Line After"))
+                            Button { draft.removeRow(id: row.id) } label: {
                                 Image(systemName: "minus.circle")
                             }
                             .buttonStyle(NotchButtonStyle(size: 22))
-                            .disabled(draft.lines.count == 1)
+                            .disabled(draft.rows.count == 1)
                             .accessibilityLabel(localized("Remove Lyric Line"))
                         }
                     }
                     Button {
-                        let timestamp = (draft.lines.last?.at ?? 0) + 1
-                        draft.lines.append(LyricsStore.Line(at: timestamp, text: ""))
+                        draft.insertLine(after: draft.rows.count - 1)
                     } label: {
                         Label(localized("Add Lyric Line"), systemImage: "plus.circle")
                             .islandFont(.caption, weight: .medium)
@@ -94,20 +117,31 @@ struct LocalLyricsEditorView: View {
                     .accessibilityLabel(errorMessage)
             }
 
-            HStack {
+            // Words in capsules, the panel's one offer style. These were
+            // `NotchButtonStyle`, the circular glyph style, which frames its
+            // label in a size-by-size circle: "Cancel" truncated inside 24 pt
+            // and "Сохранить копию" wrapped inside a filled 72 pt disc (G-012).
+            // Save Copy is the default action and sits one step brighter, as
+            // the welcome page's primary does.
+            HStack(spacing: 8) {
                 Button(localized("Cancel"), action: onDismiss)
-                    .buttonStyle(NotchButtonStyle(size: 24))
+                    .buttonStyle(OfferButtonStyle())
+                    .fixedSize()
                     // The sheet is a real modal window, so Escape reaches it —
                     // and without this it did nothing, while Escape on the panel
                     // behind closes the whole island.
                     .keyboardShortcut(.cancelAction)
                     .accessibilityLabel(localized("Cancel"))
                 Spacer()
+                // Each at the width its words need, on one line: the sheet
+                // widens for "Экспортировать LRC" rather than squeezing it.
                 Button(localized("Export LRC"), action: export)
-                    .buttonStyle(NotchButtonStyle(size: 76))
+                    .buttonStyle(OfferButtonStyle())
+                    .fixedSize()
                     .accessibilityLabel(localized("Export LRC"))
                 Button(localized("Save Copy"), action: save)
-                    .buttonStyle(NotchButtonStyle(size: 72, prominent: true))
+                    .buttonStyle(OfferButtonStyle(fill: Theme.surfaceHover))
+                    .fixedSize()
                     .keyboardShortcut(.defaultAction)
                     .accessibilityLabel(localized("Save Copy"))
             }
@@ -145,12 +179,36 @@ struct LocalLyricsEditorView: View {
         .accessibilityLabel(label)
     }
 
+    /// The Timestamp field's binding: a write is a retime, which moves the
+    /// row's words and end with it. Looked up by id at the moment of the
+    /// write, so a field committing after its row moved still edits its own.
+    private func timestamp(of id: UUID) -> Binding<TimeInterval> {
+        Binding(
+            get: { draft.rows.first { $0.id == id }?.line.at ?? 0 },
+            set: { time in
+                guard let index = draft.rows.firstIndex(where: { $0.id == id }) else { return }
+                draft.retime(row: index, to: time)
+            }
+        )
+    }
+
+    private func insertLine(after id: UUID) {
+        guard let index = draft.rows.firstIndex(where: { $0.id == id }) else { return }
+        draft.insertLine(after: index)
+    }
+
+    /// A row Isla cannot write is named by its line number; anything else
+    /// the save refuses keeps the general message.
+    private func failureMessage(for error: Error) -> String {
+        (error as? LocalLyricsDraft.ValidationError)?.message ?? localized("This LRC file is invalid.")
+    }
+
     private func save() {
         do {
-            let saved = try editor.saveOwnedCopy(draft, binding: binding)
+            let saved = try editor.saveOwnedCopy(draft, for: session)
             onSaved(saved)
         } catch {
-            errorMessage = localized("This LRC file is invalid.")
+            errorMessage = failureMessage(for: error)
         }
     }
 
@@ -164,8 +222,9 @@ struct LocalLyricsEditorView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try editor.export(draft, to: url)
+            errorMessage = nil
         } catch {
-            errorMessage = localized("This LRC file is invalid.")
+            errorMessage = failureMessage(for: error)
         }
     }
 }

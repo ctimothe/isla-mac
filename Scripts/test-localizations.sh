@@ -3,7 +3,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-for locale in en ru; do
+# The locales are whatever Resources/*.lproj holds, so a third language is
+# held to the same rules the day its folder appears instead of passing unseen.
+LOCALES=""
+for lproj in "$ROOT"/Resources/*.lproj; do
+    LOCALES="$LOCALES $(basename "$lproj" .lproj)"
+done
+export LOCALES
+
+for locale in $LOCALES; do
     test -s "$ROOT/Resources/$locale.lproj/Localizable.strings"
     plutil -lint "$ROOT/Resources/$locale.lproj/Localizable.strings"
     test -s "$ROOT/Resources/$locale.lproj/InfoPlist.strings"
@@ -16,12 +24,13 @@ done
 # prompt macOS cannot localise falls back to the plist's English, which is how
 # the Apple Events prompt reached Russian users before 2026-09-23.
 python3 - "$ROOT" <<'PROMPTS'
-import pathlib, re, sys
+import os, pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
+locales = os.environ["LOCALES"].split()
 plist = (root / "Scripts" / "bundle.sh").read_text()
 usage = dict(re.findall(r"<key>(NS\w+UsageDescription)</key>\s*<string>([^<]*)</string>", plist))
 failures = []
-for locale in ("en", "ru"):
+for locale in locales:
     text = (root / "Resources" / f"{locale}.lproj" / "InfoPlist.strings").read_text()
     table = dict(re.findall(r'^"(\w+)"\s*=\s*"((?:[^"\\]|\\.)*)";', text, re.M))
     if set(table) != set(usage):
@@ -40,7 +49,47 @@ if failures:
 print(f"  ✓ {len(usage)} permission prompts localized in en and ru")
 PROMPTS
 
+# The Services menu. macOS reads an NSServices item's title from
+# ServicesMenu.strings, keyed by the NSMenuItem default, and falls back to the
+# plist's English when the table is missing, which is how "Translate in Isla"
+# stayed English on a Russian Mac (G-031). Same rules as the prompts above: both
+# tables exist, lint clean, carry exactly the plist's titles, the English value
+# is the key, and the Russian one is not.
+python3 - "$ROOT" <<'SERVICES'
+import os, pathlib, re, subprocess, sys
+root = pathlib.Path(sys.argv[1])
+locales = os.environ["LOCALES"].split()
+plist = (root / "Scripts" / "bundle.sh").read_text()
+titles = set(re.findall(r"<key>NSMenuItem</key>\s*<dict><key>default</key><string>([^<]*)</string>", plist))
+failures = []
+if not titles:
+    failures.append("bundle.sh: no NSMenuItem default found, the scrape is stale")
+for locale in locales:
+    path = root / "Resources" / f"{locale}.lproj" / "ServicesMenu.strings"
+    if not path.is_file() or path.stat().st_size == 0:
+        failures.append(f"{locale}.lproj/ServicesMenu.strings is missing")
+        continue
+    lint = subprocess.run(["plutil", "-lint", str(path)], capture_output=True, text=True)
+    if lint.returncode != 0:
+        failures.append(f"{locale} ServicesMenu.strings is not clean: {lint.stdout.strip()}{lint.stderr.strip()}")
+    table = dict(re.findall(r'^"((?:[^"\\]|\\.)*)"\s*=\s*"((?:[^"\\]|\\.)*)";', path.read_text(), re.M))
+    if set(table) != titles:
+        failures.append(f"{locale} ServicesMenu.strings keys {sorted(table)} != NSMenuItem defaults {sorted(titles)}")
+    for key, value in table.items():
+        if locale == "en" and value != key:
+            failures.append(f"en ServicesMenu.strings {key!r} is not its own value")
+        if locale != "en" and value == key:
+            failures.append(f"{locale} ServicesMenu.strings leaves {key!r} in English")
+        if locale == "ru" and not re.search(r"[А-Яа-яЁё]", value):
+            failures.append(f"ru ServicesMenu.strings {key!r} has no Russian in it")
+if failures:
+    print("\n".join(failures), file=sys.stderr)
+    sys.exit(1)
+print(f"  ✓ {len(titles)} Services menu title localized in {', '.join(locales)}")
+SERVICES
+
 python3 - "$ROOT" <<'PY'
+import os
 import pathlib
 import re
 import sys
@@ -63,12 +112,14 @@ def entries(locale: str) -> tuple[list[str], dict[str, str]]:
     return keys, values
 
 
-en_keys, en_values = entries("en")
-ru_keys, ru_values = entries("ru")
+locales = os.environ["LOCALES"].split()
+others = [locale for locale in locales if locale != "en"]
+tables = {locale: entries(locale) for locale in locales}
+en_keys, en_values = tables["en"]
 
 # 1. Duplicates within one table. plutil -lint passes these and keeps one
 # entry silently, so the table and the code can disagree about which.
-for locale, keys in (("en", en_keys), ("ru", ru_keys)):
+for locale, (keys, _) in tables.items():
     dupes = sorted(key for key, count in Counter(keys).items() if count > 1)
     if dupes:
         fail(f"duplicate keys in {locale}.lproj: {dupes}")
@@ -81,10 +132,26 @@ used = set(re.findall(r'localized\(\s*"((?:[^"\\]|\\.)*)"', sources))
 # SwiftUI localises string-literal Button titles by itself, without a
 # localized() call at the site.
 used |= set(re.findall(r'Button\(\s*"((?:[^"\\]|\\.)*)"', sources))
+# So does every other SwiftUI initialiser that takes a title literal: Text,
+# Label, Toggle and .help. Until K-007 only Button was scraped, so a Text("...")
+# with no row in the tables passed this gate and showed in English to a Russian
+# user. A literal with no letter outside an interpolation ("-", a space,
+# "\(value)") is not copy and is not asked for.
+for pattern in (
+    r'\bText\(\s*"((?:[^"\\]|\\.)*)"',
+    r'\bLabel\(\s*"((?:[^"\\]|\\.)*)"',
+    r'\bToggle\(\s*"((?:[^"\\]|\\.)*)"',
+    r'\.help\(\s*"((?:[^"\\]|\\.)*)"',
+):
+    for literal in re.findall(pattern, sources):
+        if re.search(r"[^\W\d_]", re.sub(r"\\\(.*?\)", "", literal)):
+            used.add(literal)
 # The welcome keeps its strings in Copy.english and localises them through a
 # variable, so the literals never appear inside localized(...) either.
 welcome = root / "Sources" / "IslaKit" / "UI" / "WelcomePane.swift"
-match = re.search(r"static let english = Copy\((.*?)\)", welcome.read_text(), re.S)
+# To the closing parenthesis on a line of its own: the first ")" is inside
+# "What's playing, with lyrics (%@)", and stopping there dropped every key after it.
+match = re.search(r"static let english = Copy\((.*?)\n\s*\)", welcome.read_text(), re.S)
 if match is None:
     fail("WelcomePane.swift: Copy.english block not found, cannot scrape welcome keys")
 else:
@@ -109,18 +176,36 @@ for key in sorted(used - table):
 for key in sorted(table - used):
     fail(f"in the tables but unused in Sources: {key!r}")
 
-# The two tables must still carry exactly the same keys.
-if set(en_keys) != set(ru_keys):
-    fail(f"en/ru key drift: {sorted(set(en_keys) ^ set(ru_keys))}")
+# Every table must still carry exactly the same keys as English.
+for locale in others:
+    other_keys, _ = tables[locale]
+    if set(en_keys) != set(other_keys):
+        fail(f"en/{locale} key drift: {sorted(set(en_keys) ^ set(other_keys))}")
 
 # 3. Format specifiers must match between the locales, in order and in count:
 # a reordered or dropped %@ crashes or mislabels at format time.
 specifier = re.compile(r"%(?:\d+\$)?[#0\- +I]*(?:\d+)?(?:\.\d+)?[hljztL]*[@a-zA-Z]")
-for key in sorted(set(en_values) & set(ru_values)):
-    en_specs = specifier.findall(en_values[key])
-    ru_specs = specifier.findall(ru_values[key])
-    if en_specs != ru_specs:
-        fail(f"specifier drift for {key!r}: en {en_specs} vs ru {ru_specs}")
+for locale in others:
+    _, other_values = tables[locale]
+    for key in sorted(set(en_values) & set(other_values)):
+        en_specs = specifier.findall(en_values[key])
+        other_specs = specifier.findall(other_values[key])
+        if en_specs != other_specs:
+            fail(f"specifier drift for {key!r}: en {en_specs} vs {locale} {other_specs}")
+
+# 4. A translation that is the English text, character for character, is a
+# string nobody translated (K-007). Only names that are the same in every
+# language are allowed to match.
+same_in_every_language = {
+    "AirDrop": "Apple's own product name, left in Latin script by Apple's Russian UI",
+    "Spotify": "a brand name",
+    "Isla %@": "the product name and a format value",
+}
+for locale in others:
+    _, other_values = tables[locale]
+    for key, value in sorted(other_values.items()):
+        if value == key and key not in same_in_every_language:
+            fail(f"{locale} leaves {key!r} in English; translate it or allowlist it with a reason")
 
 if failures:
     print("localizations gate failed:")

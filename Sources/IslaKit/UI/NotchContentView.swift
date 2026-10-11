@@ -47,6 +47,22 @@ struct NotchContentView: View {
     /// can both see.
     @Namespace private var morph
 
+    /// Whether the cover and the equalizer fly between the pill and the panel.
+    ///
+    /// Not under Reduce Motion. The shell's own open was already reduced, but
+    /// the cover still morphed across the panel inside it, 22 pt to 118 pt in
+    /// the reduced open's time — the largest travel on screen, left untouched
+    /// by the setting that refuses travel (F-055). With no namespace each end
+    /// is a lone view: the pill's cover leaves with the compact header and the
+    /// panel's arrives with its pane, both fades. The lock path passes `nil`
+    /// for the same reason, with nowhere to travel to.
+    nonisolated static func travels(reduceMotion: Bool) -> Bool { !reduceMotion }
+
+    /// The namespace both ends travel in, or none when nothing may travel.
+    private var travellingMorph: Namespace.ID? {
+        Self.travels(reduceMotion: reduceMotion) ? morph : nil
+    }
+
     private var isOpen: Bool { vm.isOpen || vm.isDropTargeted }
     private var size: CGSize { vm.bodySize }
     @State private var isPressed = false
@@ -183,7 +199,19 @@ struct NotchContentView: View {
                 // the wallpaper beside a shape that has already moved in.
                 .frame(width: size.width, alignment: .center)
                 .clipped()
+                // The refusal under Reduce Motion: the content dips, the black
+                // shape above stays put (see `RefusalShake`).
+                .refusalContentDim()
         }
+        // Isla over the shield too, folded or not: pressed, it gives the
+        // refusal a click gets. With nothing playing this island used to be
+        // absent to VoiceOver on the lock screen as well (H-001).
+        .modifier(islandAccessibility(open: false))
+        // The click target is the pill, cut before the row is widened to the
+        // window — see the same placement in `shell` for why it matters to
+        // VoiceOver. The panel's active rect is this same width, so no click
+        // the pointer could deliver lands anywhere different.
+        .contentShape(Rectangle())
         .frame(maxWidth: .infinity, alignment: .top)
         // The same lift as unlocked, and the same exclusion: the cutout is a
         // hole and nothing may be drawn in it. Only on a pill that is there.
@@ -192,7 +220,6 @@ struct NotchContentView: View {
         // The edge says the island is there; the shake says it is not opening
         // here. Two different answers to two different gestures, rather than
         // one shake for both.
-        .contentShape(Rectangle())
         .onTapGesture { vm.onIslandClick?() }
         // Folded, the shape sits one point inside the cutout, and an 11 pt
         // swing would carry ten of them out onto the wallpaper beside it. There
@@ -271,11 +298,12 @@ struct NotchContentView: View {
                     //
                     // `Theme.paneIn`/`paneOut` is the pair this file already
                     // uses for tab swaps and the rule is `Theme`'s own: out fast
-                    // (0.12s), in slower and behind a small delay, so the two
-                    // states are never both half-present for long. Applied here
-                    // it means the panel has height before the body has alpha,
-                    // and on close the body is gone by 0.12s while the panel
-                    // still has 0.34s of collapse left to do on its own.
+                    // (0.10s, on an ease-out), in slower and behind a small
+                    // delay, so the two states are never both half-present for
+                    // long. Applied here it means the panel has height before
+                    // the body has alpha, and on close the body is mostly gone
+                    // before the shape — held back `Theme.closeShapeDelay` —
+                    // has eaten the bottom padding and reached it (H-012).
                     //
                     // Opacity only — deliberately not the `.scale` the pane
                     // switch adds. The far end of the artwork morph
@@ -299,12 +327,21 @@ struct NotchContentView: View {
             .clipped()
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // A click anywhere on the collapsed island opens it. The equalizer
         // wing keeps its own tap for play/pause — a child gesture wins, so
         // pausing still costs one click and does not open anything, and the open
         // panel's header strip closes the panel by winning the same way.
+        //
+        // Cut to the island, shoulders included, and *then* widened to the
+        // window — not the other way round. SwiftUI hands a content shape to
+        // the accessibility element beneath it when that element is the only
+        // one there, and on a shut island the Isla button is the only one: cut
+        // after the window-filling frame, the button's frame was the whole
+        // 700-point window instead of the island (H-001). This rect is
+        // `compactGestureRect` and the panel's active rect exactly, so no
+        // click the pointer can deliver lands anywhere different.
         .contentShape(Rectangle())
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // Highlight on press, commit on release — the order Apple states for a
         // tap. Waiting for the click to show anything makes the island feel
         // dead for the length of the press, which is the one moment the user is
@@ -347,7 +384,12 @@ struct NotchContentView: View {
                     if inside { vm.onIslandClick?() }
                 }
         )
-        .animation(Theme.open(reduceMotion: reduceMotion), value: isOpen)
+        // Open and close by direction, as the pill's fold and unfold are: the
+        // close waits `Theme.closeShapeDelay` so the body is gone before the
+        // clip comes for it (H-012). Must agree with the controller's own
+        // `withAnimation`, or the two transactions disagree about when the
+        // shape starts.
+        .animation(isOpen ? Theme.open(reduceMotion: reduceMotion) : Theme.close(reduceMotion: reduceMotion), value: isOpen)
         // The pointer arriving. Over a playing island that is a brightening on
         // a quick ease; over one resting hidden in the notch it is the island
         // growing out of the cutout with a single small bump — see
@@ -401,15 +443,82 @@ struct NotchContentView: View {
                 // The music stays mounted under the moment, faded rather than
                 // removed, so the cover's morph and the fold described above
                 // are exactly as they were when the moment ends.
-                compactMediaHeader(morph: morph)
+                compactMediaHeader(morph: travellingMorph)
                     .opacity(vm.ambient == nil ? 1 : 0)
                 if let ambient = vm.ambient {
                     ambientHeader(ambient)
                         .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
                 }
             }
+            // The island to assistive tech, on the stack that holds both the
+            // music and the moment, so that a peek or a charger changes this
+            // element's value rather than swapping one element for another.
+            .modifier(islandAccessibility(open: false))
             .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
         }
+    }
+
+    /// What the island is to VoiceOver and Switch Control: one button called
+    /// Isla, in every state the island has, whose value says what it shows.
+    ///
+    /// The element used to live inside the music header and was hidden while
+    /// the pill was folded, on the reasoning that a folded pill has nothing on
+    /// screen to describe. But the island is not only a display: it is the one
+    /// way into the app, which has no Dock icon, no menu-bar item and no
+    /// window. With nothing playing the tree held only the hosting view, and a
+    /// blind user could neither find Isla nor open it — while the welcome told
+    /// them to click it (H-001). So the island is always there now, with
+    /// "Nothing is playing." as its value when that is the truth.
+    ///
+    /// Open, the same element sits on the header strip — the strip a pointer
+    /// clicks to shut the panel — and says so. A panel opened from assistive
+    /// tech is pinned open, and nothing in it used to close it again: the
+    /// strip was a bare tap gesture with no trait and no action (G-015).
+    ///
+    /// Accessibility modifiers do not change layout, so the matched-geometry
+    /// ids and the fold are untouched, and the strip stays free of controls
+    /// for the pointer: menu-bar monitors such as Ice see exactly what they
+    /// saw before.
+    private func islandAccessibility(open: Bool) -> IslandAccessibility {
+        IslandAccessibility(
+            value: open ? openIslandValue : closedIslandValue,
+            hint: open ? localized("Closes the panel") : localized("Opens the panel"),
+            action: {
+                // Locked, the same refusal a click gets — the shake and the
+                // spoken "Unlock your Mac to open Isla." It used to return
+                // silently, which to someone who cannot see the pill was a
+                // button that did nothing at all.
+                guard !vm.isLockedPresentation else {
+                    vm.nudgeLockedIsland()
+                    return
+                }
+                vm.onIslandClick?()
+            }
+        )
+    }
+
+    /// The shut island's value: the moment if one is up, else the track, else
+    /// that there is none. The locked pill draws no moment, so over the shield
+    /// it does not name one.
+    private var closedIslandValue: String {
+        if !vm.isLockedPresentation, let ambient = vm.ambient { return ambient.accessibilityLabel }
+        return vm.media.track == nil ? localized("Nothing is playing.") : compactAccessibilityLabel
+    }
+
+    /// The open island's value: what the header strip shows — the tab, and
+    /// the count or the player on its right end. The welcome is not a tab
+    /// (see `openHeader`), so there it names the welcome instead.
+    private var openIslandValue: String {
+        if vm.isShowingWelcome { return localized("Welcome") }
+        let detail: String?
+        switch vm.tab {
+        case .media: detail = vm.media.sourceName
+        case .shelf: detail = vm.shelf.items.isEmpty ? nil : "\(vm.shelf.items.count)"
+        case .clipboard: detail = vm.clipboard.items.isEmpty ? nil : "\(vm.clipboard.items.count)"
+        case .translate, .settings: detail = nil
+        }
+        guard let detail, !detail.isEmpty else { return vm.tab.title }
+        return "\(vm.tab.title), \(detail)"
     }
 
     /// The charger or headphones, in the pill's two wings.
@@ -453,8 +562,8 @@ struct NotchContentView: View {
             .frame(width: wingWidth, alignment: .center)
         }
         .frame(width: size.width, height: vm.geometry.notchSize.height)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(ambient.accessibilityLabel)
+        // No element of its own: the moment is the island's value, set on the
+        // stack above it — see `islandAccessibility(open:)`.
     }
 
     private var openHeader: some View {
@@ -497,6 +606,10 @@ struct NotchContentView: View {
         // the right. The rail and the panes begin below it.
         .contentShape(Rectangle())
         .onTapGesture { vm.onIslandClick?() }
+        // The same close for assistive tech, as the same Isla button the shut
+        // island is — the gesture above has no trait and no action, so a panel
+        // opened from VoiceOver had no discoverable way to close (G-015).
+        .modifier(islandAccessibility(open: true))
     }
 
     /// - Parameter morph: the namespace the cover and the equalizer travel in,
@@ -569,18 +682,12 @@ struct NotchContentView: View {
                 // the controls actually are.
         }
         .frame(width: size.width, height: vm.geometry.notchSize.height)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(compactAccessibilityLabel)
-        // Folded, there is nothing on screen to describe.
-        .accessibilityHidden(!shown)
-        // The same single purpose assistive tech gets: opening. A Pause action
-        // here would be a button the compact island does not have, reachable
-        // only by people who cannot see that it has none.
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction {
-            guard !vm.isLockedPresentation else { return }
-            vm.onIslandClick?()
-        }
+        // No element of its own. It was one, hidden while folded, and so with
+        // nothing playing the island did not exist to VoiceOver at all; the
+        // island's one element now sits on whatever holds this header — see
+        // `islandAccessibility(open:)`. Its single purpose is still opening:
+        // a Pause action here would be a button the compact island does not
+        // have, reachable only by people who cannot see that it has none.
     }
 
     /// The island brightening under the pointer.
@@ -764,11 +871,8 @@ struct NotchContentView: View {
         .morph(MorphID.compact(MorphID.equalizer, folded: !compactActivity.isVisible), in: morph)
     }
 
-    private var compactAccessibilityLabel: String {
-        guard let track = vm.media.track else { return "" }
-        let state = compactActivity == .playing ? localized("Playing") : localized("Paused")
-        return "\(state): \(track.title), \(track.artist)"
-    }
+    /// The view model's, because the peek announces the same sentence.
+    private var compactAccessibilityLabel: String { vm.compactAccessibilityLabel }
 
     @ViewBuilder
     private var trailing: some View {
@@ -789,7 +893,7 @@ struct NotchContentView: View {
                     // transition instead of collapsing onto a frame that is not
                     // there.
                     EqualizerBars(isAnimating: vm.media.isPlaying)
-                        .morph(MorphID.equalizer, in: morph)
+                        .morph(MorphID.equalizer, in: travellingMorph)
                 }
                 Text(vm.media.sourceName ?? "")
                     .islandFont(.caption)
@@ -798,7 +902,9 @@ struct NotchContentView: View {
         case .shelf:
             counter(vm.shelf.items.count)
         case .clipboard:
-            counter(vm.clipboard.items.count)
+            counter(Self.clipboardCounter(
+                count: vm.clipboard.items.count, covered: vm.privacy.covers(.clipboard)
+            ) ?? 0)
         case .translate:
             // Nothing: the columns name both languages already, and the strip
             // is the one part of the panel worth not spending on a repeat.
@@ -806,6 +912,13 @@ struct NotchContentView: View {
         case .settings:
             EmptyView()
         }
+    }
+
+    /// The number the clipboard header shows, or nil for none. With the cover
+    /// on, the header read "6" over rows of dots, and a screen-share audience
+    /// learned how many things had been copied (H-026). Pure, so it is a test.
+    static func clipboardCounter(count: Int, covered: Bool) -> Int? {
+        covered || count <= 0 ? nil : count
     }
 
     @ViewBuilder
@@ -829,6 +942,12 @@ struct NotchContentView: View {
         // cannot drift apart into a rail that does not fit.
         .padding(.bottom, NotchGeometry.bodyBottomPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // VO-Escape, or Switch Control's Escape, anywhere in the body closes
+        // the panel, as the header does. A panel opened from assistive tech is
+        // pinned open, and the pin ends only on a real mouse-down in another
+        // app, so without this the only way out was the global hot key —
+        // which someone who opened Isla by its button may not know (G-015).
+        .accessibilityAction(.escape) { vm.onIslandClick?() }
     }
 
     private var panes: some View {
@@ -837,28 +956,38 @@ struct NotchContentView: View {
         ZStack {
             // For one launch, the welcome wins over the tab. Here rather than
             // inside `pane` so the per-tab switch and its transitions are
-            // untouched, and so the rail — which the welcome's last line points
-            // at — stays exactly where it is. A plain crossfade, because
+            // untouched, and so the rail — whose icons the welcome's legends sit
+            // level with, one line each, which is why its icon height goes
+            // down too — stays exactly where it is. A plain crossfade, because
             // dismissing it is not travel between two tabs: one thing ends and
             // the panel it was in carries on.
             if vm.isShowingWelcome {
-                WelcomePane(onDismiss: { vm.dismissWelcome() })
+                WelcomePane(onDismiss: { vm.dismissWelcome() }, railIconHeight: vm.geometry.railIconHeight)
                     .transition(.opacity)
             } else {
+                // The slight zoom is the only travel a swap has, and Reduce
+                // Motion takes it: the scales come from the theme, 1 under
+                // the setting, so the swap is a plain crossfade (F-017).
+                let scales = Theme.paneSwapScales(reduceMotion: reduceMotion)
                 pane
                     .id(vm.tab)
                     .transition(.asymmetric(
                         insertion: .opacity
-                            .combined(with: .scale(scale: 0.97))
+                            .combined(with: .scale(scale: scales.insertion))
                             .animation(Theme.paneIn),
                         removal: .opacity
-                            .combined(with: .scale(scale: 1.02))
+                            .combined(with: .scale(scale: scales.removal))
                             .animation(Theme.paneOut)
                     ))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
+        // One group, named for what it holds. Loose, the pane's elements were
+        // read in among the rail's by position — the Translate tab put
+        // "Translate From" between Music and Shelf.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(vm.isShowingWelcome ? localized("Welcome") : vm.tab.title)
     }
 
     @ViewBuilder
@@ -876,20 +1005,26 @@ struct NotchContentView: View {
                 retryLyrics: vm.lyricsCoordinator.retry,
                 turnOnLyrics: vm.turnOnLyrics,
                 turnOnOnlineLyrics: vm.turnOnOnlineLyrics,
-                importLocalFile: vm.chooseLocalLyricsFile,
+                importLocalFile: { vm.chooseLocalLyricsFile(from: .stage) },
+                lyricsNotice: vm.lyricsNotice?.origin == .stage ? vm.lyricsNotice?.text : nil,
                 selectLocalCandidate: vm.lyricsCoordinator.selectLocalCandidate,
                 removeLocalBinding: vm.lyricsCoordinator.removeLocalBinding,
                 localLibrary: vm.localLyricsLibrary,
                 currentLocalTrackIdentity: { vm.lyricsCoordinator.currentLocalTrackIdentity },
-                morph: morph,
+                openMusicOnlySetting: vm.openMusicOnlySetting,
+                morph: travellingMorph,
                 showingLyrics: $vm.isShowingLyrics
             )
         case .shelf:
             ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)
         case .clipboard:
-            ClipboardPane(clipboard: vm.clipboard, privacy: vm.privacy)
+            ClipboardPane(
+                clipboard: vm.clipboard, privacy: vm.privacy,
+                turnOnHistory: { vm.setClipboardHistory(true) }
+            )
         case .translate:
             TranslatePane(translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
+                .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
         case .settings:
             SettingsPane(
                 shelf: vm.shelf,
@@ -898,7 +1033,8 @@ struct NotchContentView: View {
                 media: vm.media,
                 localLyrics: vm.localLyricsLibrary,
                 onLyricsVisibilityChanged: vm.lyricsCoordinator.refreshVisibility,
-                importLocalLyrics: vm.chooseLocalLyricsFile,
+                importLocalLyrics: { vm.chooseLocalLyricsFile(from: .settings) },
+                lyricsNotice: vm.lyricsNotice?.origin == .settings ? vm.lyricsNotice?.text : nil,
                 addLocalLyricsFolder: vm.chooseLocalLyricsFolder,
                 removeLocalLyricsFolder: vm.removeLocalLyricsFolder,
                 rescanLocalLyrics: vm.rescanLocalLyrics,
@@ -909,7 +1045,8 @@ struct NotchContentView: View {
                 privacy: vm.privacy,
                 wantsKeyboard: $vm.wantsKeyboard,
                 setClipboardHistory: vm.setClipboardHistory,
-                refreshClipboardPolling: vm.refreshClipboardPolling
+                refreshClipboardPolling: vm.refreshClipboardPolling,
+                scrollTarget: $vm.settingsScrollTarget
             )
         }
     }
@@ -927,7 +1064,10 @@ struct NotchContentView: View {
 /// A hover draws a faint well under the glyph and nothing more, and both the
 /// well and the selection land on the frame they happen — no fade to wait
 /// out, no glyph growing, nothing to lag behind a fast pointer.
-private struct Rail: View {
+///
+/// Internal rather than private for two readers: `WelcomePane`, whose legend
+/// column keeps this rail's rhythm, and the test that holds `isLit`.
+struct Rail: View {
     @ObservedObject var vm: NotchViewModel
     /// The run of content tabs people move between.
     let tabs: [NotchViewModel.Tab]
@@ -936,6 +1076,28 @@ private struct Rail: View {
     var footer: [NotchViewModel.Tab] = []
 
     @State private var hovered: NotchViewModel.Tab?
+
+    /// The least room between the run of content tabs and Settings below it.
+    /// `WelcomePane` holds its Settings legend down with the same gap, so the
+    /// line stays level with the icon on a body that leaves no more than this.
+    static let footerGap: CGFloat = 10
+
+    /// Whether `tab`'s chip is drawn chosen — its fill, its filled glyph, its
+    /// edge — and carries the selected trait.
+    ///
+    /// Not while the welcome is up. The model leaves `tab` on Music underneath
+    /// it, so that Get Started lands there, and the chip used to follow `tab`
+    /// alone: the rail lit Music over a pane that was not Music, and VoiceOver
+    /// said "Music, selected" on the welcome (H-020). The welcome is not a tab,
+    /// so no tab is chosen while it shows.
+    static func isLit(_ tab: NotchViewModel.Tab, selected: NotchViewModel.Tab, welcoming: Bool) -> Bool {
+        !welcoming && tab == selected
+    }
+
+    private func isLit(_ tab: NotchViewModel.Tab) -> Bool {
+        Self.isLit(tab, selected: vm.tab, welcoming: vm.isShowingWelcome)
+    }
+
     /// Read for one thing: whether Settings wears the mark that says a newer
     /// Isla is out. Set only by a check the user ran or turned on.
     @ObservedObject private var updates = UpdateCheck.shared
@@ -944,7 +1106,7 @@ private struct Rail: View {
         VStack(spacing: NotchGeometry.railSpacing) {
             ForEach(tabs) { icon(for: $0) }
             if !footer.isEmpty {
-                Spacer(minLength: 10)
+                Spacer(minLength: Self.footerGap)
                 ForEach(footer) { icon(for: $0) }
             }
         }
@@ -953,6 +1115,10 @@ private struct Rail: View {
         // top, settings held to the bottom by the gap between them.
         .frame(height: vm.geometry.standardContentHeight, alignment: .center)
         .frame(maxHeight: .infinity, alignment: .top)
+        // The five tabs together, under one name, and apart from the pane —
+        // see the pane's own group in `NotchContentView.panes`.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(localized("Tabs"))
     }
 
     @ViewBuilder
@@ -971,7 +1137,7 @@ private struct Rail: View {
                 // replace effect was tried and withdrawn the same day: it takes
                 // a third of a second, and a rail that answers a click a third
                 // of a second late reads as a rail catching up.
-                .symbolVariant(vm.tab == tab ? .fill : .none)
+                .symbolVariant(isLit(tab) ? .fill : .none)
                 .islandFont(.subhead)
                 .frame(width: 30, height: vm.geometry.railIconHeight)
                 .background(
@@ -985,12 +1151,12 @@ private struct Rail: View {
                     // hovered the same colour with no edge on either.
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .strokeBorder(
-                            Theme.selectedChipBorder.opacity(vm.tab == tab ? 1 : 0),
+                            Theme.selectedChipBorder.opacity(isLit(tab) ? 1 : 0),
                             lineWidth: 1.5
                         )
                         .allowsHitTesting(false)
                 )
-                .foregroundStyle(vm.tab == tab ? Color.white : Theme.tertiary)
+                .foregroundStyle(isLit(tab) ? Color.white : Theme.tertiary)
                 .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                 // Nothing the shell animates reaches the glyph and its well: the
                 // pane change rides the shell's pane curve, and this would
@@ -1000,10 +1166,12 @@ private struct Rail: View {
         }
         .buttonStyle(PanelButtonStyle())
         .overlay(alignment: .topTrailing) {
-            // The one badge in the app: a newer version, found by a check the
-            // user asked for. A dot rather than a count, in the chrome's own
-            // white. It says "look here", and Settings says what.
-            if tab == .settings, updates.hasUpdate {
+            // The app's badge, one primitive for two reasons: a newer version,
+            // found by a check the user asked for, and a screenshot that
+            // arrived while another tab was showing (it used to switch the tab
+            // under the user). A dot rather than a count, in the chrome's own
+            // white. It says "look here", and the pane says what.
+            if hasBadge(tab) {
                 Circle()
                     .fill(Color.white)
                     .frame(width: 5, height: 5)
@@ -1014,8 +1182,8 @@ private struct Rail: View {
         }
         .help(tab.title)
         .accessibilityLabel(tab.title)
-        .accessibilityValue(tab == .settings && updates.hasUpdate ? localized("Update available") : "")
-        .accessibilityAddTraits(vm.tab == tab ? [.isButton, .isSelected] : .isButton)
+        .accessibilityValue(badgeValue(tab))
+        .accessibilityAddTraits(isLit(tab) ? [.isButton, .isSelected] : .isButton)
         .onHover { inside in
             if inside {
                 hovered = tab
@@ -1026,9 +1194,47 @@ private struct Rail: View {
     }
 
     @MainActor
+    private func hasBadge(_ tab: NotchViewModel.Tab) -> Bool {
+        switch tab {
+        case .settings: return updates.hasUpdate
+        case .shelf: return vm.shelfHasNew
+        default: return false
+        }
+    }
+
+    @MainActor
+    private func badgeValue(_ tab: NotchViewModel.Tab) -> String {
+        guard hasBadge(tab) else { return "" }
+        return tab == .shelf ? localized("New screenshot") : localized("Update available")
+    }
+
+    @MainActor
     private func fill(for tab: NotchViewModel.Tab) -> Color {
-        if vm.tab == tab { return Theme.selectedChip }
+        if isLit(tab) { return Theme.selectedChip }
         return hovered == tab ? Theme.surface : .clear
+    }
+}
+
+/// The island's one accessibility element: a button called Isla. Built by
+/// `NotchContentView.islandAccessibility(open:)`, which decides the value, the
+/// hint and what a press does; this only says them.
+///
+/// The children are ignored rather than combined: what the wings draw — a
+/// cover, bars, a charge level — is in the value already, and a folded wing is
+/// drawn at nothing, so combining would describe a pill that is not there.
+private struct IslandAccessibility: ViewModifier {
+    let value: String
+    let hint: String
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(ProductIdentity.displayName)
+            .accessibilityValue(value)
+            .accessibilityHint(hint)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default, action)
     }
 }
 

@@ -37,11 +37,18 @@ final class NotchPanel: NSPanel {
         NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 1)
     }
 
-    /// Physical keys, so the shortcuts survive a keyboard layout change. A
-    /// Cyrillic layout answers ⌘C with "с" (U+0441), not "c" (U+0063) — they
-    /// are indistinguishable on screen and unequal to every string comparison,
-    /// which is why matching on characters quietly fails exactly for the
-    /// person typing Russian. Key codes name the key, not what it prints.
+    /// Physical keys, the fallback for a layout that prints no Latin letter.
+    /// A Cyrillic layout answers ⌘C with "с" (U+0441), not "c" (U+0063) —
+    /// they are indistinguishable on screen and unequal to every string
+    /// comparison, which is why matching on characters alone quietly fails
+    /// exactly for the person typing Russian. Key codes name the key, not
+    /// what it prints.
+    ///
+    /// Only the fallback, though: they name the key by where it sits on a US
+    /// keyboard, and a Latin layout moves the letters. On German QWERTZ the
+    /// key labelled Z is key code 16, so matching code 6 left ⌘Z dead and made
+    /// ⌘Y undo; on AZERTY ⌘A did not select all (F-039). A layout that prints
+    /// a Latin letter is matched by that letter — see `editingCommand`.
     private enum Key {
         static let a: UInt16 = 0
         static let z: UInt16 = 6
@@ -49,6 +56,31 @@ final class NotchPanel: NSPanel {
         static let c: UInt16 = 8
         static let v: UInt16 = 9
         static let escape: UInt16 = 53
+    }
+
+    /// What an editing key asks for.
+    enum EditingCommand: Equatable {
+        case selectAll, cut, copy, paste, undo, redo
+        /// ⇧⌘C. Raised through `onCopyTranslation` before anything else,
+        /// because nothing in the responder chain owns the translation: it is
+        /// read-only text in a column beside the field that has the caret.
+        case copyTranslation
+
+        /// The responder-chain action, the one the Edit menu would send.
+        /// Undo and redo are informal: nothing declares them, the Edit menu
+        /// just names the selector and lets the chain find an undo manager.
+        /// The translation's fallback is a plain copy, which is what ⇧⌘C did
+        /// before it meant anything.
+        var action: Selector {
+            switch self {
+            case .selectAll: return #selector(NSText.selectAll(_:))
+            case .cut: return #selector(NSText.cut(_:))
+            case .copy, .copyTranslation: return #selector(NSText.copy(_:))
+            case .paste: return #selector(NSText.paste(_:))
+            case .undo: return Selector(("undo:"))
+            case .redo: return Selector(("redo:"))
+            }
+        }
     }
 
     /// ⌘A, ⌘X, ⌘C, ⌘V and ⌘Z are ordinarily key equivalents of the Edit menu,
@@ -78,7 +110,61 @@ final class NotchPanel: NSPanel {
     /// stays open.
     var escapeHandled: (() -> Bool)?
 
+    /// Raised on ⇧⌘C, before the source field hears of it. Returns true when
+    /// a translation was there to copy (or was there, but answers text since
+    /// edited, which nothing should copy). False — not on Translate, or no
+    /// answer yet — lets the key fall back to an ordinary copy.
+    ///
+    /// After ⌃⌥⌘T the keyboard loop of copy, hot key, read, copy broke at the
+    /// last step: ⌘C and ⇧⌘C both copied the *source*, the only text with a
+    /// caret, and the translation took the mouse (H-018). ⌘Return was the
+    /// other candidate and was rejected: in a translator it reads as
+    /// "translate", not "copy".
+    var onCopyTranslation: (() -> Bool)?
+
+    /// True from a left-button press on this panel until its release.
+    ///
+    /// A press that began here owns the drag that follows it, wherever the
+    /// pointer goes. Interactivity used to be decided by where the pointer
+    /// *was*, so overshooting the scrubber or the Panel Width slider past the
+    /// panel's edge made the window click-through mid-drag and, 0.32 s later,
+    /// folded the panel with the slider's change still uncommitted (F-028).
+    /// Read through `pressIsHeld()`, never directly: see there.
+    private(set) var isPressLatched = false
+
+    /// Whether the primary button is physically down. A seam so a test can
+    /// press without a mouse.
+    var primaryButtonIsDown: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+
+    /// Whether a press that began on this panel is still being held.
+    ///
+    /// The latch alone cannot be trusted to end. A control that tracks the
+    /// mouse in its own loop dequeues the release itself, so it never passes
+    /// through `sendEvent`; nor does a release the window server delivers
+    /// elsewhere. Left standing, the latch would claim the *next* press,
+    /// wherever it began: the window would turn interactive under a drag in
+    /// another app, and a title bar dragged through the notch would be waved
+    /// in by the very check that keeps it out. So the button is asked as well,
+    /// and a press found to be over is forgotten, not merely masked — the same
+    /// lesson as `ShelfDragSource`'s expiry: no latch that eats clicks may
+    /// depend on one event arriving.
+    func pressIsHeld() -> Bool {
+        guard isPressLatched else { return false }
+        guard primaryButtonIsDown() else {
+            isPressLatched = false
+            return false
+        }
+        return true
+    }
+
     override func sendEvent(_ event: NSEvent) {
+        // First, ahead of every early return below, so no path through here
+        // can latch a press and then skip its release.
+        switch event.type {
+        case .leftMouseDown: isPressLatched = true
+        case .leftMouseUp: isPressLatched = false
+        default: break
+        }
         if event.type == .keyDown, event.keyCode == Key.escape {
             // An input method that is mid-composition owns Escape: it cancels
             // the composition, and the panel must not close underneath
@@ -93,34 +179,92 @@ final class NotchPanel: NSPanel {
             onEscape?()
             return
         }
-        if event.type == .keyDown, editingAction(for: event) != nil, perform(event) { return }
+        if let command = Self.editingCommand(for: event) {
+            if command == .copyTranslation, onCopyTranslation?() == true { return }
+            if perform(command) { return }
+        }
         // Before `super`, so the window is already key by the time the click
         // reaches the field and places a caret.
         if event.type == .leftMouseDown { onPress?() }
         super.sendEvent(event)
     }
 
-    private func editingAction(for event: NSEvent) -> Selector? {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    /// The editing command a key press asks for, or nil for every other press.
+    static func editingCommand(for event: NSEvent) -> EditingCommand? {
+        // `characters` raises on anything but a key event.
+        guard event.type == .keyDown else { return nil }
+        return editingCommand(
+            keyCode: event.keyCode,
+            characters: event.characters,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            flags: event.modifierFlags
+        )
+    }
+
+    /// The editing command for a key, by its parts, so a test can name a
+    /// layout without having one installed.
+    ///
+    /// Only ⌘, ⌃, ⌥ and ⇧ are read. The device-independent mask used to be
+    /// compared exactly, and it carries Caps Lock, so with Caps Lock latched
+    /// ⌘A, ⌘X, ⌘C, ⌘V and ⌘Z all failed the test and did nothing (G-006).
+    /// ⌥ and ⌃ still disqualify a press: ⌥⌘C and ⌃⌘C mean something else to
+    /// somebody.
+    ///
+    /// The letter is the one the press printed, in order of trust: what ⌘
+    /// produced (`characters`), which honours "Dvorak – QWERTY ⌘", the layout
+    /// that switches to QWERTY while ⌘ is held and so means ⌘C on the key that
+    /// otherwise prints J; then the layout's own letter; and only when neither
+    /// is a Latin letter, the key's position, which keeps Cyrillic and every
+    /// other non-Latin layout working as it did. A Latin letter that is not an
+    /// editing key — QWERTZ's Y, at US Z's position — is no command at all,
+    /// never the position's.
+    static func editingCommand(
+        keyCode: UInt16,
+        characters: String?,
+        charactersIgnoringModifiers: String?,
+        flags: NSEvent.ModifierFlags
+    ) -> EditingCommand? {
+        let flags = flags.intersection([.command, .control, .option, .shift])
         guard flags.subtracting(.shift) == .command else { return nil }
-        switch event.keyCode {
-        case Key.a: return #selector(NSText.selectAll(_:))
-        case Key.x: return #selector(NSText.cut(_:))
-        case Key.c: return #selector(NSText.copy(_:))
-        case Key.v: return #selector(NSText.paste(_:))
-        // Undo and redo are informal: nothing declares them, the Edit menu just
-        // names the selector and lets the chain find an undo manager.
-        case Key.z: return flags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:"))
+        let shifted = flags.contains(.shift)
+
+        let letter = latinLetter(characters) ?? latinLetter(charactersIgnoringModifiers)
+        let key: Character?
+        if let letter {
+            key = letter
+        } else {
+            switch keyCode {
+            case Key.a: key = "a"
+            case Key.x: key = "x"
+            case Key.c: key = "c"
+            case Key.v: key = "v"
+            case Key.z: key = "z"
+            default: key = nil
+            }
+        }
+        switch key {
+        case "a": return .selectAll
+        case "x": return .cut
+        case "c": return shifted ? .copyTranslation : .copy
+        case "v": return .paste
+        case "z": return shifted ? .redo : .undo
         default: return nil
         }
+    }
+
+    /// The first character, lowercased, when it is an ASCII letter. Shift and
+    /// Caps Lock both arrive as a capital, which is the same key.
+    private static func latinLetter(_ text: String?) -> Character? {
+        guard let first = text?.first, first.isASCII, first.isLetter else { return nil }
+        return Character(first.lowercased())
     }
 
     /// Dispatched from our own first responder, not through `NSApp`: a
     /// nil-targeted `sendAction` starts at `NSApp.keyWindow`, and an inactive
     /// app reports that as nil however key this panel actually is.
-    private func perform(_ event: NSEvent) -> Bool {
-        guard let action = editingAction(for: event), let responder = firstResponder else { return false }
-        return responder.tryToPerform(action, with: self)
+    private func perform(_ command: EditingCommand) -> Bool {
+        guard let responder = firstResponder else { return false }
+        return responder.tryToPerform(command.action, with: self)
     }
 
     init(contentRect: NSRect) {

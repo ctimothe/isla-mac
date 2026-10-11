@@ -158,6 +158,40 @@ transitions.
 > the island; arrivals during a drag are no longer counted. Held by
 > `OpenOnClickTests` and `HoverRectTests`.
 
+> **Amended 2026-10-11 — the keyboard can end what the keyboard opened.** A
+> pinned panel (⌃⌥⌘I, Show Isla, ⌃⌥⌘L, the welcome, the island's
+> accessibility action) promised to close on Escape and did not: the panel is
+> key only while Translate asks for the keyboard, so Escape went to the app
+> underneath. And ⌘-Tab left it standing over the next app's menu bar. Now,
+> while a pin stands and the panel is not key, Isla holds plain Escape through
+> a transient Carbon hot key (no permission), registered when the pin starts
+> and given up the moment it ends, however it ends. Escape then does what it
+> does in a key panel: a pane that wants it first, the fold second. It is not
+> held while the panel is key (the panel reads Escape itself, after any input
+> method), while Isla is the active app (Quick Look and AirDrop windows answer
+> Escape), or over the lock screen. Another app coming to the front ends a pin
+> the way a click in another app already did; Isla's own activation does not.
+> Key status is unchanged: the panel still never becomes key outside Translate
+> and the shortcut recorder. Making keyboard-opened panels key was the other
+> route and was not taken here; it is owner decision 1. The cost is that the
+> one Escape pressed while a pin stands goes to Isla rather than to the app in
+> front, and that a Quick Look or AirDrop window closing ends the pin, because
+> macOS hands activation back to the previous app. Held by
+> `PinnedKeyboardTests`.
+
+> **Amended 2026-10-11 — arriving at an open panel keeps its tab.** The
+> 2026-09-10 arrival rule above both dropped the pin and selected Music, on
+> every arrival. Music is the right landing for arriving at the *closed*
+> island — it is for glancing at a track, and the other tabs are somewhere to
+> go once it is open — and that is unchanged. But ⌃⌥⌘I opens the panel on
+> whatever tab was left, with the pointer elsewhere, and the hand then
+> reaching for a Clipboard row was an arrival too: the pane swapped to Music
+> under it. An arrival on a panel that is already open now only drops the pin
+> (which also gives back the Escape it held); the tab stays where it is.
+> Dropping the Music landing altogether was rejected, because it would reverse
+> the closed-island behaviour. Held by
+> `OpenOnClickTests.testArrivingOnAPanelTheKeyboardOpenedKeepsItsTab`.
+
 > **Amended 2026-08-25.** The standard content size is now `480…620 × 208 pt`,
 > defaulting to `560`, chosen from Settings. The fixed maximum window is
 > unchanged at `700 × 444 pt` and is cut for the widest body: a narrower
@@ -309,6 +343,68 @@ transitions.
 > `OnlineTranslationTests`. A pair the framework offers but has not downloaded
 > names its language and opens System Settings' Translation Languages.
 
+> **Amendment 2026-10-11 — the one-line lyric reads ahead.** A lyric line lit
+> exactly as the voice arrives is exact to the clock and late to a person: a
+> singer reads a line before they sing it. The island's closed one-line
+> caption therefore turns to the next line about 0.5 s before it is sung,
+> drawn unswept like any upcoming line, for a transition with no honoured end
+> (continuous singing). The turn is `min(readAhead, 0.45 × the line it leaves)`
+> early and never before that line's final word starts; a transition with an
+> honoured end (a silence of 1.5 s or more), an intro, an outro, the stage,
+> the lock card, the Shortcuts "line playing right now" action and every
+> word-timed highlight are unchanged. It is a pure function of the clock
+> position — `LyricSweep.readingMoment` — so a seek or a pause gives the answer
+> playing through would have, and the boundary wakes
+> (`LyricsCoordinator.registerBoundaries`) are armed for it so the caption
+> turns on time. **Settings > Music > Show next line early** (Off, 0.25 s,
+> 0.5 s default, 0.75 s; `lyrics.readAhead`) sets it. Display only; nothing
+> leaves the machine. The lab's L9 case measures it over the corpus.
+>
+> **Amended 2026-10-11 (ly/READ-02) — the default is Auto, not a fixed 0.5 s.**
+> After trying the fixed 0.5 s the owner found it perfect on a slow ballad of
+> long lines and a bit much elsewhere, and asked that it never go below 0.30 s.
+> The setting is now Off, **Auto (default)**, 0.3 s, 0.5 s (0.25 s and 0.75 s
+> are withdrawn). Auto turns `clamp(0.30 + 0.004 × n, 0.30, 0.50)` seconds
+> early, `n` being the visible characters (`Character` count, trimmed) of the
+> line turned *to*: 0.30 s for a few words, 0.42 s for thirty characters,
+> 0.50 s from fifty. Every limit above still applies on top of it, so the 45
+> percent cap may pull a single transition under 0.30 s when the line it
+> leaves is under about 0.67 s long — the cap protects the line being sung and
+> outranks the floor. `lyrics.readAhead`: an absent key is Auto, a stored 0 is
+> Off, and any other stored number snaps to the nearer of 0.3 and 0.5 (an old
+> 0.25 reads as 0.3, 0.75 as 0.5, 0.5 as a fixed 0.5).
+>
+> **Amended 2026-10-11 (ly/VERSION-01) — a lyric timed for a longer version
+> says so, and a line can be synced by hand.** LRCLIB holds one timeline per
+> recording family and copies it onto every release, so a candidate's listed
+> length is only the uploader's metadata: for *We Are The People* (Yandex
+> Music, 248 s) all twenty candidates carried the same stamps, made for a cut of
+> about 267 s, and the lines ran about ten seconds behind the voice with
+> nothing to say so. (1) **Detection.** An online timeline carries its
+> `overrun` — the last sung stamp minus the track's length, measured on the
+> whole answer before the lines past the end are dropped — and is *timed for a
+> longer version* above `OnlineLyrics.durationTolerance` (3 s). It is nil when
+> the length is unknown and for a file the listener imported, which are never
+> flagged; it is kept in the online cache (format 3, so a hit cached without it
+> is asked about once more). (2) **Ranking.** Among candidates one that fits
+> wins; among those that overrun the smallest overrun wins, then the closest
+> listed length; the exact query's answer wins a tie. (3) **Say it.** While the
+> timeline overruns and the track has no correction of its own, the lyrics
+> stage shows one inline notice row (the import-error row's style; it yields to
+> an import error, never a toast): "These lyrics are timed for a longer version
+> of the song and may run late. Right-click the line being sung and choose Sync
+> Here." The caption and the lock card are unchanged. (4) **Fix it.** Every
+> stage row offers **Sync Here** — a context-menu item and a VoiceOver custom
+> action of the same name — which sets this track's delay so that the line is
+> current at that moment, `position + lead(without the track layer) − line.at`
+> (`LyricSweep.syncDelay`; positive is later, the global Lyric Delay stays in
+> force) and persists it through the per-track offset store. A nonzero
+> correction clears the notice; Reset brings it back. The lock card offers no
+> such item. The per-track range, for Sync Here and for the Lyrics Earlier and
+> Later steppers, is **±45 s** (was ±1.5 s); the global Lyric Delay keeps ±3 s.
+> Display only: nothing leaves the machine. The lab's L10 case counts, over the
+> corpus, how many records are stamped past their own length.
+
 ### Notes and Teleprompter
 
 > **Withdrawn 2026-08-22.** Both features were removed from the product by
@@ -376,6 +472,24 @@ transitions.
 > row is the lyrics shortcut; Translate's is listed in Settings with the others.
 > Held by `HotKeyTests`, `FirstRunTests` and `LyricRoutesTests`.
 
+> **Amended 2026-10-11 — the welcome names the tabs (H-020).** The welcome
+> named none of the five tabs, said "click it to open" on a panel that had
+> already opened itself, left ⌃⌥⌘T out, and the rail lit Music over it, so
+> VoiceOver read "Music, selected" on a pane that is not a tab. It is two
+> columns now. On the left, one line level with each rail icon, in the rail's
+> own row height, gap and footer gap: what's playing with the lyrics shortcut,
+> the shelf, the clipboard kept in memory, the translate shortcut, and privacy,
+> shortcuts and Quit beside Settings. On the right: Isla is running; there is
+> no Dock or menu-bar icon, and a click on the notch or the open shortcut
+> brings it back; nothing leaves the Mac unless it is turned on; Get Started.
+> Every shortcut is the live binding, and a cleared one is left out of its
+> line rather than printed as a gap. While the welcome shows no rail tab is
+> lit or selected — `tab` still sits on Music underneath, so Get Started lands
+> there. The second paragraph of the 2026-09-23 shortcuts amendment, that the
+> welcome lists the lyrics shortcut and not Translate's, is withdrawn by this
+> one. Held by `FirstRunTests`, which measures both columns in both languages
+> at the narrowest panel against the 154 pt body.
+
 > **Amended 2026-09-23 — what can be found, and switched off.** The lyrics page
 > offers the way out of its own dead ends. With lyrics off it offers **Show
 > Lyrics**. When no local file matched and the online lookup is off it offers
@@ -388,6 +502,37 @@ transitions.
 > Spotify's reason: an account not admitted while the app is in development
 > mode, Premium required, or other. Before, the heart vanished without a
 > word. Held by `FindabilityTests`.
+>
+> **Amended 2026-10-11 — a Spotify refusal is not for life, and Premium is
+> not the listener's.** The sentence above stands with two corrections.
+> Spotify's February 2026 rules put the Premium requirement on the
+> developer who registered a Development Mode app, so the Premium reason
+> now reads "Spotify refused Liked Songs and named Premium. Spotify asks
+> this of Isla's own registration, so your plan may not be the cause."
+> instead of telling the listener to upgrade. And a refusal no longer lasts
+> until relaunch: the account asks again ten minutes after a 403, and a
+> disconnect or a new grant clears it, so the note never outlives the
+> account it was about. The heart's lookup moved to Spotify's
+> `/me/library` endpoints with track URIs on the same day, because the old
+> saved-tracks endpoints were retired for Development Mode apps on
+> 2026-03-09. Held by `SpotifyAccountTests` and `FindabilityTests`.
+>
+> **Amended 2026-10-11 — lyrics off means off.** "Lyrics are off" and its
+> Show Lyrics offer now mean only that the switch is off. A track that
+> cannot be looked up by any source says so instead, with no offer: a
+> stream, radio station or browser tab with no length reads "No lyrics for
+> live audio." once it has played for 1.5 s without one (players publish
+> the title before the length, so every ordinary song passes through "no
+> length" on its way in), and a blank title reads "This track has no title
+> to look up." Before, both said "Lyrics are off." beside a Show Lyrics
+> button that rewrote an already-true switch and could not work. The miss
+> copy is one plain vocabulary that still says what was searched: "No
+> lyrics on this Mac." with the online lookup off (Look Up Online is still
+> offered beside it on the page), "No lyrics found for this song." with it
+> on, and "Can't read the lyrics file for this song." for a file that is
+> there but unreadable. The lock card shows the same copy and offers
+> nothing: a network switch is not turned on over the shield. Held by
+> `LyricsCoordinatorTests`, `LyricCaptionCopyTests` and `FindabilityTests`.
 
 > **Amended 2026-09-23 — the island without music.** The charger going in
 > and a Bluetooth audio output appearing each grow the pill out of the notch

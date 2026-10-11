@@ -13,10 +13,66 @@ final class AmbientMomentTests: XCTestCase {
     func testOnlyTheMomentPowerArrivesIsAnEvent() {
         let battery = AmbientWatch.Power(onExternalPower: false, level: 40)
         let charging = AmbientWatch.Power(onExternalPower: true, level: 40)
-        XCTAssertTrue(AmbientWatch.pluggedIn(previous: battery, now: charging))
-        XCTAssertFalse(AmbientWatch.pluggedIn(previous: charging, now: charging), "a level change while charging")
-        XCTAssertFalse(AmbientWatch.pluggedIn(previous: charging, now: battery), "unplugging")
-        XCTAssertFalse(AmbientWatch.pluggedIn(previous: nil, now: charging), "a launch while plugged in")
+        let now = Date()
+        func pluggedIn(_ previous: AmbientWatch.Power?, _ next: AmbientWatch.Power) -> Bool {
+            AmbientWatch.pluggedIn(previous: previous, now: next, lastAnnounced: nil, at: now)
+        }
+        XCTAssertTrue(pluggedIn(battery, charging))
+        XCTAssertFalse(pluggedIn(charging, charging), "a level change while charging")
+        XCTAssertFalse(pluggedIn(charging, battery), "unplugging")
+        XCTAssertFalse(pluggedIn(nil, charging), "a launch while plugged in")
+    }
+
+    /// A loose USB-C dock drops and restores power every few seconds (G-033).
+    /// Each restore is a real plug-in edge, and each one re-grew the pill. The
+    /// charger now keeps the quiet window headphones already had.
+    func testAFlappingChargerIsAnnouncedOnce() {
+        let battery = AmbientWatch.Power(onExternalPower: false, level: 40)
+        let charging = AmbientWatch.Power(onExternalPower: true, level: 40)
+        let t0 = Date()
+        XCTAssertFalse(AmbientWatch.pluggedIn(
+            previous: battery, now: charging, lastAnnounced: t0, at: t0.addingTimeInterval(5), quiet: 30
+        ), "the same charger five seconds later is not news")
+        XCTAssertTrue(AmbientWatch.pluggedIn(
+            previous: battery, now: charging, lastAnnounced: t0, at: t0.addingTimeInterval(31), quiet: 30
+        ), "past the quiet window it is a new plug-in")
+        XCTAssertFalse(AmbientWatch.pluggedIn(
+            previous: charging, now: charging, lastAnnounced: t0, at: t0.addingTimeInterval(31), quiet: 30
+        ), "the quiet window never turns a non-edge into an event")
+        XCTAssertFalse(AmbientWatch.pluggedIn(
+            previous: battery, now: charging, lastAnnounced: t0, at: t0.addingTimeInterval(5)
+        ), "the default window is the headphones' one")
+    }
+
+    /// Open the panel during a moment and close it: the pill must not snap
+    /// back to "Charging" for whatever was left of its 2.2 s (F-033). Opening
+    /// ends the moment and a track peek alike, inside the open's own
+    /// transaction, so they leave with it.
+    func testOpeningThePanelEndsTheMoment() throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        vm.ambient = .charging(level: 80, isCharging: true)
+        vm.isPeeking = true
+
+        vm.isOpen = false
+        XCTAssertNotNil(vm.ambient, "writing false over false is not an open")
+        XCTAssertTrue(vm.isPeeking)
+
+        vm.isOpen = true
+        XCTAssertNil(vm.ambient, "the moment ends when the panel opens")
+        XCTAssertFalse(vm.isPeeking, "and so does a track peek")
+
+        vm.isOpen = false
+        XCTAssertNil(vm.ambient, "nothing resurfaces on the close")
+        XCTAssertFalse(vm.isPeeking)
+    }
+
+    /// A moment under a resting pointer waits for it, one second at a time,
+    /// rather than folding out from under someone reading it.
+    func testAMomentWaitsForThePointer() {
+        XCTAssertEqual(NotchController.ambientRecheck(pointerInside: true), 1.0)
+        XCTAssertNil(NotchController.ambientRecheck(pointerInside: false))
     }
 
     func testOnlyNewlyAppearedHeadphonesAreAnnounced() {
@@ -61,11 +117,13 @@ final class AmbientMomentTests: XCTestCase {
     func testTheMomentKeepsTheTrackPeeksRestraint() {
         func allowed(
             switchOn: Bool = true, isOpen: Bool = false, isDropTargeted: Bool = false, isLocked: Bool = false,
-            pointerInside: Bool = false, pointerUnderGrownPill: Bool = false, screensAsleep: Bool = false
+            pointerInside: Bool = false, pointerUnderGrownPill: Bool = false, screensAsleep: Bool = false,
+            quiet: Bool = false
         ) -> Bool {
             NotchController.ambientAllowed(
                 switchOn: switchOn, isOpen: isOpen, isDropTargeted: isDropTargeted, isLocked: isLocked,
-                pointerInside: pointerInside, pointerUnderGrownPill: pointerUnderGrownPill, screensAsleep: screensAsleep
+                pointerInside: pointerInside, pointerUnderGrownPill: pointerUnderGrownPill,
+                screensAsleep: screensAsleep, quiet: quiet
             )
         }
         XCTAssertTrue(allowed())
@@ -76,6 +134,36 @@ final class AmbientMomentTests: XCTestCase {
         XCTAssertFalse(allowed(pointerInside: true), "the pointer is on the island")
         XCTAssertFalse(allowed(pointerUnderGrownPill: true), "the pill would grow under a still cursor")
         XCTAssertFalse(allowed(screensAsleep: true), "nobody can see it")
+        XCTAssertFalse(allowed(quiet: true), "a film, a talk or a projector is showing")
+    }
+
+    /// A Keynote talk mirrored to a projector, a laptop presenting through
+    /// HDMI with its lid shut, or a full-screen film must not get a 2.2 s pill
+    /// with a song title or a battery percentage on the audience's screen
+    /// (K-003). The resting pill stays — only the transient moments go quiet.
+    func testTransientMomentsGoQuietWhereAnAudienceMayBeWatching() {
+        func quiet(
+            fullScreen: Bool = false, mirrored: Bool = false, soleExternal: Bool = false
+        ) -> Bool {
+            NotchController.momentsQuiet(
+                fullScreenFrontmost: fullScreen, displayMirrored: mirrored, soleExternalDisplay: soleExternal
+            )
+        }
+        XCTAssertFalse(quiet(), "an ordinary desktop")
+        XCTAssertTrue(quiet(fullScreen: true), "a full-screen app is frontmost")
+        XCTAssertTrue(quiet(mirrored: true), "a projector mirrors the screen")
+        XCTAssertTrue(quiet(soleExternal: true), "a closed laptop driving only an external display")
+    }
+
+    /// A Mac with no battery (a Mini, a Studio) always has only external
+    /// displays, and that is a desk and not a presentation.
+    func testASoleExternalDisplayIsOnlyAClosedLaptop() {
+        XCTAssertTrue(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [false], hasInternalBattery: true))
+        XCTAssertTrue(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [false, false], hasInternalBattery: true))
+        XCTAssertFalse(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [false], hasInternalBattery: false))
+        XCTAssertFalse(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [true, false], hasInternalBattery: true))
+        XCTAssertFalse(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [true], hasInternalBattery: true))
+        XCTAssertFalse(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [], hasInternalBattery: true), "no displays reported")
     }
 
     func testThePillGrowsOnlyAsFarAsTheMomentNeeds() {

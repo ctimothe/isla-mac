@@ -42,8 +42,15 @@ struct PlayerState {
     var duration: TimeInterval
     var position: TimeInterval
     var artworkURL: URL?
-    /// Identity of the track, used to decide when artwork must be refetched.
-    var key: String { "\(app.rawValue)|\(title)|\(artist)|\(album)" }
+    /// False when the source said nothing about where the song is. Music's
+    /// own announcement carries no position (`PlayerAnnouncement`), and
+    /// reading its absence as 0:00 sent a song paused at 2:00 back to the
+    /// start on screen.
+    var positionKnown = true
+    // No `key` of its own any more. It was "app|title|artist|album" against
+    // the helper route's "pid|title|artist|album", and the mismatch made every
+    // hand-over between the two routes re-announce an unchanged song. A song
+    // found here is keyed by `MediaController.apply`, like every other.
 }
 
 enum PlayerBridge {
@@ -65,25 +72,49 @@ enum PlayerBridge {
 
     static func stateReply(of app: PlayerApp, completion: @escaping (StateReply) -> Void) {
         guard app.isRunning else { return completion(.empty) }
-        runScript(Script.state(for: app)) { descriptor in
+        runScript(Script.state(for: app), app: app) { descriptor in
             completion(descriptor?.stringValue.map { interpret($0, app: app) } ?? .unknown)
         }
     }
 
-    static func state(of app: PlayerApp, completion: @escaping (PlayerState?) -> Void) {
-        stateReply(of: app) { reply in
-            if case let .loaded(state) = reply { completion(state) } else { completion(nil) }
+    /// What Spotify said when asked which track it is playing.
+    ///
+    /// Three answers, not two. An episode, an ad or a local file is a real
+    /// answer with no catalogue track behind it; read as "no answer", it was
+    /// asked again at 1, 2, 4 and 8 seconds, five Apple Events for an id that
+    /// does not exist (K-014). And the name and artist come back with the id,
+    /// because MediaRemote trails Spotify by about a second: right after a
+    /// skip the script names the next song while the island still shows the
+    /// last one, and the id must not attach to the wrong title (K-016).
+    enum SpotifyTrackLookup: Equatable {
+        case track(id: String, name: String, artist: String)
+        case notATrack
+        case noAnswer
+
+        private static let trackPrefix = "spotify:track:"
+
+        static func parse(_ raw: String?) -> SpotifyTrackLookup {
+            guard let raw, !raw.isEmpty else { return .noAnswer }
+            let parts = raw.components(separatedBy: "\u{1}")
+            let uri = parts[0]
+            if uri.hasPrefix(trackPrefix) {
+                let id = String(uri.dropFirst(trackPrefix.count))
+                guard !id.isEmpty else { return .noAnswer }
+                return .track(
+                    id: id,
+                    name: parts.count > 1 ? parts[1] : "",
+                    artist: parts.count > 2 ? parts[2] : ""
+                )
+            }
+            return uri.hasPrefix("spotify:") ? .notATrack : .noAnswer
         }
     }
 
-    /// The Spotify catalogue id of the current track ("spotify:track:…" →
-    /// the bare id). The licensed broker can use it to refine a match.
-    static func spotifyTrackID(completion: @escaping @MainActor (String?) -> Void) {
-        runScript(Script.spotifyTrackID) { result in
-            MainActor.assumeIsolated {
-                let raw = result?.stringValue ?? ""
-                completion(raw.hasPrefix("spotify:track:") ? String(raw.dropFirst("spotify:track:".count)) : nil)
-            }
+    /// The Spotify catalogue id of the current track, with the name and
+    /// artist it belongs to. The lock-card heart is its only reader.
+    static func spotifyTrackID(completion: @escaping @MainActor (SpotifyTrackLookup) -> Void) {
+        runScript(Script.spotifyTrackID, app: .spotify) { result in
+            MainActor.assumeIsolated { completion(.parse(result?.stringValue)) }
         }
     }
 
@@ -93,7 +124,7 @@ enum PlayerBridge {
         of app: PlayerApp,
         completion: @escaping @MainActor (TimeInterval?) -> Void
     ) {
-        runScript(Script.position(of: app), priority: .pollable) { result in
+        runScript(Script.position(of: app), app: app, priority: .pollable) { result in
             MainActor.assumeIsolated {
                 completion(result?.stringValue.flatMap { TimeInterval($0.replacingOccurrences(of: ",", with: ".")) })
             }
@@ -101,23 +132,88 @@ enum PlayerBridge {
     }
 
     /// Never launches a player: only already-running ones are queried, and a
-    /// playing app wins over a merely-open one.
-    static func currentState(completion: @escaping (PlayerState?) -> Void) {
-        let candidates = PlayerApp.allCases.filter(\.isRunning)
-        guard !candidates.isEmpty else { return completion(nil) }
+    /// playing app wins over a merely-open one. See `choose(replies:…)` for
+    /// how the answers are weighed. `asking` leaves out a player that may not
+    /// be asked now (`MediaController.mayScript`), so its prompt is not
+    /// raised; such a player is *unknown*, not absent, and its own
+    /// `announced` state speaks for it.
+    ///
+    /// The replies are kept whole. This used to read each player through a
+    /// call that turned every non-answer into nil, so a Spotify whose
+    /// Automation was refused (-1743) looked exactly like a Spotify with
+    /// nothing loaded, and a paused Music beside it won (J-027).
+    static func currentState(
+        prefer preferred: PlayerApp? = nil,
+        asking: (PlayerApp) -> Bool = { _ in true },
+        announced: [PlayerApp: PlayerState] = [:],
+        completion: @escaping (PlayerState?) -> Void
+    ) {
+        let running = PlayerApp.allCases.filter(\.isRunning)
+        guard !running.isEmpty else { return completion(nil) }
 
-        var results: [PlayerState] = []
+        var replies: [PlayerApp: StateReply] = [:]
         let group = DispatchGroup()
-        for app in candidates {
+        for app in running {
+            guard asking(app) else {
+                replies[app] = .unknown
+                continue
+            }
             group.enter()
-            state(of: app) { state in
-                if let state { results.append(state) }
+            stateReply(of: app) { reply in
+                replies[app] = reply
                 group.leave()
             }
         }
         group.notify(queue: .main) {
-            completion(results.first(where: \.isPlaying) ?? results.first)
+            completion(choose(replies: replies, announced: announced, prefer: preferred))
         }
+    }
+
+    /// Which player to show, from what each running one answered and what
+    /// each announced on its own.
+    ///
+    /// An announcement stands in only for a player that could not be asked:
+    /// one that answered has said what it is doing now, and one that answered
+    /// "nothing loaded" has nothing loaded. Sound still comes first, and a
+    /// player that answered outranks one that was only heard — but a player
+    /// that could not be asked and announced it was playing beats a paused
+    /// one that could. The other way round is J-027: the paused Music shown
+    /// over a playing Spotify whose Automation had been refused, with
+    /// play/pause driving Music. A player that could not be asked and has
+    /// announced nothing is not a song, so it never wins on its own.
+    static func choose(
+        replies: [PlayerApp: StateReply],
+        announced: [PlayerApp: PlayerState],
+        prefer preferred: PlayerApp?
+    ) -> PlayerState? {
+        // `allCases` order, so the tie-break among paused players stays what
+        // it was: a dictionary's order is not.
+        var answered: [PlayerState] = []
+        var heard: [PlayerState] = []
+        for app in PlayerApp.allCases {
+            switch replies[app] {
+            case let .loaded(state)?: answered.append(state)
+            case .unknown?: if let state = announced[app] { heard.append(state) }
+            case .empty?, nil: break
+            }
+        }
+        return choose(among: answered.filter(\.isPlaying), prefer: preferred)
+            ?? choose(among: heard.filter(\.isPlaying), prefer: preferred)
+            ?? choose(among: answered + heard, prefer: preferred)
+    }
+
+    /// Which of several players' answers to show.
+    ///
+    /// Sound first: a playing player wins over a paused one. Past that, the
+    /// player already on screen wins. Without it the tie went to whichever
+    /// answered first in `allCases` order, so with Music and Spotify both
+    /// paused, the island swapped from the shown one to Music on the next
+    /// announcement either of them made. The fallback has no heartbeat to
+    /// settle a swap like that, so it stuck until the next one.
+    static func choose(among results: [PlayerState], prefer preferred: PlayerApp?) -> PlayerState? {
+        let playing = results.filter(\.isPlaying)
+        let pool = playing.isEmpty ? results : playing
+        return pool.first { $0.app == preferred } ?? pool.first
     }
 
     // MARK: - Shuffle & repeat
@@ -135,7 +231,7 @@ enum PlayerBridge {
             Task { @MainActor in completion(nil) }
             return
         }
-        runScript(Script.playbackModes(of: app), priority: .pollable) { result in
+        runScript(Script.playbackModes(of: app), app: app, priority: .pollable) { result in
             MainActor.assumeIsolated {
                 guard let raw = result?.stringValue else { return completion(nil) }
                 let parts = raw.split(separator: "|").map(String.init)
@@ -198,31 +294,7 @@ enum PlayerBridge {
     /// sent against a state the island misread lands backwards.
     static func send(_ action: Transport, to app: PlayerApp) {
         guard app.isRunning else { return }
-        runScript(Script.command(action.body(for: app), on: app), priority: .transport) { _ in }
-    }
-
-    /// System-wide media key, used when no scriptable player is running.
-    /// Requires Accessibility permission; silently does nothing without it.
-    static func postMediaKey(_ key: Int32) {
-        for down in [true, false] {
-            let flags: Int = down ? 0xA00 : 0xB00
-            guard let event = NSEvent.otherEvent(
-                with: .systemDefined,
-                location: .zero,
-                modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(flags)),
-                timestamp: 0,
-                windowNumber: 0,
-                context: nil,
-                subtype: 8,
-                data1: (Int(key) << 16) | flags,
-                data2: -1
-            ) else { continue }
-            event.cgEvent?.post(tap: .cghidEventTap)
-        }
-    }
-
-    enum MediaKey: Int32 {
-        case playPause = 16, next = 17, previous = 18
+        runScript(Script.command(action.body(for: app), on: app), app: app, priority: .transport) { _ in }
     }
 
     // MARK: - Artwork
@@ -230,21 +302,43 @@ enum PlayerBridge {
     static func artwork(for state: PlayerState, completion: @escaping (NSImage?) -> Void) {
         switch state.app {
         case .spotify:
-            // The one thing the app ever fetches over the network. The address
-            // comes out of another app's scripting dictionary, so the scheme is
-            // checked: https answers for itself through TLS, while file:// or
-            // some private scheme answers to nobody.
+            // The one request no setting gates. Spotify's scripting dictionary
+            // names its cover only by address, so on the fallback route and on
+            // a held cover the image is fetched from Spotify's image server.
+            // It carries the cover's address and nothing about the listener
+            // beyond the IP that any request carries; the README's privacy
+            // table lists it beside the switches. This comment used to call it
+            // "the one thing the app ever fetches", which stopped being true
+            // when lyrics, translation, the account and the update check
+            // arrived (audit G-030).
+            //
+            // The address comes out of another app's scripting dictionary, so
+            // the scheme is checked: https answers for itself through TLS,
+            // while file:// or some private scheme answers to nobody.
             guard let url = state.artworkURL, url.scheme?.lowercased() == "https" else {
                 return completion(nil)
             }
-            URLSession.shared.dataTask(with: url) { data, _, _ in
-                let image = data.flatMap(NSImage.init(data:))
+            // Decoded small and here, on URLSession's own queue: the same
+            // ceiling MediaController puts on the helper's covers, so a held
+            // or fallback cover does not stand in memory at the source's full
+            // size (audit F-044). Through the session that keeps nothing, so
+            // a listening history does not pile up in the HTTP cache one cover
+            // at a time (audit G-016).
+            PrivateNetwork.session.dataTask(with: url) { data, _, _ in
+                let image = data.flatMap(MediaController.artworkImage)
                 DispatchQueue.main.async { completion(image) }
             }.resume()
         case .music:
-            runScript(Script.musicArtwork) { descriptor in
+            runScript(Script.musicArtwork, app: .music) { descriptor in
                 guard let data = descriptor?.data, !data.isEmpty else { return completion(nil) }
-                completion(NSImage(data: data))
+                // The script answers on the main thread. `NSImage(data:)` was
+                // lazy and decoded the full Music cover, often 3000 px, on
+                // main at the first draw; the downsample decodes at once, so
+                // it is sent off main and the result handed back.
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let image = MediaController.artworkImage(data)
+                    DispatchQueue.main.async { completion(image) }
+                }
             }
         }
     }
@@ -267,6 +361,10 @@ enum PlayerBridge {
         /// suffixes — `st`, `nd`, `rd`, `th` — as words, so every call failed
         /// to compile. A short name is what the next reserved word looks like.
         static func state(for app: PlayerApp) -> String {
+            timed(untimedState(for: app), seconds: pollSeconds)
+        }
+
+        private static func untimedState(for app: PlayerApp) -> String {
             switch app {
             case .spotify:
                 return """
@@ -309,25 +407,31 @@ enum PlayerBridge {
             }
         }
 
-        static let spotifyTrackID = """
+        static let spotifyTrackID = timed("""
+        \(separator)
         tell application id "\(PlayerApp.spotify.bundleID)"
             if it is running then
-                return (id of current track as text)
+                set currentTrackRef to current track
+                return (id of currentTrackRef as text) & fieldSeparator & (name of currentTrackRef) & fieldSeparator & (artist of currentTrackRef)
             end if
         end tell
-        """
+        """, seconds: pollSeconds)
 
         static func position(of app: PlayerApp) -> String {
-            """
+            timed("""
             tell application id "\(app.bundleID)"
                 if it is running then
                     return (player position as text)
                 end if
             end tell
-            """
+            """, seconds: pollSeconds)
         }
 
         static func playbackModes(of app: PlayerApp) -> String {
+            timed(untimedPlaybackModes(of: app), seconds: pollSeconds)
+        }
+
+        private static func untimedPlaybackModes(of app: PlayerApp) -> String {
             switch app {
             case .music:
                 return """
@@ -348,19 +452,57 @@ enum PlayerBridge {
             }
         }
 
-        static let musicArtwork = """
+        /// Asks only a Music that is still running. The fetch follows the
+        /// state read that found Music by a beat, and an Apple event sent to a
+        /// Music that quit in between launched it again (F-041) — the one
+        /// script here that had no guard, where every sibling checks first.
+        static let musicArtwork = timed("""
         tell application id "com.apple.Music"
+            if it is not running then return missing value
             if (count of artworks of current track) is 0 then return missing value
             return raw data of artwork 1 of current track
         end tell
-        """
+        """, seconds: pollSeconds)
 
         static func command(_ body: String, on app: PlayerApp) -> String {
-            """
+            timed("""
             tell application id "\(app.bundleID)"
                 \(body)
             end tell
-            """
+            """, seconds: transportSeconds)
+        }
+
+        /// How long a read waits for a player before giving up. A state,
+        /// position, mode, track-id or artwork answer from a healthy player
+        /// takes milliseconds; one that has not come in two seconds is not
+        /// coming in time to be worth showing, and the next poll asks again.
+        static let pollSeconds = 2
+        /// How long a tap waits. Longer than a read because the user is
+        /// watching for it and a dropped tap is worse than a late one, but
+        /// still seconds, not minutes.
+        static let transportSeconds = 5
+
+        /// Wraps a script in its own Apple event timeout (F-025).
+        ///
+        /// Every script runs on one serial queue — `NSAppleScript` is not
+        /// documented as thread-safe, so a second queue would trade a stall
+        /// for a crash — and none carried a timeout, so a Spotify that
+        /// beachballed held that queue for AppleScript's default two minutes.
+        /// Every script behind it waited too, a play tap on Music included.
+        /// A Swift-side watchdog cannot help: `executeAndReturnError` cannot be
+        /// cancelled, so the queue would stay blocked anyway. With the
+        /// timeout the player's silence becomes error -1712 after `seconds`:
+        /// the state scripts catch it and say "error", which `interpret`
+        /// reads as `.unknown`, and every other caller already treats a run
+        /// that returned nothing as no answer. `AutomationAccess` reads -1712
+        /// as saying nothing about consent.
+        ///
+        /// A tap that happens to raise the one-time Automation prompt times
+        /// out too while the prompt is up; the user taps again after
+        /// answering it. Since the first event now goes out when the panel
+        /// opens, not on a tap, that is rare.
+        static func timed(_ source: String, seconds: Int) -> String {
+            "with timeout of \(seconds) seconds\n\(source)\nend timeout"
         }
 
         /// Every source the bridge can send to `app`, named, built by the same
@@ -468,8 +610,30 @@ enum PlayerBridge {
     /// the run until someone answered it.
     static let isRunningTests = NSClassFromString("XCTestCase") != nil
 
+    /// The one number a script run says about Automation consent.
+    ///
+    /// An AppleScript error carries it directly. The state scripts catch
+    /// their own errors and return them as text — "error", then the number —
+    /// so a refusal inside one arrives as a successful run whose answer is
+    /// that string, and is read from there. Anything else is an answer, and
+    /// an answer means the event got through.
+    static func outcome(errorNumber: Int?, result: String?) -> OSStatus {
+        if let errorNumber, errorNumber != 0 { return OSStatus(truncatingIfNeeded: errorNumber) }
+        if let result {
+            let parts = result.components(separatedBy: "\u{1}")
+            if parts.first == "error", parts.count > 1, let code = Int(parts[1]) {
+                return OSStatus(truncatingIfNeeded: code)
+            }
+        }
+        return OSStatus(noErr)
+    }
+
+    /// Runs one script against `app` and tells `AutomationAccess` what the
+    /// outcome said about consent, so a refusal stops the background asking
+    /// and a grant lets it ask again without waiting for the next check.
     static func runScript(
         _ source: String,
+        app: PlayerApp,
         priority: Priority = .background,
         completion: @escaping (NSAppleEventDescriptor?) -> Void
     ) {
@@ -491,12 +655,17 @@ enum PlayerBridge {
             var error: NSDictionary?
             let result = script(for: source, cacheable: priority != .transport)?
                 .executeAndReturnError(&error)
-            if let error, let code = error[NSAppleScript.errorNumber] as? Int, code != 0 {
+            let errorNumber = error?[NSAppleScript.errorNumber] as? Int
+            if let error, let code = errorNumber, code != 0 {
                 // The message can echo a value from the script, a track name
                 // among them, so only the code is public.
                 Log.media.error("AppleScript error \(code, privacy: .public): \(String(describing: error[NSAppleScript.errorMessage] ?? ""), privacy: .private)")
             }
-            DispatchQueue.main.async { completion(result) }
+            let said = PlayerBridge.outcome(errorNumber: errorNumber, result: result?.stringValue)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { AutomationAccess.shared.learn(app, outcome: said) }
+                completion(result)
+            }
         }
     }
 

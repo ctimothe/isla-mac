@@ -153,7 +153,10 @@ open/close timing, and the lock transition; `AppDelegate` owns the three global 
 keys (⌃⌥⌘I open, ⌃⌥⌘T translate clipboard, ⌃⌥⌘L lyrics page — rebindable, held
 by `HotKeyCenter`), the "Translate in
 Isla" service (`NSApp.servicesProvider`, no Accessibility permission), and the
-Spotify URL-scheme callback.
+Spotify URL-scheme callback. Since 2026-10-11 a pinned panel that is not key
+also holds plain Escape through a transient Carbon hot key, registered only
+while the pin stands (`NotchController.updateEscapeHotKey`), and ends on
+another app's activation; key status is unchanged by it.
 
 **Window sizing.** The window is cut once to the tallest body any tab can ask
 for and then never resized — it is transparent outside the visible panel, and
@@ -231,7 +234,16 @@ the clock — `index`, `centreIndex`, `end`, `lead`, `position`, `fraction`,
 `displayed` — and `LyricRow`/`KaraokeText` own what a line looks like. The
 island's stage and the lock card each keep only their own container. They had
 three copies of the binary search once and disagreed about the line before the
-first timestamp; do not add a fourth.
+first timestamp; do not add a fourth. The closed island's one-line caption
+alone reads ahead of the voice (Settings "Show next line early", default Auto,
+0.30–0.50 s by the length of the line turned to, never below 0.30 s except
+where the 45 percent cap binds):
+`LyricSweep.readingMoment` is the one function that picks its line, and
+`readAheadStart` the one that says when it turns — the boundary wakes ask the
+same function, so route nothing else around them. A catalogue timeline stamped
+past the track's end (`LyricTimeline.overrun`, flagged above
+`OnlineLyrics.durationTolerance`) is timed for a longer version: the stage says
+so and every row offers Sync Here (`LyricSweep.syncDelay`, per-track range ±45 s).
 
 ## Hard constraints
 

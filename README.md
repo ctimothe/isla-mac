@@ -35,6 +35,9 @@ says whether there is one.
   a connected Spotify account, Liked Songs.
 - **Lyrics.** Time-synced lyrics from LRC files you import or keep in a folder,
   and optionally from [LRCLIB](https://lrclib.net). Click a line to jump to it.
+  The island's one-line lyric can turn to the next line a beat early, so you
+  can read it before you sing it, and Lyric Delay lines the words up with
+  speakers or headphones that run late.
 - **Lock screen.** While the Mac is locked, a player card with lyrics, volume
   and audio output.
 - **Shelf.** Drop files onto the notch to keep them at hand and drag them out
@@ -50,12 +53,13 @@ says whether there is one.
   Kazakh need Translate Online.
 - **Shortcuts.** ⌃⌥⌘I opens Isla, ⌃⌥⌘L opens the lyrics, ⌃⌥⌘T translates the
   clipboard. Each can be changed or cleared in Settings. Shortcuts, Spotlight and
-  Siri can read the current track and lyric.
+  Siri can read the current track and lyric. Escape closes a panel opened
+  from the keyboard.
 
 ## Privacy
 
-Nothing leaves the Mac unless you turn it on in Settings. Each of these is off
-by default:
+Nothing about you leaves the Mac unless you turn it on in Settings. Each of
+these is off by default, except the cover row, which has no setting:
 
 | Setting | What is sent | Where |
 | --- | --- | --- |
@@ -63,6 +67,9 @@ by default:
 | Translate Online | The text and its two languages, only for languages the Mac cannot translate itself | [MyMemory](https://mymemory.translated.net) |
 | Connect Spotify Account | Spotify sign-in, to read and change Liked Songs | Spotify |
 | Check for Updates Automatically | A request for the latest version, naming Isla's version | [GitHub](https://github.com) |
+| Spotify covers (no setting) | The cover's address, only when Spotify is playing and Now Playing cannot describe it | Spotify's image server |
+
+Isla keeps no web cache and no cookies from any of these requests.
 
 Spotify tokens are stored in a file readable only by your user account in
 `~/Library/Application Support/Isla`. Signed builds use the Keychain instead.

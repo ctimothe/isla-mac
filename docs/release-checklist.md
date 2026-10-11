@@ -65,6 +65,13 @@ result, evidence path, or issue link to every gate.
   tag.
 - [ ] The stapled DMG passes final Gatekeeper validation on a second clean Mac.
 - [ ] `Scripts/release.sh` produced the tag, checksum, and GitHub release URL.
+- [ ] An ad-hoc release (`ISLA_ADHOC=1`) says in its release notes, under
+  Install, that macOS asks again for the permissions Isla had — Desktop,
+  Documents, Downloads, Automation for Music and Spotify — because an ad-hoc
+  update is a new binary to macOS and its grants do not carry over. Suggested
+  line: "macOS treats each Isla update as a new app until Isla is signed with
+  a Developer ID, so it asks once more for the folders and players Isla had
+  access to." Added 2026-10-11 (J-002, ms/MS-20).
 
 Verdict: **NO-GO** — UI, clean-account permission, synthetic-display,
 performance, Developer ID, and notarization gates remain open.

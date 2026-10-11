@@ -6,10 +6,6 @@ import XCTest
 /// worth offering, and how much air each end needs to reach the centre.
 @MainActor
 final class LyricsStageScrollTests: XCTestCase {
-    private func lines(_ count: Int) -> [LyricsStore.Line] {
-        (0..<count).map { LyricsStore.Line(at: Double($0) * 4, text: "Line \($0)") }
-    }
-
     func testBothEndsCanReachTheReadingCentre() {
         // Half the viewport, less half a line: the first line's own height
         // already covers the rest of the way to the middle.
@@ -19,21 +15,23 @@ final class LyricsStageScrollTests: XCTestCase {
         XCTAssertEqual(LyricsStage.centeringAir(viewport: 10), 0)
     }
 
+    /// The page reports the row it is reading by index, not by timestamp: two
+    /// lines at one stamp used to share a scroll id, so the page could not say
+    /// which of them it was on.
     func testTheSungLineOnScreenCountsAsNoDrift() {
-        let catalogue = lines(20)
         // Reading exactly the sung line.
-        XCTAssertEqual(LyricsStage.linesStrayed(reading: catalogue[8].at, from: 8, in: catalogue), 0)
+        XCTAssertEqual(LyricsStage.linesStrayed(reading: 8, from: 8), 0)
         // One line either side is still on the stage, which shows about three.
-        XCTAssertEqual(LyricsStage.linesStrayed(reading: catalogue[9].at, from: 8, in: catalogue), 1)
+        XCTAssertEqual(LyricsStage.linesStrayed(reading: 9, from: 8), 1)
         XCTAssertLessThan(1, LyricsStage.strayedEnoughToOfferSync)
     }
 
     func testReadingAheadOrBehindBothCount() {
-        let catalogue = lines(20)
-        XCTAssertEqual(LyricsStage.linesStrayed(reading: catalogue[14].at, from: 8, in: catalogue), 6)
-        XCTAssertEqual(LyricsStage.linesStrayed(reading: catalogue[2].at, from: 8, in: catalogue), 6)
+        XCTAssertEqual(LyricsStage.linesStrayed(reading: 3, from: 1), 2)
+        XCTAssertEqual(LyricsStage.linesStrayed(reading: 14, from: 8), 6)
+        XCTAssertEqual(LyricsStage.linesStrayed(reading: 2, from: 8), 6)
         XCTAssertGreaterThanOrEqual(
-            LyricsStage.linesStrayed(reading: catalogue[2].at, from: 8, in: catalogue),
+            LyricsStage.linesStrayed(reading: 2, from: 8),
             LyricsStage.strayedEnoughToOfferSync,
             "six lines away from the voice must offer the way back"
         )
@@ -43,6 +41,6 @@ final class LyricsStageScrollTests: XCTestCase {
         // Before the scroll view has said anything, the page is wherever we put
         // it — which is on the song. Reading that silence as drift would flash
         // the pill on every stage that opens.
-        XCTAssertEqual(LyricsStage.linesStrayed(reading: nil, from: 4, in: lines(20)), 0)
+        XCTAssertEqual(LyricsStage.linesStrayed(reading: nil, from: 4), 0)
     }
 }

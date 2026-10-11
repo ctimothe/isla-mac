@@ -51,6 +51,9 @@ struct LyricsStage: View {
     var turnOnLyrics: () -> Void = {}
     var turnOnOnlineLyrics: () -> Void = {}
     var importLocalFile: () -> Void = {}
+    /// Why the last Import from this page failed, said under the header the
+    /// button sits in. Import used to fail in silence (G-007).
+    var notice: String? = nil
     var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
     var removeLocalBinding: () -> Void = {}
     var editLocalLyrics: (LocalLyricsCandidate) -> Void = { _ in }
@@ -62,10 +65,17 @@ struct LyricsStage: View {
     /// then stays where it was put, and the song moving on no longer drags the
     /// page out from under the eye. The sync pill puts it back.
     @State private var following = true
-    /// The line sitting at the reading centre, as the scroll view itself
+    /// The row sitting at the reading centre, as the scroll view itself
     /// reports it. Both the way the page is driven when it follows the song and
     /// the way it is read when it does not.
-    @State private var reading: TimeInterval?
+    ///
+    /// A row, not the line's timestamp. Keyed by time, the two lines of a
+    /// bilingual LRC — original and translation stamped at one moment —
+    /// shared one id: one of them was drawn twice or skipped, and the page
+    /// could not say which of them it was reading. A slot rather than a line
+    /// index since interludes became rows of their own (M-36): through a solo
+    /// the page rests on the interlude, which has no line index.
+    @State private var reading: LyricSlot?
 
     /// White, always — the same rule the lock card follows. A sung line
     /// coloured from the cover is unreadable the moment the cover is pale.
@@ -90,11 +100,58 @@ struct LyricsStage: View {
         )
     }
 
+    private var inputs: LyricInputs {
+        LyricInputs(
+            position: media.position, precisionSync: media.precisionSync,
+            userOffset: lyrics.userOffset, trackOffset: lyrics.trackOffset,
+            wordTiming: wordTimingEnabled
+        )
+    }
+
+    /// What the stage draws for one reading of the clock: the sung row (nil
+    /// during an intro) and the row the page centres on. The caption and the
+    /// lock card answer through the same `LyricSweep.resolve`, and the lyric
+    /// lab calls this very function — the stage's arithmetic is not restated
+    /// anywhere it could drift from.
+    static func resolve(lines: [LyricsStore.Line], inputs: LyricInputs) -> LyricResolution {
+        LyricSweep.resolve(lines: lines, inputs: inputs)
+    }
+
+    /// The identity of every row: its slot — a line by its index, an
+    /// interlude by the line it leads to. See `reading` for why not a
+    /// timestamp.
+    static func rowIDs(_ lines: [LyricsStore.Line]) -> [LyricSlot] {
+        LyricSweep.slots(for: lines)
+    }
+
+    /// What VoiceOver hears for a row: the line's words, or "Instrumental"
+    /// for the silence before one. The visual lab's dump of a solo was a
+    /// selected button with no name (H-011).
+    static func accessibilityLabel(for slot: LyricSlot, in lines: [LyricsStore.Line]) -> String {
+        switch slot {
+        case .line(let index):
+            return lines.indices.contains(index) ? lines[index].text : ""
+        case .interlude:
+            return InterludeMarker.accessibilityLabel
+        }
+    }
+
     var body: some View {
         ZStack {
             ambience
             VStack(spacing: 0) {
                 header
+                // One row, one event: an import's failure is what the listener
+                // just did, so it speaks first; the version mismatch is a
+                // standing state and speaks when nothing else does. Never a
+                // toast as well.
+                if let notice {
+                    noticeRow(notice)
+                } else if lyrics.showsVersionMismatchNotice {
+                    noticeRow(localized(
+                        "These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here."
+                    ))
+                }
                 if case .ready = lyrics.availability,
                    case .synced(let lines) = lyrics.state,
                    !lines.isEmpty {
@@ -208,6 +265,10 @@ struct LyricsStage: View {
         }
         .animation(Theme.artworkAnimation, value: media.artwork)
         .clipped()
+        // Light, not content: the lab's dump found the blurred cover in
+        // reading order as a nameless 488x488 image, a stop that says
+        // nothing.
+        .accessibilityHidden(true)
     }
 
     // MARK: - Stage
@@ -228,23 +289,50 @@ struct LyricsStage: View {
     }
 
     private func stage(lines: [LyricsStore.Line]) -> some View {
-        let currentIndex = LyricSweep.index(in: lines, at: now)
+        let resolution = Self.resolve(lines: lines, inputs: inputs)
+        let moment = resolution.moment
+        let currentIndex = moment.current
+        let slots = Self.rowIDs(lines)
         // Before the first line — an intro — the first line is the anchor:
         // waiting at the reading centre, dimmed, taking the sweep the moment
         // the voice arrives. Anchoring on nothing left the stage vacant.
-        let anchor = currentIndex ?? 0
+        // Through an interlude long enough for a row of its own, including
+        // an intro, the interlude is the anchor: the marker filling toward
+        // the line coming sits where the eye already is.
+        let anchor = moment.centreSlot
+        let anchorIndex = LyricSweep.slotIndex(of: anchor, in: slots)
+        let lit = LyricSweep.litSlotIndex(moment, in: slots)
         return GeometryReader { geo in
                 // Half a viewport of air above the first line and below the
                 // last, so either end can still reach the reading centre
                 // instead of stopping short against the scroll bounds.
                 let air = Self.centeringAir(viewport: geo.size.height)
-                let strayed = Self.linesStrayed(reading: reading, from: anchor, in: lines)
+                let strayed = Self.linesStrayed(
+                    reading: reading.flatMap { slots.firstIndex(of: $0) }, from: anchorIndex
+                )
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: Self.slotSpacing) {
-                        ForEach(Array(lines.enumerated()), id: \.element.at) { index, line in
-                            row(line: line, index: index, current: currentIndex, lines: lines)
-                                .frame(height: Self.slotHeight, alignment: .leading)
-                                .id(line.at)
+                        // Every slot the same fixed height, an interlude as
+                        // much as a line, so the page still maps the clock to
+                        // a row by arithmetic.
+                        ForEach(Array(slots.enumerated()), id: \.element) { position, slot in
+                            Group {
+                                switch slot {
+                                case .line(let index):
+                                    row(
+                                        line: lines[index], index: index, moment: moment,
+                                        distance: LyricSweep.distance(ofSlot: position, lit: lit),
+                                        lines: lines
+                                    )
+                                case .interlude:
+                                    interludeRow(
+                                        slot, at: resolution.at, isCurrent: slot == moment.interlude,
+                                        distance: LyricSweep.distance(ofSlot: position, lit: lit)
+                                    )
+                                }
+                            }
+                            .frame(height: Self.slotHeight, alignment: .leading)
+                            .id(slot)
                         }
                     }
                     .scrollTargetLayout()
@@ -270,18 +358,19 @@ struct LyricsStage: View {
                 .onChange(of: anchor) { from, to in
                     if DebugTrail.openLyrics {
                         DebugTrail.note(String(
-                            format: "STAGE anchor %d->%d current=%d now=%.2f lines=%d viewport=%.0f follow=%d strayed=%d",
-                            from, to, currentIndex ?? -1, now,
-                            lines.count, geo.size.height, following ? 1 : 0, strayed))
+                            format: "STAGE anchor %d->%d current=%d now=%.2f slots=%d viewport=%.0f follow=%d strayed=%d",
+                            slots.firstIndex(of: from) ?? -1, slots.firstIndex(of: to) ?? -1,
+                            currentIndex ?? -1, now,
+                            slots.count, geo.size.height, following ? 1 : 0, strayed))
                     }
                     guard following else { return }
-                    center(on: lines[to].at)
+                    center(on: to)
                 }
                 .onChange(of: following) { _, resumed in
                     guard resumed else { return }
-                    center(on: lines[anchor].at)
+                    center(on: anchor)
                 }
-                .onAppear { reading = lines[anchor].at }
+                .onAppear { reading = anchor }
                     // A scroll wheel or two fingers on the trackpad is the one
                     // unambiguous statement of "I am reading, not watching":
                     // taken straight from the event stream rather than inferred
@@ -306,8 +395,12 @@ struct LyricsStage: View {
                             .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
                     }
                 }
-                .animation(reduceMotion ? nil : Theme.contentAnimation, value: following)
-                .animation(reduceMotion ? nil : Theme.contentAnimation, value: strayed)
+                // With Reduce Motion on too: the pill's transition is already
+                // plain opacity there, and the context lines dimming as the
+                // reader takes over are opacity alone. Cut, the pill blinked
+                // on in a single frame (F-055). A fade is not motion.
+                .animation(Theme.contentAnimation, value: following)
+                .animation(Theme.contentAnimation, value: strayed)
         }
         .padding(.horizontal, 22)
     }
@@ -318,17 +411,19 @@ struct LyricsStage: View {
     /// borrow. `Theme.contentAnimation` is 0.16s — it is the curve for a badge
     /// appearing — and one page step here is a whole slot, 48pt, moved because
     /// the song moved. At 0.16s the page beat the thing it exists to carry:
-    /// `KaraokeText` sweeps a line over `.linear(duration: 0.25)`, so the new
-    /// line was already parked at the reading centre with its sweep still
-    /// crossing it. The page has to be the slower of the two, and it is the one
-    /// animation in this app allowed a little overshoot — see the comment on
-    /// `Theme.lyricScroll` for why the momentum rule permits exactly this one.
+    /// the new line was parked at the reading centre before the line it
+    /// replaced had finished lighting up. The page has to be the slower motion,
+    /// and it is the one animation in this app allowed a little overshoot —
+    /// see the comment on `Theme.lyricScroll` for why the momentum rule permits
+    /// exactly this one. The sweep inside a line is no longer an animation at
+    /// all: `KaraokeText` places its edge from the clock on every frame, and
+    /// refuses the transaction this page turn runs in.
     ///
     /// The Reduce Motion branch is now inside `Theme.lyricScroll(reduceMotion:)`
     /// rather than being a bare assignment here. It still refuses the spring —
     /// what it no longer does is snap the page between lines with no transition
     /// at all, which is the same answer `Theme.open(reduceMotion:)` gives.
-    private func center(on id: TimeInterval) {
+    private func center(on id: LyricSlot) {
         withAnimation(Theme.lyricScroll(reduceMotion: reduceMotion)) { reading = id }
     }
 
@@ -347,10 +442,13 @@ struct LyricsStage: View {
     /// is still in view and needs no rescuing.
     static let strayedEnoughToOfferSync = 2
 
-    /// Lines between what is being read and what is being sung.
-    static func linesStrayed(reading: TimeInterval?, from anchor: Int, in lines: [LyricsStore.Line]) -> Int {
-        guard let reading, let index = LyricSweep.index(in: lines, at: reading) else { return 0 }
-        return abs(index - anchor)
+    /// Rows between the row being read and the row being sung. Plain index
+    /// arithmetic now that the page reports a row rather than a timestamp it
+    /// had to search back into a row. Rows are slots, so an interlude counts
+    /// as one: it takes a row of the page like any line.
+    static func linesStrayed(reading: Int?, from anchor: Int) -> Int {
+        guard let reading else { return 0 }
+        return abs(reading - anchor)
     }
 
     /// The way back to the song after reading ahead — Spotify's affordance, and
@@ -381,16 +479,22 @@ struct LyricsStage: View {
         .help(localized("Back to the current line"))
     }
 
-    private func row(line: LyricsStore.Line, index: Int, current: Int?, lines: [LyricsStore.Line]) -> some View {
+    private func row(
+        line: LyricsStore.Line, index: Int, moment: LyricMoment, distance: Int, lines: [LyricsStore.Line]
+    ) -> some View {
+        let current = moment.current
         let isCurrent = index == current
-        // How far from the voice this line stands, for the depth falloff.
-        let distance = current.map { abs(index - $0) } ?? 2
         return LyricRow(
             line: line,
             isCurrent: isCurrent,
+            // How far from the lit row this line stands, in rows, for the
+            // depth falloff (`LyricSweep.distance(ofSlot:lit:)`).
             distance: distance,
             at: now,
             end: LyricSweep.end(of: index, in: lines),
+            // Only the sung row reads the clock per frame; every other row is
+            // lit whole or not at all.
+            clock: isCurrent ? LyricSweep.frameClock(media: media, lead: lead) : nil,
             // The stage reads at arm's length and lets a long line wrap; the
             // card holds one line at a glance. Wrapping is the only thing
             // either surface still decides for itself — both read at the title
@@ -416,12 +520,49 @@ struct LyricsStage: View {
                 // tap away from a stage that no longer moves.
                 following = true
             },
-            allText: Self.plainText(lines)
+            allText: Self.plainText(lines),
+            // A credit is metadata the app inferred, not a line anybody
+            // sang, so it is no line to sync to.
+            syncHere: line.isCredit ? nil : {
+                syncHere(toLineAt: line.at)
+            }
         )
         .frame(maxHeight: .infinity, alignment: .center)
-        .animation(reduceMotion ? nil : Theme.contentAnimation, value: isCurrent)
-        .id(line.at)
+        // A row lighting is depth through opacity alone — `LyricRow` gave up
+        // its blur and scale — so it brightens under Reduce Motion as well
+        // rather than switching on in one frame (F-055).
+        .animation(Theme.contentAnimation, value: isCurrent)
         .accessibilityHint(localized("Jumps the song to this line"))
+    }
+
+    /// "Sync Here" on a row: the voice is on this line now, so this track's
+    /// delay becomes the one that makes it current at this moment. The clock
+    /// is read at the click, extrapolated rather than the last published
+    /// tick, which is up to 0.1 s old. The page follows again afterwards,
+    /// since the sung line has just moved under the reader.
+    private func syncHere(toLineAt lineAt: TimeInterval) {
+        lyrics.syncTrackOffset(
+            toLineAt: lineAt, position: media.extrapolatedPosition(), precisionSync: media.precisionSync
+        )
+        following = true
+    }
+
+    /// The silence before a line, in the slot a line would take. No seek and
+    /// no hint: there are no words here to jump to, and the line it leads to
+    /// is the next row down.
+    private func interludeRow(_ slot: LyricSlot, at: TimeInterval, isCurrent: Bool, distance: Int) -> some View {
+        InterludeMarker(
+            progress: LyricSweep.interludeProgress(slot, at: at),
+            isCurrent: isCurrent,
+            distance: distance,
+            // Only the interlude playing reads the clock per frame.
+            clock: isCurrent ? LyricSweep.liveProgress(slot, clock: LyricSweep.frameClock(media: media, lead: lead)) : nil,
+            fontSize: Theme.TypeRole.title.size,
+            weight: .bold,
+            reading: !following,
+            reduceMotion: reduceMotion
+        )
+        .frame(maxHeight: .infinity, alignment: .center)
     }
 
     /// The sung prefix in the accent, the rest dimmed-bright, as one wrapping
@@ -475,7 +616,24 @@ struct LyricsStage: View {
                         // nudges meant for its neighbours.
                         .onLongPressGesture { lyrics.clearTrackOffset() }
                         .help(localized("Reset lyric timing"))
-                        .accessibilityHint(localized("Reset lyric timing"))
+                        // The hold is a pointer's way in, and it was the only
+                        // one: VoiceOver read a hint promising a reset that
+                        // neither it nor Switch Control could perform (F-029).
+                        // The same reset is a right-click item — the menu is
+                        // AppKit's, and `MenuTracking` holds the panel open
+                        // while it is up — and a named action on the readout,
+                        // which now says what the number is as well as how
+                        // large. Left as the Text's own static-text element:
+                        // wrapped in `accessibilityElement()` it became an
+                        // AXUnknown that vended no value at all.
+                        .contextMenu {
+                            Button(localized("Reset Lyric Timing")) { lyrics.clearTrackOffset() }
+                        }
+                        .accessibilityLabel(localized("Lyric timing correction"))
+                        .accessibilityValue(localized("%+.2fs", lyrics.trackOffset))
+                        .accessibilityAction(named: localized("Reset Lyric Timing")) {
+                            lyrics.clearTrackOffset()
+                        }
                 }
                 Button { lyrics.nudgeTrackOffset(by: 0.25) } label: {
                     Image(systemName: "plus")
@@ -533,6 +691,22 @@ struct LyricsStage: View {
 
     private func chooseLocalLRC() { importLocalFile() }
 
+    /// One quiet line under the header, in the page's own secondary type —
+    /// the reason, not an alarm. It takes the room it needs from the stage
+    /// below rather than covering a lyric, wraps to a second row in Russian
+    /// at the narrowest panel instead of truncating the line number away.
+    /// VoiceOver hears it from `NotchViewModel`, which raised it.
+    private func noticeRow(_ text: String) -> some View {
+        Text(text)
+            .islandFont(.caption, weight: .regular)
+            .foregroundStyle(Theme.secondary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
+    }
+
     // MARK: - Empty
 
     private var unavailable: some View {
@@ -578,12 +752,13 @@ struct LyricsStage: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(candidates) { candidate in
                         Button { selectLocalCandidate(candidate) } label: {
-                            Text(candidateLabel(candidate))
+                            Text(Self.candidateLabel(candidate))
                                 .islandFont(.caption, weight: .regular)
                                 .lineLimit(1)
+                                .truncationMode(.middle)
                         }
                         .buttonStyle(PanelButtonStyle())
-                        .accessibilityLabel(candidateLabel(candidate))
+                        .accessibilityLabel(Self.candidateLabel(candidate))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -597,20 +772,22 @@ struct LyricsStage: View {
     private func offerButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .islandFont(.body)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(Theme.surface, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
         }
-        .buttonStyle(PanelButtonStyle())
+        .buttonStyle(OfferButtonStyle())
         .padding(.top, 2)
     }
 
-    private func candidateLabel(_ candidate: LocalLyricsCandidate) -> String {
+    /// A saved edit carries its source's tags word for word, so the source
+    /// and its copy were two identical buttons (J-025). An edit ends with
+    /// when it was saved — the time too, since two saves in one sitting are
+    /// the commonest pair — and the row truncates in the middle so that end
+    /// survives a long title.
+    static func candidateLabel(_ candidate: LocalLyricsCandidate) -> String {
         let metadata = candidate.document.metadata
-        return [metadata.title, metadata.artist, metadata.album]
+        let edited = candidate.editedAt.map {
+            localized("Edited %@", $0.formatted(date: .abbreviated, time: .shortened))
+        }
+        return [metadata.title, metadata.artist, metadata.album, edited]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: " — ")

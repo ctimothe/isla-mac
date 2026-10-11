@@ -13,7 +13,7 @@ final class TranslatorLiveTests: XCTestCase {
         defaults.removePersistentDomain(forName: suite)
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         let cases: [(String, TranslationLanguage?, TranslationLanguage)] = [
             ("Where is the nearest train station? I need to be there by six.", nil, .russian),
             ("Привет, как дела? Давно не виделись.", nil, .russian),

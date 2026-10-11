@@ -58,13 +58,27 @@ struct LockScreenCard: View {
     }
 
     @State private var scrubbing: Double?
-    /// The line the words were centred on at the last draw, to tell a line
-    /// sung into from a line jumped to.
+    /// The row the words were centred on at the last draw, to tell a line
+    /// sung into from a line jumped to. A slot index (`LyricSweep.slots`),
+    /// not a line index: an interlude is a row, and comparing a slot against
+    /// a line index would call the step out of every solo a seek.
     @State private var lastCentre: Int?
+    /// How many rows the window held at the last draw. A window that changes
+    /// size is a cut: see `isJump(from:to:windowFrom:to:)`.
+    @State private var lastWindow: Int?
     @State private var outputs: [AudioOutputs.Output] = []
     @State private var currentOutput: AudioDeviceID?
     @State private var volume: Float?
     @State private var draggingVolume: Float?
+    /// Paces the drag's CoreAudio writes; the bar itself draws from
+    /// `draggingVolume` at full rate (F-045).
+    @State private var volumeGate = VolumeWriteGate()
+    /// The device the volume drag writes to: the default it began on, never
+    /// whatever is default at the moment of each write (K-008).
+    @State private var volumeLatch = VolumeDragLatch()
+    /// The default output is muted: the bar draws the level it will come back
+    /// to, dimmed, beside a slashed speaker (G-023).
+    @State private var muted = false
 
     /// Read through `@AppStorage` so changing it in Settings redraws the card
     /// while it is on screen, rather than at the next lock.
@@ -72,6 +86,10 @@ struct LockScreenCard: View {
 
     private var style: NotchViewModel.LockCardStyle {
         NotchViewModel.LockCardStyle(rawValue: styleRaw) ?? .glass
+    }
+
+    private var glassRoute: (samplesBackdrop: Bool, preferDrawn: Bool, solid: Bool) {
+        Self.glassRouting(style: style, hasArtwork: media.artwork != nil)
     }
 
     @AppStorage(NotchViewModel.lockCardSizeKey) private var sizeRaw = NotchViewModel.LockCardSize.standard.rawValue
@@ -94,6 +112,32 @@ struct LockScreenCard: View {
 
     private var dimensions: CGSize { Self.size(for: cardSize) }
 
+    /// Which glass the card asks `glassSurface` for: always the drawn recipe.
+    ///
+    /// checklist.md has said so since the card went over the shield — the
+    /// shield is protected content, no window above it is given a backdrop to
+    /// blur, so the glass is a recipe and not a sample, as the system's own
+    /// lock-screen widgets are. The code disagreed (F-012). A coverless
+    /// Transparent or Tinted card asked for a backdrop and nothing more, so on
+    /// macOS 26 it took `glassEffect` with nothing to sample and the cover
+    /// light gone, while a card with a cover drew the recipe.
+    ///
+    /// That split had a second cost (K-017). `GlassSurfaceStyle` picks
+    /// between `glassEffect` and the recipe with an `if`, so when a coverless
+    /// song followed one with art the card's whole content changed identity,
+    /// and a scrub or volume drag in flight was torn down without its
+    /// `onEnded` — the bar stayed pinned to the old finger. `preferDrawn`
+    /// held constant keeps the branch where it is; only the vibrancy laid
+    /// under the recipe follows the cover, and that lives in the background.
+    ///
+    /// The `drawnGlass` default stays for the panel. It was the escape hatch
+    /// for this card while the question was open, and the record closed it.
+    static func glassRouting(
+        style: NotchViewModel.LockCardStyle, hasArtwork: Bool
+    ) -> (samplesBackdrop: Bool, preferDrawn: Bool, solid: Bool) {
+        (samplesBackdrop: style != .solid && !hasArtwork, preferDrawn: true, solid: style == .solid)
+    }
+
     /// How many lyric lines the middle shows. Odd, so the line being sung sits
     /// in the centre with the same amount of song either side of it.
     static let visibleLyricLines = 5
@@ -108,6 +152,103 @@ struct LockScreenCard: View {
     /// leaves the glyph that opened the list visible underneath it, which is the
     /// half of the rule people actually notice when it is broken.
     static let footerClearance: CGFloat = 20 + 22 + 8
+
+    // MARK: Output list
+
+    /// One row of the output list: the 26pt well and 5pt above and below it.
+    static let outputRowHeight: CGFloat = 26 + 5 * 2
+    static let outputRowSpacing: CGFloat = 2
+    /// What the popover spends on itself above the rows: 10pt of padding top
+    /// and bottom, and the "Output" heading with its own 4pt and the stack's
+    /// 2pt under it. An allowance rather than a measurement, rounded up, so
+    /// the arithmetic below errs towards one row fewer, never off the card.
+    static let outputPopoverChrome: CGFloat = 10 * 2 + 20
+
+    /// The devices in the order the picker lists them: the one playing first,
+    /// the rest in the order the system gives them.
+    ///
+    /// The list used to be `outputs.prefix(5)`, in the system's order and
+    /// nothing else. A Mac with a display, AirPods, an AirPlay speaker and a
+    /// virtual driver or two has more than five, and the device playing could
+    /// be the sixth — not shown, so not something anyone could pick again from
+    /// the lock screen (F-032). Pinning it first means the row that answers
+    /// "where is this going" is always the one in view; only that row moves,
+    /// so the order of the rest is still the one Control Center shows.
+    static func orderedOutputs(
+        _ outputs: [AudioOutputs.Output], current: AudioDeviceID?
+    ) -> [AudioOutputs.Output] {
+        guard let current, let index = outputs.firstIndex(where: { $0.id == current }) else { return outputs }
+        var ordered = outputs
+        ordered.insert(ordered.remove(at: index), at: 0)
+        return ordered
+    }
+
+    /// How many whole rows fit between the card's top edge and the footer the
+    /// list must not cover. Five on the standard card, four on the compact one —
+    /// which is why a fixed five was never right: on the compact card five rows
+    /// already ran off the top of the card.
+    static func outputRowsThatFit(_ size: NotchViewModel.LockCardSize) -> Int {
+        let room = Self.size(for: size).height - footerClearance - outputPopoverChrome
+        return max(1, Int((room + outputRowSpacing) / (outputRowHeight + outputRowSpacing)))
+    }
+
+    /// The height of the scrolling list, for `count` devices.
+    ///
+    /// Up to the cap, exactly as tall as its rows. Past it, the last visible
+    /// row is cut in half. The list scrolls without indicators — over the
+    /// shield an overlay scroller only appears once someone is already
+    /// scrolling — so a row sliced by the edge is the thing that says there is
+    /// more below. A list that ended on a whole row would look complete.
+    static func outputListHeight(count: Int, size: NotchViewModel.LockCardSize) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let fit = outputRowsThatFit(size)
+        let pitch = outputRowHeight + outputRowSpacing
+        if count <= fit { return CGFloat(count) * pitch - outputRowSpacing }
+        return CGFloat(fit - 1) * pitch + outputRowHeight / 2
+    }
+
+    /// The card tokens a picker row is drawn in.
+    enum OutputInk: Equatable {
+        case primary, cardTertiary, cardFill
+
+        @MainActor var color: Color {
+            switch self {
+            case .primary: return .white
+            case .cardTertiary: return Theme.cardTertiary
+            case .cardFill: return Theme.cardFill
+            }
+        }
+    }
+
+    /// What tells the selected row from the others.
+    struct OutputRowMarks: Equatable {
+        var checkmark: Bool
+        var semibold: Bool
+        var well: OutputInk
+        var glyph: OutputInk
+    }
+
+    /// The selected device carries a trailing checkmark and a semibold name;
+    /// the others carry neither, and their glyph steps down to the tertiary
+    /// ink. The well is the same neutral shape on every row.
+    ///
+    /// It used to be Control Center's grammar exactly — a white glyph in a
+    /// well of the person's own accent colour, and no tick, on the argument
+    /// that the tinted well *was* the tick. That argument fails on a light
+    /// accent: white on Yellow is about 1.4:1, so the glyph vanished and the
+    /// selection was told by colour alone (F-053). A dark glyph on light
+    /// accents would need luminance arithmetic and still lean on colour; the
+    /// accent with a checkmark added keeps a glyph that fails 3:1. A checkmark
+    /// and a weight are a shape and a stroke, and read the same under any
+    /// accent, any wallpaper and any colour vision.
+    static func outputRowMarks(selected: Bool) -> OutputRowMarks {
+        OutputRowMarks(
+            checkmark: selected,
+            semibold: selected,
+            well: .cardFill,
+            glyph: selected ? .primary : .cardTertiary
+        )
+    }
 
     /// White, always.
     ///
@@ -132,7 +273,7 @@ struct LockScreenCard: View {
                 rail
                     .padding(.top, 14)
             }
-            .padding(.horizontal, cardSize == .compact ? 20 : 24)
+            .padding(.horizontal, Self.horizontalPadding(for: cardSize))
             .padding(.top, cardSize == .compact ? 18 : 22)
             .padding(.bottom, cardSize == .compact ? 14 : 18)
             // Every mark on the card carries its own shadow on glass. That is
@@ -144,6 +285,16 @@ struct LockScreenCard: View {
             // carries more shadow to stay legible over it.
             .shadow(color: .black.opacity(style == .solid ? 0 : (style == .clear ? 0.5 : 0.35)), radius: 3, y: 1)
             .frame(width: dimensions.width, height: dimensions.height)
+            // While the output picker is up, the card under its scrim is gone
+            // for VoiceOver too. It used to stay in reading order, and since
+            // the picker overlaps it, the two were read interleaved by position:
+            // "Playback Position" between MacBook Pro Speakers and AirPods Pro,
+            // "Previous Track" between two more devices (H-010). The whole card
+            // goes, not control by control — a per-control list would drift the
+            // first time the card grew a control. Applied before the overlay,
+            // so the picker itself is untouched; the way back is the picker's
+            // own Escape, since the scrim's tap is not an element.
+            .accessibilityHidden(pane == .output)
             .overlay { outputPicker }
             .background { coverLight }
             .glassSurface(
@@ -152,14 +303,17 @@ struct LockScreenCard: View {
                 // No tint from the cover either. The glass takes its character
                 // from the wallpaper it is actually over, which is the point of
                 // it being glass.
-                samplesBackdrop: style != .solid && media.artwork == nil,
+                samplesBackdrop: glassRoute.samplesBackdrop,
+                // Always the recipe, never Apple's material: see
+                // `glassRouting`, which is what the tests hold.
+                preferDrawn: glassRoute.preferDrawn,
                 // Solid is the panel Reduce Transparency draws, chosen on
                 // purpose. It used to be the drawn glass laid over an
                 // `.ultraThinMaterial` and a black scrim — three surfaces for
                 // one card, and above the shield the material had nothing to
                 // sample anyway, so what it added was a muddier version of the
                 // recipe already on top of it. One surface, one rule.
-                solid: style == .solid
+                solid: glassRoute.solid
             )
             // No drop shadow. The system's own lock player has none — the
             // material defines its own edge, and a card floating on a drawn
@@ -177,17 +331,59 @@ struct LockScreenCard: View {
             // every new song had to be opened again by hand.
             .onAppear { readAudio() }
             .onChange(of: pane) { _, _ in readAudio() }
+            // A skip on the card swaps the title in place, which a sighted
+            // listener sees and a VoiceOver user used to have to go and find.
+            // Only a change is spoken, not the card arriving: the shield going
+            // up is not news about the music. The card exists only while it is
+            // presented — its window is destroyed at unlock — so nothing here
+            // speaks for a Mac that is not locked, and the island's own peek is
+            // refused over the shield, so the two never say one track twice.
+            .onChange(of: media.track?.key) { _, _ in
+                // A drag that a new song cut short lets go here (K-017). A
+                // gesture torn down without `onEnded` left the seek bar pinned
+                // to the old finger and the volume mirror deaf until the next
+                // drag. A finger still down simply writes its place again on
+                // the next move, so nothing live is lost by clearing these.
+                scrubbing = nil
+                // A level the gate was still holding when the drag was cut
+                // short lands now, rather than never (F-045).
+                if let held = volumeGate.finish(), let device = volumeLatch.device {
+                    commitVolume(held, device: device)
+                }
+                // The finger, if it is still down, latches afresh on its next
+                // move: the drag it was part of is over (K-008).
+                volumeLatch.end()
+                if draggingVolume != nil {
+                    draggingVolume = nil
+                    volume = audio.volume
+                }
+                guard let now = media.track else { return }
+                Announcer.shared.announce(now.artist.isEmpty ? now.title : "\(now.title), \(now.artist)")
+            }
             // The machine moves on its own while the card stands here — a
             // device connecting mid-lock, the volume keys — and the card used
             // to miss every bit of it until a pane switch re-read. The watch's
             // listeners speak for the card now; a finger on the bar owns the
             // level until release, so its mirror stands down while one drags.
             .onReceive(audio.$outputs) { outputs = $0 }
-            .onReceive(audio.$current) { currentOutput = $0 }
+            .onReceive(audio.$current) { now in
+                currentOutput = now
+                // AirPods taking over mid-drag used to be sent the finger's
+                // level for the speakers (K-008). The default moving under a
+                // drag ends it instead: the level the gate still held lands on
+                // the device it was meant for, the bar goes back to mirroring
+                // the machine, and the rest of the gesture writes nothing.
+                let dragged = volumeLatch.device
+                guard volumeLatch.defaultMoved(to: now) else { return }
+                if let held = volumeGate.finish(), let dragged { commitVolume(held, device: dragged) }
+                draggingVolume = nil
+                volume = audio.volume
+            }
             .onReceive(audio.$volume) { newValue in
                 guard draggingVolume == nil else { return }
                 volume = newValue
             }
+            .onReceive(audio.$muted) { muted = $0 }
             .transition(.opacity)
         }
     }
@@ -196,6 +392,11 @@ struct LockScreenCard: View {
 
     /// The cover, lighting the card from behind — blurred past recognition,
     /// saturated a little, and dimmed so white type holds over the palest one.
+    ///
+    /// "Dimmed" was a fixed 0.34 black until F-003 measured it: over a
+    /// near-white cover the artist line read at 1.76:1. The wash now comes
+    /// from `LockCardLegibility`, scaled to how bright this cover is — today's
+    /// value for a dark one, just enough more for a pale one to hold AA.
     ///
     /// The card used to be glass lit by nothing. Above the login shield a
     /// material has nothing to sample, so what arrived was a grey slab laid on
@@ -213,11 +414,17 @@ struct LockScreenCard: View {
                     .aspectRatio(contentMode: .fill)
                     .frame(width: dimensions.width, height: dimensions.height)
                     // Oversized before the blur, so the blur has no soft,
-                    // darker rim to show at the card's edge.
-                    .scaleEffect(1.5)
+                    // darker rim to show at the card's edge. The zoom is
+                    // `LockCardLegibility`'s, because its measurement of the
+                    // cover crops to exactly what this leaves showing.
+                    .scaleEffect(LockCardLegibility.coverZoom)
                     .blur(radius: 44, opaque: true)
                     .saturation(1.3)
-                Color.black.opacity(appearance.increaseContrast ? 0.56 : (style == .clear ? 0.2 : 0.34))
+                Color.black.opacity(LockCardLegibility.washOpacity(
+                    coverLuma: LockCardLegibility.coverLuma(of: image),
+                    style: style,
+                    increaseContrast: appearance.increaseContrast
+                ))
                 LinearGradient(
                     colors: [.clear, .black.opacity(0.22)],
                     startPoint: .top,
@@ -231,7 +438,16 @@ struct LockScreenCard: View {
             // opaque — see-through is exactly what that setting asks against.
             .opacity(style == .clear && !appearance.increaseContrast ? 0.62 : 1)
             .clipped()
-            .animation(reduceMotion ? nil : Theme.artworkAnimation, value: media.artwork)
+            // Light, not a picture: blurred past recognition on purpose, it was
+            // read as a nameless 690x690 image (H-009). The cover the listener
+            // can name is the one in the header.
+            .accessibilityHidden(true)
+            // With Reduce Motion on too. The light only changes colour and
+            // brightness under a skip — nothing in it moves — and it used to
+            // cut there, so the whole card behind the type changed in one
+            // frame, the most abrupt thing on the lock screen for the people
+            // who asked for calm. A fade is not motion (F-055).
+            .animation(Theme.artworkAnimation, value: media.artwork)
         }
     }
 
@@ -257,6 +473,20 @@ struct LockScreenCard: View {
             heart
         }
         .animation(reduceMotion ? nil : Theme.contentAnimation, value: pane)
+        // On the header, not the heart. The heart is not drawn while Spotify
+        // refuses the account, and while its task was the only thing that
+        // asked, nothing ever asked again: one 403 hid it for good. Here the
+        // lookup runs for every Spotify track whether or not the heart shows,
+        // and the account decides whether its cooldown allows a request.
+        // Keyed on the connection too, so connecting with the card up asks.
+        .task(id: HeartLookup(trackID: media.spotifyTrackID, connected: spotify.isConnected)) {
+            if let id = media.spotifyTrackID { spotify.refreshSavedState(trackID: id) }
+        }
+    }
+
+    private struct HeartLookup: Equatable {
+        let trackID: String?
+        let connected: Bool
     }
 
     /// The cover shrinks when a pane needs the room, and the card does not.
@@ -331,24 +561,64 @@ struct LockScreenCard: View {
     private var middle: some View {
         ZStack {
             switch pane {
-            case .lyrics: lyricsPane
+            case .lyrics: lyricsPane.transition(middleFade)
             // The picker is not a pane. It opens *over* the card, the way the
             // system's own output list opens over whatever raised it, so what
             // is playing stays visible behind the thing choosing where it
             // plays.
-            case .player, .output: playerPane
+            case .player, .output: playerPane.transition(middleFade)
             }
         }
+        // Reduce Motion cuts the middle's geometry, because its frame follows
+        // the cover in the header, which changes size with the pane and cuts
+        // too: animated here, the seek bar slid up to meet a header that had
+        // already jumped. The panes themselves still fade, on `middleFade`.
         .animation(reduceMotion ? nil : Theme.paneAnimation, value: pane)
         .transition(.opacity)
     }
 
+    /// How the words and the player swap places.
+    ///
+    /// Under Reduce Motion the fade carries its own animation, so it plays in
+    /// a transaction the middle has stripped of one. It used to have none and
+    /// the pane cut: words gone and seek bar there in one frame (F-055). A
+    /// fade is not motion, and the setting never asked for it to go.
+    private var middleFade: AnyTransition {
+        reduceMotion ? AnyTransition.opacity.animation(Theme.contentAnimation) : .opacity
+    }
+
     private var playerPane: some View {
-        VStack(spacing: 0) {
+        let showsBar = Self.showsSeekBar(duration: media.duration)
+        return VStack(spacing: 0) {
             Spacer(minLength: 0)
-            seekBar
+            // Hidden in place rather than removed: the card's layout is fixed
+            // by design, and taking the bar out of the stack would let the
+            // spacers close over it and move the transport a stream away from
+            // where it sits for a song. `hidden()` keeps the bar's size and
+            // takes it out of drawing, hit testing and VoiceOver at once.
+            // Opacity with `accessibilityHidden(true)` was tried first and
+            // left the slider and its "0:00" in reading order: the card's own
+            // `accessibilityHidden(pane == .output)` sits outside it, and an
+            // outer `false` wins over an inner `true` (measured in
+            // LockCardAccessibilityTests).
+            if showsBar {
+                seekBar
+            } else {
+                seekBar.hidden()
+            }
             Spacer(minLength: 0)
         }
+    }
+
+    /// Whether the seek bar is drawn for a track of this length.
+    ///
+    /// A live stream or a browser tab reports no length, and the card drew a
+    /// full-width bar reading 0:00 / -0:00 whose drags were all refused by the
+    /// guards in its own gesture (F-031) — a control that looked broken rather
+    /// than absent, while the panel already hid its scrubber in that state.
+    /// A length that is not finite cannot place a seek either.
+    static func showsSeekBar(duration: TimeInterval) -> Bool {
+        duration.isFinite && duration > 0
     }
 
     /// The words, centred on the line being sung.
@@ -362,19 +632,56 @@ struct LockScreenCard: View {
             if case .ready = lyrics.availability,
                case .synced(let lines) = lyrics.state,
                !lines.isEmpty {
-                let at = LyricSweep.position(
-                    media.position,
+                let resolution = Self.resolve(lines: lines, inputs: LyricInputs(
+                    position: media.position,
                     precisionSync: media.precisionSync,
                     userOffset: lyrics.userOffset,
-                    trackOffset: lyrics.trackOffset
+                    trackOffset: lyrics.trackOffset,
+                    wordTiming: wordTimingEnabled
+                ))
+                // The window is over slots, not lines: through a solo the
+                // middle row is the interlude marker, filling toward the line
+                // below it. Everything that counts rows here — `centre`,
+                // `lastCentre`, the window and the jump test — counts slots,
+                // so singing into an interlude and out of it is two steps of
+                // one row, never a seek.
+                let slots = LyricSweep.slots(for: lines)
+                let centre = LyricSweep.slotIndex(of: resolution.moment.centreSlot, in: slots)
+                let lit = LyricSweep.litSlotIndex(resolution.moment, in: slots)
+                // The centre row may take two lines when its line needs them
+                // (H-019), and the window narrows to pay for it. The centre
+                // line, not the sung one: through an intro the opening line
+                // waits in the centre unsung, and it is the row the window is
+                // laid around either way. An interlude marker is one row.
+                let centreLine: Int? = {
+                    if case .line(let index) = slots[centre] { return index }
+                    return nil
+                }()
+                let layout = Self.lyricLayout(
+                    currentText: centreLine.map { lines[$0].text },
+                    width: Self.lyricTextWidth(for: cardSize),
+                    cardSize: cardSize
                 )
-                let centre = LyricSweep.centreIndex(in: lines, at: at)
-                let window = Self.window(around: centre, count: lines.count, size: Self.visibleLyricLines(for: cardSize))
-                let jump = Self.isJump(from: lastCentre, to: centre)
-                VStack(alignment: .leading, spacing: 7) {
-                    ForEach(window, id: \.self) { index in
-                        lyricRow(lines: lines, index: index, centre: centre, at: at)
-                            .transition(Self.lineTransition(reduceMotion: reduceMotion))
+                let window = Self.window(around: centre, count: slots.count, size: layout.window)
+                let jump = Self.isJump(from: lastCentre, to: centre, windowFrom: lastWindow, to: layout.window)
+                VStack(alignment: .leading, spacing: Self.lyricRowSpacing) {
+                    ForEach(window, id: \.self) { position in
+                        Group {
+                            switch slots[position] {
+                            case .line(let index):
+                                lyricRow(
+                                    lines: lines, index: index, resolution: resolution,
+                                    distance: LyricSweep.distance(ofSlot: position, lit: lit),
+                                    lineLimit: index == centreLine ? layout.currentLineLimit : 1
+                                )
+                            case .interlude:
+                                interludeRow(
+                                    slots[position], resolution: resolution,
+                                    distance: LyricSweep.distance(ofSlot: position, lit: lit)
+                                )
+                            }
+                        }
+                        .transition(Self.lineTransition(reduceMotion: reduceMotion))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -396,15 +703,20 @@ struct LockScreenCard: View {
                 // laid the old line and the new one over each other in the same
                 // slot — two lyrics legible at once, filmed on 2026-09-21. A
                 // line reached by singing still lights up on the lyric spring;
-                // a line reached by clicking is simply there.
+                // a line reached by clicking is simply there. So is a line that
+                // changes the window's size, for the same reason.
                 .transaction { transaction in
-                    if Self.isJump(from: lastCentre, to: centre) {
+                    if jump {
                         transaction.animation = nil
                         transaction.disablesAnimations = true
                     }
                 }
                 .onChange(of: centre) { _, now in lastCentre = now }
-                .onAppear { lastCentre = centre }
+                .onChange(of: layout.window) { _, now in lastWindow = now }
+                .onAppear {
+                    lastCentre = centre
+                    lastWindow = layout.window
+                }
             } else {
                 VStack(spacing: 8) {
                     if case .findingLocalLyrics = lyrics.availability {
@@ -440,21 +752,46 @@ struct LockScreenCard: View {
         )
     }
 
+    /// What the card draws for one reading of the clock: the window centres on
+    /// `centre`, and only `current` is drawn as sung. The card used to pass
+    /// the centre as `isCurrent`, so through every intro it filled line 1 as
+    /// though the voice were in it while the stage and the caption both showed
+    /// it waiting — a median 12.9 s of each of the lyric lab's 540 tracks. The
+    /// lab calls this function, not a copy of it.
+    static func resolve(lines: [LyricsStore.Line], inputs: LyricInputs) -> LyricResolution {
+        LyricSweep.resolve(lines: lines, inputs: inputs)
+    }
+
     private func lyricRow(
-        lines: [LyricsStore.Line], index: Int, centre: Int, at: TimeInterval
+        lines: [LyricsStore.Line], index: Int, resolution: LyricResolution, distance: Int, lineLimit: Int
     ) -> some View {
         LyricRow(
             line: lines[index],
-            isCurrent: index == centre,
-            distance: abs(index - centre),
-            at: at,
+            isCurrent: index == resolution.current,
+            // Measured from the lit row, in rows, as on the stage: from the
+            // centre, the waiting opening line sat at the far floor beside a
+            // brighter neighbour.
+            distance: distance,
+            at: resolution.at,
             end: LyricSweep.end(of: index, in: lines),
+            // The sung row's edge read per frame from the running clock, as
+            // on the stage and the caption.
+            clock: index == resolution.current
+                ? LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+                    precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
+                    trackOffset: lyrics.trackOffset
+                ))
+                : nil,
             fontSize: Theme.TypeRole.title.size,
             weight: .bold,
-            lineLimit: 1,
+            // One row, except the centre line when `lyricLayout` gave it two.
+            lineLimit: lineLimit,
             accent: accent,
             reduceMotion: reduceMotion,
             wordTimingEnabled: wordTimingEnabled,
+            // The card's own steps. The panel's were tuned against black, and
+            // over a pale cover its context lines dissolved (2.1:1 at the floor).
+            surface: .card,
             seek: {
                 // The song landing on a line somebody pointed at.
                 Haptics.alignment()
@@ -470,17 +807,36 @@ struct LockScreenCard: View {
         )
     }
 
+    /// The silence before a line, in the row a line would take — the same
+    /// marker the stage draws, at the card's type size so the window's rows
+    /// keep one height.
+    private func interludeRow(
+        _ slot: LyricSlot, resolution: LyricResolution, distance: Int
+    ) -> some View {
+        let isCurrent = slot == resolution.moment.interlude
+        return InterludeMarker(
+            progress: LyricSweep.interludeProgress(slot, at: resolution.at),
+            isCurrent: isCurrent,
+            distance: distance,
+            clock: isCurrent
+                ? LyricSweep.liveProgress(slot, clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+                    precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
+                    trackOffset: lyrics.trackOffset
+                )))
+                : nil,
+            fontSize: Theme.TypeRole.title.size,
+            weight: .bold,
+            reduceMotion: reduceMotion,
+            surface: .card
+        )
+    }
+
     /// Where the sound goes, presented the way macOS presents it.
     ///
-    /// Control Center's output list is the reference, down to the grammar of a
-    /// selected row: the device's icon sits in a filled circle in the user's own
-    /// accent colour, and the name goes semibold. No tick — the tinted well *is*
-    /// the tick there, and adding one states the same thing twice.
-    ///
-    /// The accent is `controlAccentColor`, which is whatever the person chose in
-    /// System Settings. That is not the artwork tint this card used to carry: it
-    /// does not move with the music, and matching it is most of what makes a
-    /// control feel like it belongs to the system rather than to an app.
+    /// Control Center's output list is the reference for the shape of it: an
+    /// icon in a round well, the name beside it, the list hanging off the
+    /// control that raised it. The selected row departs from it on purpose —
+    /// see `outputRowMarks` for why the accent well became a checkmark.
     @ViewBuilder
     private var outputPicker: some View {
         if pane == .output {
@@ -517,14 +873,33 @@ struct LockScreenCard: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                     } else {
-                        ForEach(outputs.prefix(5)) { device in
-                            outputRow(device)
+                        // Every device, the current one first, in a list that
+                        // scrolls rather than grows: past what fits above the
+                        // footer it would cover the glyph that opened it, and
+                        // past the card's top edge it would be cut by the
+                        // window. `.basedOnSize` keeps a short list from
+                        // rubber-banding as if it had somewhere to go.
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(alignment: .leading, spacing: Self.outputRowSpacing) {
+                                ForEach(Self.orderedOutputs(outputs, current: currentOutput)) { device in
+                                    outputRow(device)
+                                }
+                            }
                         }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .frame(height: Self.outputListHeight(count: outputs.count, size: cardSize))
                     }
                 }
                 .padding(.vertical, 10)
                 .frame(width: 268)
-                .glassSurface(cornerRadius: 20, elevation: .popover)
+                // The recipe here too (F-012). Left to the default it took
+                // `glassEffect` on macOS 26 and stacked real glass on the
+                // card's recipe under the scrim — the glass-on-glass the scrim
+                // above exists to prevent, and the same shield with nothing
+                // behind it to sample. The recipe's vibrancy layer stays, as it
+                // always was below 26: over the shield it samples nothing and
+                // the drawn pane carries the surface on its own.
+                .glassSurface(cornerRadius: 20, elevation: .popover, preferDrawn: true)
                 .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
                 // Grown from the corner it belongs to, not from the middle of
                 // the card. The anchor is what makes it read as *this button's*
@@ -551,12 +926,29 @@ struct LockScreenCard: View {
                 .padding(.trailing, 14)
                 .padding(.bottom, Self.footerClearance)
             }
-            .animation(reduceMotion ? nil : Theme.paneAnimation, value: pane)
+            // One named group, modal, the way the scrim already says it is to
+            // a sighted listener: the card under it is hidden from VoiceOver
+            // while it is up (see `body`), and this is what is left — "Sound
+            // Output", the control's own name, holding the devices (H-010).
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(localized("Sound Output"))
+            .accessibilityAddTraits(.isModal)
+            // With the card hidden, the glyph that opened the list is hidden
+            // with it, and the scrim's tap was never an element: without this
+            // a VoiceOver user could leave only by choosing a device. Escape
+            // closes it as a click on the scrim does.
+            .accessibilityAction(.escape) { pane = .player }
+            // Under Reduce Motion the picker is a scrim and a list fading in
+            // place (its transition is already plain opacity), so it fades.
+            // It used to cut, and blinked on over the card (F-055). The
+            // card's size is fixed, so nothing in this overlay can travel.
+            .animation(reduceMotion ? Theme.contentAnimation : Theme.paneAnimation, value: pane)
         }
     }
 
     private func outputRow(_ device: AudioOutputs.Output) -> some View {
         let selected = device.id == currentOutput
+        let marks = Self.outputRowMarks(selected: selected)
         return Button {
             guard AudioOutputs.select(device.id) else { return }
             // A discrete value committed, which is what this pattern is for.
@@ -568,24 +960,35 @@ struct LockScreenCard: View {
             pane = .player
         } label: {
             HStack(spacing: 10) {
-                // The filled well, in the system accent. This is the whole
-                // selected-state vocabulary in Control Center.
                 ZStack {
                     Circle()
-                        .fill(selected ? Color(nsColor: .controlAccentColor) : Theme.cardFill)
+                        .fill(marks.well.color)
                         .frame(width: 26, height: 26)
                     Image(systemName: device.symbol)
                         .islandFont(.subhead)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(marks.glyph.color)
                 }
                 Text(device.name)
-                    .islandFont(.subhead, weight: selected ? .semibold : .regular)
+                    .islandFont(.subhead, weight: marks.semibold ? .semibold : .regular)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 6)
+                if marks.checkmark {
+                    // Hidden from VoiceOver: the row already says "selected"
+                    // through its trait, and a second "checkmark" would be
+                    // the same fact twice.
+                    Image(systemName: "checkmark")
+                        .islandFont(.caption, weight: .semibold)
+                        .foregroundStyle(.white)
+                        .accessibilityHidden(true)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
+            // The row's height is arithmetic the list is cut to (see
+            // `outputListHeight`), so it is stated rather than left to the
+            // font: a taller name must not push the half-row off its half.
+            .frame(height: Self.outputRowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(OutputRowStyle())
@@ -613,6 +1016,7 @@ struct LockScreenCard: View {
         outputs = audio.outputs
         currentOutput = audio.current
         volume = audio.volume
+        muted = audio.muted
     }
 
     // MARK: - Rails
@@ -654,28 +1058,20 @@ struct LockScreenCard: View {
                         }
                 )
             }
-            .frame(height: 14)
-            // One adjustable element, the way the panel's scrubber is declared:
-            // a capsule with a drag gesture is nothing at all to assistive
-            // tech, and over the lock screen this is the only way to move the
-            // song without a pointer.
-            .accessibilityElement()
-            .accessibilityLabel(localized("Playback Position"))
-            .accessibilityValue(
-                localized(
-                    "%@ of %@",
-                    formatTime(fraction * media.duration),
-                    formatTime(media.duration)
-                )
+            // 22 pt to grab inside the 14 pt the card lays out, as the
+            // panel's scrubber does (F-014): the bar is drawn the same, the
+            // times under it do not move, and a finger that lands a little
+            // high or low still seeks.
+            .frame(height: 22)
+            // The same slider the panel's scrubber is: over the lock screen
+            // this is the only way to move the song without a pointer.
+            .playbackPositionAccessibility(
+                shown: fraction * media.duration,
+                duration: media.duration,
+                position: { media.position },
+                seek: { media.seek(to: $0) }
             )
-            .accessibilityAdjustableAction { direction in
-                let step = media.duration * 0.05
-                switch direction {
-                case .increment: media.seek(to: media.position + step)
-                case .decrement: media.seek(to: media.position - step)
-                @unknown default: break
-                }
-            }
+            .padding(.vertical, -4)
             HStack {
                 Text(formatTime(shownElapsed))
                 Spacer()
@@ -696,17 +1092,52 @@ struct LockScreenCard: View {
     /// device.
     private var volumeLevel: Double { Double(draggingVolume ?? volume ?? 0) }
 
+    /// One paced write from the volume drag, onto the device the drag latched
+    /// (K-008). Nothing is written once the default has moved under the drag.
+    private func writeVolume(_ level: Float) {
+        guard let device = volumeLatch.device else { return }
+        commitVolume(level, device: device)
+    }
+
+    /// The one write path for the bar — the drag's paced writes and its flush,
+    /// and VoiceOver's steps — noted on the media trail so a live session can
+    /// count the writes a drag makes. A level raised above zero on a muted
+    /// output unmutes it, as the volume keys do (G-023): the level goes first,
+    /// so the sound comes back at the new level rather than a blip of the old.
+    private func commitVolume(_ level: Float, device: AudioDeviceID) {
+        DebugTrail.note("lock card: volume write \(level)")
+        SystemVolume.set(level, device: device)
+        if SystemVolume.unmutes(muted: muted, newLevel: level), SystemVolume.setMuted(false, device: device) {
+            // Straight into the card, so the next paced write does not unmute
+            // again before the watch's listener reports it.
+            muted = false
+        }
+    }
+
     /// The system's output volume. Absent entirely for a device that has none
     /// to give, rather than a slider that moves and changes nothing.
     private var volumeBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "speaker.fill").islandFont(.caption, weight: .regular)
+            // A muted Mac drew a live-looking bar (G-023). The slashed speaker
+            // says so where the system's own slider does, and the fill drops
+            // to the track's tone: still the level the sound comes back at,
+            // no longer a level anyone is hearing. The glyph sits in the
+            // slashed one's width, so the bar does not shift when it swaps.
+            Image(systemName: "speaker.slash.fill")
+                .islandFont(.caption, weight: .regular)
+                .hidden()
+                .overlay(alignment: .leading) {
+                    Image(systemName: muted ? "speaker.slash.fill" : "speaker.fill")
+                        .islandFont(.caption, weight: .regular)
+                }
             GeometryReader { geo in
                 let width = geo.size.width
                 let level = Double(draggingVolume ?? volume ?? 0)
                 ZStack(alignment: .leading) {
                     Capsule().fill(Theme.cardTrack).frame(height: 4)
-                    Capsule().fill(.white.opacity(0.8)).frame(width: width * level, height: 4)
+                    Capsule()
+                        .fill(muted ? Theme.cardTrack : .white.opacity(0.8))
+                        .frame(width: width * level, height: 4)
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -714,34 +1145,48 @@ struct LockScreenCard: View {
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             guard width > 0 else { return }
+                            // The first event latches the default output; a
+                            // drag the default moved under writes nothing
+                            // more and leaves the bar to the machine (K-008).
+                            guard volumeLatch.target(current: currentOutput) != nil else { return }
                             let next = Float(min(max(value.location.x / width, 0), 1))
                             draggingVolume = next
-                            SystemVolume.set(next)
+                            // Every event wrote CoreAudio, 60 to 120 times a
+                            // second (F-045). The bar follows the finger from
+                            // `draggingVolume`; the write goes through the gate,
+                            // and a held level is handed over once its interval
+                            // has passed, so a finger at rest is heard at rest.
+                            if let write = volumeGate.offer(next, at: ProcessInfo.processInfo.systemUptime) {
+                                writeVolume(write)
+                            } else {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + VolumeWriteGate.interval) {
+                                    if let due = volumeGate.due(at: ProcessInfo.processInfo.systemUptime) {
+                                        writeVolume(due)
+                                    }
+                                }
+                            }
                         }
                         .onEnded { _ in
+                            // The level the gate still holds is where the
+                            // finger let go, and it always lands.
+                            if let held = volumeGate.finish() { writeVolume(held) }
+                            volumeLatch.end()
                             volume = SystemVolume.current() ?? draggingVolume
                             draggingVolume = nil
                         }
                 )
             }
-            .frame(height: 14)
-            // The same contract as the seek bar above: heard as a percentage,
+            // The whole height of the rail to grab: the rail is 22 pt, so the
+            // strip grows into it without moving anything beside it (F-014).
+            .frame(height: 22)
+            // The same slider as the seek bar above, heard as a percentage and
             // moved in five-percent steps. This is the system's output volume,
-            // and it was invisible to VoiceOver.
-            .accessibilityElement()
-            .accessibilityLabel(localized("Volume"))
-            .accessibilityValue(Text(volumeLevel, format: .percent))
-            .accessibilityAdjustableAction { direction in
-                let step: Float = 0.05
-                let current = Float(volumeLevel)
-                let next: Float
-                switch direction {
-                case .increment: next = min(current + step, 1)
-                case .decrement: next = max(current - step, 0)
-                @unknown default: return
-                }
-                SystemVolume.set(next)
-                volume = SystemVolume.current() ?? next
+            // and the dump found it as an AXUnknown with no value (H-023).
+            .volumeAccessibility(level: volumeLevel, muted: muted) { level in
+                let next = Float(level)
+                guard let device = currentOutput else { return }
+                commitVolume(next, device: device)
+                volume = SystemVolume.level(device: device) ?? next
             }
             Image(systemName: "speaker.wave.3.fill").islandFont(.caption, weight: .regular)
         }
@@ -768,7 +1213,7 @@ struct LockScreenCard: View {
             Button { media.togglePlayPause() } label: {
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
                     .islandFont(.hero)
-                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                    .symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)
             }
             .buttonStyle(TransportGlyphStyle(size: 34))
             .help(media.isPlaying ? localized("Pause") : localized("Play"))
@@ -800,26 +1245,74 @@ struct LockScreenCard: View {
             } else {
                 Spacer(minLength: 0)
             }
-            paneButton(.output, symbol: outputSymbol, label: localized("Sound Output"))
+            paneButton(
+                .output, symbol: outputSymbol, label: localized("Sound Output"),
+                value: Self.outputName(outputs: outputs, current: currentOutput)
+            )
         }
         .frame(height: 22)
     }
 
-    private func paneButton(_ target: Pane, symbol: String, label: String) -> some View {
+    /// What the open pane's door wears behind its glyph. The open glyph used to
+    /// differ from its bare sibling by one opacity step, white against
+    /// `cardSecondary`, which a pale cover or low vision cannot tell apart
+    /// (M-17): a filled well says "this one is open" as a shape, and Increase
+    /// Contrast adds the card's hairline edge to it. The siblings stay bare.
+    struct PaneButtonLook: Equatable {
+        let wellOpacity: Double
+        let outlined: Bool
+    }
+
+    static func paneButtonLook(open: Bool, increaseContrast: Bool) -> PaneButtonLook {
+        guard open else { return PaneButtonLook(wellOpacity: 0, outlined: false) }
+        return PaneButtonLook(
+            wellOpacity: Theme.cardFillOpacity(increaseContrast: increaseContrast),
+            outlined: increaseContrast
+        )
+    }
+
+    /// The name of the device the sound goes to, for the output button's value:
+    /// the button is a glyph, and a locked-Mac user could not tell where the
+    /// sound goes without opening the picker (M-24). Nil for a device the list
+    /// does not hold, so the button then says only what it is.
+    static func outputName(outputs: [AudioOutputs.Output], current: AudioDeviceID?) -> String? {
+        guard let current else { return nil }
+        return outputs.first(where: { $0.id == current })?.name
+    }
+
+    private func paneButton(
+        _ target: Pane, symbol: String, label: String, value: String? = nil
+    ) -> some View {
         let open = pane == target
+        let look = Self.paneButtonLook(open: open, increaseContrast: appearance.increaseContrast)
         return Button {
             pane = open ? .player : target
         } label: {
             Image(systemName: symbol)
                 .islandFont(.subhead, weight: .medium)
                 .foregroundStyle(open ? Color.white : Theme.cardSecondary)
-                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                // The output glyph follows the route, which moves when a
+                // device is picked or unplugged — never in an animation.
+                .symbolSwap(value: symbol, reduceMotion: reduceMotion)
                 .frame(width: 26, height: 22)
+                .background {
+                    // 24 pt, the rail's own 22 pt row plus a point each side:
+                    // a well larger than the row would push the rail taller.
+                    Circle()
+                        .fill(Color.white.opacity(look.wellOpacity))
+                        .overlay {
+                            if look.outlined {
+                                Circle().strokeBorder(Theme.cardHairline, lineWidth: 1)
+                            }
+                        }
+                        .frame(width: 22, height: 22)
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(PanelButtonStyle())
-        .help(label)
+        .help(value.map { "\(label), \($0)" } ?? label)
         .accessibilityLabel(label)
+        .accessibilityValue(value ?? "")
         .accessibilityAddTraits(open ? [.isSelected] : [])
     }
 
@@ -845,7 +1338,7 @@ struct LockScreenCard: View {
                         Image(systemName: isSaved ? "heart.fill" : "heart")
                         .islandFont(.title, weight: .medium)
                         .foregroundStyle(isSaved ? Color.white : Theme.cardSecondary)
-                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                        .symbolSwap(value: isSaved, reduceMotion: reduceMotion)
                         .opacity(known == nil ? 0.45 : 1)
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
@@ -855,18 +1348,106 @@ struct LockScreenCard: View {
                 .accessibilityLabel(
                     isSaved ? localized("Remove from Liked Songs") : localized("Add to Liked Songs")
                 )
-                .task(id: id) { spotify.refreshSavedState(trackID: id) }
             }
         }
     }
 
     // MARK: - Pure layout arithmetic
 
+    /// One row of lyric type: the title role's 16pt bold, which lays out 19pt
+    /// tall. `LockCardLyricGlideTests` measures it.
+    static let lyricLineHeight: CGFloat = 19
+    /// The spacing of the window's stack, between one row and the next.
+    static let lyricRowSpacing: CGFloat = 7
+
     /// How far a line travels entering or leaving the window: one row of the
     /// title role plus the stack's spacing, so the leaving line moves exactly
     /// as far as the lines behind it and the arriving one starts where the
     /// next row would have been. The page moves as one.
-    static let lineTravel: CGFloat = 26
+    static let lineTravel: CGFloat = lyricLineHeight + lyricRowSpacing
+
+    /// The card's side padding, which is all that stands between its edge and
+    /// the lyric rows: they span the rest.
+    static func horizontalPadding(for cardSize: NotchViewModel.LockCardSize) -> CGFloat {
+        cardSize == .compact ? 20 : 24
+    }
+
+    /// The width a lyric row has to set its line in: 412pt on the standard
+    /// card, 380pt on the compact one.
+    static func lyricTextWidth(for cardSize: NotchViewModel.LockCardSize) -> CGFloat {
+        size(for: cardSize).width - 2 * horizontalPadding(for: cardSize)
+    }
+
+    /// How many rows the window shows, and how many lines the centre row may
+    /// take.
+    struct LyricLayout: Equatable {
+        var window: Int
+        var currentLineLimit: Int
+    }
+
+    /// The window for one centre line: the plain one while that line fits a
+    /// row, and a narrower one around a two-row line when it does not.
+    ///
+    /// Every row used to be one line, the line being sung included, so on the
+    /// lock screen a long line read "…past the point wh…" while the stage
+    /// beside it wrapped the same line whole (H-019) — the surface with the
+    /// least room was the one that knew least, and the line cut was the one
+    /// being sung. Now the centre row takes the stage's second row, and the
+    /// window gives up a neighbour each side to pay for it, so the card's
+    /// middle never asks for more than it already had:
+    ///
+    /// - standard, plain: 5 rows × 19 + 4 gaps × 7 = 123pt, in a middle
+    ///   measured at 126pt. Wrapped, five rows would be 6 lines × 19 + 4 × 7
+    ///   = 142pt; three are 4 lines × 19 + 2 × 7 = 90pt, which fits.
+    /// - compact, plain: 3 × 19 + 2 × 7 = 71pt in a middle of 84pt. Wrapped,
+    ///   three rows are the same 90pt, too tall, so the sung line stands
+    ///   alone on its two rows, 38pt.
+    ///
+    /// The window stays odd, so the sung line keeps the centre. Neither a
+    /// scroll view (see `lyricsPane`: not above the shield) nor a smaller font
+    /// (the rows share the title role with the card's title) was the answer.
+    static func lyricLayout(
+        currentText: String?, width: CGFloat, cardSize: NotchViewModel.LockCardSize
+    ) -> LyricLayout {
+        let plain = LyricLayout(window: visibleLyricLines(for: cardSize), currentLineLimit: 1)
+        guard let currentText, measureLyricLine(currentText) > width else { return plain }
+        let room = lyricStackHeight(plain)
+        var window = plain.window
+        while window > 1, lyricStackHeight(LyricLayout(window: window, currentLineLimit: 2)) > room {
+            window -= 2
+        }
+        return LyricLayout(window: window, currentLineLimit: 2)
+    }
+
+    /// The height a window of rows lays out at, its centre row at its limit.
+    static func lyricStackHeight(_ layout: LyricLayout) -> CGFloat {
+        let lines = layout.window - 1 + layout.currentLineLimit
+        return CGFloat(lines) * lyricLineHeight + CGFloat(max(layout.window - 1, 0)) * lyricRowSpacing
+    }
+
+    /// The width a lyric line takes on one unbroken row, set exactly as
+    /// `KaraokeText` sets the sung line: the system font at the title role's
+    /// size, bold, with that size's tracking. A different font or tracking
+    /// here and the decision would disagree with the wrap — a line measured
+    /// as fitting would be cut by a one-row limit, or a line that fits would
+    /// cost two neighbours for nothing. `LockCardPaneTests` holds the two
+    /// together against the drawn row.
+    ///
+    /// Asked on every draw, and the card draws on every clock tick, so the
+    /// last answer is kept: the centre line changes a few times a minute.
+    static func measureLyricLine(_ text: String) -> CGFloat {
+        if let measuredLine, measuredLine.text == text { return measuredLine.width }
+        let size = Theme.TypeRole.title.size
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: size, weight: .bold),
+            .kern: Theme.tracking(forSize: size),
+        ]
+        let width = NSAttributedString(string: text, attributes: attributes).size().width
+        measuredLine = (text, width)
+        return width
+    }
+
+    private static var measuredLine: (text: String, width: CGFloat)?
 
     static func lineTransition(reduceMotion: Bool) -> AnyTransition {
         guard !reduceMotion else { return .opacity }
@@ -880,6 +1461,17 @@ struct LockScreenCard: View {
     static func isJump(from previous: Int?, to centre: Int) -> Bool {
         guard let previous else { return false }
         return abs(centre - previous) > 1
+    }
+
+    /// The same, counting a window that changed size as a jump. Singing into
+    /// a two-row line narrows the window from five rows to three, and out of
+    /// it widens it again; glided, every row would travel `lineTravel` against
+    /// a row pitch that had just changed under it and land between slots. So
+    /// those turns are a cut, like a seek — the price of the sung line being
+    /// whole.
+    static func isJump(from previous: Int?, to centre: Int, windowFrom previousWindow: Int?, to window: Int) -> Bool {
+        if let previousWindow, previousWindow != window { return true }
+        return isJump(from: previous, to: centre)
     }
 
     /// A window of `size` indices centred on `centre`, slid inside the song

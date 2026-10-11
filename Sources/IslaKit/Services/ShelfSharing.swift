@@ -18,21 +18,16 @@ import Quartz
 enum ShelfSharing {
     // MARK: Returning the keyboard
 
-    private static var returnTo: NSRunningApplication?
+    /// One lease for both: a Quick Look opened over an AirDrop sheet hands
+    /// the keyboard back to the same app either way. See `ActivationLease`.
+    private static let lease = ActivationLease()
 
     private static func activateRemembering() {
-        let front = NSWorkspace.shared.frontmostApplication
-        if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { returnTo = front }
-        NSApp.activate()
+        lease.begin()
     }
 
     fileprivate static func giveBackActivation() {
-        guard let app = returnTo else { return }
-        returnTo = nil
-        // Only if Isla is still the one in front. A user who clicked into a
-        // third app meanwhile has already chosen where the keyboard goes.
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier else { return }
-        app.activate()
+        lease.end()
     }
 
     // MARK: AirDrop
@@ -47,14 +42,32 @@ enum ShelfSharing {
     /// is asked here, on the click. Asked in the menu, it ran for every card
     /// on every redraw, because a SwiftUI context menu's contents are built
     /// with the card.
-    static func airDrop(_ urls: [URL]) {
-        guard let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: urls) else {
-            NSSound.beep()
+    ///
+    /// A refusal is said on the Shelf's footer, through `shelf`'s notice,
+    /// which the pane also hands to VoiceOver. It was `NSSound.beep()`, silent
+    /// at zero alert volume and invisible to VoiceOver (F-049); the beep is
+    /// gone rather than kept beside the words, so one refusal has one surface.
+    static func airDrop(_ urls: [URL], refusingOn shelf: ShelfStore) {
+        let service = NSSharingService(named: .sendViaAirDrop)
+        if let refusal = airDropRefusal(
+            serviceAvailable: service != nil,
+            canPerform: service?.canPerform(withItems: urls) ?? false
+        ) {
+            shelf.show(refusal)
             return
         }
+        guard let service else { return }
         service.delegate = airDropDelegate
         activateRemembering()
         service.perform(withItems: urls)
+    }
+
+    /// Why AirDrop will not take the files, or nil when it will. Pulled out
+    /// of `airDrop` so the wording can be tested without a sharing service.
+    static func airDropRefusal(serviceAvailable: Bool, canPerform: Bool) -> ShelfStore.Notice? {
+        if !serviceAvailable { return .airDropUnavailable }
+        if !canPerform { return .airDropCannotSend }
+        return nil
     }
 
     private final class AirDropDelegate: NSObject, NSSharingServiceDelegate {

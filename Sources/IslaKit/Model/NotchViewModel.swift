@@ -69,7 +69,22 @@ final class NotchViewModel: ObservableObject {
         static let rightRail: [Tab] = []
     }
 
-    @Published var isOpen = false
+    @Published var isOpen = false {
+        didSet {
+            // Opening ends a charger or headphones moment and a track peek
+            // (F-033). They were cleared only on sleep and lock, so a panel
+            // opened half a second into the 2.2 s moment and closed a second
+            // later snapped the pill back to "Charging" for what was left of
+            // it. Cleared here, inside the open's own `withAnimation`, they
+            // leave with the open rather than after it; the controller's
+            // pending fold then finds nothing to fold. Only on false to true:
+            // `@Published` runs this on every write, and a moment presented
+            // while shut must survive a redundant `isOpen = false`.
+            guard isOpen, !oldValue else { return }
+            ambient = nil
+            isPeeking = false
+        }
+    }
     @Published var isDropTargeted = false
     /// Briefly true when a new track has just arrived and is showing itself.
     @Published var isPeeking = false
@@ -78,8 +93,19 @@ final class NotchViewModel: ObservableObject {
     /// True while the shield is up and the panel is presenting the lock-screen
     /// card instead of its normal shell.
     @Published var isLockedPresentation = false
+    /// A screenshot arrived while another tab was showing; the rail marks the
+    /// Shelf until it comes into view.
+    @Published private(set) var shelfHasNew = false
+
+    /// The Translate editor's frame in the window (top-left origin), for the
+    /// panel's I-beam. Zero on every other tab; the pane that reports it is
+    /// gone by then and a vanished view sends no last word.
+    @Published var textInputRect: CGRect = .zero
+
     @Published var tab: Tab = .media {
         didSet {
+            if tab == .shelf { shelfHasNew = false }
+            if tab != .translate { textInputRect = .zero }
             // The shelf can hold files inside the folders macOS guards, and
             // looking at one raises a permission prompt. It is asked here,
             // with the shelf on screen, rather than at launch with nothing to
@@ -91,8 +117,20 @@ final class NotchViewModel: ObservableObject {
             // lands on the player rather than on a page of words left open
             // three songs ago.
             if tab != .media { isShowingLyrics = false }
+            // A scroll target is for the visit it was set for. One left
+            // unspent would jump a later, unrelated visit to Settings.
+            if tab != .settings { settingsScrollTarget = nil }
         }
     }
+
+    /// Where Settings should scroll on its next appearance, by section id.
+    ///
+    /// Settings scrolls, and the Music section sits below General, Keyboard
+    /// Shortcuts and Screenshots, so a pointer from elsewhere that only
+    /// selected the tab landed three sections above the switch it promised
+    /// (J-007's Open Settings). `SettingsPane` scrolls to it and clears it:
+    /// a one-shot, not a remembered position.
+    @Published var settingsScrollTarget: String?
 
     /// Whether the Music tab is showing the full lyrics page instead of the
     /// player.
@@ -104,6 +142,28 @@ final class NotchViewModel: ObservableObject {
     /// for — which is what made the hook an `onAppear` reading an environment
     /// variable rather than a route like every other way in.
     @Published var isShowingLyrics = false
+
+    /// Why the last lyric import or folder action did not work, said once,
+    /// in the section that asked.
+    ///
+    /// Import LRC, Add Lyrics Folder and Rescan each dropped their error with
+    /// `try?`, so a file Isla could not read closed the open panel and
+    /// nothing happened at all (G-007). One notice, inline where the action
+    /// was taken — under the lyrics page's header, or under Import LRC… in
+    /// Settings — and never a second surface for the same failure: the panel
+    /// has no toast, and one failure gets one place. The next lyric action
+    /// or a track change takes it away.
+    struct LyricsNotice: Equatable {
+        enum Origin: Equatable {
+            case stage
+            case settings
+        }
+
+        let origin: Origin
+        let text: String
+    }
+
+    @Published private(set) var lyricsNotice: LyricsNotice?
 
     /// Whether the panel must stay open with no pointer on it.
     ///
@@ -121,9 +181,16 @@ final class NotchViewModel: ObservableObject {
     /// *opens* the panel, never whether arriving takes back a panel that is
     /// already open. A step of its own inside `pointerCrossed` because a drag
     /// arriving must not run it; see there.
+    ///
+    /// Music only for an arrival at the *closed* island: that is the glance at a
+    /// track the island exists for. A panel already open is not being arrived
+    /// at, it is being used — ⌃⌥⌘I opens on whatever tab was left, and the hand
+    /// that then went for a Clipboard row had the pane swap to Music under it
+    /// (J-008, 2026-10-11). The pin still goes either way: the pointer reaching
+    /// the panel is what hands it back, whatever tab it is on.
     func pointerArrived() {
         isPinnedOpen = false
-        select(.media)
+        if !isOpen { select(.media) }
     }
 
     /// What the pointer crossing the panel's boundary asks the panel to do.
@@ -210,10 +277,55 @@ final class NotchViewModel: ObservableObject {
     /// pointer rule cancels them outright: the cursor is wherever it was left,
     /// the very next sample calls it "away", and the panel folds a third of a
     /// second after opening. A command opens until a command closes — the same
-    /// hotkey again, Escape, or a click outside. Hovering onto the panel and
+    /// hotkey again, Escape, a click outside, or ⌘-Tab to another app. Hovering onto the panel and
     /// off again hands control back to the pointer, which is what somebody
     /// reaching for it with the mouse means by leaving.
     @Published var isPinnedOpen = false
+
+    /// Whether a pinned panel holds Escape, through a hot key registered only
+    /// for as long as this answers true.
+    ///
+    /// "Escape" was the first way out the pin promised, and it was false: the
+    /// panel is key only while Translate asks for the keyboard, Escape is read
+    /// only in `NotchPanel.sendEvent`, so after ⌃⌥⌘I on Music the key went to
+    /// the app underneath and the panel stayed up (F-004). Making the panel key
+    /// would have answered it at the cost of dimming the frontmost window and
+    /// stopping its caret — the very rudeness the never-key panel exists to
+    /// avoid — so the pin holds Escape instead, and nothing else.
+    ///
+    /// It holds less than it could, on purpose:
+    /// - **not while the panel is key**: `sendEvent` already reads Escape then,
+    ///   and must keep reading it first, because an input method mid-composition
+    ///   owns it and Translate spends it on clearing the field;
+    /// - **not while this app is active**: Quick Look and AirDrop activate it
+    ///   from a Shelf card, and their windows answer Escape themselves;
+    /// - **never over the shield**: a key the lock screen's password field does
+    ///   not get is one taken from the person unlocking.
+    ///
+    /// The cost is that the one Escape pressed while a pin stands goes to Isla
+    /// and not to the app in front — a vim user reading lyrics loses one
+    /// keystroke, the one that also folds the panel they were reading. The pin
+    /// ends on that press, and the registration ends with it.
+    nonisolated static func claimsEscape(
+        pinned: Bool,
+        panelHasKeyboard: Bool,
+        appIsActive: Bool,
+        locked: Bool
+    ) -> Bool {
+        pinned && !panelHasKeyboard && !appIsActive && !locked
+    }
+
+    /// Whether another app coming to the front ends the pin.
+    ///
+    /// ⌘-Tab is the keyboard's click in another app, and a click in another app
+    /// already ends a pin (`NotchController.updatePinnedClickMonitor`). Without
+    /// this, switching apps from the keyboard left a pinned panel standing over
+    /// the menu bar of the app one had switched to. This app's own activation is
+    /// not another app: Quick Look and AirDrop activate Isla from inside a
+    /// pinned panel, and the panel must survive that.
+    func appActivated(ownPID: pid_t, activatedPID: pid_t) -> Bool {
+        isPinnedOpen && activatedPID != ownPID
+    }
 
     /// Whether the body is showing the welcome instead of the selected tab.
     ///
@@ -223,8 +335,9 @@ final class NotchViewModel: ObservableObject {
     /// where the rail's Settings icon is, so hiding the rail would leave that
     /// sentence pointing at nothing.
     ///
-    /// Lowered by anything that ends the panel it opened, and set by exactly two
-    /// things — Get Started and a tab picked out of the rail. Everything else
+    /// Lowered by anything that ends the panel it opened, and set by exactly
+    /// three things — Get Started, a tab picked out of the rail, and a shortcut
+    /// that asks for a tab (⌃⌥⌘T, ⌃⌥⌘L, the Service). Everything else
     /// that takes it off screen leaves `hasCompletedFirstRun` alone, so the
     /// welcome is shown once per account *until it is answered*, not once per
     /// account full stop.
@@ -239,13 +352,14 @@ final class NotchViewModel: ObservableObject {
         select(.media)
     }
 
-    /// A tab the user picked out of the rail.
+    /// A tab the user picked out of the rail, or asked for by shortcut.
     ///
     /// Distinct from `select` because `select` is also how the *machinery* moves
-    /// the panel to a tab — the pointer arriving, a file being dragged on, a
-    /// translation arriving by hotkey — and none of those is an answer to
-    /// anything. `pointerArrived()` in particular selects Music, and the pointer
-    /// arrives by definition on the way to the Get Started button, so dismissing
+    /// the panel to a tab — the pointer arriving, a file being dragged on — and
+    /// none of those is an answer to anything. A hot key used to count as
+    /// machinery too, and its tab opened invisibly behind the welcome (J-018). `pointerArrived()` in particular selects Music on a closed
+    /// island, and the pointer arrives by definition on the way to the Get
+    /// Started button, so dismissing
     /// the welcome from `select` would have wiped it out from under the cursor
     /// reaching for it. Reaching for a tab is a decision; the pointer crossing
     /// the panel is not.
@@ -255,6 +369,41 @@ final class NotchViewModel: ObservableObject {
             Self.completeFirstRun()
         }
         select(tab)
+    }
+
+    /// Text that ⌃⌥⌘T or the "Translate in Isla" service brought, already
+    /// through `Translator.prepareCommandInput`. The controller decides
+    /// whether the panel may open at all (the lock refusal) and holds it open;
+    /// this decides what the pane shows.
+    ///
+    /// Through `chooseTab`, not `select`: a shortcut is somebody asking for
+    /// this tab as much as a click on the rail is, and the welcome prints the
+    /// shortcut, so the first thing a new user does with it is press it.
+    /// Through `select` the text landed in a field the welcome was covering,
+    /// the keyboard went to it unseen and the panel folded (J-018).
+    ///
+    /// No text leaves the field as it was — an image on the clipboard is not
+    /// a reason to throw away a sentence somebody typed — and only the notice
+    /// says what happened (F-040).
+    func receiveCommandedTranslation(_ prepared: Translator.CommandInput) {
+        if let text = prepared.text {
+            // Covered again before the text lands. The pane's reveal is keyed
+            // to the pane, not to its text, so a pane uncovered for the last
+            // thing translated would otherwise show this clipboard's contents
+            // in full, and the hot key opens the panel at exactly the moment a
+            // shared screen would catch it. Assigned directly rather than
+            // through the editor, so this text does not count as typed and
+            // stays covered.
+            privacy.conceal(TranslatePane.revealID)
+            translator.input = text
+        }
+        // After the text: setting `input` clears the notice.
+        translator.notice = prepared.notice
+        // Spoken too: the keyboard lands in the field, and VoiceOver reads the
+        // field, not the line under it, so a blind user would hear the panel
+        // open on an unchanged field and nothing about why.
+        if let notice = prepared.notice { Announcer.shared.announce(notice) }
+        chooseTab(.translate)
     }
 
     /// The pointer is on the island. Drawn as an outline, not as an opening.
@@ -357,6 +506,15 @@ final class NotchViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // A notice is about the song it was raised over; under the next
+        // song's lyrics it would read as being about that one.
+        media.$track.map { $0?.key }.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in
+                guard self?.lyricsNotice != nil else { return }
+                self?.lyricsNotice = nil
+            }
+            .store(in: &cancellables)
+
         // A film starting under Music Only folds a paused song's pill at once.
         media.$otherMediaIsPlaying.removeDuplicates().filter { $0 }
             .sink { [weak self] _ in self?.otherMediaStartedPlaying() }
@@ -394,30 +552,87 @@ final class NotchViewModel: ObservableObject {
         lyricsCoordinator.refreshVisibility()
     }
 
-    func chooseLocalLyricsFile() {
+    /// Import LRC, from the lyrics page (`.stage`) or from Settings
+    /// (`.settings`), which is where a failure is said.
+    ///
+    /// The song is read before the open panel runs, because the panel is
+    /// modal and a song can end while the listener browses: read after it
+    /// returned, the file was bound to whichever song was playing then
+    /// (G-013).
+    func chooseLocalLyricsFile(from origin: LyricsNotice.Origin) {
+        lyricsNotice = nil
+        let identity = lyricsCoordinator.currentLocalTrackIdentity
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.init(filenameExtension: "lrc")!]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? lyricsCoordinator.importLocalFile(at: url)
+        importLocalLyricsFile(at: url, for: identity, from: origin)
+    }
+
+    /// The import itself, apart from the panel so it can be tested.
+    func importLocalLyricsFile(at url: URL, for identity: LocalTrackIdentity?, from origin: LyricsNotice.Origin) {
+        lyricsNotice = nil
+        do {
+            try lyricsCoordinator.importLocalFile(at: url, for: identity)
+        } catch {
+            report(Self.importFailure(error), from: origin)
+        }
+    }
+
+    /// Puts the notice where it was asked for, and says it to VoiceOver: a
+    /// line of caption text appearing under a header is easy to miss without
+    /// sight, and the open panel that just closed took the focus with it.
+    private func report(_ text: String, from origin: LyricsNotice.Origin) {
+        lyricsNotice = LyricsNotice(origin: origin, text: text)
+        Announcer.shared.announce(text)
+    }
+
+    /// What a refused file is told, in the listener's words: the line to
+    /// look at when a stamp is broken, and plain text otherwise. The file's
+    /// own name is not repeated — they picked it a moment ago.
+    static func importFailure(_ error: Error) -> String {
+        switch error as? LocalLyricsDocument.Error {
+        case .invalidTimestamp(let line)?, .invalidWordOrder(let line)?:
+            return localized("Line %d of this file has a time Isla can't read.", line)
+        case .emptyTimeline?:
+            return localized("This file has no timed lyrics.")
+        case nil:
+            // Not text in any encoding the library reads, or not readable at
+            // all — a file gone, or one macOS will not let Isla open.
+            return localized("Couldn't read this file as text.")
+        }
     }
 
     func chooseLocalLyricsFolder() {
+        lyricsNotice = nil
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? localLyricsLibrary.addFolder(url)
+        do {
+            try localLyricsLibrary.addFolder(url)
+        } catch {
+            // The files inside a folder that was added are listed under its
+            // row by the library; this is the folder itself failing.
+            report(localized("Couldn't read: %@", url.lastPathComponent), from: .settings)
+        }
     }
 
     func removeLocalLyricsFolder(_ url: URL) {
+        lyricsNotice = nil
         localLyricsLibrary.removeFolder(url)
     }
 
     func rescanLocalLyrics() {
-        try? localLyricsLibrary.rescanFolders()
+        lyricsNotice = nil
+        do {
+            try localLyricsLibrary.rescanFolders()
+        } catch {
+            let names = localLyricsLibrary.selectedFolders.map(\.lastPathComponent)
+            report(localized("Couldn't read: %@", names.joined(separator: ", ")), from: .settings)
+        }
     }
 
     func revealLocalLyricsFolder() {
@@ -464,6 +679,24 @@ final class NotchViewModel: ObservableObject {
     func nudgeLockedIsland() {
         guard isLockedPresentation else { return }
         lockedHoverNudges += 1
+        // The shake says "not here" only to someone who can see it, and under
+        // Reduce Motion it does not play at all. Every refusal comes through
+        // here — the click, ⌃⌥⌘I, the translate and lyrics keys, the AX
+        // action — so this is the one place the refusal is also spoken. The
+        // announcer's repeat window keeps a click that arrives by two routes
+        // to one sentence.
+        Announcer.shared.announce(localized("Unlock your Mac to open Isla."))
+    }
+
+    /// What the compact island says it is: "Playing: title, artist".
+    ///
+    /// The pill's accessibility label and the peek's announcement are the
+    /// same sentence, kept here so the two cannot drift. Empty with no track,
+    /// which the announcer refuses to speak.
+    var compactAccessibilityLabel: String {
+        guard let track = media.track else { return "" }
+        let state = compactMediaActivity == .playing ? localized("Playing") : localized("Paused")
+        return "\(state): \(track.title), \(track.artist)"
     }
 
     /// What a deliberate open command — ⌃⌥⌘I, the translate shortcut, the
@@ -489,12 +722,56 @@ final class NotchViewModel: ObservableObject {
         case proceed
         /// Over the shield: shake the pill and do nothing else.
         case refuseWithShake
+        /// Every display asleep: do nothing at all. A Shortcut or a Focus
+        /// automation ("when AirPods connect, show lyrics") that ran with the
+        /// lid shut opened a pinned panel nobody could see, started the media
+        /// clock and the player polls for it, and left it pinned open at wake
+        /// (J-026). There is no pill on a dark display to shake, so the refusal
+        /// has nothing to say. Deferring the open to wake was rejected: the
+        /// automation that asked has long finished, and a panel appearing when
+        /// the lid opens is a surprise rather than an answer.
+        case refuseQuietly
     }
 
-    /// The verdict for `toggle()` and `translate(_:)`, asked before either
-    /// touches a tab, the translator, the pin or `setOpen`.
-    func verdictForDeliberateOpen() -> CommandVerdict {
-        isLockedPresentation ? .refuseWithShake : .proceed
+    /// The verdict for the commanded opens — the hot keys, the Shortcuts, the
+    /// Translate service — asked before any of them touches a tab, the
+    /// translator, the pin or `setOpen`.
+    ///
+    /// `screensAsleep` is the controller's, which owns the sleep and wake
+    /// notifications; it is a parameter rather than a default so a new command
+    /// cannot forget to ask. The lock wins when both hold, so the shield keeps
+    /// one grammar however the screen happens to be.
+    func verdictForDeliberateOpen(screensAsleep: Bool) -> CommandVerdict {
+        if isLockedPresentation { return .refuseWithShake }
+        if screensAsleep { return .refuseQuietly }
+        return .proceed
+    }
+
+    /// What a *show* asks for, as against a toggle.
+    ///
+    /// Show Isla and Show Lyrics used to call the hot keys' toggles, so a
+    /// Shortcut or a Focus automation titled *Show* that ran while the panel
+    /// was already open closed it, and Show Lyrics folded the words back to
+    /// the player (F-024). A show only ever opens. Asked after the lock
+    /// verdict, never instead of it.
+    enum ShowVerdict: Equatable {
+        /// Run the ordinary pinned open.
+        case open
+        /// Already showing what was asked for: touch nothing, the pin included.
+        case alreadyOpen
+    }
+
+    /// Show Isla and reopening the app: an open panel, on whatever tab, is
+    /// already the panel.
+    nonisolated static func showVerdict(isOpen: Bool) -> ShowVerdict {
+        isOpen ? .alreadyOpen : .open
+    }
+
+    /// Show Lyrics: only the lyrics page itself is already shown. Open on the
+    /// player or another tab, it goes on to the words — where ⌃⌥⌘L's toggle
+    /// would fold the page instead.
+    nonisolated static func showLyricsVerdict(isOpen: Bool, tab: Tab, showingLyrics: Bool) -> ShowVerdict {
+        isOpen && tab == .media && showingLyrics ? .alreadyOpen : .open
     }
 
 
@@ -914,11 +1191,29 @@ final class NotchViewModel: ObservableObject {
         if tab.needsKeyboard { wantsKeyboard = true }
     }
 
+    /// The Music tab's remedy when Music Only keeps a playing source off the
+    /// island: Settings, scrolled to the switch. The target goes first so the
+    /// pane that appears for the tab change finds it already set.
+    func openMusicOnlySetting() {
+        settingsScrollTarget = SettingsPane.musicSectionID
+        select(.settings)
+    }
+
     /// Whether a pane wants this Escape for itself. Consulted before the panel
-    /// folds, so that Escape means the nearest reversible thing first: clear
-    /// the translation being typed, hand the keyboard back from the notes.
-    /// Pressing it again, with nothing left to undo, closes the panel.
+    /// folds, so that Escape cancels the nearest thing first and only the
+    /// press after that, with nothing left to cancel, closes the panel.
+    ///
+    /// An armed two-press confirmation goes first (owner decision 3): Escape
+    /// is cancel on macOS, and it used to fold the panel around a red "Clear
+    /// Everything" instead of taking the question back. Disarming loses
+    /// nothing.
+    ///
+    /// Then the text being typed into Translate, which this clears — the way
+    /// a search field and Spotlight spend a first Escape (owner decision 15).
+    /// That one is not reversible: there is no undo for the cleared field, and
+    /// an earlier version of this comment said otherwise.
     func consumeEscape() -> Bool {
+        if ArmedConfirmations.shared.disarmAll() { return true }
         switch tab {
         case .translate where !translator.input.isEmpty:
             translator.reset()
@@ -926,6 +1221,25 @@ final class NotchViewModel: ObservableObject {
         default:
             return false
         }
+    }
+
+    /// ⇧⌘C, asked by the panel before the source field gets the key (H-018).
+    /// Returns false when there is no translation on screen — another tab, or
+    /// no answer yet — and the key falls back to an ordinary copy.
+    ///
+    /// An answer to text since edited claims the key and copies nothing: the
+    /// Copy button is disabled in that window (K-004), and the key does what
+    /// the disabled button does rather than quietly copying the source in the
+    /// translation's place.
+    ///
+    /// Announced here rather than by the button, which only speaks for its
+    /// own presses; the button still ticks, through `outputCopies`.
+    func copyTranslationIfShowing() -> Bool {
+        guard tab == .translate, !translator.output.isEmpty else { return false }
+        if translator.copyOutput() {
+            Announcer.shared.announce(localized("Copied"))
+        }
+        return true
     }
 
     /// A screenshot that arrived on its own — copied elsewhere, or synced
@@ -952,9 +1266,17 @@ final class NotchViewModel: ObservableObject {
     /// moment `add` puts it there, and assigning the tab again re-ran
     /// `refreshFromDisk` — a reachability check and a fresh QuickLook request
     /// for every card, each preview landing as a whole-panel redraw.
+    ///
+    /// It no longer switches tabs at all (owner decision 14, FOC-01). A tab
+    /// that changes under somebody who is reading the clipboard, or whose
+    /// VoiceOver cursor is in it, is the app moving the user for something the
+    /// user did not ask for. The only reason it ever moved was visibility, and
+    /// the rail already has a mark for exactly that: the Shelf wears a dot
+    /// until it is looked at. A drag or a drop is still a user action and still
+    /// switches (`showShelfForDrag`).
     func receivedScreenshot(at url: URL) {
-        guard isOpen, !wantsKeyboard, !isShowingWelcome, tab != .shelf else { return }
-        tab = .shelf
+        guard tab != .shelf else { return }
+        shelfHasNew = true
     }
 
     /// A file the user dropped on the panel by hand — switching to the shelf

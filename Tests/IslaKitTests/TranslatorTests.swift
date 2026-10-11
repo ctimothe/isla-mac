@@ -1,3 +1,4 @@
+import FoundationModels
 import XCTest
 @testable import IslaKit
 
@@ -32,6 +33,14 @@ final class TranslatorTests: XCTestCase {
                        .init(source: .english, target: .russian))
     }
 
+    /// A Russian paragraph quoting one Kazakh name is translated from Russian,
+    /// on the Mac. It used to be read as Kazakh, which only the online engine
+    /// knows, so with Translate Online on the whole paragraph left the Mac.
+    func testAQuotedForeignNameDoesNotSendAParagraphOnline() {
+        let paragraph = LanguageDetectionTests.russianParagraphQuotingAKazakhName
+        XCTAssertEqual(Translator.route(for: paragraph, source: nil, target: .english).source, .russian)
+    }
+
     /// A source somebody chose is used as chosen, even for text that looks
     /// like something else.
     func testAChosenSourceIsNotSecondGuessed() {
@@ -39,25 +48,59 @@ final class TranslatorTests: XCTestCase {
                        .init(source: .uzbek, target: .russian))
     }
 
+    /// H-005: every new user was offered Russian, so an English, German or
+    /// Uzbek reader had to find the menu before the tab was any use. A fresh
+    /// install now translates into the first system language on offer.
+    func testAFreshInstallTranslatesIntoTheReadersLanguage() {
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["de-DE", "en"]), .german)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["en-US"]), .english)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["zh-Hans-CN"]), .chinese)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["zh-Hant-TW"]), .chinese, "any Chinese")
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["pt-BR"]), .portuguese)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["uz-Latn-UZ", "ru"]), .uzbek)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["xx-YY", "ja-JP"]), .japanese,
+                       "the first language on offer, not the first language")
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["xx-YY"]), .english)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: []), .english)
+
+        let translator = Translator(defaults: defaults, preferredLanguages: ["de-DE", "en"])
+        XCTAssertEqual(translator.target, .german)
+        // Kept, so the second launch, when the welcome has been dismissed and
+        // the account no longer looks fresh, does not fall back to Russian.
+        XCTAssertEqual(defaults.string(forKey: Translator.targetKey), "de")
+        defaults.set(true, forKey: NotchViewModel.hasCompletedFirstRunKey)
+        XCTAssertEqual(Translator(defaults: defaults, preferredLanguages: ["en"]).target, .german)
+    }
+
+    /// An account that has been through the welcome and never touched the
+    /// menu has been translating into Russian all along. An upgrade must not
+    /// move that under it.
+    func testAnUpgradeKeepsTheTargetItHad() {
+        defaults.set(true, forKey: NotchViewModel.hasCompletedFirstRunKey)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["en"])
+        XCTAssertEqual(translator.target, .russian)
+        XCTAssertNil(defaults.string(forKey: Translator.targetKey), "nothing written that was not chosen")
+    }
+
     func testTheChoiceIsRememberedAndAFreshTranslatorStartsOnIt() {
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         XCTAssertNil(translator.source, "detects by default")
-        XCTAssertEqual(translator.target, .russian, "the target this tab always had")
+        XCTAssertEqual(translator.target, .russian, "the reader's own language")
 
         translator.choose(target: .uzbek)
         translator.choose(source: .english)
-        let restored = Translator(defaults: defaults)
+        let restored = Translator(defaults: defaults, preferredLanguages: ["ru"])
         XCTAssertEqual(restored.source, .english)
         XCTAssertEqual(restored.target, .uzbek)
 
         translator.choose(source: nil)
-        XCTAssertNil(Translator(defaults: defaults).source, "detecting is remembered too")
+        XCTAssertNil(Translator(defaults: defaults, preferredLanguages: ["ru"]).source, "detecting is remembered too")
     }
 
     /// Choosing the language already on the other side swaps the two rather
     /// than translating a language into itself.
     func testChoosingTheOtherSidesLanguageSwaps() {
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         translator.choose(source: .english)
         translator.choose(target: .uzbek)
 
@@ -73,7 +116,7 @@ final class TranslatorTests: XCTestCase {
     /// A new language clears the answer on screen at once: it was an answer
     /// in the old language, under a heading that already names the new one.
     func testChoosingALanguageClearsTheAnswerInTheOldOne() {
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         translator.choose(target: .russian)
         translator.input = "salom"
         translator.received("привет", for: "salom", by: .online)
@@ -87,7 +130,7 @@ final class TranslatorTests: XCTestCase {
 
     /// A detected source is swapped as the language it was detected as.
     func testSwapTurnsADetectedSourceIntoTheTarget() {
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         translator.choose(target: .uzbek)
         translator.input = "Where is the station?"
         translator.swap()
@@ -187,7 +230,7 @@ final class TranslatorTests: XCTestCase {
     /// the debounce it is still the previous text's, and a swap then must not
     /// replace what was just typed with it.
     func testSwapOnlyMovesAnAnswerThatAnswersTheField() {
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         translator.choose(source: .english)
         translator.choose(target: .uzbek)
         translator.input = "Good morning"
@@ -205,6 +248,118 @@ final class TranslatorTests: XCTestCase {
         XCTAssertEqual(translator.output, "")
     }
 
+    // MARK: - Asking once (G-026, K-004)
+
+    /// A translator whose engines are stated and whose every capability lookup
+    /// is counted — the lookup is the first thing a run does, so a count of
+    /// zero means nothing was asked of any engine, MyMemory included.
+    private func countingTranslator() -> (Translator, () -> Int) {
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
+        translator.choose(source: .uzbek)
+        translator.choose(target: .russian)
+        var calls = 0
+        translator.capabilitiesOverride = { _ in
+            calls += 1
+            // Nothing on this Mac and online off: a run that does get through
+            // ends in an obstacle, never in a request leaving the machine.
+            return Translator.Capabilities()
+        }
+        return (translator, { calls })
+    }
+
+    /// The pane re-runs its task every time the tab reappears, and every run
+    /// used to translate again: switching Music → Translate → Music sent the
+    /// same Uzbek sentence to MyMemory once per return and spent the day's
+    /// quota on text that already had its answer on screen (G-026).
+    func testUnchangedTextIsNotTranslatedAgain() async {
+        let (translator, calls) = countingTranslator()
+        translator.input = "salom"
+        translator.received("привет", for: "salom", by: .online)
+
+        await translator.translate()
+        XCTAssertEqual(calls(), 0, "the answer on screen already answers this text")
+        XCTAssertEqual(translator.output, "привет")
+        XCTAssertEqual(translator.engine, .online)
+        XCTAssertFalse(translator.isTranslating)
+
+        // A space at the end is not new text: it is trimmed before it is sent.
+        translator.input = "salom "
+        await translator.translate()
+        XCTAssertEqual(calls(), 0, "a trailing space is the same question")
+        XCTAssertEqual(translator.output, "привет")
+    }
+
+    /// Retry is the person asking again on purpose; it must still ask.
+    func testRetryStillAsksAgain() async {
+        let (translator, calls) = countingTranslator()
+        translator.input = "salom"
+        translator.received("привет", for: "salom", by: .online)
+        await translator.translate()
+        XCTAssertEqual(calls(), 0)
+
+        translator.retry()
+        await translator.translate()
+        XCTAssertEqual(calls(), 1, "a retry is a new request")
+    }
+
+    /// Anything that changes the question changes the answer: other text,
+    /// another language, or the answer having been cleared away.
+    func testChangedTextOrLanguageAsksAgain() async {
+        let (translator, calls) = countingTranslator()
+        translator.input = "salom"
+        translator.received("привет", for: "salom", by: .online)
+
+        translator.input = "salom dunyo"
+        await translator.translate()
+        XCTAssertEqual(calls(), 1, "other text")
+
+        translator.input = "salom"
+        translator.received("привет", for: "salom", by: .online)
+        translator.choose(target: .english)
+        await translator.translate()
+        XCTAssertEqual(calls(), 2, "another language")
+
+        translator.received("hello", for: "salom", by: .online)
+        translator.clear()
+        await translator.translate()
+        XCTAssertEqual(calls(), 3, "a cleared answer")
+    }
+
+    /// For the debounce and the engine's time after an edit, the answer on
+    /// screen is the previous text's. It used to look and copy exactly like a
+    /// current one, so Copy pressed in that window pasted a translation of the
+    /// sentence before the edit (K-004).
+    func testAnAnswerToEarlierTextIsNotTheInputsAnswer() {
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
+        XCTAssertFalse(translator.answersInput, "no answer at all")
+        translator.input = "Good morning"
+        translator.received("Доброе утро", for: "Good morning", by: .intelligence)
+        XCTAssertTrue(translator.answersInput)
+
+        translator.input = "Good morning "
+        XCTAssertTrue(translator.answersInput, "a trailing space asks nothing new")
+
+        translator.input = "Good morning, everyone"
+        XCTAssertFalse(translator.answersInput, "the answer is to the text before the edit")
+        XCTAssertEqual(translator.output, "Доброе утро", "kept on screen, dimmed, until the new one lands")
+    }
+
+    /// A failure used to win over the spinner, so Retry — or an edit — under
+    /// "The translation could not be completed." changed nothing on screen for
+    /// the whole run, and an identical failure never changed at all (K-004).
+    func testAFailureGivesWayToTheSpinnerWhileARunIsInFlight() {
+        typealias Pane = TranslatePane
+        XCTAssertEqual(Pane.showing(failure: true, output: false, covered: false, translating: true), .translating)
+        XCTAssertEqual(Pane.showing(failure: true, output: false, covered: false, translating: false), .failure)
+        XCTAssertEqual(Pane.showing(failure: false, output: false, covered: false, translating: true), .translating)
+        // An earlier answer stays up, dimmed, rather than flashing to a
+        // spinner on every pause in typing.
+        XCTAssertEqual(Pane.showing(failure: false, output: true, covered: false, translating: true), .answer)
+        XCTAssertEqual(Pane.showing(failure: false, output: true, covered: true, translating: true), .covered)
+        XCTAssertEqual(Pane.showing(failure: false, output: true, covered: true, translating: false), .covered)
+        XCTAssertEqual(Pane.showing(failure: false, output: false, covered: false, translating: false), .nothing)
+    }
+
     /// The model once translated one sentence for 218 seconds until its
     /// context was full. A translation is about as long as its source.
     func testTheModelIsCutOffLongBeforeItsContextFills() {
@@ -216,7 +371,7 @@ final class TranslatorTests: XCTestCase {
 
     func testOnlineTranslationIsOffByDefaultAndThePaneCanTurnItOn() {
         XCTAssertFalse(defaults.bool(forKey: NotchViewModel.onlineTranslationKey))
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         let before = translator.request
         translator.turnOnOnline()
         XCTAssertTrue(defaults.bool(forKey: NotchViewModel.onlineTranslationKey))
@@ -231,5 +386,239 @@ final class TranslatorTests: XCTestCase {
             XCTAssertEqual(TranslationLanguage.withCode(language.code), language)
         }
         XCTAssertTrue(TranslationLanguage.all.contains(.uzbek))
+    }
+
+    /// "Turn On Translate Online" used to sit under "Uzbek is translated
+    /// online. Turn on Translate Online to use it." — an offer that never said
+    /// the text would leave the Mac, or for whom (H-007). Every obstacle whose
+    /// remedy is that switch now names the service in the sentence above it,
+    /// so the one click that sends text away is made knowing where it goes.
+    /// Below macOS 26 that is every pair, which is why `needsNewerSystem` is
+    /// held to the same rule as `needsOnline`.
+    func testTheOnlineOfferSaysTheTextLeavesTheMac() {
+        let uzbek = Translator.Obstacle.needsOnline(.uzbek).message
+        XCTAssertTrue(uzbek.contains("MyMemory"), uzbek)
+        XCTAssertTrue(uzbek.contains(TranslationLanguage.uzbek.name), "and still names the language: \(uzbek)")
+
+        let obstacles: [Translator.Obstacle] = [
+            .needsNewerSystem, .deviceNotEligible, .appleIntelligenceOff, .modelNotReady,
+            .needsOnline(.uzbek), .needsDownload(.ukrainian),
+        ]
+        for obstacle in obstacles
+        where Translator.remedies(for: obstacle, onlineEnabled: false).contains(.turnOnOnline) {
+            XCTAssertTrue(obstacle.message.contains("MyMemory"), "\(obstacle): \(obstacle.message)")
+        }
+    }
+
+    /// On macOS 15 nothing translates on this Mac, so with the switch on every
+    /// pair — English into Russian too — goes to MyMemory. The Settings note
+    /// said only languages "such as Uzbek" did (K-005), which let somebody
+    /// expect their English to stay local.
+    func testTheSettingsNoteBelowMacOS26SaysEverythingGoesOnline() {
+        let tahoe = Translator.onlineNote(belowMinimumSystem: false)
+        let sequoia = Translator.onlineNote(belowMinimumSystem: true)
+        XCTAssertTrue(tahoe.contains("MyMemory"), tahoe)
+        XCTAssertTrue(sequoia.contains("MyMemory"), sequoia)
+        XCTAssertFalse(sequoia.contains("such as"), "below macOS 26 it is not some languages: \(sequoia)")
+        XCTAssertTrue(sequoia.contains("everything"), sequoia)
+        if #available(macOS 26.0, *) {
+            XCTAssertEqual(Translator.onlineNote(), tahoe)
+        } else {
+            XCTAssertEqual(Translator.onlineNote(), sequoia)
+        }
+    }
+
+    /// The remedies were bare bold caption text, the only way forward from the
+    /// first error a newcomer meets and nothing about them clickable-looking,
+    /// while Music's "Open Spotify" and the lyrics page's "Look Up Online" were
+    /// capsules (H-007). Three hand-copied capsules existed; there is now one
+    /// style, and the hairline stroke that draws it lives in exactly one place.
+    func testRemediesWearTheSharedCapsule() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let translatePane = try String(
+            contentsOf: sources.appendingPathComponent("IslaKit/UI/TranslatePane.swift"), encoding: .utf8
+        )
+        XCTAssertTrue(translatePane.contains(".buttonStyle(OfferButtonStyle())"))
+
+        var strokes: [String] = []
+        let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)
+        while let file = files?.nextObject() as? URL {
+            guard file.pathExtension == "swift" else { continue }
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let count = text.components(separatedBy: "Capsule().strokeBorder(Theme.hairline").count - 1
+            strokes += Array(repeating: file.lastPathComponent, count: count)
+        }
+        XCTAssertEqual(strokes, ["Theme.swift"], "one capsule style, drawn in Theme")
+    }
+
+    // MARK: - Text that arrives by hot key or Service
+
+    /// F-040: with an image on the clipboard ⌃⌥⌘T did nothing at all, which is
+    /// indistinguishable from a shortcut that is not registered. No text, or
+    /// only whitespace, is now a sentence the pane can show, and no text to
+    /// put in the field — so what was typed there stays.
+    func testCommandInputWithNoTextSaysSo() {
+        for raw in [nil, "  \n", ""] as [String?] {
+            let prepared = Translator.prepareCommandInput(raw)
+            XCTAssertNil(prepared.text, "\(String(describing: raw)) is not text")
+            XCTAssertEqual(prepared.notice, "The clipboard has no text.")
+        }
+        let plain = Translator.prepareCommandInput("  hello\n")
+        XCTAssertEqual(plain.text, "hello")
+        XCTAssertNil(plain.notice)
+    }
+
+    /// J-017: a multi-megabyte clipboard went whole into a `TextEditor` the pane
+    /// re-measures on every body pass, on the main thread. It is cut to the
+    /// limit before anything sees it, and the pane says it was cut.
+    func testCommandInputIsCapped() {
+        let english = Locale(identifier: "en_US")
+        let prepared = Translator.prepareCommandInput(String(repeating: "a", count: 25_000), locale: english)
+        XCTAssertEqual(prepared.text?.count, 20_000)
+        XCTAssertEqual(prepared.notice, "Only the first 20,000 characters were kept.")
+
+        let exact = Translator.prepareCommandInput(String(repeating: "a", count: 20_000), locale: english)
+        XCTAssertEqual(exact.text?.count, 20_000)
+        XCTAssertNil(exact.notice, "the limit itself is not a cut")
+
+        // Leading whitespace does not count against the limit: a log indented
+        // by more than the limit's worth of blanks is not "no text".
+        let indented = String(repeating: " ", count: 30_000) + "word"
+        XCTAssertEqual(Translator.prepareCommandInput(indented).text, "word")
+
+        // Counted in characters, not UTF-16 units: a cut never splits a
+        // flag or an accented letter into a broken glyph.
+        let flags = String(repeating: "🇺🇿", count: 20_001)
+        XCTAssertEqual(Translator.prepareCommandInput(flags, locale: english).text, String(repeating: "🇺🇿", count: 20_000))
+    }
+
+    // MARK: - Retry only where Retry can work (F-042, M-10)
+
+    /// A translator that only the online engine can serve, answered by
+    /// `online` instead of MyMemory.
+    private func onlineTranslator(
+        _ online: @escaping (String, Translator.Route) async throws -> OnlineTranslation.Reply
+    ) -> Translator {
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
+        translator.choose(source: .uzbek)
+        translator.choose(target: .russian)
+        translator.capabilitiesOverride = { _ in
+            var capabilities = Translator.Capabilities()
+            capabilities.onlineEnabled = true
+            capabilities.sourceOffDevice = true
+            return capabilities
+        }
+        translator.onlineTranslate = online
+        translator.input = "salom"
+        return translator
+    }
+
+    /// Every failure used to offer Retry, including a day's allowance that is
+    /// spent: pressing it sent the text again and got the same refusal until
+    /// midnight, a button that could not work.
+    func testAQuotaFailureOffersNoRetry() async {
+        let translator = onlineTranslator { _, _ in throw OnlineTranslation.Failure.quotaExhausted }
+        await translator.translate()
+        XCTAssertEqual(translator.failure, "Today's free online translations are used up.")
+        XCTAssertEqual(translator.remedies, [])
+        XCTAssertEqual(translator.output, "")
+    }
+
+    /// Apple's guardrail refuses the same text the same way every time, and a
+    /// text past the model's context is still past it on a second try: Retry
+    /// under either changed nothing. The too-long one says what would.
+    func testAGuardrailOrTooLongOffersNoRetry() async throws {
+        guard #available(macOS 26.0, *) else { throw XCTSkip("the model's errors exist from macOS 26") }
+        let context = LanguageModelSession.GenerationError.Context(debugDescription: "test")
+        let guardrail = onlineTranslator { _, _ in
+            throw LanguageModelSession.GenerationError.guardrailViolation(context)
+        }
+        await guardrail.translate()
+        XCTAssertEqual(guardrail.failure, "This text could not be translated.")
+        XCTAssertEqual(guardrail.remedies, [])
+
+        let tooLong = onlineTranslator { _, _ in
+            throw LanguageModelSession.GenerationError.exceededContextWindowSize(context)
+        }
+        await tooLong.translate()
+        XCTAssertEqual(tooLong.failure, "This text is too long to translate at once. Shorten it and try again.")
+        XCTAssertEqual(tooLong.remedies, [])
+    }
+
+    /// Offline, a timeout, the service down, or a refusal with no reason: a
+    /// second try can succeed, so those keep Retry.
+    func testUnreachableOffersRetry() async {
+        let unreachable = onlineTranslator { _, _ in throw OnlineTranslation.Failure.unreachable }
+        await unreachable.translate()
+        XCTAssertEqual(unreachable.failure, "Online translation is not reachable right now.")
+        XCTAssertEqual(unreachable.remedies, [.retry])
+
+        let refused = onlineTranslator { _, _ in throw OnlineTranslation.Failure.refused("") }
+        await refused.translate()
+        XCTAssertEqual(refused.failure, "The translation could not be completed.")
+        XCTAssertEqual(refused.remedies, [.retry])
+    }
+
+    /// What came back before the allowance ran out is shown, with the reason
+    /// the rest did not come — and no Retry, which would only spend nothing
+    /// for the same refusal.
+    func testAPartialAnswerIsKeptWithItsCause() async {
+        let quota = onlineTranslator { _, _ in
+            throw OnlineTranslation.Failure.partial(text: "привет", cause: .quotaExhausted)
+        }
+        await quota.translate()
+        XCTAssertEqual(quota.output, "привет")
+        XCTAssertNil(quota.failure, "an answer, not a failure: the pane shows the text")
+        XCTAssertEqual(quota.outputNote, "Today's free online translations are used up.")
+        XCTAssertEqual(quota.remedies, [])
+        XCTAssertTrue(quota.answersInput)
+
+        let dropped = onlineTranslator { _, _ in
+            throw OnlineTranslation.Failure.partial(text: "привет", cause: .unreachable)
+        }
+        await dropped.translate()
+        XCTAssertEqual(dropped.output, "привет")
+        XCTAssertEqual(dropped.outputNote, "Online translation is not reachable right now.")
+        XCTAssertEqual(dropped.remedies, [.retry], "the connection may come back")
+    }
+
+    /// Text past the cap is not sent, and the answer says how much was.
+    func testACutOnlineAnswerSaysHowMuchWasTranslated() async {
+        let translator = onlineTranslator { _, _ in OnlineTranslation.Reply(text: "привет", sentCharacters: 4_800) }
+        await translator.translate()
+        XCTAssertEqual(translator.output, "привет")
+        XCTAssertEqual(translator.outputNote,
+                       Translator.onlineCapNote(sent: 4_800, locale: Locale(identifier: appLanguage)))
+        XCTAssertEqual(Translator.onlineCapNote(sent: 4_800, locale: Locale(identifier: "en_US")),
+                       "Only the first 4,800 characters were translated online.")
+        // Rounded down: still true, and a number Russian's one plural form fits.
+        XCTAssertEqual(Translator.onlineCapNote(sent: 4_763, locale: Locale(identifier: "en_US")),
+                       "Only the first 4,700 characters were translated online.")
+        XCTAssertEqual(translator.remedies, [])
+
+        // The note belongs to that answer and goes with it.
+        translator.clear()
+        XCTAssertNil(translator.outputNote)
+
+        let whole = onlineTranslator { _, _ in OnlineTranslation.Reply(text: "привет", sentCharacters: nil) }
+        await whole.translate()
+        XCTAssertNil(whole.outputNote)
+    }
+
+    /// The notice belongs to the text it was about. A keystroke, Clear or a
+    /// swap replaces that text, and the sentence goes with it.
+    func testANoticeGoesWithTheNextEdit() {
+        let translator = Translator(defaults: defaults, preferredLanguages: ["en"])
+        translator.notice = "The clipboard has no text."
+        translator.input = "h"
+        XCTAssertNil(translator.notice)
+
+        translator.notice = "The clipboard has no text."
+        translator.reset()
+        XCTAssertNil(translator.notice)
     }
 }

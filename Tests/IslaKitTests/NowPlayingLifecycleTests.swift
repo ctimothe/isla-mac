@@ -45,22 +45,42 @@ final class NowPlayingLifecycleTests: XCTestCase {
     }
 
     /// A helper that survives long enough is forgiven, so an unlucky day does
-    /// not disable the feed for the rest of the session.
+    /// not disable the feed for the rest of the session. Survival, not the
+    /// time since the first failure (K-013): the helper has to have stayed up
+    /// for the whole window.
     func testRestartBudgetResetsAfterTheWindow() {
         var policy = NowPlayingFailurePolicy(window: 60, maximumRestartsInWindow: 2)
-        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let start: TimeInterval = 1_000
+        policy.recordLaunch(now: start)
         _ = policy.recordFailure(now: start)
         policy.recordSuccess()
-        _ = policy.recordFailure(now: start.addingTimeInterval(1))
+        policy.recordLaunch(now: start)
+        _ = policy.recordFailure(now: start + 1)
         policy.recordSuccess()
-        XCTAssertEqual(policy.recordFailure(now: start.addingTimeInterval(2)), .fallback)
+        policy.recordLaunch(now: start + 1)
+        XCTAssertEqual(policy.recordFailure(now: start + 2), .fallback)
 
         var fresh = NowPlayingFailurePolicy(window: 60, maximumRestartsInWindow: 2)
+        fresh.recordLaunch(now: start)
         _ = fresh.recordFailure(now: start)
         fresh.recordSuccess()
-        _ = fresh.recordFailure(now: start.addingTimeInterval(1))
+        fresh.recordLaunch(now: start)
+        _ = fresh.recordFailure(now: start + 1)
         fresh.recordSuccess()
-        XCTAssertEqual(fresh.recordFailure(now: start.addingTimeInterval(120)), .restart(after: 2))
+        fresh.recordLaunch(now: start + 1)
+        XCTAssertEqual(fresh.recordFailure(now: start + 120), .restart(after: 2))
+
+        // Time alone forgives nothing: a helper launched at 1,061 that died at
+        // 1,120 lived 59 s, whatever the two minutes since the first failure.
+        var late = NowPlayingFailurePolicy(window: 60, maximumRestartsInWindow: 2)
+        late.recordLaunch(now: start)
+        _ = late.recordFailure(now: start)
+        late.recordSuccess()
+        late.recordLaunch(now: start)
+        _ = late.recordFailure(now: start + 1)
+        late.recordSuccess()
+        late.recordLaunch(now: start + 61)
+        XCTAssertEqual(late.recordFailure(now: start + 120), .fallback)
     }
 
     /// An oversized record used to poison the stream twice over: its buffered
@@ -213,5 +233,47 @@ final class NowPlayingLifecycleTests: XCTestCase {
             origin: 100.0, rate: 0
         )
         XCTAssertEqual(verdict, .settleAdopt)
+    }
+
+    // MARK: - The helper's environment and signature (G-028)
+
+    /// PERL5OPT or PERL5LIB set through `launchctl setenv` would load another
+    /// party's code into /usr/bin/perl as Isla's child, under Isla's
+    /// permissions, and DYLD_* would do the same to perl itself. The child
+    /// gets an allow-list and a fixed PATH. Nothing here launches the helper.
+    func testHelperEnvironmentDropsPerlAndDyldVariables() {
+        let environment = NowPlayingFeed.helperEnvironment(from: [
+            "PERL5OPT": "-Mx", "PERL5LIB": "/tmp", "PERLLIB": "/tmp", "DYLD_INSERT_LIBRARIES": "/x",
+            "HOME": "/Users/a", "PATH": "/evil", "SECRET_TOKEN": "t",
+        ])
+        XCTAssertEqual(environment, ["PATH": "/usr/bin:/bin", "HOME": "/Users/a"])
+    }
+
+    func testHelperEnvironmentKeepsLocaleAndTemporaryDirectory() {
+        let environment = NowPlayingFeed.helperEnvironment(from: [
+            "LANG": "ru_RU.UTF-8", "LC_ALL": "ru_RU.UTF-8", "LC_CTYPE": "UTF-8", "TMPDIR": "/var/folders/x/T/",
+            "LCX": "not a locale variable", "PERL5OPT": "-Mx",
+        ])
+        XCTAssertEqual(environment, [
+            "PATH": "/usr/bin:/bin", "LANG": "ru_RU.UTF-8", "LC_ALL": "ru_RU.UTF-8",
+            "LC_CTYPE": "UTF-8", "TMPDIR": "/var/folders/x/T/",
+        ])
+    }
+
+    /// Report-only: the verdict is a word for Diagnostics, never a reason to
+    /// refuse the helper. A path that is not an .app (tests, `swift run`) is
+    /// skipped, and an unsigned one is named as such.
+    func testTheSignatureVerdictIsAWordAndSkipsNonBundles() throws {
+        XCTAssertEqual(
+            NowPlayingFeed.helperSignatureVerdict(bundleURL: URL(fileURLWithPath: "/usr/bin")),
+            "not checked (not an app bundle)"
+        )
+        let bundle = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NowPlayingLifecycleTests-\(UUID().uuidString)/Fake.app")
+        try FileManager.default.createDirectory(at: bundle.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bundle.deletingLastPathComponent()) }
+        let verdict = NowPlayingFeed.helperSignatureVerdict(bundleURL: bundle)
+        XCTAssertNotEqual(verdict, "valid", "an unsigned bundle is not valid")
+        XCTAssertTrue(["unsigned", "invalid", "unreadable"].contains { verdict.hasPrefix($0) }, verdict)
     }
 }

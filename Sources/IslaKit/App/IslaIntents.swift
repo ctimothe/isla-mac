@@ -66,12 +66,14 @@ struct ShowLyricsIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        try liveController().toggleLyrics()
+        // Not `toggleLyrics()`: run on a panel already showing the words, the
+        // toggle folded them back to the player (F-024).
+        try liveController().showLyrics()
         return .result()
     }
 }
 
-/// The panel itself, the same as ⌃⌥⌘I.
+/// The panel itself, opened the way ⌃⌥⌘I opens it — but never closed.
 struct ShowPanelIntent: AppIntent {
     static var title: LocalizedStringResource = "Show Isla"
     static var description = IntentDescription("Opens Isla's panel at the notch.")
@@ -79,7 +81,9 @@ struct ShowPanelIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        try liveController().toggle()
+        // Not `toggle()`, which closed a panel that was already open — a
+        // Shortcut called Show that hid Isla (F-024).
+        try liveController().show()
         return .result()
     }
 }
@@ -105,18 +109,35 @@ struct CurrentLyricIntent: AppIntent {
         guard case .synced(let lines) = model.lyrics.state, !lines.isEmpty else {
             return .result(value: "")
         }
+        return .result(value: Self.line(
+            in: lines, media: model.media,
+            userOffset: model.lyrics.userOffset, trackOffset: model.lyrics.trackOffset
+        ))
+    }
+
+    /// The line the voice is on, read off the running clock.
+    ///
+    /// Not `media.position`: that is only as fresh as the last tick, and the
+    /// ticker runs only while the panel is open or the lock card is up. From
+    /// a Stream Deck with the panel shut it was frozen at the last snapshot,
+    /// which the helper repeats unchanged only every five seconds, so the
+    /// answer could be a line several seconds old (G-024). Static, and handed
+    /// the controller rather than the live app, so a test can hold it.
+    @MainActor
+    static func line(
+        in lines: [LyricsStore.Line], media: MediaController,
+        userOffset: TimeInterval, trackOffset: TimeInterval
+    ) -> String {
         let at = LyricSweep.position(
-            model.media.position,
-            precisionSync: model.media.precisionSync,
-            userOffset: model.lyrics.userOffset,
-            trackOffset: model.lyrics.trackOffset
+            media.extrapolatedPosition(),
+            precisionSync: media.precisionSync,
+            userOffset: userOffset,
+            trackOffset: trackOffset
         )
         // `swept` false means the voice has not reached the first line yet, and
         // a line nobody has sung is not the line playing right now.
-        guard let shown = LyricSweep.displayed(lines: lines, at: at), shown.swept else {
-            return .result(value: "")
-        }
-        return .result(value: shown.line.text)
+        guard let shown = LyricSweep.displayed(lines: lines, at: at, readAhead: .off), shown.swept else { return "" }
+        return shown.line.text
     }
 }
 
@@ -170,6 +191,12 @@ struct SetLyricDelayIntent: AppIntent {
 
 // MARK: - Transport
 
+// Each of the three acts on the song Isla is showing and on nothing else, and
+// throws `.nothingPlaying` when there is none, as Get Current Track does. They
+// used to report success while sending the command to whichever session owned
+// Now Playing — under Music Only, a video the island had deliberately hidden,
+// which then started playing (J-005).
+
 struct PlayPauseIntent: AppIntent {
     static var title: LocalizedStringResource = "Play or Pause"
     static var description = IntentDescription("Toggles playback of whatever Isla is showing.")
@@ -177,7 +204,7 @@ struct PlayPauseIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        try liveModel().media.togglePlayPause()
+        guard try liveModel().media.togglePlayPause() else { throw IslaIntentError.nothingPlaying }
         return .result()
     }
 }
@@ -189,7 +216,7 @@ struct NextTrackIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        try liveModel().media.next()
+        guard try liveModel().media.next() else { throw IslaIntentError.nothingPlaying }
         return .result()
     }
 }
@@ -201,7 +228,7 @@ struct PreviousTrackIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        try liveModel().media.previous()
+        guard try liveModel().media.previous() else { throw IslaIntentError.nothingPlaying }
         return .result()
     }
 }

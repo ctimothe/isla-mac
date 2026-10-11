@@ -21,11 +21,39 @@ struct TranslatePane: View {
 
     @FocusState private var focused: Bool
 
+    /// The one reveal id for the whole pane: uncovering the source uncovers
+    /// the answer beside it, since one without the other hides nothing.
+    static let revealID = "translate.source"
+
     /// Covered until deliberately revealed, like a clipboard row. The reveal is
-    /// per-session and keyed to the pane, not to any particular text.
+    /// per-session and keyed to the pane, not to any particular text; the
+    /// controller conceals it again when the hot key brings in new text.
     private var covered: Bool {
-        privacy.hides(.translate, "translate.source") && !translator.input.isEmpty
+        privacy.hides(.translate, Self.revealID) && !translator.input.isEmpty
     }
+
+    /// What the editor writes through. A keystroke is the person at the
+    /// keyboard, and the cover is against a passing camera, not against them:
+    /// covering what they type made the field go to dust on the first letter
+    /// and turned the click meant to place the caret into a reveal (F-021).
+    /// So typing uncovers the pane. Text that arrives without a keystroke, the
+    /// hot key and the Service, is assigned to the translator directly and
+    /// never passes through here, so a clipboard secret stays covered. The
+    /// comparison keeps an editor that writes back the text it was just given
+    /// from counting as a keystroke.
+    static func typed(_ text: String, privacy: PrivacyMode, translator: Translator) {
+        guard text != translator.input else { return }
+        // Only while covering: a reveal recorded with the cover off would
+        // leave the pane already uncovered the moment it is turned on.
+        if privacy.covers(.translate) { privacy.reveal(revealID) }
+        translator.input = text
+    }
+    /// Whether the empty field shows its placeholder. Only empty: a covered
+    /// field holds text by definition, and its dust is what shows.
+    static func showsPlaceholder(input: String, covered: Bool) -> Bool {
+        input.isEmpty && !covered
+    }
+
     /// Measured once, off the layout path. See `body`.
     @State private var paneSize: CGSize = .zero
 
@@ -33,7 +61,7 @@ struct TranslatePane: View {
     /// deliberate-looking drop rather than a wobble. Raw points, not roles: a
     /// rung is a fit calculation against the measured pane, and rounding it to
     /// the nearest role would move where every paragraph wraps.
-    private let ladder: [CGFloat] = [27, 20, 15, 11]
+    static let ladder: [CGFloat] = [27, 20, 15, 11]
 
     var body: some View {
         let font = fontSize(in: paneSize)
@@ -88,16 +116,20 @@ struct TranslatePane: View {
             // which is precisely when the hitch showed. An editor takes the
             // rectangle it is given and re-wraps inside it, so a new line
             // costs nothing outside its own bounds.
-            TextEditor(text: $translator.input)
+            //
+            // Bound through `typed`, not straight to the translator, so that
+            // only a keystroke uncovers the pane: see `typed`.
+            TextEditor(text: Binding(
+                get: { translator.input },
+                set: { Self.typed($0, privacy: privacy, translator: translator) }
+            ))
+                // Transparent rather than removed: the editor has to stay in
+                // the tree to keep the keyboard focus the hot key gave it, so
+                // the first keystroke lands here and uncovers what it typed.
                 .opacity(covered ? 0 : 1)
                 .overlay {
                     if covered {
-                        // Clicking the dust uncovers it, the same gesture the
-                        // clipboard rows use — the cover is against a passing
-                        // camera, not against the person at the keyboard.
-                        SpoilerField(seed: 0x5DEECE66D)
-                            .contentShape(Rectangle())
-                            .onTapGesture { privacy.reveal("translate.source") }
+                        dust(seed: 0x5DEECE66D)
                     }
                 }
                 .textEditorStyle(.plain)
@@ -115,11 +147,55 @@ struct TranslatePane: View {
                 // that back so the first character lines up with the title.
                 .padding(.leading, -5)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // Where the field is, for the panel's cursor: it is never key,
+                // so AppKit's own I-beam never applies and the root view's
+                // tracking areas have to know the rectangle (PTR-02). A
+                // background layer for the same reason as `paneSize` above:
+                // reading it must not feed back into layout.
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: TextInputRectKey.self, value: proxy.frame(in: .global))
+                    }
+                )
+                // Named, or VoiceOver announced an unnamed text area: the
+                // only field in the panel, and nothing said what it was for
+                // (F-030).
+                .accessibilityLabel(localized("Text to translate"))
+                // An empty field was a dark rectangle that said nothing. The
+                // invitation sits where the first character will, at the size
+                // that character will take, and goes with it. Drawn, not
+                // read: the label above already says it, and clicks pass
+                // through to the editor underneath to place the caret.
+                .overlay(alignment: .topLeading) {
+                    if Self.showsPlaceholder(input: translator.input, covered: covered) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(localized("Type or paste text"))
+                                .font(.system(size: font))
+                                .foregroundStyle(Theme.tertiary)
+                                .accessibilityHidden(true)
+                            // Under the invitation, where the eye already
+                            // is: an empty field after ⌃⌥⌘T is exactly the
+                            // moment to say the clipboard held no text.
+                            if let notice = translator.notice {
+                                noticeLine(notice)
+                            }
+                        }
+                        .allowsHitTesting(false)
+                    }
+                }
                 .contentShape(Rectangle())
                 // No Escape handler here: `NotchPanel.sendEvent` takes every
                 // Escape before it reaches the responder chain, and the reset
                 // lives in `NotchViewModel.consumeEscape`. A handler here was
                 // dead code that looked like the behaviour.
+            // With text in the field the invitation is gone, and a line over
+            // the text would sit on top of it, so the notice moves below the
+            // editor: a cut clipboard, or an image pressed over a sentence
+            // that was already there.
+            if let notice = translator.notice,
+               !Self.showsPlaceholder(input: translator.input, covered: covered) {
+                noticeLine(notice)
+            }
         }
         .padding(10)
         .background(
@@ -146,7 +222,21 @@ struct TranslatePane: View {
                     .accessibilityLabel(localized("Translated online by MyMemory"))
             }
             if !translator.output.isEmpty {
-                CopyButton { translator.copyOutput() }
+                // Disabled, not hidden, while the answer is to the text before
+                // an edit: Copy pressed in that window used to paste a
+                // translation of the old sentence (K-004), and a button that
+                // vanished at every pause in typing would make the header
+                // jump instead.
+                // Named, because "Copy" beside a field that also copies does
+                // not say which text lands; and keyed, because after ⌃⌥⌘T
+                // the caret is in the source and ⌘C copies that (H-018).
+                CopyButton(
+                    title: localized("Copy Translation"),
+                    shortcut: "⇧⌘C",
+                    copiesElsewhere: translator.outputCopies
+                ) { translator.copyOutput() }
+                    .disabled(!translator.answersInput)
+                    .opacity(translator.answersInput ? 1 : 0.4)
             }
         } content: {
             outcome(font)
@@ -154,35 +244,98 @@ struct TranslatePane: View {
         .padding(10)
     }
 
+    /// What the result column shows.
+    enum Showing: Equatable {
+        case translating
+        case failure
+        case covered
+        case answer
+        case nothing
+    }
+
+    /// The spinner comes before a failure. A failure used to win, so Retry —
+    /// or an edit — under "The translation could not be completed." changed
+    /// nothing on screen for the whole run, and a run that failed the same
+    /// way again never visibly happened at all (K-004). An earlier answer is
+    /// not displaced the same way: it stays up, dimmed by the caller while it
+    /// is not the field's answer, rather than flashing to a spinner at every
+    /// pause in typing.
+    static func showing(failure: Bool, output: Bool, covered: Bool, translating: Bool) -> Showing {
+        if translating, failure || !output { return .translating }
+        if failure { return .failure }
+        if output { return covered ? .covered : .answer }
+        return .nothing
+    }
+
     @ViewBuilder
     private func outcome(_ font: CGFloat) -> some View {
-        if let failure = translator.failure {
+        switch Self.showing(
+            failure: translator.failure != nil,
+            output: !translator.output.isEmpty,
+            covered: privacy.hides(.translate, Self.revealID),
+            translating: translator.isTranslating
+        ) {
+        case .failure:
             VStack(alignment: .leading, spacing: 6) {
-                Text(failure)
+                Text(translator.failure ?? "")
                     .islandFont(.body, weight: .regular)
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    ForEach(translator.remedies, id: \.self) { remedy in
-                        remedyButton(remedy)
-                    }
+                remediesRow
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        case .covered:
+            // The answer is the secret too, only in another language: covering
+            // the source and leaving this column readable at headline size
+            // hid nothing (F-002), and the accessibility tree handed the
+            // translation to anything that asked. Replaced rather than
+            // overlaid, as `SpoilerField` promises: the text is not in the
+            // view tree at all while it is hidden. Copy stays offered in the
+            // header, so the result can be pasted somewhere without ever being
+            // shown on a screen somebody else is watching.
+            dust(seed: 0xA24BAED4963EE407)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        case .answer:
+            VStack(alignment: .leading, spacing: 6) {
+                ScrollView(showsIndicators: false) {
+                    Text(translator.output)
+                        // The ladder's rung for this text, not a role: see `ladder`.
+                        .font(.system(size: font))
+                        // Dimmed while it answers the text before an edit: from
+                        // the keystroke until the new answer lands it translates
+                        // something no longer in the field, and it used to sit
+                        // there at full white as if it were current (K-004).
+                        // Kept rather than cleared, so a pause in typing does not
+                        // blank the column.
+                        .foregroundStyle(translator.answersInput ? Color.white : Theme.secondary)
+                        .animation(Theme.contentAnimation, value: translator.answersInput)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .buttonStyle(PanelButtonStyle())
-                .islandFont(.caption)
-                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // An answer that does not cover the whole text says so under it,
+                // outside the scroll so it cannot scroll away: only the first
+                // part went online, or the rest never came back and why (F-042).
+                // That part used to be thrown away with the failure. Retry sits
+                // beside it only when a second try could bring the rest. A
+                // partial answer keeps the column through a Retry rather than
+                // giving way to the spinner, so the spinner takes Retry's
+                // place instead — a press that changed nothing on screen was
+                // K-004's complaint.
+                if let note = translator.outputNote {
+                    VStack(alignment: .leading, spacing: 6) {
+                        noticeLine(note)
+                        if translator.isTranslating {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else if !translator.remedies.isEmpty {
+                            remediesRow
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else if !translator.output.isEmpty {
-            ScrollView(showsIndicators: false) {
-                Text(translator.output)
-                    // The ladder's rung for this text, not a role: see `ladder`.
-                    .font(.system(size: font))
-                    .foregroundStyle(.white)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else if translator.isTranslating {
+        case .translating:
             // The on-device model is not instant the way a lookup table would
             // be — a paragraph takes a beat, and the very first request after
             // a boot can take considerably longer while the model loads. An
@@ -196,7 +349,7 @@ struct TranslatePane: View {
                     .foregroundStyle(Theme.tertiary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else {
+        case .nothing:
             Color.clear
         }
     }
@@ -211,11 +364,12 @@ struct TranslatePane: View {
     // both calmer to look at and easier to trust.
 
     /// What the text actually gets to occupy inside one column: half the pane
-    /// minus the gap, minus the padding, minus the title row above it.
+    /// minus the gap, minus the padding, minus the title row above it — 20
+    /// of padding, the 20-point row (`column`) and the 6 under it.
     private func textArea(in size: CGSize) -> CGSize {
         CGSize(
             width: max(40, (size.width - 10) / 2 - 20),
-            height: max(40, size.height - 40)
+            height: max(40, size.height - 46)
         )
     }
 
@@ -223,16 +377,74 @@ struct TranslatePane: View {
     /// from whichever side is longer — sides set at different scales stop
     /// looking like a pair.
     private func fontSize(in size: CGSize) -> CGFloat {
-        let count = CGFloat(max(translator.trimmed.count, translator.output.count))
         // Before the first measurement lands there is nothing to fit type to,
         // and the pane is empty anyway.
-        guard count > 0, size.width > 0, size.height > 0 else { return ladder[0] }
+        guard size.width > 0, size.height > 0 else { return Self.ladder[0] }
+        return Self.fontSize(source: translator.trimmed, output: translator.output, column: textArea(in: size))
+    }
+
+    /// The rung for a pair of texts in a column of `column` (see `textArea`).
+    /// A rung has to pass two tests: the whole text fits its area, and no word
+    /// is wider than a line. The length alone used to decide, and a short
+    /// sentence with one long word got the top rung: "Где находится
+    /// железнодорожная станция?" is 38 characters, comfortably a headline, but
+    /// at 27 points "железнодорожная" is 230 points wide in a 219-point column,
+    /// and the person's own language arrived as "железнодорожна / я станция?"
+    /// (H-006). Shrinking only the line that overflows, `minimumScaleFactor`'s
+    /// way, would set the two columns at different sizes; SwiftUI's `Text`
+    /// cannot hyphenate on macOS 15. So the whole pair steps down a rung.
+    static func fontSize(source: String, output: String, column: CGSize) -> CGFloat {
+        let count = CGFloat(max(source.count, output.count))
+        guard count > 0 else { return ladder[0] }
         // A glyph runs about half its point size wide and 1.3 of it tall with
         // leading, so roughly `area / (0.76 · s²)` characters fit at size `s`.
         // The 0.95 keeps the last line from being the one that overflows.
-        let area = textArea(in: size)
-        let usable = area.width * area.height * 0.95
-        return ladder.first { count <= usable / (0.76 * $0 * $0) } ?? ladder[ladder.count - 1]
+        let usable = column.width * column.height * 0.95
+        // The source is laid out by a text view that keeps 5 points clear on
+        // each side of every line, and the pane pulls only the leading 5 back
+        // (see `source`), so its lines are 5 points narrower than the result
+        // column's. The narrower one decides, since the rung is shared.
+        let line = column.width - 5
+        // Split only once a rung above the last has passed the length test,
+        // which also bounds how much text is ever measured: a text long
+        // enough to be expensive has already been sent to the bottom rung.
+        var words: [String]?
+        for size in ladder.dropLast() where count <= usable / (0.76 * size * size) {
+            let candidates = words ?? (unbreakableRuns(in: source) + unbreakableRuns(in: output))
+            words = candidates
+            // The same font the view sets, `.system(size:)` at regular weight,
+            // or the measurement would answer for type nobody draws.
+            let font = NSFont.systemFont(ofSize: size)
+            if candidates.allSatisfy({ ($0 as NSString).size(withAttributes: [.font: font]).width <= line }) {
+                return size
+            }
+        }
+        // A word too wide even here, a long URL or a hash, still breaks by
+        // character at the bottom rung, as text must when nothing else fits.
+        return ladder[ladder.count - 1]
+    }
+
+    /// The stretches of `text` a line cannot break inside: the pieces between
+    /// Unicode line-break opportunities, with the space that ends each one
+    /// dropped, since a space at the end of a line hangs past the edge. Not a
+    /// split on whitespace: Japanese and Chinese have none and break between
+    /// almost any two characters, so a whitespace split measured a whole
+    /// Japanese sentence as one word and dropped it a rung for nothing. The
+    /// same rules let "железнодорожно-транспортный" break after its hyphen,
+    /// as the renderer does.
+    private static func unbreakableRuns(in text: String) -> [String] {
+        let string = text as NSString
+        let tokenizer = CFStringTokenizerCreate(
+            nil, text as CFString, CFRangeMake(0, string.length), kCFStringTokenizerUnitLineBreak, nil
+        )
+        var runs: [String] = []
+        while CFStringTokenizerAdvanceToNextToken(tokenizer) != [] {
+            let range = CFStringTokenizerGetCurrentTokenRange(tokenizer)
+            let run = string.substring(with: NSRange(location: range.location, length: range.length))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !run.isEmpty { runs.append(run) }
+        }
+        return runs
     }
 
     // MARK: - Languages
@@ -310,7 +522,12 @@ struct TranslatePane: View {
             Image(systemName: "arrow.left.arrow.right")
                 .islandFont(.caption, weight: .semibold)
                 .foregroundStyle(Theme.secondary)
-                .frame(width: 18, height: 14)
+                // The panel's minimum target, where the glyph's own 18x14 was
+                // the frame and a swap at the top edge of the screen took a
+                // careful aim (F-014). It stays beside the target language:
+                // between the columns it would sit on the source's surface in
+                // a 10-point gutter (M-16).
+                .frame(width: Theme.minimumHitSize.width, height: Theme.minimumHitSize.height)
                 .contentShape(Rectangle())
         }
         .buttonStyle(PanelButtonStyle())
@@ -325,6 +542,26 @@ struct TranslatePane: View {
     }
 
     @ViewBuilder
+    /// Capsules, the panel's shape for an offer. They were bare bold caption
+    /// words, and the only way forward from the first error a newcomer meets
+    /// did not look like something to press (H-007).
+    private var remediesRow: some View {
+        HStack(spacing: 8) {
+            ForEach(translator.remedies, id: \.self) { remedy in
+                remedyButton(remedy)
+            }
+        }
+        .buttonStyle(OfferButtonStyle())
+        // Russian's "Включить «Переводить онлайн»" is wider than this
+        // column at a 480-point panel and breaks onto a second line.
+        // Centred, the two lines still read as one button; left-
+        // aligned, they read as a paragraph in a box. Set here rather
+        // than in the style, because centring moves a one-line label
+        // by a fraction of a point and the other offers were to stay
+        // pixel-for-pixel what they were.
+        .multilineTextAlignment(.center)
+    }
+
     private func remedyButton(_ remedy: Translator.Remedy) -> some View {
         switch remedy {
         case .appleIntelligenceSettings:
@@ -340,20 +577,59 @@ struct TranslatePane: View {
 
     // MARK: - Shared
 
+    /// How text arrived by hot key or Service: none on the clipboard, or cut
+    /// to the limit (`Translator.prepareCommandInput`). Caption-sized and
+    /// tertiary — it is a remark about the field, not the field — and read by
+    /// VoiceOver, unlike the placeholder it may sit under, because it says
+    /// something the field does not.
+    private func noticeLine(_ text: String) -> some View {
+        Text(text)
+            .islandFont(.caption, weight: .regular)
+            .foregroundStyle(Theme.tertiary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// What stands in for either column while the pane is covered. Clicking
+    /// the dust uncovers it, the same gesture the clipboard rows use, and one
+    /// reveal uncovers both columns. Each column gets its own seed, or the two
+    /// would draw the same dust side by side and read as one texture copied.
+    ///
+    /// Announced as "Hidden", the word a covered clipboard row uses, with a
+    /// press that does what the click does. Unlabelled, the source's dust was
+    /// simply absent from the tree, and a screen reader must not be the hole
+    /// in a feature about not showing things.
+    private func dust(seed: UInt64) -> some View {
+        SpoilerField(seed: seed)
+            .contentShape(Rectangle())
+            .onTapGesture { privacy.reveal(Self.revealID) }
+            .accessibilityElement()
+            .accessibilityLabel(Text(localized("Hidden")))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { privacy.reveal(Self.revealID) }
+    }
+
     /// A column heading: the language, set the way every header in the panel
     /// is set, with the small chevron that says it opens.
+    ///
+    /// One `Text`, the chevron an image inside it. As an `HStack` of a text
+    /// and an image, the menu's label was two elements, and each became a
+    /// menu button of its own: VoiceOver read every picker twice, and one of
+    /// the two stops was the chevron alone, a 7x4-point target (H-021).
+    ///
+    /// Framed to the panel's minimum hit height with the hit shape over the
+    /// whole frame, because the menu is as tall as its label: it was the
+    /// 13-point line of caption type, at the top edge of the screen (F-014).
     private func heading(_ title: String) -> some View {
-        HStack(spacing: 3) {
-            Text(title.uppercased())
-                .islandFont(.caption, weight: .semibold)
-                .tracking(Theme.capsTracking)
-                .lineLimit(1)
-            Image(systemName: "chevron.down")
-                // A glyph fitted to the caption line, not type.
-                .font(.system(size: 7, weight: .bold))
-        }
-        .foregroundStyle(Theme.tertiary)
-        .contentShape(Rectangle())
+        (Text(title.uppercased()).tracking(Theme.capsTracking)
+            + Text(" ")
+            // A glyph fitted to the caption line, not type.
+            + Text(Image(systemName: "chevron.down")).font(.system(size: 7, weight: .bold)))
+            .islandFont(.caption, weight: .semibold)
+            .lineLimit(1)
+            .foregroundStyle(Theme.tertiary)
+            .frame(minHeight: Theme.minimumHitSize.height)
+            .contentShape(Rectangle())
     }
 
     private func column<Heading: View, Accessory: View, Content: View>(
@@ -367,7 +643,12 @@ struct TranslatePane: View {
                 Spacer(minLength: 4)
                 accessory()
             }
-            .frame(height: 14)
+            // The minimum hit height, so the language menus in it can be as
+            // tall as a target (F-014); it was 14. Fixed rather than a
+            // minimum: the 22-point Clear arrives with the first character
+            // and leaves with the last, and a row that grew to hold it would
+            // move the text below by two points at every one of those.
+            .frame(height: Theme.minimumHitSize.height)
 
             content()
         }
@@ -399,5 +680,15 @@ private extension View {
             .buttonStyle(PanelButtonStyle())
             .menuIndicator(.hidden)
             .fixedSize()
+    }
+}
+
+/// The source editor's frame in the window, top-left origin. Carried up to the
+/// view model so the root view can show an I-beam over it (PTR-02).
+struct TextInputRectKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isEmpty { value = next }
     }
 }

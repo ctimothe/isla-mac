@@ -66,3 +66,140 @@ Two changes to how the timeline is *shown*, neither to what is shown.
 Tests: `LyricsCoordinatorTests.testLyricsAreReadyBeforeTheClockSettles`,
 `MediaControllerTests.testTheNextLyricWakeIsTheFirstBoundaryAheadLessTheLead`
 and `…testTheClockPublishesOnALyricBoundaryAheadOfItsGrid`, `LyricSweepTests`.
+
+## Amendment — 2026-10-11: a delay delays
+
+The listener's corrections — **Lyric Delay** in Settings (`userOffset`, ±3 s),
+the stage's per-track **Lyrics Earlier**/**Lyrics Later** nudges
+(`trackOffset`, ±1.5 s) and the **Set Lyric Delay** Shortcuts action — are
+delays, and the lead now subtracts them:
+`lead = base − userOffset − trackOffset`. They were added until this change,
+so every control ran backwards against its own label: a positive delay showed
+lyrics earlier, "Lyrics Earlier" showed them later, and the AirPods listener
+the setting exists for (checklist.md 2026-09-21) followed the note under the
+slider and doubled the error. The labels, the note ("Negative shows lyrics
+earlier; positive, later") and the intent's description were right and are
+unchanged; the arithmetic now agrees with them.
+
+Stored corrections are negated exactly once, so no listener's timing moves
+with the fix: `lyrics.userOffset` in defaults (marked by
+`lyrics.offsetSignVersion` = 2), and every value in `offsets.json` and
+`unassigned-offsets.json` (marked by an `offset-sign-version` file beside
+them — the defaults domain and the directory are separate stores, and a
+marker in only one of them would let a process that sees a different domain
+flip the files a second time). A pre-local correction the local library
+imports into an already-flipped directory is flipped on the way in. A test
+process never migrates the live support directory. The owner's −0.247 s reads
++0.247 s afterwards, at the same effective lead of −0.047 s.
+
+Tests: `LyricSweepTests.testAPositiveDelayShowsLyricsLater`,
+`…testLyricsEarlierMovesLinesEarlier`,
+`…testTheSignMigrationKeepsEveryListenersTiming`,
+`…testALegacyOffsetMigratedAfterTheSignFlipKeepsItsTiming`,
+`…testATestRunLeavesTheInstalledAppsOffsetsAlone`, and the four legacy-nudge
+tests in `LocalLyricsLibraryTests`, which now read the imported nudge back in
+the new sign.
+
+## Amendment — 2026-10-11: a line goes dark when its voice ends
+
+A finished line used to stay lit until the next line's stamp, through every
+instrumental and every outro. The lyric lab (L6, 540 tracks) measured a
+median 28.9 s of stale highlight a track, 12.5 % of track time, with 447
+mid-song lines lit through more than 8 s of silence and 295 outros. The
+answer was already in hand: LRC marks the end of a line's voice with a bare
+stamp, and LRCLIB writes one in most files (1,694 in the corpus). The parser
+dropped them.
+
+- **An empty stamp is the end of the sung line before it.**
+  `LocalLyricsDocument.parse` keeps it as `LyricsStore.Line.end` when it lies
+  strictly after that line's start (after the sort, the next sung line cannot
+  start before it); it never becomes a row. A second stamp in one gap leaves
+  the first; a stamp before the first line, or at a line's own moment, ends
+  nothing. `serialize` writes `[end]` back after its line, only where `parse`
+  would read it as that same line's end. `end` is optional, so every cache and
+  index written before it still decodes. `parserRevision` is 3.
+- **One rule decides whether an end is honoured.** `LyricSweep.effectiveEnd`
+  keeps an end only when the silence after it is at least
+  `minimumHonouredGap` (1.5 s) before the next line; a breath must not blink
+  the line off and on. The last line's end (the outro stamp) is always
+  honoured. Ends a file does not state are not invented: a last line without
+  an outro stamp still holds to the track's end.
+- **From the honoured end nothing is current.** `LyricSweep.moment` answers
+  `current: nil` until the next line starts and centres on that line, the
+  same statement the intro makes, so the stage, the caption and the lock card
+  turn to the coming line, dim and unswept; in the outro they keep the last
+  line, unswept. `end(of:in:)` returns the honoured end, so a word-timed
+  line's last word ends with the voice instead of stretching across the
+  instrumental. `displayed` (the Get Current Lyric action) reads the same
+  moment.
+- **The clock wakes for an end as for a start.** `LyricsCoordinator` hands
+  `setLyricBoundaries` every start and every honoured end, so a line goes
+  dark on the frame its voice stops rather than on the next quarter-second
+  tick.
+
+Not done: decoding LRCLIB's `lyricsfile` `end_ms` (the same information
+behind a YAML reader, deferred as L-12); refreshing cached LRCLIB answers
+that predate ends (LY-09); a marker for long gaps (LY-13).
+
+Tests: `LocalLyricsDocumentTests.testABareTimestampEndsTheLineBeforeIt`,
+`…testWhichLineAnEmptyStampEnds`,
+`…testAnEndIsWrittenOnlyWhereItReadsBackAsTheSameLinesEnd`,
+`SharedLyricTimelineTests.testALineGoesDarkAtItsEnd`,
+`…testAShortBreathKeepsTheLineLit`,
+`…testTheOutroLeavesTheLastLineShownUnswept`,
+`LyricsCoordinatorTests.testLineEndsAreBoundaries`; the lab's L6 now measures
+production's ends (needs the corpus, `Scripts/lyric-lab.sh`).
+
+## Amendment — 2026-10-11: the lead is a sum of named terms
+
+The lead was one 0.20 s constant per path. The lyric lab's L7 (2026-10-11)
+showed no constant can be right: the modelled optimum is about 0.27 s on
+built-in speakers and 0.10 s on an assumed 200 ms Bluetooth route, and the
+owner's by-ear correction sits about 0.35 s from both. So the lead is now the
+sum of what it compensates, each term re-measurable on its own
+(`LyricLeadModel`, `LyricSweep.model`):
+
+`lead = anchorLag + timerWake + frame/2 + compositor + onsetRise + anticipation − outputLatency − unmeasuredPlayerDelay`,
+and the listener's corrections come off it as before (`− userOffset − trackOffset`).
+
+- **anchorLag** 0.138 s: the 2026-09-21 probe's 0.188 s published lag less
+  the 0.05 s mean grid staleness a boundary wake does not suffer.
+- **timerWake** 0.0001 s: the strict dispatch wake's idle median (LY-07).
+- **frame/2 + compositor**: half a frame of vsync wait and one frame of
+  compositing, at 120 Hz (`referenceFrameRate`); 60 Hz when a rate is unknown.
+- **onsetRise**: the time `Theme.lyricScroll` takes to reach 50 %
+  (103.9 ms), computed by `Theme.springRiseTime` from the spring's own
+  constants. The row lights that much earlier, so the crossfade's midpoint
+  lands on the voice; the motion is unchanged, and a retuned spring moves the
+  term with it (L-09).
+- **anticipation** 0.040 s: the centre of ITU-R BT.1359-1's detectability
+  window, the lab's target.
+- **outputLatency**: CoreAudio's reported latency for the default output,
+  read by `OutputLatencyMonitor` on every default-output change while Show
+  Lyrics is on, and logged with every term under `DI_MEDIA=1`.
+- **unmeasuredPlayerDelay** 0.0672 s: a named placeholder, set so the
+  built-in route (27.3 ms reported) sums to the shipped 0.200 s. The acoustic
+  probe or the owner's S-LEAD session must replace it.
+
+**Not applied yet.** `LyricLeadModel.appliesOutputLatency` is false: the sum
+uses the built-in reference (27.3 ms) on every route, and the frame rate
+stays at 120 Hz on every display, so the lead is 0.20 s everywhere and no
+stored correction moves. Applying the live latency would shift every
+correction tuned by ear on an unrecorded route — the owner's +0.247 s, set
+for AirPods, by about 173 ms on the built-in speakers — and would count the
+output twice for a player whose reported position already includes it. The
+plan's `lyrics.leadModelVersion` migration was withdrawn for the same reason:
+it would preserve a correction's lead only on whichever route was active when
+it ran. Applying the term, wiring the island screen's refresh rate and any
+migration are a follow-up gated on S-LEAD (per player, per route).
+
+Tests: `LyricSweepTests.testTheLeadIsTheSumOfItsNamedTerms`,
+`…testTheBuiltInRouteKeepsTheShippedLead`,
+`…testTheMeasuredOutputLatencyIsNotAppliedYet`,
+`…testTheOnsetRiseIsTheLyricSpringsHalfway`,
+`…testAnUnknownFrameRateCountsAsSixtyHertz`,
+`AudioOutputsTests.testOutputLatencyArithmetic`,
+`…testTheMonitorListensOnlyWhileStarted`,
+`…testARouteChangeIsReportedOnceWhenTheLatencyMoves`,
+`LyricsCoordinatorTests.testTheOutputLatencyWatchRunsOnlyWhileLyricsAreOn`,
+`…testAReportedOutputLatencyReachesTheModelButNotTheLead`.

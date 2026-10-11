@@ -15,15 +15,18 @@ import Foundation
 @MainActor
 final class NotchStores {
     let media = MediaController()
-    let shelf = ShelfStore()
-    let clipboard = ClipboardStore()
-    let screenshotVault = ScreenshotVault()
-    let translator = Translator()
+    let shelf: ShelfStore
+    /// Takes the files a drag only promised. Here rather than in the panel's
+    /// root view, which a display change rebuilds mid-transfer (G-025).
+    let promises: PromisedDropInbox
+    let clipboard: ClipboardStore
+    let screenshotVault: ScreenshotVault
+    let translator: Translator
     let lyrics: LyricsStore
     let localLyricsLibrary: LocalLyricsLibrary
     let lyricsCoordinator: LyricsCoordinator
     /// Shared by every pane that shows something worth not showing.
-    let privacy = PrivacyMode()
+    let privacy: PrivacyMode
     /// The charger and headphones, for the island's moments without music.
     let ambient = AmbientWatch()
 
@@ -34,10 +37,29 @@ final class NotchStores {
 
     private var started = false
 
+    /// The store parameters are a seam for the headless visual lab
+    /// (`Tests/IslaKitTests/VisualLab*`), which builds whole panels without
+    /// touching anything of the person's: the default `ClipboardStore` reads
+    /// the general pasteboard, `ScreenshotVault` saves into `~/Pictures/Isla`
+    /// (it creates the folder on its first save, never when it is built),
+    /// and `PrivacyMode` and `Translator` write the standard defaults. Left
+    /// out — as the app always leaves them — each is built exactly as before.
     init(
         lyricsEnabled: (() -> Bool)? = nil,
-        localLyricsDirectory: URL = AppPaths.live.supportDirectory
+        localLyricsDirectory: URL = AppPaths.live.supportDirectory,
+        shelf: ShelfStore? = nil,
+        clipboard: ClipboardStore? = nil,
+        screenshotVault: ScreenshotVault? = nil,
+        translator: Translator? = nil,
+        privacy: PrivacyMode? = nil
     ) {
+        let shelfStore = shelf ?? ShelfStore()
+        self.shelf = shelfStore
+        promises = PromisedDropInbox(shelf: shelfStore)
+        self.clipboard = clipboard ?? ClipboardStore()
+        self.screenshotVault = screenshotVault ?? ScreenshotVault()
+        self.translator = translator ?? Translator()
+        self.privacy = privacy ?? PrivacyMode()
         // Import a listener's old local override and timing correction before
         // the retired cache helper gets a chance to prune its cache files.
         // The local library is now the coordinator's only lyric authority.
@@ -49,7 +71,11 @@ final class NotchStores {
             library: library,
             isEnabled: lyricsEnabled ?? { NotchViewModel.showLyricsEnabled },
             isOnlineEnabled: { NotchViewModel.onlineLyricsEnabled },
-            presentation: lyrics
+            presentation: lyrics,
+            // A test process never listens to the Mac's real output: its
+            // reading would land in the shared lead model under every other
+            // test's feet. The tests inject their own.
+            outputLatency: PlayerBridge.isRunningTests ? nil : OutputLatencyMonitor()
         )
     }
 
@@ -76,8 +102,13 @@ final class NotchStores {
         lyricsCoordinator.start()
         localLyricsLibrary.startWatchingFolders()
         shelf.load()
-        // Drop folders from previous sessions, once, off the main thread.
-        DispatchQueue.global(qos: .utility).async { AppPaths.pruneDropInbox() }
+        // Drop folders from previous sessions, once, off the main thread —
+        // except the ones a card still points into. Read here, on the main
+        // actor and after the load, because the shelf is not the prune's to
+        // touch from a utility thread; a card added after this moment lives
+        // in a folder minted now, which no week-old cutoff can reach (F-019).
+        let cardFiles = Set(shelf.items.map(\.url))
+        DispatchQueue.global(qos: .utility).async { AppPaths.pruneDropInbox(keeping: cardFiles) }
 
         // Screenshots reach the shelf through here whether they were taken on
         // this Mac or on a phone: a copy made on the phone arrives in the same
@@ -172,8 +203,12 @@ final class NotchStores {
     ///   bar stopped, and the lyric stood still on whichever line it had
     ///   reached. Passed rather than inferred from call order, because order is
     ///   exactly what went wrong.
-    func suspendForIdleScreen(keepingMediaRunning: Bool = false) {
-        clipboard.stop()
+    /// - Parameter forLock: true from both of `screenLocked()`'s branches. The
+    ///   clipboard then resumes from the pasteboard as it stands, so a copy
+    ///   that arrived behind the shield is not recorded at unlock (G-011);
+    ///   display sleep alone keeps the copy made just before it.
+    func suspendForIdleScreen(keepingMediaRunning: Bool = false, forLock: Bool = false) {
+        clipboard.stop(rebaseliningOnResume: forLock)
         if !keepingMediaRunning { media.setActive(false) }
     }
 

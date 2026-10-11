@@ -131,6 +131,13 @@ struct GlassSurface: View {
                 .blendMode(.overlay)
                 .allowsHitTesting(false)
         }
+        // The whole recipe is surface, never content. Its two images — the
+        // blurred light and the tiled grain — were each read by VoiceOver as a
+        // nameless image the size of the pane (H-009: a 460x300 stop on the
+        // lock card, another under every popover). Hidden here, at the
+        // primitive, so every glass surface is silent at once and a layer
+        // added to the recipe later is silent too. Drawing is unaffected.
+        .accessibilityHidden(true)
     }
 
     // MARK: - Grain

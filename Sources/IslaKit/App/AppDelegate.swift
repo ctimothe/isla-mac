@@ -16,6 +16,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Before anything at all — the purge, the panel, the helper, the hot
+        // keys: a copy that is not going to stay must not have started a
+        // second media helper or taken a key from the copy that is. See
+        // `LaunchGuard` for why the newer copy is the one that leaves.
+        if let older = LaunchGuard.olderCopy() {
+            handOver(to: older)
+            return
+        }
+        // The other half of that: a copy launched after this one asks for the
+        // panel and quits. `.deliverImmediately`, because an accessory app is
+        // almost never the active one, and a distributed notification held
+        // for an inactive app would wait for an activation that may not come.
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(showRequested(_:)),
+            name: LaunchGuard.showNotification,
+            object: nil,
+            suspensionBehavior: .deliverImmediately
+        )
+        // First, before anything can make a request: earlier builds sent every
+        // request through `URLSession.shared`, whose disk cache may still hold
+        // a translated text in its URL (audit G-016). Requests go through
+        // `PrivateNetwork.session` now, which writes nothing, but the rows
+        // already written stay until they are removed — so they are, once.
+        PrivateNetwork.purgeLegacyStorage()
         controller = NotchController()
         controller?.install()
         // Built here rather than wherever a view first mentions it.
@@ -46,9 +71,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // change while the app runs.
         HotKeyCenter.shared.install([
             .openPanel: { [weak self] in self?.togglePanel() },
+            // No text is passed on as `nil`, not dropped here: with an image
+            // on the clipboard the shortcut used to do nothing at all, which
+            // looked like a shortcut that was never registered (F-040). The
+            // pane says so now.
             .translateClipboard: { [weak self] in
-                guard let text = NSPasteboard.general.string(forType: .string) else { return }
-                self?.controller?.translate(text)
+                self?.controller?.translateCommanded(NSPasteboard.general.string(forType: .string))
             },
             .showLyrics: { [weak self] in self?.controller?.toggleLyrics() },
         ])
@@ -100,6 +128,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Isla opened again — from Spotlight, Launchpad or Finder — while it is
+    /// already running.
+    ///
+    /// There was no handler, so this did nothing visible, and for an app with
+    /// no window, no Dock icon and no menu-bar item nothing visible is
+    /// indistinguishable from a launch that failed (F-023). Opening the app
+    /// means opening the panel. False, because there is no window for AppKit
+    /// to bring forward in its place.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        controller?.show()
+        return false
+    }
+
+    /// A newer copy is handing over; see `handOver(to:)`.
+    @objc private func showRequested(_ notification: Notification) {
+        controller?.show()
+    }
+
+    /// This copy is the newer one: give the island to the copy already
+    /// running, and leave.
+    ///
+    /// Activation goes to that copy first. A copy launched from Finder or
+    /// `open` is the active app, and when the active app quits macOS
+    /// activates whichever came before it — which the running copy reads as
+    /// another app coming to the front, the ⌘-Tab that ends a pin, and the
+    /// panel this asked for folded the moment it opened. Its own activation
+    /// ends nothing. A copy that was never active passes nothing on, which is
+    /// equally harmless.
+    private func handOver(to older: NSRunningApplication) {
+        older.activate(from: NSRunningApplication.current, options: [])
+        DistributedNotificationCenter.default().postNotificationName(
+            LaunchGuard.showNotification,
+            object: nil,
+            userInfo: nil,
+            deliverImmediately: true
+        )
+        NSApp.terminate(nil)
+    }
+
     /// Entry point for the "Translate in Isla" service, named in the
     /// bundle's NSServices. macOS passes the selection on a private pasteboard.
     @objc func translateSelection(
@@ -107,11 +174,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         userData: String?,
         error: AutoreleasingUnsafeMutablePointer<NSString>?
     ) {
-        guard let text = pasteboard.string(forType: .string) else { return }
-        controller?.translate(text)
+        // Capped like the hot key's text: a selection can be a whole document.
+        controller?.translateCommanded(pasteboard.string(forType: .string))
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        DistributedNotificationCenter.default().removeObserver(self)
         controller?.teardown()
         // Explicitly, because a hot key cannot release itself: the Carbon
         // callback needs a lookup table to find the instance, that table holds

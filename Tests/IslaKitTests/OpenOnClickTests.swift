@@ -101,6 +101,27 @@ final class OpenOnClickTests: XCTestCase {
         }
     }
 
+    /// ⌃⌥⌘I opens the panel on whatever tab was left — Clipboard, say — and
+    /// pins it, with the pointer somewhere else. The hand then goes for a row,
+    /// and that arrival used to run `select(.media)`: the pane swapped to Music
+    /// under the cursor reaching into it (J-008). Landing on Music is a rule for
+    /// arriving at the *closed* island; a panel already open is not being
+    /// arrived at, it is being used. The arrival still takes the pin back.
+    func testArrivingOnAPanelTheKeyboardOpenedKeepsItsTab() {
+        withDefault(false) {
+            guard let vm = makeViewModel() else { return }
+
+            // What the hot key leaves behind.
+            vm.isOpen = true
+            vm.tab = .clipboard
+            vm.isPinnedOpen = true
+
+            XCTAssertEqual(vm.pointerCrossed(inside: true), .standsAsItIs)
+            XCTAssertEqual(vm.tab, .clipboard, "the pane the hand was reaching for stays put")
+            XCTAssertFalse(vm.isPinnedOpen, "arriving still hands the panel back to the pointer")
+        }
+    }
+
     /// Closing is the island's job, not the body's. The gesture that opens the
     /// panel is attached to a view that fills the whole window, so letting it
     /// act while open would turn every click on a control inside the panel into

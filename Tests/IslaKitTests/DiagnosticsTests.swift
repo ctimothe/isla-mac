@@ -37,6 +37,14 @@ final class DiagnosticsTests: XCTestCase {
         }
     }
 
+    /// Report-only for now: the helper's seal is shown, not enforced.
+    func testTheReportShowsTheHelperSignature() {
+        var snapshot = sample()
+        snapshot.helperSignature = "valid"
+        XCTAssertTrue(Diagnostics.render(snapshot).contains("helper signature: valid"))
+        XCTAssertTrue(Diagnostics.render(sample()).contains("helper signature: not checked"))
+    }
+
     func testAnEmptyLogSaysSo() {
         XCTAssertTrue(Diagnostics.render(sample(log: [])).contains("nothing logged"))
     }
@@ -75,6 +83,26 @@ final class DiagnosticsTests: XCTestCase {
             return
         }
         XCTAssertFalse(line.contains("hunter2"), line)
+    }
+
+    /// Paste from Other Apps set to Don't Allow empties history without a
+    /// word (J-001), so a report that says "my clipboard is empty" has to
+    /// carry the switch, in each of its four states, and the live snapshot
+    /// has to pass on what it was handed.
+    func testPasteboardAccessIsReported() {
+        let states: [(ClipboardAccess, String)] = [
+            (.unknown, "default"), (.ask, "ask"), (.allowed, "allowed"), (.denied, "denied"),
+        ]
+        for (access, word) in states {
+            var snapshot = sample()
+            snapshot.pasteFromOtherApps = access
+            let text = Diagnostics.render(snapshot)
+            XCTAssertTrue(text.contains("Paste from Other Apps: \(word)"), "missing \(word)\n\(text)")
+        }
+        let live = Diagnostics.render(
+            Diagnostics.current(media: MediaController(), clipboardAccess: .denied, includeLog: false)
+        )
+        XCTAssertTrue(live.contains("Paste from Other Apps: denied"), live)
     }
 
     func testTheReportFormIsOnTheProjectsTracker() {

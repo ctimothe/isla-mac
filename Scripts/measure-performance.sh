@@ -7,6 +7,10 @@ if [ "$#" -ne 3 ]; then
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The build is launched while the owner's installed Isla is usually running,
+# and a second copy hands over to the first and quits (LaunchGuard) — which
+# here would read as the launch having failed. Inherited by the binary below.
+export ISLA_ALLOW_SECOND_INSTANCE=1
 REFERENCE_APP="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 PRODUCT_APP="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
 REPORT="$3"

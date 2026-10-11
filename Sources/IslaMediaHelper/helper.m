@@ -15,6 +15,8 @@
 // stdin. It exits as soon as stdin closes, so it can never outlive Isla.
 
 #import <Foundation/Foundation.h>
+#import <CoreGraphics/CoreGraphics.h>
+#import <ImageIO/ImageIO.h>
 #import <dlfcn.h>
 #import <stdatomic.h>
 #import <errno.h>
@@ -42,6 +44,21 @@ static NSString *sArtworkID;
 /// nil, which is undefined behaviour, and every read of the function pointers
 /// from that thread was a plain data race besides.
 static atomic_bool sFeedReady = ATOMIC_VAR_INIT(false);
+/// Signalled once, when `sFeedReady` is raised or the feed has given up. The
+/// command reader waits on it before its first read, so a line the app wrote
+/// while the feed was still inside dlopen is handled late rather than never.
+/// That line is not hypothetical: a transport tap made while a helper restarts
+/// is held by the app and written the instant the new one launches, and
+/// `handleCommand` used to drop it on the floor — the panel flipped its play
+/// icon and flipped it back a second and a half later, and the player never
+/// paused. Waiting here rather than spinning in `handleCommand`: this process
+/// lives as long as the app, and a spin is a core it never gives back.
+static dispatch_semaphore_t sFeedSettled;
+/// How long the reader waits for the feed before it reads anyway. dlopen of a
+/// system framework takes milliseconds; this is only the ceiling for a feed
+/// thread that never comes back, so the reader still notices stdin closing and
+/// the helper still cannot outlive the app by more than this.
+static const int64_t kFeedSettleTimeout = 5 * NSEC_PER_SEC;
 /// Last payload published, so an unchanged one is not sent again. The helper
 /// polls twice a second per two seconds whether or not anything has changed,
 /// and each identical line woke the app to decode a snapshot it already had.
@@ -88,7 +105,23 @@ static NSLock *sEmitLock;
 /// emit happened to run first, so the 2 s poll could swallow the echo that
 /// confirms a transport tap.
 static void emitPayload(NSDictionary *payload, BOOL forced) {
-    NSData *json = [NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];
+    // NSJSONSerialization does not return nil for what it cannot write, whatever
+    // its `error:` parameter suggests: it raises. A NaN or an infinity anywhere
+    // in the payload — a live stream in a browser reports a duration of +Inf —
+    // was an uncaught exception, so the helper aborted on every publish, and
+    // after three restarts every browser source left the island for the session
+    // under the app's "kept stopping" text. The record is cleaned on the way in
+    // (`finiteNumber`); this is the backstop for whatever slips past it. A
+    // record that cannot be written costs that one line, not the process: a
+    // record that stays unwritable reads to the app as a silent helper, which
+    // its watchdog already handles.
+    if (![NSJSONSerialization isValidJSONObject:payload]) return;
+    NSData *json = nil;
+    @try {
+        json = [NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];
+    } @catch (NSException *exception) {
+        return;
+    }
     if (!json) return;
     [sEmitLock lock];
     // An identical payload is not news. The poll runs every two seconds
@@ -190,6 +223,86 @@ static void refreshCommands(int ownerPID, id path) {
     });
 }
 
+/// A number from the record, or 0 where it has none JSON can carry.
+///
+/// MediaRemote passes along whatever the player set, and a live stream has no
+/// end: its duration comes through as +Inf, and a NaN in any field is no
+/// better — JSON has a spelling for neither (see `emitPayload`). 0 is what the app
+/// already reads as "no duration" — the same as a player that never said. Not
+/// an NSNumber at all reads as 0 too: the app's decoder rejects a whole record
+/// whose duration is a string, which would have lost the title with it.
+static NSNumber *finiteNumber(id value) {
+    if ([value isKindOfClass:NSNumber.class] && isfinite([(NSNumber *)value doubleValue])) return value;
+    return @0;
+}
+
+/// A text field from the record, or "" where the player put something else
+/// there. The title is asked for its `length` below, and anything but a string
+/// answering that was an unrecognised selector — the same abort as a NaN.
+static NSString *textField(id value) {
+    return [value isKindOfClass:NSString.class] ? value : @"";
+}
+
+/// The long side, in pixels, past which a cover is redrawn before it is sent.
+/// The largest place the app draws one is about 118 pt, so 600 px is double
+/// that at 2x with room to spare.
+static const CGFloat kArtworkMaxPixels = 600;
+
+/// The cover as it should go over the pipe: unchanged when it is already small,
+/// redrawn to `kArtworkMaxPixels` on its long side when it is not.
+///
+/// A local FLAC or ALAC library can embed 5-10 MB PNG covers, and they were sent
+/// whole. The app drops artwork over 4 MB, asks once for it again, gets the same
+/// bytes back and drops them again, so every such track showed the grey note
+/// on the island, the panel and the lock card. Drawn small here, once per
+/// track, the cover fits; it also spares the app decoding a 3000 px image to
+/// show it at 118 pt.
+///
+/// What cannot be read as an image is passed through untouched: the app
+/// decides what to do with it, as it always has.
+static NSData *sizedArtwork(NSData *data) {
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+    if (!source) return data;
+    NSDictionary *properties =
+        CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, NULL));
+    CGFloat width = [properties[(__bridge NSString *)kCGImagePropertyPixelWidth] doubleValue];
+    CGFloat height = [properties[(__bridge NSString *)kCGImagePropertyPixelHeight] doubleValue];
+    if (width <= 0 || height <= 0 || MAX(width, height) <= kArtworkMaxPixels) {
+        CFRelease(source);
+        return data;
+    }
+    NSDictionary *options = @{
+        (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
+        (__bridge NSString *)kCGImageSourceCreateThumbnailWithTransform: @YES,
+        (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize: @(kArtworkMaxPixels),
+    };
+    CGImageRef thumbnail =
+        CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);
+    CFRelease(source);
+    if (!thumbnail) return data;
+
+    // JPEG for an opaque cover, which is nearly every cover: a 600 px PNG of a
+    // photograph is still most of a megabyte of base64 on every song change.
+    // PNG only where there is transparency for JPEG to paint black.
+    CGImageAlphaInfo alpha = CGImageGetAlphaInfo(thumbnail);
+    BOOL opaque = alpha == kCGImageAlphaNone || alpha == kCGImageAlphaNoneSkipFirst ||
+                  alpha == kCGImageAlphaNoneSkipLast;
+    NSMutableData *encoded = [NSMutableData data];
+    CGImageDestinationRef destination = CGImageDestinationCreateWithData(
+        (__bridge CFMutableDataRef)encoded, opaque ? CFSTR("public.jpeg") : CFSTR("public.png"), 1, NULL);
+    BOOL written = NO;
+    if (destination) {
+        NSDictionary *encoding = opaque
+            ? @{(__bridge NSString *)kCGImageDestinationLossyCompressionQuality: @0.85}
+            : @{};
+        CGImageDestinationAddImage(destination, thumbnail, (__bridge CFDictionaryRef)encoding);
+        written = CGImageDestinationFinalize(destination);
+        CFRelease(destination);
+    }
+    CGImageRelease(thumbnail);
+    return written && encoded.length > 0 ? encoded : data;
+}
+
 /// Reads the current record and prints it. Artwork is only included when the
 /// track changed — it is the bulk of the payload and never changes mid-track.
 ///
@@ -241,7 +354,7 @@ static void publishSnapshot(int ownerPID, id path, BOOL forced, int attempt) {
                 // a MediaRemote callback. The record below reads the last
                 // answer rather than waiting for this one, as it always has.
                 dispatch_async(sQueue, ^{ refreshCommands(ownerPID, path); });
-                NSString *title = info[@"kMRMediaRemoteNowPlayingInfoTitle"] ?: @"";
+                NSString *title = textField(info[@"kMRMediaRemoteNowPlayingInfoTitle"]);
 
                 if (ownerPID > 0 && path) {
                     sPlayerPathsByPID[@(ownerPID)] = path;
@@ -255,11 +368,11 @@ static void publishSnapshot(int ownerPID, id path, BOOL forced, int attempt) {
                 // describing a flag as a count.
                 out[@"playing"] = playing ? @YES : @NO;
                 out[@"title"] = title;
-                out[@"artist"] = info[@"kMRMediaRemoteNowPlayingInfoArtist"] ?: @"";
-                out[@"album"] = info[@"kMRMediaRemoteNowPlayingInfoAlbum"] ?: @"";
-                out[@"duration"] = info[@"kMRMediaRemoteNowPlayingInfoDuration"] ?: @0;
-                out[@"elapsed"] = info[@"kMRMediaRemoteNowPlayingInfoElapsedTime"] ?: @0;
-                out[@"rate"] = info[@"kMRMediaRemoteNowPlayingInfoPlaybackRate"] ?: @0;
+                out[@"artist"] = textField(info[@"kMRMediaRemoteNowPlayingInfoArtist"]);
+                out[@"album"] = textField(info[@"kMRMediaRemoteNowPlayingInfoAlbum"]);
+                out[@"duration"] = finiteNumber(info[@"kMRMediaRemoteNowPlayingInfoDuration"]);
+                out[@"elapsed"] = finiteNumber(info[@"kMRMediaRemoteNowPlayingInfoElapsedTime"]);
+                out[@"rate"] = finiteNumber(info[@"kMRMediaRemoteNowPlayingInfoPlaybackRate"]);
                 out[@"pid"] = @(ownerPID);
                 // What kind of thing is playing, as the player itself labels it.
                 // The owning app alone cannot tell a Telegram song from a Telegram
@@ -271,9 +384,11 @@ static void publishSnapshot(int ownerPID, id path, BOOL forced, int attempt) {
                 id isMusicApp = info[@"kMRMediaRemoteNowPlayingInfoIsMusicApp"];
                 if ([isMusicApp isKindOfClass:NSNumber.class]) out[@"isMusicApp"] = isMusicApp;
 
+                // Through `finiteNumber` as well: a date can sit at infinity,
+                // and its interval is then no more writable than a NaN.
                 id stamp = info[@"kMRMediaRemoteNowPlayingInfoTimestamp"];
                 out[@"timestamp"] = [stamp isKindOfClass:NSDate.class]
-                    ? @([(NSDate *)stamp timeIntervalSince1970])
+                    ? finiteNumber(@([(NSDate *)stamp timeIntervalSince1970]))
                     : @0;
 
                 // The owner pid rides along with the identifier: two different
@@ -292,9 +407,10 @@ static void publishSnapshot(int ownerPID, id path, BOOL forced, int attempt) {
                 // report; the cost is one image per song change.
                 NSString *rawArtworkID = info[@"kMRMediaRemoteNowPlayingInfoArtworkIdentifier"] ?: title;
                 NSString *artworkID = [NSString stringWithFormat:@"%d|%@|%@", ownerPID, rawArtworkID, title];
-                NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
-                if (artwork.length > 0 && ![artworkID isEqualToString:sArtworkID]) {
-                    out[@"artwork"] = [artwork base64EncodedStringWithOptions:0];
+                id artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
+                if ([artwork isKindOfClass:NSData.class] && [(NSData *)artwork length] > 0 &&
+                    ![artworkID isEqualToString:sArtworkID]) {
+                    out[@"artwork"] = [sizedArtwork(artwork) base64EncodedStringWithOptions:0];
                     sArtworkID = artworkID;
                 }
                 if (title.length == 0) sArtworkID = nil;
@@ -353,8 +469,16 @@ static void publish(void) { publishForced(NO); }
 /// `activePlayerPath` also answers nil until `MRMediaRemoteGetNowPlayingClients`
 /// has been called at least once in this process — `startFeed` does that once,
 /// at launch.
+///
+/// Both selectors are private and asked first rather than assumed: a macOS that
+/// renamed either one turned every publish into an unrecognised-selector abort.
+/// nil instead is what `sendCommandToPlayer` already reads as "no path", and a
+/// snapshot carries on without one.
 static id activePlayerPath(void) {
-    id serviceClient = [NSClassFromString(@"MRMediaRemoteServiceClient") performSelector:@selector(sharedServiceClient)];
+    Class serviceClass = NSClassFromString(@"MRMediaRemoteServiceClient");
+    if (![serviceClass respondsToSelector:@selector(sharedServiceClient)]) return nil;
+    id serviceClient = [serviceClass performSelector:@selector(sharedServiceClient)];
+    if (![serviceClient respondsToSelector:@selector(activePlayerPath)]) return nil;
     return [serviceClient performSelector:@selector(activePlayerPath)];
 }
 
@@ -368,8 +492,10 @@ static void sendCommandToPlayer(MRCommand command, NSDictionary *options, int pl
 
 static void handleCommand(NSString *line) {
     // The feed thread may not have finished wiring up yet: the app can write a
-    // command the instant the helper launches, and `fgets` returns as soon as
-    // there are bytes. Everything below reads globals that thread publishes.
+    // command the instant the helper launches. The reader now waits for the
+    // feed before it reads anything, so this only catches a feed that never
+    // came up or took longer than that wait — and everything below reads
+    // globals that thread publishes.
     if (!atomic_load(&sFeedReady)) return;
     if ([line isEqualToString:@"get"]) {
         publishForced(YES);
@@ -424,11 +550,21 @@ static void handleCommand(NSString *line) {
     }
 }
 
+static void markFeedReady(void) {
+    atomic_store(&sFeedReady, true);
+    dispatch_semaphore_signal(sFeedSettled);
+}
+
 static void startFeed(void) {
     [NSThread detachNewThreadWithBlock:^{
         void *handle = dlopen(kMediaRemotePath.UTF8String, RTLD_NOW);
         if (!handle) {
             emit(@{@"error": @"mediaremote-unavailable"});
+            // Released without raising `sFeedReady`: the reader goes back to
+            // watching stdin for the app closing it, and any command still
+            // finds the feed not ready and is dropped — there is nothing to
+            // send it to.
+            dispatch_semaphore_signal(sFeedSettled);
             return;
         }
         sGetInfo = (MRGetInfoFn)dlsym(handle, "MRMediaRemoteGetNowPlayingInfo");
@@ -440,7 +576,7 @@ static void startFeed(void) {
 
         // Every global the command reader touches is written by now, so it may
         // start using them.
-        atomic_store(&sFeedReady, true);
+        markFeedReady();
 
         MRRegisterFn registerNotifications =
             (MRRegisterFn)dlsym(handle, "MRMediaRemoteRegisterForNowPlayingNotifications");
@@ -498,6 +634,11 @@ static void startFeed(void) {
 
 static void startCommandReader(void) {
     [NSThread detachNewThreadWithBlock:^{
+        // Nothing is read until the feed is ready, so a line already in the
+        // pipe is answered instead of dropped (see `sFeedSettled`). Lines wait
+        // in the pipe meanwhile, in order; the guard in `handleCommand` stays
+        // for the one case this does not cover, a feed slower than the timeout.
+        dispatch_semaphore_wait(sFeedSettled, dispatch_time(DISPATCH_TIME_NOW, kFeedSettleTimeout));
         char buffer[512];
         while (fgets(buffer, sizeof buffer, stdin)) {
             @autoreleasepool {
@@ -511,15 +652,27 @@ static void startCommandReader(void) {
     }];
 }
 
-__attribute__((constructor))
-static void dynamic_island_helper_init(void) {
-    // The queue and the caches are created here, on one thread, before either
-    // worker exists. Created inside the feed thread they raced the command
-    // reader, which starts in the same breath and reads them.
+/// The queue and the caches are created here, on one thread, before either
+/// worker exists. Created inside the feed thread they raced the command
+/// reader, which starts in the same breath and reads them.
+static void setUpGlobals(void) {
     sEmitLock = [[NSLock alloc] init];
     sQueue = dispatch_queue_create("com.ctimothe.isla.mediaremote", DISPATCH_QUEUE_SERIAL);
     sPlayerPathsByPID = [NSMutableDictionary dictionary];
     sCommandsByPID = [NSMutableDictionary dictionary];
+    sFeedSettled = dispatch_semaphore_create(0);
+}
+
+// Compiled out for the unit driver in Tests/IslaMediaHelperUnit, which includes
+// this file whole: it must not dlopen MediaRemote or read the real stdin on its
+// own, so it calls `setUpGlobals` itself, stands stubs in for the MediaRemote
+// functions, and starts only the thread a case needs. The shipped dylib is
+// built without the define and keeps this constructor exactly as it was.
+#ifndef ISLA_HELPER_UNIT
+__attribute__((constructor))
+static void dynamic_island_helper_init(void) {
+    setUpGlobals();
     startFeed();
     startCommandReader();
 }
+#endif

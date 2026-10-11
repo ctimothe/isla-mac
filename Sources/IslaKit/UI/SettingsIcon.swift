@@ -44,6 +44,8 @@ enum SettingsIcon {
     static let lyrics = "quote.bubble"
     /// Word-by-word, as opposed to the line: the glyph is about the words.
     static let wordKaraoke = "text.word.spacing"
+    /// The next line arriving before it is sung: text appended below.
+    static let readAhead = "text.append"
     /// A file arriving. `saveScreenshots` already owns the tray glyph, and an
     /// import is a document being added, not a screenshot being kept.
     static let importLyrics = "doc.badge.plus"
@@ -70,6 +72,11 @@ enum SettingsIcon {
     /// Glass or solid is an appearance choice, and this is the system's
     /// appearance glyph.
     static let cardStyle = "circle.lefthalf.filled"
+    /// Whether macOS lets Isla script a player. The raised hand is the glyph
+    /// System Settings itself gives Privacy & Security, where the answer lives.
+    static let automationAccess = "hand.raised"
+    /// Leaving Isla for System Settings: its own gear, not an action of Isla's.
+    static let openSystemSettings = "gearshape"
 
     // Spotify
     static let connectAccount = "person.crop.circle.badge.plus"
@@ -100,8 +107,8 @@ enum SettingsIcon {
         launchAtLogin, openOnHover, hoverDelay, panelWidth, showCharging, showHeadphones,
         shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
-        musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
-        online, lyricTiming, resetTiming, peek, lockScreen, cardStyle,
+        musicOnly, lyrics, wordKaraoke, readAhead, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
+        online, lyricTiming, resetTiming, peek, lockScreen, cardStyle, automationAccess, openSystemSettings,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, clipboardHistory, translate, hideFromRecording,
         about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,
