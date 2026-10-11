@@ -45,22 +45,42 @@ final class NowPlayingLifecycleTests: XCTestCase {
     }
 
     /// A helper that survives long enough is forgiven, so an unlucky day does
-    /// not disable the feed for the rest of the session.
+    /// not disable the feed for the rest of the session. Survival, not the
+    /// time since the first failure (K-013): the helper has to have stayed up
+    /// for the whole window.
     func testRestartBudgetResetsAfterTheWindow() {
         var policy = NowPlayingFailurePolicy(window: 60, maximumRestartsInWindow: 2)
-        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let start: TimeInterval = 1_000
+        policy.recordLaunch(now: start)
         _ = policy.recordFailure(now: start)
         policy.recordSuccess()
-        _ = policy.recordFailure(now: start.addingTimeInterval(1))
+        policy.recordLaunch(now: start)
+        _ = policy.recordFailure(now: start + 1)
         policy.recordSuccess()
-        XCTAssertEqual(policy.recordFailure(now: start.addingTimeInterval(2)), .fallback)
+        policy.recordLaunch(now: start + 1)
+        XCTAssertEqual(policy.recordFailure(now: start + 2), .fallback)
 
         var fresh = NowPlayingFailurePolicy(window: 60, maximumRestartsInWindow: 2)
+        fresh.recordLaunch(now: start)
         _ = fresh.recordFailure(now: start)
         fresh.recordSuccess()
-        _ = fresh.recordFailure(now: start.addingTimeInterval(1))
+        fresh.recordLaunch(now: start)
+        _ = fresh.recordFailure(now: start + 1)
         fresh.recordSuccess()
-        XCTAssertEqual(fresh.recordFailure(now: start.addingTimeInterval(120)), .restart(after: 2))
+        fresh.recordLaunch(now: start + 1)
+        XCTAssertEqual(fresh.recordFailure(now: start + 120), .restart(after: 2))
+
+        // Time alone forgives nothing: a helper launched at 1,061 that died at
+        // 1,120 lived 59 s, whatever the two minutes since the first failure.
+        var late = NowPlayingFailurePolicy(window: 60, maximumRestartsInWindow: 2)
+        late.recordLaunch(now: start)
+        _ = late.recordFailure(now: start)
+        late.recordSuccess()
+        late.recordLaunch(now: start)
+        _ = late.recordFailure(now: start + 1)
+        late.recordSuccess()
+        late.recordLaunch(now: start + 61)
+        XCTAssertEqual(late.recordFailure(now: start + 120), .fallback)
     }
 
     /// An oversized record used to poison the stream twice over: its buffered

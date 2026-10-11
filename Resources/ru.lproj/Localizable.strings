@@ -328,3 +328,4 @@
 "Turn On" = "Включить";
 "Something is playing that Music Only keeps off the island." = "Сейчас играет то, что «Только музыка» не показывает на острове.";
 "Open Settings" = "Открыть настройки";
+"Isla's Now Playing reader answered with nothing while a player was playing. Only Music and Spotify can be seen." = "Модуль Isla для чтения Now Playing ничего не сообщал, хотя плеер играл. Видны только Музыка и Spotify.";
