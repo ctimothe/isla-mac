@@ -36,6 +36,19 @@ final class PrivacyMode: ObservableObject {
             case .translate: return localized("Translate")
             }
         }
+
+        /// The switch's name in Settings, which says what it does rather than
+        /// which tab it belongs to. Titled with `title` alone ("Clipboard",
+        /// in Russian just "Буфер"), right under Clipboard History, the switch
+        /// read as a second way to turn the tab off, and users left the cover
+        /// alone for fear of losing the feature (H-004). The menu and the
+        /// panel keep `title`: there the tab's name is the point.
+        var settingsTitle: String {
+            switch self {
+            case .clipboard: return localized("Cover Clipboard Rows")
+            case .translate: return localized("Cover Translate Text")
+            }
+        }
     }
 
     static let key = "privacyMode.sections"

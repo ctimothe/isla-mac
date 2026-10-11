@@ -17,6 +17,74 @@ final class SettingsPaneTests: XCTestCase {
         XCTAssertEqual(SettingsPane.localLyricsPrivacyCopyKey, "Lyrics stay on this Mac.")
     }
 
+    /// The cover switches say what they do. Titled only with the tab's name
+    /// ("Clipboard", in Russian just "Буфер") and sitting under Clipboard
+    /// History, they read as a second way to turn the tab off, and four
+    /// personas in the 2026-10-11 audit were afraid to touch them (H-004).
+    /// The tab keeps its plain name everywhere else; only Settings names the
+    /// cover.
+    func testPrivacyCopyNamesWhatItCovers() {
+        XCTAssertEqual(PrivacyMode.Section.clipboard.settingsTitle, localized("Cover Clipboard Rows"))
+        XCTAssertEqual(PrivacyMode.Section.translate.settingsTitle, localized("Cover Translate Text"))
+        XCTAssertEqual(PrivacyMode.Section.clipboard.title, localized("Clipboard"))
+        XCTAssertEqual(PrivacyMode.Section.translate.title, localized("Translate"))
+        XCTAssertEqual(
+            SettingsPane.privacyCoversNote,
+            localized("Covered text shows as moving dots until you click it, and is covered again when the panel closes.")
+        )
+    }
+
+    /// "Copies are not read" was false whenever Save Clipboard Screenshots was
+    /// on: that switch keeps the pasteboard poll alive on its own
+    /// (`NotchStores.clipboardShouldPoll`), so every copy is still looked at
+    /// for an image (J-001). The note follows the switch that decides it.
+    func testClipboardOffNoteIsTrueWhenScreenshotsStillPoll() {
+        XCTAssertTrue(NotchStores.clipboardShouldPoll(history: false, images: true),
+                      "the premise: screenshots alone keep the poll alive")
+        XCTAssertEqual(
+            SettingsPane.clipboardOffNote(imagesOn: true),
+            localized("Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on.")
+        )
+        XCTAssertFalse(NotchStores.clipboardShouldPoll(history: false, images: false))
+        XCTAssertEqual(
+            SettingsPane.clipboardOffNote(imagesOn: false),
+            localized("Copies are not read or kept. Turning it off emptied the list.")
+        )
+    }
+
+    /// Hide from Screen Recording is `sharingType = .none` and nothing else,
+    /// and whether ScreenCaptureKit honours that on macOS 26 and 27 is not
+    /// settled (F-008, live session S7). Until it is, the note under the
+    /// switch must not promise more than the mechanism, and must say what to
+    /// do instead.
+    func testCaptureNoteDoesNotOverpromise() {
+        let key = "Asks macOS to leave Isla out of screenshots, recordings and screen sharing. "
+            + "Some sharing apps may still show it, so cover Clipboard and Translate before you share."
+        XCTAssertEqual(SettingsPane.hideFromCaptureNote, localized(key))
+        XCTAssertTrue(key.contains("Some sharing apps"))
+        XCTAssertTrue(key.contains("cover Clipboard and Translate"))
+    }
+
+    /// Both notes are rows in the Privacy card, not only keys in the strings
+    /// file: a constant nobody draws would pass the tests above and change
+    /// nothing a user reads.
+    func testPrivacyCardShowsBothNotes() async {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let stores = isolated.stores
+        let pane = SettingsPane(
+            shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: stores.lyrics,
+            media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
+            hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
+            updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) })
+        )
+        let root = await AXProbe.tree(of: pane, size: CGSize(width: 488, height: 700))
+        for text in [SettingsPane.privacyCoversNote, SettingsPane.hideFromCaptureNote] {
+            XCTAssertFalse(root.all { $0.label == text || $0.value == text || $0.title == text }.isEmpty,
+                           "no note reading \(text)\n\(root.dump)")
+        }
+    }
+
     /// Every switch in Settings is the whole row, read the way VoiceOver reads it.
     ///
     /// This replaces a source grep for `.labelsHidden()`, which held the label
@@ -52,7 +120,7 @@ final class SettingsPaneTests: XCTestCase {
         // setting cannot make this flaky, and an empty list cannot pass.
         XCTAssertGreaterThanOrEqual(switches.count, 12, root.dump)
         for title in ["Launch at Login", "Open on Hover", "Show Charging", "Clipboard History",
-                      PrivacyMode.Section.clipboard.title, PrivacyMode.Section.translate.title,
+                      PrivacyMode.Section.clipboard.settingsTitle, PrivacyMode.Section.translate.settingsTitle,
                       "Hide from Screen Recording"] {
             XCTAssertEqual(switches.filter { $0.label == localized(title) }.count, 1,
                            "exactly one switch named \(title)\n\(root.dump)")
@@ -67,15 +135,15 @@ final class SettingsPaneTests: XCTestCase {
 
         for section in PrivacyMode.Section.allCases {
             let before = stores.privacy.covers(section)
-            guard let node = switches.first(where: { $0.label == section.title }) else {
-                XCTFail("no switch for \(section.title)\n\(root.dump)")
+            guard let node = switches.first(where: { $0.label == section.settingsTitle }) else {
+                XCTFail("no switch for \(section.settingsTitle)\n\(root.dump)")
                 continue
             }
-            XCTAssertTrue(node.press(), "\(section.title) refused the press")
+            XCTAssertTrue(node.press(), "\(section.settingsTitle) refused the press")
             let after = await root.reread()
-            XCTAssertEqual(stores.privacy.covers(section), !before, "pressing \(section.title) did not flip it")
-            let reread = after.all(role: "AXCheckBox").first { $0.label == section.title }
-            XCTAssertEqual(reread?.value, before ? "0" : "1", "\(section.title) still reads its old value")
+            XCTAssertEqual(stores.privacy.covers(section), !before, "pressing \(section.settingsTitle) did not flip it")
+            let reread = after.all(role: "AXCheckBox").first { $0.label == section.settingsTitle }
+            XCTAssertEqual(reread?.value, before ? "0" : "1", "\(section.settingsTitle) still reads its old value")
         }
     }
 

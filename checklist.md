@@ -184,6 +184,22 @@ Privacy defaults were also corrected on 2026-08-21: the panel is now
 hidden from screen capture by default, and clipboard-screenshot saving
 is off by default with a 200-file cap once enabled.
 
+Amended 2026-10-11 (F-008, H-004, J-001): "hidden from screen capture"
+promises more than the mechanism is known to deliver. Hide from Screen
+Recording sets `sharingType = .none` on the panel and does nothing else,
+and whether ScreenCaptureKit capture and sharing apps on macOS 26 and 27
+honour it is unproven until live session S7
+(`docs/audits/2026-10-11-live-validation-script.md` §7). The switch stays
+on by default, because it does hold for the capture paths that respect it,
+but Settings now says only that it *asks* macOS, that some sharing apps
+may still show Isla, and to cover Clipboard and Translate before sharing.
+The covers are titled by what they do (Cover Clipboard Rows, Cover
+Translate Text) with a note on how covered text looks, and the Clipboard
+History off-note no longer claims copies are not read while Save Clipboard
+Screenshots keeps the poll alive. S7 decides whether the capture note
+becomes a stronger warning or, if every path honours `.none`, a firmer
+sentence.
+
 ## Manual parity gates
 
 - [ ] Every tab passes its workflow on a clean macOS account.
