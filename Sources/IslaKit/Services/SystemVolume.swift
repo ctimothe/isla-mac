@@ -79,3 +79,53 @@ enum SystemVolume {
         return AudioObjectSetPropertyData(device, &address, 0, nil, size, &scalar) == noErr
     }
 }
+
+/// Paces the lock card's volume drag to about 30 CoreAudio writes a second
+/// (F-045).
+///
+/// A drag delivers 60 to 120 events a second and each one wrote the device's
+/// volume, which fired the watch's listener, which — before `volumeChanged`
+/// — enumerated every device. The bar still follows the finger at full rate
+/// from the card's own state; only the write is paced, and 33 ms between
+/// levels is continuous to an ear.
+///
+/// The value a write skips is held, never dropped: `due(at:)` hands it over
+/// once the interval has passed, so a finger that stops moving but stays down
+/// does not leave the speakers a step behind the bar, and `finish()` hands it
+/// over at release, so the level always lands where the finger let go. Pure —
+/// the clock is the caller's — so the pacing is held by a test.
+struct VolumeWriteGate {
+    static let interval: TimeInterval = 0.033
+
+    private var lastWrite: TimeInterval?
+    private(set) var pending: Float?
+
+    /// The value to write now, or nil when it is held for later.
+    mutating func offer(_ value: Float, at time: TimeInterval) -> Float? {
+        if let lastWrite, time - lastWrite < Self.interval {
+            pending = value
+            return nil
+        }
+        lastWrite = time
+        pending = nil
+        return value
+    }
+
+    /// The held value, once the interval since the last write has passed.
+    mutating func due(at time: TimeInterval) -> Float? {
+        guard let pending, let lastWrite, time - lastWrite >= Self.interval else { return nil }
+        self.lastWrite = time
+        self.pending = nil
+        return pending
+    }
+
+    /// The held value at release, if one is still waiting. The gate starts
+    /// over, so the next drag's first touch writes at once.
+    mutating func finish() -> Float? {
+        defer {
+            pending = nil
+            lastWrite = nil
+        }
+        return pending
+    }
+}
