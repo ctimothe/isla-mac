@@ -102,10 +102,28 @@ final class SeekAccessibilityTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(frame.height, 22, root.dump)
     }
 
+    /// A muted Mac's bar is heard as muted, not as a level nobody can hear
+    /// (G-023). Only read, for the same reason as the test above.
+    func testAMutedLockCardVolumeSaysMuted() async throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let media = isolated.stores.media
+        await LabFixtures.play(LabFixtures.Track(duration: 238, elapsed: 27, cover: nil), on: media)
+
+        let card = LockScreenCard(
+            media: media, lyrics: isolated.stores.lyrics, audio: Self.quietAudio(volume: 0.42, muted: true)
+        )
+        let root = await AXProbe.tree(of: card, size: LockScreenCard.size(for: .standard))
+
+        let volume = try XCTUnwrap(root.first(label: "Volume"), root.dump)
+        XCTAssertEqual(volume.role, "AXSlider", root.dump)
+        XCTAssertEqual(volume.valueDescription, localized("Muted"), root.dump)
+    }
+
     /// An audio watch that reads a fixed answer and installs nothing: no
     /// devices, no default, and the given level.
-    private static func quietAudio(volume: Float?) -> AudioWatch {
-        AudioWatch(read: { ([], nil, volume) }, installListeners: {}, removeListeners: {})
+    private static func quietAudio(volume: Float?, muted: Bool = false) -> AudioWatch {
+        AudioWatch(read: { ([], nil, volume) }, readMuted: { muted }, installListeners: {}, removeListeners: {})
     }
 }
 

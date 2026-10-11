@@ -349,6 +349,9 @@ final class AudioWatch: ObservableObject {
     @Published private(set) var outputs: [AudioOutputs.Output] = []
     @Published private(set) var current: AudioDeviceID? = nil
     @Published private(set) var volume: Float? = nil
+    /// Whether the default output is muted (G-023). A muted Mac drew a
+    /// live-looking bar on the card, because mute was never read.
+    @Published private(set) var muted = false
 
     /// One reading of the machine: what can play, what does, how loud.
     typealias Read = () -> (outputs: [AudioOutputs.Output], current: AudioDeviceID?, volume: Float?)
@@ -359,6 +362,8 @@ final class AudioWatch: ObservableObject {
     /// device's streams, name, transport and data source — once per pointer
     /// event to learn one float.
     private let readVolume: () -> Float?
+    /// The mute alone, read wherever the level is.
+    private let readMuted: () -> Bool
     private var installListeners: () -> Void
     private var removeListeners: () -> Void
     /// Runs the device-list re-read once a burst of notifications has settled.
@@ -379,6 +384,7 @@ final class AudioWatch: ObservableObject {
     init(
         read: Read? = nil,
         readVolume: (() -> Float?)? = nil,
+        readMuted: (() -> Bool)? = nil,
         installListeners: (() -> Void)? = nil,
         removeListeners: (() -> Void)? = nil,
         debounce: ((@escaping @Sendable () -> Void) -> Void)? = nil
@@ -393,6 +399,15 @@ final class AudioWatch: ObservableObject {
             self.readVolume = { read().volume }
         } else {
             self.readVolume = { SystemVolume.current() }
+        }
+        // The same rule for the mute: a watch with any reading injected is a
+        // test's, and is not muted unless the test says so.
+        if let readMuted {
+            self.readMuted = readMuted
+        } else if read != nil || readVolume != nil {
+            self.readMuted = { false }
+        } else {
+            self.readMuted = { SystemVolume.isMuted() }
         }
         self.debounce = debounce ?? { work in
             DispatchQueue.main.asyncAfter(deadline: .now() + AudioWatch.devicesSettle, execute: work)
@@ -437,9 +452,19 @@ final class AudioWatch: ObservableObject {
     /// questions nobody had asked, 60 to 120 times a second during a drag on
     /// the lock card's bar. Compared before it is assigned, like `apply`:
     /// one stereo write fires the wildcard listener once per channel.
+    ///
+    /// The mute key fires the same listener (it is registered for the mute
+    /// as well), so the mute is read here too: one more property, not a
+    /// device enumeration.
     func volumeChanged() {
         let fresh = readVolume()
         if volume != fresh { volume = fresh }
+        readMute()
+    }
+
+    private func readMute() {
+        let fresh = readMuted()
+        if muted != fresh { muted = fresh }
     }
 
     /// The device-list listener's entry (K-009). Plugging in a DAC that macOS
@@ -479,6 +504,7 @@ final class AudioWatch: ObservableObject {
 
     private func refresh() {
         apply(read())
+        readMute()
         // Re-registration belongs to a running watch. An unstarted one only
         // publishes — the card's render tests drive `systemAudioChanged` on a
         // bare watch to fill their first frame, and must not reach the
@@ -512,6 +538,7 @@ final class AudioWatch: ObservableObject {
         // whatever `current` reads as, so the first frame draws from a
         // synchronously taken reading and the attachment matches it.
         apply(read())
+        readMute()
         installListeners()
         listeningTo = current
     }
@@ -632,8 +659,20 @@ final class AudioWatch: ObservableObject {
         )
     }
 
+    /// The mute, heard on the same device and by the same block as the level
+    /// (G-023): the mute key changes this and not the level, so a listener on
+    /// the level alone never heard the Mac go quiet.
+    private nonisolated static var muteAddress: AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementWildcard
+        )
+    }
+
     private nonisolated func addVolumeListener(to device: AudioDeviceID) {
         var address = Self.volumeAddress
+        var mute = Self.muteAddress
         // The level alone: a full read here enumerated every device once per
         // write the lock card's bar made (F-045).
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
@@ -641,14 +680,17 @@ final class AudioWatch: ObservableObject {
         }
         volumeListener = block
         AudioObjectAddPropertyListenerBlock(device, &address, DispatchQueue.main, block)
+        AudioObjectAddPropertyListenerBlock(device, &mute, DispatchQueue.main, block)
     }
 
     private nonisolated func removeVolumeListener(from device: AudioDeviceID) {
         guard let block = volumeListener else { return }
         var address = Self.volumeAddress
+        var mute = Self.muteAddress
         // A vanished device answers with an error and nothing else — the watch
         // follows the default, and the default can disappear under it.
         AudioObjectRemovePropertyListenerBlock(device, &address, DispatchQueue.main, block)
+        AudioObjectRemovePropertyListenerBlock(device, &mute, DispatchQueue.main, block)
         volumeListener = nil
     }
 }

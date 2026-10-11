@@ -363,3 +363,4 @@
 "Type or paste text" = "Введите или вставьте текст";
 "The clipboard has no text." = "В буфере обмена нет текста.";
 "Only the first %@ characters were kept." = "Сохранены только первые %@ символов.";
+"Muted" = "Звук выключен";
