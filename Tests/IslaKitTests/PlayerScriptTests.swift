@@ -75,6 +75,39 @@ final class PlayerScriptTests: XCTestCase {
         guard case .unknown = reply("garbage") else { return XCTFail("a malformed answer is not an answer") }
     }
 
+    /// Every script carries its own short Apple event timeout (F-025).
+    ///
+    /// All of them share one serial queue, and without a timeout a player that
+    /// beachballs holds the queue for AppleScript's default two minutes: every
+    /// later script — a play tap on the *other* player included — waits behind
+    /// it. Polls give up after 2 seconds; transport, which the user is
+    /// watching, after 5.
+    func testEveryScriptGivesUp() {
+        for app in PlayerApp.allCases {
+            for (name, source) in PlayerBridge.Script.everySource(for: app) {
+                let seconds = source.firstMatch(of: /with timeout of (\d+) seconds/).flatMap { Int($0.output.1) }
+                XCTAssertNotNil(seconds, "\(app) \(name) has no timeout of its own")
+                XCTAssertTrue(source.contains("end timeout"), "\(app) \(name) never closes its timeout block")
+                if let seconds { XCTAssertLessThanOrEqual(seconds, 5, "\(app) \(name) waits \(seconds) s") }
+            }
+            for action in PlayerBridge.Transport.everyKind {
+                let source = PlayerBridge.Script.command(action.body(for: app), on: app)
+                XCTAssertTrue(source.contains("with timeout of 5 seconds"), "\(app) \(action) is transport and gets 5 s")
+            }
+            XCTAssertTrue(
+                PlayerBridge.Script.position(of: app).contains("with timeout of 2 seconds"),
+                "\(app) position is a poll and gets 2 s"
+            )
+        }
+    }
+
+    /// An Apple event sent to a Music that has just quit launches it again
+    /// (F-041). Every sibling script checks first; the artwork fetch, which
+    /// runs a beat after the state read that found Music, did not.
+    func testMusicArtworkNeverLaunchesMusic() {
+        XCTAssertTrue(PlayerBridge.Script.musicArtwork.contains("if it is not running then return missing value"))
+    }
+
     /// Names the script's variables away from the words AppleScript reserves,
     /// so the next reserved word is caught here and not by a blank island.
     func testTheStateScriptsNameNoShortVariables() {

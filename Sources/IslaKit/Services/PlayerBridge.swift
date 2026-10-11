@@ -319,6 +319,10 @@ enum PlayerBridge {
         /// suffixes — `st`, `nd`, `rd`, `th` — as words, so every call failed
         /// to compile. A short name is what the next reserved word looks like.
         static func state(for app: PlayerApp) -> String {
+            timed(untimedState(for: app), seconds: pollSeconds)
+        }
+
+        private static func untimedState(for app: PlayerApp) -> String {
             switch app {
             case .spotify:
                 return """
@@ -361,7 +365,7 @@ enum PlayerBridge {
             }
         }
 
-        static let spotifyTrackID = """
+        static let spotifyTrackID = timed("""
         \(separator)
         tell application id "\(PlayerApp.spotify.bundleID)"
             if it is running then
@@ -369,19 +373,23 @@ enum PlayerBridge {
                 return (id of currentTrackRef as text) & fieldSeparator & (name of currentTrackRef) & fieldSeparator & (artist of currentTrackRef)
             end if
         end tell
-        """
+        """, seconds: pollSeconds)
 
         static func position(of app: PlayerApp) -> String {
-            """
+            timed("""
             tell application id "\(app.bundleID)"
                 if it is running then
                     return (player position as text)
                 end if
             end tell
-            """
+            """, seconds: pollSeconds)
         }
 
         static func playbackModes(of app: PlayerApp) -> String {
+            timed(untimedPlaybackModes(of: app), seconds: pollSeconds)
+        }
+
+        private static func untimedPlaybackModes(of app: PlayerApp) -> String {
             switch app {
             case .music:
                 return """
@@ -402,19 +410,57 @@ enum PlayerBridge {
             }
         }
 
-        static let musicArtwork = """
+        /// Asks only a Music that is still running. The fetch follows the
+        /// state read that found Music by a beat, and an Apple event sent to a
+        /// Music that quit in between launched it again (F-041) — the one
+        /// script here that had no guard, where every sibling checks first.
+        static let musicArtwork = timed("""
         tell application id "com.apple.Music"
+            if it is not running then return missing value
             if (count of artworks of current track) is 0 then return missing value
             return raw data of artwork 1 of current track
         end tell
-        """
+        """, seconds: pollSeconds)
 
         static func command(_ body: String, on app: PlayerApp) -> String {
-            """
+            timed("""
             tell application id "\(app.bundleID)"
                 \(body)
             end tell
-            """
+            """, seconds: transportSeconds)
+        }
+
+        /// How long a read waits for a player before giving up. A state,
+        /// position, mode, track-id or artwork answer from a healthy player
+        /// takes milliseconds; one that has not come in two seconds is not
+        /// coming in time to be worth showing, and the next poll asks again.
+        static let pollSeconds = 2
+        /// How long a tap waits. Longer than a read because the user is
+        /// watching for it and a dropped tap is worse than a late one, but
+        /// still seconds, not minutes.
+        static let transportSeconds = 5
+
+        /// Wraps a script in its own Apple event timeout (F-025).
+        ///
+        /// Every script runs on one serial queue — `NSAppleScript` is not
+        /// documented as thread-safe, so a second queue would trade a stall
+        /// for a crash — and none carried a timeout, so a Spotify that
+        /// beachballed held that queue for AppleScript's default two minutes.
+        /// Every script behind it waited too, a play tap on Music included.
+        /// A Swift-side watchdog cannot help: `executeAndReturnError` cannot be
+        /// cancelled, so the queue would stay blocked anyway. With the
+        /// timeout the player's silence becomes error -1712 after `seconds`:
+        /// the state scripts catch it and say "error", which `interpret`
+        /// reads as `.unknown`, and every other caller already treats a run
+        /// that returned nothing as no answer. `AutomationAccess` reads -1712
+        /// as saying nothing about consent.
+        ///
+        /// A tap that happens to raise the one-time Automation prompt times
+        /// out too while the prompt is up; the user taps again after
+        /// answering it. Since the first event now goes out when the panel
+        /// opens, not on a tap, that is rare.
+        static func timed(_ source: String, seconds: Int) -> String {
+            "with timeout of \(seconds) seconds\n\(source)\nend timeout"
         }
 
         /// Every source the bridge can send to `app`, named, built by the same
