@@ -42,6 +42,11 @@ struct PlayerState {
     var duration: TimeInterval
     var position: TimeInterval
     var artworkURL: URL?
+    /// False when the source said nothing about where the song is. Music's
+    /// own announcement carries no position (`PlayerAnnouncement`), and
+    /// reading its absence as 0:00 sent a song paused at 2:00 back to the
+    /// start on screen.
+    var positionKnown = true
     // No `key` of its own any more. It was "app|title|artist|album" against
     // the helper route's "pid|title|artist|album", and the mismatch made every
     // hand-over between the two routes re-announce an unchanged song. A song
@@ -69,12 +74,6 @@ enum PlayerBridge {
         guard app.isRunning else { return completion(.empty) }
         runScript(Script.state(for: app), app: app) { descriptor in
             completion(descriptor?.stringValue.map { interpret($0, app: app) } ?? .unknown)
-        }
-    }
-
-    static func state(of app: PlayerApp, completion: @escaping (PlayerState?) -> Void) {
-        stateReply(of: app) { reply in
-            if case let .loaded(state) = reply { completion(state) } else { completion(nil) }
         }
     }
 
@@ -133,29 +132,74 @@ enum PlayerBridge {
     }
 
     /// Never launches a player: only already-running ones are queried, and a
-    /// playing app wins over a merely-open one. See `choose(among:prefer:)`
-    /// for what `preferred` buys. `asking` leaves out a player that may not be
-    /// asked now (`MediaController.mayScript`), so its prompt is not raised.
+    /// playing app wins over a merely-open one. See `choose(replies:…)` for
+    /// how the answers are weighed. `asking` leaves out a player that may not
+    /// be asked now (`MediaController.mayScript`), so its prompt is not
+    /// raised; such a player is *unknown*, not absent, and its own
+    /// `announced` state speaks for it.
+    ///
+    /// The replies are kept whole. This used to read each player through a
+    /// call that turned every non-answer into nil, so a Spotify whose
+    /// Automation was refused (-1743) looked exactly like a Spotify with
+    /// nothing loaded, and a paused Music beside it won (J-027).
     static func currentState(
         prefer preferred: PlayerApp? = nil,
         asking: (PlayerApp) -> Bool = { _ in true },
+        announced: [PlayerApp: PlayerState] = [:],
         completion: @escaping (PlayerState?) -> Void
     ) {
-        let candidates = PlayerApp.allCases.filter { $0.isRunning && asking($0) }
-        guard !candidates.isEmpty else { return completion(nil) }
+        let running = PlayerApp.allCases.filter(\.isRunning)
+        guard !running.isEmpty else { return completion(nil) }
 
-        var results: [PlayerState] = []
+        var replies: [PlayerApp: StateReply] = [:]
         let group = DispatchGroup()
-        for app in candidates {
+        for app in running {
+            guard asking(app) else {
+                replies[app] = .unknown
+                continue
+            }
             group.enter()
-            state(of: app) { state in
-                if let state { results.append(state) }
+            stateReply(of: app) { reply in
+                replies[app] = reply
                 group.leave()
             }
         }
         group.notify(queue: .main) {
-            completion(choose(among: results, prefer: preferred))
+            completion(choose(replies: replies, announced: announced, prefer: preferred))
         }
+    }
+
+    /// Which player to show, from what each running one answered and what
+    /// each announced on its own.
+    ///
+    /// An announcement stands in only for a player that could not be asked:
+    /// one that answered has said what it is doing now, and one that answered
+    /// "nothing loaded" has nothing loaded. Sound still comes first, and a
+    /// player that answered outranks one that was only heard — but a player
+    /// that could not be asked and announced it was playing beats a paused
+    /// one that could. The other way round is J-027: the paused Music shown
+    /// over a playing Spotify whose Automation had been refused, with
+    /// play/pause driving Music. A player that could not be asked and has
+    /// announced nothing is not a song, so it never wins on its own.
+    static func choose(
+        replies: [PlayerApp: StateReply],
+        announced: [PlayerApp: PlayerState],
+        prefer preferred: PlayerApp?
+    ) -> PlayerState? {
+        // `allCases` order, so the tie-break among paused players stays what
+        // it was: a dictionary's order is not.
+        var answered: [PlayerState] = []
+        var heard: [PlayerState] = []
+        for app in PlayerApp.allCases {
+            switch replies[app] {
+            case let .loaded(state)?: answered.append(state)
+            case .unknown?: if let state = announced[app] { heard.append(state) }
+            case .empty?, nil: break
+            }
+        }
+        return choose(among: answered.filter(\.isPlaying), prefer: preferred)
+            ?? choose(among: heard.filter(\.isPlaying), prefer: preferred)
+            ?? choose(among: answered + heard, prefer: preferred)
     }
 
     /// Which of several players' answers to show.
