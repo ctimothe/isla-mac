@@ -343,6 +343,23 @@ transitions.
 > `OnlineTranslationTests`. A pair the framework offers but has not downloaded
 > names its language and opens System Settings' Translation Languages.
 
+> **Amendment 2026-10-11 — the one-line lyric reads ahead.** A lyric line lit
+> exactly as the voice arrives is exact to the clock and late to a person: a
+> singer reads a line before they sing it. The island's closed one-line
+> caption therefore turns to the next line about 0.5 s before it is sung,
+> drawn unswept like any upcoming line, for a transition with no honoured end
+> (continuous singing). The turn is `min(readAhead, 0.45 × the line it leaves)`
+> early and never before that line's final word starts; a transition with an
+> honoured end (a silence of 1.5 s or more), an intro, an outro, the stage,
+> the lock card, the Shortcuts "line playing right now" action and every
+> word-timed highlight are unchanged. It is a pure function of the clock
+> position — `LyricSweep.readingMoment` — so a seek or a pause gives the answer
+> playing through would have, and the boundary wakes
+> (`LyricsCoordinator.registerBoundaries`) are armed for it so the caption
+> turns on time. **Settings > Music > Show next line early** (Off, 0.25 s,
+> 0.5 s default, 0.75 s; `lyrics.readAhead`) sets it. Display only; nothing
+> leaves the machine. The lab's L9 case measures it over the corpus.
+
 ### Notes and Teleprompter
 
 > **Withdrawn 2026-08-22.** Both features were removed from the product by

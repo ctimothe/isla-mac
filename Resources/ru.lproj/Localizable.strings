@@ -411,3 +411,8 @@
 "Disconnect" = "Отключить";
 "Isla forgets the account on this Mac. Your Spotify library stays as it is." = "Isla забудет аккаунт на этом Mac. Ваша медиатека Spotify останется как есть.";
 "The heart on the lock screen adds the song to your Liked Songs." = "Сердечко на экране блокировки добавляет песню в «Любимые треки».";
+"Show next line early" = "Следующая строка заранее";
+"0.25 s" = "0,25 с";
+"0.5 s" = "0,5 с";
+"0.75 s" = "0,75 с";
+"The island's one-line lyric turns to the next line this much before it is sung. Highlight timing does not change." = "Однострочный текст на острове переключается на следующую строку на это время раньше, чем её запоют. Подсветка слов не меняется.";

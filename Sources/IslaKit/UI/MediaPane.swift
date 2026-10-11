@@ -497,7 +497,7 @@ struct MediaPane: View {
                 userOffset: lyrics.userOffset,
                 trackOffset: lyrics.trackOffset,
                 wordTiming: wordTimingEnabled
-            )) {
+            ), readAhead: lyrics.readAhead) {
                 // The row shown: the line being sung, or the opening line
                 // waiting through the intro.
                 let index = shown.centre
@@ -590,7 +590,14 @@ struct MediaPane: View {
     /// unswept — through the same `LyricSweep.resolve` as the stage and the
     /// lock card. The lyric lab calls this function rather than a copy of the
     /// caption's arithmetic.
-    static func captionResolution(lines: [LyricsStore.Line], inputs: LyricInputs) -> LyricResolution? {
+    ///
+    /// `readAhead` is "Show next line early" (`LyricSweep.readingMoment`): the
+    /// caption is the one surface that holds a single line, so it is the one
+    /// that turns to the next line a beat before the voice reaches it. The
+    /// default is no lead, which the Lyric Delay preview relies on.
+    static func captionResolution(
+        lines: [LyricsStore.Line], inputs: LyricInputs, readAhead: TimeInterval = 0
+    ) -> LyricResolution? {
         // With no lines there is nothing to caption. Otherwise it is the
         // moment's centre — the row the stage and the card centre on — which
         // is why the view draws `centre`. That includes the outro after the
@@ -599,7 +606,7 @@ struct MediaPane: View {
         // line ends existed was only ever false for an empty lyric, and in
         // the outro it would have swapped the last line for "Finding lyrics…".
         guard !lines.isEmpty else { return nil }
-        return LyricSweep.resolve(lines: lines, inputs: inputs)
+        return LyricSweep.resolve(lines: lines, inputs: inputs, readAhead: readAhead)
     }
 
     private var compactLyricsStatus: some View {

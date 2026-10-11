@@ -521,6 +521,21 @@ struct SettingsPane: View {
                         isOn: $lyrics.wordKaraokeEnabled,
                         disabledReason: lyricsOffReason
                     )
+                    // For the singer who reads a line before singing it: the
+                    // island's one-line lyric turns early. The note says what
+                    // does not move, since the highlight is what the Lyric
+                    // Delay below tunes.
+                    choiceRow(
+                        symbol: SettingsIcon.readAhead,
+                        title: localized("Show next line early"),
+                        options: LyricReadAhead.allCases,
+                        selection: Binding(
+                            get: { LyricReadAhead(snapping: lyrics.readAhead) },
+                            set: { lyrics.readAhead = $0.seconds }
+                        ),
+                        title: { $0.title }
+                    )
+                    noteRow(localized("The island's one-line lyric turns to the next line this much before it is sung. Highlight timing does not change."))
                     // The correction that moves every song at once.
                     //
                     // The per-track nudge on the lyrics page fixes one bad

@@ -96,11 +96,15 @@ enum LyricSweep {
     /// unswept, and in the outro the last line is. Read through `moment`, so
     /// the Shortcuts action that asks for "the line playing right now" agrees
     /// with every surface about when a line has stopped playing.
+    ///
+    /// `readAhead` is the caption's reading lead (`readingMoment`). The one
+    /// caller that asks for the line *sung* — the Shortcuts action — passes
+    /// 0, and so never reads a line ahead of the voice.
     static func displayed(
-        lines: [LyricsStore.Line], at: TimeInterval
+        lines: [LyricsStore.Line], at: TimeInterval, readAhead: TimeInterval = 0
     ) -> (line: LyricsStore.Line, end: TimeInterval, swept: Bool)? {
         guard !lines.isEmpty else { return nil }
-        let moment = moment(in: lines, at: at)
+        let moment = readingMoment(in: lines, at: at, readAhead: readAhead)
         // The end matters even when nothing is sung: it is what the sweep will
         // span once the voice arrives, and the caller reads it before that.
         let shown = moment.current ?? moment.centre
@@ -175,6 +179,63 @@ enum LyricSweep {
             )
         }
         return LyricMoment(current: found, centre: found, upcoming: upcoming)
+    }
+
+    // MARK: - Reading lead
+
+    /// The longest a line may be asked to give away to the next one, as a
+    /// share of its own length. A short line is on screen for a beat at best;
+    /// handing over half of it would leave the singer no time to sing the
+    /// line they are leaving.
+    static let maximumReadAheadShare = 0.45
+
+    /// When the one-line caption turns to line `next` ahead of the voice, in
+    /// the same lyric-moment time as `moment(in:at:)`, or nil when it does
+    /// not.
+    ///
+    /// A person singing along reads a line before they sing it: with the
+    /// caption turning exactly as the voice arrives, the eye is still
+    /// finding the words when the mouth should be on them. So for a
+    /// transition with no honoured end — continuous singing — the caption
+    /// turns `readAhead` early, capped at 45 percent of the line it leaves
+    /// and never earlier than the start of that line's final word, so the
+    /// last word is still on screen when it is sung. A transition with an
+    /// honoured end already shows `next` from the end (`moment`), so there is
+    /// nothing to bring forward.
+    ///
+    /// The one place that decides it: `readingMoment` reads it for the line
+    /// to draw and `LyricsCoordinator.registerBoundaries` for the wake that
+    /// turns the caption on time, so a drawn turn and an armed wake cannot
+    /// answer two different rules.
+    static func readAheadStart(
+        before next: Int, in lines: [LyricsStore.Line], readAhead: TimeInterval
+    ) -> TimeInterval? {
+        let previous = next - 1
+        guard readAhead > 0, readAhead.isFinite, lines.indices.contains(previous),
+              lines.indices.contains(next),
+              effectiveEnd(of: previous, in: lines) == nil else { return nil }
+        let length = lines[next].at - lines[previous].at
+        guard length > 0 else { return nil }
+        let early = min(readAhead, maximumReadAheadShare * length)
+        var start = lines[next].at - early
+        if let finalWord = lines[previous].words.last { start = max(start, finalWord.at) }
+        return start < lines[next].at ? start : nil
+    }
+
+    /// The moment the one-line caption draws: `moment(in:at:)`, except that in
+    /// the last stretch of a line sung straight into the next
+    /// (`readAheadStart`) the next line is already the one shown, unswept —
+    /// nothing is current, as in an intro. A pure function of the position
+    /// like the rest, so a seek, a pause and a scrub give the same answer
+    /// they would have played through. With `readAhead` 0 it is `moment`.
+    static func readingMoment(
+        in lines: [LyricsStore.Line], at: TimeInterval, readAhead: TimeInterval
+    ) -> LyricMoment {
+        let base = moment(in: lines, at: at)
+        guard readAhead > 0, let current = base.current,
+              let start = readAheadStart(before: current + 1, in: lines, readAhead: readAhead),
+              at >= start else { return base }
+        return LyricMoment(current: nil, centre: current + 1, upcoming: current + 1)
     }
 
     // MARK: - Slots
@@ -344,12 +405,20 @@ enum LyricSweep {
     /// the caption and the lock card each name a static that comes here — and
     /// the lyric lab calls those same statics, so it measures the code that
     /// draws rather than a restatement of it that can drift.
-    static func resolve(lines: [LyricsStore.Line], inputs: LyricInputs) -> LyricResolution {
+    ///
+    /// `readAhead` is passed by the caption alone (`MediaPane.captionResolution`):
+    /// the stage and the lock card show several lines at once and have no use
+    /// for a reading lead, and the Lyric Delay preview calibrates against the
+    /// voice. It is an argument rather than a field of `LyricInputs` so a
+    /// surface cannot pick it up by accident.
+    static func resolve(
+        lines: [LyricsStore.Line], inputs: LyricInputs, readAhead: TimeInterval = 0
+    ) -> LyricResolution {
         let at = position(
             inputs.position, precisionSync: inputs.precisionSync,
             userOffset: inputs.userOffset, trackOffset: inputs.trackOffset
         )
-        let moment = moment(in: lines, at: at)
+        let moment = readingMoment(in: lines, at: at, readAhead: readAhead)
         let fraction = moment.current.map {
             drawnFraction(
                 line: lines[$0], isCurrent: true, at: at, end: end(of: $0, in: lines),
@@ -649,4 +718,37 @@ struct LyricResolution: Equatable, Sendable {
 
     var current: Int? { moment.current }
     var centre: Int { moment.centre }
+}
+
+/// How early the island's one-line lyric turns to the next line: "Show next
+/// line early" in Settings. Display only; the highlight's timing is not
+/// among the things it changes.
+enum LyricReadAhead: Double, CaseIterable, Identifiable, Sendable {
+    case off = 0
+    case quarter = 0.25
+    case half = 0.5
+    case threeQuarters = 0.75
+
+    var id: Double { rawValue }
+    var seconds: TimeInterval { rawValue }
+
+    /// Half a second: the beat a singer needs to read a line and start on it.
+    static let standard = LyricReadAhead.half
+
+    /// The option nearest to `seconds`; the default for anything that is not
+    /// a finite number, so a hand-edited defaults value cannot arm a wake at
+    /// an absurd time.
+    init(snapping seconds: Double) {
+        guard seconds.isFinite else { self = .standard; return }
+        self = Self.allCases.min { abs($0.rawValue - seconds) < abs($1.rawValue - seconds) } ?? .standard
+    }
+
+    var title: String {
+        switch self {
+        case .off: return localized("Off")
+        case .quarter: return localized("0.25 s")
+        case .half: return localized("0.5 s")
+        case .threeQuarters: return localized("0.75 s")
+        }
+    }
 }

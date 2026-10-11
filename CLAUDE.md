@@ -234,7 +234,11 @@ the clock — `index`, `centreIndex`, `end`, `lead`, `position`, `fraction`,
 `displayed` — and `LyricRow`/`KaraokeText` own what a line looks like. The
 island's stage and the lock card each keep only their own container. They had
 three copies of the binary search once and disagreed about the line before the
-first timestamp; do not add a fourth.
+first timestamp; do not add a fourth. The closed island's one-line caption
+alone reads ahead of the voice (Settings "Show next line early", default 0.5 s):
+`LyricSweep.readingMoment` is the one function that picks its line, and
+`readAheadStart` the one that says when it turns — the boundary wakes ask the
+same function, so route nothing else around them.
 
 ## Hard constraints
 

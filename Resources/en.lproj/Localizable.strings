@@ -405,3 +405,8 @@
 "Disconnect" = "Disconnect";
 "Isla forgets the account on this Mac. Your Spotify library stays as it is." = "Isla forgets the account on this Mac. Your Spotify library stays as it is.";
 "The heart on the lock screen adds the song to your Liked Songs." = "The heart on the lock screen adds the song to your Liked Songs.";
+"Show next line early" = "Show next line early";
+"0.25 s" = "0.25 s";
+"0.5 s" = "0.5 s";
+"0.75 s" = "0.75 s";
+"The island's one-line lyric turns to the next line this much before it is sung. Highlight timing does not change." = "The island's one-line lyric turns to the next line this much before it is sung. Highlight timing does not change.";

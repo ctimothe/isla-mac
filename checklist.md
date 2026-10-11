@@ -1319,3 +1319,26 @@ labels on a brighter fill are raised per fill with `Theme.tertiary(over:)`.
   `/v1/me/library` write the island's heart already makes.
 - Deferred: showing the account's display name, which needs a new
   `GET /v1/me` request.
+### The one-line lyric reads ahead — 2026-10-11 (ly/READ-01)
+
+The owner's request: lyric timing is exact when a line lights as the voice
+arrives, but a person singing along reads the next line before they sing it.
+
+- [x] **The closed island's caption turns to the next line early.** For a
+  transition with no honoured end the caption shows the next line, unswept, at
+  `next.at - min(readAhead, 0.45 × (next.at - prev.at))`, never before the
+  previous line's final word starts. Honoured gaps, intro, outro, the stage,
+  the lock card, the Shortcuts "line playing right now" action (readAhead 0)
+  and the word sweep are unchanged. One pure function,
+  `LyricSweep.readingMoment`, picks the line; `readAheadStart` decides when,
+  and `LyricsCoordinator.registerBoundaries` arms a wake for the same moment.
+  `ReadingLeadTests`; lab case L9 in `LyricAccuracyLabSweepTests`.
+- [x] **Setting:** Settings > Music, "Show next line early" — Off, 0.25 s,
+  0.5 s (default), 0.75 s, stored in `lyrics.readAhead`, snapped to the nearest
+  option. **Display only: nothing leaves the machine, no account, no
+  system-wide setting.**
+- [ ] **Physical check owed:** with a continuous-singing track (no gap between
+  lines) closed on the island, the next line is on screen about half a second
+  before the voice reaches it and turns with the existing caption turn;
+  across a long instrumental it still waits for the end of the previous line.
+  Off restores the exact-on-the-voice turn.
