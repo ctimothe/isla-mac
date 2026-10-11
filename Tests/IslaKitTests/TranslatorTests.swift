@@ -247,6 +247,118 @@ final class TranslatorTests: XCTestCase {
         XCTAssertEqual(translator.output, "")
     }
 
+    // MARK: - Asking once (G-026, K-004)
+
+    /// A translator whose engines are stated and whose every capability lookup
+    /// is counted — the lookup is the first thing a run does, so a count of
+    /// zero means nothing was asked of any engine, MyMemory included.
+    private func countingTranslator() -> (Translator, () -> Int) {
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
+        translator.choose(source: .uzbek)
+        translator.choose(target: .russian)
+        var calls = 0
+        translator.capabilitiesOverride = { _ in
+            calls += 1
+            // Nothing on this Mac and online off: a run that does get through
+            // ends in an obstacle, never in a request leaving the machine.
+            return Translator.Capabilities()
+        }
+        return (translator, { calls })
+    }
+
+    /// The pane re-runs its task every time the tab reappears, and every run
+    /// used to translate again: switching Music → Translate → Music sent the
+    /// same Uzbek sentence to MyMemory once per return and spent the day's
+    /// quota on text that already had its answer on screen (G-026).
+    func testUnchangedTextIsNotTranslatedAgain() async {
+        let (translator, calls) = countingTranslator()
+        translator.input = "salom"
+        translator.received("привет", for: "salom", by: .online)
+
+        await translator.translate()
+        XCTAssertEqual(calls(), 0, "the answer on screen already answers this text")
+        XCTAssertEqual(translator.output, "привет")
+        XCTAssertEqual(translator.engine, .online)
+        XCTAssertFalse(translator.isTranslating)
+
+        // A space at the end is not new text: it is trimmed before it is sent.
+        translator.input = "salom "
+        await translator.translate()
+        XCTAssertEqual(calls(), 0, "a trailing space is the same question")
+        XCTAssertEqual(translator.output, "привет")
+    }
+
+    /// Retry is the person asking again on purpose; it must still ask.
+    func testRetryStillAsksAgain() async {
+        let (translator, calls) = countingTranslator()
+        translator.input = "salom"
+        translator.received("привет", for: "salom", by: .online)
+        await translator.translate()
+        XCTAssertEqual(calls(), 0)
+
+        translator.retry()
+        await translator.translate()
+        XCTAssertEqual(calls(), 1, "a retry is a new request")
+    }
+
+    /// Anything that changes the question changes the answer: other text,
+    /// another language, or the answer having been cleared away.
+    func testChangedTextOrLanguageAsksAgain() async {
+        let (translator, calls) = countingTranslator()
+        translator.input = "salom"
+        translator.received("привет", for: "salom", by: .online)
+
+        translator.input = "salom dunyo"
+        await translator.translate()
+        XCTAssertEqual(calls(), 1, "other text")
+
+        translator.input = "salom"
+        translator.received("привет", for: "salom", by: .online)
+        translator.choose(target: .english)
+        await translator.translate()
+        XCTAssertEqual(calls(), 2, "another language")
+
+        translator.received("hello", for: "salom", by: .online)
+        translator.clear()
+        await translator.translate()
+        XCTAssertEqual(calls(), 3, "a cleared answer")
+    }
+
+    /// For the debounce and the engine's time after an edit, the answer on
+    /// screen is the previous text's. It used to look and copy exactly like a
+    /// current one, so Copy pressed in that window pasted a translation of the
+    /// sentence before the edit (K-004).
+    func testAnAnswerToEarlierTextIsNotTheInputsAnswer() {
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
+        XCTAssertFalse(translator.answersInput, "no answer at all")
+        translator.input = "Good morning"
+        translator.received("Доброе утро", for: "Good morning", by: .intelligence)
+        XCTAssertTrue(translator.answersInput)
+
+        translator.input = "Good morning "
+        XCTAssertTrue(translator.answersInput, "a trailing space asks nothing new")
+
+        translator.input = "Good morning, everyone"
+        XCTAssertFalse(translator.answersInput, "the answer is to the text before the edit")
+        XCTAssertEqual(translator.output, "Доброе утро", "kept on screen, dimmed, until the new one lands")
+    }
+
+    /// A failure used to win over the spinner, so Retry — or an edit — under
+    /// "The translation could not be completed." changed nothing on screen for
+    /// the whole run, and an identical failure never changed at all (K-004).
+    func testAFailureGivesWayToTheSpinnerWhileARunIsInFlight() {
+        typealias Pane = TranslatePane
+        XCTAssertEqual(Pane.showing(failure: true, output: false, covered: false, translating: true), .translating)
+        XCTAssertEqual(Pane.showing(failure: true, output: false, covered: false, translating: false), .failure)
+        XCTAssertEqual(Pane.showing(failure: false, output: false, covered: false, translating: true), .translating)
+        // An earlier answer stays up, dimmed, rather than flashing to a
+        // spinner on every pause in typing.
+        XCTAssertEqual(Pane.showing(failure: false, output: true, covered: false, translating: true), .answer)
+        XCTAssertEqual(Pane.showing(failure: false, output: true, covered: true, translating: true), .covered)
+        XCTAssertEqual(Pane.showing(failure: false, output: true, covered: true, translating: false), .covered)
+        XCTAssertEqual(Pane.showing(failure: false, output: false, covered: false, translating: false), .nothing)
+    }
+
     /// The model once translated one sentence for 218 seconds until its
     /// context was full. A translation is about as long as its source.
     func testTheModelIsCutOffLongBeforeItsContextFills() {

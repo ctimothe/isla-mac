@@ -172,7 +172,14 @@ struct TranslatePane: View {
                     .accessibilityLabel(localized("Translated online by MyMemory"))
             }
             if !translator.output.isEmpty {
+                // Disabled, not hidden, while the answer is to the text before
+                // an edit: Copy pressed in that window used to paste a
+                // translation of the old sentence (K-004), and a button that
+                // vanished at every pause in typing would make the header
+                // jump instead.
                 CopyButton { translator.copyOutput() }
+                    .disabled(!translator.answersInput)
+                    .opacity(translator.answersInput ? 1 : 0.4)
             }
         } content: {
             outcome(font)
@@ -180,11 +187,40 @@ struct TranslatePane: View {
         .padding(10)
     }
 
+    /// What the result column shows.
+    enum Showing: Equatable {
+        case translating
+        case failure
+        case covered
+        case answer
+        case nothing
+    }
+
+    /// The spinner comes before a failure. A failure used to win, so Retry —
+    /// or an edit — under "The translation could not be completed." changed
+    /// nothing on screen for the whole run, and a run that failed the same
+    /// way again never visibly happened at all (K-004). An earlier answer is
+    /// not displaced the same way: it stays up, dimmed by the caller while it
+    /// is not the field's answer, rather than flashing to a spinner at every
+    /// pause in typing.
+    static func showing(failure: Bool, output: Bool, covered: Bool, translating: Bool) -> Showing {
+        if translating, failure || !output { return .translating }
+        if failure { return .failure }
+        if output { return covered ? .covered : .answer }
+        return .nothing
+    }
+
     @ViewBuilder
     private func outcome(_ font: CGFloat) -> some View {
-        if let failure = translator.failure {
+        switch Self.showing(
+            failure: translator.failure != nil,
+            output: !translator.output.isEmpty,
+            covered: privacy.hides(.translate, Self.revealID),
+            translating: translator.isTranslating
+        ) {
+        case .failure:
             VStack(alignment: .leading, spacing: 6) {
-                Text(failure)
+                Text(translator.failure ?? "")
                     .islandFont(.body, weight: .regular)
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -208,7 +244,7 @@ struct TranslatePane: View {
                 .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else if !translator.output.isEmpty, privacy.hides(.translate, Self.revealID) {
+        case .covered:
             // The answer is the secret too, only in another language: covering
             // the source and leaving this column readable at headline size
             // hid nothing (F-002), and the accessibility tree handed the
@@ -219,17 +255,24 @@ struct TranslatePane: View {
             // shown on a screen somebody else is watching.
             dust(seed: 0xA24BAED4963EE407)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else if !translator.output.isEmpty {
+        case .answer:
             ScrollView(showsIndicators: false) {
                 Text(translator.output)
                     // The ladder's rung for this text, not a role: see `ladder`.
                     .font(.system(size: font))
-                    .foregroundStyle(.white)
+                    // Dimmed while it answers the text before an edit: from
+                    // the keystroke until the new answer lands it translates
+                    // something no longer in the field, and it used to sit
+                    // there at full white as if it were current (K-004).
+                    // Kept rather than cleared, so a pause in typing does not
+                    // blank the column.
+                    .foregroundStyle(translator.answersInput ? Color.white : Theme.secondary)
+                    .animation(Theme.contentAnimation, value: translator.answersInput)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else if translator.isTranslating {
+        case .translating:
             // The on-device model is not instant the way a lookup table would
             // be — a paragraph takes a beat, and the very first request after
             // a boot can take considerably longer while the model loads. An
@@ -243,7 +286,7 @@ struct TranslatePane: View {
                     .foregroundStyle(Theme.tertiary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else {
+        case .nothing:
             Color.clear
         }
     }
