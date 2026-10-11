@@ -447,7 +447,7 @@ final class LabSession {
             shelf: ShelfStore(defaults: suite),
             clipboard: clipboard,
             screenshotVault: ScreenshotVault(paths: paths),
-            translator: Translator(defaults: suite),
+            translator: Translator(defaults: suite, preferredLanguages: ["ru"]),
             privacy: PrivacyMode(defaults: suite)
         )
         labTrace("isolate")
