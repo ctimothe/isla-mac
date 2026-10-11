@@ -209,6 +209,10 @@
 "Start or pause the Prompter" = "Start or pause the Prompter";
 "Stop the Prompter" = "Stop the Prompter";
 "Prompter" = "Prompter";
+"Prompter started" = "Prompter started";
+"Your display is mirrored. People watching the mirror will see your script." = "Your display is mirrored. People watching the mirror will see your script.";
+"Isla is on your only display. People watching it will see your script." = "Isla is on your only display. People watching it will see your script.";
+"Start Anyway" = "Start Anyway";
 "Keyboard Shortcuts" = "Keyboard Shortcuts";
 "Type Shortcut" = "Type Shortcut";
 "None" = "None";

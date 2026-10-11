@@ -119,8 +119,37 @@ final class NotchViewModel: ObservableObject {
         if !enabled, tab == .prompter { tab = .settings }
     }
 
+    /// The Prompter's session, nil while the switch is off. Borrowed from
+    /// `PrompterFeature.parts` through `attachPrompter`, never owned: a
+    /// display change rebuilds this model and must leave the session, its
+    /// clock and its lease exactly as they were (spec 7.3).
+    @Published private(set) var prompterSession: PrompterSession?
+    /// The settings, library and session the session came with.
+    private(set) var prompterParts: PrompterParts?
+    /// A start waiting on the shared-display question (spec 11.6). Rendered
+    /// by the tab's control row as an arm-then-confirm control; answered by
+    /// `confirmMirroredStart()` or `cancelMirroredStart()`, and taken back by
+    /// anything that leaves the row: the panel folding, another tab, Stop.
+    @Published private(set) var pendingMirroredStart: PrompterDisplayShare?
+    /// The page the tab has selected, where a start begins (spec 7.1). Set by
+    /// the tab's page chips.
+    @Published var prompterPage = 0
+    /// A position the user placed on that page before Start, if any. The
+    /// session honors it only on its own page with an unchanged hash.
+    var prompterStartPosition: PromptPosition?
+    /// What a Prompter command needs from the controller; see the type.
+    var prompterHooks = PrompterPanelHooks()
+    /// Answers the first-run welcome. The real flag lives in the standard
+    /// defaults; a test swaps this so it never writes there.
+    var recordFirstRunAnswered: @MainActor () -> Void = { NotchViewModel.completeFirstRun() }
+    private var prompterLinks = Set<AnyCancellable>()
+
     @Published var isOpen = false {
         didSet {
+            // Folding takes back a shared-display question: "leaving the row
+            // cancels" (spec 11.6), and a question left armed behind a shut
+            // panel would be answered by the next open's stray click.
+            if !isOpen, oldValue, pendingMirroredStart != nil { pendingMirroredStart = nil }
             // Opening ends a charger or headphones moment and a track peek
             // (F-033). They were cleared only on sleep and lock, so a panel
             // opened half a second into the 2.2 s moment and closed a second
@@ -170,6 +199,8 @@ final class NotchViewModel: ObservableObject {
             // A scroll target is for the visit it was set for. One left
             // unspent would jump a later, unrelated visit to Settings.
             if tab != .settings { settingsScrollTarget = nil }
+            // The shared-display question belongs to the Prompter tab's row.
+            if tab != .prompter, pendingMirroredStart != nil { pendingMirroredStart = nil }
         }
     }
 
@@ -220,9 +251,35 @@ final class NotchViewModel: ObservableObject {
     /// The one exception to the rule stated at `NotchController.setOpen` — the
     /// pointer decides, always — kept for the pin, which is what an open made
     /// without the pointer leaves behind: a deliberate request to keep the panel
-    /// up while the hands are elsewhere. Nothing else holds the panel open any
-    /// more; the teleprompter, which used to, went on 2026-08-22.
-    var holdsOpen: Bool { isPinnedOpen }
+    /// up while the hands are elsewhere.
+    ///
+    /// And a Prompter session (spec 11.1), running, paused or finished: the
+    /// speaker's hands are on the keyboard of a call, not on the notch. Two
+    /// flags, never one, so that whatever ends a pin (the pointer arriving,
+    /// a click elsewhere, another app, Escape) cannot end a session, and a
+    /// session cannot keep a pin alive past its own end. The teleprompter
+    /// that went on 2026-08-22 held the panel through a special tall body
+    /// instead; this one holds it through the session alone.
+    var holdsOpen: Bool { isPinnedOpen || prompterHoldsPanel }
+
+    /// The session's half of `holdsOpen`.
+    var prompterHoldsPanel: Bool { prompterSession?.holdsPanel ?? false }
+
+    /// Whether a request that is not the pointer may fold the open panel: a
+    /// second click on the island, ⌃⌥⌘I again, Escape, a Space change, the end
+    /// of a pin. Not while a session holds it (11.1, E-41, E-43, E-47): the
+    /// stage is read during a call or a full-screen slideshow, exactly when
+    /// those happen, and Stop is how a session ends. The screen locking or
+    /// sleeping still folds it; those pause the session first (11.3).
+    var canFoldOnRequest: Bool { !prompterHoldsPanel }
+
+    /// A pin ended by its own rules: the click in another app, another app
+    /// coming to the front. Returns whether the panel should fold now, which
+    /// it should only if nothing else holds it.
+    func endPin() -> Bool {
+        isPinnedOpen = false
+        return canFoldOnRequest
+    }
 
     /// The pointer reaching the island: the panel is handed back to it.
     ///
@@ -356,13 +413,20 @@ final class NotchViewModel: ObservableObject {
     /// and not to the app in front — a vim user reading lyrics loses one
     /// keystroke, the one that also folds the panel they were reading. The pin
     /// ends on that press, and the registration ends with it.
+    ///
+    /// - **never while a Prompter session holds the panel** (spec 5.4): the
+    ///   session's own use is a Keynote or Zoom presentation, where Escape
+    ///   ends the slideshow, and one press taken from it ends the talk's
+    ///   slides instead of nothing. A session never pins, but a pin made
+    ///   during one (VoiceOver's click on the island) would claim it.
     nonisolated static func claimsEscape(
         pinned: Bool,
         panelHasKeyboard: Bool,
         appIsActive: Bool,
-        locked: Bool
+        locked: Bool,
+        sessionHoldsPanel: Bool = false
     ) -> Bool {
-        pinned && !panelHasKeyboard && !appIsActive && !locked
+        pinned && !panelHasKeyboard && !appIsActive && !locked && !sessionHoldsPanel
     }
 
     /// Whether another app coming to the front ends the pin.
@@ -398,7 +462,7 @@ final class NotchViewModel: ObservableObject {
     /// welcome replaced whatever pane would have been there.
     func dismissWelcome() {
         isShowingWelcome = false
-        Self.completeFirstRun()
+        recordFirstRunAnswered()
         select(.media)
     }
 
@@ -416,7 +480,7 @@ final class NotchViewModel: ObservableObject {
     func chooseTab(_ tab: Tab) {
         if isShowingWelcome {
             isShowingWelcome = false
-            Self.completeFirstRun()
+            recordFirstRunAnswered()
         }
         select(tab)
     }
@@ -796,6 +860,23 @@ final class NotchViewModel: ObservableObject {
         if isLockedPresentation { return .refuseWithShake }
         if screensAsleep { return .refuseQuietly }
         return .proceed
+    }
+
+    /// Plays the verdict out: true to go on, false after the refusal has been
+    /// given (the shake over the shield, nothing on a dark display). Here
+    /// rather than only in the controller so the Prompter's commands, which
+    /// the view model decides, take the very same refusal the other five
+    /// commands do; `NotchController.admitsCommandedOpen` calls this too.
+    func admitsCommandedOpen(screensAsleep: Bool) -> Bool {
+        switch verdictForDeliberateOpen(screensAsleep: screensAsleep) {
+        case .proceed:
+            return true
+        case .refuseWithShake:
+            nudgeLockedIsland()
+            return false
+        case .refuseQuietly:
+            return false
+        }
     }
 
     /// What a *show* asks for, as against a toggle.
@@ -1242,9 +1323,22 @@ final class NotchViewModel: ObservableObject {
         // a stale route (a hot key, a restored selection) must not land on a
         // feature whose switch is off.
         guard visibleTabs.contains(tab) else { return }
+        // Nor anywhere but the Prompter while a session holds the panel: the
+        // stage owns the body (spec 7.3), so a tab chosen underneath it would
+        // be a pane nobody sees, and the click that opens the island would
+        // move it to Music and start the media clock behind the stage. Stop
+        // returns the panel to the Prompter tab, not to wherever a stray
+        // click had moved it.
+        guard !prompterHoldsPanel || tab == .prompter else { return }
         self.tab = tab
-        if tab.needsKeyboard { wantsKeyboard = true }
+        // The stage never takes the keyboard (5.2): a key panel dims the
+        // caret of the call or the slideshow in front.
+        if tab.needsKeyboard, !prompterHoldsPanel { wantsKeyboard = true }
     }
+
+    /// Whether a press in the panel may hand it the keyboard
+    /// (`NotchPanel.onPress`): on a tab that types, and never under a stage.
+    var pressTakesKeyboard: Bool { tab.needsKeyboard && !prompterHoldsPanel }
 
     /// The Music tab's remedy when Music Only keeps a playing source off the
     /// island: Settings, scrolled to the switch. The target goes first so the
@@ -1378,7 +1472,199 @@ final class NotchViewModel: ObservableObject {
     func showShelfForDrag() {
         let shelfInView = isOpen && tab == .shelf && !isShowingWelcome
         isShowingWelcome = false
-        guard !shelfInView else { return }
+        // A drop under a Prompter stage still lands on the shelf; the tab
+        // stays, for the same reason `select` keeps it (spec 7.3).
+        guard !shelfInView, !prompterHoldsPanel else { return }
         tab = .shelf
+    }
+}
+
+// MARK: - Prompter
+
+/// The Prompter's commands, as the panel sees them (spec 5.4, 11). Each one
+/// decides here, against the model's own state, and hands the panel effect to
+/// the controller through `prompterHooks.present`, so the rules are tested
+/// without a window and the hot keys, the tab's Start and the stage's Stop
+/// all take one path.
+extension NotchViewModel {
+    /// Takes the switch's parts, or lets them go (nil). Called by the
+    /// controller's `build()` for every new model and by `follow(_:model:)`
+    /// on every switch change. The session is borrowed, so attaching it to a
+    /// rebuilt model changes nothing about it.
+    func attachPrompter(_ parts: PrompterParts?) {
+        prompterLinks.removeAll()
+        if pendingMirroredStart != nil { pendingMirroredStart = nil }
+        prompterParts = parts
+        prompterSession = parts?.session
+        guard let parts else { return }
+        let session = parts.session
+        session.apply(parts.settings.values)
+        // Live, and synchronous: a speed change in Settings reaches the
+        // running clock before its next tick (8.1), and the keep-awake
+        // switch takes or drops the lease at once (11.8).
+        parts.settings.didChange
+            .sink { [weak session] values in session?.apply(values) }
+            .store(in: &prompterLinks)
+        // `holdsOpen`, the rail and the stage-or-tab choice all read the
+        // session's liveness through this model, which does not otherwise
+        // hear the session change.
+        session.$state
+            .map(\.isLive)
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &prompterLinks)
+    }
+
+    /// Whether a session holds the panel, as a stream, for the controller's
+    /// Escape claim. Emits the value about to be in force, like `@Published`.
+    var prompterHoldsPanelPublisher: AnyPublisher<Bool, Never> {
+        $prompterSession
+            .map { session -> AnyPublisher<Bool, Never> in
+                guard let session else { return Just(false).eraseToAnyPublisher() }
+                return session.$state.map(\.isLive).eraseToAnyPublisher()
+            }
+            .switchToLatest()
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+
+    /// ⌃⌥⌘P (spec 5.4): start, or pause and resume, and in every case show
+    /// the panel. Refused over the shield and on a dark display, like every
+    /// commanded open.
+    @discardableResult
+    func togglePrompter() -> PrompterPresentation {
+        guard let parts = prompterParts else { return .nothing }
+        guard admitsCommandedOpen(screensAsleep: prompterHooks.screensAsleep()) else { return .refused }
+        if parts.session.state.isLive {
+            parts.session.togglePlayback()
+            return present(.openStage)
+        }
+        // The question is already on screen; pressing again shows it again
+        // rather than answering it. The answer is the control's.
+        if pendingMirroredStart != nil {
+            chooseTab(.prompter)
+            return present(.openTab)
+        }
+        return beginSession(parts, askingAboutSharedDisplays: true)
+    }
+
+    /// The tab's Start. Like the toggle, but never pauses: a session already
+    /// live is only shown.
+    @discardableResult
+    func startPrompter() -> PrompterPresentation {
+        guard let parts = prompterParts else { return .nothing }
+        guard admitsCommandedOpen(screensAsleep: prompterHooks.screensAsleep()) else { return .refused }
+        if parts.session.state.isLive { return present(.openStage) }
+        return beginSession(parts, askingAboutSharedDisplays: true)
+    }
+
+    /// ⌃⌥⌘S, the stage's Stop, and the switch turning off (through
+    /// `follow`). Not refused over the shield: stopping opens nothing, and a
+    /// session the speaker wants gone should go. Synchronous: the session is
+    /// ended before this returns, which the switch relies on.
+    @discardableResult
+    func stopPrompter() -> PrompterPresentation {
+        if pendingMirroredStart != nil { pendingMirroredStart = nil }
+        guard let session = prompterSession, session.state.isLive else { return .nothing }
+        session.stop()
+        // Nothing to hand back over the shield or in the dark: the lock and
+        // sleep paths already folded the panel, and the pointer sampler they
+        // stopped must not be told where the cursor is.
+        guard !isLockedPresentation, !prompterHooks.screensAsleep() else { return .nothing }
+        return present(.release)
+    }
+
+    /// Start Anyway, armed and confirmed in the tab's control row (11.6).
+    @discardableResult
+    func confirmMirroredStart() -> PrompterPresentation {
+        guard pendingMirroredStart != nil, let parts = prompterParts else { return .nothing }
+        guard admitsCommandedOpen(screensAsleep: prompterHooks.screensAsleep()) else {
+            pendingMirroredStart = nil
+            return .refused
+        }
+        return beginSession(parts, askingAboutSharedDisplays: false)
+    }
+
+    /// The question taken back: nothing starts.
+    func cancelMirroredStart() {
+        if pendingMirroredStart != nil { pendingMirroredStart = nil }
+    }
+
+    /// The start itself, after the commanded-open refusals.
+    private func beginSession(_ parts: PrompterParts, askingAboutSharedDisplays ask: Bool) -> PrompterPresentation {
+        // Nothing to read: the tab says why (E-20), so that is where the
+        // panel goes. A key that silently did nothing would read as broken.
+        guard let pages = parts.pagesToStart() else {
+            if pendingMirroredStart != nil { pendingMirroredStart = nil }
+            chooseTab(.prompter)
+            return present(.openTab)
+        }
+        if ask, let share = prompterHooks.displayShare() {
+            chooseTab(.prompter)
+            pendingMirroredStart = share
+            return present(.openTab)
+        }
+        if pendingMirroredStart != nil { pendingMirroredStart = nil }
+        // Spec 12.1: the library is flushed on session start, so the script
+        // being read is the one on disk if the Mac goes down mid-talk.
+        parts.library.flush()
+        parts.session.apply(parts.settings.values)
+        guard parts.session.start(
+            pages: pages, page: prompterPage, at: prompterStartPosition, mode: parts.settings.mode
+        ) else {
+            chooseTab(.prompter)
+            return present(.openTab)
+        }
+        // The session's hold replaces a pin standing from ⌃⌥⌘I. Left, the
+        // pin would outlive the session: after a Stop from the hot key it
+        // kept the panel up over the slideshow and took its next Escape.
+        isPinnedOpen = false
+        // The stage never takes the keyboard (5.2). A start from the tab
+        // comes from a panel that had it.
+        wantsKeyboard = false
+        // `chooseTab`, so a start during the first-run welcome retires it
+        // (11.9, E-51), as the lyrics key does. After `start`, so `select`
+        // already sees the session and raises no keyboard.
+        chooseTab(.prompter)
+        Announcer.shared.announce(localized("Prompter started"))
+        return present(.openStage)
+    }
+
+    private func present(_ presentation: PrompterPresentation) -> PrompterPresentation {
+        prompterHooks.present(presentation)
+        return presentation
+    }
+
+    /// Keeps a model in step with the switch for the life of the returned
+    /// token: the rail and the parts follow every change, and a switch turned
+    /// off during a session ends it through `stopPrompter()`, the Stop the
+    /// button takes (spec 4, 7.1), before the parts are dropped.
+    ///
+    /// `model` is asked at call time, not captured: a display change replaces
+    /// the model, and the subscription has to outlive it (the controller hands
+    /// in `{ self.viewModel }`).
+    static func follow(
+        _ feature: PrompterFeature,
+        model: @escaping @MainActor () -> NotchViewModel?
+    ) -> AnyCancellable {
+        feature.endSession = { session in
+            if let vm = model(), vm.prompterSession === session {
+                vm.stopPrompter()
+            } else {
+                session.stop()
+            }
+        }
+        let changes = feature.onChange { [weak feature] enabled in
+            guard let vm = model() else { return }
+            vm.setPrompterEnabled(enabled)
+            vm.attachPrompter(feature?.parts)
+        }
+        return AnyCancellable { [weak feature] in
+            changes.cancel()
+            // Back to the feature's own default, so a stale closure cannot
+            // reach a model that has gone.
+            feature?.endSession = { $0.stop() }
+        }
     }
 }

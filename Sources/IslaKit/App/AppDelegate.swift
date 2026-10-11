@@ -54,9 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // registration is already right (a key registered for a moment at
         // launch would still have been taken from another app), and then
         // follows it live: turning the switch off frees ⌃⌥⌘P and ⌃⌥⌘S at once.
-        // Their handlers are the controller's and arrive with its Prompter
-        // wiring; until then an action with no handler is not registered at
-        // all, which is better than a key that is taken and does nothing.
+        // Their handlers are installed with the others below, unconditionally:
+        // the center, not the handler, decides whether a feature's key exists,
+        // so with the switch off neither is registered and neither can fire.
         let prompter = PrompterFeature.live()
         self.prompter = prompter
         HotKeyCenter.shared.setFeature(.prompter, enabled: prompter.isEnabled)
@@ -103,6 +103,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.controller?.translateCommanded(NSPasteboard.general.string(forType: .string))
             },
             .showLyrics: { [weak self] in self?.controller?.toggleLyrics() },
+            // The Prompter's two (spec 5.4). Registered only while its switch
+            // is on; and with it off the controller's model has no session to
+            // act on, so even a stray call does nothing.
+            .prompterToggle: { [weak self] in self?.controller?.togglePrompter() },
+            .prompterStop: { [weak self] in self?.controller?.stopPrompter() },
         ])
         NSApp.servicesProvider = self
         // Nothing, unless the user turned the daily check on in Settings.

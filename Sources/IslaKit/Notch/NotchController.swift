@@ -22,9 +22,11 @@ final class NotchController {
     /// the panel and its view model and leaves these untouched.
     private let stores = NotchStores()
     /// The Prompter's switch, handed in by `AppDelegate` before `install()`.
-    /// The controller only learns whether it is on, to show or remove the tab;
-    /// it never builds the feature. Nil in a test that has no Prompter, which
-    /// is the same as off.
+    /// The controller never builds the feature: it hands the feature's parts
+    /// to each model it builds, forwards the system's lock, sleep and display
+    /// events to the session, and carries out what the model decides a
+    /// Prompter command does to the panel (`presentPrompter`). Nil in a test
+    /// that has no Prompter, which is the same as off.
     var prompterFeature: PrompterFeature?
     private var prompterSubscription: AnyCancellable?
     private var closeActiveRectWork: DispatchWorkItem?
@@ -71,11 +73,12 @@ final class NotchController {
             self?.promisedFilesArrived(urls)
         }
         stores.start()
-        // The tab follows the switch live. Through `viewModel` at call time
-        // rather than a captured model, because a display change replaces the
-        // model and the subscription must outlive it.
-        prompterSubscription = prompterFeature?.onChange { [weak self] enabled in
-            self?.viewModel?.setPrompterEnabled(enabled)
+        // The tab and the parts follow the switch live, and the switch turning
+        // off ends a session through the model's Stop. Through `viewModel` at
+        // call time rather than a captured model, because a display change
+        // replaces the model and the subscription must outlive it.
+        prompterSubscription = prompterFeature.map { feature in
+            NotchViewModel.follow(feature) { [weak self] in self?.viewModel }
         }
         build()
         observerTokens.append(NotificationCenter.default.addObserver(
@@ -119,6 +122,10 @@ final class NotchController {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                // First, before the fold below: a session paused for sleep
+                // lets the display-awake lease go and is not resumed at wake
+                // (spec 11.3, E-40).
+                self.prompterSession?.handle(.displaysSlept)
                 self.screensAreAsleep = true
                 self.geometryTrace("screens asleep")
                 // A charger moment's timer does not run while the Mac sleeps,
@@ -144,6 +151,8 @@ final class NotchController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.screensAreAsleep = false
+                // Does nothing, on purpose: the speaker resumes (E-40).
+                self.prompterSession?.handle(.woke)
                 self.geometryTrace("screens awake locked=\(self.lockPresence.isLocked ? 1 : 0)")
                 let plan = Self.wakePlan(
                     isLocked: self.lockPresence.isLocked,
@@ -159,6 +168,16 @@ final class NotchController {
                     }
                 }
             }
+        })
+        // System sleep, which a lid closed on an external display reaches
+        // without the built-in display ever reporting itself asleep: a session
+        // read through a talk would otherwise keep running into the sleep.
+        observerTokens.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.prompterSession?.handle(.systemWillSleep) }
         })
         // Locking replaces the desktop with the shield, and the pill stays on
         // it — see `LockScreenPresence` for the mechanism. Wired here because
@@ -211,7 +230,11 @@ final class NotchController {
             }
             if vm.ambient != nil { clearAmbient() }
         }
-        guard viewModel?.isOpen == true else { return }
+        guard let vm = viewModel, vm.isOpen else { return }
+        // A Prompter session holds through Space changes (spec 11.1, E-47):
+        // entering a full-screen Keynote is one, and that is when the script
+        // is read.
+        guard vm.canFoldOnRequest else { return }
         // What was typed is kept — only the panel closes.
         setOpen(false)
         pointer.setInside(false)
@@ -293,6 +316,11 @@ final class NotchController {
     /// none of this happens and the panel sinks under the shield as any
     /// ordinary window does.
     private func screenLocked() {
+        // Before anything folds: the session pauses for the lock, lets the
+        // display-awake lease go, and is never shown over the shield or
+        // resumed by the unlock (spec 11.3, E-39). Both branches below fold
+        // the panel, so the stage goes with it.
+        prompterSession?.handle(.screenLocked)
         // A charger or headphones moment does not carry over the shield. The
         // locked pill is cut for music alone.
         clearAmbient()
@@ -408,6 +436,8 @@ final class NotchController {
     /// costs nothing. `pointer.start()` doubles with the wake handler when
     /// the display slept too — starting twice only reschedules the timer.
     private func screenUnlocked() {
+        // Does nothing, on purpose: the speaker resumes (E-39).
+        prompterSession?.handle(.screenUnlocked)
         lockCard.dismiss(presence: lockPresence)
         lockPresence.apply(to: panel, locked: false)
         geometryTrace("unlocked")
@@ -435,6 +465,10 @@ final class NotchController {
     }
 
     private func screenParametersChanged() {
+        // The session is the model's and survives whatever happens to the
+        // panel below, rebuild included (spec 7.3, E-38). Said here so the
+        // rule has one place, which is a no-op by design.
+        prompterSession?.handle(.screenParametersChanged)
         // No screens at all, for the moment. Nothing to anchor to and nothing
         // to draw; the next notification arrives with the new arrangement.
         guard let fresh = NotchGeometry.current() else {
@@ -614,6 +648,13 @@ final class NotchController {
     }
 
     func teardown() {
+        // Quit ends a live session (spec 7.1) and flushes the library (12.1)
+        // while both still exist: the display-awake lease must not depend on
+        // the process exiting to be let go.
+        if let parts = prompterFeature?.parts {
+            parts.session.handle(.appWillTerminate)
+            parts.library.flush()
+        }
         prompterSubscription = nil
         lockPresence.stop()
         pointer.stop()
@@ -649,16 +690,85 @@ final class NotchController {
     /// (J-026). Over the shield the refusal is the pill's shake; on a dark
     /// display it is nothing at all, because there is nothing to see it.
     private func admitsCommandedOpen(_ vm: NotchViewModel) -> Bool {
-        switch vm.verdictForDeliberateOpen(screensAsleep: screensAreAsleep) {
-        case .proceed:
-            return true
-        case .refuseWithShake:
-            vm.nudgeLockedIsland()
-            return false
-        case .refuseQuietly:
+        let admitted = vm.admitsCommandedOpen(screensAsleep: screensAreAsleep)
+        if !admitted, screensAreAsleep, !vm.isLockedPresentation {
             geometryTrace("command refused: screens asleep")
-            return false
         }
+        return admitted
+    }
+
+    /// The session, wherever the model is. Read through the feature rather
+    /// than the model so a lock or a sleep arriving mid-rebuild, with no model
+    /// at all, still pauses it.
+    private var prompterSession: PrompterSession? { prompterFeature?.parts?.session }
+
+    // MARK: - Prompter
+
+    /// ⌃⌥⌘P: start, pause or resume (spec 5.4). The model decides, through
+    /// the same commanded-open refusals as every other key, and calls back
+    /// into `presentPrompter` for the panel's half.
+    func togglePrompter() {
+        viewModel?.togglePrompter()
+    }
+
+    /// The tab's Start.
+    func startPrompter() {
+        viewModel?.startPrompter()
+    }
+
+    /// ⌃⌥⌘S and the stage's Stop. With no model (mid-rebuild) the session is
+    /// still stopped: Stop must never be a key that silently did nothing.
+    func stopPrompter() {
+        if let vm = viewModel {
+            vm.stopPrompter()
+        } else {
+            prompterSession?.stop()
+        }
+    }
+
+    /// What a Prompter command does to the panel, decided by the model.
+    private func presentPrompter(_ presentation: PrompterPresentation) {
+        guard let vm = viewModel else { return }
+        switch presentation {
+        case .refused, .nothing:
+            return
+        case .openStage, .openTab:
+            peekWork?.cancel()
+            vm.isPeeking = false
+            // The tab asks a question or gives a reason with nothing yet
+            // holding the panel, so it is pinned when the pointer is not on
+            // it, as ⌃⌥⌘I's is, or it would fold a third of a second after it
+            // appeared; with the pointer on it, the pointer keeps it (the rule
+            // `clickOpened` gives). Asked of the pointer, not of `isOpen`:
+            // landing on the tab raised the keyboard, whose sink has already
+            // opened the panel by now, so "was it shut" always read no.
+            // The stage needs no pin: the session holds the panel (11.1), and
+            // a pin would claim Escape for it (5.4).
+            if presentation == .openTab, !pointerIsOnOpenPanel { vm.isPinnedOpen = true }
+            setOpen(true)
+            pointer.setInside(true)
+            updatePinnedClickMonitor()
+        case .release:
+            // The pointer decides again: on the panel, it stays on the tab;
+            // elsewhere (Stop from the hot key), it folds. Stamped, so a
+            // Start within the delay holds it open again (E-34).
+            scheduleCollapseIfPointerAway()
+        }
+    }
+
+    /// Whether a start has to ask first (spec 11.6): a display in a mirror
+    /// set, or a lid-shut laptop on a projector. Read at the moment of the
+    /// start, never cached. The Prompter is not quieted by `momentsQuiet`,
+    /// which is for transient moments; it asks instead.
+    private func prompterDisplayShare() -> PrompterDisplayShare? {
+        let active = activeDisplays()
+        return PrompterDisplayShare.reading(
+            mirrored: active.contains { CGDisplayIsInMirrorSet($0) != 0 },
+            soleExternal: Self.isSoleExternalDisplay(
+                displaysAreBuiltIn: active.map { CGDisplayIsBuiltin($0) != 0 },
+                hasInternalBattery: Self.hasInternalBattery()
+            )
+        )
     }
 
     /// Opens on the Music tab with the lyrics page already up.
@@ -787,6 +897,10 @@ final class NotchController {
         // closed by clicking it, which reads as the app having stopped
         // listening. Walking away closes it too; see `clickOpened`.
         if vm.isOpen {
+            // Not under a Prompter stage: the notch row is where the camera
+            // is, and a stray click there must not fold the script mid-read.
+            // Stop is the way out (spec 5.2, 11.1).
+            guard vm.canFoldOnRequest else { return }
             // `setOpen(false)` drops the pin and retires the click monitor with
             // it, and it cannot early-return here — `vm.isOpen` was just read as
             // true. Writing either again would be a third copy of an invariant
@@ -854,6 +968,9 @@ final class NotchController {
         // `presentWelcome()` keeps its own silent guard, so the welcome never
         // reaches here while locked.
         guard admitsCommandedOpen(viewModel) else { return }
+        // ⌃⌥⌘I on a panel showing a session changes nothing (E-43): it is
+        // already open, and the toggle's close would fold the stage.
+        if viewModel.isOpen, !viewModel.canFoldOnRequest { return }
         // `setOpen`'s close path defers the `isOpen` mutation to the next run
         // loop pass, so reading `viewModel.isOpen` right after calling it would
         // read the stale, pre-close value. Capture the intended target state
@@ -927,22 +1044,29 @@ final class NotchController {
         toggle()
     }
 
-    /// Keeps the outside-click watch alive exactly while the panel is holding
-    /// itself open — which since the teleprompter went on 2026-08-22 means the
-    /// pin and nothing else (`holdsOpen` is now just `isPinnedOpen`). It is a
-    /// state the pointer cannot end, and it promises a click outside will.
+    /// Keeps the outside-click watch alive exactly while the panel is pinned.
+    /// It is a state the pointer cannot end, and it promises a click outside
+    /// will.
+    ///
+    /// The pin only, not `holdsOpen`: a Prompter session also holds the panel
+    /// (spec 11.1), and a click in the call or the slideshow in front is
+    /// exactly what a speaker does while reading. Watching every click for
+    /// the length of a session would be a global monitor with nothing to do.
     private func updatePinnedClickMonitor() {
-        let wanted = viewModel?.holdsOpen == true
+        let wanted = viewModel?.isPinnedOpen == true
         if wanted, pinnedClickMonitor == nil {
             pinnedClickMonitor = NSEvent.addGlobalMonitorForEvents(
                 matching: [.leftMouseDown, .rightMouseDown]
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, self.viewModel?.holdsOpen == true else { return }
+                    guard let self, let vm = self.viewModel, vm.isPinnedOpen else { return }
                     // The click landed in another application — this app never
-                    // sees clicks on its own panel here — so whatever was
-                    // holding the panel open is over.
-                    self.viewModel?.isPinnedOpen = false
+                    // sees clicks on its own panel here — so the pin is over.
+                    // The panel folds with it unless a session still holds it.
+                    guard vm.endPin() else {
+                        self.updatePinnedClickMonitor()
+                        return
+                    }
                     self.setOpen(false)
                     // Deliberate, like the other two closes: the click landed in
                     // another app, but `openRect` reaches past the region this
@@ -966,7 +1090,12 @@ final class NotchController {
         guard let vm = viewModel, let pid,
               vm.appActivated(ownPID: ProcessInfo.processInfo.processIdentifier, activatedPID: pid)
         else { return }
-        vm.isPinnedOpen = false
+        // Zoom or Keynote coming forward ends the pin and never a session
+        // (E-41): the panel stays when the session holds it.
+        guard vm.endPin() else {
+            updatePinnedClickMonitor()
+            return
+        }
         setOpen(false)
         // The pointer may be anywhere, including inside the rect an arrival is
         // measured against while the panel folds. See
@@ -983,12 +1112,13 @@ final class NotchController {
     /// still holds the old value inside the sink. Whether the app is active is
     /// read live — it is not the model's, and it changes only through the two
     /// notifications that call this.
-    private func updateEscapeHotKey(pinned: Bool, panelHasKeyboard: Bool, locked: Bool) {
+    private func updateEscapeHotKey(pinned: Bool, panelHasKeyboard: Bool, locked: Bool, sessionHoldsPanel: Bool) {
         let wanted = NotchViewModel.claimsEscape(
             pinned: pinned,
             panelHasKeyboard: panelHasKeyboard,
             appIsActive: NSApp.isActive,
-            locked: locked
+            locked: locked,
+            sessionHoldsPanel: sessionHoldsPanel
         )
         if wanted, escapeHotKey == nil {
             // Plain Escape, no modifiers. A combination macOS refuses leaves
@@ -1017,7 +1147,8 @@ final class NotchController {
             pinned: vm.isPinnedOpen,
             panelHasKeyboard: vm.wantsKeyboard,
             appIsActive: NSApp.isActive,
-            locked: vm.isLockedPresentation
+            locked: vm.isLockedPresentation,
+            sessionHoldsPanel: vm.prompterHoldsPanel
         ) else { return }
         if panel.escapeHandled?() == true { return }
         panel.onEscape?()
@@ -1071,6 +1202,15 @@ final class NotchController {
         // would be a selection that is not on the rail.
         let vm = NotchViewModel(
             geometry: geometry, stores: stores, prompterEnabled: prompterFeature?.isEnabled ?? false
+        )
+        // The Prompter's session is borrowed, never rebuilt: a display change
+        // makes a new model and hands it the same session, which goes on
+        // reading as though nothing happened (spec 7.3, E-38).
+        vm.attachPrompter(prompterFeature?.parts)
+        vm.prompterHooks = PrompterPanelHooks(
+            screensAsleep: { [weak self] in self?.screensAreAsleep ?? true },
+            displayShare: { [weak self] in self?.prompterDisplayShare() },
+            present: { [weak self] presentation in self?.presentPrompter(presentation) }
         )
         // Before any rect is cut. The tab decides how far down the panel
         // reaches, and restoring it afterwards left every rect cut for the
@@ -1158,6 +1298,10 @@ final class NotchController {
         // pointer leaving is what closes it.
         panel.onEscape = { [weak self] in
             guard let self else { return }
+            // Never folds a Prompter stage (5.4: plain Escape is not the
+            // session's). The stage never holds the keyboard, so this is a
+            // backstop, not a route.
+            guard self.viewModel?.canFoldOnRequest != false else { return }
             self.setOpen(false)
             self.pointer.setInside(false)
         }
@@ -1182,7 +1326,9 @@ final class NotchController {
         // Clicking away drops the keyboard but leaves the tab where it was, so
         // a click back into the panel has to be able to ask for it again.
         panel.onPress = { [weak self] in
-            guard let vm = self?.viewModel, vm.tab.needsKeyboard else { return }
+            // `pressTakesKeyboard`, not the tab alone: a press on a Prompter
+            // stage must not make the panel key (spec 5.2).
+            guard let vm = self?.viewModel, vm.pressTakesKeyboard else { return }
             // Never while the shield is up. The lock card takes clicks — that
             // is how its transport works — and with the last-used tab on
             // translate or notes, one of those clicks used to raise
@@ -1420,12 +1566,16 @@ final class NotchController {
         // itself, so every way a pin ends gives Escape back with it: the fold,
         // the pointer arriving (`pointerArrived()` clears it without going
         // through the controller), the outside click, a rebuild.
+        // A session holding the panel gives the claim up (spec 5.4), so its
+        // liveness is the fourth input.
         vm.$isPinnedOpen
-            .combineLatest(vm.$wantsKeyboard, vm.$isLockedPresentation)
+            .combineLatest(vm.$wantsKeyboard, vm.$isLockedPresentation, vm.prompterHoldsPanelPublisher)
             .removeDuplicates { $0 == $1 }
-            .sink { [weak self] pinned, keyboard, locked in
+            .sink { [weak self] pinned, keyboard, locked, session in
                 MainActor.assumeIsolated {
-                    self?.updateEscapeHotKey(pinned: pinned, panelHasKeyboard: keyboard, locked: locked)
+                    self?.updateEscapeHotKey(
+                        pinned: pinned, panelHasKeyboard: keyboard, locked: locked, sessionHoldsPanel: session
+                    )
                 }
             }
             .store(in: &cancellables)
@@ -1439,7 +1589,8 @@ final class NotchController {
                     self.updateEscapeHotKey(
                         pinned: vm.isPinnedOpen,
                         panelHasKeyboard: vm.wantsKeyboard,
-                        locked: vm.isLockedPresentation
+                        locked: vm.isLockedPresentation,
+                        sessionHoldsPanel: vm.prompterHoldsPanel
                     )
                 }
             }
@@ -1464,9 +1615,13 @@ final class NotchController {
             .collapsedHoverRect(for: vm.bodySize.width)
             .contains(NSEvent.mouseLocation)
         let pointerOnBody = geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation)
-        // And nothing opens on a dark display: an open panel starts the media
-        // clock, and a cursor left resting on the notch is not somebody asking.
-        if !screensAreAsleep, pointerOnTarget || (wasOpen && pointerOnBody) {
+        if Self.rebuildReopens(
+            screensAsleep: screensAreAsleep,
+            pointerOnTarget: pointerOnTarget,
+            wasOpen: wasOpen,
+            pointerOnBody: pointerOnBody,
+            sessionHoldsPanel: vm.prompterHoldsPanel
+        ) {
             pointer.setInside(true)
             setOpen(true)
         }
@@ -1817,10 +1972,7 @@ final class NotchController {
     /// show, never cached: a display plugged in a second ago has to count.
     private func momentsAreQuiet() -> Bool {
         let options = NSApp.currentSystemPresentationOptions
-        var count: UInt32 = 0
-        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
-        CGGetActiveDisplayList(UInt32(ids.count), &ids, &count)
-        let active = ids.prefix(Int(count))
+        let active = activeDisplays()
         return Self.momentsQuiet(
             // `.hideMenuBar` rather than `.autoHideMenuBar`: the latter is a
             // preference many people keep on all day, the former is an app
@@ -1832,6 +1984,37 @@ final class NotchController {
                 hasInternalBattery: Self.hasInternalBattery()
             )
         )
+    }
+
+    /// The displays in use right now. Shared by the quiet-moments reading and
+    /// the Prompter's shared-display question, which must agree about what a
+    /// mirror is.
+    private func activeDisplays() -> [CGDirectDisplayID] {
+        var count: UInt32 = 0
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        CGGetActiveDisplayList(UInt32(ids.count), &ids, &count)
+        return Array(ids.prefix(Int(count)))
+    }
+
+    /// Whether a freshly rebuilt panel opens again. Pure, so each reason is a
+    /// test.
+    ///
+    /// - On the pointer, as before: on the *collapsed* target, or on the body
+    ///   of a panel that was open. Testing the expanded body alone popped the
+    ///   panel open on any display change that found the cursor in the
+    ///   top-centre 644×220 of the screen, which is where a document's own
+    ///   toolbar lives.
+    /// - On a Prompter session, wherever the pointer is, when the panel was
+    ///   open (spec 7.3, E-38): plugging in a projector mid-talk is the
+    ///   obvious display change, and the script must still be there. A panel
+    ///   that was shut (after a lock, say) stays shut.
+    /// - Never on a dark display: an open panel starts the media clock, and a
+    ///   cursor left resting on the notch is not somebody asking.
+    nonisolated static func rebuildReopens(
+        screensAsleep: Bool, pointerOnTarget: Bool, wasOpen: Bool, pointerOnBody: Bool, sessionHoldsPanel: Bool
+    ) -> Bool {
+        guard !screensAsleep else { return false }
+        return pointerOnTarget || (wasOpen && (pointerOnBody || sessionHoldsPanel))
     }
 
     private static func hasInternalBattery() -> Bool {

@@ -498,3 +498,18 @@ Where the spec was silent or two statements disagreed, the implementer took the 
 12. **Keep-awake** is held only while running or user-paused, released for lock and sleep pauses and in `finished` (one switch, `wantsKeepAwake`, pinned by a test).
 
 Open for the stage task: whether paused time counts toward the elapsed readout (the spec is silent; T8 decides and records it here).
+
+### 20.3 Panel integration (`NotchViewModel` Prompter commands, `NotchController`, T6)
+
+1. A session never pins. 11.2 says a start opens "through the same pinned path as `openOnLyrics`", but a pin claims plain Escape, which 5.4 forbids; the session's own hold (11.1) keeps the panel open instead. A start clears a pin already standing (⌃⌥⌘I first), so it cannot outlive the session and keep the panel up over a slideshow after Stop.
+2. `claimsEscape` gains a session veto: a pin made during a session (VoiceOver's click on the island) does not take Escape either.
+3. The pin's own events (outside click, another app, pointer arrival) still end the pin during a session; the panel folds only when nothing else holds it (`endPin()`). The outside-click monitor watches the pin only, never the session.
+4. While a session holds the panel, nothing but Stop, the lock and sleep folds it: not a second click on the island, not ⌃⌥⌘I (E-43), not a Space change (E-47), not the panel's Escape (`canFoldOnRequest`).
+5. The tab cannot change during a session (7.3): `select` refuses every tab but the Prompter, so the island's click, the pointer arriving and the shortcuts cannot move the body or start the media clock behind the stage; a drop still lands on the shelf without moving the tab. The stage never takes the keyboard (5.2), including from a press.
+6. Lock and sleep pause and fold the panel; unlock and wake reopen nothing. The session stays paused and live, the panel stays shut until the speaker opens it (a click, or ⌃⌥⌘P, which also resumes). System sleep (`willSleepNotification`) pauses as display sleep does.
+7. A rebuild (display change, width change) reopens a panel that was open on a session wherever the pointer is, except on a dark display; a panel that was shut stays shut.
+8. 11.6's heading names a sole external display as well as a mirror; both ask (`PrompterDisplayShare`), mirrored first when both hold. The question is asked once per start, on the Prompter tab, and is taken back by the panel folding, another tab, Stop or the switch. A hot-key start that has to ask opens the tab, pinned when the pointer is not on it.
+9. With nothing to read, a start (hot key or button) opens the Prompter tab, whose control row says why (E-20), rather than doing nothing.
+10. The current script is the library's current one, or the first when none is current. The start page is the tab's selected page (`prompterPage`).
+11. Stop is not refused over the shield (it opens nothing), and over the shield or in the dark it hands nothing back to the pointer.
+12. Quit stops the session and flushes the library in `NotchController.teardown()`. The quit confirmation (11.7) belongs to the Settings row and is not built here.

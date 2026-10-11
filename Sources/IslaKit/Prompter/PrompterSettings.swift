@@ -290,6 +290,13 @@ final class PrompterSettings: ObservableObject {
     }
 
     private(set) var values: PrompterSettingsValues
+    /// The values in force, sent after each change has been stored.
+    ///
+    /// `objectWillChange` fires before the change, which is right for SwiftUI
+    /// and wrong for the running session: a sink that read `values` there
+    /// handed the session the speed it already had, one change late. The
+    /// session follows this instead (`NotchViewModel.attachPrompter`).
+    let didChange = PassthroughSubject<PrompterSettingsValues, Never>()
     private let store: Defaults
 
     init(defaults: Defaults) {
@@ -388,6 +395,7 @@ final class PrompterSettings: ObservableObject {
         objectWillChange.send()
         for key in Key.settings { store.removeObject(forKey: key) }
         values = .defaults
+        didChange.send(values)
     }
 
     /// The one write path. Compares the clamped value with the one in force,
@@ -400,6 +408,7 @@ final class PrompterSettings: ObservableObject {
         objectWillChange.send()
         values[keyPath: path] = value
         store.set(stored, forKey: key)
+        didChange.send(values)
     }
 }
 
