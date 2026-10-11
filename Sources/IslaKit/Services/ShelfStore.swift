@@ -556,7 +556,15 @@ final class ShelfStore: ObservableObject {
 
     private func pickupInputs(from folder: URL?) -> PickupInputs? {
         guard NotchViewModel.importRecordingsEnabled else { return nil }
-        guard let since = defaults.object(forKey: RecordingPickup.sinceKey) as? Date else { return nil }
+        guard let stored = defaults.object(forKey: RecordingPickup.sinceKey) as? Date else { return nil }
+        // A stamp the clock wrote in the future is pulled back to the present
+        // and written back, here on the main thread that owns defaults (G-037).
+        // Written back rather than only clamped: a clamp alone would move with
+        // the clock, so each open's `since` would be that open's own moment,
+        // and every capture would be judged older than the scan that found it
+        // until real time passed the bad stamp.
+        let since = RecordingPickup.effectiveSince(stored: stored)
+        if since != stored { defaults.set(since, forKey: RecordingPickup.sinceKey) }
         return PickupInputs(
             folders: folder.map { [$0] } ?? RecordingPickup.captureFolders(defaults: defaults),
             since: since,

@@ -417,6 +417,36 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertEqual(store.items.count, 1)
     }
 
+    /// A `since` the clock stamped in the future is rewritten to the present
+    /// the first time the shelf reads it, so a capture taken after that
+    /// reaches the shelf. Unclamped, a first launch with the clock a year
+    /// ahead kept every capture off the shelf for a year (G-037).
+    func testAFutureSinceIsRewrittenSoTheNextCaptureArrives() throws {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Date().addingTimeInterval(365 * 86400), forKey: RecordingPickup.sinceKey)
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = ShelfStore(defaults: defaults)
+        store.importNewRecordings(from: dir)
+        let stored = try XCTUnwrap(defaults.object(forKey: RecordingPickup.sinceKey) as? Date)
+        XCTAssertLessThanOrEqual(stored, Date(), "the stamp in the future is written back as now")
+
+        // A capture finished after that open, dated a minute on so the test
+        // does not race the stamp it was just given.
+        let capture = dir.appendingPathComponent("rec.mov")
+        try Data([1]).write(to: capture)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: capture.path
+        )
+        store.importNewRecordings(from: dir)
+        XCTAssertEqual(store.items.map(\.url.lastPathComponent), ["rec.mov"])
+    }
+
     /// Throwing a recording off the shelf is a decision: the scan remembers
     /// what it met, so the next open does not resurrect it.
     func testRemovedRecordingStaysRemoved() throws {
