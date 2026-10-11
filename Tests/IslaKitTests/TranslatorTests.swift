@@ -47,25 +47,59 @@ final class TranslatorTests: XCTestCase {
                        .init(source: .uzbek, target: .russian))
     }
 
+    /// H-005: every new user was offered Russian, so an English, German or
+    /// Uzbek reader had to find the menu before the tab was any use. A fresh
+    /// install now translates into the first system language on offer.
+    func testAFreshInstallTranslatesIntoTheReadersLanguage() {
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["de-DE", "en"]), .german)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["en-US"]), .english)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["zh-Hans-CN"]), .chinese)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["zh-Hant-TW"]), .chinese, "any Chinese")
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["pt-BR"]), .portuguese)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["uz-Latn-UZ", "ru"]), .uzbek)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["xx-YY", "ja-JP"]), .japanese,
+                       "the first language on offer, not the first language")
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: ["xx-YY"]), .english)
+        XCTAssertEqual(Translator.defaultTarget(preferredLanguages: []), .english)
+
+        let translator = Translator(defaults: defaults, preferredLanguages: ["de-DE", "en"])
+        XCTAssertEqual(translator.target, .german)
+        // Kept, so the second launch, when the welcome has been dismissed and
+        // the account no longer looks fresh, does not fall back to Russian.
+        XCTAssertEqual(defaults.string(forKey: Translator.targetKey), "de")
+        defaults.set(true, forKey: NotchViewModel.hasCompletedFirstRunKey)
+        XCTAssertEqual(Translator(defaults: defaults, preferredLanguages: ["en"]).target, .german)
+    }
+
+    /// An account that has been through the welcome and never touched the
+    /// menu has been translating into Russian all along. An upgrade must not
+    /// move that under it.
+    func testAnUpgradeKeepsTheTargetItHad() {
+        defaults.set(true, forKey: NotchViewModel.hasCompletedFirstRunKey)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["en"])
+        XCTAssertEqual(translator.target, .russian)
+        XCTAssertNil(defaults.string(forKey: Translator.targetKey), "nothing written that was not chosen")
+    }
+
     func testTheChoiceIsRememberedAndAFreshTranslatorStartsOnIt() {
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         XCTAssertNil(translator.source, "detects by default")
-        XCTAssertEqual(translator.target, .russian, "the target this tab always had")
+        XCTAssertEqual(translator.target, .russian, "the reader's own language")
 
         translator.choose(target: .uzbek)
         translator.choose(source: .english)
-        let restored = Translator(defaults: defaults)
+        let restored = Translator(defaults: defaults, preferredLanguages: ["ru"])
         XCTAssertEqual(restored.source, .english)
         XCTAssertEqual(restored.target, .uzbek)
 
         translator.choose(source: nil)
-        XCTAssertNil(Translator(defaults: defaults).source, "detecting is remembered too")
+        XCTAssertNil(Translator(defaults: defaults, preferredLanguages: ["ru"]).source, "detecting is remembered too")
     }
 
     /// Choosing the language already on the other side swaps the two rather
     /// than translating a language into itself.
     func testChoosingTheOtherSidesLanguageSwaps() {
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         translator.choose(source: .english)
         translator.choose(target: .uzbek)
 
@@ -81,7 +115,7 @@ final class TranslatorTests: XCTestCase {
     /// A new language clears the answer on screen at once: it was an answer
     /// in the old language, under a heading that already names the new one.
     func testChoosingALanguageClearsTheAnswerInTheOldOne() {
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         translator.choose(target: .russian)
         translator.input = "salom"
         translator.received("привет", for: "salom", by: .online)
@@ -95,7 +129,7 @@ final class TranslatorTests: XCTestCase {
 
     /// A detected source is swapped as the language it was detected as.
     func testSwapTurnsADetectedSourceIntoTheTarget() {
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         translator.choose(target: .uzbek)
         translator.input = "Where is the station?"
         translator.swap()
@@ -195,7 +229,7 @@ final class TranslatorTests: XCTestCase {
     /// the debounce it is still the previous text's, and a swap then must not
     /// replace what was just typed with it.
     func testSwapOnlyMovesAnAnswerThatAnswersTheField() {
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         translator.choose(source: .english)
         translator.choose(target: .uzbek)
         translator.input = "Good morning"
@@ -224,7 +258,7 @@ final class TranslatorTests: XCTestCase {
 
     func testOnlineTranslationIsOffByDefaultAndThePaneCanTurnItOn() {
         XCTAssertFalse(defaults.bool(forKey: NotchViewModel.onlineTranslationKey))
-        let translator = Translator(defaults: defaults)
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
         let before = translator.request
         translator.turnOnOnline()
         XCTAssertTrue(defaults.bool(forKey: NotchViewModel.onlineTranslationKey))

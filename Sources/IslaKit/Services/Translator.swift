@@ -127,15 +127,55 @@ final class Translator: ObservableObject {
 
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    /// `preferredLanguages` is the system's list, in order; tests pass their
+    /// own so the default does not depend on the language of the machine the
+    /// suite happens to run on.
+    init(defaults: UserDefaults = .standard, preferredLanguages: [String] = Locale.preferredLanguages) {
         self.defaults = defaults
         source = defaults.string(forKey: Self.sourceKey).flatMap(TranslationLanguage.withCode)
-        target = defaults.string(forKey: Self.targetKey).flatMap(TranslationLanguage.withCode) ?? .russian
+        if let stored = defaults.string(forKey: Self.targetKey).flatMap(TranslationLanguage.withCode) {
+            target = stored
+        } else if defaults.bool(forKey: NotchViewModel.hasCompletedFirstRunKey) {
+            // An account that has been through the welcome and never opened the
+            // menu has been translating into Russian, the target this tab
+            // always had, and `remember()` only writes on a choice. Moving it
+            // to the system language on an upgrade would change a working
+            // setup under its owner without a word.
+            target = .russian
+        } else {
+            // A fresh install. Every new user used to be offered Russian
+            // (H-005), so an English or German reader met a tab answering in a
+            // language they did not ask for until they found the menu.
+            target = Self.defaultTarget(preferredLanguages: preferredLanguages)
+            // Written down at once: the welcome completes the first run, so
+            // on the next launch this account takes the branch above and,
+            // with nothing stored, would quietly turn Russian. Not into the
+            // standard domain under a test, which is the test runner's own
+            // and leaks into every later run.
+            if !(PlayerBridge.isRunningTests && defaults === UserDefaults.standard) {
+                defaults.set(target.code, forKey: Self.targetKey)
+            }
+        }
         if source == target { source = nil }
         Task { [weak self] in
             let codes = await Self.languagesOnThisMac()
             self?.onDeviceLanguages = codes
         }
+    }
+
+    /// The first of the reader's languages the tab offers, else English.
+    /// Matched on the base code, so "de-DE" is German, "pt-BR" Portuguese and
+    /// any Chinese ("zh-Hant-TW" as well) the Simplified Chinese on offer —
+    /// the system writes a region and often a script after the language, and
+    /// the list here names neither.
+    static func defaultTarget(preferredLanguages: [String]) -> TranslationLanguage {
+        for identifier in preferredLanguages {
+            let base = identifier.prefix { $0 != "-" && $0 != "_" }.lowercased()
+            if let language = TranslationLanguage.all.first(where: { $0.baseCode == base }) {
+                return language
+            }
+        }
+        return .english
     }
 
     var request: Request { Request(text: input, attempt: attempt, source: source, target: target) }
