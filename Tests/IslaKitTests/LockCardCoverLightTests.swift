@@ -136,6 +136,71 @@ extension LockCardCoverLightTests {
     }
 }
 
+extension LockCardCoverLightTests {
+    /// A plain 64×64 cover, drawn in sRGB, with `whiteColumns` of its 64
+    /// columns white from the left and the rest black.
+    private func cover(whiteColumns: Int) -> NSImage {
+        NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+            NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1).setFill()
+            rect.fill()
+            NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1).setFill()
+            NSRect(x: 0, y: 0, width: CGFloat(whiteColumns), height: 64).fill()
+            return true
+        }
+    }
+
+    /// The wash is scaled to how bright the cover is, so that reading has to
+    /// be right at the ends: white is 1, black is 0.
+    ///
+    /// And a cover that is half white is measured as white, not as the 0.5 an
+    /// average would give: the blur spreads the white half across the card
+    /// and the type over it is the type that has to hold, so the reading is
+    /// the 90th percentile — the bright end — rather than the mean.
+    func testCoverLumaReadsWhiteAsOneAndBlackAsZero() {
+        XCTAssertEqual(LockCardLegibility.coverLuma(of: cover(whiteColumns: 64)), 1, accuracy: 0.01)
+        XCTAssertEqual(LockCardLegibility.coverLuma(of: cover(whiteColumns: 0)), 0, accuracy: 0.01)
+        XCTAssertGreaterThanOrEqual(LockCardLegibility.coverLuma(of: cover(whiteColumns: 32)), 0.9)
+    }
+
+    /// A 64×64 black cover with white drawn in `rects`.
+    private func cover(white rects: [NSRect]) -> NSImage {
+        NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+            NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1).setFill()
+            rect.fill()
+            NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1).setFill()
+            rects.forEach { $0.fill() }
+            return true
+        }
+    }
+
+    /// Only what the card shows is measured. The cover is zoomed 1.5× and
+    /// cropped to the card's shape, so a pale patch in the middle that is a
+    /// sixteenth of the cover is a fifth of the card — the visual lab's disc,
+    /// which left the times at 3.9:1 when the whole cover was measured.
+    func testCoverLumaReadsThePaleMiddleTheCardShows() {
+        let middle = cover(white: [NSRect(x: 24, y: 24, width: 16, height: 16)])
+        XCTAssertGreaterThanOrEqual(LockCardLegibility.coverLuma(of: middle), 0.9)
+    }
+
+    /// And a pale band the zoom crops away does not darken the card: the top
+    /// and bottom eighths of a square cover never reach it.
+    func testCoverLumaIgnoresWhatTheCropCutsAway() {
+        let bands = cover(white: [
+            NSRect(x: 0, y: 0, width: 64, height: 8),
+            NSRect(x: 0, y: 56, width: 64, height: 8),
+        ])
+        XCTAssertLessThanOrEqual(LockCardLegibility.coverLuma(of: bands), 0.1)
+    }
+
+    /// The reading is the same for the same artwork every time it is asked —
+    /// the card asks on every redraw, and the cache answers.
+    func testCoverLumaIsStableForOneImage() {
+        let image = cover(whiteColumns: 16)
+        let first = LockCardLegibility.coverLuma(of: image)
+        XCTAssertEqual(LockCardLegibility.coverLuma(of: image), first)
+    }
+}
+
 private struct GridSheet: View {
     let shots: [(String, NSImage)]
 

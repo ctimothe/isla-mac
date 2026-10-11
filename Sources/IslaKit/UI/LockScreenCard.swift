@@ -197,6 +197,11 @@ struct LockScreenCard: View {
     /// The cover, lighting the card from behind — blurred past recognition,
     /// saturated a little, and dimmed so white type holds over the palest one.
     ///
+    /// "Dimmed" was a fixed 0.34 black until F-003 measured it: over a
+    /// near-white cover the artist line read at 1.76:1. The wash now comes
+    /// from `LockCardLegibility`, scaled to how bright this cover is — today's
+    /// value for a dark one, just enough more for a pale one to hold AA.
+    ///
     /// The card used to be glass lit by nothing. Above the login shield a
     /// material has nothing to sample, so what arrived was a grey slab laid on
     /// the wallpaper — "more like a fake one", the owner said on 2026-09-21,
@@ -213,11 +218,17 @@ struct LockScreenCard: View {
                     .aspectRatio(contentMode: .fill)
                     .frame(width: dimensions.width, height: dimensions.height)
                     // Oversized before the blur, so the blur has no soft,
-                    // darker rim to show at the card's edge.
-                    .scaleEffect(1.5)
+                    // darker rim to show at the card's edge. The zoom is
+                    // `LockCardLegibility`'s, because its measurement of the
+                    // cover crops to exactly what this leaves showing.
+                    .scaleEffect(LockCardLegibility.coverZoom)
                     .blur(radius: 44, opaque: true)
                     .saturation(1.3)
-                Color.black.opacity(appearance.increaseContrast ? 0.56 : (style == .clear ? 0.2 : 0.34))
+                Color.black.opacity(LockCardLegibility.washOpacity(
+                    coverLuma: LockCardLegibility.coverLuma(of: image),
+                    style: style,
+                    increaseContrast: appearance.increaseContrast
+                ))
                 LinearGradient(
                     colors: [.clear, .black.opacity(0.22)],
                     startPoint: .top,
