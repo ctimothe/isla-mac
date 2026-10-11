@@ -410,6 +410,20 @@ transitions.
 > mode, Premium required, or other. Before, the heart vanished without a
 > word. Held by `FindabilityTests`.
 >
+> **Amended 2026-10-11 — a Spotify refusal is not for life, and Premium is
+> not the listener's.** The sentence above stands with two corrections.
+> Spotify's February 2026 rules put the Premium requirement on the
+> developer who registered a Development Mode app, so the Premium reason
+> now reads "Spotify refused Liked Songs and named Premium. Spotify asks
+> this of Isla's own registration, so your plan may not be the cause."
+> instead of telling the listener to upgrade. And a refusal no longer lasts
+> until relaunch: the account asks again ten minutes after a 403, and a
+> disconnect or a new grant clears it, so the note never outlives the
+> account it was about. The heart's lookup moved to Spotify's
+> `/me/library` endpoints with track URIs on the same day, because the old
+> saved-tracks endpoints were retired for Development Mode apps on
+> 2026-03-09. Held by `SpotifyAccountTests` and `FindabilityTests`.
+>
 > **Amended 2026-10-11 — lyrics off means off.** "Lyrics are off" and its
 > Show Lyrics offer now mean only that the switch is off. A track that
 > cannot be looked up by any source says so instead, with no offer: a

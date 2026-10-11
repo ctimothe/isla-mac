@@ -31,12 +31,30 @@ final class SpotifyAccount: ObservableObject {
     static let redirectURI = "isla://spotify-callback"
 
     @Published private(set) var isConnected = false
-    /// True once the API has refused a library call for account reasons —
-    /// Spotify gates the whole Web API behind Premium as of 2026. The heart
-    /// hides rather than lies; this clears on the next successful call.
+    /// True once the API has refused a call for account reasons. The heart
+    /// hides rather than lies.
+    ///
+    /// It clears on a successful call, on a disconnect, and on a new grant.
+    /// It used to say only "on the next successful call", and none could
+    /// happen: the hidden heart's own task was the only thing that asked, so
+    /// one 403 blocked the account for the rest of the process — through a
+    /// disconnect, and under a different account connected after it. Now a
+    /// lookup asks again once `refusalCooldown` has passed, and the lock card
+    /// keeps asking while the heart is hidden.
     @Published private(set) var apiBlocked = false {
-        didSet { if !apiBlocked { refusal = nil } }
+        didSet {
+            if !apiBlocked {
+                refusal = nil
+                blockedUntil = nil
+            }
+        }
     }
+    /// When a refused account may be asked again. Nil while nothing is refused.
+    private var blockedUntil: Date?
+    /// Ten minutes: long enough that a refused account is not asked on every
+    /// track change, short enough that one the developer has just listed in
+    /// the dashboard starts working within a song or two.
+    static let refusalCooldown: TimeInterval = 600
     /// Why, when Spotify said. Settings shows it so the missing heart has an
     /// explanation. Before, the heart vanished and nothing anywhere said why.
     @Published private(set) var refusal: Refusal?
@@ -47,7 +65,10 @@ final class SpotifyAccount: ObservableObject {
         /// it. Every other account gets 403 "User not registered in the
         /// Developer Dashboard".
         case notRegistered
-        /// The Web API is refused to accounts without Premium.
+        /// Spotify named Premium. Since February 2026 that requirement sits on
+        /// the developer who registered a Development Mode app — the built-in
+        /// client is one — not on each person who signs in to it, so the
+        /// explanation does not tell the listener to upgrade.
         case premiumRequired
         case other
 
@@ -69,7 +90,7 @@ final class SpotifyAccount: ObservableObject {
             case .notRegistered:
                 return localized("Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet.")
             case .premiumRequired:
-                return localized("Spotify refused this account. Liked Songs needs Spotify Premium.")
+                return localized("Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause.")
             case .other:
                 return localized("Spotify refused this account's library request.")
             }
@@ -79,6 +100,23 @@ final class SpotifyAccount: ObservableObject {
     private func refuse(_ body: Data?) {
         refusal = Refusal.from(body)
         apiBlocked = true
+        blockedUntil = now().addingTimeInterval(Self.refusalCooldown)
+    }
+
+    /// Whether a lookup may go to the network: always while nothing is
+    /// refused, and again once a refusal's cooldown has run out, so a fixed
+    /// account recovers without a relaunch.
+    private func mayAsk() -> Bool {
+        guard apiBlocked, let blockedUntil else { return true }
+        return now() >= blockedUntil
+    }
+
+    /// Back to a clean slate for whatever account comes next. Called by a
+    /// disconnect and by a completed grant — never by a token refresh, which
+    /// is the same account and would lift a refusal about once an hour.
+    private func forgetRefusal() {
+        apiBlocked = false
+        tokenUnavailable = false
     }
     /// Track id → saved?, so hearts answer instantly and survive re-renders.
     ///
@@ -111,10 +149,18 @@ final class SpotifyAccount: ObservableObject {
     /// account over an empty keychain.
     private let credentials: CredentialStore
 
-    /// The session Web-API calls go through. `URLSession.shared` in
-    /// production — the same call pattern as the saved-state lookup below —
-    /// substituted in tests so the whole request path runs without a network.
+    /// The session every Web-API call goes through. `URLSession.shared` in
+    /// production, substituted in tests so the whole request path runs
+    /// without a network. The two Liked Songs calls used to name
+    /// `URLSession.shared` directly, so no test could ever reach them.
     private let session: URLSession
+    /// The clock the refusal cooldown reads. `Date.init` in production; a
+    /// test moves it ten minutes without waiting ten minutes.
+    private let now: () -> Date
+    /// Where Connect sends the consent page: the user's browser in
+    /// production, a capture in tests, so the whole grant — state, callback,
+    /// exchange — can run without opening anything.
+    private let openURL: (URL) -> Void
 
     /// True when an older build left an account in the login keychain that
     /// this build cannot see. Offered in Settings as a one-press import —
@@ -130,11 +176,15 @@ final class SpotifyAccount: ObservableObject {
     /// touching the real one. Production always arrives through `shared`.
     init(
         credentials: CredentialStore? = nil,
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        now: @escaping () -> Date = Date.init,
+        openURL: @escaping (URL) -> Void = { _ = NSWorkspace.shared.open($0) }
     ) {
         let store = credentials ?? CredentialStore(service: "com.ctimothe.isla.spotify")
         self.credentials = store
         self.session = session
+        self.now = now
+        self.openURL = openURL
         // Read straight away, on every launch, with no flag guarding it —
         // because neither place this build can store a token asks the user
         // anything. The data-protection keychain answers the app that owns the
@@ -194,7 +244,7 @@ final class SpotifyAccount: ObservableObject {
             .init(name: "code_challenge", value: challenge),
             .init(name: "state", value: state),
         ]
-        NSWorkspace.shared.open(components.url!)
+        openURL(components.url!)
     }
 
     /// The browser lands back here through the app's URL scheme.
@@ -239,7 +289,13 @@ final class SpotifyAccount: ObservableObject {
             "code_verifier=\(Self.formEncoded(verifier))",
         ].joined(separator: "&")
         guard let tokens = await tokenRequest(body: body) else { return }
+        let generation = credentialGeneration
         await store(tokens)
+        // A new grant is Spotify's fresh answer about this account. Whatever
+        // it refused before, under this account or the last one, no longer
+        // stands; the next lookup finds out again. Skipped when a disconnect
+        // overtook the write, which has cleared it already.
+        if credentialGeneration == generation { forgetRefusal() }
     }
 
     /// `application/x-www-form-urlencoded` escaping: everything outside the
@@ -293,6 +349,9 @@ final class SpotifyAccount: ObservableObject {
         credentialGeneration += 1
         saved = [:]
         isConnected = false
+        // The refusal belonged to the account just removed. Kept, it showed
+        // in Settings under the next account and hid that one's heart too.
+        forgetRefusal()
         Task { [credentials] in await credentials.clear() }
     }
 
@@ -344,9 +403,31 @@ final class SpotifyAccount: ObservableObject {
 
     // MARK: - Liked Songs
 
-    func refreshSavedState(trackID: String, attempt: Int = 0) {
-        guard isConnected, saved[trackID] == nil else { return }
-        Task {
+    /// Spotify retired the per-type saved-tracks endpoints for Development
+    /// Mode apps on 2026-03-09 (its February 2026 migration guide) and
+    /// replaced them with `/me/library` and `/me/library/contains`, which
+    /// name what they touch by URI, comma-separated, at most 40 a call. The
+    /// retired paths are why the heart never worked on the built-in client.
+    ///
+    /// The id arrives from AppleScript, so it is checked to be a catalogue id
+    /// — 22 base62 characters — before it goes anywhere near a URL. A local
+    /// file or anything stranger gets no request at all.
+    static func libraryURL(_ path: String, trackID: String) -> URL? {
+        guard trackID.count == 22,
+              trackID.unicodeScalars.allSatisfy({ $0.isASCII && CharacterSet.alphanumerics.contains($0) })
+        else { return nil }
+        var components = URLComponents(string: "https://api.spotify.com/v1/me/\(path)")
+        components?.queryItems = [URLQueryItem(name: "uris", value: "spotify:track:\(trackID)")]
+        return components?.url
+    }
+
+    /// Returns the lookup's task so a test can wait for the answer; the
+    /// heart fires and forgets. Inside a refusal's cooldown it asks nothing.
+    @discardableResult
+    func refreshSavedState(trackID: String, attempt: Int = 0) -> Task<Void, Never>? {
+        guard isConnected, saved[trackID] == nil, mayAsk(),
+              let url = Self.libraryURL("library/contains", trackID: trackID) else { return nil }
+        return Task {
             guard let token = await freshAccessToken() else {
                 // No usable token. Say so, so the heart can hide instead of
                 // pretending: an unliked-looking heart that does nothing when
@@ -355,10 +436,9 @@ final class SpotifyAccount: ObservableObject {
                 return
             }
             tokenUnavailable = false
-            guard let url = URL(string: "https://api.spotify.com/v1/me/tracks/contains?ids=\(trackID)") else { return }
             var request = URLRequest(url: url)
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            guard let (data, response) = try? await URLSession.shared.data(for: request) else {
+            guard let (data, response) = try? await session.data(for: request) else {
                 // Offline or refused mid-flight. Retried, because the entry
                 // stays nil and nothing else would ever ask again — the heart
                 // would show hollow for a liked song for the rest of the track.
@@ -389,27 +469,24 @@ final class SpotifyAccount: ObservableObject {
         }
     }
 
-    func toggleSaved(trackID: String) {
-        guard isConnected else { return }
+    @discardableResult
+    func toggleSaved(trackID: String) -> Task<Void, Never>? {
+        guard isConnected, let url = Self.libraryURL("library", trackID: trackID) else { return nil }
         let wants = !(saved[trackID] ?? false)
         // Optimistic: the heart answers the tap now; a failed request puts
         // it back rather than leaving the tap looking ignored.
         saved[trackID] = wants
-        Task {
+        return Task {
             guard let token = await freshAccessToken() else {
                 saved[trackID] = !wants
                 tokenUnavailable = true
                 return
             }
             tokenUnavailable = false
-            guard let url = URL(string: "https://api.spotify.com/v1/me/tracks?ids=\(trackID)") else {
-                saved[trackID] = !wants
-                return
-            }
             var request = URLRequest(url: url)
             request.httpMethod = wants ? "PUT" : "DELETE"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            let reply = try? await URLSession.shared.data(for: request)
+            let reply = try? await session.data(for: request)
             let status = reply.flatMap { ($0.1 as? HTTPURLResponse)?.statusCode }
             if status == 403 { refuse(reply?.0) }
             if !(status.map { (200..<300).contains($0) } ?? false) {
@@ -462,7 +539,7 @@ final class SpotifyAccount: ObservableObject {
     /// network failure, a refused status, or an unrecognised payload all mean
     /// "unknown", and the caller falls back to title/artist matching.
     func trackMetadata(id: String) async -> TrackMetadata? {
-        guard isConnected, !apiBlocked else { return nil }
+        guard isConnected, mayAsk() else { return nil }
         guard let token = await freshAccessToken() else {
             // Same contract as the saved-state lookup: without a usable
             // token the features that need the id hide rather than sit dead.

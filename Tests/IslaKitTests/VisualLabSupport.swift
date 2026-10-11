@@ -198,7 +198,7 @@ final class LabNetworkGuard: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let url = request.url
         Self.lock.withLock { Self.seen.append(url?.absoluteString ?? "?") }
-        if let url, url.host == "api.spotify.com", url.path.hasSuffix("/me/tracks/contains"),
+        if let url, url.host == "api.spotify.com", url.path.hasSuffix("/me/library/contains"),
            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil) {
             let body = Data((Self.likedSongs ? "[true]" : "[false]").utf8)
             let answer = { [self] in
