@@ -44,6 +44,8 @@ enum SettingsIcon {
     static let lyrics = "quote.bubble"
     /// Word-by-word, as opposed to the line: the glyph is about the words.
     static let wordKaraoke = "text.word.spacing"
+    /// The next line arriving before it is sung: text appended below.
+    static let readAhead = "text.append"
     /// A file arriving. `saveScreenshots` already owns the tray glyph, and an
     /// import is a document being added, not a screenshot being kept.
     static let importLyrics = "doc.badge.plus"
@@ -105,7 +107,7 @@ enum SettingsIcon {
         launchAtLogin, openOnHover, hoverDelay, panelWidth, showCharging, showHeadphones,
         shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
-        musicOnly, lyrics, wordKaraoke, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
+        musicOnly, lyrics, wordKaraoke, readAhead, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
         online, lyricTiming, resetTiming, peek, lockScreen, cardStyle, automationAccess, openSystemSettings,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, clipboardHistory, translate, hideFromRecording,

@@ -386,3 +386,8 @@
 "Launch at Login failed: %@" = "Launch at Login failed: %@";
 "Reset Lyric Timing" = "Reset Lyric Timing";
 "Lyric timing correction" = "Lyric timing correction";
+"Show next line early" = "Show next line early";
+"0.25 s" = "0.25 s";
+"0.5 s" = "0.5 s";
+"0.75 s" = "0.75 s";
+"The island's one-line lyric turns to the next line this much before it is sung. Highlight timing does not change." = "The island's one-line lyric turns to the next line this much before it is sung. Highlight timing does not change.";

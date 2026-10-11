@@ -385,3 +385,8 @@
 "Launch at Login failed: %@" = "Не удалось включить автозапуск: %@";
 "Reset Lyric Timing" = "Сбросить смещение текста";
 "Lyric timing correction" = "Смещение текста песни";
+"Show next line early" = "Следующая строка заранее";
+"0.25 s" = "0,25 с";
+"0.5 s" = "0,5 с";
+"0.75 s" = "0,75 с";
+"The island's one-line lyric turns to the next line this much before it is sung. Highlight timing does not change." = "Однострочный текст на острове переключается на следующую строку на это время раньше, чем её запоют. Подсветка слов не меняется.";

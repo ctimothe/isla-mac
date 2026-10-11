@@ -178,6 +178,14 @@ final class LyricsCoordinator: ObservableObject {
             .dropFirst()
             .sink { [weak self] _ in self?.recheckCurrentTrack() }
             .store(in: &observers)
+        // `$readAhead` publishes before the property changes, so the new value
+        // is taken from the event rather than read back from the store.
+        presentation?.$readAhead
+            .dropFirst()
+            .map { LyricReadAhead(snapping: $0).seconds }
+            .removeDuplicates()
+            .sink { [weak self] seconds in self?.registerBoundaries(readAhead: seconds) }
+            .store(in: &observers)
         reconcileTrack(track: media.track, duration: media.duration)
     }
 
@@ -569,7 +577,14 @@ final class LyricsCoordinator: ObservableObject {
     /// those ends are boundaries beside the starts. Without them the line
     /// went dark on the next quarter-second tick, up to 250 ms after the
     /// voice — the same random lateness the wakes exist to remove.
-    private func registerBoundaries() {
+    ///
+    /// The caption's early turns (`LyricSweep.readAheadStart`) are boundaries
+    /// too, for the same reason: a turn left to the quarter-second grid would
+    /// land up to 250 ms late, which is half the beat it brings forward.
+    /// They are re-registered when the setting changes (`start`), which
+    /// passes the new value because the store has not written it yet when
+    /// that event arrives.
+    private func registerBoundaries(readAhead: TimeInterval? = nil) {
         guard case .ready(let timeline) = availability else {
             media.setLyricBoundaries([], lead: { 0 })
             return
@@ -578,7 +593,9 @@ final class LyricsCoordinator: ObservableObject {
         let presentation = self.presentation
         let lines = timeline.lines
         let ends = lines.indices.compactMap { LyricSweep.effectiveEnd(of: $0, in: lines) }
-        media.setLyricBoundaries(lines.map(\.at) + ends) {
+        let ahead = readAhead ?? presentation?.readAhead ?? 0
+        let early = lines.indices.compactMap { LyricSweep.readAheadStart(before: $0, in: lines, readAhead: ahead) }
+        media.setLyricBoundaries(lines.map(\.at) + ends + early) {
             LyricSweep.lead(
                 precisionSync: media.precisionSync,
                 userOffset: presentation?.userOffset ?? 0,

@@ -559,6 +559,89 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
         ])
     }
 
+    // MARK: - L9 reading lead
+
+    /// ly/READ-01: how much of a real song the one-line caption's reading
+    /// lead touches. For each setting, over every transition in the corpus:
+    /// how many turn early (a transition with an honoured end already turns at
+    /// the end, so it is not counted), how early (the distribution of
+    /// `next.at - T`), what share of the line it leaves that gives away (at
+    /// most 45 percent by construction, measured rather than trusted), and
+    /// any transition whose turn falls before the previous line's final word
+    /// starts. The turn itself is asked of `LyricSweep.readingMoment` — the
+    /// function the caption and the boundary wakes use — probed either side of
+    /// `readAheadStart`, so a disagreement between the two would show here.
+    func testL9ReadingLead() throws {
+        let accepted = try LyricLab.acceptedTracks()
+        var perSetting: [String: Any] = [:]
+        var headline = ""
+        for option in LyricReadAhead.allCases where option != .off {
+            var transitions = 0
+            var early: [Double] = []
+            var surrendered: [Double] = []
+            var cappedByShare = 0
+            var beforeFinalWord = 0
+            var momentDisagreements = 0
+            var tracksAffected = 0
+            var violatingTracks = Set<Int>()
+            for (track, lines) in accepted {
+                var affected = false
+                for next in lines.indices.dropFirst() {
+                    transitions += 1
+                    guard let start = LyricSweep.readAheadStart(
+                        before: next, in: lines, readAhead: option.seconds
+                    ) else { continue }
+                    affected = true
+                    let gap = lines[next].at - lines[next - 1].at
+                    let lead = lines[next].at - start
+                    early.append(lead)
+                    surrendered.append(lead / gap)
+                    if lead < option.seconds - 1e-9 { cappedByShare += 1 }
+                    if let word = lines[next - 1].words.last, start < word.at - 1e-9 {
+                        beforeFinalWord += 1
+                        violatingTracks.insert(track.id)
+                    }
+                    let justBefore = LyricSweep.readingMoment(in: lines, at: start - 0.001, readAhead: option.seconds)
+                    let atStart = LyricSweep.readingMoment(in: lines, at: start, readAhead: option.seconds)
+                    if justBefore.current != next - 1 || atStart.current != nil || atStart.centre != next {
+                        momentDisagreements += 1
+                    }
+                }
+                if affected { tracksAffected += 1 }
+            }
+            let share = LabStats.summary(surrendered)
+            perSetting[String(option.seconds)] = [
+                "transitions": transitions,
+                "transitionsTurningEarly": early.count,
+                "shareOfTransitions": transitions > 0 ? Double(early.count) / Double(transitions) : 0,
+                "tracksWithAnEarlyTurn": tracksAffected,
+                "earlySeconds": LabStats.summary(early),
+                "shareOfPreviousLineSurrendered": share,
+                "maxShareSurrendered": surrendered.max() ?? 0,
+                "cappedBelowTheSetting": cappedByShare,
+                "turnsBeforeThePreviousFinalWord": beforeFinalWord,
+                "tracksTurningBeforeTheFinalWord": violatingTracks.sorted(),
+                "readingMomentDisagreesWithReadAheadStart": momentDisagreements,
+            ] as [String: Any]
+            if option == .half {
+                headline = "0.5 s: \(early.count) of \(transitions) transitions turn early over \(tracksAffected) tracks, "
+                    + "early p50 \(fmt(LabStats.summary(early)["p50"])) s, "
+                    + "share of the previous line given up p50 \(fmt(share["p50"])) max \(fmt(surrendered.max() ?? 0)), "
+                    + "\(cappedByShare) capped by the 45 percent rule, \(beforeFinalWord) before a final word"
+            }
+            if beforeFinalWord > 0 || momentDisagreements > 0 || (surrendered.max() ?? 0) > LyricSweep.maximumReadAheadShare + 1e-9 {
+                LyricLab.finding("L9: \(option.seconds) s: \(beforeFinalWord) before a final word, \(momentDisagreements) disagreements")
+            }
+        }
+        LyricLab.write(section: "L9_reading_lead", [
+            "method": "per setting, every transition of every accepted track: LyricSweep.readAheadStart, probed with LyricSweep.readingMoment either side of the turn",
+            "assumed": "word timing is present only on tracks whose lyricsfile Isla parsed into words; line-timed tracks have no final word to clamp to",
+            "settings": perSetting,
+            "verdict": headline.isEmpty ? "n/a" : "measured",
+            "summary": headline,
+        ])
+    }
+
     // MARK: - L8 cross-surface agreement
 
     /// The island's stage, the caption and the lock card, handed the same

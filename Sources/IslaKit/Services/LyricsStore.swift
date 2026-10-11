@@ -60,6 +60,22 @@ final class LyricsStore: ObservableObject {
     }
     static let wordKaraokeEnabledKey = "lyrics.wordKaraokeEnabled"
 
+    /// "Show next line early", in seconds: how long before it is sung the
+    /// island's one-line lyric turns to the next line, so a singer can read it
+    /// first. One of `LyricReadAhead`'s values, 0.5 until chosen; 0 is a
+    /// choice (Off), which is why an absent key is not read as 0.
+    @Published var readAhead: TimeInterval {
+        didSet {
+            let snapped = LyricReadAhead(snapping: readAhead).seconds
+            if snapped != readAhead {
+                readAhead = snapped
+                return
+            }
+            defaults.set(readAhead, forKey: LyricsStore.readAheadKey)
+        }
+    }
+    static let readAheadKey = "lyrics.readAhead"
+
     /// "Lyric Delay": positive shows every line later. See `LyricSweep.lead`.
     @Published var userOffset: TimeInterval {
         didSet {
@@ -141,6 +157,8 @@ final class LyricsStore: ObservableObject {
         }
         wordKaraokeEnabled = defaults.bool(forKey: Self.wordKaraokeEnabledKey)
         userOffset = defaults.double(forKey: Self.offsetKey)
+        readAhead = (defaults.object(forKey: Self.readAheadKey) as? Double)
+            .map { LyricReadAhead(snapping: $0).seconds } ?? LyricReadAhead.standard.seconds
         localTrackOffsets = Self.loadLocalTrackOffsets(from: localOffsetsURL)
         unassignedLegacyOffsets = Self.loadUnassignedLegacyOffsets(from: unassignedOffsetsURL)
     }
