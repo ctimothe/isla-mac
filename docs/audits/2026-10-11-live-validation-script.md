@@ -120,6 +120,7 @@ Everything the headless work could not settle, as short sessions to run on a phy
 
 - Settles: F-015, F-016, F-054, checklist.md:210-212 CPU gate, memory: duplicate registrations
 - Pass: Non-music tabs show near-zero CPU, wake-ups are recorded next to the checklist's 0.3 percent figure, no process survives Quit, and one registration exists.
+- Added 2026-10-11 by ms/MS-25: for step 1, run `bash Scripts/measure-idle.sh <scenario> [samples]` once per scenario instead of reading `top` by eye (`closed-idle`, `closed-playing`, then `tab-music 12`, `tab-settings 12`, `tab-shelf 12`, `tab-clipboard 12`). It holds the display awake, prints medians for the app and the helper, and ends with a line to paste into the "Awake-idle budget" rows under the performance gate in checklist.md. Install a build of the tree before MS-12, MS-13, MS-15 and MS-16 first: those rows are their "before".
 
 
 ## 18. S-LEAD Lyric lead per player and per route (20 min)
