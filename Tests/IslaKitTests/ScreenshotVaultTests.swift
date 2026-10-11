@@ -203,7 +203,7 @@ final class ScreenshotVaultTests: XCTestCase {
         try Data([4]).write(to: legacy)
 
         XCTAssertEqual(vault.usage().files, 2)
-        vault.clear()
+        vault.clear { _ in }
         // The vault runs its work on one serial queue, so a save queued after
         // the clear answers only once the clear has finished.
         _ = await vault.saved(Data([5]), at: date.addingTimeInterval(60))
@@ -212,6 +212,78 @@ final class ScreenshotVaultTests: XCTestCase {
             Set(discarded.urls.map(\.lastPathComponent)),
             Set([ours.lastPathComponent, legacy.lastPathComponent])
         )
+    }
+
+    /// Delete These Files used to call `clear()` and then reload the Shelf and
+    /// the size label at once, while the trash had not even started on the
+    /// vault's queue: the cards and the size stayed until the next visit
+    /// (F-034). Settings now refreshes inside this completion, so it has to
+    /// fire once, on the main thread, and only after the files are gone — the
+    /// usage figure it reads there must already be zero.
+    ///
+    /// The discard seam deletes inside the temporary folder; nothing here
+    /// ever reaches the owner's Trash.
+    func testClearCallsBackOnMainAfterTheFilesAreGone() async throws {
+        let (root, paths) = Self.temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let vault = ScreenshotVault(paths: paths, discard: { try FileManager.default.removeItem(at: $0) })
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let firstSaved = await vault.saved(Data([1]), at: date)
+        let first = try XCTUnwrap(firstSaved)
+        let secondSaved = await vault.saved(Data([2]), at: date.addingTimeInterval(1))
+        let second = try XCTUnwrap(secondSaved)
+        XCTAssertEqual(vault.usage().files, 2)
+
+        let done = expectation(description: "clear answers")
+        vault.clear { moved in
+            XCTAssertTrue(Thread.isMainThread, "Settings refreshes SwiftUI state in here")
+            XCTAssertEqual(moved, 2)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: first.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: second.path))
+            let usage = vault.usage()
+            XCTAssertEqual(usage.files, 0)
+            XCTAssertEqual(usage.bytes, 0)
+            done.fulfill()
+        }
+        // Over-fulfilment fails the test, so a second answer would show here.
+        await fulfillment(of: [done], timeout: 5)
+    }
+
+    /// The count is what reached the Trash, not what was asked to: a volume
+    /// with no Trash refuses the move, and "Moved 2 files" would then be a
+    /// claim about a file still sitting in the folder.
+    func testClearCountsOnlyTheFilesThatMoved() async throws {
+        let (root, paths) = Self.temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let refused = "Screenshot \(expectedStamp(of: date)).png"
+        let vault = ScreenshotVault(paths: paths, discard: { url in
+            if url.lastPathComponent == refused { throw CocoaError(.fileWriteNoPermission) }
+            try FileManager.default.removeItem(at: url)
+        })
+        _ = await vault.saved(Data([1]), at: date)
+        _ = await vault.saved(Data([2]), at: date.addingTimeInterval(1))
+
+        let moved: Int = await withCheckedContinuation { continuation in
+            vault.clear { continuation.resume(returning: $0) }
+        }
+        XCTAssertEqual(moved, 1)
+        XCTAssertEqual(vault.usage().files, 1)
+    }
+
+    /// With no folder there is nothing to clear and nothing is created, but
+    /// the caller still hears back — a row disabled while clearing would
+    /// otherwise stay disabled for good.
+    func testClearWithNoFolderStillAnswers() async throws {
+        let (root, paths) = Self.temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let vault = ScreenshotVault(paths: paths, discard: { _ in XCTFail("nothing to discard") })
+
+        let moved: Int = await withCheckedContinuation { continuation in
+            vault.clear { continuation.resume(returning: $0) }
+        }
+        XCTAssertEqual(moved, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.screenshotDirectory.path))
     }
 
     private static func temporaryPaths() -> (URL, AppPaths) {

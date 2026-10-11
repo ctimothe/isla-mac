@@ -368,3 +368,5 @@
 "AirDrop cannot send these files." = "AirDrop не может отправить эти файлы.";
 "Release to add to the Shelf" = "Отпустите, чтобы положить на полку";
 "Drop to keep on the Shelf" = "Отпустите, чтобы оставить на полке";
+"Moved 1 file to the Trash." = "Перемещён в Корзину 1 файл.";
+"Moved %d files to the Trash." = "Перемещено в Корзину файлов: %d.";
