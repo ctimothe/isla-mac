@@ -250,7 +250,6 @@
 
 /* Отказы Spotify */
 "Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet." = "Spotify отказал этой учётной записи. Пока Spotify не проверит Isla, доступ есть только у вручную добавленных учётных записей, поэтому «Любимые треки» здесь пока не работают.";
-"Spotify refused this account. Liked Songs needs Spotify Premium." = "Spotify отказал этой учётной записи. Для «Любимых треков» нужен Spotify Premium.";
 "Spotify refused this account's library request." = "Spotify отказал в доступе к медиатеке этой учётной записи.";
 
 /* Диагностика */
@@ -337,3 +336,4 @@
 "%d points" = "%d пт";
 "%.2f seconds" = "%.2f секунды";
 "%+.2f seconds" = "%+.2f секунды";
+"Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify отказал в «Любимых треках» и сослался на Premium. Spotify требует его от регистрации самой Isla, так что дело может быть не в вашей подписке.";

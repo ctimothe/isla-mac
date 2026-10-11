@@ -322,6 +322,20 @@ struct LockScreenCard: View {
             heart
         }
         .animation(reduceMotion ? nil : Theme.contentAnimation, value: pane)
+        // On the header, not the heart. The heart is not drawn while Spotify
+        // refuses the account, and while its task was the only thing that
+        // asked, nothing ever asked again: one 403 hid it for good. Here the
+        // lookup runs for every Spotify track whether or not the heart shows,
+        // and the account decides whether its cooldown allows a request.
+        // Keyed on the connection too, so connecting with the card up asks.
+        .task(id: HeartLookup(trackID: media.spotifyTrackID, connected: spotify.isConnected)) {
+            if let id = media.spotifyTrackID { spotify.refreshSavedState(trackID: id) }
+        }
+    }
+
+    private struct HeartLookup: Equatable {
+        let trackID: String?
+        let connected: Bool
     }
 
     /// The cover shrinks when a pane needs the room, and the card does not.
@@ -925,7 +939,6 @@ struct LockScreenCard: View {
                 .accessibilityLabel(
                     isSaved ? localized("Remove from Liked Songs") : localized("Add to Liked Songs")
                 )
-                .task(id: id) { spotify.refreshSavedState(trackID: id) }
             }
         }
     }

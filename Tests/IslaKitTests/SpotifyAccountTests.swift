@@ -179,6 +179,207 @@ final class SpotifyAccountTests: XCTestCase {
         let token = await account.freshAccessToken()
         XCTAssertEqual(token, "test-access")
     }
+
+    // MARK: - Liked Songs on the library endpoints, and a refusal that recovers
+
+    /// A real-shaped catalogue id: 22 base62 characters, the only shape the
+    /// account will build a library URL around.
+    private let likedID = "4uLU6hMCjMI75M1A2tKUQb"
+
+    /// A connected account over a seeded, unexpired token, so every request
+    /// below goes straight to the stub with no refresh in front of it.
+    private func connectedAccount(
+        session: URLSession,
+        now: @escaping () -> Date = Date.init,
+        openURL: @escaping (URL) -> Void = { _ in }
+    ) async -> SpotifyAccount {
+        let store = makeStore()
+        await store.storeTokens(
+            access: "test-access",
+            refresh: "test-refresh",
+            expiresAt: String(Date().timeIntervalSince1970 + 3600)
+        )
+        let account = SpotifyAccount(credentials: store, session: session, now: now, openURL: openURL)
+        await waitForConnected(account)
+        return account
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<150 where !condition() {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// The `uris` value a request carried, decoded.
+    nonisolated private static func uris(_ request: URLRequest) -> String? {
+        request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+            .queryItems?.first(where: { $0.name == "uris" })?.value
+    }
+
+    /// Spotify moved Development Mode apps off `/me/tracks/contains` on
+    /// 2026-03-09: the library is asked with a track URI now. The stub answers
+    /// only that question, so a saved flag proves both the path and the URI —
+    /// and that the lookup went through the injected session at all, which it
+    /// did not while it was hard-wired to `URLSession.shared`.
+    func testSavedStateAsksTheLibraryWithATrackURI() async {
+        let id = likedID
+        let session = stubSession { request in
+            guard request.httpMethod == "GET",
+                  request.url?.host == "api.spotify.com",
+                  request.url?.path == "/v1/me/library/contains",
+                  Self.uris(request) == "spotify:track:\(id)" else { return (404, Data()) }
+            return (200, Data("[true]".utf8))
+        }
+        let account = await connectedAccount(session: session)
+
+        await account.refreshSavedState(trackID: id)?.value
+
+        XCTAssertEqual(account.saved[id], true)
+        XCTAssertFalse(account.apiBlocked)
+    }
+
+    /// The heart saves with PUT and removes with DELETE on `/me/library`, each
+    /// naming the track by URI, and a 200 keeps the optimistic answer.
+    func testToggleSavedPutsThenDeletesTheTrackURI() async {
+        let id = likedID
+        let wire = Wire { request in
+            request.url?.path == "/v1/me/library" ? (200, Data()) : (404, Data())
+        }
+        let session = stubSession(wire.answer)
+        let account = await connectedAccount(session: session)
+
+        await account.toggleSaved(trackID: id)?.value
+        XCTAssertEqual(account.saved[id], true, "a 200 must keep the heart filled")
+        await account.toggleSaved(trackID: id)?.value
+        XCTAssertEqual(account.saved[id], false, "a 200 must keep the heart hollow")
+
+        XCTAssertEqual(wire.seen, [
+            "PUT /v1/me/library spotify:track:\(id)",
+            "DELETE /v1/me/library spotify:track:\(id)",
+        ])
+    }
+
+    /// One 403 used to block the Web API for the life of the process: the
+    /// only resets were in success branches that the block itself closed.
+    /// Ten minutes on, the next lookup asks again, and a 200 lifts it.
+    func testARefusedAccountRecoversAfterTheCooldown() async {
+        let id = likedID
+        let wire = Wire(queue: [
+            (403, Data(#"{"error":{"status":403,"message":"Premium required"}}"#.utf8)),
+            (200, Data("[true]".utf8)),
+        ])
+        let session = stubSession(wire.answer)
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        let account = await connectedAccount(session: session, now: { clock })
+
+        await account.refreshSavedState(trackID: id)?.value
+        XCTAssertTrue(account.apiBlocked)
+        XCTAssertEqual(account.refusal, .premiumRequired)
+
+        clock += 601
+        await account.refreshSavedState(trackID: id)?.value
+
+        XCTAssertFalse(account.apiBlocked, "a refused account must be asked again after the cooldown")
+        XCTAssertNil(account.refusal)
+        XCTAssertEqual(account.saved[id], true)
+    }
+
+    /// The cooldown is a cooldown: a refused account is not asked again on
+    /// every track change inside it.
+    func testNothingIsAskedInsideTheCooldown() async {
+        let id = likedID
+        let wire = Wire { _ in (403, Data()) }
+        let session = stubSession(wire.answer)
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        let account = await connectedAccount(session: session, now: { clock })
+
+        await account.refreshSavedState(trackID: id)?.value
+        XCTAssertTrue(account.apiBlocked)
+
+        clock += 599
+        await account.refreshSavedState(trackID: id)?.value
+        _ = await account.trackMetadata(id: id)
+
+        XCTAssertEqual(wire.seen.count, 1, "nothing may be asked inside the cooldown")
+        XCTAssertTrue(account.apiBlocked)
+    }
+
+    /// Disconnecting ends the account the refusal was about. Settings used to
+    /// keep showing the first account's refusal under the next one.
+    func testDisconnectClearsTheRefusal() async {
+        let session = stubSession { _ in (403, Data()) }
+        let account = await connectedAccount(session: session)
+        await account.refreshSavedState(trackID: likedID)?.value
+        XCTAssertTrue(account.apiBlocked)
+
+        account.disconnect()
+
+        XCTAssertFalse(account.apiBlocked)
+        XCTAssertNil(account.refusal)
+        XCTAssertFalse(account.tokenUnavailable)
+    }
+
+    /// A new grant is a new answer from Spotify about this account, so the
+    /// old refusal goes with it.
+    func testANewGrantClearsTheRefusal() async throws {
+        let tokens = Data(#"{"access_token":"granted","refresh_token":"granted-refresh","expires_in":3600}"#.utf8)
+        let session = stubSession { request in
+            request.url?.host == "accounts.spotify.com" ? (200, tokens) : (403, Data())
+        }
+        var opened: URL?
+        let account = await connectedAccount(session: session, openURL: { opened = $0 })
+        await account.refreshSavedState(trackID: likedID)?.value
+        XCTAssertTrue(account.apiBlocked)
+
+        account.beginAuthorization()
+        let authorize = try XCTUnwrap(opened, "Connect must open the consent page through the seam")
+        let state = try XCTUnwrap(
+            URLComponents(url: authorize, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "state" })?.value
+        )
+        var callback = URLComponents(string: "isla://spotify-callback")!
+        callback.queryItems = [.init(name: "code", value: "granted-code"), .init(name: "state", value: state)]
+        account.handleCallback(callback.url!)
+        await waitUntil { !account.apiBlocked }
+
+        XCTAssertFalse(account.apiBlocked, "a completed grant must lift the old refusal")
+        XCTAssertNil(account.refusal)
+        XCTAssertFalse(account.tokenUnavailable)
+        XCTAssertTrue(account.isConnected)
+    }
+}
+
+/// Records every request the stub is asked and answers it, from the
+/// session's background queue. Tests capture this one reference instead of a
+/// local `var`: a closure formed on the main actor that captures mutable
+/// state is isolated to it, and calling it off the main thread traps.
+private final class Wire: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+    private var queue: [(Int, Data)]
+    private let respond: @Sendable (URLRequest) -> (Int, Data)?
+
+    /// Answers `queue` in order, then 500 for anything after it.
+    init(queue: [(Int, Data)]) {
+        self.queue = queue
+        self.respond = { _ in (500, Data()) }
+    }
+
+    init(_ respond: @escaping @Sendable (URLRequest) -> (Int, Data)?) {
+        self.queue = []
+        self.respond = respond
+    }
+
+    var seen: [String] { lock.withLock { lines } }
+
+    func answer(_ request: URLRequest) -> (Int, Data)? {
+        let uris = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+            .queryItems?.first(where: { $0.name == "uris" })?.value
+        return lock.withLock {
+            lines.append("\(request.httpMethod ?? "?") \(request.url?.path ?? "?") \(uris ?? "-")")
+            return queue.isEmpty ? respond(request) : queue.removeFirst()
+        }
+    }
 }
 
 /// Serves canned HTTP answers through a real URLSession, so the account's

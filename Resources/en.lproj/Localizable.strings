@@ -251,7 +251,6 @@
 
 /* Spotify refusals */
 "Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet." = "Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet.";
-"Spotify refused this account. Liked Songs needs Spotify Premium." = "Spotify refused this account. Liked Songs needs Spotify Premium.";
 "Spotify refused this account's library request." = "Spotify refused this account's library request.";
 
 /* Diagnostics */
@@ -338,3 +337,4 @@
 "%d points" = "%d points";
 "%.2f seconds" = "%.2f seconds";
 "%+.2f seconds" = "%+.2f seconds";
+"Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause.";

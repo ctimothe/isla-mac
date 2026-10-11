@@ -146,9 +146,9 @@ final class VisualLabLockCardTests: VisualLabCase {
         if pauseAfter { LabFixtures.pause(track, on: stores.media) }
         stores.lyrics.present(lyrics)
         if spotifyTrack {
-            stores.media.setSpotifyTrackIDForTests("labtrack0000000000001")
-            SpotifyAccount.shared.refreshSavedState(trackID: "labtrack0000000000001")
-            for _ in 0..<100 where SpotifyAccount.shared.saved["labtrack0000000000001"] == nil
+            stores.media.setSpotifyTrackIDForTests("labtrack00000000000001")
+            SpotifyAccount.shared.refreshSavedState(trackID: "labtrack00000000000001")
+            for _ in 0..<100 where SpotifyAccount.shared.saved["labtrack00000000000001"] == nil
                 && !LabNetworkGuard.slowSpotify {
                 try? await Task.sleep(for: .milliseconds(10))
             }

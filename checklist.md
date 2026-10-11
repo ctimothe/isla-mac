@@ -104,7 +104,15 @@ are the exception the design did not anticipate:
   feed with. `UpdateCheckTests` holds the default and the request.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
-  keychain.
+  keychain. Since 2026-10-11 the heart asks `GET /me/library/contains` and
+  saves with `PUT`/`DELETE /me/library`, naming the track as
+  `spotify:track:<id>`: Spotify retired the old saved-tracks endpoints for
+  Development Mode apps on 2026-03-09. The scopes are unchanged
+  (`user-library-read user-library-modify`); whether the new endpoints need
+  more for a track is owed to the live run (script S10, step 7), and adding
+  a scope would make every connected user consent again, so it is the
+  owner's call. A refusal is asked about again after ten minutes, and a
+  disconnect or a new grant clears it (`SpotifyAccountTests`).
 - **Lock-screen card** (Settings › Lock Screen, default on) presents the
   player over the shield, in a window of its own, finished as Transparent,
   Tinted or Solid and sized Standard or Compact. The

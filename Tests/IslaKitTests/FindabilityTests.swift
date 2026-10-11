@@ -112,4 +112,17 @@ final class FindabilityTests: XCTestCase {
         XCTAssertEqual(SpotifyAccount.Refusal.from(Data("<html>".utf8)), .other)
         XCTAssertEqual(SpotifyAccount.Refusal.from(nil), .other)
     }
+
+    /// Spotify demands Premium of the developer who registered a Development
+    /// Mode app, not of everyone who uses it. The note used to tell the
+    /// listener their own plan was the problem — something a Premium listener
+    /// could do nothing about, and a free listener would pay to not fix.
+    func testAPremiumRefusalDoesNotAddressTheListener() {
+        let explanation = SpotifyAccount.Refusal.premiumRequired.explanation
+        XCTAssertEqual(
+            explanation,
+            "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause."
+        )
+        XCTAssertFalse(explanation.contains("needs Spotify Premium"))
+    }
 }
