@@ -588,11 +588,37 @@ struct LockScreenCard: View {
     }
 
     private var playerPane: some View {
-        VStack(spacing: 0) {
+        let showsBar = Self.showsSeekBar(duration: media.duration)
+        return VStack(spacing: 0) {
             Spacer(minLength: 0)
-            seekBar
+            // Hidden in place rather than removed: the card's layout is fixed
+            // by design, and taking the bar out of the stack would let the
+            // spacers close over it and move the transport a stream away from
+            // where it sits for a song. `hidden()` keeps the bar's size and
+            // takes it out of drawing, hit testing and VoiceOver at once.
+            // Opacity with `accessibilityHidden(true)` was tried first and
+            // left the slider and its "0:00" in reading order: the card's own
+            // `accessibilityHidden(pane == .output)` sits outside it, and an
+            // outer `false` wins over an inner `true` (measured in
+            // LockCardAccessibilityTests).
+            if showsBar {
+                seekBar
+            } else {
+                seekBar.hidden()
+            }
             Spacer(minLength: 0)
         }
+    }
+
+    /// Whether the seek bar is drawn for a track of this length.
+    ///
+    /// A live stream or a browser tab reports no length, and the card drew a
+    /// full-width bar reading 0:00 / -0:00 whose drags were all refused by the
+    /// guards in its own gesture (F-031) — a control that looked broken rather
+    /// than absent, while the panel already hid its scrubber in that state.
+    /// A length that is not finite cannot place a seek either.
+    static func showsSeekBar(duration: TimeInterval) -> Bool {
+        duration.isFinite && duration > 0
     }
 
     /// The words, centred on the line being sung.

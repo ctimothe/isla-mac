@@ -108,4 +108,25 @@ final class LockCardAccessibilityTests: XCTestCase {
         let unlabelled = root.all(role: "AXImage").filter { $0.label.isEmpty && $0.title.isEmpty }
         XCTAssertTrue(unlabelled.isEmpty, root.dump)
     }
+
+    /// A stream with no length draws no seek bar (F-031), and VoiceOver must
+    /// not find one either: the bar is only made invisible, so the card keeps
+    /// its spacing, and a slider reading "0:00 of 0:00" left in reading order
+    /// would be the same dead control the eye no longer sees. The transport
+    /// stays where it is.
+    func testAStreamWithNoLengthHasNoSliderToFind() async {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+
+        await LabFixtures.play(LabFixtures.Track(duration: 0, elapsed: 0, source: "Radio"), on: isolated.stores.media)
+        let card = LockScreenCard(
+            media: isolated.stores.media, lyrics: isolated.stores.lyrics, audio: Self.audio(), initialPane: .player
+        )
+        .defaultAppStorage(isolated.suite)
+        let root = await AXProbe.tree(of: card, size: LockScreenCard.size(for: .standard))
+
+        XCTAssertNotNil(root.first(label: "Pause"), "the player pane did not render\n\(root.dump)")
+        XCTAssertNil(root.first(label: "Playback Position"), "a dead seek bar is still in reading order\n\(root.dump)")
+        XCTAssertTrue(root.all { $0.value == "0:00" || $0.value == "-0:00" }.isEmpty, "the bar's times are still read\n\(root.dump)")
+    }
 }
