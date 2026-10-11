@@ -357,3 +357,5 @@
 "Move until the line lights with the voice." = "Move until the line lights with the voice.";
 "Earlier" = "Earlier";
 "Later" = "Later";
+"%@ · %@ · in %@" = "%@ · %@ · in %@";
+"%@ · in %@" = "%@ · in %@";

@@ -116,12 +116,22 @@ struct ShelfPane: View {
     ///
     /// The leading slot holds one line: the count while there is a
     /// selection, otherwise the shelf's last notice, if it has one.
+    ///
+    /// With cards picked the footer is the Shelf's action bar. Quick Look and
+    /// AirDrop — the two things a shelf is most often kept for besides a drag
+    /// — with Copy and Show in Finder lived only in the right-click menu, and
+    /// a trackpad user who never right-clicks never found them (F-037). The
+    /// deselect ✕ sits with the count it clears, as a token's close does,
+    /// and away from Remove, so a near miss on one never lands on the other.
     private var footer: some View {
         HStack(spacing: 10) {
             if !shelf.selection.isEmpty {
-                Text(localized("%d selected", shelf.selection.count))
-                    .islandFont(.caption, weight: .regular)
-                    .foregroundStyle(Theme.tertiary)
+                HStack(spacing: 2) {
+                    Text(localized("%d selected", shelf.selection.count))
+                        .islandFont(.caption, weight: .regular)
+                        .foregroundStyle(Theme.tertiary)
+                    ShelfBarButton(symbol: "xmark", title: localized("Deselect")) { shelf.clearSelection() }
+                }
             } else if let notice = shelf.notice {
                 // Two lines at most: the eviction sentence ends on what
                 // matters most — the files themselves are untouched — and
@@ -135,16 +145,7 @@ struct ShelfPane: View {
             }
             Spacer(minLength: 0)
             if !shelf.selection.isEmpty {
-                // The word alone made a 44x13 target right beside the
-                // destructive Clear (F-014): a near miss there arms Clear.
-                Button { shelf.clearSelection() } label: {
-                    Text(localized("Deselect"))
-                        .frame(minWidth: Theme.minimumHitSize.width, minHeight: Theme.minimumHitSize.height)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(PanelButtonStyle())
-                .islandFont(.caption)
-                .foregroundStyle(Theme.secondary)
+                actionBar
                 ConfirmTextButton(
                     title: localized("Remove %d", shelf.selection.count),
                     armedTitle: localized("Remove %d from Shelf", shelf.selection.count)
@@ -169,6 +170,30 @@ struct ShelfPane: View {
         .onChange(of: shelf.notice) { _, notice in
             if let notice { Announcer.shared.announce(notice.text) }
         }
+    }
+
+    /// The selection's verbs, in the card menu's order. Each acts on the
+    /// picked cards a drag would carry — in shelf order, without a card
+    /// whose disk is away — and the bar goes quiet when that leaves nothing.
+    /// Copy takes the first of them: the pasteboard path writes one file with
+    /// its image data, and several at once is a change of its own.
+    private var actionBar: some View {
+        let cards = shelf.selectedCards
+        return HStack(spacing: 2) {
+            ShelfBarButton(symbol: "eye", title: localized("Quick Look")) {
+                ShelfSharing.quickLook(cards.map(\.url))
+            }
+            ShelfBarButton(symbol: "dot.radiowaves.up.forward", title: localized("AirDrop")) {
+                ShelfSharing.airDrop(cards.map(\.url))
+            }
+            ShelfBarButton(symbol: "doc.on.doc", title: localized("Copy")) {
+                if let first = cards.first { shelf.copy(first) }
+            }
+            ShelfBarButton(symbol: "folder", title: localized("Show in Finder")) {
+                shelf.reveal(cards)
+            }
+        }
+        .disabled(cards.isEmpty)
     }
 }
 
@@ -219,7 +244,13 @@ private struct ShelfCard: View {
             // and worked out; "5 min. ago" is known at a glance, and it is what
             // tells two captures of the same minute's session apart.
             VStack(spacing: 1) {
-                Text(item.name)
+                // Cut by `ShelfItem.compactName`, which keeps the last word —
+                // the "15.04.44" that tells one capture from the next — where
+                // a middle cut kept "Scree" and ".44.png" (H-025). The middle
+                // truncation stays only as a backstop for a pixel of
+                // difference between the measure and the drawing. The whole
+                // name is the card's tool tip, on the drag view below.
+                Text(Self.fittedName(item.name))
                     .islandFont(.caption, weight: .regular)
                     .foregroundStyle(Theme.secondary)
                     .lineLimit(1)
@@ -246,9 +277,9 @@ private struct ShelfCard: View {
             }
             .frame(height: 24, alignment: .top)
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, ShelfItem.cardInset)
         .padding(.vertical, 8)
-        .frame(width: 86, height: 92)
+        .frame(width: ShelfItem.cardWidth, height: 92)
         .coordinateSpace(.named(Self.space))
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -290,7 +321,8 @@ private struct ShelfCard: View {
                 onPress: { pressed in isPressed = pressed },
                 // A ⌘-drag moved the file, or the Trash took it: the card
                 // follows it, or leaves with it (F-020).
-                onMoved: { urls in shelf.followMove(urls) }
+                onMoved: { urls in shelf.followMove(urls) },
+                toolTip: item.name
             )
         )
         .overlay(alignment: .topTrailing) {
@@ -309,14 +341,22 @@ private struct ShelfCard: View {
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // Grouped as Finder groups a file's menu: what it is, looking at it,
+        // sending it on, where it lives, and the destructive verb last and
+        // apart (M-14). The header says which file this is before anything
+        // is done to it (M-23).
         .contextMenu {
+            CardMenuHeader(item: item)
+            Divider()
             Button("Quick Look") { ShelfSharing.quickLook(shelf.dragURLs(startingAt: item)) }
             Button("Open") { shelf.open(item) }
-            Button("Copy") { shelf.copy(item) }
+            Divider()
             Button("AirDrop") { ShelfSharing.airDrop(shelf.dragURLs(startingAt: item)) }
+            Button("Copy") { shelf.copy(item) }
+            Divider()
             Button("Show in Finder") { shelf.reveal(item) }
             Divider()
-            Button("Remove from Shelf") { shelf.remove(item) }
+            Button("Remove from Shelf", role: .destructive) { shelf.remove(item) }
         }
         // One element per card, for VoiceOver and every other assistive
         // client. Without it a card was not an element at all: its name and
@@ -355,6 +395,21 @@ private struct ShelfCard: View {
         .animation(Theme.contentAnimation, value: isSelected)
     }
 
+    /// Names already fitted, by name. A pick re-draws every card on the shelf
+    /// and fitting one measures it once per character it gives up — sixty
+    /// captures were some fifteen hundred measurements on a click. A shelf
+    /// holds sixty names, so the cache is emptied rather than ordered when it
+    /// outgrows a few shelves' worth.
+    private static var fittedNames: [String: String] = [:]
+
+    private static func fittedName(_ name: String) -> String {
+        if let fitted = fittedNames[name] { return fitted }
+        if fittedNames.count >= 4 * ShelfStore.limit { fittedNames.removeAll() }
+        let fitted = ShelfItem.compactName(name, fitting: ShelfItem.cardNameWidth, measure: ShelfItem.measureCardName)
+        fittedNames[name] = fitted
+        return fitted
+    }
+
     /// What the card's second line says, then whether it is picked.
     ///
     /// The age is worked out here rather than read from the drawn line, which
@@ -373,5 +428,52 @@ private struct ShelfCard: View {
         }
         if isSelected { parts.append(localized("Selected")) }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// The card menu's first line: kind, size and folder, or the disk an offline
+/// card waits for. Disabled — it is a label, not a verb.
+///
+/// A view of its own so the file is read when the menu is built, not with
+/// the card: a context menu's items are written inside the card's body, and
+/// anything computed there runs on every pass of every card (the reason
+/// AirDrop's availability is asked on the click, see `ShelfSharing.airDrop`).
+private struct CardMenuHeader: View {
+    let item: ShelfItem
+
+    var body: some View {
+        Button(item.menuHeader()) {}
+            .disabled(true)
+    }
+}
+
+/// One verb of the Shelf's action bar: a glyph in a 24 pt square, its word
+/// in the tool tip and for VoiceOver.
+///
+/// Glyphs, not words: "Быстрый просмотр", "Показать в Finder" and their
+/// neighbours do not fit beside the count and "Убрать 2" in a 480 pt panel,
+/// and a cut verb is worse than none. They are the glyphs the system uses for
+/// the same verbs, so they are read the way they are read in Finder.
+private struct ShelfBarButton: View {
+    let symbol: String
+    let title: String
+    let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
+
+    /// The bar's square: the caption-sized floor (`Theme.minimumHitSize`) is
+    /// for a word; a lone glyph needs the square to be found by the pointer.
+    static let side: CGFloat = 24
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .islandFont(.body, weight: .regular)
+                .foregroundStyle(isEnabled ? Theme.secondary : Theme.tertiary)
+                .frame(width: Self.side, height: Self.side)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PanelButtonStyle())
+        .help(title)
+        .accessibilityLabel(title)
     }
 }

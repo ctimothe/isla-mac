@@ -819,6 +819,116 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertEqual(store.dragURLs(startingAt: grabbed), urls, "Quick Look and AirDrop keep shelf order")
     }
 
+    // MARK: The card's name (H-025)
+
+    /// A screenshot's name is the same as every other screenshot's until its
+    /// last word, so a cut in the middle — what `.truncationMode(.middle)` did
+    /// at 86 pt — kept "Scree" and ".44.png" and threw away the hour and the
+    /// minute: every capture on the shelf read "Scree….44.png". The tail is
+    /// what tells two of them apart, so the tail is what is kept whole.
+    func testCompactNameKeepsTheDistinguishingTail() {
+        let capture = "Screenshot 2026-10-11 at 15.04.44.png"
+        XCTAssertEqual(ShelfItem.compactName(capture, budget: 16), "Scr…15.04.44.png")
+        XCTAssertEqual(ShelfItem.compactName(capture, budget: 14), "S…15.04.44.png")
+        // The card's own budget: the head goes before any of the tail does.
+        XCTAssertEqual(ShelfItem.compactName(capture, budget: 13), "…15.04.44.png")
+        XCTAssertEqual(ShelfItem.compactName("Meeting notes.txt", budget: 13), "Mee…notes.txt")
+        // A name that fits is returned whole, including one exactly at the budget.
+        XCTAssertEqual(ShelfItem.compactName("todo.md", budget: 13), "todo.md")
+        XCTAssertEqual(ShelfItem.compactName("Invoice42.pdf", budget: 13), "Invoice42.pdf")
+    }
+
+    /// With no word to keep, the stem is cut with its tail weighted: a
+    /// camera's IMG_… names and a download's hash differ at the end too.
+    /// The extension always survives, unless it alone is most of the budget.
+    func testCompactNameWithoutAWordKeepsTheEndOfTheStemAndTheExtension() {
+        XCTAssertEqual(ShelfItem.compactName("IMG_20261011_150444.jpg", budget: 13), "IM…150444.jpg")
+        // The last word is longer than the budget: cut like a name with none,
+        // and a space left hanging before the ellipsis goes.
+        XCTAssertEqual(ShelfItem.compactName("a verylongnamewithoutanybreaks.txt", budget: 13), "a…breaks.txt")
+        // No extension at all.
+        XCTAssertEqual(ShelfItem.compactName("README-final-version-22", budget: 10), "REA…ion-22")
+        for budget in 4...20 {
+            XCTAssertLessThanOrEqual(
+                ShelfItem.compactName("Screenshot 2026-10-11 at 15.04.44.png", budget: budget).count, budget,
+                "budget \(budget)"
+            )
+        }
+    }
+
+    /// The budget the card asks for is the one that fits its 74 pt column in
+    /// the caption font, measured, not guessed from a character count: the
+    /// spec's "Scr…15.04.44.png" is 86 pt at 10 pt, and SwiftUI would have cut
+    /// it a second time, back down to "Sc…4.44.png".
+    func testCompactNameFitsTheCardsColumn() {
+        let capture = "Screenshot 2026-10-11 at 15.04.44.png"
+        // With a stand-in measure of one point per character, fitting a width
+        // is the budget of that many characters.
+        XCTAssertEqual(ShelfItem.compactName(capture, fitting: 13) { CGFloat($0.count) }, "…15.04.44.png")
+        XCTAssertEqual(ShelfItem.compactName("todo.md", fitting: 13) { CGFloat($0.count) }, "todo.md")
+
+        let fitted = ShelfItem.compactName(capture, fitting: ShelfItem.cardNameWidth, measure: ShelfItem.measureCardName)
+        XCTAssertTrue(fitted.hasSuffix("15.04.44.png"), fitted)
+        XCTAssertLessThanOrEqual(ShelfItem.measureCardName(fitted), ShelfItem.cardNameWidth)
+    }
+
+    // MARK: The card menu's header (M-23)
+
+    /// The menu opens on what the card is: its kind, its size and the folder
+    /// it is in, so a person can tell which of two same-named files they
+    /// right-clicked before acting on it.
+    func testTheMenuHeaderSaysKindSizeAndFolder() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Shelf Header \(UUID().uuidString.prefix(6))", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("notes.txt")
+        try Data(repeating: 65, count: 2_048).write(to: file)
+        let item = ShelfItem(url: file, icon: NSImage())
+
+        let header = item.menuHeader()
+        let parts = header.components(separatedBy: " · ")
+        XCTAssertEqual(parts.count, 3, header)
+        XCTAssertFalse(parts[0].isEmpty, "the kind")
+        XCTAssertTrue(parts[1].contains("2"), "the size, \(parts[1])")
+        XCTAssertEqual(parts.last, "in " + folder.lastPathComponent)
+    }
+
+    /// An offline card has no kind or size to read — its disk is away — so
+    /// the header names the disk, which is what brings it back.
+    func testAnOfflineCardsMenuHeaderNamesItsDisk() {
+        let item = ShelfItem(url: URL(fileURLWithPath: "/Volumes/Backup Disk/Reports/q3.pdf"), icon: NSImage(), isOffline: true)
+        XCTAssertEqual(item.menuHeader(), "Backup Disk")
+    }
+
+    // MARK: The action bar (F-037)
+
+    /// The bar acts on the cards that can be acted on: the selection, in
+    /// shelf order, without a card whose disk is away.
+    func testTheActionBarActsOnTheReachableSelectionInShelfOrder() async {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let offline = "/Volumes/Isla-Test-\(UUID())/report.pdf"
+        defaults.set(["/tmp/a.txt", offline, "/tmp/b.txt", "/tmp/c.txt"], forKey: "shelf.urls")
+        let store = ShelfStore(defaults: defaults)
+        store.mountedVolumes = { [] }
+        store.verdictFor = { url, mounted in
+            url.path.hasPrefix("/Volumes/") ? ShelfStore.verdict(for: url, mounted: mounted) : .present
+        }
+        store.requestThumbnail = { _, _ in }
+        store.load()
+        await store.refreshFromDisk().value
+        XCTAssertEqual(store.selectedCards, [])
+
+        // Picked last-to-first, read back first-to-last.
+        for card in store.items.reversed() where card.url.lastPathComponent != "b.txt" {
+            store.select(card, modifiers: .command)
+        }
+        XCTAssertEqual(store.selectedCards.map(\.url.lastPathComponent),
+                       store.items.map(\.url.lastPathComponent).filter { $0 == "a.txt" || $0 == "c.txt" })
+    }
+
     /// Lets the main queue run what is already on it, twice over: a preview's
     /// answer hops to main once, and the batch it joins is flushed one hop
     /// later.

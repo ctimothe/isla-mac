@@ -22,6 +22,10 @@ struct ShelfDragSource: NSViewRepresentable {
     var onPress: (Bool) -> Void
     /// The files of a drag that ended in a move or in the Trash.
     var onMoved: ([URL]) -> Void
+    /// The card's tool tip. It has to live here: this view covers the whole
+    /// card and owns the mouse, so AppKit asks it, and only it, what to show,
+    /// and a SwiftUI `.help` on anything drawn beneath it never appeared.
+    var toolTip: String? = nil
 
     func makeNSView(context: Context) -> DragView {
         let view = DragView()
@@ -30,6 +34,7 @@ struct ShelfDragSource: NSViewRepresentable {
     }
 
     func updateNSView(_ view: DragView, context: Context) {
+        if view.toolTip != toolTip { view.toolTip = toolTip }
         view.items = items
         view.thumbnail = thumbnail
         view.onClick = onClick
