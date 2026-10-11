@@ -578,7 +578,14 @@ struct NotchContentView: View {
         // only by people who cannot see that it has none.
         .accessibilityAddTraits(.isButton)
         .accessibilityAction {
-            guard !vm.isLockedPresentation else { return }
+            // Locked, the same refusal a click gets — the shake and the spoken
+            // "Unlock your Mac to open Isla." This used to return silently,
+            // which to someone who cannot see the pill was a button that did
+            // nothing at all.
+            guard !vm.isLockedPresentation else {
+                vm.nudgeLockedIsland()
+                return
+            }
             vm.onIslandClick?()
         }
     }
@@ -764,11 +771,8 @@ struct NotchContentView: View {
         .morph(MorphID.compact(MorphID.equalizer, folded: !compactActivity.isVisible), in: morph)
     }
 
-    private var compactAccessibilityLabel: String {
-        guard let track = vm.media.track else { return "" }
-        let state = compactActivity == .playing ? localized("Playing") : localized("Paused")
-        return "\(state): \(track.title), \(track.artist)"
-    }
+    /// The view model's, because the peek announces the same sentence.
+    private var compactAccessibilityLabel: String { vm.compactAccessibilityLabel }
 
     @ViewBuilder
     private var trailing: some View {
