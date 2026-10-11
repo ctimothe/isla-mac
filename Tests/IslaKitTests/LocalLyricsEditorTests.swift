@@ -61,6 +61,39 @@ final class LocalLyricsEditorTests: XCTestCase {
         XCTAssertEqual(edited.granularity, .line)
     }
 
+    /// Editing one line costs that line its word timing and no other (J-014):
+    /// the rest keep their words and the document stays word-timed.
+    func testEditingOneLineKeepsKaraokeOnTheOthers() throws {
+        let draft = LocalLyricsDraft(document: try LocalLyricsDocument.parse(
+            "[00:01.00]<00:01.00>Before <00:01.40>words\n[00:03.00]<00:03.00>Kept <00:03.40>line"
+        ))
+        draft.lines[0].text = "After edit"
+
+        let edited = try draft.document()
+
+        XCTAssertTrue(edited.lines[0].words.isEmpty)
+        XCTAssertEqual(edited.lines[1].words.map(\.text), ["Kept ", "line"])
+        XCTAssertEqual(edited.granularity, .word)
+    }
+
+    /// An untouched line keeps its words even when they are joined by
+    /// nothing. The editor compared the line to its words joined with a
+    /// space, so a character-timed Chinese line ('我爱你' against '我 爱 你')
+    /// looked edited, and every Save Copy stripped its karaoke (G-018).
+    func testAnUneditedCharacterTimedLineKeepsItsWords() throws {
+        let draft = LocalLyricsDraft(document: try LocalLyricsDocument.parse(
+            "[offset:-300]\n[00:01.00]<00:01.00>我<00:01.20>爱<00:01.40>你<00:01.80>"
+        ))
+
+        let saved = try draft.document()
+
+        XCTAssertEqual(saved.lines[0].text, "我爱你")
+        XCTAssertEqual(saved.lines[0].words.map(\.text), ["我", "爱", "你"])
+        XCTAssertEqual(saved, try LocalLyricsDocument.parse(
+            "[offset:-300]\n[00:01.00]<00:01.00>我<00:01.20>爱<00:01.40>你<00:01.80>"
+        ), "a save that changes nothing changes nothing, offset and end marker included")
+    }
+
     private func identity() -> LocalTrackIdentity {
         LocalTrackIdentity(
             playerID: "test", title: "Song", artist: "Artist", album: "Album",

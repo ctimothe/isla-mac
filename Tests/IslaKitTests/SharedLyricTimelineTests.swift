@@ -269,6 +269,56 @@ final class SharedLyricTimelineTests: XCTestCase {
         XCTAssertTrue(UserDefaults.standard.bool(forKey: LyricsStore.wordKaraokeEnabledKey))
     }
 
+    /// A word shorter than a frame fills as the clock crosses it (L-11).
+    ///
+    /// Every word's span was floored at 50 ms, so a 10 ms word had reached
+    /// only a fifth of itself when its successor started, and the edge then
+    /// leapt the rest in one frame: the lab's L5 measured 0.099 → 0.5 across
+    /// 0.1 ms. The true span is used now; it cannot be zero inside that
+    /// branch, because the clock is strictly between the word's two edges.
+    func testAShortWordFillsContinuously() {
+        let blink = [LyricWord(at: 0, text: "ab", end: 0.01), LyricWord(at: 0.01, text: "cd", end: 0.5)]
+        let justBefore = LyricSweep.wordFraction(words: blink, at: 0.0099, lineEnd: 0.5)
+        XCTAssertGreaterThanOrEqual(justBefore, 0.98 * 0.5, "the short word is 99% sung, half the line's letters")
+        XCTAssertLessThanOrEqual(justBefore, 0.5)
+        XCTAssertEqual(LyricSweep.wordFraction(words: blink, at: 0.01, lineEnd: 0.5), 0.5, accuracy: 0.0001)
+        // Two words stamped at one moment have no span at all: the first is
+        // sung the instant the second starts, and nothing divides by zero.
+        let stacked = [LyricWord(at: 1, text: "a", end: nil), LyricWord(at: 1, text: "b", end: nil)]
+        XCTAssertEqual(LyricSweep.wordFraction(words: stacked, at: 1, lineEnd: 2), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(LyricSweep.wordFraction(words: stacked, at: 1.5, lineEnd: 2), 0.75, accuracy: 0.0001)
+    }
+
+    /// One line without word timing no longer turns karaoke off for the song
+    /// (J-014). Granularity was `.word` only when every line had words, and
+    /// the editor drops a line's words when its text is edited, so fixing
+    /// one typo made every line light whole. Now the lines that carry words
+    /// sweep by them, and a line without any lights whole: the singing-speed
+    /// estimate would be timing nobody wrote, so it is never drawn.
+    func testOneEditedLineKeepsKaraokeForTheRest() throws {
+        let document = try LocalLyricsDocument.parse("""
+        [00:01.00]<00:01.00>one <00:01.50>two
+        [00:03.00]typo fixed here
+        [00:05.00]<00:05.00>three <00:05.50>four
+        """)
+        XCTAssertEqual(document.granularity, .word)
+        XCTAssertTrue(LyricsPresentation.usesWordTiming(
+            document.granularity, precisionMeasured: true, wordKaraokeEnabled: true
+        ))
+
+        let wordless = document.lines[1]
+        XCTAssertTrue(wordless.words.isEmpty)
+        XCTAssertEqual(
+            LyricSweep.drawnFraction(line: wordless, isCurrent: true, at: 3.1, end: 5, wordTiming: true), 1,
+            "a line with no word timing lights whole, never by an estimate"
+        )
+        let timed = LyricSweep.drawnFraction(
+            line: document.lines[0], isCurrent: true, at: 1.25, end: 3, wordTiming: true
+        )
+        XCTAssertGreaterThan(timed, 0)
+        XCTAssertLessThan(timed, 1)
+    }
+
     func testWordKaraokeRequiresPreferenceWordTimelineAndMeasuredClock() {
         XCTAssertFalse(LyricsPresentation.usesWordTiming(.word, precisionMeasured: true, wordKaraokeEnabled: false))
         XCTAssertFalse(LyricsPresentation.usesWordTiming(.line, precisionMeasured: true, wordKaraokeEnabled: true))
