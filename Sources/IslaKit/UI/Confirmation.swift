@@ -34,11 +34,29 @@ struct CopyButton: View {
     /// copy names which one ("Copy Translation"), because a bare "Copy" read
     /// out of context does not say what lands on the pasteboard.
     var title: String = localized("Copy")
+    /// The key that copies the same thing without the pointer, shown in the
+    /// help at rest ("Copy Translation (⇧⌘C)"). A shortcut nobody can find
+    /// is one only the person who wrote it uses; the tooltip is where a Mac
+    /// says what a button's key is when there is no menu to list it in.
+    var shortcut: String? = nil
+    /// Moves when the same copy is made some other way — by `shortcut` — so
+    /// the tick confirms that one too. The speaking is left to whoever made
+    /// the copy. A count that also moves for the button's own press costs
+    /// nothing: the flag is already up, and raising it again is the same tick.
+    var copiesElsewhere: Int = 0
     let copy: () -> Void
 
     @State private var copied = false
 
     private var name: String { copied ? localized("Copied") : title }
+
+    /// The label never carries the key: VoiceOver reads the shortcut glyphs
+    /// one by one, and "Copy Translation, shift command C" on every visit
+    /// is noise.
+    private var help: String {
+        guard !copied, let shortcut else { return name }
+        return "\(name) (\(shortcut))"
+    }
 
     var body: some View {
         Button {
@@ -54,9 +72,10 @@ struct CopyButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(PanelButtonStyle())
-        .help(name)
+        .help(help)
         .accessibilityLabel(name)
         .animation(Theme.contentAnimation, value: copied)
+        .onChange(of: copiesElsewhere) { flash($copied) }
     }
 }
 

@@ -177,7 +177,14 @@ struct TranslatePane: View {
                 // translation of the old sentence (K-004), and a button that
                 // vanished at every pause in typing would make the header
                 // jump instead.
-                CopyButton { translator.copyOutput() }
+                // Named, because "Copy" beside a field that also copies does
+                // not say which text lands; and keyed, because after ⌃⌥⌘T
+                // the caret is in the source and ⌘C copies that (H-018).
+                CopyButton(
+                    title: localized("Copy Translation"),
+                    shortcut: "⇧⌘C",
+                    copiesElsewhere: translator.outputCopies
+                ) { translator.copyOutput() }
                     .disabled(!translator.answersInput)
                     .opacity(translator.answersInput ? 1 : 0.4)
             }

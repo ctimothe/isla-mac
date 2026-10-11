@@ -663,11 +663,26 @@ final class Translator: ObservableObject {
         return localized("The translation could not be completed.")
     }
 
-    func copyOutput() {
-        guard answersInput else { return }
-        let pasteboard = NSPasteboard.general
+    /// Where a copied answer goes: the general pasteboard in the app, a
+    /// private one in a test, which must never write over what the owner
+    /// last copied.
+    var pasteboard: NSPasteboard = .general
+
+    /// Counts every answer that reached the pasteboard, however it was asked
+    /// for. The pane's Copy button ticks when this moves, so ⇧⌘C — a copy the
+    /// button did not make — still shows on screen; it used to be the button
+    /// alone that could confirm one.
+    @Published private(set) var outputCopies = 0
+
+    /// Whether the answer went to the pasteboard. It does not when it is the
+    /// answer to text since edited (K-004).
+    @discardableResult
+    func copyOutput() -> Bool {
+        guard answersInput else { return false }
         pasteboard.clearContents()
         pasteboard.setString(output, forType: .string)
+        outputCopies += 1
+        return true
     }
 
     /// System Settings → Apple Intelligence, the switch behind every

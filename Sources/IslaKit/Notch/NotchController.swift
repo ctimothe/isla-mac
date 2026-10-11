@@ -1023,6 +1023,13 @@ final class NotchController {
             return vm.consumeEscape()
         }
 
+        // ⇧⌘C copies the translation, which no responder owns: the caret is
+        // in the source field, so ⌘C and ⇧⌘C both copied the source (H-018).
+        panel.onCopyTranslation = { [weak self] in
+            guard let vm = self?.viewModel else { return false }
+            return vm.copyTranslationIfShowing()
+        }
+
         // Clicking away drops the keyboard but leaves the tab where it was, so
         // a click back into the panel has to be able to ask for it again.
         panel.onPress = { [weak self] in
