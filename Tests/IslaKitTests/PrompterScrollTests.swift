@@ -184,6 +184,84 @@ final class PrompterScrollTests: XCTestCase {
         rig.session.stop()
     }
 
+    /// Ruling 20.6 #2. A lock (or sleep) inside the wheel's settle window used
+    /// to leave the scroll's own pause standing, so the settle resumed the
+    /// clock behind the lock shield, took the display-awake lease back and let
+    /// a countdown run the next page with nobody watching (20.2 #5, 11.3).
+    func testALockDuringAScrollIsNeverResumedByTheWheel() {
+        let events: [(String, (PrompterSession) -> Void)] = [
+            ("lock", { $0.handle(.screenLocked) }),
+            ("display sleep", { $0.handle(.displaysSlept) }),
+            ("system sleep", { $0.handle(.systemWillSleep) }),
+        ]
+        for (name, event) in events {
+            let rig = StageRig()
+            let stage = rig.stage()
+            XCTAssertTrue(rig.session.start(pages: [PromptScript(twelve)]))
+            stage.setViewport(CGSize(width: 148, height: 100))
+            rig.read(for: 1.05)
+
+            stage.wheel(deltaY: -56, final: false)
+            XCTAssertEqual(rig.session.state, .paused(.user), name)
+            event(rig.session)
+            XCTAssertFalse(rig.lease.held, "\(name): the lease went with the display")
+
+            // Momentum still arriving, then the settle window running out.
+            stage.wheel(deltaY: -10, final: false)
+            rig.scheduler.advance(by: PrompterStageModel.wheelSettleDelay * 4)
+            stage.wheel(deltaY: -10, final: true)
+            XCTAssertEqual(rig.session.state, .paused(.user), "\(name): the wheel gave nothing back")
+            XCTAssertTrue(rig.session.isPausedBySystem, name)
+            XCTAssertFalse(rig.lease.held, "\(name): and took nothing back")
+            rig.read(for: 2)
+            XCTAssertEqual(rig.session.state, .paused(.user), name)
+
+            // The speaker's own resume still works, and the hand can scroll
+            // again afterwards.
+            rig.session.resume()
+            XCTAssertEqual(rig.session.state, .running, name)
+            stage.wheel(deltaY: -28, final: true)
+            XCTAssertEqual(rig.session.state, .running, "\(name): a later scroll pauses and resumes as before")
+            rig.session.stop()
+        }
+    }
+
+    /// A display change drops the stage model; one dropped mid-scroll had a
+    /// settle that could never fire, so the session stayed in a user pause
+    /// nobody asked for. A model let go hands the scroll's pause back, unless
+    /// the system paused the session meanwhile.
+    func testAStageLetGoMidScrollHandsThePauseBack() {
+        let rig = StageRig()
+        let stage = rig.stage()
+        XCTAssertTrue(rig.session.start(pages: [PromptScript(twelve)]))
+        stage.setViewport(CGSize(width: 148, height: 100))
+        rig.read(for: 1.05)
+        stage.wheel(deltaY: -56, final: false)
+        XCTAssertEqual(rig.session.state, .paused(.user))
+
+        stage.relinquish()
+        XCTAssertEqual(rig.session.state, .running, "the scroll's pause went back with the model")
+        XCTAssertTrue(rig.scheduler.live.allSatisfy { $0.interval != nil }, "no settle left armed")
+        rig.scheduler.advance(by: 1)
+        XCTAssertEqual(rig.session.state, .running)
+
+        // A pause the user made is theirs: letting a model go leaves it.
+        rig.session.pause(.user)
+        stage.relinquish()
+        XCTAssertEqual(rig.session.state, .paused(.user))
+
+        // And one the lock made stays too.
+        rig.session.resume()
+        let second = rig.stage()
+        second.setViewport(CGSize(width: 148, height: 100))
+        second.wheel(deltaY: -28, final: false)
+        rig.session.handle(.screenLocked)
+        second.relinquish()
+        XCTAssertEqual(rig.session.state, .paused(.user))
+        XCTAssertTrue(rig.session.isPausedBySystem)
+        rig.session.stop()
+    }
+
     /// Classic scrolls by hand only while running (8.5); a paused page does
     /// not move under the wheel.
     func testAPausedPageDoesNotScrollByHand() {

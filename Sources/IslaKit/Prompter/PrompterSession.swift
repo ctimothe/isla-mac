@@ -123,6 +123,16 @@ final class PrompterSession: ObservableObject {
     @Published private(set) var readPages: Set<Int> = []
     /// Fixed for a run: mode does not change mid-session (spec 10.6).
     @Published private(set) var mode: PrompterGuidanceMode = .classic
+    /// A lock or a sleep has paused this session since it last ran: true in
+    /// `paused(.lock)` and `paused(.sleep)`, and also in `paused(.user)` when
+    /// the lock or sleep came after the user's pause (ruling 20.6 #1). The
+    /// state keeps the first reason (20.2 #6), so this is what the lease and
+    /// the stage's wheel read instead. A user pause followed by a lock used
+    /// to keep the display-awake lease held, because the lock was refused as
+    /// a second pause and nothing re-derived the lease; with idle display
+    /// sleep blocked, nothing else could end it until the speaker came back.
+    /// Cleared by anything that runs the session again, and by Stop.
+    @Published private(set) var isPausedBySystem = false
 
     /// Read when a page finishes. Changing it does not start or cancel a
     /// countdown already decided; the next page end reads the new value.
@@ -237,11 +247,17 @@ final class PrompterSession: ObservableObject {
     /// comes only from `running`. Lock and sleep also pause `finished`: a
     /// countdown that fired behind the lock shield would run the next page
     /// with nobody watching, the very auto-resume 11.3 rules out. A session
-    /// already paused keeps the reason it paused for.
+    /// already paused keeps the reason it paused for, but a lock or sleep
+    /// over a user pause is still recorded (`isPausedBySystem`), so the
+    /// display-awake lease lets go of a locked Mac (ruling 20.6 #1).
     func pause(_ reason: PrompterPauseReason = .user) {
         switch (state, reason) {
         case (.running, _), (.finished, .lock), (.finished, .sleep):
             transition(to: .paused(reason))
+        case (.paused, .lock), (.paused, .sleep):
+            guard !isPausedBySystem else { return }
+            isPausedBySystem = true
+            reconcileKeepAwake()
         default:
             return
         }
@@ -320,6 +336,7 @@ final class PrompterSession: ObservableObject {
         clock?.stop()
         elapsed.halt(at: now())
         state = .ended
+        if isPausedBySystem { isPausedBySystem = false }
         reconcileKeepAwake()
     }
 
@@ -343,6 +360,8 @@ final class PrompterSession: ObservableObject {
         if target == .running, clock?.isAtEnd ?? true { target = .finished }
 
         state = target
+        let bySystem = target == .paused(.lock) || target == .paused(.sleep)
+        if isPausedBySystem != bySystem { isPausedBySystem = bySystem }
 
         if target == .running {
             clock?.start(at: now())
@@ -426,13 +445,15 @@ final class PrompterSession: ObservableObject {
     /// Held while reading or paused by the user. Deliberately not held in a
     /// lock or sleep pause, though 11.8 says "running or paused": with
     /// `idleDisplaySleepDisabled` held, a Mac locked mid-session kept its
-    /// display lit until the user came back. Not held in `finished`, which
-    /// 11.8 leaves out. Released on every other path by construction, since
-    /// every state change ends here.
+    /// display lit until the user came back. That includes a user pause the
+    /// lock or sleep arrived on top of (`isPausedBySystem`). Not held in
+    /// `finished`, which 11.8 leaves out. Released on every other path by
+    /// construction, since every state change ends here.
     private var wantsKeepAwake: Bool {
         guard keepAwake else { return false }
         switch state {
-        case .running, .paused(.user): return true
+        case .running: return true
+        case .paused(.user): return !isPausedBySystem
         case .paused(.lock), .paused(.sleep), .finished, .idle, .ended: return false
         }
     }

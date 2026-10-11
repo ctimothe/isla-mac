@@ -1514,6 +1514,9 @@ extension NotchViewModel {
     /// on every switch change. The session is borrowed, so attaching it to a
     /// rebuilt model changes nothing about it.
     func attachPrompter(_ parts: PrompterParts?) {
+        // The stage model about to be replaced may be mid-scroll, holding a
+        // pause only its own settle would have given back (ruling 20.6 #2).
+        releasePrompterStage()
         prompterLinks.removeAll()
         cancelPrompterPreparation()
         if pendingMirroredStart != nil { pendingMirroredStart = nil }
@@ -1545,6 +1548,14 @@ extension NotchViewModel {
             .dropFirst()
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &prompterLinks)
+    }
+
+    /// Lets the stage model go cleanly: a scroll in progress hands its pause
+    /// back (`PrompterStageModel.relinquish`). The controller calls it on the
+    /// model a rebuild is about to drop, since a dropped model's settle never
+    /// fires and the session would stay paused under the new panel.
+    func releasePrompterStage() {
+        prompterStage?.relinquish()
     }
 
     /// Whether a session holds the panel, as a stream, for the controller's

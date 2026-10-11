@@ -84,14 +84,18 @@ private final class FakeKeepAwake: PrompterKeepAwake {
     /// Set when `begin` arrives while already held or `end` while not held:
     /// an unbalanced lease is the bug, whatever the counts say.
     private(set) var unbalanced = false
+    /// Every call in order, so a test can see begin and end alternate.
+    private(set) var calls: [String] = []
     var isHeld: Bool { begins > ends }
 
     func begin() {
+        calls.append("begin")
         if isHeld { unbalanced = true }
         begins += 1
     }
 
     func end() {
+        calls.append("end")
         if !isHeld { unbalanced = true; return }
         ends += 1
     }
@@ -738,6 +742,98 @@ final class PrompterSessionTests: XCTestCase {
             XCTAssertFalse(lease.isHeld)
             XCTAssertFalse(lease.unbalanced)
         }
+    }
+
+    /// Ruling 20.6 #1. A lock after a user pause keeps the user's reason (20.2
+    /// #6) but still lets the display go: the lease used to stay held through
+    /// the lock, and with idle display sleep blocked nothing ever ended it, so
+    /// a Mac paused for a question and then locked kept its display lit until
+    /// the speaker came back.
+    func testALockOrSleepAfterAUserPauseReleasesTheLease() {
+        let events: [(String, (PrompterSession) -> Void)] = [
+            ("lock", { $0.handle(.screenLocked) }),
+            ("display sleep", { $0.handle(.displaysSlept) }),
+            ("system sleep", { $0.handle(.systemWillSleep) }),
+        ]
+        for (name, event) in events {
+            setUpFreshSession()
+            session.start(pages: pages(twelveWords))
+            session.pause(.user)
+            XCTAssertTrue(lease.isHeld, "\(name): a user pause keeps the display awake")
+            XCTAssertFalse(session.isPausedBySystem)
+
+            event(session)
+            XCTAssertEqual(session.state, .paused(.user), "\(name): the first reason stands (20.2 #6)")
+            XCTAssertTrue(session.isPausedBySystem, name)
+            XCTAssertFalse(lease.isHeld, "\(name): the lease goes with the display")
+
+            // Unlock and wake leave it as it is: the speaker resumes.
+            session.handle(.screenUnlocked)
+            session.handle(.woke)
+            XCTAssertFalse(lease.isHeld, "\(name): unlock or wake does not take it back")
+            XCTAssertTrue(session.isPausedBySystem, name)
+            run(60)
+            XCTAssertEqual(session.state, .paused(.user), "\(name): never resumed by the system")
+
+            session.resume()
+            XCTAssertEqual(session.state, .running, name)
+            XCTAssertFalse(session.isPausedBySystem, name)
+            XCTAssertTrue(lease.isHeld, "\(name): the speaker's resume retakes it")
+            session.stop()
+            XCTAssertFalse(lease.isHeld, name)
+            XCTAssertFalse(lease.unbalanced, name)
+        }
+    }
+
+    /// A user's pause arriving after the lock changes nothing: the session
+    /// stays paused for the lock, without the lease, until a resume.
+    func testAUserPauseAfterALockChangesNothing() {
+        session.start(pages: pages(twelveWords))
+        session.handle(.screenLocked)
+        XCTAssertEqual(session.state, .paused(.lock))
+        XCTAssertTrue(session.isPausedBySystem)
+        session.pause(.user)
+        session.togglePlayback()
+        XCTAssertEqual(session.state, .running, "the toggle is a resume, not a second pause")
+        XCTAssertTrue(lease.isHeld)
+        session.handle(.screenLocked)
+        session.pause(.user)
+        XCTAssertEqual(session.state, .paused(.lock))
+        XCTAssertFalse(lease.isHeld)
+    }
+
+    /// Spec 11.8's contract with the assertion: `begin` and `end` strictly
+    /// alternate, starting with `begin`, on every path through pauses, locks,
+    /// sleeps, resumes, the end of a page and Stop.
+    func testTheLeaseBeginsAndEndsStrictlyAlternately() {
+        session.start(pages: pages(twelveWords, "one two"))
+        session.pause(.user)
+        session.handle(.screenLocked)
+        session.handle(.displaysSlept)
+        session.handle(.screenLocked)
+        session.pause(.user)
+        session.resume()
+        session.pause(.user)
+        session.handle(.systemWillSleep)
+        session.resume()
+        session.handle(.screenLocked)
+        session.pause(.user)
+        session.resume()
+        finishCurrentPage()
+        session.handle(.displaysSlept)
+        session.resume()
+        session.nextPage()
+        session.pause(.user)
+        session.handle(.screenLocked)
+        session.stop()
+
+        XCTAssertFalse(lease.isHeld)
+        XCTAssertFalse(lease.unbalanced)
+        XCTAssertEqual(lease.calls.first, "begin")
+        for (previous, next) in zip(lease.calls, lease.calls.dropFirst()) {
+            XCTAssertNotEqual(previous, next, "two \(next)s in a row: \(lease.calls)")
+        }
+        XCTAssertEqual(lease.calls.count % 2, 0, "every begin has its end")
     }
 
     func testLeaseIsBalancedAcrossAReplacingSession() {

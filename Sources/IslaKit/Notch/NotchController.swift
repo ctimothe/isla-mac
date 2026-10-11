@@ -1186,6 +1186,9 @@ final class NotchController {
         panel?.contentView = nil
         panel = nil
         rootView = nil
+        // A scroll on the old stage hands its pause back before the model
+        // goes; its settle holds the model weakly and would never fire.
+        viewModel?.releasePrompterStage()
         viewModel = nil
         build(restoring: previousTab, wasOpen: wasOpen, showingWelcome: wasShowingWelcome)
     }

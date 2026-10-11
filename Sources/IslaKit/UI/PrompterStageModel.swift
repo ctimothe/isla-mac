@@ -199,6 +199,14 @@ final class PrompterStageModel: ObservableObject {
         session.$state
             .sink { [weak self] state in self?.stateWillChange(to: state) }
             .store(in: &links)
+        // A lock or sleep during a scroll, including one that lands on the
+        // scroll's own user pause and so changes no state, ends the scroll
+        // without giving the clock back (ruling 20.6 #2).
+        session.$isPausedBySystem
+            .removeDuplicates()
+            .filter { $0 }
+            .sink { [weak self] _ in self?.abandonWheel() }
+            .store(in: &links)
         settings.didChange
             .sink { [weak self] _ in
                 guard let self else { return }
@@ -258,6 +266,23 @@ final class PrompterStageModel: ObservableObject {
                 self.endWheel()
             }
         }
+    }
+
+    /// The model is being let go: a display change rebuilt the panel, or the
+    /// switch handed its parts to a new model (`NotchViewModel.attachPrompter`).
+    /// A scroll still in progress owed the clock a resume that its settle,
+    /// which holds the model weakly, would never deliver once the model was
+    /// gone: the session sat in a user pause the speaker had not asked for,
+    /// and the new stage had no hand on the wheel to give it back. It is
+    /// handed back here, as the wheel stopping would have, unless the system
+    /// paused the session meanwhile (ruling 20.6 #2).
+    func relinquish() {
+        let owed = wheelPaused
+        abandonWheel()
+        guard owed, session.state == .paused(.user), !session.isPausedBySystem else { return }
+        quiet = true
+        session.resume()
+        quiet = false
     }
 
     /// For a test: the background layout in flight, if any, has landed.
@@ -464,10 +489,35 @@ final class PrompterStageModel: ObservableObject {
         } else {
             refresh(progress: session.progress)
         }
-        if wheelPaused, session.state == .paused(.user) {
+        // Never over a lock or sleep that came after the scroll began: the
+        // pause is then the system's as well, and only the speaker resumes it
+        // (11.3). `abandonWheel` has normally cleared `wheelPaused` by now;
+        // this is the second defence, read at the moment of resuming.
+        if wheelPaused, session.state == .paused(.user), !session.isPausedBySystem {
             quiet = true
             session.resume()
             quiet = false
+        }
+    }
+
+    /// A lock or sleep arrived mid-scroll. The settle is called off and the
+    /// scroll's pause is no longer the wheel's to give back. The page settles
+    /// where the hand left it, without a jump: the reading position stays
+    /// where the clock stopped, and the one backward move armed here lets the
+    /// page return to it on the speaker's resume.
+    private func abandonWheel() {
+        wheelSettle?.cancel()
+        wheelSettle = nil
+        wheelSerial &+= 1
+        wheelPaused = false
+        guard planner.isManual else { return }
+        if let geometry = geometry() {
+            planner.endManual(within: geometry.manualRange)
+            planner.armBackward()
+            pendingMotion = .manual
+            publish(.manual)
+        } else {
+            planner = PromptScrollPlanner()
         }
     }
 }
