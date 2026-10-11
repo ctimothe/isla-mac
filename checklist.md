@@ -524,7 +524,9 @@ Open, for the owner — each is a design decision, not a defect:
 - [ ] No focus rings and no keyboard shortcuts inside the panel (⌘, ⌘W,
   Return-to-confirm). Escape is handled at the window. An `.accessory` app
   has no menu bar to carry these, so it is a per-panel binding while key.
-- [ ] Escape does not disarm a two-press confirmation; it closes the panel.
+- [x] Escape does not disarm a two-press confirmation; it closes the panel.
+  **Closed 2026-10-11 (ax/AN-02, owner decision 3)** — see the dated section
+  "Two-press confirmations speak, wait and cancel".
 - [ ] `Toggle("", isOn:)` with a detached label: clicking the label text does
   not flip the switch, which a native labelled `Toggle` gives for free.
 - [ ] `TranslatePane`'s font ladder `[27, 20, 15, 11]` shares only its last
@@ -829,3 +831,37 @@ Amends the **Screen-capture pickup** scope record above.
   Look and not the panel. Confirm macOS registers an unmodified
   Escape hot key (a refusal is logged: "macOS refused the transient Escape
   hot key").
+
+### Two-press confirmations speak, wait and cancel — 2026-10-11 (ax/AN-02)
+
+- [x] **Escape disarms an armed confirmation before it closes anything**
+  (owner decision 3). `NotchViewModel.consumeEscape()` asks
+  `ArmedConfirmations.shared` first: the first Escape turns "Clear
+  Everything" back into "Clear", the second folds the panel. Escape reaches
+  Isla only where it already did — a key panel, or a pin from ⌃⌥⌘I/⌃⌥⌘L
+  through KB-01's transient hot key; a pointer-opened Shelf or Clipboard is
+  not key, and Escape there still goes to the frontmost app.
+- [x] **Arming is announced** — "Clear Everything. Press again to confirm."
+  through `Announcer` — and lapses after 8 s instead of 3 s while VoiceOver
+  is on (read at each arming). The lapse waits while the pointer rests on the
+  armed word and restarts in full when it leaves.
+- [x] **Caption confirmations have a 24x20 floor** (`Theme.minimumHitSize`,
+  F-014): Clear measured 27x13 in the probe, now at least 27x20. Shelf's and
+  Clipboard's footers are 7 pt taller, which comes out of the list viewport.
+- [x] **Copy says Copied** (M-06): while the tick shows, the button's label
+  and help are "Copied", and "Copied" is announced once. `CopyButton` takes a
+  title for a pane that has to name what it copies.
+- Decision 15 kept: the first Escape in Translate still clears the typed text
+  (as a search field and Spotlight do); only `consumeEscape`'s comment, which
+  called that reversible, was corrected.
+- Tests: `ConfirmationTests` (testEscapeDisarmsBeforeItCloses,
+  testAWithdrawnConfirmationClaimsNothing,
+  testArmingIsAnnouncedAndLastsLongerUnderVoiceOver,
+  testCaptionButtonsAreBigEnough, testCopyButtonSaysCopied,
+  testCopyButtonTakesATitle).
+- [ ] **Physical check owed:** with VoiceOver on, Clear on the Shelf is heard
+  as "Clear Everything. Press again to confirm." and stays armed for 8 s;
+  without it, a click arms Clear, the word stays red while the pointer rests
+  on it and turns back 3 s after the pointer leaves; ⌃⌥⌘I, Shelf, arm Clear,
+  Escape disarms and a second Escape closes; Copy in Translate is read as
+  "Copied" after a press. Review the visual lab's clipboard and shelf footers.

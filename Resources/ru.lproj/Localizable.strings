@@ -319,3 +319,5 @@
 "%@ is translated online only. Turning on Translate Online sends this text to MyMemory." = "%@: перевод есть только онлайн. Если включить «Переводить онлайн», текст уйдёт в MyMemory.";
 "Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory." = "На этом Mac для перевода нужна macOS 26 или новее. Если включить «Переводить онлайн», текст уйдёт в MyMemory.";
 "Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet." = "До macOS 26 этот Mac ничего не переводит сам: всё отправляется в MyMemory через интернет.";
+"%@. Press again to confirm." = "%@. Нажмите ещё раз, чтобы подтвердить.";
+"Copied" = "Скопировано";
