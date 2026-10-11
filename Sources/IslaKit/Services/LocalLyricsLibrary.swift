@@ -1,5 +1,6 @@
+import AppKit
 import Combine
-import Darwin
+import CoreServices
 import Foundation
 
 /// Stable, local-only description of the recording currently playing.
@@ -267,8 +268,11 @@ final class LocalLyricsLibrary: ObservableObject {
     private let onLookup: (LocalTrackIdentity) -> Void
     private var state: State
     private var records: [UUID: Record] = [:]
-    private var folderWatchers: [String: DispatchSourceFileSystemObject] = [:]
+    private var folderWatch: FolderWatch?
     private var scheduledRescan: DispatchWorkItem?
+    /// Set when a pending rescan must also re-make the watch: the root of a
+    /// watched folder moved, or a disk came or went.
+    private var pendingReinstall = false
     private var watching = false
 
     init(
@@ -323,10 +327,7 @@ final class LocalLyricsLibrary: ObservableObject {
     func addFolder(_ url: URL) throws {
         let standard = url.standardizedFileURL
         guard !state.folders.contains(where: { $0.path == standard.path }) else { return }
-        let bookmark = try? standard.bookmarkData(
-            options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil
-        )
-        state.folders.append(StoredFolder(path: standard.path, bookmark: bookmark))
+        state.folders.append(StoredFolder(path: standard.path, bookmark: Self.bookmark(for: standard)))
         try rescanFolders()
         persist()
         if watching { installFolderWatchers() }
@@ -347,7 +348,12 @@ final class LocalLyricsLibrary: ObservableObject {
     func rescanFolders() throws {
         let previousDocuments = state.documents
         let previousIssues = state.issues
+        let previousFolders = state.folders
         let previousContent = records.mapValues(\.document)
+        // Before the table of ids below: a folder that moved has its
+        // documents' paths rewritten first, so they find their ids under the
+        // new path instead of minting new ones.
+        let located = followMovedFolders()
         // First id wins, rather than a trap: an index written before `seen`
         // below can hold one path twice, and this runs as the library opens.
         let existingIDs = Dictionary(
@@ -370,14 +376,13 @@ final class LocalLyricsLibrary: ObservableObject {
         // walk, so each lookup for its song became a choice between copies.
         var seen: Set<String> = []
 
-        for folder in state.folders {
+        for (folder, url) in zip(state.folders, located) {
             // A folder that cannot be reached — a disk unplugged, a share not
             // mounted, a folder since deleted — must not cost the others. Its
             // bookmark throws, and this used to throw with it: the whole rescan
             // was abandoned, and every folder after the missing one went unread
             // for the session. It keeps the documents it had instead, so a
             // track bound to one of them finds the same id when it is back.
-            let url = try? resolve(folder)
             let hadAccess = url?.startAccessingSecurityScopedResource() ?? false
             defer {
                 if hadAccess { url?.stopAccessingSecurityScopedResource() }
@@ -445,6 +450,7 @@ final class LocalLyricsLibrary: ObservableObject {
         // which sends the track on screen back through resolution and can
         // cancel and re-send its online lookup.
         guard pruned || state.documents != previousDocuments || state.issues != previousIssues
+                || state.folders != previousFolders
                 || records.mapValues(\.document) != previousContent else { return }
         persist()
         advanceRevision()
@@ -610,8 +616,8 @@ final class LocalLyricsLibrary: ObservableObject {
         watching = false
         scheduledRescan?.cancel()
         scheduledRescan = nil
-        folderWatchers.values.forEach { $0.cancel() }
-        folderWatchers.removeAll()
+        pendingReinstall = false
+        folderWatch = nil
     }
 
     /// Makes the only permitted exception to the new file format boundary:
@@ -856,44 +862,182 @@ final class LocalLyricsLibrary: ObservableObject {
         return String(format: "%016llx", hash)
     }
 
-    private func resolve(_ folder: StoredFolder) throws -> URL {
-        guard let bookmark = folder.bookmark else { return URL(fileURLWithPath: folder.path) }
+    /// A bookmark to a selected folder: security-scoped when the system will
+    /// make one, a plain one otherwise.
+    ///
+    /// Only the scoped kind was ever tried, through `try?`. Isla is not
+    /// sandboxed, and a process the system will not issue a scope extension
+    /// to gets an error back — so a folder could be saved with no bookmark at
+    /// all, and nothing then followed it when it was renamed or moved
+    /// (J-011). A plain bookmark, which the shelf has always used, follows a
+    /// move just as well; the scope is only ever needed by a sandboxed build.
+    private static func bookmark(for url: URL) -> Data? {
+        (try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil))
+            ?? (try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil))
+    }
+
+    /// Where a selected folder is now, and whether its bookmark asked to be
+    /// made again.
+    private func resolve(_ folder: StoredFolder) throws -> (url: URL, stale: Bool) {
+        guard let bookmark = folder.bookmark else { return (URL(fileURLWithPath: folder.path), false) }
         var stale = false
         // Never mounting and never asking, like the shelf's bookmarks: this
         // runs on the main thread at launch, and a folder on a disk or share
         // that is not there must read as unreachable, not stall the launch
         // mounting it or put up a dialog nobody asked for.
-        let url = try URL(
-            resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting],
-            relativeTo: nil, bookmarkDataIsStale: &stale
-        )
-        return stale ? URL(fileURLWithPath: folder.path) : url
-    }
-
-    private func installFolderWatchers() {
-        folderWatchers.values.forEach { $0.cancel() }
-        folderWatchers.removeAll()
-        for folder in state.folders {
-            let url = (try? resolve(folder)) ?? URL(fileURLWithPath: folder.path)
-            let descriptor = open(url.path, O_EVTONLY)
-            guard descriptor >= 0 else { continue }
-            let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: .main
+        do {
+            let url = try URL(
+                resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting],
+                relativeTo: nil, bookmarkDataIsStale: &stale
             )
-            source.setEventHandler { [weak self] in self?.scheduleFolderRescan() }
-            source.setCancelHandler { close(descriptor) }
-            source.resume()
-            folderWatchers[folder.path] = source
+            return (url, stale)
+        } catch {
+            // A plain bookmark, made where the scoped kind could not be, is
+            // read without asking for a scope it never carried.
+            let url = try URL(
+                resolvingBookmarkData: bookmark, options: [.withoutUI, .withoutMounting],
+                relativeTo: nil, bookmarkDataIsStale: &stale
+            )
+            return (url, stale)
         }
     }
 
-    private func scheduleFolderRescan() {
+    /// Follows every selected folder to where its bookmark says it is now,
+    /// and answers that location for each folder, in order — nil for one that
+    /// cannot be reached.
+    ///
+    /// A stale bookmark's freshly resolved location used to be discarded for
+    /// the saved path, which no longer existed after a rename in Finder: the
+    /// folder read as unreachable for good, Settings kept its old name, and
+    /// after a relaunch every song bound to one of its files had no lyrics
+    /// (J-011). Even a bookmark that was not stale, resolved somewhere new,
+    /// was walked under the new path while ids were looked up under the old
+    /// one, so every file came back under a new id and its binding was
+    /// pruned. Now the folder's path and bookmark are rewritten, and so is the
+    /// path of every document under it, before anything looks ids up.
+    ///
+    /// A folder saved with no bookmark at all gets one here, the first time
+    /// it is found where it was left, so a folder added by an earlier build
+    /// is followed from then on.
+    private func followMovedFolders() -> [URL?] {
+        var folders: [StoredFolder] = []
+        var located: [URL?] = []
+        for folder in state.folders {
+            let resolved = try? resolve(folder)
+            let current = resolved?.url.standardizedFileURL.path ?? folder.path
+            let moved = !Self.samePlace(current, folder.path)
+            // Deleting a folder in Finder moves it to the Trash, and the
+            // bookmark follows it there. Followed, the library would go on
+            // reading lyrics out of the Trash under the folder's old name; it
+            // reads as gone instead, as a deleted folder always has, and its
+            // bindings wait for it to be put back.
+            guard let (url, stale) = resolved, !(moved && Self.isInTrash(current)),
+                  (try? url.checkResourceIsReachable()) == true else {
+                folders.append(folder)
+                located.append(nil)
+                continue
+            }
+            var followed = folder
+            if moved || stale || folder.bookmark == nil {
+                let hadAccess = url.startAccessingSecurityScopedResource()
+                defer { if hadAccess { url.stopAccessingSecurityScopedResource() } }
+                // A bookmark that cannot be made again keeps the old one: it
+                // still found the folder this time.
+                followed = StoredFolder(
+                    path: moved ? current : folder.path,
+                    bookmark: Self.bookmark(for: url) ?? folder.bookmark
+                )
+                if moved { moveDocuments(from: folder.path, to: current) }
+            }
+            // Moved onto a folder the library already reads — the user picked
+            // the new location too — it is that folder now, read once.
+            guard !folders.contains(where: { $0.path == followed.path }) else { continue }
+            folders.append(followed)
+            located.append(url)
+        }
+        state.folders = folders
+        return located
+    }
+
+    /// Rewrites the path of every folder document under `old` to the same
+    /// place under `new`, keeping its id: what a binding names is the id, and
+    /// the path is only where to find it.
+    private func moveDocuments(from old: String, to new: String) {
+        let roots = [old, URL(fileURLWithPath: old).resolvingSymlinksInPath().path]
+        state.documents = state.documents.map { document in
+            guard document.origin == .referencedFolder,
+                  let root = roots.first(where: { document.path.hasPrefix($0 + "/") })
+            else { return document }
+            return StoredDocument(
+                id: document.id, origin: document.origin,
+                path: new + document.path.dropFirst(root.count),
+                editedFrom: document.editedFrom, savedAt: document.savedAt
+            )
+        }
+    }
+
+    /// Whether two paths name the same folder, `/var` and `/private/var`
+    /// alike: a bookmark resolves to the real path, and the saved one may
+    /// have been the path the user picked.
+    private static func samePlace(_ first: String, _ second: String) -> Bool {
+        let variants = { (path: String) -> Set<String> in
+            [path, URL(fileURLWithPath: path).resolvingSymlinksInPath().path]
+        }
+        return !variants(first).isDisjoint(with: variants(second))
+    }
+
+    /// Whether a path lies in a Trash: the home folder's `.Trash`, or the
+    /// `.Trashes` a removable or external disk keeps at its root. Asked of a
+    /// path only, so it never touches the disk.
+    private static func isInTrash(_ path: String) -> Bool {
+        URL(fileURLWithPath: path).pathComponents.contains { $0 == ".Trash" || $0 == ".Trashes" }
+    }
+
+    /// Watches every selected folder, all the way down, with one FSEvents
+    /// stream.
+    ///
+    /// It was one kernel descriptor per top-level folder, which hears only
+    /// entries added, renamed or removed directly inside that folder: a file
+    /// in Artist/Album, a file a sync client rewrote in place, and a disk
+    /// plugged back in were all missed until a relaunch or a manual Rescan
+    /// (G-020). FSEvents reports any change anywhere under a path at the cost
+    /// of one stream, however deep the library goes; a descriptor per
+    /// subfolder was rejected because its count grows with the library, and
+    /// a timed rescan because it wakes an idle Mac.
+    ///
+    /// The stream watches each folder at its saved path, which every rescan
+    /// has already moved to wherever the bookmark followed it, and is made
+    /// again whenever that may have changed — a watched folder renamed or
+    /// moved, or a disk mounted, unmounted or renamed. The saved path rather
+    /// than the bookmark's answer, so a folder sent to the Trash, which is
+    /// not followed, is still heard when it is put back.
+    private func installFolderWatchers() {
+        folderWatch = nil
+        guard !state.folders.isEmpty else { return }
+        folderWatch = FolderWatch(paths: state.folders.map(\.path)) { [weak self] reinstall in
+            MainActor.assumeIsolated { self?.scheduleFolderRescan(reinstall: reinstall) }
+        }
+    }
+
+    /// Rescans on the next turn of the main queue, not inside the event's own
+    /// callback: a reinstall releases the stream that called it. The stream's
+    /// latency already gathered the burst, so nothing waits any longer.
+    private func scheduleFolderRescan(reinstall: Bool) {
+        pendingReinstall = pendingReinstall || reinstall
         scheduledRescan?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            Task { @MainActor in try? self?.rescanFolders() }
+            Task { @MainActor in
+                guard let self, self.watching else { return }
+                let reinstall = self.pendingReinstall
+                self.pendingReinstall = false
+                try? self.rescanFolders()
+                // After the rescan, which is what moves a followed folder's
+                // path: the new stream watches where it is now.
+                if reinstall { self.installFolderWatchers() }
+            }
         }
         scheduledRescan = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(150), execute: work)
+        DispatchQueue.main.async(execute: work)
     }
 
     private func identityKey(_ identity: LocalTrackIdentity) -> String {
@@ -955,5 +1099,81 @@ final class LocalLyricsLibrary: ObservableObject {
         } catch {
             Log.storage.error("local lyrics index unreadable and could not be kept aside: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
         }
+    }
+}
+
+/// One FSEvents stream over the selected lyric folders, and the disk
+/// notifications that say a folder may be somewhere else now. Everything it
+/// hears is delivered on the main queue as one call: `true` when the watch
+/// itself must be made again, `false` when a rescan is enough.
+///
+/// Owned by the library and torn down by being released, so a library that
+/// goes away — or a watch replaced by a new one — can never be called back.
+private final class FolderWatch {
+    /// The debounce Settings and the inventory promise: the stream gathers
+    /// every change within it into one callback, so a sync client writing a
+    /// hundred files is one rescan.
+    static let latency: CFTimeInterval = 0.15
+
+    private let handler: (_ reinstall: Bool) -> Void
+    private var stream: FSEventStreamRef?
+    private var observers: [NSObjectProtocol] = []
+
+    init(paths: [String], handler: @escaping (_ reinstall: Bool) -> Void) {
+        self.handler = handler
+        let center = NSWorkspace.shared.notificationCenter
+        // A disk plugged back in is not a change under any watched path —
+        // the path was not there to change — and a stream made while it was
+        // away may never hear of it. A disk renamed moves every path on it.
+        for name in [
+            NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
+            NSWorkspace.didRenameVolumeNotification,
+        ] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.handler(true)
+            })
+        }
+        guard !paths.isEmpty else { return }
+
+        var context = FSEventStreamContext(
+            version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil, release: nil, copyDescription: nil
+        )
+        let callback: FSEventStreamCallback = { _, info, count, _, flags, _ in
+            guard let info else { return }
+            let watch = Unmanaged<FolderWatch>.fromOpaque(info).takeUnretainedValue()
+            // A watched folder's own path changed — renamed, moved, deleted
+            // or put back — or a volume under it came or went: the stream
+            // still names the old path, so it is made again after the rescan
+            // has followed the folder.
+            let moved = FSEventStreamEventFlags(
+                kFSEventStreamEventFlagRootChanged | kFSEventStreamEventFlagMount
+                    | kFSEventStreamEventFlagUnmount
+            )
+            let reinstall = (0..<count).contains { flags[$0] & moved != 0 }
+            watch.handler(reinstall)
+        }
+        // WatchRoot is what reports the folder itself being renamed or moved;
+        // without it the stream only hears what happens inside.
+        guard let stream = FSEventStreamCreate(
+            kCFAllocatorDefault, callback, &context, paths as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow), Self.latency,
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagWatchRoot)
+        ) else { return }
+        FSEventStreamSetDispatchQueue(stream, .main)
+        guard FSEventStreamStart(stream) else {
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            return
+        }
+        self.stream = stream
+    }
+
+    deinit {
+        observers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
+        guard let stream else { return }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
     }
 }

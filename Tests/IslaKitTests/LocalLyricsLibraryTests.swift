@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import IslaKit
 
@@ -149,6 +150,188 @@ final class LocalLyricsLibraryTests: XCTestCase {
             return XCTFail("the folder's document is back with the folder")
         }
         XCTAssertEqual(after.id, before.id, "the document keeps its id across the absence")
+    }
+
+    /// A watched folder renamed or moved in Finder is followed by its
+    /// bookmark. The freshly resolved location used to be thrown away
+    /// whenever the bookmark said it was stale, so Isla went on probing the
+    /// old path: the folder read as unreachable, Settings listed the old
+    /// name, and after a relaunch every song bound to one of its files said
+    /// "No lyrics for this track." (J-011). The documents keep their ids
+    /// under the new path, so the bindings survive the move.
+    func testAMovedFolderIsFollowedAndKeepsItsBindings() throws {
+        // Symlinks resolved, as in the missing-folder test: a bookmark
+        // resolves to the real path, and ~/Music has no symlink in it. Not
+        // "Lyrics": on a case-insensitive disk that is setUp's legacy
+        // "lyrics" folder.
+        let base = root.resolvingSymlinksInPath()
+        let folder = base.appendingPathComponent("Songs", isDirectory: true)
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: folder.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        guard case .ready(let found) = library.lookup(identity: identity()) else {
+            return XCTFail("the folder's document should resolve before the move")
+        }
+        // Bound to a track its tags do not describe, so only the binding can
+        // find it again: a match by title would pass without one.
+        let bound = identity(title: "Bound Elsewhere", album: "Elsewhere")
+        library.bind(found, to: bound)
+
+        let moved = base.appendingPathComponent("LRC", isDirectory: true)
+        try fileManager.moveItem(at: folder, to: moved)
+
+        let relaunched = LocalLyricsLibrary(directory: root)
+        XCTAssertEqual(
+            relaunched.selectedFolders.map { $0.resolvingSymlinksInPath().path },
+            [moved.path], "Settings names the folder where it is now"
+        )
+        guard case .ready(let after) = relaunched.lookup(identity: bound) else {
+            return XCTFail("the binding still finds its document after the move")
+        }
+        XCTAssertEqual(after.id, found.id, "the document keeps its id under the new path")
+        XCTAssertEqual(after.timeline.lines.first?.text, "First")
+        XCTAssertTrue(
+            relaunched.unreadableFiles(in: moved).isEmpty,
+            "a followed folder is not reported as unreachable"
+        )
+
+        // And the move is saved: the next launch starts from the new path.
+        let again = LocalLyricsLibrary(directory: root)
+        guard case .ready(let third) = again.lookup(identity: bound) else {
+            return XCTFail("the followed location was persisted")
+        }
+        XCTAssertEqual(third.id, found.id)
+    }
+
+    /// Deleting a folder in Finder moves it to the Trash, and its bookmark
+    /// follows it there. Following a move must not read lyrics out of the
+    /// Trash: the folder reads as gone, as a deleted one always has, and its
+    /// bindings wait for it to be put back.
+    func testAFolderMovedToTheTrashIsNotFollowed() throws {
+        let base = root.resolvingSymlinksInPath()
+        let folder = base.appendingPathComponent("Songs", isDirectory: true)
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: folder.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        guard case .ready(let found) = library.lookup(identity: identity()) else {
+            return XCTFail("the folder's document should resolve before the move")
+        }
+        let bound = identity(title: "Bound Elsewhere", album: "Elsewhere")
+        library.bind(found, to: bound)
+
+        let trash = base.appendingPathComponent(".Trash", isDirectory: true)
+        try fileManager.createDirectory(at: trash, withIntermediateDirectories: true)
+        try fileManager.moveItem(at: folder, to: trash.appendingPathComponent("Songs"))
+        try library.rescanFolders()
+        XCTAssertEqual(
+            library.selectedFolders.map { $0.resolvingSymlinksInPath().path }, [folder.path],
+            "a folder in the Trash is not where the library reads from"
+        )
+
+        // Across a relaunch, as with any folder that cannot be reached: the
+        // binding is kept and says the file cannot be read.
+        let relaunched = LocalLyricsLibrary(directory: root)
+        XCTAssertEqual(
+            relaunched.selectedFolders.map { $0.resolvingSymlinksInPath().path }, [folder.path]
+        )
+        XCTAssertEqual(relaunched.lookup(identity: bound), .invalid(.unreadable))
+    }
+
+    /// The watcher saw only entries changed directly inside each top-level
+    /// folder: one kernel descriptor per folder, notified of its own writes,
+    /// renames and deletes. A library laid out as Artist/Album/song.lrc never
+    /// heard of a new file until a relaunch or a manual Rescan, despite the
+    /// 150 ms the inventory promises (G-020).
+    func testAFileAddedInASubfolderIsSeenWithoutARescan() throws {
+        let folder = try makeFolder(named: "Library")
+        let album = folder.appendingPathComponent("Artist/Album", isDirectory: true)
+        // Made before watching starts: creating Artist would itself be a
+        // top-level change, which even the old watcher saw.
+        try fileManager.createDirectory(at: album, withIntermediateDirectories: true)
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        library.startWatchingFolders()
+        defer { library.stopWatchingFolders() }
+
+        let seen = expectation(on: library) {
+            if case .ready = library.lookup(identity: self.identity(title: "New")) { return true }
+            return false
+        }
+        try write(
+            "[ti:New]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Deep",
+            to: album.appendingPathComponent("new.lrc")
+        )
+        wait(for: [seen.expectation], timeout: 3)
+        seen.cancel()
+    }
+
+    /// A sync client rewrites a file in place: the folder's own entries do
+    /// not change, so a descriptor on the folder heard nothing, and the old
+    /// lyrics stayed on screen until a Rescan (G-020).
+    func testAFileRewrittenInPlaceIsSeenWithoutARescan() throws {
+        let folder = try makeFolder(named: "Library")
+        let song = try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: folder.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        library.startWatchingFolders()
+        defer { library.stopWatchingFolders() }
+
+        let seen = expectation(on: library) {
+            guard case .ready(let candidate) = library.lookup(identity: self.identity()) else { return false }
+            return candidate.timeline.lines.first?.text == "Changed"
+        }
+        // Not atomic: the same inode is truncated and written, as a sync
+        // client or an editor saving in place does.
+        try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Changed".utf8).write(to: song)
+        wait(for: [seen.expectation], timeout: 3)
+        seen.cancel()
+    }
+
+    /// Renamed while it is watched, the folder is followed at once — no
+    /// relaunch — and files added under its new name are seen: the watch is
+    /// re-made over the new path rather than left on the old one.
+    func testAWatchedFolderRenamedWhileWatchedIsFollowed() throws {
+        let base = root.resolvingSymlinksInPath()
+        let folder = base.appendingPathComponent("Songs", isDirectory: true)
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: folder.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        library.startWatchingFolders()
+        defer { library.stopWatchingFolders() }
+
+        let moved = base.appendingPathComponent("LRC", isDirectory: true)
+        let followed = expectation(on: library) {
+            library.selectedFolders.map { $0.resolvingSymlinksInPath().path } == [moved.path]
+        }
+        try fileManager.moveItem(at: folder, to: moved)
+        wait(for: [followed.expectation], timeout: 3)
+        followed.cancel()
+
+        let seen = expectation(on: library) {
+            if case .ready = library.lookup(identity: self.identity(title: "New")) { return true }
+            return false
+        }
+        try write(
+            "[ti:New]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]After",
+            to: moved.appendingPathComponent("new.lrc")
+        )
+        wait(for: [seen.expectation], timeout: 3)
+        seen.cancel()
     }
 
     /// A folder inside another one the library reads is walked twice: on its
@@ -701,6 +884,22 @@ final class LocalLyricsLibraryTests: XCTestCase {
             playerID: "test", title: title, artist: artist, album: album,
             duration: duration, recordingID: nil
         )
+    }
+
+    /// An expectation met the first time `condition` holds after the library
+    /// announces a change. Checked on every revision rather than on the first
+    /// one, so an unrelated rescan in between cannot satisfy it early.
+    private func expectation(
+        on library: LocalLyricsLibrary, _ condition: @escaping () -> Bool
+    ) -> (expectation: XCTestExpectation, cancel: () -> Void) {
+        let met = expectation(description: "the library saw the change")
+        met.assertForOverFulfill = false
+        let subscription = library.$revision.dropFirst().sink { _ in
+            // `@Published` announces before it stores; the library's state is
+            // already changed by then, but give the revision itself a turn.
+            DispatchQueue.main.async { if condition() { met.fulfill() } }
+        }
+        return (met, { subscription.cancel() })
     }
 
     private func writeLRC(_ name: String, contents: String) throws -> URL {
