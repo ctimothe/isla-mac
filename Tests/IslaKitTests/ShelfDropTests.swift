@@ -69,6 +69,79 @@ final class ShelfDropTests: XCTestCase {
         XCTAssertEqual(view.draggingUpdated(next), .copy)
         XCTAssertGreaterThan(next.pasteboardReads, 0, "a new drag is asked afresh")
     }
+
+    // MARK: - Dragging a card out (F-020, F-038)
+
+    /// A card dragged into a Finder folder on the same disk used to move the
+    /// user's original, because Move was on offer and Finder prefers it
+    /// there. Copy is the default now; ⌘, Finder's own way to ask for a move,
+    /// puts Move (and the Trash) back. Nothing is offered inside the app.
+    func testDragOutCopiesUnlessCommandIsHeld() {
+        typealias Drag = ShelfDragSource.DragView
+        XCTAssertEqual(Drag.operationMask(context: .outsideApplication, modifiers: []), [.copy, .link])
+        XCTAssertEqual(Drag.operationMask(context: .outsideApplication, modifiers: [.shift]), [.copy, .link])
+        let held = Drag.operationMask(context: .outsideApplication, modifiers: [.command])
+        XCTAssertTrue(held.contains(.move))
+        XCTAssertTrue(held.contains(.generic), "AppKit narrows a ⌘-drag to Generic at the destination")
+        XCTAssertTrue(held.contains(.delete), "⌘-dragging onto the Trash still works")
+        XCTAssertEqual(Drag.operationMask(context: .withinApplication, modifiers: []), [])
+        XCTAssertEqual(Drag.operationMask(context: .withinApplication, modifiers: [.command]), [])
+    }
+
+    /// The drag lifts the card's own thumbnail from where it sits on the card,
+    /// so a grab in the middle of the picture keeps the pointer in the middle
+    /// of it. It used to be a 48 pt file icon pinned to the card's corner.
+    /// The box is the thumbnail's frame in the card, top-left origin as
+    /// SwiftUI measures it; the answer is in the drag view's own, unflipped
+    /// coordinates.
+    func testDragFrameSitsOverTheThumbnail() {
+        typealias Drag = ShelfDragSource.DragView
+        let bounds = NSRect(x: 0, y: 0, width: 86, height: 92)
+        let box = CGRect(x: 9, y: 8, width: 68, height: 40)
+
+        XCTAssertEqual(
+            Drag.dragFrame(index: 0, thumbnail: box, imageSize: NSSize(width: 68, height: 40), bounds: bounds),
+            NSRect(x: 9, y: 44, width: 68, height: 40)
+        )
+        XCTAssertEqual(
+            Drag.dragFrame(index: 1, thumbnail: box, imageSize: NSSize(width: 68, height: 40), bounds: bounds),
+            NSRect(x: 18, y: 35, width: 68, height: 40),
+            "a group still fans out by the same step"
+        )
+        XCTAssertEqual(
+            Drag.dragFrame(index: 0, thumbnail: box, imageSize: NSSize(width: 64, height: 64), bounds: bounds),
+            NSRect(x: 23, y: 44, width: 40, height: 40),
+            "a square icon is fitted the way the card fits it, centred in the box"
+        )
+        XCTAssertEqual(
+            Drag.dragFrame(index: 0, thumbnail: .zero, imageSize: NSSize(width: 86, height: 92), bounds: bounds),
+            bounds,
+            "before the card has been measured, the card itself"
+        )
+    }
+
+    /// Only a drop that may have taken the file away is followed up. A copy
+    /// leaves the original where it was, and the card with it.
+    func testOnlyADropThatMayHaveMovedTheFileIsFollowed() {
+        let view = ShelfDragSource.DragView()
+        let url = URL(fileURLWithPath: "/tmp/isla-moved.png")
+        var moved: [[URL]] = []
+        var presses: [Bool] = []
+        view.onMoved = { moved.append($0) }
+        view.onPress = { presses.append($0) }
+
+        view.draggedURLs = [url]
+        view.ended(with: .copy)
+        XCTAssertEqual(moved, [])
+        XCTAssertEqual(presses, [false], "the press ends with the drag either way")
+
+        for operation: NSDragOperation in [.move, .generic, .delete] {
+            view.draggedURLs = [url]
+            view.ended(with: operation)
+        }
+        XCTAssertEqual(moved, [[url], [url], [url]])
+        XCTAssertTrue(view.draggedURLs.isEmpty, "nothing is followed twice")
+    }
 }
 
 /// A drag that counts how often its pasteboard is asked for.

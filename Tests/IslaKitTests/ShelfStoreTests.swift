@@ -684,6 +684,141 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertEqual(log.onMain, [false, false])
     }
 
+    // MARK: - A dragged-out file that moved (F-020)
+
+    /// A temporary folder with a file in it, for the move tests. The file is
+    /// real: following a move means resolving a real bookmark, and the
+    /// default `makeBookmark` is what made it.
+    private func movableFile(named name: String = "Screenshot.png") throws -> (root: URL, file: URL) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ShelfMove-\(UUID())")
+        let from = root.appendingPathComponent("from", isDirectory: true)
+        try FileManager.default.createDirectory(at: from, withIntermediateDirectories: true)
+        let file = from.appendingPathComponent(name)
+        try Data([1, 2, 3]).write(to: file)
+        return (root, file)
+    }
+
+    /// A ⌘-drag into a Finder folder moves the file. The card used to keep
+    /// the old path: double-click, Quick Look and a second drag all failed
+    /// without a word, and the next open erased the card as deleted with the
+    /// file sitting one folder over. Now it follows the file through its
+    /// bookmark, keeping its id, so the selection it was part of holds.
+    func testAMovedFileKeepsItsCard() throws {
+        let (root, a) = try movableFile()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ShelfStore(defaults: defaults)
+        store.requestThumbnail = { _, _ in }
+        store.add([a])
+        let card = store.items[0]
+        store.select(card, modifiers: [])
+
+        let to = root.appendingPathComponent("to", isDirectory: true)
+        try FileManager.default.createDirectory(at: to, withIntermediateDirectories: true)
+        let b = to.appendingPathComponent("Screenshot moved.png")
+        try FileManager.default.moveItem(at: a, to: b)
+        store.followMove([a])
+
+        XCTAssertEqual(store.items.count, 1)
+        XCTAssertEqual(store.items[0].url.resolvingSymlinksInPath(), b.resolvingSymlinksInPath())
+        XCTAssertEqual(store.items[0].id, card.id, "the same card, not a new one")
+        XCTAssertTrue(store.isSelected(store.items[0]), "still selected")
+        XCTAssertEqual(
+            (defaults.stringArray(forKey: "shelf.urls") ?? []).map { URL(fileURLWithPath: $0).resolvingSymlinksInPath() },
+            [b.resolvingSymlinksInPath()],
+            "the new place is saved, so a relaunch finds it too"
+        )
+    }
+
+    /// Dragged onto the Trash in the Dock, or moved into it: the file is gone
+    /// as far as a person is concerned, and so is the card.
+    func testAFileDraggedToTheTrashLeavesTheShelf() throws {
+        let (root, a) = try movableFile()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ShelfStore(defaults: defaults)
+        store.requestThumbnail = { _, _ in }
+        store.add([a])
+        store.select(store.items[0], modifiers: [])
+
+        let trash = root.appendingPathComponent(".Trash", isDirectory: true)
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: a, to: trash.appendingPathComponent(a.lastPathComponent))
+        store.followMove([a])
+
+        XCTAssertTrue(store.items.isEmpty)
+        XCTAssertTrue(store.selection.isEmpty)
+        XCTAssertEqual(defaults.stringArray(forKey: "shelf.urls"), [])
+    }
+
+    /// A move to another disk is a copy and a delete, and a bookmark cannot
+    /// follow a file across disks: nothing is left to point at, so the card
+    /// leaves rather than sitting there dead.
+    func testAFileThatCannotBeFollowedLeavesTheShelf() throws {
+        let (root, a) = try movableFile()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ShelfStore(defaults: defaults)
+        store.requestThumbnail = { _, _ in }
+        let other = URL(fileURLWithPath: "/tmp/stays-\(UUID()).txt")
+        store.add([other])
+        store.add([a])
+
+        try FileManager.default.removeItem(at: a)
+        store.followMove([a])
+
+        XCTAssertEqual(store.items.map(\.url), [other], "only the card that went away leaves")
+    }
+
+    /// Finder's file operations run on their own after the drop is accepted,
+    /// so when the drag ends the file may not have moved yet. A card whose
+    /// file is still where it was is asked again shortly, not given up on.
+    func testAMoveThatLandsAfterTheDragEndsIsStillFollowed() async throws {
+        let (root, a) = try movableFile()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ShelfStore(defaults: defaults)
+        store.requestThumbnail = { _, _ in }
+        store.moveSettleDelays = [.milliseconds(20), .milliseconds(20)]
+        store.add([a])
+
+        let followUp = store.followMove([a])
+        XCTAssertEqual(store.items.map(\.url), [a], "nothing moved yet, so nothing changes")
+        XCTAssertNotNil(followUp, "and it will look again")
+
+        let b = root.appendingPathComponent("Screenshot moved.png")
+        try FileManager.default.moveItem(at: a, to: b)
+        await followUp?.value
+
+        XCTAssertEqual(store.items.map { $0.url.resolvingSymlinksInPath() }, [b.resolvingSymlinksInPath()])
+    }
+
+    /// A group drag lifts the grabbed card first, so it is the one that sits
+    /// under the pointer; the rest fan out behind it in shelf order.
+    func testAGroupDragLiftsTheGrabbedCardFirst() {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ShelfStore(defaults: defaults)
+        store.requestThumbnail = { _, _ in }
+        store.makeBookmark = { Data($0.path.utf8) }
+        let urls = ["a", "b", "c"].map { URL(fileURLWithPath: "/tmp/\($0).png") }
+        store.add(urls)
+        for card in store.items { store.select(card, modifiers: .command) }
+        let grabbed = store.items[1]
+
+        XCTAssertEqual(store.dragCards(startingAt: grabbed).map(\.url), [urls[1], urls[0], urls[2]])
+        XCTAssertEqual(store.dragURLs(startingAt: grabbed), urls, "Quick Look and AirDrop keep shelf order")
+    }
+
     /// Lets the main queue run what is already on it, twice over: a preview's
     /// answer hops to main once, and the batch it joins is flushed one hop
     /// later.
