@@ -510,6 +510,20 @@ struct MediaPane: View {
                             // across the opening line during the intro, says
                             // the voice is there, which it is not.
                             fraction: shown.fraction,
+                            // And the same sweep read on every frame from the
+                            // running clock while the voice is in a word-timed
+                            // line, so the edge is not a tick behind it. Never
+                            // for the opening line waiting through an intro.
+                            clock: shown.current.flatMap { current in
+                                LyricSweep.liveFraction(
+                                    line: line, end: LyricSweep.end(of: current, in: lines),
+                                    wordTiming: wordTimingEnabled,
+                                    clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+                                        precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
+                                        trackOffset: lyrics.trackOffset
+                                    ))
+                                )
+                            },
                             reduceMotion: reduceMotion,
                             // The caption sits at the body size, where SF opens tracking
                             // up slightly rather than tightening it.

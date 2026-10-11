@@ -173,8 +173,10 @@ final class VisualLabAnimationTests: VisualLabCase {
         ]
         // Literals that live inside views. Read from the source line so the
         // sample cannot drift from what ships.
-        let sweep = try literal("Sources/IslaKit/UI/KaraokeText.swift", #"\.linear\(duration: ([0-9.]+)\), value: fraction"#)
-        curves.append(try curve(.linear(duration: sweep), "karaoke-sweep", "word sweep between two position ticks", "KaraokeText.swift .linear(duration:)"))
+        // The karaoke sweep is not a curve any more: its edge is placed from
+        // the clock on every frame (`KaraokeText.clock`, F-011), and
+        // `KaraokeText.sweepAnimation` is nil in every case. The lyric lab's
+        // L5 measures what it draws.
         let press = try literal("Sources/IslaKit/UI/Theme.swift", #"\.animation\(\.easeOut\(duration: ([0-9.]+)\), value: configuration\.isPressed\)"#)
         curves.append(try curve(.easeOut(duration: press), "button-press", "NotchButtonStyle press dim", "Theme.swift NotchButtonStyle"))
         let shake = try literal("Sources/IslaKit/UI/RefusalShake.swift", #"withAnimation\(\.easeOut\(duration: ([0-9.]+)\)\)"#)

@@ -184,6 +184,41 @@ enum LyricSweep {
         return wordFraction(words: line.words, at: at, lineEnd: end)
     }
 
+    /// The moment a sweep reads on each display frame: the running clock, lead
+    /// added, or nil while the song is not moving.
+    ///
+    /// The running clock, not `MediaController.position`. That one is
+    /// published on the 0.1 s tick, so an edge read from it steps ten times a
+    /// second — and the quarter-second ramp that used to smooth the steps
+    /// over left the edge 175 ms behind the voice at the median (F-011). Read
+    /// through `extrapolatedPosition`, the one copy of the clock's arithmetic,
+    /// so the edge and the bar can never be on two clocks. Nil when paused: a
+    /// still song has nothing to show between frames, and a frame callback
+    /// for it would be spent on nothing.
+    static func frameClock(
+        media: MediaController, lead: TimeInterval
+    ) -> (@MainActor () -> TimeInterval)? {
+        guard media.isPlaying else { return nil }
+        return { media.extrapolatedPosition() + lead }
+    }
+
+    /// The sweep of a line being sung, read against `clock` whenever it is
+    /// asked — every display frame, from `KaraokeText` — or nil when the
+    /// sweep has no reason to move between publishes.
+    ///
+    /// Only a word-timed line moves: line timing and a word-less line draw 1
+    /// (`drawnFraction`), a credit draws 0, and a sweep that cannot change
+    /// costs no frame callback. The arithmetic is `drawnFraction`'s, called
+    /// rather than restated, so the edge a frame draws is the edge the lab
+    /// reports.
+    static func liveFraction(
+        line: LyricsStore.Line, end: TimeInterval, wordTiming: Bool,
+        clock: (@MainActor () -> TimeInterval)?
+    ) -> (@MainActor () -> Double)? {
+        guard let clock, wordTiming, !line.isCredit, !line.words.isEmpty else { return nil }
+        return { drawnFraction(line: line, isCurrent: true, at: clock(), end: end, wordTiming: true) }
+    }
+
     /// What every lyric surface draws for one reading of the clock. The stage,
     /// the caption and the lock card each name a static that comes here — and
     /// the lyric lab calls those same statics, so it measures the code that

@@ -85,7 +85,7 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
         let realResult = Self.judge(real)
         let nilResult = Self.judge(syntheticNil)
         let endedResult = Self.judge(syntheticEnded)
-        let animation = Self.animationModel(Array(syntheticEnded.prefix(4000)))
+        let edge = Self.karaokeEdge(Array(syntheticEnded.prefix(4000)))
 
         // Equal lengths, different durations: the edge must cross the long
         // word slower, and stand at each word's half on each word's midpoint.
@@ -122,11 +122,11 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
             "equalLengthDifferentDurations": equalLength.merging(["ok": equalLengthOK ? 1 : 0]) { a, _ in a },
             "subFloorWord": ["fractionJustBeforeEnd": blinkBefore, "fractionAtEnd": blinkAfter,
                              "note": "a word under 50 ms reaches only (duration/0.05) of its share, then leaps to full at its end"],
-            "karaokeAnimationModel": animation,
+            "karaokeEdge": edge,
             "verdict": verdict,
             "summary": "real word lines \(realResult["lines"] ?? 0), synthetic \(nilResult["lines"] ?? 0); invariant failures \(invariantFailures); "
                 + "end=nil max deviation \(fmt((nilResult["deviationChars"] as? [String: Any])?["max"])) chars vs end set \(fmt((endedResult["deviationChars"] as? [String: Any])?["max"])); "
-                + "animation lag p50 \(fmt((animation["lagMs"] as? [String: Any])?["p50"])) ms (MODEL)",
+                + "edge lag p50 \(fmt((edge["lagMs"] as? [String: Any])?["p50"])) ms, p95 \(fmt((edge["lagMs"] as? [String: Any])?["p95"])) ms at 120 Hz (PRODUCTION, per frame)",
         ])
     }
 
@@ -223,46 +223,92 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
         ]
     }
 
-    /// MODEL, not measurement: `KaraokeText` animates the fraction with
-    /// `.linear(duration: 0.25)` (KaraokeText.swift:108) while the position
-    /// publishes every 0.1 s (`MediaController.positionTickInterval`). SwiftUI
-    /// runs a retargeted non-merging animation additively, so the drawn edge
-    /// is the sum of 0.25 s ramps, one per publish. How far behind the true
-    /// edge, in time, that draws it.
-    private static func animationModel(_ lines: [WordLine]) -> [String: Any] {
-        let tick = MediaController.positionTickInterval, ramp = 0.25, frame = 1.0 / 120
-        var lags: [Double] = []
-        for line in lines {
-            let words = line.words.map { LyricWord(at: $0.start, text: $0.text, end: $0.islaEnd) }
-            let start = line.words[0].start, end = line.lineEnd
-            func target(_ t: Double) -> Double { LyricSweep.wordFraction(words: words, at: t, lineEnd: end) }
-            var publishes: [(at: Double, delta: Double)] = []
-            var previous = 0.0
-            var t = start - 0.05
-            while t <= end { let value = target(t); publishes.append((t, value - previous)); previous = value; t += tick }
-            var frameTime = start
-            while frameTime <= end {
-                var drawn = 0.0
-                for publish in publishes where publish.at <= frameTime {
-                    drawn += publish.delta * min((frameTime - publish.at) / ramp, 1)
-                }
-                let truth = target(frameTime)
-                // The drawn edge stands where the truth stood `lag` ago.
-                if truth > 0.02, truth < 0.98, drawn < truth {
-                    var low = frameTime - 1.5, high = frameTime
-                    for _ in 0..<30 {
-                        let mid = (low + high) / 2
-                        if target(mid) < drawn { low = mid } else { high = mid }
+    /// The edge the sung row draws, sampled from production at simulated
+    /// display frames — not a model of it.
+    ///
+    /// Until LY-12 this was a MODEL of `KaraokeText`'s `.linear(duration:
+    /// 0.25)` ramp re-aimed by every 0.1 s publish (additive 0.25 s ramps, one
+    /// per publish): lag p50 175 ms, p95 196 ms. The edge is now placed by the
+    /// clock on every frame, and restating that rule here to measure it would
+    /// measure the restatement. So each frame calls the closure the surfaces
+    /// hand `KaraokeText` — `LyricSweep.liveFraction` over
+    /// `LyricSweep.frameClock`, which reads `MediaController.extrapolatedPosition`
+    /// — on a real `MediaController` whose monotonic clock is set to the
+    /// frame's instant. What that frame draws stays on screen until the next
+    /// one replaces it, so it is judged at four moments through the frame
+    /// against the true edge at each: the lag is how long ago the truth stood
+    /// where the drawn edge stands. The lead is 0 here because placing the
+    /// line against the voice is L7's question; this asks only whether the
+    /// edge keeps up with the clock it reads.
+    private static func karaokeEdge(_ lines: [WordLine]) -> [String: Any] {
+        final class Clock { var now: TimeInterval = 0 }
+        let clock = Clock()
+        let media = MediaController()
+        media.lyricsShown = { false }
+        media.monotonicNow = { clock.now }
+        var snapshot = NowPlayingFeed.Snapshot()
+        snapshot.title = "Lab"
+        snapshot.artist = "Lab"
+        snapshot.album = "Lab"
+        snapshot.duration = 1_000_000
+        snapshot.elapsed = 0
+        snapshot.rate = 1
+        snapshot.isPlaying = true
+        snapshot.takenAt = Date()
+        snapshot.playerPID = 1
+        media.apply(snapshot)
+        // Where the anchor landed, aged by the microseconds since `takenAt`:
+        // track time t is monotonic time t - base.
+        let base = media.extrapolatedPosition()
+        guard let frameClock = LyricSweep.frameClock(media: media, lead: 0) else {
+            return ["error": "the lab's MediaController is not playing, so no surface would hand a clock"]
+        }
+        var byRate: [String: Any] = [:]
+        var aheadOfTruth = 0
+        for rate in [LyricLeadModel.referenceFrameRate, 60] {
+            let frame = 1.0 / rate
+            var lags: [Double] = []
+            for line in lines {
+                let words = line.words.map { LyricWord(at: $0.start, text: $0.text, end: $0.islaEnd) }
+                let start = line.words[0].start, end = line.lineEnd
+                let row = LyricsStore.Line(at: start, text: words.map(\.text).joined(separator: " "), words: words)
+                guard let sweep = LyricSweep.liveFraction(line: row, end: end, wordTiming: true, clock: frameClock) else { continue }
+                func target(_ t: Double) -> Double { LyricSweep.wordFraction(words: words, at: t, lineEnd: end) }
+                var frameTime = start
+                while frameTime <= end {
+                    clock.now = frameTime - base
+                    let drawn = sweep()
+                    for hold in [0.25, 0.5, 0.75, 0.999] {
+                        let seen = frameTime + hold * frame
+                        let truth = target(seen)
+                        if drawn > truth + 1e-9 { aheadOfTruth += 1 }
+                        // The drawn edge stands where the truth last stood
+                        // `lag` ago. Last, not first: through the silence
+                        // between two words the truth holds still, and timing
+                        // from the start of that plateau charged a frame
+                        // drawn just before the next word with the whole gap
+                        // (the first run's 221 ms maximum, every one of them
+                        // a gap).
+                        guard truth > 0.02, truth < 0.98, drawn < truth else { continue }
+                        var low = seen - 1.5, high = seen
+                        for _ in 0..<30 {
+                            let mid = (low + high) / 2
+                            if target(mid) <= drawn { low = mid } else { high = mid }
+                        }
+                        lags.append(seen - low)
                     }
-                    lags.append(frameTime - high)
+                    frameTime += frame
                 }
-                frameTime += frame
             }
+            byRate["\(Int(rate)) Hz"] = LabStats.summary(lags, scale: 1000)
         }
         return [
-            "label": "MODEL (additive linear 0.25 s animation over 0.1 s publishes)",
-            "linesModelled": lines.count,
-            "lagMs": LabStats.summary(lags, scale: 1000),
+            "label": "PRODUCTION (LyricSweep.liveFraction over LyricSweep.frameClock on a MediaController, sampled through each simulated frame)",
+            "linesSampled": lines.count,
+            "lagMs": byRate["\(Int(LyricLeadModel.referenceFrameRate)) Hz"] ?? [String: Any](),
+            "lagMsByFrameRate": byRate,
+            "samplesAheadOfTruth": aheadOfTruth,
+            "retiredModelLagMs": ["p50": 175, "p95": 196, "note": "the 0.25 s linear ramp over 0.1 s publishes, before LY-12"],
         ]
     }
 
