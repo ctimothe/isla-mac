@@ -592,6 +592,16 @@ enum Theme {
     /// destructive Clear (F-014). The width still follows the word; this is
     /// the floor under both.
     static let minimumHitSize = CGSize(width: 24, height: 20)
+
+    /// A Shelf card under a held mouse button settles to this scale, so the
+    /// press answers on the way down rather than on release (F-038): a card
+    /// took the mouse-down with no sign of it until a drag image appeared or
+    /// the click was let go. Small, because a card is a large target and a
+    /// deeper dip reads as a button.
+    static let pressScale: CGFloat = 0.97
+    /// The same press under Reduce Motion, which asks for no change of size:
+    /// the card dims to this opacity instead.
+    static let pressDimOpacity: Double = 0.85
 }
 
 /// The pressed state `.plain` does not give.

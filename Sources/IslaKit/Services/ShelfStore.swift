@@ -9,7 +9,9 @@ extension NSPasteboard.PasteboardType {
 
 struct ShelfItem: Identifiable, Equatable {
     let id = UUID()
-    let url: URL
+    /// Changes only when `ShelfStore.followMove` follows the file somewhere
+    /// else; the card keeps its id, and with it its place in a selection.
+    var url: URL
     /// Starts as the file-type icon and is replaced by a real preview once
     /// QuickLook renders one — a shelf of identical PNG icons is useless when
     /// what it holds is screenshots.
@@ -50,7 +52,8 @@ struct ShelfItem: Identifiable, Equatable {
 }
 
 /// Drop zone contents. Files are referenced, never copied — the shelf is a
-/// holding area, so moving the original away simply removes it from the shelf.
+/// holding area, so deleting the original removes it from the shelf. A file
+/// moved by a drag out of the shelf is followed instead (`followMove`).
 @MainActor
 final class ShelfStore: ObservableObject {
     @Published private(set) var items: [ShelfItem] = []
@@ -717,6 +720,134 @@ final class ShelfStore: ObservableObject {
     func dragURLs(startingAt item: ShelfItem) -> [URL] {
         guard selection.contains(item.id) else { return item.isOffline ? [] : [item.url] }
         return items.filter { selection.contains($0.id) && !$0.isOffline }.map(\.url)
+    }
+
+    /// The cards a drag started on `item` lifts — the same ones as
+    /// `dragURLs`, with the grabbed card moved to the front. The first card
+    /// is the one drawn exactly under the pointer and the rest fan out behind
+    /// it, so a group grabbed by its third card no longer showed the first
+    /// card's picture where the pointer was.
+    func dragCards(startingAt item: ShelfItem) -> [ShelfItem] {
+        guard selection.contains(item.id) else { return item.isOffline ? [] : [item] }
+        let picked = items.filter { selection.contains($0.id) && !$0.isOffline }
+        return picked.filter { $0.id == item.id } + picked.filter { $0.id != item.id }
+    }
+
+    // MARK: - Following a dragged-out file
+
+    /// How long to wait, each time, before asking again after a drag whose
+    /// files had not moved yet when it ended. A seam so tests do not wait.
+    ///
+    /// Finder carries out a drop as a file operation of its own, after it
+    /// has accepted the drop, so the drag can end with the file still where
+    /// it was. A move within one disk is a rename and lands at once; the
+    /// last ask is for a slower one. Past it, the next open of the Shelf
+    /// settles the card the way it settles any other.
+    var moveSettleDelays: [Duration] = [.milliseconds(300), .seconds(2)]
+
+    /// Follows the files of a drag that ended in a move, or in the Trash.
+    ///
+    /// A ⌘-drag into a Finder folder moves the file, and the card used to
+    /// keep the old path: double-click, Quick Look and a second drag all
+    /// failed without a word, and the next open erased the card as deleted
+    /// with the file one folder over (F-020). Each card's bookmark is
+    /// resolved again. A new place updates the card in place — same id, same
+    /// selection — and is saved. A file in a Trash, or one the bookmark can no
+    /// longer find (a move to another disk is a copy and a delete, which no
+    /// bookmark follows), takes its card with it.
+    ///
+    /// Returns the pending second look when some file had not moved yet, so
+    /// tests can wait on it; nil when everything is settled.
+    @discardableResult
+    func followMove(_ urls: [URL]) -> Task<Void, Never>? {
+        let waiting = follow(urls)
+        guard !waiting.isEmpty else { return nil }
+        let delays = moveSettleDelays
+        return Task { [weak self] in
+            var left = waiting
+            for delay in delays {
+                try? await Task.sleep(for: delay)
+                guard let self, !left.isEmpty else { return }
+                left = self.follow(left)
+            }
+        }
+    }
+
+    /// One pass of `followMove`. Returns the URLs whose files are still
+    /// exactly where they were — not moved yet, or never moved at all.
+    private func follow(_ urls: [URL]) -> [URL] {
+        var cards = items
+        var waiting: [URL] = []
+        var gone: Set<UUID> = []
+        var changed = false
+        for url in urls {
+            guard let index = cards.firstIndex(where: { $0.url == url }) else { continue }
+            let place = Self.whereIs(url, bookmark: bookmarks[url])
+            switch place {
+            case .unmoved:
+                waiting.append(url)
+            case .gone:
+                gone.insert(cards[index].id)
+            case .moved(let new, let fresh):
+                if cards.contains(where: { $0.url == new }) {
+                    // Moved onto a file the shelf already holds: one card is
+                    // enough for one file.
+                    gone.insert(cards[index].id)
+                    continue
+                }
+                cards[index].url = new
+                // The bookmark found the file, so it is kept — unless the
+                // system called it stale, and then the next save makes it
+                // again, as `storedURLs` does at launch.
+                bookmarks[url] = nil
+                bookmarks[new] = fresh
+                // The card's preview is of the same file, so it is not owed
+                // again; only its key changes.
+                if thumbnailed.remove(url) != nil { thumbnailed.insert(new) }
+                if let pending = pendingIcons.removeValue(forKey: url) { pendingIcons[new] = pending }
+                changed = true
+            }
+        }
+        if !gone.isEmpty {
+            cards.removeAll { gone.contains($0.id) }
+            selection.subtract(gone)
+            if let anchor, gone.contains(anchor) { self.anchor = nil }
+            changed = true
+        }
+        if changed {
+            items = cards
+            persist()
+        }
+        return waiting
+    }
+
+    /// What a card's bookmark says about where its file is now.
+    private enum Place {
+        case unmoved
+        /// Found somewhere else; `bookmark` is the one to keep, nil if stale.
+        case moved(URL, bookmark: Data?)
+        case gone
+    }
+
+    /// Resolves a card's bookmark after a drag. Unlike `load`, this may
+    /// look at the file: the person just dragged it, so the Shelf already
+    /// had its answer for that folder.
+    private static func whereIs(_ url: URL, bookmark: Data?) -> Place {
+        var stale = false
+        guard let bookmark, !bookmark.isEmpty, let found = try? URL(
+            resolvingBookmarkData: bookmark,
+            options: [.withoutUI, .withoutMounting],
+            bookmarkDataIsStale: &stale
+        ) else {
+            // Nothing to follow it with: the path is the only answer.
+            return FileManager.default.fileExists(atPath: url.path) ? .unmoved : .gone
+        }
+        if isInTrash(found) { return .gone }
+        // Compared with links resolved: the bookmark answers with the real
+        // path (`/private/var/…`) where the card may hold the one it was
+        // dropped under (`/var/…`), and that is not a move.
+        if found.resolvingSymlinksInPath() == url.resolvingSymlinksInPath() { return .unmoved }
+        return .moved(found, bookmark: stale ? nil : bookmark)
     }
 
     func reveal(_ item: ShelfItem) {

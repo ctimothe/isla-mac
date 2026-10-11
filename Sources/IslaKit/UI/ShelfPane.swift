@@ -185,8 +185,20 @@ private struct ShelfCard: View {
     /// Handed down from the pane, which is the one place that can know it
     /// correctly when cards move under a stationary pointer.
     let isHovered: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The mouse is down on the card, or a drag that started on it is still
+    /// in flight. Reported by the drag overlay, which owns the mouse.
+    @State private var isPressed = false
+    /// The thumbnail's box in the card, measured, so a drag lifts the picture
+    /// from where it is drawn rather than from a copy of the layout's sums.
+    @State private var thumbnailBox: CGRect = .zero
 
     private var isSelected: Bool { shelf.isSelected(item) }
+
+    /// The card's coordinate space, for `thumbnailBox`. The drag overlay
+    /// covers the card exactly, so the box is in the overlay's terms too.
+    private static let space = "shelfCard"
 
     var body: some View {
         VStack(spacing: 6) {
@@ -198,6 +210,7 @@ private struct ShelfCard: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 68, height: 40)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { thumbnailBox = $0 }
                 // A disk that is not plugged in: the card is still the card,
                 // only out of reach until the disk comes back.
                 .opacity(item.isOffline ? Theme.offlineThumbnailOpacity : 1)
@@ -236,6 +249,7 @@ private struct ShelfCard: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 8)
         .frame(width: 86, height: 92)
+        .coordinateSpace(.named(Self.space))
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(isSelected ? Theme.selectedChip : (isHovered ? Theme.surfaceHover : Theme.surface))
@@ -245,16 +259,8 @@ private struct ShelfCard: View {
                 .strokeBorder(Theme.selectedChipBorder.opacity(isSelected ? 1 : 0), lineWidth: 1.5)
                 .allowsHitTesting(false)
         )
-        // Owns clicks and drags: a group drag needs one dragging item per file,
-        // which SwiftUI's onDrag cannot express. It must stay *below* the close
-        // button, otherwise it swallows every click aimed at it.
-        .overlay(
-            ShelfDragSource(
-                urls: { shelf.dragURLs(startingAt: item) },
-                onClick: { modifiers in shelf.select(item, modifiers: modifiers) },
-                onDoubleClick: { shelf.open(item) }
-            )
-        )
+        // Drawn under the drag overlay, which draws nothing, so the mark
+        // presses with the card it belongs to.
         .overlay(alignment: .topLeading) {
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
@@ -264,6 +270,29 @@ private struct ShelfCard: View {
                     .allowsHitTesting(false)
             }
         }
+        // The press answers on the way down (F-038). Only what is drawn
+        // dips: the drag overlay below sits outside the scale, so the region
+        // that owns the mouse stays exactly where the press began, and the
+        // thumbnail box it lifts the drag image from is the unscaled one.
+        // Reduce Motion asks for no change of size, so the card dims instead.
+        .scaleEffect(isPressed && !reduceMotion ? Theme.pressScale : 1)
+        .opacity(isPressed && reduceMotion ? Theme.pressDimOpacity : 1)
+        .animation(Theme.contentAnimation, value: isPressed)
+        // Owns clicks and drags: a group drag needs one dragging item per file,
+        // which SwiftUI's onDrag cannot express. It must stay *below* the close
+        // button, otherwise it swallows every click aimed at it.
+        .overlay(
+            ShelfDragSource(
+                items: { shelf.dragCards(startingAt: item).map { ($0.url, $0.icon) } },
+                thumbnail: thumbnailBox,
+                onClick: { modifiers in shelf.select(item, modifiers: modifiers) },
+                onDoubleClick: { shelf.open(item) },
+                onPress: { pressed in isPressed = pressed },
+                // A ⌘-drag moved the file, or the Trash took it: the card
+                // follows it, or leaves with it (F-020).
+                onMoved: { urls in shelf.followMove(urls) }
+            )
+        )
         .overlay(alignment: .topTrailing) {
             if isHovered {
                 Button { shelf.remove(item) } label: {

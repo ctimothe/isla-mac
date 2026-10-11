@@ -146,6 +146,10 @@ are the exception the design did not anticipate:
   folder macOS guards, so the system asks once, with the shelf on screen to
   explain it, and the grant sticks; denied means the shelf shows what it
   holds. Nothing watches in the background.
+  *Amended 2026-10-11 (sp/SH-05, owner decision 17, reversible):* dragging
+  out copies by default; ⌘ moves, and a moved file keeps its card. The drag
+  still carries the original as its source; only the default operation
+  changed, so a same-disk drop into Finder now duplicates the file.
 
 The status-item menu, and then the whole status item, were removed on
 2026-08-25 by owner decision. A window was built first and withdrawn the
@@ -1126,3 +1130,39 @@ of the v0.3 Increase Contrast entry above.
 - [ ] **Look owed on the Mac:** the lyrics page in a dark room, and the lock
   card over a pale cover, to confirm the narrower floor-to-neighbour step
   (0.06 on the panel) still reads as depth.
+### A card dragged out copies, and follows a file it moved — 2026-10-11 (sp/SH-05)
+
+Closes F-020 (Move offered by default; a moved file left a dead card) and
+F-038 (generic 48 pt drag image at the card's corner, no press feedback).
+The M-21 count badge for a group drag was not built: the fan already reads as
+a stack, and nothing showed it was needed.
+
+- [x] **Copy unless ⌘.** Outside the app a drag offers Copy and Link; ⌘ adds
+  Move, Generic (what AppKit narrows a ⌘-drag to, and what Finder performs as
+  a move) and Delete (the Trash). Nothing is offered inside the app.
+  `ShelfDropTests.testDragOutCopiesUnlessCommandIsHeld`.
+- [x] **A moved card follows its file.** A drag that ends in Move, Generic or
+  Delete re-resolves each card's bookmark: a new place updates the card in
+  place (same id, still selected) and is saved; the Trash or a file no
+  bookmark can find (a move to another disk) removes the card. A file still
+  where it was is asked again at 0.3 s and 2 s, because Finder runs the move
+  after it accepts the drop. `ShelfStoreTests.testAMovedFileKeepsItsCard`,
+  `testAFileDraggedToTheTrashLeavesTheShelf`,
+  `testAFileThatCannotBeFollowedLeavesTheShelf`,
+  `testAMoveThatLandsAfterTheDragEndsIsStillFollowed`,
+  `ShelfDropTests.testOnlyADropThatMayHaveMovedTheFileIsFollowed`.
+- [x] **The drag lifts the thumbnail from where it was grabbed.** The image is
+  the card's cached preview, never a new QuickLook request, fitted into the
+  measured thumbnail box; the session starts from the mouse-down so the
+  pointer keeps its point on the picture; a group puts the grabbed card first
+  and fans the rest 9 pt behind it. `testDragFrameSitsOverTheThumbnail`,
+  `ShelfStoreTests.testAGroupDragLiftsTheGrabbedCardFirst`.
+- [x] **The press answers on the way down.** The card settles to
+  `Theme.pressScale` (0.97) on mouse-down and back on mouse-up or when the
+  drag ends; under Reduce Motion it dims to `Theme.pressDimOpacity` (0.85).
+- [ ] **Physical check owed (script S13 step 2):** a Desktop card dragged into
+  a Finder folder copies it (the original stays, the "+" badge shows); a
+  ⌘-drag moves it and the card's double-click opens the moved file; ⌘-dragging
+  onto the Trash removes the card; pressing ⌘ mid-drag turns the copy into a
+  move. Film one drag: the thumbnail stays under the pointer where it was
+  grabbed.
