@@ -80,6 +80,22 @@ struct LyricRow: View {
         increaseContrast ? 0.48 : 0.46
     }
 
+    /// The opacity of a row that is not lit: everything at reading strength
+    /// while the reader scrolls by hand, the neighbour one step from the lit
+    /// row, the floor for everything further out. One function so a line and
+    /// an interlude marker at the same depth are the same grey.
+    static func contextOpacity(distance: Int, reading: Bool, increaseContrast: Bool) -> Double {
+        if reading { return readingOpacity(increaseContrast: increaseContrast) }
+        guard distance != 1 else { return neighbourOpacity(increaseContrast: increaseContrast) }
+        return falloffFloor(increaseContrast: increaseContrast)
+    }
+
+    /// What the lit row is drawn at before the voice fills it: the sung
+    /// line's unsung words, and the interlude marker while it plays. Above
+    /// every context opacity at every setting, so the row the song is in is
+    /// never the dimmer one.
+    static let litBaseOpacity: Double = 0.5
+
     var body: some View {
         Button { seek?() } label: {
             content
@@ -157,7 +173,7 @@ struct LyricRow: View {
                         // Brighter than any neighbour even before the sweep
                         // arrives: the line being sung must never be the darkest
                         // thing on screen.
-                        base: .white.opacity(0.5),
+                        base: .white.opacity(Self.litBaseOpacity),
                         lineLimit: lineLimit
                     )
                     .transition(.opacity)
@@ -185,10 +201,119 @@ struct LyricRow: View {
     /// old 0.18, so no `max` guard is needed — the clamp *is* the value.
     @MainActor
     private var falloffOpacity: Double {
-        let increaseContrast = SystemAppearance.shared.increaseContrast
-        if reading { return Self.readingOpacity(increaseContrast: increaseContrast) }
-        guard distance != 1 else { return Self.neighbourOpacity(increaseContrast: increaseContrast) }
-        return Self.falloffFloor(increaseContrast: increaseContrast)
+        Self.contextOpacity(
+            distance: distance, reading: reading,
+            increaseContrast: SystemAppearance.shared.increaseContrast
+        )
+    }
+}
+
+/// The silence before a line, drawn as a row of its own: a note and a short
+/// track that fills from the moment the voice stopped to the moment it comes
+/// back.
+///
+/// After LY-05 a line goes dark at its end, and a twenty-second solo showed
+/// only the next line, dim, waiting at the reading centre — which reads as the
+/// lyrics having lost the song (M-36). The visual lab's render of the same
+/// break was a blank selected row that VoiceOver read as a button with no
+/// name (H-011). This says what is happening and how long is left, and it is
+/// named.
+///
+/// A fill, not Apple Music's breathing dots: a slow loop for as long as a solo
+/// lasts is the decorative motion the apple-design skill warns against, and a
+/// fill tells the one thing worth knowing — when the words come back. Nothing
+/// here loops at any setting. The fill is placed by the clock on each frame
+/// while the song plays, the way `KaraokeText` places its edge, and under
+/// Reduce Motion it moves only with the published position, a step at a time,
+/// with no animation between.
+///
+/// Drawn in the line's own greys — `LyricRow.contextOpacity` while another row
+/// is lit, the lit row's base while it plays — so it sits in the page's depth
+/// rather than on top of it.
+struct InterludeMarker: View {
+    /// How far through the interlude the clock is, 0 to 1, as last published.
+    let progress: Double
+    /// Whether this is the interlude playing now.
+    let isCurrent: Bool
+    /// How many rows away from the lit one, for the depth falloff.
+    let distance: Int
+    /// The progress read afresh on every display frame, or nil to draw
+    /// `progress` as it is. Handed in only while this interlude plays and the
+    /// song moves, so a marker nobody is waiting through costs no frames.
+    var clock: (@MainActor () -> Double)? = nil
+    /// The line's own type size, so the note sits on the same baseline and
+    /// the row is exactly as tall as a one-line lyric beside it.
+    var fontSize: CGFloat = Theme.TypeRole.title.size
+    var weight: Font.Weight = .bold
+    var reading = false
+    var reduceMotion = false
+
+    /// How long the track is. Short on purpose: a progress bar the width of
+    /// a lyric would read as a second scrubber, and this is a rest in the
+    /// text, not a control.
+    static let trackWidth: CGFloat = 44
+    /// A point thinner than the panel's 4 pt scrubber, so the two read as one
+    /// family and the marker is never taken for a second place to seek.
+    static let trackHeight: CGFloat = 3
+
+    /// What VoiceOver hears for the row.
+    static var accessibilityLabel: String { localized("Instrumental") }
+
+    /// How much of the track is filled for a progress, clamped so a clock
+    /// read past either end never draws outside the track.
+    static func filledWidth(progress: Double) -> CGFloat {
+        trackWidth * CGFloat(min(max(progress, 0), 1))
+    }
+
+    var body: some View {
+        let clockDriven = clock != nil && !reduceMotion
+        let tone = Color.white.opacity(opacity)
+        HStack(spacing: 8) {
+            // An image inside a `Text`, so the row takes a text line's height
+            // at this size: on the lock card the window's rows are measured
+            // by their type, and a symbol image framed on its own came out a
+            // few points shorter and moved every line below it.
+            Text(Image(systemName: "music.note"))
+                .islandFont(fontSize, weight: weight)
+                .foregroundStyle(tone)
+            // One timeline always, paused unless the clock drives it, as in
+            // `KaraokeText`: a marker that starts or stops playing keeps its
+            // identity rather than being swapped mid-solo.
+            TimelineView(.animation(minimumInterval: nil, paused: !clockDriven)) { _ in
+                let drawn = clockDriven ? clock?() ?? progress : progress
+                Capsule()
+                    .fill(Theme.hairline)
+                    .frame(width: Self.trackWidth, height: Self.trackHeight)
+                    .overlay(alignment: .leading) {
+                        Capsule()
+                            .fill(tone)
+                            .frame(width: Self.filledWidth(progress: drawn), height: Self.trackHeight)
+                    }
+                    // Never interpolated. The stage turns its page in an
+                    // animated transaction, and carried along with it the
+                    // fill would ease behind the clock it is drawn from.
+                    .transaction { $0.animation = nil }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: isCurrent)
+        // One element with a name, not a button: there is no line here to
+        // jump to, and H-011's dump was exactly a nameless selected button.
+        // Static text, so the element has a role as well as a name: left
+        // bare, the visual lab's dump read it as AXUnknown.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.accessibilityLabel)
+        .accessibilityAddTraits(isCurrent ? [.isStaticText, .isSelected] : [.isStaticText])
+    }
+
+    @MainActor
+    private var opacity: Double {
+        isCurrent
+            ? LyricRow.litBaseOpacity
+            : LyricRow.contextOpacity(
+                distance: distance, reading: reading,
+                increaseContrast: SystemAppearance.shared.increaseContrast
+            )
     }
 }
 

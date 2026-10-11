@@ -58,8 +58,10 @@ struct LockScreenCard: View {
     }
 
     @State private var scrubbing: Double?
-    /// The line the words were centred on at the last draw, to tell a line
-    /// sung into from a line jumped to.
+    /// The row the words were centred on at the last draw, to tell a line
+    /// sung into from a line jumped to. A slot index (`LyricSweep.slots`),
+    /// not a line index: an interlude is a row, and comparing a slot against
+    /// a line index would call the step out of every solo a seek.
     @State private var lastCentre: Int?
     @State private var outputs: [AudioOutputs.Output] = []
     @State private var currentOutput: AudioDeviceID?
@@ -545,13 +547,34 @@ struct LockScreenCard: View {
                     trackOffset: lyrics.trackOffset,
                     wordTiming: wordTimingEnabled
                 ))
-                let centre = resolution.centre
-                let window = Self.window(around: centre, count: lines.count, size: Self.visibleLyricLines(for: cardSize))
+                // The window is over slots, not lines: through a solo the
+                // middle row is the interlude marker, filling toward the line
+                // below it. Everything that counts rows here — `centre`,
+                // `lastCentre`, the window and the jump test — counts slots,
+                // so singing into an interlude and out of it is two steps of
+                // one row, never a seek.
+                let slots = LyricSweep.slots(for: lines)
+                let centre = LyricSweep.slotIndex(of: resolution.moment.centreSlot, in: slots)
+                let lit = LyricSweep.litSlotIndex(resolution.moment, in: slots)
+                let window = Self.window(around: centre, count: slots.count, size: Self.visibleLyricLines(for: cardSize))
                 let jump = Self.isJump(from: lastCentre, to: centre)
                 VStack(alignment: .leading, spacing: 7) {
-                    ForEach(window, id: \.self) { index in
-                        lyricRow(lines: lines, index: index, resolution: resolution)
-                            .transition(Self.lineTransition(reduceMotion: reduceMotion))
+                    ForEach(window, id: \.self) { position in
+                        Group {
+                            switch slots[position] {
+                            case .line(let index):
+                                lyricRow(
+                                    lines: lines, index: index, resolution: resolution,
+                                    distance: LyricSweep.distance(ofSlot: position, lit: lit)
+                                )
+                            case .interlude:
+                                interludeRow(
+                                    slots[position], resolution: resolution,
+                                    distance: LyricSweep.distance(ofSlot: position, lit: lit)
+                                )
+                            }
+                        }
+                        .transition(Self.lineTransition(reduceMotion: reduceMotion))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -628,15 +651,15 @@ struct LockScreenCard: View {
     }
 
     private func lyricRow(
-        lines: [LyricsStore.Line], index: Int, resolution: LyricResolution
+        lines: [LyricsStore.Line], index: Int, resolution: LyricResolution, distance: Int
     ) -> some View {
         LyricRow(
             line: lines[index],
             isCurrent: index == resolution.current,
-            // Measured from the sung line, as on the stage: from the centre,
-            // the waiting opening line sat at the far floor beside a brighter
-            // neighbour.
-            distance: resolution.moment.distance(of: index),
+            // Measured from the lit row, in rows, as on the stage: from the
+            // centre, the waiting opening line sat at the far floor beside a
+            // brighter neighbour.
+            distance: distance,
             at: resolution.at,
             end: LyricSweep.end(of: index, in: lines),
             // The sung row's edge read per frame from the running clock, as
@@ -665,6 +688,29 @@ struct LockScreenCard: View {
                     duration: media.duration
                 ))
             }
+        )
+    }
+
+    /// The silence before a line, in the row a line would take — the same
+    /// marker the stage draws, at the card's type size so the window's rows
+    /// keep one height.
+    private func interludeRow(
+        _ slot: LyricSlot, resolution: LyricResolution, distance: Int
+    ) -> some View {
+        let isCurrent = slot == resolution.moment.interlude
+        return InterludeMarker(
+            progress: LyricSweep.interludeProgress(slot, at: resolution.at),
+            isCurrent: isCurrent,
+            distance: distance,
+            clock: isCurrent
+                ? LyricSweep.liveProgress(slot, clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+                    precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
+                    trackOffset: lyrics.trackOffset
+                )))
+                : nil,
+            fontSize: Theme.TypeRole.title.size,
+            weight: .bold,
+            reduceMotion: reduceMotion
         )
     }
 

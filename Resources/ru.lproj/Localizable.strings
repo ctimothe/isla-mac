@@ -337,3 +337,4 @@
 "%.2f seconds" = "%.2f секунды";
 "%+.2f seconds" = "%+.2f секунды";
 "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify отказал в «Любимых треках» и сослался на Premium. Spotify требует его от регистрации самой Isla, так что дело может быть не в вашей подписке.";
+"Instrumental" = "Проигрыш";

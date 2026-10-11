@@ -153,15 +153,136 @@ enum LyricSweep {
     /// lab measured a median 28.9 s a track, and 447 mid-song lines lit
     /// through more than 8 s of silence. In the outro there is no next line,
     /// so the centre stays on the last one, drawn unsung.
+    ///
+    /// When the silence is long enough to be an interlude (`interlude(before:in:)`)
+    /// the moment names it and how far through it the clock is, so a surface
+    /// can centre on the interlude's own slot instead of on a dim line.
     static func moment(in lines: [LyricsStore.Line], at: TimeInterval) -> LyricMoment {
         guard let found = index(in: lines, at: at) else {
-            return LyricMoment(current: nil, centre: 0, upcoming: lines.isEmpty ? nil : 0)
+            guard !lines.isEmpty else { return LyricMoment(current: nil, centre: 0, upcoming: nil) }
+            let intro = interlude(before: 0, in: lines)
+            return LyricMoment(
+                current: nil, centre: 0, upcoming: 0,
+                interlude: intro, progress: intro.map { interludeProgress($0, at: at) } ?? 0
+            )
         }
         let upcoming = found + 1 < lines.count ? found + 1 : nil
         if let end = effectiveEnd(of: found, in: lines), at >= end {
-            return LyricMoment(current: nil, centre: upcoming ?? found, upcoming: upcoming)
+            let gap = upcoming.flatMap { interlude(before: $0, in: lines) }
+            return LyricMoment(
+                current: nil, centre: upcoming ?? found, upcoming: upcoming,
+                interlude: gap, progress: gap.map { interludeProgress($0, at: at) } ?? 0
+            )
         }
         return LyricMoment(current: found, centre: found, upcoming: upcoming)
+    }
+
+    // MARK: - Slots
+
+    /// The shortest silence that gets a slot of its own.
+    ///
+    /// After LY-05 a line goes dark at its end, and a twenty-second solo
+    /// showed nothing but the next line, dim, waiting at the reading centre —
+    /// which reads as the lyrics having lost the song. Five seconds is where
+    /// the wait stops being a breath between phrases (`minimumHonouredGap`
+    /// covers those) and starts being a passage somebody plays: long enough
+    /// for a marker to be read and to visibly fill, and short enough that a
+    /// bridge of two bars still gets one.
+    static let minimumInterlude: TimeInterval = 5
+
+    /// The interlude that ends where line `index` starts, if the silence
+    /// before it is `minimumInterlude` or longer: from zero for the opening
+    /// line (the intro), from the line before's honoured end otherwise.
+    ///
+    /// Only an end the source gave counts, through `effectiveEnd`, the one
+    /// rule LY-05 put every surface on. Two stamps twenty seconds apart with
+    /// no end between them are one long line as far as anyone knows, and
+    /// guessing a solo there would draw a marker over a voice still singing.
+    /// The outro has no line to fill toward, so it gets no slot: the last
+    /// line stays where it is, unsung.
+    ///
+    /// `slots(for:)` and `moment` both ask here, so the slot a stage scrolls
+    /// to and the interlude a moment says is playing are one decision.
+    static func interlude(before index: Int, in lines: [LyricsStore.Line]) -> LyricSlot? {
+        guard lines.indices.contains(index) else { return nil }
+        let to = lines[index].at
+        let from: TimeInterval
+        if index == 0 {
+            from = 0
+        } else if let end = effectiveEnd(of: index - 1, in: lines) {
+            from = end
+        } else {
+            return nil
+        }
+        guard to - from >= minimumInterlude else { return nil }
+        return .interlude(from: from, to: to, before: index)
+    }
+
+    /// How far through an interlude the clock is, 0 to 1. A clock read before
+    /// the interlude's start — a large listener delay on the song's first
+    /// frame puts the lyric moment below zero — is its start, not a negative
+    /// fill; a non-interlude slot is 0.
+    static func interludeProgress(_ slot: LyricSlot, at: TimeInterval) -> Double {
+        guard case .interlude(let from, let to, _) = slot, to > from else { return 0 }
+        return min(max((at - from) / (to - from), 0), 1)
+    }
+
+    /// Every row a lyric surface lays out, in order: each line, and before a
+    /// line the interlude leading to it when there is one.
+    ///
+    /// A row of its own rather than a mark drawn over a line. The stage's
+    /// scroll is exact because every row is one fixed slot and the clock maps
+    /// to a row by arithmetic; an interlude that is a slot keeps that, and an
+    /// overlay at the reading centre would sit on the text of the line the
+    /// voice just left.
+    static func slots(for lines: [LyricsStore.Line]) -> [LyricSlot] {
+        var slots: [LyricSlot] = []
+        slots.reserveCapacity(lines.count + 4)
+        for index in lines.indices {
+            if let gap = interlude(before: index, in: lines) { slots.append(gap) }
+            slots.append(.line(index))
+        }
+        return slots
+    }
+
+    /// Where `slot` sits among `slots`; 0 for a slot that is not there, which
+    /// only a lyric replaced between two reads can produce.
+    ///
+    /// A linear search, on purpose: a song is a few dozen rows, the moment
+    /// already did the binary search that matters, and a second index kept
+    /// beside `slots` would be one more thing to fall out of step with it.
+    static func slotIndex(of slot: LyricSlot, in slots: [LyricSlot]) -> Int {
+        slots.firstIndex(of: slot) ?? 0
+    }
+
+    /// The row the depth falloff is measured from: the sung line, or the
+    /// interlude while one plays. Nil when neither is lit — a breath too
+    /// short to be an interlude, or an outro.
+    static func litSlotIndex(_ moment: LyricMoment, in slots: [LyricSlot]) -> Int? {
+        guard let lit = moment.litSlot else { return nil }
+        return slots.firstIndex(of: lit)
+    }
+
+    /// An interlude's fill read against `clock` on every display frame, or
+    /// nil when it has no reason to move between publishes — not an
+    /// interlude, or a song that is not playing. The same arithmetic as the
+    /// moment's `progress`, called rather than restated.
+    static func liveProgress(
+        _ slot: LyricSlot, clock: (@MainActor () -> TimeInterval)?
+    ) -> (@MainActor () -> Double)? {
+        guard let clock, case .interlude = slot else { return nil }
+        return { interludeProgress(slot, at: clock()) }
+    }
+
+    /// How many rows a slot stands from the lit one, for the depth falloff.
+    ///
+    /// Counted in rows, not lines. Counted in lines, the line on the far side
+    /// of a solo was drawn as the sung line's neighbour while the marker
+    /// between them sat at the floor — depth that skipped a row. With nothing
+    /// lit every row sits at the far floor, which is what
+    /// `LyricMoment.distance(of:)` already says for lines.
+    static func distance(ofSlot index: Int, lit: Int?) -> Int {
+        lit.map { abs(index - $0) } ?? 2
     }
 
     /// The sweep a row is drawn with: none unless the voice is in it, none for
@@ -471,6 +592,20 @@ struct LyricMoment: Equatable, Sendable {
     /// The line the voice reaches next: the opening line during the intro,
     /// the one after the current line otherwise, nil after the last.
     let upcoming: Int?
+    /// The interlude playing now — `LyricSweep.interlude(before:in:)` — or
+    /// nil while a line is sung, in a breath too short for one, and in the
+    /// outro. Always an `.interlude` slot when present.
+    var interlude: LyricSlot? = nil
+    /// How far through `interlude` the clock is, 0 to 1; 0 without one.
+    var progress: Double = 0
+
+    /// The row a surface centres on: the interlude while one plays, the
+    /// centre line otherwise. The caption keeps reading `centre` — it has one
+    /// line of room, and through a solo that line is the one coming, unswept.
+    var centreSlot: LyricSlot { interlude ?? .line(centre) }
+
+    /// The row that is lit: the sung line, or the interlude while one plays.
+    var litSlot: LyricSlot? { current.map { .line($0) } ?? interlude }
 
     /// How far a row stands from the voice, for the depth falloff. With no
     /// line sung every row sits at the far floor: measured from the centre
@@ -479,6 +614,18 @@ struct LyricMoment: Equatable, Sendable {
     func distance(of index: Int) -> Int {
         current.map { abs(index - $0) } ?? 2
     }
+}
+
+/// One row of a lyric surface: a line, or the silence before one.
+///
+/// Slot indices are not line indices. Anything that counts rows — the stage's
+/// scroll anchor, the card's window and its jump test, the depth falloff —
+/// counts slots; anything that reads a line's words or times reads `.line`'s
+/// index into the lines. An interlude is identified by the line it leads to,
+/// and carries its own span so a row can be drawn without the lines at hand.
+enum LyricSlot: Hashable, Sendable {
+    case line(Int)
+    case interlude(from: TimeInterval, to: TimeInterval, before: Int)
 }
 
 /// What a lyric surface reads the clock with.

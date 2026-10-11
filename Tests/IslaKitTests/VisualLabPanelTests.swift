@@ -194,9 +194,13 @@ final class VisualLabPanelTests: VisualLabCase {
             try await self.stage(session, blurredCover, .init(elapsed: 27.4), LabFixtures.timeline(LabFixtures.wordLines, granularity: .word),
                             precision: true, variant: variant)
         }
+        // Parsed from LRC, so the break is the end the parser gives the line
+        // before it, as in a real file — and the stage draws the interlude
+        // marker half way through its fill, not a blank row.
+        let gapLines = try LabFixtures.gapLines()
         try await shoot.shoot("instrumental-gap", variants: [.base, .contrast, .russian], size: size, settle: 0.3,
-                              notes: note + " An empty LRC line is the instrumental break; the voice is 14 s away.") { variant in
-            try await self.stage(session, blurredCover, .init(elapsed: 26), LabFixtures.timeline(LabFixtures.gapLines), variant: variant)
+                              notes: note + " An empty LRC stamp ends the line before the break; the interlude marker fills toward the voice, 14 s away.") { variant in
+            try await self.stage(session, blurredCover, .init(elapsed: 26), LabFixtures.timeline(gapLines), variant: variant)
         }
         try await shoot.shoot("long-lines-wrapping", variants: [.base, .w480, .w620], size: size, settle: 0.3, notes: note) { variant in
             try await self.stage(session, blurredCover, .init(elapsed: 16), LabFixtures.timeline(LabFixtures.longLines), variant: variant)
