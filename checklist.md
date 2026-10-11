@@ -683,3 +683,21 @@ downloads in total, and no outside issues.
   is refused where the grown pill would land under a still cursor. Show
   Charging appears only on Macs with a battery. Every refusal has a test
   (`NotchController.ambientAllowed`).
+
+### Lyric Delay runs the way its label says — 2026-10-11 (ly/LY-01)
+
+- [x] **A positive delay shows lyrics later.** `LyricSweep.lead` added the
+  listener's corrections, so Lyric Delay, the Set Lyric Delay action and the
+  stage's Lyrics Earlier/Later nudges all ran backwards against their labels
+  and the note under the slider — the AirPods listener the 2026-09-21 delay
+  was added for followed the note and doubled the error. The lead now
+  subtracts them. Every stored correction (defaults, `offsets.json`,
+  `unassigned-offsets.json`) is negated once on first launch, so no listener's
+  timing moves: the owner's −0.247 s reads +0.247 s at the same effective
+  lead, −0.047 s (lab L7 and L8 rerun on the 540-track corpus, unchanged).
+  A build from before this change, run after it, reads every correction
+  inverted. Design amendment: `docs/superpowers/specs/2026-09-14-line-synced-lyrics-design.md`.
+- [ ] **Physical check owed:** on the installed build, Settings → Music shows
+  Lyric Delay +0.25 s where it showed −0.25 s, lyrics (and any per-track
+  nudge on the lyrics page) sit exactly where they sat before the upgrade,
+  and dragging the slider right moves lines later.

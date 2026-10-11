@@ -244,7 +244,10 @@ final class LocalLyricsLibraryTests: XCTestCase {
         let store = LyricsStore(offsetsDirectory: root.appendingPathComponent("lyrics-local"))
         store.activateTrackOffset(for: track)
 
-        XCTAssertEqual(store.trackOffset, 0.25, accuracy: 0.001)
+        // The pre-local nudge was written when corrections were added to the
+        // lead; the store's sign migration reads it back as the delay it
+        // always meant, so the line lights exactly where it did.
+        XCTAssertEqual(store.trackOffset, -0.25, accuracy: 0.001)
         XCTAssertFalse(fileManager.fileExists(atPath: legacyEntry.path))
     }
 
@@ -262,7 +265,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
         let store = LyricsStore(offsetsDirectory: root.appendingPathComponent("lyrics-local"))
         store.activateTrackOffset(for: track)
 
-        XCTAssertEqual(store.trackOffset, LyricsStore.trackOffsetLimit, accuracy: 0.001)
+        XCTAssertEqual(store.trackOffset, -LyricsStore.trackOffsetLimit, accuracy: 0.001)
     }
 
     func testMigrationKeepsUnreconstructableLegacyNudgeForRecovery() throws {
@@ -276,7 +279,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
         let store = LyricsStore(offsetsDirectory: root.appendingPathComponent("lyrics-local"))
 
         XCTAssertEqual(store.unassignedLegacyOffsets, [
-            .init(filename: "orphan.lrc4.json", offset: 0.25),
+            .init(filename: "orphan.lrc4.json", offset: -0.25),
         ])
     }
 
@@ -289,7 +292,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
         let stores = NotchStores(localLyricsDirectory: root)
         stores.lyrics.activateTrackOffset(for: track)
 
-        XCTAssertEqual(stores.lyrics.trackOffset, 0.25, accuracy: 0.001)
+        XCTAssertEqual(stores.lyrics.trackOffset, -0.25, accuracy: 0.001)
         XCTAssertFalse(fileManager.fileExists(atPath: legacyEntry.path))
     }
 

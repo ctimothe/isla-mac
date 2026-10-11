@@ -66,3 +66,36 @@ Two changes to how the timeline is *shown*, neither to what is shown.
 Tests: `LyricsCoordinatorTests.testLyricsAreReadyBeforeTheClockSettles`,
 `MediaControllerTests.testTheNextLyricWakeIsTheFirstBoundaryAheadLessTheLead`
 and `…testTheClockPublishesOnALyricBoundaryAheadOfItsGrid`, `LyricSweepTests`.
+
+## Amendment — 2026-10-11: a delay delays
+
+The listener's corrections — **Lyric Delay** in Settings (`userOffset`, ±3 s),
+the stage's per-track **Lyrics Earlier**/**Lyrics Later** nudges
+(`trackOffset`, ±1.5 s) and the **Set Lyric Delay** Shortcuts action — are
+delays, and the lead now subtracts them:
+`lead = base − userOffset − trackOffset`. They were added until this change,
+so every control ran backwards against its own label: a positive delay showed
+lyrics earlier, "Lyrics Earlier" showed them later, and the AirPods listener
+the setting exists for (checklist.md 2026-09-21) followed the note under the
+slider and doubled the error. The labels, the note ("Negative shows lyrics
+earlier; positive, later") and the intent's description were right and are
+unchanged; the arithmetic now agrees with them.
+
+Stored corrections are negated exactly once, so no listener's timing moves
+with the fix: `lyrics.userOffset` in defaults (marked by
+`lyrics.offsetSignVersion` = 2), and every value in `offsets.json` and
+`unassigned-offsets.json` (marked by an `offset-sign-version` file beside
+them — the defaults domain and the directory are separate stores, and a
+marker in only one of them would let a process that sees a different domain
+flip the files a second time). A pre-local correction the local library
+imports into an already-flipped directory is flipped on the way in. A test
+process never migrates the live support directory. The owner's −0.247 s reads
++0.247 s afterwards, at the same effective lead of −0.047 s.
+
+Tests: `LyricSweepTests.testAPositiveDelayShowsLyricsLater`,
+`…testLyricsEarlierMovesLinesEarlier`,
+`…testTheSignMigrationKeepsEveryListenersTiming`,
+`…testALegacyOffsetMigratedAfterTheSignFlipKeepsItsTiming`,
+`…testATestRunLeavesTheInstalledAppsOffsetsAlone`, and the four legacy-nudge
+tests in `LocalLyricsLibraryTests`, which now read the imported nudge back in
+the new sign.
