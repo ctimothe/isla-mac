@@ -13,6 +13,9 @@ struct SettingsPane: View {
     @ObservedObject var localLyrics: LocalLyricsLibrary
     var onLyricsVisibilityChanged: () -> Void = {}
     var importLocalLyrics: () -> Void = {}
+    /// Why the last Import LRC…, Add Lyrics Folder… or Rescan from here did
+    /// not work, said under Import LRC…. See `NotchViewModel.LyricsNotice`.
+    var lyricsNotice: String? = nil
     var addLocalLyricsFolder: () -> Void = {}
     var removeLocalLyricsFolder: (URL) -> Void = { _ in }
     var rescanLocalLyrics: () -> Void = {}
@@ -390,6 +393,9 @@ struct SettingsPane: View {
                     actionRow(symbol: SettingsIcon.importLyrics, title: localized("Import LRC…")) {
                         importLocalLyrics()
                     }
+                    if let lyricsNotice {
+                        lyricsIssueRow(lyricsNotice)
+                    }
                     actionRow(symbol: SettingsIcon.addFolder, title: localized("Add Lyrics Folder…")) {
                         addLocalLyricsFolder()
                     }
@@ -399,6 +405,14 @@ struct SettingsPane: View {
                             title: localized("Remove %@", folder.lastPathComponent)
                         ) {
                             removeLocalLyricsFolder(folder)
+                        }
+                        // The files a scan could not show, by name, under the
+                        // folder they are in. The scan always knew; nothing
+                        // drew it, so a folder with two broken files looked
+                        // like one with none (G-007).
+                        let unreadable = localLyrics.unreadableFiles(in: folder)
+                        if !unreadable.isEmpty {
+                            lyricsIssueRow(localized("Couldn't read: %@", unreadable.joined(separator: ", ")))
                         }
                     }
                     actionRow(symbol: SettingsIcon.rescan, title: localized("Rescan Local Lyrics")) {
@@ -938,6 +952,20 @@ struct SettingsPane: View {
 
     /// A line of explanation under a section's controls. Not a control itself:
     /// it states something the user would otherwise have to guess.
+    /// A lyric file or folder that did not work: the pane's secondary caption
+    /// type, lined up with the title of the row it is about (the 8 pt inset,
+    /// the 16 pt glyph and the 8 pt gap of `actionRow`), wrapping rather than
+    /// truncating a list of names.
+    private func lyricsIssueRow(_ text: String) -> some View {
+        Text(text)
+            .islandFont(.caption, weight: .regular)
+            .foregroundStyle(Theme.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, 32)
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func noteRow(_ text: String) -> some View {
         Text(text)
             .islandFont(.body, weight: .regular)

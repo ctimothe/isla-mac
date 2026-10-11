@@ -502,6 +502,85 @@ final class LocalLyricsLibraryTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: legacyEntry.path))
     }
 
+    /// A file saved by a Windows lyric tool is rarely UTF-8. Every read was
+    /// `String(contentsOf:encoding: .utf8)`, so a Russian listener's
+    /// Windows-1251 LRC, a UTF-16 one with its byte order mark and a GB18030
+    /// one all threw, and Import closed its panel with nothing to show for it
+    /// (G-007). Each now reads with its exact text — and the copy kept in
+    /// `imports/` is UTF-8, so the next launch reads it with no detection.
+    func testLegacyEncodingsAreRead() throws {
+        let cyrillic = "[ti:Группа крови]\n[ar:Кино]\n[al:Группа крови]\n[length:03:00]\n[00:01.00]Тёплое место, но улицы ждут"
+        let wide = "[ti:Кукушка]\n[ar:Кино]\n[al:Чёрный альбом]\n[length:06:00]\n[00:01.00]Песен ещё ненаписанных сколько?"
+        let chinese = "[ti:月亮代表我的心]\n[ar:邓丽君]\n[al:岛国之情歌]\n[length:03:00]\n[00:01.00]你问我爱你有多深"
+        let gb18030 = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+        ))
+        let files: [(name: String, data: Data, text: String)] = [
+            ("cp1251", try XCTUnwrap(cyrillic.data(using: .windowsCP1251)), cyrillic),
+            ("utf16", Data([0xFF, 0xFE]) + (try XCTUnwrap(wide.data(using: .utf16LittleEndian))), wide),
+            ("gb18030", try XCTUnwrap(chinese.data(using: gb18030)), chinese),
+        ]
+
+        let library = LocalLyricsLibrary(directory: root)
+        for file in files {
+            let url = root.appendingPathComponent("\(file.name).lrc")
+            try file.data.write(to: url, options: .atomic)
+            XCTAssertNil(String(data: file.data, encoding: .utf8), "the fixture: \(file.name) is not UTF-8")
+
+            let expected = try LocalLyricsDocument.parse(file.text)
+            let candidate = try library.importDocument(at: url, binding: nil)
+            XCTAssertEqual(candidate.document, expected, file.name)
+        }
+
+        let relaunched = LocalLyricsLibrary(directory: root)
+        guard case .ready(let candidate) = relaunched.lookup(identity: identity(
+            title: "Группа крови", artist: "Кино", album: "Группа крови", duration: 180
+        )) else { return XCTFail("the kept copy reads back after a relaunch") }
+        XCTAssertEqual(candidate.timeline.lines.map(\.text), ["Тёплое место, но улицы ждут"])
+    }
+
+    /// Bytes that are no text in any encoding Isla reads are refused with a
+    /// reason of their own, so the panel that asked can say "Couldn't read
+    /// this file as text." rather than nothing at all. Windows-1252 decodes
+    /// nearly any byte, so it is the last guess and not the first: these
+    /// three are undefined in every encoding on the list.
+    func testBytesThatAreNotTextAreRefusedAsSuch() throws {
+        let url = root.appendingPathComponent("noise.lrc")
+        try Data([0x98, 0x81, 0xFF]).write(to: url, options: .atomic)
+        let library = LocalLyricsLibrary(directory: root)
+
+        XCTAssertThrowsError(try library.importDocument(at: url, binding: nil)) { error in
+            XCTAssertEqual(error as? LocalLyricsLibrary.ReadError, .notText)
+        }
+    }
+
+    /// A folder scan records why a file could not be shown, and those reasons
+    /// were never drawn: a folder of lyrics with two broken files looked
+    /// exactly like one with none. They are published by folder, by name,
+    /// for Settings to list under the folder's row.
+    func testAFolderNamesTheFilesItCouldNotRead() throws {
+        let folder = try makeFolder(named: "Lyrics")
+        try XCTUnwrap(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Звезда".data(using: .windowsCP1251)
+        ).write(to: folder.appendingPathComponent("good.lrc"), options: .atomic)
+        try write("[00:01.00]a\n[00:7x.00]b", to: folder.appendingPathComponent("broken.lrc"))
+        try Data([0x98, 0x81, 0xFF]).write(to: folder.appendingPathComponent("noise.lrc"), options: .atomic)
+
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+
+        XCTAssertEqual(library.unreadableFiles(in: folder), ["broken.lrc", "noise.lrc"])
+        guard case .ready(let candidate) = library.lookup(identity: identity()) else {
+            return XCTFail("the Windows-1251 file in the folder is read like any other")
+        }
+        XCTAssertEqual(candidate.timeline.lines.map(\.text), ["Звезда"])
+
+        // Fixed, the name leaves the list.
+        try write("[00:01.00]a\n[00:07.00]b", to: folder.appendingPathComponent("broken.lrc"))
+        try library.rescanFolders()
+        XCTAssertEqual(library.unreadableFiles(in: folder), ["noise.lrc"])
+    }
+
     private var studioLRC: String {
         "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Studio"
     }

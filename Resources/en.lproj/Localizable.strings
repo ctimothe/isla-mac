@@ -329,3 +329,7 @@
 "Turn On" = "Turn On";
 "Something is playing that Music Only keeps off the island." = "Something is playing that Music Only keeps off the island.";
 "Open Settings" = "Open Settings";
+"Couldn't read this file as text." = "Couldn't read this file as text.";
+"Line %d of this file has a time Isla can't read." = "Line %d of this file has a time Isla can't read.";
+"This file has no timed lyrics." = "This file has no timed lyrics.";
+"Couldn't read: %@" = "Couldn't read: %@";

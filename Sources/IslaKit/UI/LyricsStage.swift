@@ -51,6 +51,9 @@ struct LyricsStage: View {
     var turnOnLyrics: () -> Void = {}
     var turnOnOnlineLyrics: () -> Void = {}
     var importLocalFile: () -> Void = {}
+    /// Why the last Import from this page failed, said under the header the
+    /// button sits in. Import used to fail in silence (G-007).
+    var notice: String? = nil
     var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
     var removeLocalBinding: () -> Void = {}
     var editLocalLyrics: (LocalLyricsCandidate) -> Void = { _ in }
@@ -123,6 +126,9 @@ struct LyricsStage: View {
             ambience
             VStack(spacing: 0) {
                 header
+                if let notice {
+                    noticeRow(notice)
+                }
                 if case .ready = lyrics.availability,
                    case .synced(let lines) = lyrics.state,
                    !lines.isEmpty {
@@ -563,6 +569,22 @@ struct LyricsStage: View {
     }
 
     private func chooseLocalLRC() { importLocalFile() }
+
+    /// One quiet line under the header, in the page's own secondary type —
+    /// the reason, not an alarm. It takes the room it needs from the stage
+    /// below rather than covering a lyric, wraps to a second row in Russian
+    /// at the narrowest panel instead of truncating the line number away.
+    /// VoiceOver hears it from `NotchViewModel`, which raised it.
+    private func noticeRow(_ text: String) -> some View {
+        Text(text)
+            .islandFont(.caption, weight: .regular)
+            .foregroundStyle(Theme.secondary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
+    }
 
     // MARK: - Empty
 

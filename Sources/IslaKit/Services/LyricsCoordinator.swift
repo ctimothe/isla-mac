@@ -241,9 +241,16 @@ final class LyricsCoordinator: ObservableObject {
         recheckCurrentTrack()
     }
 
-    func importLocalFile(at url: URL) throws {
-        guard let currentIdentity else { return }
-        _ = try library.importDocument(at: url, binding: currentIdentity)
+    /// Imports a file for the song that was playing when Import was pressed.
+    ///
+    /// `identity` is taken by the caller before the open panel runs, not read
+    /// here after it returns. It used to be `currentIdentity` at this point:
+    /// browsing for a file through a track change bound the next song to
+    /// this one's words for good (G-013). With nothing playing when Import
+    /// was pressed, the file is kept unbound and matches by its own tags —
+    /// it used to be dropped without a word.
+    func importLocalFile(at url: URL, for identity: LocalTrackIdentity?) throws {
+        _ = try library.importDocument(at: url, binding: identity)
         syncLocalOverride()
     }
 

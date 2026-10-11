@@ -328,3 +328,7 @@
 "Turn On" = "Включить";
 "Something is playing that Music Only keeps off the island." = "Сейчас играет то, что «Только музыка» не показывает на острове.";
 "Open Settings" = "Открыть настройки";
+"Couldn't read this file as text." = "Не удалось прочитать этот файл как текст.";
+"Line %d of this file has a time Isla can't read." = "В строке %d этого файла время, которое Isla не может прочитать.";
+"This file has no timed lyrics." = "В этом файле нет текста со временем.";
+"Couldn't read: %@" = "Не удалось прочитать: %@";

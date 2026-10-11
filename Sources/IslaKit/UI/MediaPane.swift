@@ -8,6 +8,9 @@ struct MediaPane: View {
     var turnOnLyrics: () -> Void = {}
     var turnOnOnlineLyrics: () -> Void = {}
     var importLocalFile: () -> Void = {}
+    /// Why the last import from the lyrics page failed, for the page to say
+    /// under its header. See `NotchViewModel.LyricsNotice`.
+    var lyricsNotice: String? = nil
     var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
     var removeLocalBinding: () -> Void = {}
     var localLibrary: LocalLyricsLibrary?
@@ -91,6 +94,7 @@ struct MediaPane: View {
                         turnOnLyrics: turnOnLyrics,
                         turnOnOnlineLyrics: turnOnOnlineLyrics,
                         importLocalFile: importLocalFile,
+                        notice: lyricsNotice,
                         selectLocalCandidate: selectLocalCandidate,
                         removeLocalBinding: removeLocalBinding,
                         editLocalLyrics: { candidate in
