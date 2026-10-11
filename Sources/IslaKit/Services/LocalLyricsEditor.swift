@@ -17,8 +17,12 @@ final class LocalLyricsDraft: ObservableObject {
 
     func document() throws -> LocalLyricsDocument {
         let normalizedLines = lines.map { line -> LyricsStore.Line in
+            // Joined by nothing, as `parse` builds the line: a word carries its
+            // own spaces. Joined with a space, every character-timed Chinese
+            // line ('我爱你' against '我 爱 你') looked edited, and a Save Copy
+            // that changed nothing stripped its karaoke.
             guard !line.words.isEmpty,
-                  line.text != line.words.map(\.text).joined(separator: " ")
+                  line.text != line.words.map(\.text).joined()
             else { return line }
             // Editing a word-timed line's text without editing its individual
             // word edges must not export stale words under a new visible line.

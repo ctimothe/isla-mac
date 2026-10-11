@@ -11,6 +11,9 @@ struct LocalLyricsMetadata: Codable, Equatable, Sendable {
 
 /// One enhanced-LRC word marker. `end` remains optional because LRC records
 /// word starts; the sweep derives an end from the next marker when needed.
+/// An empty marker after a word (`two<00:02.10>`) is the one place a file
+/// says where a word stops, and it lands here. `text` is verbatim, spaces
+/// included: a line's text is its words joined by nothing.
 struct LyricWord: Codable, Equatable, Sendable {
     var at: TimeInterval
     var text: String
@@ -36,8 +39,12 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
     /// order mark) and merges equal stamps into one line, so an answer cached
     /// as unreadable under revision 1 is worth reading again. Revision 3
     /// keeps an empty stamp as the end of the line before it
-    /// (`LyricsStore.Line.end`) instead of dropping it.
-    static let parserRevision = 3
+    /// (`LyricsStore.Line.end`) instead of dropping it. Revision 4 moves
+    /// word stamps by `[offset:]` with their line, keeps word text verbatim
+    /// (so a line's text is its words joined by nothing), and reads an empty
+    /// word marker as the end of the word before it instead of refusing the
+    /// file.
+    static let parserRevision = 4
 
     /// The longest minutes field a stamp may carry. Nothing sung runs for
     /// 999 minutes; the bound exists so `1e300` or `inf` can never reach
@@ -55,8 +62,15 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
 
     var duration: TimeInterval? { metadata.duration }
 
+    /// `.word` when any line carries word timing. It needed every line, and
+    /// the editor drops a line's words when its text is edited, so one typo
+    /// fixed turned karaoke off for the whole song (J-014). A line without
+    /// words is not swept by an estimate in its place: `LyricSweep.drawnFraction`
+    /// lights it whole, so no timing is ever drawn that the file did not hold.
+    /// A majority rule was rejected: it still blanks the lines that do have
+    /// real words whenever they are the minority.
     var granularity: LyricTimeline.Granularity {
-        lines.allSatisfy { !$0.words.isEmpty } ? .word : .line
+        lines.contains { !$0.words.isEmpty } ? .word : .line
     }
 
     func timeline(documentID: UUID?) -> LyricTimeline {
@@ -155,7 +169,19 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
             if let last = lines.last, last.at == at, last.words.isEmpty, entry.words.isEmpty {
                 lines[lines.count - 1].text += "\n" + entry.text
             } else {
-                lines.append(LyricsStore.Line(at: at, text: entry.text, words: entry.words))
+                // Words take the offset exactly as their line does (J-010).
+                // Only the line's stamp did, while `serialize` added it back
+                // to both: a +500 file swept every word half a second behind
+                // its line, each Save Copy pushed the words half a second
+                // further, and a −300 file wrote words before their own line,
+                // which the editor's re-parse refused as an invalid file.
+                let words = entry.words.map { word in
+                    LyricWord(
+                        at: max(0, word.at - offset), text: word.text,
+                        end: word.end.map { max(0, $0 - offset) }
+                    )
+                }
+                lines.append(LyricsStore.Line(at: at, text: entry.text, words: words))
             }
         }
         guard !lines.isEmpty else { throw Error.emptyTimeline }
@@ -181,9 +207,15 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
                     output.append("[\(timestamp)]\(row)")
                 }
             } else {
-                let words = line.words.map { word in
-                    "<\(formatTimestamp(word.at + offset))>\(word.text)"
-                }.joined(separator: " ")
+                // Joined by nothing: a word carries its own spaces (G-018).
+                let words = line.words.indices.map { index in
+                    let word = line.words[index]
+                    var written = "<\(formatTimestamp(word.at + offset))>\(word.text)"
+                    if let end = Self.writableEnd(ofWord: index, in: line.words) {
+                        written += "<\(formatTimestamp(end + offset))>"
+                    }
+                    return written
+                }.joined()
                 output.append("[\(timestamp)]\(words)")
             }
             if let end = Self.writableEnd(of: index, in: lines) {
@@ -201,6 +233,15 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
     private static func writableEnd(of index: Int, in lines: [LyricsStore.Line]) -> TimeInterval? {
         guard let end = lines[index].end, end.isFinite, end > lines[index].at else { return nil }
         if index + 1 < lines.count, end > lines[index + 1].at { return nil }
+        return end
+    }
+
+    /// A word's end, when `parse` would read the empty marker written for it
+    /// back as this same word's end: after the word's start and no later than
+    /// the next word's, which is the order `parseWords` holds every marker to.
+    private static func writableEnd(ofWord index: Int, in words: [LyricWord]) -> TimeInterval? {
+        guard let end = words[index].end, end.isFinite, end > words[index].at else { return nil }
+        if index + 1 < words.count, end > words[index + 1].at { return nil }
         return end
     }
 
@@ -259,7 +300,7 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
         // empty text, and `parse` makes it the end of the line before it.
         guard !content.isEmpty else { return TimedLine(timestamps: timestamps, text: "", words: []) }
         let words = try parseWords(in: content, lineStart: timestamps[0], number: number)
-        let text = words.isEmpty ? content : words.map(\.text).joined(separator: " ")
+        let text = words.isEmpty ? content : words.map(\.text).joined()
         return TimedLine(timestamps: timestamps, text: text, words: words)
     }
 
@@ -285,6 +326,9 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
         }
 
         var words: [LyricWord] = []
+        // The latest stamp read, word or end, so an end marker is held to the
+        // same order as a word start.
+        var latest = lineStart
         while true {
             var next: WordMarker?
             var search = marker.end
@@ -295,14 +339,38 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
                 }
                 search = content.index(after: open)
             }
-            let word = content[marker.end..<(next?.start ?? content.endIndex)]
-                .trimmingCharacters(in: .whitespaces)
+            // Verbatim, spaces and all, and the line is the words joined by
+            // nothing. They were trimmed and rejoined with a space, so a
+            // per-character Chinese line read '我 爱 你' and a syllable split
+            // 'Hel<…>lo' read 'Hel lo' (G-018). The renderer measures laid-out
+            // width, so a trailing space inside a word does not move the sweep.
+            let word = String(content[marker.end..<(next?.start ?? content.endIndex)])
             guard marker.at >= lineStart else { throw Error.invalidTimestamp(line: number) }
-            if let last = words.last, marker.at < last.at { throw Error.invalidWordOrder(line: number) }
-            guard !word.isEmpty else { throw Error.invalidTimestamp(line: number) }
-            words.append(LyricWord(at: marker.at, text: word, end: nil))
+            if marker.at < latest { throw Error.invalidWordOrder(line: number) }
+            latest = marker.at
+            if word.isEmpty {
+                // A marker with nothing after it — the A2 dialect's last
+                // marker, or one right before the next — is where the word
+                // before it stops (L-11). It threw, and that one throw refused
+                // the whole file. One with no word before it ends nothing and
+                // is still refused; a second in a row leaves the first alone,
+                // the earliest the voice was said to stop. An end at the word's
+                // own start says nothing and is not kept.
+                guard let last = words.last else { throw Error.invalidTimestamp(line: number) }
+                if last.end == nil, marker.at > last.at { words[words.count - 1].end = marker.at }
+            } else {
+                words.append(LyricWord(at: marker.at, text: word, end: nil))
+            }
             guard let next else { break }
             marker = next
+        }
+        // The content was trimmed at both ends before it got here, so a line
+        // ending 'two <00:02.10>' would otherwise be the one line that kept a
+        // trailing space — and a caption centred a space off. Only space that
+        // leaves a word behind is taken.
+        if let last = words.last, last.text.last?.isWhitespace == true {
+            let trimmed = String(last.text.reversed().drop(while: \.isWhitespace).reversed())
+            if !trimmed.isEmpty { words[words.count - 1].text = trimmed }
         }
         return words
     }

@@ -14,7 +14,8 @@ final class LocalLyricsDocumentTests: XCTestCase {
         XCTAssertEqual(document.metadata.title, "Weird Fishes")
         XCTAssertEqual(document.metadata.artist, "Radiohead")
         XCTAssertEqual(try XCTUnwrap(document.duration), 318, accuracy: 0.001)
-        XCTAssertEqual(document.lines[0].words.map(\.text), ["In", "the", "deep"])
+        XCTAssertEqual(document.lines[0].words.map(\.text), ["In ", "the ", "deep"])
+        XCTAssertEqual(document.lines[0].text, "In the deep")
         XCTAssertEqual(document.granularity, .word)
     }
 
@@ -171,7 +172,7 @@ final class LocalLyricsDocumentTests: XCTestCase {
     func testALiteralAngleBracketInsideWordTimingIsText() throws {
         let document = try LocalLyricsDocument.parse("[00:01.00]<00:01.00>I <3 <00:02.00>you")
 
-        XCTAssertEqual(document.lines[0].words.map(\.text), ["I <3", "you"])
+        XCTAssertEqual(document.lines[0].words.map(\.text), ["I <3 ", "you"])
         XCTAssertEqual(document.lines[0].words.map(\.at), [1, 2])
     }
 
@@ -255,6 +256,81 @@ final class LocalLyricsDocumentTests: XCTestCase {
     }
 
     func testTheParserRevisionMovesWhenTheGrammarDoes() {
-        XCTAssertEqual(LocalLyricsDocument.parserRevision, 3, "3: empty stamps became line ends")
+        XCTAssertEqual(
+            LocalLyricsDocument.parserRevision, 4,
+            "4: word stamps take the offset, word text is verbatim, an empty word marker is an end"
+        )
+    }
+
+    // MARK: - Word timing is honest (J-010, G-018, L-11)
+
+    /// `[offset:]` moves a word with its line (J-010).
+    ///
+    /// Only line stamps took the offset, and `serialize` added it to both, so
+    /// a +500 file swept every word half a second behind the line it sat in,
+    /// each Save Copy pushed the words another half second, and a −300 file
+    /// wrote words before their own line, which the editor's re-parse refused
+    /// as "This LRC file is invalid." for a file that had imported fine.
+    func testAnOffsetMovesWordsWithTheirLine() throws {
+        let late = try LocalLyricsDocument.parse("[offset:+500]\n[00:10.00]<00:10.00>a <00:10.50>b")
+        XCTAssertEqual(late.lines[0].at, 9.5, accuracy: 0.000_001)
+        XCTAssertEqual(late.lines[0].words.map(\.at), [9.5, 10.0])
+        XCTAssertEqual(try LocalLyricsDocument.parse(late.serialize()), late)
+
+        let early = try LocalLyricsDocument.parse("[offset:-300]\n[00:10.00]<00:10.00>a <00:10.50>b<00:11.00>")
+        XCTAssertEqual(early.lines[0].at, 10.3, accuracy: 0.000_001)
+        XCTAssertEqual(early.lines[0].words[0].at, 10.3, accuracy: 0.000_001)
+        XCTAssertEqual(early.lines[0].words[1].at, 10.8, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(early.lines[0].words[1].end), 11.3, accuracy: 0.000_001, "an end moves too")
+        XCTAssertEqual(try LocalLyricsDocument.parse(early.serialize()), early)
+    }
+
+    /// The text between two markers is the word, exactly (G-018).
+    ///
+    /// Words were trimmed and the line rebuilt with a space between each, so
+    /// per-character Chinese karaoke read '我 爱 你' and a syllable split
+    /// 'Hel<…>lo' read 'Hel lo', on screen and on the clipboard.
+    func testWordTextIsKeptVerbatim() throws {
+        let chinese = try LocalLyricsDocument.parse("[00:01.00]<00:01.00>我<00:01.20>爱<00:01.40>你")
+        XCTAssertEqual(chinese.lines[0].text, "我爱你")
+        XCTAssertEqual(chinese.lines[0].words.map(\.text), ["我", "爱", "你"])
+        XCTAssertEqual(try LocalLyricsDocument.parse(chinese.serialize()), chinese)
+
+        let syllables = try LocalLyricsDocument.parse("[00:01.00]<00:01.00>Hel<00:01.20>lo world")
+        XCTAssertEqual(syllables.lines[0].text, "Hello world")
+        XCTAssertEqual(syllables.lines[0].words.map(\.text), ["Hel", "lo world"])
+        XCTAssertEqual(try LocalLyricsDocument.parse(syllables.serialize()), syllables)
+    }
+
+    /// A marker with no text after it is where the word before it ends (L-11).
+    /// The A2 dialect closes a line this way, and the empty word threw, so
+    /// the whole file was refused.
+    func testATrailingMarkerEndsTheLastWord() throws {
+        let document = try LocalLyricsDocument.parse("[00:01.00]<00:01.00>one <00:01.50>two<00:02.10>")
+        XCTAssertEqual(document.lines[0].text, "one two")
+        XCTAssertEqual(document.lines[0].words.map(\.text), ["one ", "two"])
+        XCTAssertNil(document.lines[0].words[0].end, "the next marker already says where 'one ' ends")
+        XCTAssertEqual(try XCTUnwrap(document.lines[0].words[1].end), 2.10, accuracy: 0.000_001)
+        XCTAssertEqual(try LocalLyricsDocument.parse(document.serialize()), document)
+
+        // A space before the closing marker is the line's trailing space,
+        // which every other line has trimmed; it is not kept on the last word.
+        let spaced = try LocalLyricsDocument.parse("[00:01.00]<00:01.00>one <00:01.50>two <00:02.10>")
+        XCTAssertEqual(spaced.lines[0].text, "one two")
+        XCTAssertEqual(spaced.lines[0].words.map(\.text), ["one ", "two"])
+    }
+
+    /// The same inside a line: two markers with nothing between them end the
+    /// word before the first, and the silence up to the second is nobody's.
+    func testAnEmptyMarkerInsideALineEndsTheWordBeforeIt() throws {
+        let document = try LocalLyricsDocument.parse("[00:01.00]<00:01.00>one<00:01.30><00:02.00> two")
+        XCTAssertEqual(document.lines[0].text, "one two")
+        XCTAssertEqual(document.lines[0].words.map(\.at), [1, 2])
+        XCTAssertEqual(try XCTUnwrap(document.lines[0].words[0].end), 1.3, accuracy: 0.000_001)
+        XCTAssertEqual(try LocalLyricsDocument.parse(document.serialize()), document)
+        // An end before its own word is still out of order, and an empty
+        // marker with no word before it is still not a word.
+        XCTAssertThrowsError(try LocalLyricsDocument.parse("[00:01.00]<00:01.00>one<00:00.50>"))
+        XCTAssertThrowsError(try LocalLyricsDocument.parse("[00:01.00]<00:01.00><00:01.50>one"))
     }
 }

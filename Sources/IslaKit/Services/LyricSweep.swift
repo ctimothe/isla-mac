@@ -165,15 +165,23 @@ enum LyricSweep {
     }
 
     /// The sweep a row is drawn with: none unless the voice is in it, none for
-    /// a credit, and otherwise the word sweep when word timing is on or the
-    /// whole line lit when it is not. `LyricRow` and the caption both draw
-    /// through this, so the number a surface reports is the number it draws.
+    /// a credit, and otherwise the word sweep when word timing is on and the
+    /// line has words, or the whole line lit when either is missing. `LyricRow`
+    /// and the caption both draw through this, so the number a surface
+    /// reports is the number it draws.
+    ///
+    /// A word-timed song can hold lines without words — the editor drops a
+    /// line's words when its text is edited, and a document is word-timed
+    /// when any line is (J-014). Those lines light whole. Swept by the
+    /// singing-speed estimate (`fraction`'s fallback), they would draw word
+    /// timing nobody wrote, beside lines whose timing is real.
     static func drawnFraction(
         line: LyricsStore.Line, isCurrent: Bool, at: TimeInterval, end: TimeInterval,
         wordTiming: Bool
     ) -> Double {
         guard isCurrent, !line.isCredit else { return 0 }
-        return wordTiming ? fraction(line: line, at: at, end: end) : 1
+        guard wordTiming, !line.words.isEmpty else { return 1 }
+        return wordFraction(words: line.words, at: at, lineEnd: end)
     }
 
     /// What every lyric surface draws for one reading of the clock. The stage,
@@ -230,7 +238,9 @@ enum LyricSweep {
     }
 
     /// Real word timing when a source had it; the singing-speed estimate only for
-    /// lines that never got any.
+    /// lines that never got any. No surface draws the estimate any more —
+    /// `drawnFraction` lights a word-less line whole — so it is here for the
+    /// lyric lab, which measures what the estimate would have drawn.
     static func fraction(line: LyricsStore.Line, at: TimeInterval, end: TimeInterval) -> Double {
         guard line.words.isEmpty else {
             return wordFraction(words: line.words, at: at, lineEnd: end)
@@ -252,7 +262,12 @@ enum LyricSweep {
             if position >= wordEnd {
                 sung += counts[index]
             } else if position > word.at {
-                let span = max(wordEnd - word.at, 0.05)
+                // The word's true span. It was floored at 50 ms, so a 10 ms
+                // word had reached a fifth of itself when its successor began
+                // and the edge leapt the rest in one frame (the lab's L5:
+                // 0.099 to 0.5 across 0.1 ms). It cannot be zero here: the
+                // clock is strictly between the word's start and its end.
+                let span = wordEnd - word.at
                 sung += counts[index] * min((position - word.at) / span, 1)
                 break
             } else {
