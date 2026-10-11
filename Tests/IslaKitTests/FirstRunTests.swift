@@ -162,6 +162,32 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
+    /// A screenshot is nobody asking for anything, so it must not move a
+    /// person who is reading the clipboard to the Shelf (FOC-01; worst for
+    /// VoiceOver, where the focus goes with the pane). The rail marks the Shelf
+    /// instead, and looking at the Shelf takes the mark away.
+    func testAScreenshotOnAnOpenPanelDoesNotMoveTheUser() {
+        withCleanFirstRun {
+            guard let vm = Self.viewModel() else {
+                return XCTFail("a test host always has a screen")
+            }
+            vm.isOpen = true
+            vm.tab = .clipboard
+            XCTAssertFalse(vm.shelfHasNew)
+
+            vm.receivedScreenshot(at: URL(fileURLWithPath: "/tmp/Screenshot.png"))
+
+            XCTAssertEqual(vm.tab, .clipboard, "the tab is the user's")
+            XCTAssertTrue(vm.shelfHasNew)
+
+            vm.tab = .shelf
+            XCTAssertFalse(vm.shelfHasNew, "seeing the shelf answers the mark")
+
+            vm.receivedScreenshot(at: URL(fileURLWithPath: "/tmp/Screenshot.png"))
+            XCTAssertFalse(vm.shelfHasNew, "nothing to mark while the shelf is the pane on screen")
+        }
+    }
+
     /// The same for a screenshot arriving while the shelf is on screen: its
     /// card is already there, and re-showing the shelf redid every other one.
     func testAScreenshotArrivingOnTheShelfDoesNotRefreshIt() {

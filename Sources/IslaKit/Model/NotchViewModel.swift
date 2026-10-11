@@ -93,8 +93,13 @@ final class NotchViewModel: ObservableObject {
     /// True while the shield is up and the panel is presenting the lock-screen
     /// card instead of its normal shell.
     @Published var isLockedPresentation = false
+    /// A screenshot arrived while another tab was showing; the rail marks the
+    /// Shelf until it comes into view.
+    @Published private(set) var shelfHasNew = false
+
     @Published var tab: Tab = .media {
         didSet {
+            if tab == .shelf { shelfHasNew = false }
             // The shelf can hold files inside the folders macOS guards, and
             // looking at one raises a permission prompt. It is asked here,
             // with the shelf on screen, rather than at launch with nothing to
@@ -1255,9 +1260,17 @@ final class NotchViewModel: ObservableObject {
     /// moment `add` puts it there, and assigning the tab again re-ran
     /// `refreshFromDisk` — a reachability check and a fresh QuickLook request
     /// for every card, each preview landing as a whole-panel redraw.
+    ///
+    /// It no longer switches tabs at all (owner decision 14, FOC-01). A tab
+    /// that changes under somebody who is reading the clipboard, or whose
+    /// VoiceOver cursor is in it, is the app moving the user for something the
+    /// user did not ask for. The only reason it ever moved was visibility, and
+    /// the rail already has a mark for exactly that: the Shelf wears a dot
+    /// until it is looked at. A drag or a drop is still a user action and still
+    /// switches (`showShelfForDrag`).
     func receivedScreenshot(at url: URL) {
-        guard isOpen, !wantsKeyboard, !isShowingWelcome, tab != .shelf else { return }
-        tab = .shelf
+        guard tab != .shelf else { return }
+        shelfHasNew = true
     }
 
     /// A file the user dropped on the panel by hand — switching to the shelf
