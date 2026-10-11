@@ -62,10 +62,15 @@ struct LyricsStage: View {
     /// then stays where it was put, and the song moving on no longer drags the
     /// page out from under the eye. The sync pill puts it back.
     @State private var following = true
-    /// The line sitting at the reading centre, as the scroll view itself
+    /// The row sitting at the reading centre, as the scroll view itself
     /// reports it. Both the way the page is driven when it follows the song and
     /// the way it is read when it does not.
-    @State private var reading: TimeInterval?
+    ///
+    /// A row index, not the line's timestamp. Keyed by time, the two lines of
+    /// a bilingual LRC — original and translation stamped at one moment —
+    /// shared one id: one of them was drawn twice or skipped, and the page
+    /// could not say which of them it was reading.
+    @State private var reading: Int?
 
     /// White, always — the same rule the lock card follows. A sung line
     /// coloured from the cover is unreadable the moment the cover is pale.
@@ -88,6 +93,29 @@ struct LyricsStage: View {
             precisionMeasured: media.precisionSync,
             wordKaraokeEnabled: lyrics.wordKaraokeEnabled
         )
+    }
+
+    private var inputs: LyricInputs {
+        LyricInputs(
+            position: media.position, precisionSync: media.precisionSync,
+            userOffset: lyrics.userOffset, trackOffset: lyrics.trackOffset,
+            wordTiming: wordTimingEnabled
+        )
+    }
+
+    /// What the stage draws for one reading of the clock: the sung row (nil
+    /// during an intro) and the row the page centres on. The caption and the
+    /// lock card answer through the same `LyricSweep.resolve`, and the lyric
+    /// lab calls this very function — the stage's arithmetic is not restated
+    /// anywhere it could drift from.
+    static func resolve(lines: [LyricsStore.Line], inputs: LyricInputs) -> LyricResolution {
+        LyricSweep.resolve(lines: lines, inputs: inputs)
+    }
+
+    /// The identity of every row: its index. See `reading` for why not its
+    /// timestamp.
+    static func rowIDs(_ lines: [LyricsStore.Line]) -> [Int] {
+        Array(lines.indices)
     }
 
     var body: some View {
@@ -228,23 +256,24 @@ struct LyricsStage: View {
     }
 
     private func stage(lines: [LyricsStore.Line]) -> some View {
-        let currentIndex = LyricSweep.index(in: lines, at: now)
+        let moment = Self.resolve(lines: lines, inputs: inputs).moment
+        let currentIndex = moment.current
         // Before the first line — an intro — the first line is the anchor:
         // waiting at the reading centre, dimmed, taking the sweep the moment
         // the voice arrives. Anchoring on nothing left the stage vacant.
-        let anchor = currentIndex ?? 0
+        let anchor = moment.centre
         return GeometryReader { geo in
                 // Half a viewport of air above the first line and below the
                 // last, so either end can still reach the reading centre
                 // instead of stopping short against the scroll bounds.
                 let air = Self.centeringAir(viewport: geo.size.height)
-                let strayed = Self.linesStrayed(reading: reading, from: anchor, in: lines)
+                let strayed = Self.linesStrayed(reading: reading, from: anchor)
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: Self.slotSpacing) {
-                        ForEach(Array(lines.enumerated()), id: \.element.at) { index, line in
-                            row(line: line, index: index, current: currentIndex, lines: lines)
+                        ForEach(Self.rowIDs(lines), id: \.self) { index in
+                            row(line: lines[index], index: index, moment: moment, lines: lines)
                                 .frame(height: Self.slotHeight, alignment: .leading)
-                                .id(line.at)
+                                .id(index)
                         }
                     }
                     .scrollTargetLayout()
@@ -275,13 +304,13 @@ struct LyricsStage: View {
                             lines.count, geo.size.height, following ? 1 : 0, strayed))
                     }
                     guard following else { return }
-                    center(on: lines[to].at)
+                    center(on: to)
                 }
                 .onChange(of: following) { _, resumed in
                     guard resumed else { return }
-                    center(on: lines[anchor].at)
+                    center(on: anchor)
                 }
-                .onAppear { reading = lines[anchor].at }
+                .onAppear { reading = anchor }
                     // A scroll wheel or two fingers on the trackpad is the one
                     // unambiguous statement of "I am reading, not watching":
                     // taken straight from the event stream rather than inferred
@@ -328,7 +357,7 @@ struct LyricsStage: View {
     /// rather than being a bare assignment here. It still refuses the spring —
     /// what it no longer does is snap the page between lines with no transition
     /// at all, which is the same answer `Theme.open(reduceMotion:)` gives.
-    private func center(on id: TimeInterval) {
+    private func center(on id: Int) {
         withAnimation(Theme.lyricScroll(reduceMotion: reduceMotion)) { reading = id }
     }
 
@@ -347,10 +376,12 @@ struct LyricsStage: View {
     /// is still in view and needs no rescuing.
     static let strayedEnoughToOfferSync = 2
 
-    /// Lines between what is being read and what is being sung.
-    static func linesStrayed(reading: TimeInterval?, from anchor: Int, in lines: [LyricsStore.Line]) -> Int {
-        guard let reading, let index = LyricSweep.index(in: lines, at: reading) else { return 0 }
-        return abs(index - anchor)
+    /// Lines between the row being read and the row being sung. Plain index
+    /// arithmetic now that the page reports a row rather than a timestamp it
+    /// had to search back into a row.
+    static func linesStrayed(reading: Int?, from anchor: Int) -> Int {
+        guard let reading else { return 0 }
+        return abs(reading - anchor)
     }
 
     /// The way back to the song after reading ahead — Spotify's affordance, and
@@ -381,14 +412,14 @@ struct LyricsStage: View {
         .help(localized("Back to the current line"))
     }
 
-    private func row(line: LyricsStore.Line, index: Int, current: Int?, lines: [LyricsStore.Line]) -> some View {
+    private func row(line: LyricsStore.Line, index: Int, moment: LyricMoment, lines: [LyricsStore.Line]) -> some View {
+        let current = moment.current
         let isCurrent = index == current
-        // How far from the voice this line stands, for the depth falloff.
-        let distance = current.map { abs(index - $0) } ?? 2
         return LyricRow(
             line: line,
             isCurrent: isCurrent,
-            distance: distance,
+            // How far from the voice this line stands, for the depth falloff.
+            distance: moment.distance(of: index),
             at: now,
             end: LyricSweep.end(of: index, in: lines),
             // The stage reads at arm's length and lets a long line wrap; the
@@ -420,7 +451,7 @@ struct LyricsStage: View {
         )
         .frame(maxHeight: .infinity, alignment: .center)
         .animation(reduceMotion ? nil : Theme.contentAnimation, value: isCurrent)
-        .id(line.at)
+        .id(index)
         .accessibilityHint(localized("Jumps the song to this line"))
     }
 

@@ -574,77 +574,35 @@ struct LyricsFile {
 
 // MARK: - The surfaces, as the views compute them
 
-/// What each lyric surface resolves for one moment, computed through the very
-/// entry points the views call. The views keep these expressions inline in
-/// private `body` code, so the lab restates them; each is cited to its source
-/// line so a change there is a change to find here.
+/// What each lyric surface resolves for one moment — by calling the very
+/// statics each view's body calls, never a restatement of them. This used to
+/// copy the views' inline arithmetic, cited by line number, which is the drift
+/// `LyricSweep` exists to prevent: a change to a view was a change the lab
+/// could only find by reading. Now a surface that resolves differently fails
+/// L8 on its own.
 @MainActor
 enum LabSurfaces {
-    struct Resolution: Equatable {
-        /// The row drawn as the sung line, nil when none is.
-        let current: Int?
-        /// The sweep that row is drawn with, 0...1.
-        let fraction: Double
-    }
+    typealias Resolution = LyricResolution
+    typealias Inputs = LyricInputs
 
-    struct Inputs {
-        let position: TimeInterval
-        let precisionSync: Bool
-        let userOffset: TimeInterval
-        let trackOffset: TimeInterval
-        let wordTiming: Bool
-    }
-
-    /// `LyricsStage.now` (LyricsStage.swift:76-83) and `stage(lines:)`
-    /// (:231) with `row(...)` (:384-403) into `LyricRow.content` (LyricRow.swift:131-147).
+    /// `LyricsStage.stage(lines:)` resolves through this.
     static func stage(_ lines: [LyricsStore.Line], _ inputs: Inputs) -> Resolution {
-        let lead = LyricSweep.lead(
-            precisionSync: inputs.precisionSync, userOffset: inputs.userOffset,
-            trackOffset: inputs.trackOffset
-        )
-        let now = inputs.position + lead
-        guard let current = LyricSweep.index(in: lines, at: now) else {
-            return Resolution(current: nil, fraction: 0)
-        }
-        let line = lines[current]
-        let fraction = line.isCredit ? 0 : inputs.wordTiming
-            ? LyricSweep.fraction(line: line, at: now, end: LyricSweep.end(of: current, in: lines))
-            : 1
-        return Resolution(current: current, fraction: fraction)
+        LyricsStage.resolve(lines: lines, inputs: inputs)
     }
 
-    /// `MediaPane.lyricsLine` (MediaPane.swift:481-515): the caption.
+    /// `MediaPane.lyricsLine` resolves through this. It answers nil only for a
+    /// song with no lines, where the caption draws its status instead; the lab
+    /// never asks about one, and would report it as nothing drawn.
     static func caption(_ lines: [LyricsStore.Line], _ inputs: Inputs) -> Resolution {
-        let at = LyricSweep.position(
-            inputs.position, precisionSync: inputs.precisionSync,
-            userOffset: inputs.userOffset, trackOffset: inputs.trackOffset
-        )
-        guard let shown = LyricSweep.displayed(lines: lines, at: at) else {
-            return Resolution(current: nil, fraction: 0)
-        }
-        // The caption draws `shown.line`; which row that is, by the index the
-        // shared search names (the caption has no index of its own).
-        let index = shown.swept ? LyricSweep.index(in: lines, at: at) : 0
-        let line = shown.line
-        let fraction = line.isCredit || !shown.swept
-            ? 0
-            : inputs.wordTiming ? LyricSweep.fraction(line: line, at: at, end: shown.end) : 1
-        return Resolution(current: index, fraction: fraction)
+        MediaPane.captionResolution(lines: lines, inputs: inputs)
+            ?? Resolution(
+                at: inputs.position, moment: LyricMoment(current: nil, centre: 0, upcoming: nil),
+                fraction: 0
+            )
     }
 
-    /// `LockScreenCard.lyricsPane` (LockScreenCard.swift:365-376) with
-    /// `lyricRow` (:443-457) into `LyricRow.content`.
+    /// `LockScreenCard.lyricsPane` resolves through this.
     static func lockCard(_ lines: [LyricsStore.Line], _ inputs: Inputs) -> Resolution {
-        let at = LyricSweep.position(
-            inputs.position, precisionSync: inputs.precisionSync,
-            userOffset: inputs.userOffset, trackOffset: inputs.trackOffset
-        )
-        let centre = LyricSweep.centreIndex(in: lines, at: at)
-        guard lines.indices.contains(centre) else { return Resolution(current: nil, fraction: 0) }
-        let line = lines[centre]
-        let fraction = line.isCredit ? 0 : inputs.wordTiming
-            ? LyricSweep.fraction(line: line, at: at, end: LyricSweep.end(of: centre, in: lines))
-            : 1
-        return Resolution(current: centre, fraction: fraction)
+        LockScreenCard.resolve(lines: lines, inputs: inputs)
     }
 }

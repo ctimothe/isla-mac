@@ -120,6 +120,58 @@ enum LyricSweep {
         index(in: lines, at: at) ?? 0
     }
 
+    /// The whole moment, from the one search: the line being sung, the line a
+    /// surface centres on, and the line the voice reaches next.
+    ///
+    /// `current` and `centre` are kept apart on purpose. The lock card used to
+    /// ask only for the centre and then call it current, and `LyricRow` fills
+    /// a current line-timed row to 1 — so through every intro the card drew
+    /// line 1 as sung while the stage drew nothing and the caption drew line 1
+    /// unswept. The lyric lab counted 52,013 such disagreements over 540
+    /// tracks, a median 12.9 s of every song. Centring on a line and claiming
+    /// the voice is in it are two different statements.
+    static func moment(in lines: [LyricsStore.Line], at: TimeInterval) -> LyricMoment {
+        let current = index(in: lines, at: at)
+        let upcoming: Int?
+        if let current {
+            upcoming = current + 1 < lines.count ? current + 1 : nil
+        } else {
+            upcoming = lines.isEmpty ? nil : 0
+        }
+        return LyricMoment(current: current, centre: current ?? 0, upcoming: upcoming)
+    }
+
+    /// The sweep a row is drawn with: none unless the voice is in it, none for
+    /// a credit, and otherwise the word sweep when word timing is on or the
+    /// whole line lit when it is not. `LyricRow` and the caption both draw
+    /// through this, so the number a surface reports is the number it draws.
+    static func drawnFraction(
+        line: LyricsStore.Line, isCurrent: Bool, at: TimeInterval, end: TimeInterval,
+        wordTiming: Bool
+    ) -> Double {
+        guard isCurrent, !line.isCredit else { return 0 }
+        return wordTiming ? fraction(line: line, at: at, end: end) : 1
+    }
+
+    /// What every lyric surface draws for one reading of the clock. The stage,
+    /// the caption and the lock card each name a static that comes here — and
+    /// the lyric lab calls those same statics, so it measures the code that
+    /// draws rather than a restatement of it that can drift.
+    static func resolve(lines: [LyricsStore.Line], inputs: LyricInputs) -> LyricResolution {
+        let at = position(
+            inputs.position, precisionSync: inputs.precisionSync,
+            userOffset: inputs.userOffset, trackOffset: inputs.trackOffset
+        )
+        let moment = moment(in: lines, at: at)
+        let fraction = moment.current.map {
+            drawnFraction(
+                line: lines[$0], isCurrent: true, at: at, end: end(of: $0, in: lines),
+                wordTiming: inputs.wordTiming
+            )
+        } ?? 0
+        return LyricResolution(at: at, moment: moment, fraction: fraction)
+    }
+
     /// When a line stops being sung: the next line's start, or a spoken length
     /// borrowed for the last one.
     static func end(of index: Int, in lines: [LyricsStore.Line]) -> TimeInterval {
@@ -160,4 +212,48 @@ enum LyricSweep {
         }
         return min(max(sung / total, 0), 1)
     }
+}
+
+/// Where the voice stands in a lyric, by row index. See `LyricSweep.moment`.
+struct LyricMoment: Equatable, Sendable {
+    /// The line being sung, or nil before the first timestamp.
+    let current: Int?
+    /// The line a surface centres on: the current one, or the opening line
+    /// while the voice has not reached it. Never nil, so a paused intro still
+    /// shows words.
+    let centre: Int
+    /// The line the voice reaches next: the opening line during the intro,
+    /// the one after the current line otherwise, nil after the last.
+    let upcoming: Int?
+
+    /// How far a row stands from the voice, for the depth falloff. With no
+    /// line sung every row sits at the far floor: measured from the centre
+    /// instead, the opening line came out as the dimmest thing on the card
+    /// beside a brighter neighbour, depth inside out.
+    func distance(of index: Int) -> Int {
+        current.map { abs(index - $0) } ?? 2
+    }
+}
+
+/// What a lyric surface reads the clock with.
+struct LyricInputs: Equatable, Sendable {
+    let position: TimeInterval
+    let precisionSync: Bool
+    let userOffset: TimeInterval
+    let trackOffset: TimeInterval
+    /// `LyricsPresentation.usesWordTiming`, already decided.
+    let wordTiming: Bool
+}
+
+/// What one surface draws at one moment: compared across surfaces by the lab,
+/// so two of them disagreeing is a failing number rather than a filmed bug.
+struct LyricResolution: Equatable, Sendable {
+    /// The moment the lyric is read against, lead applied.
+    let at: TimeInterval
+    let moment: LyricMoment
+    /// The sweep the current row is drawn with; 0 when no row is current.
+    let fraction: Double
+
+    var current: Int? { moment.current }
+    var centre: Int { moment.centre }
 }

@@ -545,7 +545,20 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
                     if !beforeFirst { otherDisagreementTracks.insert(track.id) }
                 }
                 if config.name == "standard" {
-                    introSecondsCardLitStageNone.append(max(0, plainLines[0].at - lead))
+                    // Measured, not assumed: the intro counts only when the
+                    // card, probed halfway through it, draws a sung line while
+                    // the stage draws none. This used to append the intro's
+                    // length unconditionally, which was true of the card
+                    // before LY-04 and would have gone on reporting 12.9 s
+                    // after it.
+                    let intro = max(0, plainLines[0].at - lead)
+                    let probe = LabSurfaces.Inputs(
+                        position: intro / 2, precisionSync: config.precision,
+                        userOffset: config.userOffset, trackOffset: 0, wordTiming: false
+                    )
+                    let cardLitStageNone = LabSurfaces.lockCard(plainLines, probe).current != nil
+                        && LabSurfaces.stage(plainLines, probe).current == nil
+                    introSecondsCardLitStageNone.append(cardLitStageNone ? intro : 0)
                 }
             }
         }
@@ -556,11 +569,15 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
             "disagreements": disagreements,
             "tracksWithDisagreementAfterFirstLine": otherDisagreementTracks.sorted(),
             "introSecondsWhereCardDrawsLineOneSungPerTrack": LabStats.summary(introSecondsCardLitStageNone),
-            "viewsComputingTimeInline": [
-                "LyricsStage.now = media.position + LyricSweep.lead(...) (LyricsStage.swift:76-83) — same terms as LyricSweep.position, restated",
-                "MediaPane.lyricsLine: LyricSweep.position(...) then LyricSweep.displayed (MediaPane.swift:481-487)",
-                "LockScreenCard.lyricsPane: LyricSweep.position(...) then LyricSweep.centreIndex (LockScreenCard.swift:365-371)",
-                "The stage asks LyricSweep.index (nil before the first line); the card asks centreIndex (0 before it) and passes isCurrent to LyricRow, which draws fraction 1 for line timing; the caption asks displayed and draws fraction 0 when unswept",
+            // Until LY-04 (2026-10-11) each view restated the clock inline and
+            // this listed where; the card called its centre current and drew
+            // line 1 sung through every intro. All three now resolve through
+            // the statics below, which LabSurfaces calls directly.
+            "surfaceResolvers": [
+                "LyricsStage.resolve(lines:inputs:)",
+                "MediaPane.captionResolution(lines:inputs:)",
+                "LockScreenCard.resolve(lines:inputs:)",
+                "each one LyricSweep.resolve: current from the one search, centre = current ?? 0, sweep from LyricSweep.drawnFraction",
             ],
             "verdict": total > 0 ? "fail" : "pass",
             "summary": "\(samples) samples × 3 surfaces: \(total) disagreements, \(otherDisagreementTracks.count) tracks disagreeing after the first line; "
