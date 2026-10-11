@@ -105,7 +105,15 @@ final class PrivacyMode: ObservableObject {
         } else {
             sections = []
         }
-        defaults.set(Section.allCases.map(\.rawValue).sorted(), forKey: Self.knownSectionsKey)
+        // Nothing is written here (ruling 20.6 #5). This wrote the list of
+        // known sections at every launch, apart from the choice it describes:
+        // after the first launch that upgraded "everything" to include the
+        // Prompter, the stored choice still named two sections and the known
+        // list three, so the second launch read a deliberate exception and
+        // left the Prompter uncovered. It also wrote a default naming the
+        // Prompter at every launch with its switch off. The upgrade is cheap
+        // and is simply worked out again at each launch; the two lists are
+        // written together, by `persist`, when the user changes the choice.
     }
 
     // MARK: - Sections
@@ -125,6 +133,13 @@ final class PrivacyMode: ObservableObject {
 
     private func persist() {
         defaults.set(sections.map(\.rawValue).sorted(), forKey: Self.key)
+        // The sections this choice was made among, written with it so a
+        // later launch can tell a section that did not exist yet (upgraded
+        // into "everything") from one the user left uncovered on purpose.
+        // It names the Prompter even with its switch off: the choice is the
+        // user's own, made in Settings, and "everything" has to keep meaning
+        // everything when the switch comes on.
+        defaults.set(Section.allCases.map(\.rawValue).sorted(), forKey: Self.knownSectionsKey)
         // Kept in step so that rolling back to an older build finds the switch
         // where it left it, rather than off.
         defaults.set(coversAny, forKey: Self.legacyKey)

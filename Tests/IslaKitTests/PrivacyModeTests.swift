@@ -109,4 +109,59 @@ final class PrivacyModeTests: XCTestCase {
         let privacy = PrivacyMode(defaults: defaults)
         XCTAssertTrue(privacy.covers(.prompter))
     }
+
+    /// Ruling 20.6 #5. The upgrade above held for one launch only: the first
+    /// construction wrote the new list of known sections without the stored
+    /// choice, so the second read "two covered of three known" and left the
+    /// Prompter uncovered from then on.
+    func testCoveringEverythingStillIncludesThePrompterOnTheSecondLaunch() {
+        let suite = "PrivacyModeTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["clipboard", "translate"], forKey: PrivacyMode.key)
+        defaults.set(["clipboard", "translate"], forKey: "privacyKnownSections")
+
+        XCTAssertTrue(PrivacyMode(defaults: defaults).covers(.prompter), "first launch")
+        let second = PrivacyMode(defaults: defaults)
+        XCTAssertTrue(second.covers(.prompter), "second launch")
+        XCTAssertEqual(second.sections, Set(PrivacyMode.Section.allCases))
+        XCTAssertTrue(PrivacyMode(defaults: defaults).covers(.prompter), "and every one after")
+    }
+
+    /// A launch writes nothing: with the Prompter's switch off, no default
+    /// naming the Prompter section appears because Isla started (spec 4).
+    /// Only the user's own choice in Settings writes the list.
+    func testALaunchWritesNoDefaults() {
+        let suite = "PrivacyModeTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        _ = PrivacyMode(defaults: defaults)
+        XCTAssertNil(defaults.object(forKey: "privacyKnownSections"), "a fresh launch names no section")
+        XCTAssertNil(defaults.object(forKey: PrivacyMode.key))
+
+        defaults.set(["clipboard", "translate"], forKey: PrivacyMode.key)
+        defaults.set(["clipboard", "translate"], forKey: "privacyKnownSections")
+        _ = PrivacyMode(defaults: defaults)
+        XCTAssertEqual(defaults.array(forKey: "privacyKnownSections") as? [String], ["clipboard", "translate"])
+        XCTAssertEqual(defaults.array(forKey: PrivacyMode.key) as? [String], ["clipboard", "translate"])
+    }
+
+    /// The upgrade is not a lock: a Prompter cover the user turns off stays
+    /// off on the next launch, because the choice is written with the list of
+    /// sections it was made among.
+    func testAPrompterCoverTurnedOffByHandStaysOff() {
+        let suite = "PrivacyModeTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["clipboard", "translate"], forKey: PrivacyMode.key)
+        defaults.set(["clipboard", "translate"], forKey: "privacyKnownSections")
+
+        let first = PrivacyMode(defaults: defaults)
+        first.setCovering(.prompter, false)
+        let second = PrivacyMode(defaults: defaults)
+        XCTAssertFalse(second.covers(.prompter))
+        XCTAssertTrue(second.covers(.clipboard))
+        XCTAssertTrue(second.covers(.translate))
+    }
 }
