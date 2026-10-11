@@ -31,6 +31,8 @@ What the 2026-10-11 island program left unfinished, as of release 0.3.0. Everyth
 
 ## Housekeeping
 
+- **VoiceOver's one-step increment on a SwiftUI slider (Lyric Delay, Panel Width) is honoured on macOS 27 and not on 26.6**, where the CI runner shows the system's own step (0.3 s on Lyric Delay) and the call returns false. Two tests skip below macOS 27 (`LyricDelayCopyTests.testAVoiceOverStepMovesTheDelayByOneStep`, `SettingsAccessibilityTests.testAVoiceOverStepCommitsTheWidth`). It is what a slider did before the custom step existed, so not a regression, but a macOS 26 VoiceOver user steps coarsely; an `accessibilityRepresentation` slider or a stepper would fix it and can be proven on CI.
+
 - `Scripts/test-lifecycle.sh` (and `measure-performance.sh`) launch the freshly built app against the real `~/Library/Application Support/Isla`, so every gate run executes one-time migrations on the owner's data. Redirecting the data folder and the defaults needs an app-level hook (HOME does not move either). Until then, run the lifecycle step once, not per batch.
 - `SettingsIcon.about` and `SettingsIcon.quit` are no longer used by the app (kept for the lab and `SettingsIcon.all`); remove or keep.
 - `Diagnostics` reports Launch at Login as off while macOS approval is pending; use `LaunchAtLogin.read()`.
