@@ -104,6 +104,48 @@ final class ContrastRampTests: XCTestCase {
         }
     }
 
+    /// The ramp above is measured over black, and a label rarely sits there:
+    /// Settings notes sit on `surface` (4.29:1 at the old 0.46), a hovered
+    /// Shelf card's age on `surfaceHover` (3.52:1), and the unselected option
+    /// of a segmented row on `surface` stacked on `surface` (3.26:1). Each
+    /// pair the code uses is measured here, at both Increase Contrast settings
+    /// (F-052).
+    func testLabelsClearAAOnTheFillsTheySitOn() {
+        func ratio(_ text: Double, on fills: [Theme.Fill], contrast: Bool) -> Double {
+            Theme.contrast(
+                textOpacity: text,
+                overGrey: Theme.composite(fills.map { $0.opacity(increaseContrast: contrast) })
+            )
+        }
+        for contrast in [false, true] {
+            let tertiary = Theme.tertiaryOpacity(increaseContrast: contrast)
+            XCTAssertGreaterThanOrEqual(ratio(tertiary, on: [.surface], contrast: contrast), 4.5, "tertiary on surface, contrast \(contrast)")
+
+            // Everything that raises the label past the base ramp stays a
+            // ramp: never dimmer than tertiary itself.
+            for fills: [Theme.Fill] in [
+                [.surfaceHover], [.selectedChip], Theme.choiceOptionFills(increaseContrast: contrast),
+            ] {
+                let raised = Theme.tertiaryOpacity(over: fills, increaseContrast: contrast)
+                XCTAssertGreaterThanOrEqual(raised, tertiary)
+                XCTAssertGreaterThanOrEqual(ratio(raised, on: fills, contrast: contrast), 4.5, "\(fills) contrast \(contrast)")
+                XCTAssertLessThan(raised, 1)
+            }
+
+            // The kind glyph is non-text: 3:1 on a hovered row.
+            XCTAssertGreaterThanOrEqual(ratio(tertiary, on: [.surfaceHover], contrast: contrast), 3.0, "clipboard glyph, contrast \(contrast)")
+        }
+        // Where the base already clears, nothing is raised.
+        XCTAssertEqual(
+            Theme.tertiaryOpacity(over: [], increaseContrast: false),
+            Theme.tertiaryOpacity(increaseContrast: false)
+        )
+        // The numbers the finding quotes.
+        XCTAssertEqual(ratio(0.46, on: [.surface], contrast: false), 4.29, accuracy: 0.02)
+        XCTAssertEqual(ratio(0.46, on: [.surfaceHover], contrast: false), 3.52, accuracy: 0.02)
+        XCTAssertEqual(ratio(0.46, on: [.surface, .surface], contrast: false), 3.26, accuracy: 0.02)
+    }
+
     /// The dimmest lyric context line. At white 0.18 it was 1.54:1.
     func testTheLyricFalloffHasAFloor() {
         XCTAssertGreaterThanOrEqual(

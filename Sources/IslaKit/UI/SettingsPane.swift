@@ -1462,7 +1462,8 @@ struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
     let optionTitle: (Option) -> String
 
     var body: some View {
-        HStack(spacing: 8) {
+        let increaseContrast = SystemAppearance.shared.increaseContrast
+        return HStack(spacing: 8) {
             RowIcon(symbol: symbol)
             Text(title)
                 .islandFont(.body)
@@ -1474,7 +1475,12 @@ struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
                     Button { selection = option } label: {
                         Text(optionTitle(option))
                             .islandFont(.body)
-                            .foregroundStyle(isSelected ? .white : Theme.tertiary)
+                            // Raised to clear 4.5:1 over the fills it really
+                            // sits on, which the base ramp does not (3.26:1
+                            // on the stacked capsules, F-052).
+                            .foregroundStyle(isSelected ? .white : Theme.tertiary(
+                                over: Theme.choiceOptionFills(increaseContrast: increaseContrast)
+                            ))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 3)
                             .background(
@@ -1487,9 +1493,18 @@ struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
                 }
             }
             .padding(2)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface)
-            )
+            .background {
+                // Increase Contrast swaps the group's fill for the defined
+                // edge that setting asks for: stacked on the section card the
+                // fill left white text at 4.24:1 at best (see
+                // `Theme.choiceOptionFills`).
+                if increaseContrast {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Theme.hairline, lineWidth: 1)
+                } else {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface)
+                }
+            }
         }
         .padding(.horizontal, 8)
         .frame(height: 26)

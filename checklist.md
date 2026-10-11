@@ -1272,3 +1272,17 @@ first for the hot keys and the Spotify callback).
   reading as ⌘-Tab), and `pgrep -x Isla` lists one process. Over the lock
   screen, all three shake the pill and open nothing.
   `./scripts/check lifecycle` stays green with the installed copy running.
+
+### Scope divergence: fixed type sizes (2026-10-11, provisional)
+
+Provisional, pending owner decision 10. The panel and the lock card draw
+their type at fixed roles (caption 10 pt, body 11 pt) and do not follow
+Dynamic Type or a larger-text setting: the windows are fixed-size and
+non-resizing, and a text size that grew would clip rows and the lock card.
+This is recorded as a divergence from the platform, not as a settled
+decision. The two options the accessibility plan lists are open: keep fixed
+sizes and say so in the product notes, or add a larger-text step to Settings
+that rescales the type roles and the row heights together. Contrast on the
+small labels is held in the meantime by `ContrastRampTests`
+(`testLabelsClearAAOnTheFillsTheySitOn`): `tertiaryOpacity` is 0.50, and
+labels on a brighter fill are raised per fill with `Theme.tertiary(over:)`.
