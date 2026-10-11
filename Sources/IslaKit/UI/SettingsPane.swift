@@ -32,6 +32,37 @@ struct SettingsPane: View {
 
     static let localLyricsPrivacyCopyKey = "Lyrics stay on this Mac."
 
+    // The Privacy card's notes are static so a test can read exactly what the
+    // pane draws, and each literal sits inside `localized(...)` so
+    // test-localizations.sh sees it used.
+
+    /// Under the two cover switches: what covering looks like and when it
+    /// comes back, so turning one on is not a leap into an unknown state.
+    static var privacyCoversNote: String {
+        localized("Covered text shows as moving dots until you click it, and is covered again when the panel closes.")
+    }
+
+    /// Under Hide from Screen Recording, always shown. The switch is
+    /// `sharingType = .none` on the panel and nothing more, and whether
+    /// ScreenCaptureKit capture on macOS 26 and 27 honours that is unproven
+    /// until live session S7 (F-008). A default-on privacy switch that might
+    /// not hold has to say so, and point at the covers, which work whatever
+    /// the capture path is.
+    static var hideFromCaptureNote: String {
+        localized("Asks macOS to leave Isla out of screenshots, recordings and screen sharing. Some sharing apps may still show it, so cover Clipboard and Translate before you share.")
+    }
+
+    /// The note under Clipboard History while it is off. "Copies are not
+    /// read" was false whenever Save Clipboard Screenshots was on, because
+    /// that switch keeps the pasteboard poll running by itself
+    /// (`NotchStores.clipboardShouldPoll`) and every copy is still looked at
+    /// for an image (J-001).
+    static func clipboardOffNote(imagesOn: Bool) -> String {
+        imagesOn
+            ? localized("Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on.")
+            : localized("Copies are not read or kept. Turning it off emptied the list.")
+    }
+
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hoverDelay = NotchViewModel.hoverOpenDelay
     @State private var bodyWidth = NotchViewModel.bodyWidth
@@ -506,15 +537,16 @@ struct SettingsPane: View {
                         )
                     )
                     if !clipboardHistory {
-                        noteRow(localized("Copies are not read or kept. Turning it off emptied the list."))
+                        noteRow(Self.clipboardOffNote(imagesOn: saveClipboardImages))
                     }
                     ForEach(PrivacyMode.Section.allCases) { privacySection in
                         toggleRow(
                             symbol: privacySymbol(for: privacySection),
-                            title: privacySection.title,
+                            title: privacySection.settingsTitle,
                             isOn: privacyCoversBinding(for: privacySection)
                         )
                     }
+                    noteRow(Self.privacyCoversNote)
                     toggleRow(
                         symbol: SettingsIcon.hideFromRecording,
                         title: localized("Hide from Screen Recording"),
@@ -529,6 +561,7 @@ struct SettingsPane: View {
                             }
                         )
                     )
+                    noteRow(Self.hideFromCaptureNote)
                 }
 
                 section(localized("Application")) {

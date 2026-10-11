@@ -302,3 +302,10 @@
 "Can't read the lyrics file for this song." = "Не удаётся прочитать файл с текстом этой песни.";
 "No lyrics for live audio." = "Для прямого эфира текста нет.";
 "This track has no title to look up." = "У этого трека нет названия для поиска.";
+
+/* Privacy card: what each switch protects (H-004, F-008, J-001) */
+"Cover Clipboard Rows" = "Скрывать строки буфера обмена";
+"Cover Translate Text" = "Скрывать текст в Переводе";
+"Covered text shows as moving dots until you click it, and is covered again when the panel closes." = "Скрытый текст выглядит как движущиеся точки, пока вы не щёлкнете по нему, и снова скрывается, когда панель закрывается.";
+"Asks macOS to leave Isla out of screenshots, recordings and screen sharing. Some sharing apps may still show it, so cover Clipboard and Translate before you share." = "Просит macOS не показывать Isla на снимках, записях и при демонстрации экрана. Некоторые приложения всё равно могут её показать, поэтому перед демонстрацией скройте буфер обмена и Перевод.";
+"Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on." = "Скопированный текст не сохраняется. Пока включено «Сохранять скриншоты из буфера», скопированное проверяется на скриншоты.";
