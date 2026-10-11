@@ -258,11 +258,20 @@ final class MediaController: ObservableObject {
     /// on the beat. Between boundaries nothing extra runs.
     private var lyricBoundaries: [TimeInterval] = []
     private var lyricLead: @MainActor () -> TimeInterval = { 0 }
-    private var boundaryTimer: Timer?
+    private var boundaryTimer: DispatchSourceTimer?
+    /// When the armed wake is due, on the wall clock. A dispatch source has no
+    /// fire date to read back the way a `Timer` did, so it is recorded at the
+    /// moment of arming from the same delay the source is scheduled with.
+    private var lyricWakeDate: Date?
 
-    /// When the next lyric wake is scheduled for, if one is. Read from the
-    /// armed timer rather than recomputed, so a test sees what was scheduled.
-    var lyricWakeDateForTests: Date? { boundaryTimer?.fireDate }
+    /// When the next lyric wake is scheduled for, if one is. Recorded when the
+    /// wake is armed rather than recomputed, so a test sees what was scheduled.
+    var lyricWakeDateForTests: Date? { lyricWakeDate }
+    /// The one armed wake, if any: tests read its construction back from
+    /// libdispatch and check a re-arm cancels the source it replaces.
+    var lyricWakeSourceForTests: DispatchSourceTimer? { boundaryTimer }
+    /// Called inside the wake's handler, right after the tick it ran.
+    var onLyricWakeForTests: (@MainActor () -> Void)?
     /// What the coordinator registered, sorted: every line's start and every
     /// end `LyricSweep.effectiveEnd` honours.
     var lyricBoundariesForTests: [TimeInterval] { lyricBoundaries }
@@ -287,9 +296,58 @@ final class MediaController: ObservableObject {
         return ((next - lead) - position) / rate
     }
 
-    private func armBoundaryTimer() {
-        boundaryTimer?.invalidate()
+    /// Runs `handler` on the main queue `delay` seconds from now, as close to
+    /// on time as the machine allows, passing how late it actually ran.
+    ///
+    /// This was a Foundation `Timer` with tolerance 0 on the main run loop
+    /// whose block hopped to `tick()` through a `Task { @MainActor }`. The
+    /// lyric lab (L4b) measured it 4ms late at the median and 10ms at p99 on
+    /// an idle Mac, and 17.7ms at worst with every core busy — later than a
+    /// whole 60Hz frame, on the one wake whose point is the frame a line is
+    /// due on. Tolerance 0 does not exempt a run-loop timer from the run loop's
+    /// and the kernel's coalescing, and that, not the hop (about 0.05ms), was
+    /// the 4ms. A `.strict` dispatch source with zero leeway is exempt: idle,
+    /// it runs 0.07ms late at the median and 0.2ms at p99. With every core
+    /// busy it still runs up to about 11ms late (p50 1.8ms), and that part is
+    /// the main thread waiting for a core, which no choice of timer changes.
+    ///
+    /// The handler runs on the source's own turn of the main queue — the main
+    /// actor's executor, which is what `assumeIsolated` checks — so the tick
+    /// is not queued behind whatever else is waiting. A strict timer costs a
+    /// little more energy per wake than a coalesced one; there is only ever one
+    /// armed, for the next line, and only while a lyric timeline is registered
+    /// on an open panel that is playing.
+    ///
+    /// Static and nonisolated so the lab measures this very construction
+    /// rather than a copy of it that could drift. A display link was the other
+    /// candidate and was rejected: a wake every frame, for an event every few
+    /// seconds.
+    nonisolated static func scheduleLyricWake(
+        after delay: TimeInterval,
+        _ handler: @escaping @MainActor (_ late: TimeInterval) -> Void
+    ) -> DispatchSourceTimer {
+        let source = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+        let deadline = DispatchTime.now() + max(delay, 0)
+        source.schedule(deadline: deadline, repeating: .never, leeway: .nanoseconds(0))
+        source.setEventHandler {
+            let late = Double(Int64(DispatchTime.now().uptimeNanoseconds) - Int64(deadline.uptimeNanoseconds)) / 1e9
+            MainActor.assumeIsolated { handler(late) }
+        }
+        source.resume()
+        return source
+    }
+
+    /// Cancels the armed lyric wake, if there is one. A dispatch source keeps
+    /// firing after the last reference to it goes unless it is cancelled, so
+    /// every path that drops one comes through here.
+    private func cancelLyricWake() {
+        boundaryTimer?.cancel()
         boundaryTimer = nil
+        lyricWakeDate = nil
+    }
+
+    private func armBoundaryTimer() {
+        cancelLyricWake()
         guard isPlaying, isActive, let anchor, !lyricBoundaries.isEmpty else { return }
         // Deliberately not `extrapolatedPosition()`: that one stops at the
         // track's end, and lyric files do stamp lines past it. A clock pinned
@@ -299,13 +357,19 @@ final class MediaController: ObservableObject {
         guard let delay = Self.nextLyricWake(
             boundaries: lyricBoundaries, lead: lyricLead(), position: now, rate: playbackRate
         ) else { return }
-        let timer = Timer(timeInterval: max(delay, 0.001), repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.tick() }
+        // The millisecond floor the run-loop timer had, kept so the arithmetic
+        // the lab checks (L4a) still means what it meant.
+        let wait = max(delay, 0.001)
+        lyricWakeDate = Date().addingTimeInterval(wait)
+        boundaryTimer = Self.scheduleLyricWake(after: wait) { [weak self] late in
+            guard let self else { return }
+            // In the shipping app the lateness depends on App Nap and the
+            // process's task role, which no xctest run reproduces; a DI_MEDIA
+            // trail is how a real run shows it.
+            self.trace(String(format: "lyric wake late=%.3fms", late * 1000))
+            self.tick()
+            self.onLyricWakeForTests?()
         }
-        // No tolerance: the whole point is the frame the line is due on.
-        timer.tolerance = 0
-        RunLoop.main.add(timer, forMode: .common)
-        boundaryTimer = timer
     }
     /// How long an active panel waits for an authoritative reading before it
     /// settles for the position it has. Long enough for the ~150ms a real fix
@@ -516,8 +580,7 @@ final class MediaController: ObservableObject {
         observers.removeAll()
         ticker?.invalidate()
         ticker = nil
-        boundaryTimer?.invalidate()
-        boundaryTimer = nil
+        cancelLyricWake()
     }
 
     /// Panel visibility. The position ticker hangs off this: it exists to move
@@ -2177,8 +2240,7 @@ final class MediaController: ObservableObject {
         // sites that happened to remember.
         updatePrecisionSync()
         guard isPlaying, isActive else {
-            boundaryTimer?.invalidate()
-            boundaryTimer = nil
+            cancelLyricWake()
             return
         }
         let timer = Timer(timeInterval: Self.positionTickInterval, repeats: true) { [weak self] _ in

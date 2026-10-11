@@ -120,8 +120,10 @@ final class LyricAccuracyLabClockTests: XCTestCase {
     /// driven by its own monotonic-clock seam: rates 0.5, 1, 1.25 and 2, a
     /// seek, a tick, a wake that lands on its boundary, and a rate change —
     /// each armed delay checked against an independent computation. Then the
-    /// part no arithmetic can answer: how late this Mac actually runs a timer
-    /// built exactly the way `armBoundaryTimer` builds one.
+    /// part no arithmetic can answer: how late this Mac actually runs the wake
+    /// `armBoundaryTimer` schedules, through the same
+    /// `MediaController.scheduleLyricWake`, with the Foundation timer it
+    /// replaced measured beside it for comparison.
     func testL4TimerScheduling() throws {
         let accepted = try LyricLab.acceptedTracks()
         let lead: TimeInterval = 0.2
@@ -242,32 +244,30 @@ final class LyricAccuracyLabClockTests: XCTestCase {
 
         let fidelity = Self.clockFidelity()
 
-        // The machine's real timer slack.
-        let strict = LabTimers.strictDispatchSamples()
+        // The machine's real timer slack, on the production wake.
+        let foundation = LabTimers.foundationTimerSamples()
         let idle = LabTimers.samples(load: false)
         let idleNoTicker = LabTimers.samples(load: false, ticker: false)
         let loaded = LabTimers.samples(load: true)
-        func describe(_ samples: [LabTimers.Sample]) -> [String: Any] {
-            let callback = samples.map { $0.callbackLate * 1000 }
-            let hop = samples.map { $0.taskLate * 1000 }
+        func describe(_ samples: [Double]) -> [String: Any] {
+            let late = samples.map { $0 * 1000 }
             return [
                 "timers": samples.count,
-                "callbackLatenessMs": LabStats.summary(callback),
-                "mainActorHopLatenessMs": LabStats.summary(hop),
-                "hopOver1ms": hop.filter { $0 > 1 }.count,
-                "hopOver8_33ms": hop.filter { $0 > 1000.0 / 120 }.count,
-                "hopOver16_67ms": hop.filter { $0 > 1000.0 / 60 }.count,
-                "early": callback.filter { $0 < 0 }.count,
+                "wakeLatenessMs": LabStats.summary(late),
+                "over1ms": late.filter { $0 > 1 }.count,
+                "over8_33ms": late.filter { $0 > 1000.0 / 120 }.count,
+                "over16_67ms": late.filter { $0 > 1000.0 / 60 }.count,
+                "early": late.filter { $0 < 0 }.count,
             ]
         }
         let arithmeticBad = wrongBoundary + missingWake
         if arithmeticBad > 0 { LyricLab.finding("L4: \(arithmeticBad) wrong or missing wakes") }
-        let idleHopP99 = LabStats.percentile(idle.map { $0.taskLate * 1000 }, 0.99)
-        let loadedHopP99 = LabStats.percentile(loaded.map { $0.taskLate * 1000 }, 0.99)
+        let idleP99 = LabStats.percentile(idle.map { $0 * 1000 }, 0.99)
+        let loadedP99 = LabStats.percentile(loaded.map { $0 * 1000 }, 0.99)
         let verdict: String
-        if arithmeticBad > 0 || max(idleHopP99, loadedHopP99) > 1000.0 / 60 {
+        if arithmeticBad > 0 || max(idleP99, loadedP99) > 1000.0 / 60 {
             verdict = "fail"
-        } else if max(idleHopP99, loadedHopP99) > 1 {
+        } else if max(idleP99, loadedP99) > 1 {
             verdict = "concern"
         } else {
             verdict = "pass"
@@ -287,11 +287,12 @@ final class LyricAccuracyLabClockTests: XCTestCase {
                 ],
             ],
             "clockFidelityUnderSnapshots": fidelity,
-            "strictDispatchTimer": [
-                "construction": "DispatchSource.makeTimerSource(flags: .strict, queue: .main), leeway 0 — an alternative, not what Isla uses",
-                "latenessMs": LabStats.summary(strict.map { $0 * 1000 }),
+            "foundationTimerBeforeLY07": [
+                "construction": "Timer(timeInterval: max(delay, 0.001), repeats: false) { Task { @MainActor in … } }, tolerance 0, RunLoop.main .common — what Isla used before LY-07, kept as the comparison",
+                "callbackLatenessMs": LabStats.summary(foundation.map { $0.callbackLate * 1000 }),
+                "mainActorHopLatenessMs": LabStats.summary(foundation.map { $0.taskLate * 1000 }),
             ],
-            "timerConstruction": "Timer(timeInterval: max(delay, 0.001), repeats: false) { Task { @MainActor in … } }, tolerance 0, RunLoop.main .common; a 100 ms repeating ticker (tolerance 5 ms) runs beside it as in an open panel",
+            "timerConstruction": "MediaController.scheduleLyricWake, the function armBoundaryTimer calls: DispatchSource.makeTimerSource(flags: .strict, queue: .main), leeway 0, handler through MainActor.assumeIsolated (no Task hop), lateness measured by the scheduler against its own DispatchTime deadline; a 100 ms repeating ticker (tolerance 5 ms) runs beside it as in an open panel",
             "mainThreadQoS": Thread.current.qualityOfService.rawValue,
             "idle": describe(idle),
             "idleWithoutTicker": describe(idleNoTicker),
@@ -299,9 +300,10 @@ final class LyricAccuracyLabClockTests: XCTestCase {
             "verdict": verdict,
             "summary": "arithmetic: \(checks) arms, \(arithmeticBad) wrong; rate change during a pending seek jumps the clock p50 \(fmt(LabStats.summary(rateChangePendingJumpMs)["p50"])) ms; "
                 + "snapshot re-base leaves the anchor behind a perfect player \(fmt((fidelity["shareOfTimeBehindOver1ms"] as? Double).map { $0 * 100 }))% of the time, mean \(fmt((fidelity["anchorErrorMs"] as? [String: Any])?["mean"])) ms, worst \(fmt((fidelity["anchorErrorMs"] as? [String: Any])?["min"])) ms; "
-                + "strict dispatch timer late p50 \(fmt(LabStats.percentile(strict.map { $0 * 1000 }, 0.5))) ms; Foundation Timer main-actor wake late p50/p99 idle "
-                + "\(fmt(LabStats.percentile(idle.map { $0.taskLate * 1000 }, 0.5)))/\(fmt(idleHopP99)) ms, loaded "
-                + "\(fmt(LabStats.percentile(loaded.map { $0.taskLate * 1000 }, 0.5)))/\(fmt(loadedHopP99)) ms",
+                + "lyric wake late p50/p99/max idle "
+                + "\(fmt(LabStats.percentile(idle.map { $0 * 1000 }, 0.5)))/\(fmt(idleP99))/\(fmt(idle.map { $0 * 1000 }.max())) ms, loaded "
+                + "\(fmt(LabStats.percentile(loaded.map { $0 * 1000 }, 0.5)))/\(fmt(loadedP99))/\(fmt(loaded.map { $0 * 1000 }.max())) ms; "
+                + "the Foundation Timer it replaced, idle p50/p99 \(fmt(LabStats.percentile(foundation.map { $0.taskLate * 1000 }, 0.5)))/\(fmt(LabStats.percentile(foundation.map { $0.taskLate * 1000 }, 0.99))) ms",
         ])
     }
 
@@ -399,8 +401,8 @@ final class LyricAccuracyLabClockTests: XCTestCase {
     /// frame of compositor latency. The report says which is which.
     func testL7LeadCalibration() throws {
         _ = try LyricLab.requireCorpus()
-        let wake = LabTimers.samples(load: false).map(\.taskLate)
-        let loadedWake = LabTimers.samples(load: true).map(\.taskLate)
+        let wake = LabTimers.samples(load: false)
+        let loadedWake = LabTimers.samples(load: true)
 
         // The crossfade a line lights with: `LyricRow` animates `isCurrent` on
         // `Theme.lyricScroll`, a spring. Its rise times, from its constants.
@@ -592,12 +594,15 @@ struct SpringRise {
 
 // MARK: - Real timers
 
-/// Real one-shot timers built the way `MediaController.armBoundaryTimer`
-/// builds them, run on the main run loop, measured once per process and
-/// shared by L4 and L7.
+/// Real lyric wakes, scheduled through `MediaController.scheduleLyricWake` —
+/// the very function `armBoundaryTimer` calls, not a restatement of it —
+/// run on the main queue, measured once per process and shared by L4 and L7.
+/// Until LY-07 this restated the Foundation `Timer` the controller then used;
+/// that construction survives below only as the comparison.
 @MainActor
 enum LabTimers {
-    struct Sample {
+    /// The rejected construction's two moments.
+    struct FoundationSample {
         /// Seconds past the fire date when the timer's block ran.
         let callbackLate: Double
         /// Seconds past the fire date when the `Task { @MainActor }` the
@@ -605,7 +610,9 @@ enum LabTimers {
         let taskLate: Double
     }
 
-    private static var cache: [String: [Sample]] = [:]
+    /// Seconds past the deadline when each wake's handler ran — the moment
+    /// production calls `tick()`, as the scheduler itself measures it.
+    private static var cache: [String: [Double]] = [:]
     static var count: Int {
         Int(ProcessInfo.processInfo.environment["ISLA_LYRIC_TIMERS"] ?? "") ?? 300
     }
@@ -613,53 +620,53 @@ enum LabTimers {
     @MainActor final class Box {
         var callback: Date?
         var task: Date?
+        var late: Double?
     }
 
-    /// The same delays on a strict dispatch timer, for comparison.
-    static func strictDispatchSamples() -> [Double] {
-        var random = LabRandom(seed: 3)
-        var late: [Double] = []
-        // The same grid tick beside it, so the two primitives are compared
-        // under the same run-loop traffic.
+    /// The open panel's grid tick, beside the wake, as in production.
+    private static func gridTicker() -> Timer {
         let ticker = Timer(timeInterval: 0.1, repeats: true) { _ in Task { @MainActor in _ = 0 } }
         ticker.tolerance = 0.005
-        RunLoop.main.add(ticker, forMode: .common)
-        defer { ticker.invalidate() }
-        for _ in 0..<count {
-            let delay = 0.005 + random.unit() * 0.245
-            let box = Box()
-            let firedAt = UnsafeSendableBox<UInt64>()
-            let source = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
-            let deadline = DispatchTime.now() + delay
-            source.schedule(deadline: deadline, repeating: .never, leeway: .nanoseconds(0))
-            source.setEventHandler {
-                firedAt.value = DispatchTime.now().uptimeNanoseconds
-                MainActor.assumeIsolated { box.callback = Date() }
-            }
-            source.resume()
-            let giveUp = Date().addingTimeInterval(delay + 2)
-            while box.callback == nil, Date() < giveUp {
-                _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.25))
-            }
-            source.cancel()
-            if box.callback != nil, let fired = firedAt.value {
-                late.append(Double(Int64(fired) - Int64(deadline.uptimeNanoseconds)) / 1e9)
-            }
-        }
-        return late
+        return ticker
     }
 
-    static func samples(load: Bool, ticker withTicker: Bool = true) -> [Sample] {
+    /// The same delays on the production wake.
+    static func samples(load: Bool, ticker withTicker: Bool = true) -> [Double] {
         let key = "\(load)-\(withTicker)"
         if let cached = cache[key] { return cached }
         var random = LabRandom(seed: load ? 2 : 1)
-        // The open panel's grid tick, beside the wake, as in production.
-        let ticker = Timer(timeInterval: 0.1, repeats: true) { _ in Task { @MainActor in _ = 0 } }
-        ticker.tolerance = 0.005
+        let ticker = gridTicker()
         if withTicker { RunLoop.main.add(ticker, forMode: .common) }
         let burner = load ? CPUBurner(threads: ProcessInfo.processInfo.activeProcessorCount) : nil
         if burner != nil { Thread.sleep(forTimeInterval: 0.3) }
-        var samples: [Sample] = []
+        var samples: [Double] = []
+        for _ in 0..<count {
+            let delay = 0.005 + random.unit() * 0.245
+            let box = Box()
+            let source = MediaController.scheduleLyricWake(after: delay) { late in box.late = late }
+            let giveUp = Date().addingTimeInterval(delay + 2)
+            while box.late == nil, Date() < giveUp {
+                _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.25))
+            }
+            source.cancel()
+            if let late = box.late { samples.append(late) }
+        }
+        burner?.stop()
+        ticker.invalidate()
+        cache[key] = samples
+        return samples
+    }
+
+    /// The same delays on the construction Isla used before LY-07: a
+    /// Foundation `Timer`, tolerance 0, on the main run loop in `.common`,
+    /// whose block hops to the main actor through a `Task`. Idle only — it is
+    /// the comparison, not the product.
+    static func foundationTimerSamples() -> [FoundationSample] {
+        var random = LabRandom(seed: 1)
+        let ticker = gridTicker()
+        RunLoop.main.add(ticker, forMode: .common)
+        defer { ticker.invalidate() }
+        var samples: [FoundationSample] = []
         for _ in 0..<count {
             let delay = 0.005 + random.unit() * 0.245
             let box = Box()
@@ -678,22 +685,13 @@ enum LabTimers {
                 _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.25))
             }
             guard let callback = box.callback, let task = box.task else { continue }
-            samples.append(Sample(
+            samples.append(FoundationSample(
                 callbackLate: callback.timeIntervalSince(deadline),
                 taskLate: task.timeIntervalSince(deadline)
             ))
         }
-        burner?.stop()
-        ticker.invalidate()
-        cache[key] = samples
         return samples
     }
-}
-
-/// A value written on the main queue and read on the main thread, which the
-/// compiler cannot see is one thread.
-final class UnsafeSendableBox<T: Sendable>: @unchecked Sendable {
-    var value: T?
 }
 
 /// Busy threads on every core, for the loaded run.

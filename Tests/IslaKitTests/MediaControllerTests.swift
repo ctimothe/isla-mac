@@ -511,6 +511,122 @@ final class MediaControllerTests: XCTestCase {
         XCTAssertNil(controller.lyricWakeDateForTests, "a line already passed arms nothing")
     }
 
+    /// A playing, open controller with nothing between it and a real player.
+    private func playingLyricController(at elapsed: TimeInterval = 50) -> MediaController {
+        let controller = MediaController()
+        // The precision loop would ask a real Spotify or Music for its clock.
+        controller.lyricsShown = { false }
+        controller.setActive(true)
+        var playing = NowPlayingFeed.Snapshot()
+        playing.title = "Track"
+        playing.artist = "Artist"
+        playing.duration = 200
+        playing.elapsed = elapsed
+        playing.rate = 1
+        playing.isPlaying = true
+        playing.takenAt = Date()
+        playing.playerPID = 7
+        controller.apply(playing)
+        return controller
+    }
+
+    /// The pieces of libdispatch's own description of a timer source that say
+    /// how it was scheduled: `flags` (bit 0x1 is DISPATCH_TIMER_STRICT), and
+    /// `target` and `deadline`, which are equal exactly when the leeway is
+    /// zero — the kernel may fire anywhere between the two.
+    private func timerFields(_ source: DispatchSourceTimer) -> (flags: UInt64, target: UInt64, deadline: UInt64)? {
+        // The source's own `target = com.apple.main-thread` precedes the timer
+        // block, so only the text after "timer = {" is searched.
+        let text = (source as AnyObject).debugDescription ?? ""
+        guard let timer = text.range(of: "timer = {") else { return nil }
+        let block = text[timer.upperBound...]
+        func field(_ name: String) -> UInt64? {
+            guard let range = block.range(of: "\(name) = 0x") else { return nil }
+            return UInt64(block[range.upperBound...].prefix { $0.isHexDigit }, radix: 16)
+        }
+        guard let flags = field("flags"), let target = field("target"),
+              let deadline = field("deadline") else { return nil }
+        return (flags, target, deadline)
+    }
+
+    /// The wake is one strict dispatch timer with no leeway, and only one.
+    ///
+    /// It was a Foundation `Timer` with tolerance 0 on the main run loop,
+    /// which still ran 4ms late at the median and 10ms at p99 idle (lab L4b),
+    /// up to 17.7ms under load — later than a whole 60Hz frame, on the one
+    /// event whose point is the frame a line is due on. Tolerance 0 does not
+    /// stop the run loop and the kernel coalescing a timer; `.strict` does.
+    /// The lateness itself is the lab's to measure (`Scripts/lyric-lab.sh`):
+    /// a real-clock bound here would be a claim about how busy the CI machine
+    /// is. What this pins is the construction, read back from libdispatch, and
+    /// that re-arming never leaves a second source running — a strict timer
+    /// is a costlier wake, so there may only ever be the next line's.
+    func testALyricWakeIsOneStrictTimerWithNoLeeway() throws {
+        let controller = playingLyricController()
+        defer { controller.setActive(false) }
+        let start = controller.position
+        controller.setLyricBoundaries([start + 5, start + 10], lead: { 0 })
+
+        let first = try XCTUnwrap(controller.lyricWakeSourceForTests, "a line ahead arms a wake")
+        let fields = try XCTUnwrap(
+            timerFields(first),
+            "libdispatch's timer description changed shape: \((first as AnyObject).debugDescription ?? "nil")"
+        )
+        XCTAssertEqual(fields.flags & 0x1, 0x1, "the wake must be a strict timer, exempt from coalescing")
+        XCTAssertEqual(fields.target, fields.deadline, "the wake must carry no leeway")
+
+        // Every re-arm replaces the source and cancels the one it replaces.
+        controller.tick()
+        let second = try XCTUnwrap(controller.lyricWakeSourceForTests)
+        XCTAssertFalse(first === second, "a re-arm builds a fresh source")
+        XCTAssertTrue(first.isCancelled, "the replaced wake must not stay armed beside the new one")
+        XCTAssertFalse(second.isCancelled)
+
+        controller.setLyricBoundaries([start + 7], lead: { 0 })
+        let third = try XCTUnwrap(controller.lyricWakeSourceForTests)
+        XCTAssertTrue(second.isCancelled)
+
+        // Closing the panel takes the wake with it.
+        controller.setActive(false)
+        XCTAssertNil(controller.lyricWakeSourceForTests)
+        XCTAssertNil(controller.lyricWakeDateForTests)
+        XCTAssertTrue(third.isCancelled, "a closed panel keeps no exact wake armed")
+    }
+
+    /// The wake publishes the position on its own queue turn.
+    ///
+    /// The old wake was a timer block that started a `Task { @MainActor }`,
+    /// so `tick()` ran on a later turn of the main queue than the one the
+    /// timer fired on, behind whatever else had been queued meanwhile. Now the
+    /// handler calls `tick()` itself: by the time the test hook — called right
+    /// after it, in the same handler — looks, the boundary's position is
+    /// already published and the next line's wake already armed.
+    func testAWakeTicksWithoutAHop() {
+        let controller = playingLyricController()
+        defer { controller.setActive(false) }
+        let start = controller.position
+        let boundary = start + 0.03
+        let fired = expectation(description: "the lyric wake fires")
+        var seenPosition: TimeInterval?
+        var seenNextWake: Date?
+        controller.onLyricWakeForTests = { [unowned controller] in
+            guard seenPosition == nil else { return }
+            seenPosition = controller.position
+            seenNextWake = controller.lyricWakeDateForTests
+            fired.fulfill()
+        }
+        controller.setLyricBoundaries([boundary, start + 5], lead: { 0 })
+        wait(for: [fired], timeout: 5)
+
+        guard let seenPosition else { return XCTFail("the wake never ran") }
+        // A dispatch timer never fires before its deadline, and the clock it
+        // is armed on is the one the anchor runs on, so the published position
+        // has reached the boundary.
+        XCTAssertGreaterThanOrEqual(seenPosition, boundary - 0.0005, "the tick ran before the hook")
+        guard let seenNextWake else { return XCTFail("the tick re-arms for the next line before the hook runs") }
+        XCTAssertGreaterThan(seenNextWake.timeIntervalSinceNow, 4, "the next wake is the line at +5s")
+    }
+
     /// And a player that publishes nothing at all still gives up its lyrics.
     ///
     /// The reset is right while playing — the position really may have moved
