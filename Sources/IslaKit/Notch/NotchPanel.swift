@@ -78,7 +78,49 @@ final class NotchPanel: NSPanel {
     /// stays open.
     var escapeHandled: (() -> Bool)?
 
+    /// True from a left-button press on this panel until its release.
+    ///
+    /// A press that began here owns the drag that follows it, wherever the
+    /// pointer goes. Interactivity used to be decided by where the pointer
+    /// *was*, so overshooting the scrubber or the Panel Width slider past the
+    /// panel's edge made the window click-through mid-drag and, 0.32 s later,
+    /// folded the panel with the slider's change still uncommitted (F-028).
+    /// Read through `pressIsHeld()`, never directly: see there.
+    private(set) var isPressLatched = false
+
+    /// Whether the primary button is physically down. A seam so a test can
+    /// press without a mouse.
+    var primaryButtonIsDown: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+
+    /// Whether a press that began on this panel is still being held.
+    ///
+    /// The latch alone cannot be trusted to end. A control that tracks the
+    /// mouse in its own loop dequeues the release itself, so it never passes
+    /// through `sendEvent`; nor does a release the window server delivers
+    /// elsewhere. Left standing, the latch would claim the *next* press,
+    /// wherever it began: the window would turn interactive under a drag in
+    /// another app, and a title bar dragged through the notch would be waved
+    /// in by the very check that keeps it out. So the button is asked as well,
+    /// and a press found to be over is forgotten, not merely masked — the same
+    /// lesson as `ShelfDragSource`'s expiry: no latch that eats clicks may
+    /// depend on one event arriving.
+    func pressIsHeld() -> Bool {
+        guard isPressLatched else { return false }
+        guard primaryButtonIsDown() else {
+            isPressLatched = false
+            return false
+        }
+        return true
+    }
+
     override func sendEvent(_ event: NSEvent) {
+        // First, ahead of every early return below, so no path through here
+        // can latch a press and then skip its release.
+        switch event.type {
+        case .leftMouseDown: isPressLatched = true
+        case .leftMouseUp: isPressLatched = false
+        default: break
+        }
         if event.type == .keyDown, event.keyCode == Key.escape {
             // An input method that is mid-composition owns Escape: it cancels
             // the composition, and the panel must not close underneath

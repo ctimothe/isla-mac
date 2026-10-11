@@ -102,7 +102,114 @@ final class PointerWatcherTests: XCTestCase {
         XCTAssertEqual(changes, [false], "the drag ended with the pointer still away")
     }
 
+    /// With Open on Hover switched on, dragging a window by its title bar to
+    /// the top edge to tile it — or dragging a text selection across the top
+    /// of the screen — carried the pointer through the notch, and 50 ms later
+    /// the panel unfolded over the very thing being dragged (J-020). The
+    /// watcher only ever read where the pointer was, never whether a button
+    /// was down, so a press that began in another app counted as a hover.
+    func testAHeldButtonDoesNotCountAsArriving() {
+        let watcher = PointerWatcher()
+        var changes: [Bool] = []
+        watcher.openRect = Self.everywhere
+        watcher.closeRect = Self.everywhere
+        watcher.openDelay = 0
+        watcher.isPanelOpen = { false }
+        var held = true
+        watcher.buttonsHeld = { held }
+        watcher.onChange = { changes.append($0) }
+        defer { watcher.stop() }
+
+        sample(watcher, times: 3)
+        XCTAssertFalse(changes.contains(true), "a press from another app passing through the notch is not a hover")
+
+        // Released with the pointer resting on the island: that is a hover
+        // like any other, and it arrives.
+        held = false
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [true], "once the button is up, the pointer standing there is asking")
+    }
+
+    /// Overshooting the scrubber or the Panel Width slider past the panel's
+    /// edge used to make the window click-through mid-drag — interactivity was
+    /// `isDragging() || interactiveRect.contains(point)`, and `isDragging`
+    /// knew about file drags and menus only — and 0.32 s later the panel
+    /// folded, taking the slider and its uncommitted change with it (F-028).
+    /// A press that began on the panel now holds it, interactive and open,
+    /// until the button comes up.
+    func testAPressStartedInThePanelKeepsItInteractive() throws {
+        let panel = NotchPanel(contentRect: CGRect(x: 0, y: 0, width: 200, height: 40))
+        defer { panel.close() }
+        var buttonDown = true
+        panel.primaryButtonIsDown = { buttonDown }
+
+        panel.sendEvent(try Self.mouse(.leftMouseDown, in: panel))
+        XCTAssertTrue(panel.isPressLatched)
+        XCTAssertTrue(panel.pressIsHeld())
+
+        let watcher = PointerWatcher()
+        var interactive: [Bool] = []
+        var changes: [Bool] = []
+        // Open, with the pointer dragged off it and nothing else holding it.
+        watcher.interactiveRect = Self.nowhere
+        watcher.openRect = Self.nowhere
+        watcher.closeRect = Self.nowhere
+        watcher.closeDelay = 0
+        watcher.isPanelOpen = { true }
+        watcher.isDragging = { panel.pressIsHeld() }
+        watcher.onInteractiveChange = { interactive.append($0) }
+        watcher.onChange = { changes.append($0) }
+        watcher.setInside(true)
+        defer { watcher.stop() }
+
+        sample(watcher, times: 4)
+        XCTAssertEqual(interactive, [true], "the panel keeps taking the drag it started")
+        XCTAssertEqual(changes, [], "and does not fold under it")
+
+        // Released outside the panel: the pointer being away means what it
+        // always means again.
+        buttonDown = false
+        panel.sendEvent(try Self.mouse(.leftMouseUp, in: panel))
+        XCTAssertFalse(panel.isPressLatched)
+        sample(watcher, times: 2)
+        XCTAssertEqual(interactive, [true, false])
+        XCTAssertEqual(changes, [false])
+    }
+
+    /// The latch must not outlive the press when the release never reaches
+    /// `sendEvent` — a control's own tracking loop dequeues the mouse-up
+    /// itself. Left standing, the next press *anywhere* would read as one that
+    /// began on the panel: the window would go interactive under a drag in
+    /// another app, and a title bar dragged through the notch would be let in
+    /// again by the very check that keeps it out.
+    func testALostMouseUpDoesNotLeaveThePressLatched() throws {
+        let panel = NotchPanel(contentRect: CGRect(x: 0, y: 0, width: 200, height: 40))
+        defer { panel.close() }
+        var buttonDown = true
+        panel.primaryButtonIsDown = { buttonDown }
+
+        panel.sendEvent(try Self.mouse(.leftMouseDown, in: panel))
+        XCTAssertTrue(panel.pressIsHeld())
+
+        // The button comes up, and the panel never hears of it.
+        buttonDown = false
+        XCTAssertFalse(panel.pressIsHeld())
+        XCTAssertFalse(panel.isPressLatched, "a press that is over is forgotten, not merely masked")
+
+        // A later press that began somewhere else is not this panel's.
+        buttonDown = true
+        XCTAssertFalse(panel.pressIsHeld())
+    }
+
     // MARK: - Harness
+
+    private static func mouse(_ type: NSEvent.EventType, in panel: NSWindow) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.mouseEvent(
+            with: type, location: CGPoint(x: 10, y: 10), modifierFlags: [],
+            timestamp: 0, windowNumber: panel.windowNumber, context: nil,
+            eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0
+        ))
+    }
 
     /// Large enough to hold the pointer wherever the test runner's cursor
     /// actually sits, so no assertion here depends on real screen geometry.

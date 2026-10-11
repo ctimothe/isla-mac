@@ -32,6 +32,14 @@ final class PointerWatcher {
     /// tracks where the pointer is, and the panel is opened and closed by other
     /// things too — a drag, the menu bar, a tab that wants the keyboard.
     var isPanelOpen: () -> Bool = { false }
+    /// Whether any mouse button is down right now, wherever the press began.
+    ///
+    /// Asked of an arrival only. A pointer that reaches the notch with a
+    /// button held is carrying something — a window by its title bar on its
+    /// way to being tiled, a text selection being extended — and unfolding the
+    /// panel over it (J-020) answers a hover nobody made. A seam so a test can
+    /// hold a button without one being held.
+    var buttonsHeld: () -> Bool = { NSEvent.pressedMouseButtons != 0 }
 
     /// Short enough to feel immediate, long enough that a pointer sweeping
     /// across the top of the screen does not trigger the panel.
@@ -261,6 +269,18 @@ final class PointerWatcher {
         }
 
         guard inside != isInside else {
+            awaitingSince = nil
+            return
+        }
+        // A button held through the arrival means the pointer is dragging
+        // something of another app's through the notch, not standing on the
+        // island; the arrival has not happened yet. Once the button comes up
+        // with the pointer still there, the dwell starts from scratch and it
+        // counts like any other hover. Two kinds of held press are not this:
+        // a file drag, which arrives through `onDragEntered` and is in
+        // `isDragging`, and a press that began on the panel itself, which
+        // `isDragging` also carries.
+        if inside, buttonsHeld(), !isDragging() {
             awaitingSince = nil
             return
         }

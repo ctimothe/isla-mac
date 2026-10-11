@@ -1055,8 +1055,17 @@ final class NotchController {
         // departure from `closeRect` — the path a drag out actually takes — folded
         // the panel regardless, and became reachable the moment a click stopped
         // pinning. Both ask now: see `PointerWatcher.tick`.
-        pointer.isDragging = { [weak root] in
+        //
+        // A press that began on the panel is a drag too, of a slider or the
+        // scrubber, and it is held by the same rule (F-028): overshooting the
+        // Panel Width slider past the edge used to make the window
+        // click-through and fold the panel 0.32 s later, discarding the width
+        // the slider had not committed yet. `pressIsHeld` checks the button as
+        // well as the latch, so a release the panel never heard cannot leave
+        // an invisible click-eating rect behind.
+        pointer.isDragging = { [weak root, weak panel] in
             (root?.isReceivingDrag ?? false) || ShelfDragSource.isDraggingOut || MenuTracking.shared.isOpen
+                || (panel?.pressIsHeld() ?? false)
         }
         // A menu held the panel open while it tracked; once it closes, the row
         // that was chosen may have hung below the panel, so the pointer is
