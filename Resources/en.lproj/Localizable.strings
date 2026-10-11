@@ -55,7 +55,6 @@
 "Hide" = "Hide";
 "Playing" = "Playing";
 "Paused" = "Paused";
-"Translation needs macOS 26 or newer." = "Translation needs macOS 26 or newer.";
 "This Mac does not support Apple Intelligence." = "This Mac does not support Apple Intelligence.";
 "Turn on Apple Intelligence to translate." = "Turn on Apple Intelligence to translate.";
 "The on-device model is still downloading." = "The on-device model is still downloading.";
@@ -72,7 +71,6 @@
 "Swap Languages" = "Swap Languages";
 "Translate From" = "Translate From";
 "Translate To" = "Translate To";
-"%@ is translated online. Turn on Translate Online to use it." = "%@ is translated online. Turn on Translate Online to use it.";
 "%@ is not downloaded for translation on this Mac." = "%@ is not downloaded for translation on this Mac.";
 "Online translation is not reachable right now." = "Online translation is not reachable right now.";
 "Today's free online translations are used up." = "Today's free online translations are used up.";
@@ -319,3 +317,6 @@
 "Closes the panel" = "Closes the panel";
 "Tabs" = "Tabs";
 "Welcome" = "Welcome";
+"%@ is translated online only. Turning on Translate Online sends this text to MyMemory." = "%@ is translated online only. Turning on Translate Online sends this text to MyMemory.";
+"Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory." = "Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory.";
+"Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet." = "Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet.";

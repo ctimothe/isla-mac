@@ -491,7 +491,9 @@ struct SettingsPane: View {
                         )
                     )
                     if onlineTranslation {
-                        noteRow(localized("Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet."))
+                        // Which languages that is depends on the system:
+                        // below macOS 26 it is all of them.
+                        noteRow(Translator.onlineNote())
                     } else {
                         noteRow(localized("Translations stay on this Mac."))
                     }

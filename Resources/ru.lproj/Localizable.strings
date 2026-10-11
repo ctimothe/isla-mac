@@ -54,7 +54,6 @@
 "Hide" = "Скрыть";
 "Playing" = "Воспроизводится";
 "Paused" = "На паузе";
-"Translation needs macOS 26 or newer." = "Для перевода нужна macOS 26 или новее.";
 "This Mac does not support Apple Intelligence." = "Этот Mac не поддерживает Apple Intelligence.";
 "Turn on Apple Intelligence to translate." = "Включите Apple Intelligence для перевода.";
 "The on-device model is still downloading." = "Локальная модель ещё загружается.";
@@ -71,7 +70,6 @@
 "Swap Languages" = "Поменять языки местами";
 "Translate From" = "Исходный язык";
 "Translate To" = "Язык перевода";
-"%@ is translated online. Turn on Translate Online to use it." = "%@: перевод есть только онлайн. Включите «Переводить онлайн».";
 "%@ is not downloaded for translation on this Mac." = "%@: язык не загружен для перевода на этом Mac.";
 "Online translation is not reachable right now." = "Онлайн-перевод сейчас недоступен.";
 "Today's free online translations are used up." = "Бесплатный онлайн-перевод на сегодня исчерпан.";
@@ -318,3 +316,6 @@
 "Closes the panel" = "Закрывает панель";
 "Tabs" = "Вкладки";
 "Welcome" = "Добро пожаловать";
+"%@ is translated online only. Turning on Translate Online sends this text to MyMemory." = "%@: перевод есть только онлайн. Если включить «Переводить онлайн», текст уйдёт в MyMemory.";
+"Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory." = "На этом Mac для перевода нужна macOS 26 или новее. Если включить «Переводить онлайн», текст уйдёт в MyMemory.";
+"Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet." = "До macOS 26 этот Mac ничего не переводит сам: всё отправляется в MyMemory через интернет.";

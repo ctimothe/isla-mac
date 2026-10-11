@@ -188,14 +188,24 @@ struct TranslatePane: View {
                     .islandFont(.body, weight: .regular)
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
+                // Capsules, the panel's shape for an offer. They were bare
+                // bold caption words, and the only way forward from the first
+                // error a newcomer meets did not look like something to press
+                // (H-007).
+                HStack(spacing: 8) {
                     ForEach(translator.remedies, id: \.self) { remedy in
                         remedyButton(remedy)
                     }
                 }
-                .buttonStyle(PanelButtonStyle())
-                .islandFont(.caption)
-                .foregroundStyle(.white)
+                .buttonStyle(OfferButtonStyle())
+                // Russian's "Включить «Переводить онлайн»" is wider than this
+                // column at a 480-point panel and breaks onto a second line.
+                // Centred, the two lines still read as one button; left-
+                // aligned, they read as a paragraph in a box. Set here rather
+                // than in the style, because centring moves a one-line label
+                // by a fraction of a point and the other offers were to stay
+                // pixel-for-pixel what they were.
+                .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if !translator.output.isEmpty, privacy.hides(.translate, Self.revealID) {

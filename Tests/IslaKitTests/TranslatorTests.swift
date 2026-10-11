@@ -232,4 +232,71 @@ final class TranslatorTests: XCTestCase {
         }
         XCTAssertTrue(TranslationLanguage.all.contains(.uzbek))
     }
+
+    /// "Turn On Translate Online" used to sit under "Uzbek is translated
+    /// online. Turn on Translate Online to use it." — an offer that never said
+    /// the text would leave the Mac, or for whom (H-007). Every obstacle whose
+    /// remedy is that switch now names the service in the sentence above it,
+    /// so the one click that sends text away is made knowing where it goes.
+    /// Below macOS 26 that is every pair, which is why `needsNewerSystem` is
+    /// held to the same rule as `needsOnline`.
+    func testTheOnlineOfferSaysTheTextLeavesTheMac() {
+        let uzbek = Translator.Obstacle.needsOnline(.uzbek).message
+        XCTAssertTrue(uzbek.contains("MyMemory"), uzbek)
+        XCTAssertTrue(uzbek.contains(TranslationLanguage.uzbek.name), "and still names the language: \(uzbek)")
+
+        let obstacles: [Translator.Obstacle] = [
+            .needsNewerSystem, .deviceNotEligible, .appleIntelligenceOff, .modelNotReady,
+            .needsOnline(.uzbek), .needsDownload(.ukrainian),
+        ]
+        for obstacle in obstacles
+        where Translator.remedies(for: obstacle, onlineEnabled: false).contains(.turnOnOnline) {
+            XCTAssertTrue(obstacle.message.contains("MyMemory"), "\(obstacle): \(obstacle.message)")
+        }
+    }
+
+    /// On macOS 15 nothing translates on this Mac, so with the switch on every
+    /// pair — English into Russian too — goes to MyMemory. The Settings note
+    /// said only languages "such as Uzbek" did (K-005), which let somebody
+    /// expect their English to stay local.
+    func testTheSettingsNoteBelowMacOS26SaysEverythingGoesOnline() {
+        let tahoe = Translator.onlineNote(belowMinimumSystem: false)
+        let sequoia = Translator.onlineNote(belowMinimumSystem: true)
+        XCTAssertTrue(tahoe.contains("MyMemory"), tahoe)
+        XCTAssertTrue(sequoia.contains("MyMemory"), sequoia)
+        XCTAssertFalse(sequoia.contains("such as"), "below macOS 26 it is not some languages: \(sequoia)")
+        XCTAssertTrue(sequoia.contains("everything"), sequoia)
+        if #available(macOS 26.0, *) {
+            XCTAssertEqual(Translator.onlineNote(), tahoe)
+        } else {
+            XCTAssertEqual(Translator.onlineNote(), sequoia)
+        }
+    }
+
+    /// The remedies were bare bold caption text, the only way forward from the
+    /// first error a newcomer meets and nothing about them clickable-looking,
+    /// while Music's "Open Spotify" and the lyrics page's "Look Up Online" were
+    /// capsules (H-007). Three hand-copied capsules existed; there is now one
+    /// style, and the hairline stroke that draws it lives in exactly one place.
+    func testRemediesWearTheSharedCapsule() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let translatePane = try String(
+            contentsOf: sources.appendingPathComponent("IslaKit/UI/TranslatePane.swift"), encoding: .utf8
+        )
+        XCTAssertTrue(translatePane.contains(".buttonStyle(OfferButtonStyle())"))
+
+        var strokes: [String] = []
+        let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)
+        while let file = files?.nextObject() as? URL {
+            guard file.pathExtension == "swift" else { continue }
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let count = text.components(separatedBy: "Capsule().strokeBorder(Theme.hairline").count - 1
+            strokes += Array(repeating: file.lastPathComponent, count: count)
+        }
+        XCTAssertEqual(strokes, ["Theme.swift"], "one capsule style, drawn in Theme")
+    }
 }
