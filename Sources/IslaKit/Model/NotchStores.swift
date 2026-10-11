@@ -37,7 +37,8 @@ final class NotchStores {
     /// The store parameters are a seam for the headless visual lab
     /// (`Tests/IslaKitTests/VisualLab*`), which builds whole panels without
     /// touching anything of the person's: the default `ClipboardStore` reads
-    /// the general pasteboard, `ScreenshotVault` creates `~/Pictures/Isla`,
+    /// the general pasteboard, `ScreenshotVault` saves into `~/Pictures/Isla`
+    /// (it creates the folder on its first save, never when it is built),
     /// and `PrivacyMode` and `Translator` write the standard defaults. Left
     /// out — as the app always leaves them — each is built exactly as before.
     init(
