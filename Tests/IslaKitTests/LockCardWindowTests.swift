@@ -86,4 +86,113 @@ final class LockCardWindowTests: XCTestCase {
             "the card itself still answers"
         )
     }
+
+    // MARK: - A lock with nothing playing (F-026)
+    //
+    // Every lock makes the card's window, whether or not there is anything to
+    // put on it. The card draws nothing without a track, but its window used
+    // to take clicks across the whole 460x300 card rect at the centre of the
+    // display — clicks aimed at the login UI vanished into a transparent
+    // window — and it started an AudioWatch whose CoreAudio listeners ran for
+    // the whole lock to feed a volume rail nobody could see. The window stays
+    // (presenting it mid-lock would race the shield's own ordering, the bug
+    // that gave the card its own window); it is inert until there is a track.
+
+    private static var cardRect: CGRect {
+        CGRect(
+            x: LockCardWindow.shadowMargin, y: LockCardWindow.shadowMargin,
+            width: LockScreenCard.size.width, height: LockScreenCard.size.height
+        )
+    }
+
+    /// An empty card's rect belongs to whatever is underneath, the same as the
+    /// margin around it.
+    func testAnEmptyCardTakesNoClicks() {
+        let root = LockCardRootView(
+            frame: CGRect(origin: .zero, size: LockCardWindow.windowSize)
+        )
+        root.cardRect = Self.cardRect
+        root.isInteractive = { false }
+
+        XCTAssertNil(
+            root.hitTest(NSPoint(x: Self.cardRect.midX, y: Self.cardRect.midY)),
+            "a card that draws nothing must not swallow a click on the login window"
+        )
+    }
+
+    func testTheAudioWatchFollowsTheTrack() {
+        XCTAssertFalse(LockCardWindow.watchShouldRun(hasTrack: false))
+        XCTAssertTrue(LockCardWindow.watchShouldRun(hasTrack: true))
+    }
+
+    /// Inverted from "the card is presented only with a track": the window is
+    /// there on every lock, and it is the media controller's track — read at
+    /// the moment of the click, not at present — that decides whether it
+    /// answers. A song started while locked makes it answer without a second
+    /// presentation; the song going away makes it inert again.
+    func testAnEmptyLockKeepsAnInertCardThatWakesWithATrack() {
+        let media = MediaController()
+        let root = LockCardRootView(
+            frame: CGRect(origin: .zero, size: LockCardWindow.windowSize)
+        )
+        root.cardRect = Self.cardRect
+        root.isInteractive = LockCardWindow.interactive(following: media)
+        let centre = NSPoint(x: Self.cardRect.midX, y: Self.cardRect.midY)
+
+        XCTAssertNil(root.hitTest(centre), "nothing playing: the card takes no clicks")
+
+        media.apply(Self.playing())
+        XCTAssertNotNil(root.hitTest(centre), "a track arrived mid-lock: the card answers")
+
+        media.apply(NowPlayingFeed.Snapshot())
+        XCTAssertNil(root.hitTest(centre), "the track went away: inert again")
+    }
+
+    /// The listeners are installed when a track arrives and removed when it
+    /// goes, and an empty lock never installs them at all.
+    func testTheWatchStartsAndStopsWithTheTrack() {
+        let media = MediaController()
+        var installs = 0
+        var removals = 0
+        let watch = AudioWatch(
+            read: { ([], nil, nil) },
+            installListeners: { installs += 1 },
+            removeListeners: { removals += 1 }
+        )
+        let following = LockCardWindow.watch(watch, following: media)
+        defer { following.cancel() }
+
+        XCTAssertEqual(installs, 0, "an empty lock listens to no audio devices")
+
+        media.apply(Self.playing())
+        XCTAssertEqual(installs, 1, "a track arrived: the volume rail needs the machine")
+        XCTAssertEqual(removals, 0)
+
+        // A second snapshot of the same song is not a new reason to listen.
+        var later = Self.playing()
+        later.elapsed = 20
+        media.apply(later)
+        XCTAssertEqual(installs, 1)
+
+        media.apply(NowPlayingFeed.Snapshot())
+        XCTAssertEqual(removals, 1, "the track went away: so do the listeners")
+
+        following.cancel()
+        media.apply(Self.playing())
+        XCTAssertEqual(installs, 1, "a cancelled subscription starts nothing after dismiss")
+    }
+
+    private static func playing() -> NowPlayingFeed.Snapshot {
+        var snapshot = NowPlayingFeed.Snapshot()
+        snapshot.title = "Test Song"
+        snapshot.artist = "Test Artist"
+        snapshot.album = ""
+        snapshot.duration = 180
+        snapshot.elapsed = 9.2
+        snapshot.rate = 1
+        snapshot.isPlaying = true
+        snapshot.takenAt = Date()
+        snapshot.playerPID = 999
+        return snapshot
+    }
 }
