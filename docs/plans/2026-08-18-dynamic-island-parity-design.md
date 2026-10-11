@@ -410,6 +410,24 @@ transitions.
 > row is the lyrics shortcut; Translate's is listed in Settings with the others.
 > Held by `HotKeyTests`, `FirstRunTests` and `LyricRoutesTests`.
 
+> **Amended 2026-10-11 — the welcome names the tabs (H-020).** The welcome
+> named none of the five tabs, said "click it to open" on a panel that had
+> already opened itself, left ⌃⌥⌘T out, and the rail lit Music over it, so
+> VoiceOver read "Music, selected" on a pane that is not a tab. It is two
+> columns now. On the left, one line level with each rail icon, in the rail's
+> own row height, gap and footer gap: what's playing with the lyrics shortcut,
+> the shelf, the clipboard kept in memory, the translate shortcut, and privacy,
+> shortcuts and Quit beside Settings. On the right: Isla is running; there is
+> no Dock or menu-bar icon, and a click on the notch or the open shortcut
+> brings it back; nothing leaves the Mac unless it is turned on; Get Started.
+> Every shortcut is the live binding, and a cleared one is left out of its
+> line rather than printed as a gap. While the welcome shows no rail tab is
+> lit or selected — `tab` still sits on Music underneath, so Get Started lands
+> there. The second paragraph of the 2026-09-23 shortcuts amendment, that the
+> welcome lists the lyrics shortcut and not Translate's, is withdrawn by this
+> one. Held by `FirstRunTests`, which measures both columns in both languages
+> at the narrowest panel against the 154 pt body.
+
 > **Amended 2026-09-23 — what can be found, and switched off.** The lyrics page
 > offers the way out of its own dead ends. With lyrics off it offers **Show
 > Lyrics**. When no local file matched and the online lookup is off it offers

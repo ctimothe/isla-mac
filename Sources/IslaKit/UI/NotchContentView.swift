@@ -944,12 +944,13 @@ struct NotchContentView: View {
         ZStack {
             // For one launch, the welcome wins over the tab. Here rather than
             // inside `pane` so the per-tab switch and its transitions are
-            // untouched, and so the rail — which the welcome's last line points
-            // at — stays exactly where it is. A plain crossfade, because
+            // untouched, and so the rail — whose icons the welcome's legends sit
+            // level with, one line each, which is why its icon height goes
+            // down too — stays exactly where it is. A plain crossfade, because
             // dismissing it is not travel between two tabs: one thing ends and
             // the panel it was in carries on.
             if vm.isShowingWelcome {
-                WelcomePane(onDismiss: { vm.dismissWelcome() })
+                WelcomePane(onDismiss: { vm.dismissWelcome() }, railIconHeight: vm.geometry.railIconHeight)
                     .transition(.opacity)
             } else {
                 // The slight zoom is the only travel a swap has, and Reduce
@@ -1050,7 +1051,10 @@ struct NotchContentView: View {
 /// A hover draws a faint well under the glyph and nothing more, and both the
 /// well and the selection land on the frame they happen — no fade to wait
 /// out, no glyph growing, nothing to lag behind a fast pointer.
-private struct Rail: View {
+///
+/// Internal rather than private for two readers: `WelcomePane`, whose legend
+/// column keeps this rail's rhythm, and the test that holds `isLit`.
+struct Rail: View {
     @ObservedObject var vm: NotchViewModel
     /// The run of content tabs people move between.
     let tabs: [NotchViewModel.Tab]
@@ -1059,6 +1063,28 @@ private struct Rail: View {
     var footer: [NotchViewModel.Tab] = []
 
     @State private var hovered: NotchViewModel.Tab?
+
+    /// The least room between the run of content tabs and Settings below it.
+    /// `WelcomePane` holds its Settings legend down with the same gap, so the
+    /// line stays level with the icon on a body that leaves no more than this.
+    static let footerGap: CGFloat = 10
+
+    /// Whether `tab`'s chip is drawn chosen — its fill, its filled glyph, its
+    /// edge — and carries the selected trait.
+    ///
+    /// Not while the welcome is up. The model leaves `tab` on Music underneath
+    /// it, so that Get Started lands there, and the chip used to follow `tab`
+    /// alone: the rail lit Music over a pane that was not Music, and VoiceOver
+    /// said "Music, selected" on the welcome (H-020). The welcome is not a tab,
+    /// so no tab is chosen while it shows.
+    static func isLit(_ tab: NotchViewModel.Tab, selected: NotchViewModel.Tab, welcoming: Bool) -> Bool {
+        !welcoming && tab == selected
+    }
+
+    private func isLit(_ tab: NotchViewModel.Tab) -> Bool {
+        Self.isLit(tab, selected: vm.tab, welcoming: vm.isShowingWelcome)
+    }
+
     /// Read for one thing: whether Settings wears the mark that says a newer
     /// Isla is out. Set only by a check the user ran or turned on.
     @ObservedObject private var updates = UpdateCheck.shared
@@ -1067,7 +1093,7 @@ private struct Rail: View {
         VStack(spacing: NotchGeometry.railSpacing) {
             ForEach(tabs) { icon(for: $0) }
             if !footer.isEmpty {
-                Spacer(minLength: 10)
+                Spacer(minLength: Self.footerGap)
                 ForEach(footer) { icon(for: $0) }
             }
         }
@@ -1098,7 +1124,7 @@ private struct Rail: View {
                 // replace effect was tried and withdrawn the same day: it takes
                 // a third of a second, and a rail that answers a click a third
                 // of a second late reads as a rail catching up.
-                .symbolVariant(vm.tab == tab ? .fill : .none)
+                .symbolVariant(isLit(tab) ? .fill : .none)
                 .islandFont(.subhead)
                 .frame(width: 30, height: vm.geometry.railIconHeight)
                 .background(
@@ -1112,12 +1138,12 @@ private struct Rail: View {
                     // hovered the same colour with no edge on either.
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .strokeBorder(
-                            Theme.selectedChipBorder.opacity(vm.tab == tab ? 1 : 0),
+                            Theme.selectedChipBorder.opacity(isLit(tab) ? 1 : 0),
                             lineWidth: 1.5
                         )
                         .allowsHitTesting(false)
                 )
-                .foregroundStyle(vm.tab == tab ? Color.white : Theme.tertiary)
+                .foregroundStyle(isLit(tab) ? Color.white : Theme.tertiary)
                 .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                 // Nothing the shell animates reaches the glyph and its well: the
                 // pane change rides the shell's pane curve, and this would
@@ -1142,7 +1168,7 @@ private struct Rail: View {
         .help(tab.title)
         .accessibilityLabel(tab.title)
         .accessibilityValue(tab == .settings && updates.hasUpdate ? localized("Update available") : "")
-        .accessibilityAddTraits(vm.tab == tab ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAddTraits(isLit(tab) ? [.isButton, .isSelected] : .isButton)
         .onHover { inside in
             if inside {
                 hovered = tab
@@ -1154,7 +1180,7 @@ private struct Rail: View {
 
     @MainActor
     private func fill(for tab: NotchViewModel.Tab) -> Color {
-        if vm.tab == tab { return Theme.selectedChip }
+        if isLit(tab) { return Theme.selectedChip }
         return hovered == tab ? Theme.surface : .clear
     }
 }

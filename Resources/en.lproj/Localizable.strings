@@ -177,10 +177,8 @@
 
 /* First run */
 "Isla is running." = "Isla is running.";
-"It lives at the notch. Click it to open." = "It lives at the notch. Click it to open.";
 "Open the panel" = "Open the panel";
 "Translate the clipboard" = "Translate the clipboard";
-"Quit and everything else lives in Settings, at the bottom left." = "Quit and everything else lives in Settings, at the bottom left.";
 "Get Started" = "Get Started";
 
 "Volume" = "Volume";
@@ -372,3 +370,13 @@
 "Moved %d files to the Trash." = "Moved %d files to the Trash.";
 "Only the first %@ characters were translated online." = "Only the first %@ characters were translated online.";
 "This text is too long to translate at once. Shorten it and try again." = "This text is too long to translate at once. Shorten it and try again.";
+"No Dock or menu-bar icon. Click the notch or press %@ to come back." = "No Dock or menu-bar icon. Click the notch or press %@ to come back.";
+"No Dock or menu-bar icon. Click the notch to come back." = "No Dock or menu-bar icon. Click the notch to come back.";
+"Nothing leaves your Mac unless you turn it on." = "Nothing leaves your Mac unless you turn it on.";
+"What's playing, with lyrics (%@)" = "What's playing, with lyrics (%@)";
+"What's playing, with lyrics" = "What's playing, with lyrics";
+"Files you drop on the notch" = "Files you drop on the notch";
+"What you copied, kept in memory" = "What you copied, kept in memory";
+"%@ translates what you copied" = "%@ translates what you copied";
+"Translates what you copied" = "Translates what you copied";
+"Privacy, shortcuts and Quit" = "Privacy, shortcuts and Quit";

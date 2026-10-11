@@ -84,7 +84,9 @@ used |= set(re.findall(r'Button\(\s*"((?:[^"\\]|\\.)*)"', sources))
 # The welcome keeps its strings in Copy.english and localises them through a
 # variable, so the literals never appear inside localized(...) either.
 welcome = root / "Sources" / "IslaKit" / "UI" / "WelcomePane.swift"
-match = re.search(r"static let english = Copy\((.*?)\)", welcome.read_text(), re.S)
+# To the closing parenthesis on a line of its own: the first ")" is inside
+# "What's playing, with lyrics (%@)", and stopping there dropped every key after it.
+match = re.search(r"static let english = Copy\((.*?)\n\s*\)", welcome.read_text(), re.S)
 if match is None:
     fail("WelcomePane.swift: Copy.english block not found, cannot scrape welcome keys")
 else:

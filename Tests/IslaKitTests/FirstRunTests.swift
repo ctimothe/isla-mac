@@ -255,6 +255,92 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
+    /// The rule under the probe below, on its own: a chip is lit when it is the
+    /// tab and the welcome is not up. Nothing is lit while welcoming — not the
+    /// tab the model is parked on, and not any other.
+    func testNoTabIsLitWhileWelcoming() {
+        for tab in NotchViewModel.Tab.leftRail {
+            XCTAssertFalse(Rail.isLit(tab, selected: tab, welcoming: true), "\(tab) is lit under the welcome")
+            XCTAssertTrue(Rail.isLit(tab, selected: tab, welcoming: false))
+            for other in NotchViewModel.Tab.leftRail where other != tab {
+                XCTAssertFalse(Rail.isLit(tab, selected: other, welcoming: false))
+            }
+        }
+    }
+
+    /// H-020: none of the four features was named on the one screen every user
+    /// of an invisible app sees, and ⌃⌥⌘T was missing. Every rail tab has a
+    /// legend now, and the two that have a shortcut print the live one.
+    func testTheWelcomeNamesEveryTab() {
+        let pane = WelcomePane(
+            onDismiss: {}, railIconHeight: 24,
+            openKeys: "⌃⌥⌘I", lyricsKeys: "⌃⌥⌘L", translateKeys: "⌃⌥⌘T"
+        )
+        let legends = NotchViewModel.Tab.leftRail.map(pane.legend(for:))
+        XCTAssertEqual(legends.count, 5)
+        XCTAssertEqual(Set(legends).count, legends.count, "two tabs share a legend: \(legends)")
+        XCTAssertFalse(legends.contains(where: \.isEmpty), "\(legends)")
+        XCTAssertTrue(pane.legend(for: .translate).contains("⌃⌥⌘T"), pane.legend(for: .translate))
+        XCTAssertTrue(pane.legend(for: .media).contains("⌃⌥⌘L"), pane.legend(for: .media))
+        XCTAssertTrue(pane.comeBackLine.contains("⌃⌥⌘I"), pane.comeBackLine)
+        // "Click it to open", said on a panel that was already open, read as
+        // done. The way back is what the line is for now.
+        XCTAssertFalse(pane.comeBackLine.contains("Click it to open"))
+    }
+
+    /// A shortcut can be cleared in Settings, and a reset first run then shows
+    /// the welcome without it. The line that names it must not print an empty
+    /// gap where the keys were — "press  to come back", "lyrics ()".
+    func testAClearedShortcutLeavesNoGapInTheWelcome() {
+        let pane = WelcomePane(
+            onDismiss: {}, railIconHeight: 24,
+            openKeys: "", lyricsKeys: "", translateKeys: ""
+        )
+        for line in NotchViewModel.Tab.leftRail.map(pane.legend(for:)) + [pane.comeBackLine] {
+            XCTAssertFalse(line.contains("%@"), line)
+            XCTAssertFalse(line.contains("()"), line)
+            XCTAssertFalse(line.contains("  "), line)
+            XCTAssertFalse(line.hasPrefix(" "), line)
+        }
+    }
+
+    /// H-020: the welcome is not a tab, and the rail said it was Music. The
+    /// view model leaves `tab` on Music under the welcome so Get Started lands
+    /// there, and the rail drew its chip — fill, filled glyph, edge and the
+    /// selected trait — straight off `tab`, so VoiceOver announced "Music,
+    /// selected" over a pane that was not Music.
+    ///
+    /// The second half is the control: the same probe on the same model, once
+    /// the welcome is answered, does find Music selected — so the first half is
+    /// not passing on a probe that cannot see the trait at all.
+    func testTheRailHasNothingSelectedUnderTheWelcome() async throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        vm.isOpen = true
+        vm.isShowingWelcome = true
+        let size = CGSize(width: VisualLab.windowSize.width, height: vm.geometry.windowSize.height)
+
+        let welcoming = await AXProbe.tree(of: NotchContentView(vm: vm), size: size)
+        let rail = try XCTUnwrap(welcoming.first(label: "Tabs"), welcoming.dump)
+        let tabs = rail.all(role: "AXButton")
+        XCTAssertEqual(tabs.count, NotchViewModel.Tab.leftRail.count, rail.dump)
+        XCTAssertEqual(tabs.filter(\.selected).map(\.label), [], rail.dump)
+
+        // And the welcome names every tab, each legend under the tab's own
+        // name, since the icon it sits beside is in the other group.
+        let welcome = try XCTUnwrap(welcoming.first(label: "Welcome"), welcoming.dump)
+        for tab in NotchViewModel.Tab.leftRail {
+            let legend = welcome.all { $0.label == tab.title && !$0.value.isEmpty }
+            XCTAssertEqual(legend.count, 1, "\(tab.title) has no legend\n\(welcome.dump)")
+        }
+
+        vm.isShowingWelcome = false
+        let answered = await AXProbe.tree(of: NotchContentView(vm: vm), size: size)
+        let after = try XCTUnwrap(answered.first(label: "Tabs"), answered.dump)
+        XCTAssertEqual(after.all(role: "AXButton").filter(\.selected).map(\.label), ["Music"], after.dump)
+    }
+
     /// Every string the welcome shows must exist in both tables, and the Russian
     /// one must actually be Russian.
     ///
@@ -283,6 +369,14 @@ final class FirstRunTests: XCTestCase {
                     Self.value(for: key, in: table), key,
                     "ru.lproj leaves the welcome key \(key) untranslated"
                 )
+            }
+            // The 2026-10-11 rewrite (H-020) retired these two; a table that
+            // still carries them is carrying copy nothing shows.
+            for retired in [
+                "It lives at the notch. Click it to open.",
+                "Quit and everything else lives in Settings, at the bottom left.",
+            ] {
+                XCTAssertFalse(table.contains("\"\(retired)\" = "), "\(language).lproj still carries \(retired)")
             }
         }
     }
@@ -316,23 +410,22 @@ final class FirstRunTests: XCTestCase {
         XCTAssertNotEqual(Self.value(for: "Word Karaoke", in: try Self.table("ru")), "Word Karaoke")
     }
 
-    /// The two keycaps have to be the same size, or the two labels beside them
-    /// start at different x and a two-row list visibly fails to line up.
+    /// The legends are one line each, beside their icons, and take the width
+    /// they need; the message column gets what is left. At the narrowest body a
+    /// user can choose, in the longer language, what is left must still be a
+    /// column — or the title and the button are squeezed to a word a line and
+    /// the height test below fails for a reason it cannot name.
     ///
-    /// The system font is proportional and these glyphs are not digits, so they
-    /// measure four points apart on their own. `WelcomePane.keycapGlyphWidth` is
-    /// the `minWidth` that equalises them, and it only does so while it is at
-    /// least as wide as the wider of the two — which is what this measures, so
-    /// that a font metrics change fails here instead of quietly ragging the
-    /// column again.
-    func testTheTwoKeycapsAreTheSameWidth() {
-        let font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        for keys in HotKeyAction.allCases.map(\.defaultBinding.displayString) {
-            let natural = (keys as NSString).size(withAttributes: [.font: font]).width
+    /// Measured with the default shortcuts, which are what a first run shows.
+    func testTheLegendsLeaveTheMessageAColumnInBothLanguages() throws {
+        for language in ["en", "ru"] {
+            let table = try Self.table(language)
+            let copy = WelcomePane.Copy.english.mapped { Self.value(for: $0, in: table) }
+            let pane = Self.pane(copy)
+            let legends = try Self.naturalSize(of: pane.legendColumn.fixedSize()).width
             XCTAssertLessThanOrEqual(
-                natural, WelcomePane.keycapGlyphWidth,
-                "\(keys) needs \(natural) pt and the keycap only guarantees "
-                    + "\(WelcomePane.keycapGlyphWidth)"
+                legends + WelcomePane.columnGap + WelcomePane.messageMinWidth, Self.paneWidth,
+                "the \(language) legends take \(legends) pt of \(Self.paneWidth)"
             )
         }
     }
@@ -372,30 +465,16 @@ final class FirstRunTests: XCTestCase {
 
         for language in ["en", "ru"] {
             let table = try Self.table(language)
-            let copy = WelcomePane.Copy(
-                running: Self.value(for: WelcomePane.Copy.english.running, in: table),
-                whereItLives: Self.value(for: WelcomePane.Copy.english.whereItLives, in: table),
-                openPanel: Self.value(for: WelcomePane.Copy.english.openPanel, in: table),
-                showLyrics: Self.value(
-                    for: WelcomePane.Copy.english.showLyrics, in: table
-                ),
-                settingsFootnote: Self.value(
-                    for: WelcomePane.Copy.english.settingsFootnote, in: table
-                ),
-                action: Self.value(for: WelcomePane.Copy.english.action, in: table)
-            )
+            let copy = WelcomePane.Copy.english.mapped { Self.value(for: $0, in: table) }
             if language == "ru" {
                 // Or the parse below quietly handed back the keys and this whole
                 // pass measured English a second time.
                 XCTAssertNotEqual(
-                    copy.settingsFootnote, WelcomePane.Copy.english.settingsFootnote,
+                    copy.comeBack, WelcomePane.Copy.english.comeBack,
                     "the Russian pass must measure Russian"
                 )
             }
-            let asked = try Self.naturalHeight(
-                of: WelcomePane(onDismiss: {}, copy: copy),
-                width: Self.paneWidth
-            )
+            let asked = try Self.naturalHeight(of: Self.pane(copy), width: Self.paneWidth)
             XCTAssertLessThanOrEqual(
                 asked, available,
                 "the welcome asks for \(asked) pt in \(language) and the body has \(available)"
@@ -454,13 +533,26 @@ final class FirstRunTests: XCTestCase {
     /// The height a view asks for at a fixed width — its ideal height, which is
     /// exactly what overflows a body that cannot grow.
     private static func naturalHeight<V: View>(of view: V, width: CGFloat) throws -> CGFloat {
-        let renderer = ImageRenderer(
-            content: view
-                .frame(width: width)
-                .fixedSize(horizontal: false, vertical: true)
-        )
+        try naturalSize(of: view.frame(width: width).fixedSize(horizontal: false, vertical: true)).height
+    }
+
+    private static func naturalSize<V: View>(of view: V) throws -> CGSize {
+        let renderer = ImageRenderer(content: view)
         renderer.scale = 1
         let image = try XCTUnwrap(renderer.nsImage, "the pane must render")
-        return image.size.height
+        return image.size
+    }
+
+    /// The pane as a first run shows it: the default shortcuts, all three
+    /// bound, and the rail's icons at their full 24 pt — which is what every
+    /// supported body gives them (154 pt of rail holds five 24s and their
+    /// gaps with room over), and so the tallest the legend column can be.
+    private static func pane(_ copy: WelcomePane.Copy) -> WelcomePane {
+        WelcomePane(
+            onDismiss: {}, copy: copy, railIconHeight: 24,
+            openKeys: HotKeyAction.openPanel.defaultBinding.displayString,
+            lyricsKeys: HotKeyAction.showLyrics.defaultBinding.displayString,
+            translateKeys: HotKeyAction.translateClipboard.defaultBinding.displayString
+        )
     }
 }
