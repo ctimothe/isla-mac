@@ -309,14 +309,25 @@ enum PlayerBridge {
             guard let url = state.artworkURL, url.scheme?.lowercased() == "https" else {
                 return completion(nil)
             }
+            // Decoded small and here, on URLSession's own queue: the same
+            // ceiling MediaController puts on the helper's covers, so a held
+            // or fallback cover does not stand in memory at the source's full
+            // size (audit F-044).
             URLSession.shared.dataTask(with: url) { data, _, _ in
-                let image = data.flatMap(NSImage.init(data:))
+                let image = data.flatMap(MediaController.artworkImage)
                 DispatchQueue.main.async { completion(image) }
             }.resume()
         case .music:
             runScript(Script.musicArtwork, app: .music) { descriptor in
                 guard let data = descriptor?.data, !data.isEmpty else { return completion(nil) }
-                completion(NSImage(data: data))
+                // The script answers on the main thread. `NSImage(data:)` was
+                // lazy and decoded the full Music cover, often 3000 px, on
+                // main at the first draw; the downsample decodes at once, so
+                // it is sent off main and the result handed back.
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let image = MediaController.artworkImage(data)
+                    DispatchQueue.main.async { completion(image) }
+                }
             }
         }
     }
