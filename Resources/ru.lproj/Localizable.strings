@@ -58,7 +58,6 @@
 "Turn on Apple Intelligence to translate." = "Включите Apple Intelligence для перевода.";
 "The on-device model is still downloading." = "Локальная модель ещё загружается.";
 "This text could not be translated." = "Этот текст не удалось перевести.";
-"This text is too long to translate at once." = "Этот текст слишком длинный для одного перевода.";
 "The translation could not be completed." = "Не удалось выполнить перевод.";
 "Hide from Screen Recording" = "Скрыть от записи экрана";
 "Translating…" = "Перевод…";
@@ -368,3 +367,5 @@
 "AirDrop cannot send these files." = "AirDrop не может отправить эти файлы.";
 "Release to add to the Shelf" = "Отпустите, чтобы положить на полку";
 "Drop to keep on the Shelf" = "Отпустите, чтобы оставить на полке";
+"Only the first %@ characters were translated online." = "Онлайн переведены только первые %@ символов.";
+"This text is too long to translate at once. Shorten it and try again." = "Этот текст слишком длинный для перевода за раз. Сократите его и попробуйте снова.";

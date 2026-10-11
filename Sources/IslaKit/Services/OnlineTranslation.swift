@@ -25,6 +25,24 @@ enum OnlineTranslation {
     /// A little under, so a sentence boundary has room to land.
     static let maximumQuery = 480
 
+    /// The most of one text that is ever sent: ten queries. MyMemory's
+    /// published anonymous allowance is 5,000 characters a day (its usage
+    /// limits page, read 2026-10-11), and a translation used to send all of
+    /// whatever was in the field — 100 KB pasted by mistake went out as 209
+    /// requests one after another, the day's allowance gone on the first
+    /// eleven and the rest refused (F-042). Under the allowance, so one long
+    /// paste cannot spend it all and leave nothing for the next sentence.
+    static let maximumOnlineCharacters = 4_800
+
+    /// What one translation sent and got back.
+    struct Reply: Equatable {
+        var text: String
+        /// How many characters went, when the text was longer than
+        /// `maximumOnlineCharacters` and the rest stayed here; nil when all of
+        /// it went.
+        var sentCharacters: Int?
+    }
+
     enum Failure: Error, Equatable {
         /// No answer: offline, a timeout, the service down.
         case unreachable
@@ -32,6 +50,10 @@ enum OnlineTranslation {
         case quotaExhausted
         /// The service answered and declined, with its own reason.
         case refused(String)
+        /// A later piece failed after earlier ones came back. Their
+        /// translation is kept — it was already paid for out of the
+        /// allowance — together with why the rest did not come.
+        indirect case partial(text: String, cause: Failure)
     }
 
     /// The service's name for a language. Its Chinese is a region, not a
@@ -61,31 +83,52 @@ enum OnlineTranslation {
         return request
     }
 
-    /// Translates `text`, a piece at a time when it is longer than one query.
+    /// Translates `text`, a piece at a time when it is longer than one query,
+    /// and no more than `maximumOnlineCharacters` of it.
+    ///
+    /// The pieces go one after another, never in parallel: parallel requests
+    /// spend the allowance just as fast and the service throttles them.
     static func translate(_ text: String, from source: TranslationLanguage, to target: TranslationLanguage,
-                          session: URLSession = PrivateNetwork.session) async throws -> String {
-        var translated: [String] = []
-        for piece in chunks(of: text) {
-            try Task.checkCancellation()
-            guard let request = request(for: piece, from: source, to: target) else {
-                throw Failure.unreachable
-            }
-            let data: Data
-            do {
-                (data, _) = try await session.data(for: request)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch let error as URLError where error.code == .cancelled {
-                throw CancellationError()
-            } catch {
-                throw Failure.unreachable
-            }
-            translated.append(try decode(data))
-        }
+                          session: URLSession = PrivateNetwork.session) async throws -> Reply {
+        let pieces = chunks(of: text)
+        // Whole pieces, so the cut lands where a piece ends — on a sentence
+        // where there is one — and never mid-word. Each piece is at most one
+        // query, so this many of them is at most the cap.
+        let sent = Array(pieces.prefix(maximumOnlineCharacters / maximumQuery))
         // Scripts written without spaces between sentences are joined without.
         let separator = [TranslationLanguage.chinese, .japanese].contains(target) ? "" : " "
-        return translated.joined(separator: separator)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        func joined(_ parts: [String]) -> String {
+            parts.joined(separator: separator).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var translated: [String] = []
+        for piece in sent {
+            try Task.checkCancellation()
+            do {
+                guard let request = request(for: piece, from: source, to: target) else {
+                    throw Failure.unreachable
+                }
+                let data: Data
+                do {
+                    (data, _) = try await session.data(for: request)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let error as URLError where error.code == .cancelled {
+                    throw CancellationError()
+                } catch {
+                    throw Failure.unreachable
+                }
+                translated.append(try decode(data))
+            } catch let failure as Failure where !translated.isEmpty {
+                // Everything before this piece came back and is kept; the
+                // first failure used to throw it all away.
+                throw Failure.partial(text: joined(translated), cause: failure)
+            }
+        }
+        // Counted from the pieces themselves, so the number the pane shows
+        // is what went, not the cap: pieces that end at sentences rarely add
+        // up to exactly 4,800.
+        let cut = sent.count < pieces.count ? sent.reduce(0) { $0 + $1.count } : nil
+        return Reply(text: joined(translated), sentCharacters: cut)
     }
 
     /// The translated text from one answer, or why there is none.

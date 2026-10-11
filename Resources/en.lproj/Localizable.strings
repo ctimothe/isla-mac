@@ -59,7 +59,6 @@
 "Turn on Apple Intelligence to translate." = "Turn on Apple Intelligence to translate.";
 "The on-device model is still downloading." = "The on-device model is still downloading.";
 "This text could not be translated." = "This text could not be translated.";
-"This text is too long to translate at once." = "This text is too long to translate at once.";
 "The translation could not be completed." = "The translation could not be completed.";
 "Hide from Screen Recording" = "Hide from Screen Recording";
 "Translating…" = "Translating…";
@@ -369,3 +368,5 @@
 "AirDrop cannot send these files." = "AirDrop cannot send these files.";
 "Release to add to the Shelf" = "Release to add to the Shelf";
 "Drop to keep on the Shelf" = "Drop to keep on the Shelf";
+"Only the first %@ characters were translated online." = "Only the first %@ characters were translated online.";
+"This text is too long to translate at once. Shorten it and try again." = "This text is too long to translate at once. Shorten it and try again.";

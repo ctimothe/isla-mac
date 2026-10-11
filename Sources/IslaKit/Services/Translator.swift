@@ -107,6 +107,10 @@ final class Translator: ObservableObject {
     @Published private(set) var output = ""
     @Published private(set) var failure: String?
     @Published private(set) var remedies: [Remedy] = []
+    /// One line under an answer that does not cover the whole text: that only
+    /// the first part went online, or why the rest of it never came back.
+    /// It belongs to that answer and goes wherever the answer goes.
+    @Published private(set) var outputNote: String?
     @Published private(set) var isTranslating = false
     /// The engine behind what is on screen — the pane marks an online answer.
     @Published private(set) var engine: Engine?
@@ -314,6 +318,7 @@ final class Translator: ObservableObject {
         if answersInput {
             input = output
             output = ""
+            outputNote = nil
             outputSource = nil
             answered = nil
             engine = nil
@@ -326,6 +331,7 @@ final class Translator: ObservableObject {
     /// sitting there for the debounce and the engine's time.
     private func clearAnswer() {
         output = ""
+        outputNote = nil
         outputSource = nil
         answered = nil
         engine = nil
@@ -549,6 +555,7 @@ final class Translator: ObservableObject {
 
     func clear() {
         output = ""
+        outputNote = nil
         outputSource = nil
         answered = nil
         failure = nil
@@ -597,6 +604,7 @@ final class Translator: ObservableObject {
         guard !engines.isEmpty else {
             let obstacle = Self.obstacle(for: route, given: capabilities)
             output = ""
+            outputNote = nil
             outputSource = nil
             engine = nil
             failure = obstacle.message
@@ -604,14 +612,25 @@ final class Translator: ObservableObject {
             return
         }
 
-        var lastFailure = localized("The translation could not be completed.")
+        var lastFailure = Self.describe(EngineUnavailable())
         for candidate in engines {
             do {
-                let translated = try await run(candidate, text: text, route: route)
+                let answer = try await run(candidate, text: text, route: route)
                 guard !Task.isCancelled, self.generation == generation else { return }
-                received(translated, for: text, by: candidate)
+                received(answer.text, for: text, by: candidate, note: answer.note)
                 return
             } catch is CancellationError {
+                return
+            } catch let OnlineTranslation.Failure.partial(translated, cause) {
+                guard !Task.isCancelled, self.generation == generation else { return }
+                // The part that came back is an answer, and shown as one, with
+                // the reason the rest did not come under it. Retry stays only
+                // where a second try could bring the rest: never for a spent
+                // allowance. Online is always the last engine, so there is no
+                // next one this would skip.
+                let (message, retryable) = Self.describe(cause)
+                received(translated, for: text, by: candidate, note: message)
+                remedies = retryable ? [.retry] : []
                 return
             } catch {
                 guard !Task.isCancelled, self.generation == generation else { return }
@@ -622,17 +641,24 @@ final class Translator: ObservableObject {
             }
         }
         output = ""
+        outputNote = nil
         outputSource = nil
         engine = nil
-        failure = lastFailure
-        remedies = [.retry]
+        failure = lastFailure.message
+        // Retry only where it can work. It used to be offered under every
+        // failure (F-042, M-10), so a spent daily allowance or Apple's
+        // guardrail — which refuse the same text the same way every time —
+        // wore a button that could only fail again.
+        remedies = lastFailure.retryable ? [.retry] : []
     }
 
     /// The one place an answer lands: the text, what it answers, and which
     /// engine gave it — kept together so the swap and the globe can never
-    /// describe a different answer from the one on screen.
-    func received(_ translated: String, for text: String, by engine: Engine) {
+    /// describe a different answer from the one on screen. `note` is the line
+    /// about what the answer does not cover, if anything.
+    func received(_ translated: String, for text: String, by engine: Engine, note: String? = nil) {
         output = translated
+        outputNote = note
         outputSource = text
         answered = text == trimmed ? question : nil
         self.engine = engine
@@ -640,25 +666,45 @@ final class Translator: ObservableObject {
         remedies = []
     }
 
+    /// What a cut online answer says under it. The number is the characters
+    /// that went — pieces end at sentences, so rarely the cap exactly —
+    /// rounded down to a hundred, and grouped the app language's way, as
+    /// `prepareCommandInput` groups its own. Rounded down so it stays true
+    /// (the first 4,700 of 4,763 sent were translated) and so Russian's one
+    /// sentence agrees with it: "первые %@ символов" is right for any number
+    /// ending in 00 and wrong for 4 801 or 4 763. A cut only follows ten
+    /// pieces, each too full to take the next sentence, so the number is in
+    /// the thousands and rounding never brings it near zero.
+    static func onlineCapNote(sent: Int, locale: Locale = Locale(identifier: appLanguage)) -> String {
+        let shown = sent / 100 * 100
+        return localized("Only the first %@ characters were translated online.", shown.formatted(.number.locale(locale)))
+    }
+
+    /// The online engine, a seam so a test can answer for MyMemory without
+    /// the network. The app never sets it.
+    var onlineTranslate: (String, Route) async throws -> OnlineTranslation.Reply = { text, route in
+        try await OnlineTranslation.translate(text, from: route.source, to: route.target)
+    }
+
     /// An engine asked for on a system that does not have it. Unreachable in
     /// practice — `engines(given:)` only lists what the system reported — and
     /// a failure like any other if it ever is reached.
     private struct EngineUnavailable: Error {}
 
-    private func run(_ engine: Engine, text: String, route: Route) async throws -> String {
+    private func run(_ engine: Engine, text: String, route: Route) async throws -> (text: String, note: String?) {
         switch engine {
         case .system:
             guard #available(macOS 26.0, *) else { throw EngineUnavailable() }
             let session = TranslationSession(installedSource: route.source.locale, target: route.target.locale)
-            return try await session.translate(text).targetText
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (try await session.translate(text).targetText
+                .trimmingCharacters(in: .whitespacesAndNewlines), nil)
         case .intelligence:
             guard #available(macOS 26.0, *) else { throw EngineUnavailable() }
-            return try await Self.askModel(text, route: route)
+            return (try await Self.askModel(text, route: route), nil)
         case .online:
-            let translated = try await OnlineTranslation.translate(text, from: route.source, to: route.target)
-            guard !translated.isEmpty else { throw OnlineTranslation.Failure.refused("") }
-            return translated
+            let reply = try await onlineTranslate(text, route)
+            guard !reply.text.isEmpty else { throw OnlineTranslation.Failure.refused("") }
+            return (reply.text, reply.sentCharacters.map { Self.onlineCapNote(sent: $0) })
         }
     }
 
@@ -703,12 +749,19 @@ final class Translator: ObservableObject {
         return response.content.translation.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func describe(_ error: Error) -> String {
+    /// What a failure says, and whether asking again could change it: the
+    /// remedies come from `retryable`, so Retry is offered only where a second
+    /// try can succeed (F-042, M-10).
+    static func describe(_ error: Error) -> (message: String, retryable: Bool) {
+        let generic = (localized("The translation could not be completed."), true)
         if let failure = error as? OnlineTranslation.Failure {
             switch failure {
-            case .unreachable: return localized("Online translation is not reachable right now.")
-            case .quotaExhausted: return localized("Today's free online translations are used up.")
-            case .refused: return localized("The translation could not be completed.")
+            case .unreachable: return (localized("Online translation is not reachable right now."), true)
+            // Spent until the service's day turns over; another request now
+            // is refused the same way.
+            case .quotaExhausted: return (localized("Today's free online translations are used up."), false)
+            case .refused: return generic
+            case .partial(_, let cause): return describe(cause)
             }
         }
         if #available(macOS 26.0, *), let error = error as? LanguageModelSession.GenerationError {
@@ -716,15 +769,18 @@ final class Translator: ObservableObject {
             case .guardrailViolation:
                 // Apple's safety filter, which fires on ordinary sentences —
                 // "Delete all my files" was refused in testing. Worth naming
-                // plainly so it does not read as the app breaking.
-                return localized("This text could not be translated.")
+                // plainly so it does not read as the app breaking. It refuses
+                // the same text the same way every time, so no Retry.
+                return (localized("This text could not be translated."), false)
             case .exceededContextWindowSize:
-                return localized("This text is too long to translate at once.")
+                // The same text overflows the same window again; what would
+                // work is less of it, so that is what it says.
+                return (localized("This text is too long to translate at once. Shorten it and try again."), false)
             default:
-                return localized("The translation could not be completed.")
+                return generic
             }
         }
-        return localized("The translation could not be completed.")
+        return generic
     }
 
     /// Where a copied answer goes: the general pasteboard in the app, a
