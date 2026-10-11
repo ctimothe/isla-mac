@@ -18,10 +18,17 @@ import UniformTypeIdentifiers
 /// because a capture folder is very often the Desktop, and a folder full of
 /// somebody's working files must not be swept onto the shelf wholesale.
 ///
-/// The permission story is one prompt, once: the first scan touches a folder
-/// macOS guards, the system asks, and the grant sticks. After that every open
-/// is silent. Denied means the scan throws and the shelf shows what it
-/// already holds — never a crash, never a second prompt manufactured here.
+/// The permission story is one prompt per installed version: the first scan
+/// touches a folder macOS guards, the system asks, and after that every open
+/// of that build is silent. Per version, not once ever: while Isla ships
+/// ad-hoc signed (`Scripts/bundle.sh` signs with `-` when no Developer ID is
+/// given), macOS keys the grant to the binary's code hash, and every build has
+/// a new one. An update or a reinstall is therefore a new app to the privacy
+/// database, and its first scan asks again (J-002). This comment once promised
+/// a grant that outlives updates; only a Developer ID build earns that, because
+/// its designated requirement names the team rather than the hash, and signing
+/// with one is the owner's decision. Denied means the scan throws and the
+/// shelf shows what it already holds — never a crash, never a second prompt manufactured here.
 /// Nothing watches in the background: the scan runs on shelf open, which is
 /// the same in-context moment the shelf's own validation already uses.
 enum RecordingPickup {

@@ -150,12 +150,26 @@ are the exception the design did not anticipate:
   Copied recordings already landed through the clipboard; this covers the
   native save-to-disk flow no pasteboard ever sees. The first scan touches a
   folder macOS guards, so the system asks once, with the shelf on screen to
-  explain it, and the grant sticks; denied means the shelf shows what it
-  holds. Nothing watches in the background.
+  explain it, and that installed build keeps the grant (see the amendment of
+  2026-10-11 below); denied means the shelf shows what it holds. Nothing
+  watches in the background.
   *Amended 2026-10-11 (sp/SH-05, owner decision 17, reversible):* dragging
   out copies by default; ⌘ moves, and a moved file keeps its card. The drag
   still carries the original as its source; only the default operation
   changed, so a same-disk drop into Finder now duplicates the file.
+  *Amended 2026-10-11 (ms/MS-20, J-002):* "once" means once per installed
+  version, not once ever. While Isla is ad-hoc signed (`Scripts/bundle.sh`
+  signs with `-` unless a Developer ID is given), every update is a new
+  binary to macOS: TCC keys an ad-hoc grant to the binary's cdhash, which
+  every build changes, so each permission — Desktop, Documents and Downloads
+  for this scan, Automation for Music and Spotify — is asked once per
+  installed version, after an update and after every reinstall alike.
+  Developer ID signing would make grants survive updates, because its
+  designated requirement names the team rather than the hash; that is an
+  owner decision, tracked under the Developer ID gate below. MS-02 already
+  brings the re-asked Automation prompt in context, on the first panel open.
+  Live check: session S2 (`codesign -d -r-` on two builds shows two cdhash
+  requirements, and a reinstall brings the prompt back).
 
 The status-item menu, and then the whole status item, were removed on
 2026-08-25 by owner decision. A window was built first and withdrawn the
@@ -300,6 +314,9 @@ check: session S2 (`docs/audits/2026-10-11-live-validation-script.md`).
   - [ ] After MS-12 and MS-13: the four tab rows again, and `closed-idle`
     still inside the budget.
 - [ ] Developer ID signing, notarization, stapling, and Gatekeeper validation pass.
+  Also what lets a privacy grant survive an update: until this lands, every
+  ad-hoc release asks again for Desktop, Documents, Downloads and Automation
+  (J-002, ms/MS-20, 2026-10-11), and its release notes say so.
 
 ## Release verdict
 
