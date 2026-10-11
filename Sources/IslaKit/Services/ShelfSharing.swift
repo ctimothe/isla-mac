@@ -18,21 +18,16 @@ import Quartz
 enum ShelfSharing {
     // MARK: Returning the keyboard
 
-    private static var returnTo: NSRunningApplication?
+    /// One lease for both: a Quick Look opened over an AirDrop sheet hands
+    /// the keyboard back to the same app either way. See `ActivationLease`.
+    private static let lease = ActivationLease()
 
     private static func activateRemembering() {
-        let front = NSWorkspace.shared.frontmostApplication
-        if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { returnTo = front }
-        NSApp.activate()
+        lease.begin()
     }
 
     fileprivate static func giveBackActivation() {
-        guard let app = returnTo else { return }
-        returnTo = nil
-        // Only if Isla is still the one in front. A user who clicked into a
-        // third app meanwhile has already chosen where the keyboard goes.
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier else { return }
-        app.activate()
+        lease.end()
     }
 
     // MARK: AirDrop

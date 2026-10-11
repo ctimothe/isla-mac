@@ -165,13 +165,57 @@ struct SettingsPane: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            scrollingBody
-                .onAppear { scrollToTarget(proxy) }
-                // Set while the pane is already up, too: nothing stops a later
-                // route from sending it somewhere while Settings is the
-                // visible tab.
-                .onChange(of: scrollTarget.wrappedValue) { _, _ in scrollToTarget(proxy) }
+            VStack(spacing: 0) {
+                scrollingBody
+                    .onAppear { scrollToTarget(proxy) }
+                    // Set while the pane is already up, too: nothing stops a
+                    // later route from sending it somewhere while Settings is
+                    // the visible tab.
+                    .onChange(of: scrollTarget.wrappedValue) { _, _ in scrollToTarget(proxy) }
+                footer
+            }
         }
+    }
+
+    /// Height of the strip pinned under the scroll: the caption-sized target
+    /// floor (`Theme.minimumHitSize`, 20 pt) and a point either side.
+    static let footerHeight: CGFloat = 22
+
+    /// The version, About and Quit, always in view.
+    ///
+    /// Quit is the only way out of an app that Force Quit does not list, and
+    /// it was the last row of Settings, past y = 1000 in a 162 pt window
+    /// (H-003): the welcome page promises it lives here, and nobody who did
+    /// not think to scroll would have found it. Pinned, it costs the scroll
+    /// 22 pt and is never more than a glance away. Not in the open panel's
+    /// header: that strip stays free of controls because menu-bar monitors
+    /// such as Ice see clicks there. Quit keeps its two presses, the word
+    /// form of the arming the rows use, because a footer is where a stray
+    /// click lands.
+    private var footer: some View {
+        HStack(spacing: 6) {
+            Text(localized("Isla %@", ProductIdentity.version))
+                .islandFont(.caption, weight: .regular)
+                .foregroundStyle(Theme.tertiary)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Button {
+                AboutWindow.show()
+            } label: {
+                Text(localized("About %@", ProductIdentity.displayName))
+                    .islandFont(.caption)
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(1)
+                    .frame(minWidth: Theme.minimumHitSize.width, minHeight: Theme.minimumHitSize.height)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PanelButtonStyle())
+            ConfirmTextButton(title: localized("Quit"), armedTitle: localized("Quit Isla")) {
+                NSApp.terminate(nil)
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: Self.footerHeight)
     }
 
     private var scrollingBody: some View {
@@ -254,6 +298,51 @@ struct SettingsPane: View {
                     )
                 }
 
+                // Second, straight under General: it is what someone about to
+                // share their screen opens Settings for, and as the eighth of
+                // nine sections it sat at y ≈ 900 in a 162 pt window, under
+                // Spotify, where nobody who did not think to scroll found it
+                // (H-003).
+                section(localized("Privacy")) {
+                    toggleRow(
+                        symbol: SettingsIcon.clipboardHistory,
+                        title: localized("Clipboard History"),
+                        isOn: Binding(
+                            get: { clipboardHistory },
+                            set: { wants in
+                                clipboardHistory = wants
+                                setClipboardHistory(wants)
+                            }
+                        )
+                    )
+                    if !clipboardHistory {
+                        noteRow(Self.clipboardOffNote(imagesOn: saveClipboardImages))
+                    }
+                    ForEach(PrivacyMode.Section.allCases) { privacySection in
+                        toggleRow(
+                            symbol: privacySymbol(for: privacySection),
+                            title: privacySection.settingsTitle,
+                            isOn: privacyCoversBinding(for: privacySection)
+                        )
+                    }
+                    noteRow(Self.privacyCoversNote)
+                    toggleRow(
+                        symbol: SettingsIcon.hideFromRecording,
+                        title: localized("Hide from Screen Recording"),
+                        isOn: Binding(
+                            get: { hideFromCapture },
+                            set: { wants in
+                                hideFromCapture = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.hideFromCaptureKey)
+                                // The live panel, not just the next one built.
+                                (NSApp.windows.first { $0 is NotchPanel } as? NotchPanel)?
+                                    .applyCaptureExclusion()
+                            }
+                        )
+                    )
+                    noteRow(Self.hideFromCaptureNote)
+                }
+
                 // The three ways in that need no pointer. Each can be moved or
                 // cleared, because whichever keys ship, some app somewhere
                 // already uses them.
@@ -279,51 +368,6 @@ struct SettingsPane: View {
                     if HotKeyAction.allCases.contains(where: { hotKeys.bindings[$0] != $0.defaultBinding }) {
                         actionRow(symbol: SettingsIcon.restoreShortcuts, title: localized("Restore Default Shortcuts")) {
                             hotKeys.restoreDefaults()
-                        }
-                    }
-                }
-
-                section(localized("Screenshots")) {
-                    toggleRow(
-                        symbol: SettingsIcon.saveScreenshots,
-                        title: localized("Save Clipboard Screenshots"),
-                        isOn: saveClipboardImagesBinding
-                    )
-                    toggleRow(
-                        symbol: SettingsIcon.importRecordings,
-                        title: localized("Show Screen Captures"),
-                        isOn: importRecordingsBinding
-                    )
-                    actionRow(symbol: SettingsIcon.showFolder, title: localized("Show Screenshots Folder")) {
-                        screenshotVault.reveal()
-                    }
-                    confirmRow(
-                        symbol: SettingsIcon.clear,
-                        title: clearTitle,
-                        armedTitle: localized("Delete These Files"),
-                        disabled: screenshotUsage.files == 0 || clearingScreenshots
-                    ) {
-                        clearingScreenshots = true
-                        // Inside the answer, not after the call: the trash
-                        // runs on the vault's queue, and refreshing on the
-                        // next line reloaded the Shelf and the size before a
-                        // single file had moved, so both stayed until the next
-                        // visit (F-034).
-                        screenshotVault.clear { moved in
-                            clearingScreenshots = false
-                            shelf.load()
-                            // The files are in the Trash now, so the cards
-                            // have to go with them. Safe to look here: the
-                            // vault lives in the app's own folder, which macOS
-                            // does not guard.
-                            shelf.refreshFromDisk()
-                            refreshUsage()
-                            // The row's title changing is all a sighted user
-                            // needs; VoiceOver hears what happened, with the
-                            // count the vault actually moved.
-                            Announcer.shared.announce(moved == 1
-                                ? localized("Moved 1 file to the Trash.")
-                                : localized("Moved %d files to the Trash.", moved))
                         }
                     }
                 }
@@ -592,50 +636,54 @@ struct SettingsPane: View {
                     }
                 }
 
-                section(localized("Privacy")) {
+                section(localized("Screenshots")) {
                     toggleRow(
-                        symbol: SettingsIcon.clipboardHistory,
-                        title: localized("Clipboard History"),
-                        isOn: Binding(
-                            get: { clipboardHistory },
-                            set: { wants in
-                                clipboardHistory = wants
-                                setClipboardHistory(wants)
-                            }
-                        )
+                        symbol: SettingsIcon.saveScreenshots,
+                        title: localized("Save Clipboard Screenshots"),
+                        isOn: saveClipboardImagesBinding
                     )
-                    if !clipboardHistory {
-                        noteRow(Self.clipboardOffNote(imagesOn: saveClipboardImages))
-                    }
-                    ForEach(PrivacyMode.Section.allCases) { privacySection in
-                        toggleRow(
-                            symbol: privacySymbol(for: privacySection),
-                            title: privacySection.settingsTitle,
-                            isOn: privacyCoversBinding(for: privacySection)
-                        )
-                    }
-                    noteRow(Self.privacyCoversNote)
                     toggleRow(
-                        symbol: SettingsIcon.hideFromRecording,
-                        title: localized("Hide from Screen Recording"),
-                        isOn: Binding(
-                            get: { hideFromCapture },
-                            set: { wants in
-                                hideFromCapture = wants
-                                UserDefaults.standard.set(wants, forKey: NotchViewModel.hideFromCaptureKey)
-                                // The live panel, not just the next one built.
-                                (NSApp.windows.first { $0 is NotchPanel } as? NotchPanel)?
-                                    .applyCaptureExclusion()
-                            }
-                        )
+                        symbol: SettingsIcon.importRecordings,
+                        title: localized("Show Screen Captures"),
+                        isOn: importRecordingsBinding
                     )
-                    noteRow(Self.hideFromCaptureNote)
+                    actionRow(symbol: SettingsIcon.showFolder, title: localized("Show Screenshots Folder")) {
+                        screenshotVault.reveal()
+                    }
+                    confirmRow(
+                        symbol: SettingsIcon.clear,
+                        title: clearTitle,
+                        armedTitle: localized("Delete These Files"),
+                        disabled: screenshotUsage.files == 0 || clearingScreenshots
+                    ) {
+                        clearingScreenshots = true
+                        // Inside the answer, not after the call: the trash
+                        // runs on the vault's queue, and refreshing on the
+                        // next line reloaded the Shelf and the size before a
+                        // single file had moved, so both stayed until the next
+                        // visit (F-034).
+                        screenshotVault.clear { moved in
+                            clearingScreenshots = false
+                            shelf.load()
+                            // The files are in the Trash now, so the cards
+                            // have to go with them. Safe to look here: the
+                            // vault lives in the app's own folder, which macOS
+                            // does not guard.
+                            shelf.refreshFromDisk()
+                            refreshUsage()
+                            // The row's title changing is all a sighted user
+                            // needs; VoiceOver hears what happened, with the
+                            // count the vault actually moved.
+                            Announcer.shared.announce(moved == 1
+                                ? localized("Moved 1 file to the Trash.")
+                                : localized("Moved %d files to the Trash.", moved))
+                        }
+                    }
                 }
 
+                // About and Quit are not here: they are the footer, pinned
+                // under the scroll (see `footer`).
                 section(localized("Application")) {
-                    actionRow(symbol: SettingsIcon.about, title: localized("About %@", ProductIdentity.displayName)) {
-                        NSApp.orderFrontStandardAboutPanel(nil)
-                    }
                     // What a stranger needs to tell the owner what went wrong:
                     // the report, and the form that asks for it.
                     actionRow(
@@ -698,18 +746,17 @@ struct SettingsPane: View {
                     if checkUpdatesAutomatically {
                         noteRow(localized("Asks GitHub once a day for the latest version. It sends nothing about you."))
                     }
-                    confirmRow(
-                        symbol: SettingsIcon.quit,
-                        title: localized("Quit"),
-                        armedTitle: localized("Quit Isla")
-                    ) {
-                        NSApp.terminate(nil)
-                    }
                 }
             }
             .padding(.top, 2)
             .padding(.trailing, 4)
         }
+        // The window is 162 pt onto about a thousand points of rows, and it
+        // ended on a clean card edge after five switches, so Settings looked
+        // like five switches (H-003). The scroller stays hidden on purpose;
+        // the bottom edge fading while rows continue below it is the cue,
+        // the same primitive Clipboard and Shelf use.
+        .scrollEdgeFade()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // Live state, not a snapshot taken once at launch: System Settings can
         // flip Launch at Login from outside, and the folder can empty or fill
@@ -1043,6 +1090,44 @@ struct SettingsPane: View {
         .buttonStyle(PanelButtonStyle())
         .disabled(disabled)
         .opacity(disabled ? 0.4 : 1)
+    }
+}
+
+// MARK: - About
+
+/// The standard About window, brought to the front and given back.
+///
+/// `orderFrontStandardAboutPanel` alone orders the window front without
+/// activating Isla, and an app that is not active gets its windows behind
+/// the one in front, so About could open behind the app the user was in
+/// (F-048). It borrows activation the way Quick Look and AirDrop do, and
+/// returns it when the window closes.
+@MainActor
+enum AboutWindow {
+    private static let lease = ActivationLease()
+    /// The About window, once seen. AppKit keeps and reuses it, so one
+    /// observer serves every time it is opened and closed.
+    private static weak var window: NSWindow?
+    private static var closing: NSObjectProtocol?
+
+    static func show() {
+        lease.begin()
+        let before = Set(NSApp.windows.map(ObjectIdentifier.init))
+        NSApp.orderFrontStandardAboutPanel(nil)
+        guard window == nil else { return }
+        // The one window that was not there a moment ago. AppKit hands out
+        // no reference to its About panel, and being new is the one sure way
+        // to tell it from the island's own windows.
+        guard let opened = NSApp.windows.first(where: { !before.contains(ObjectIdentifier($0)) }) else {
+            return
+        }
+        window = opened
+        if let closing { NotificationCenter.default.removeObserver(closing) }
+        closing = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: opened, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { lease.end() }
+        }
     }
 }
 
