@@ -98,6 +98,196 @@ final class NowPlayingRouteTests: XCTestCase {
         media.stop()
     }
 
+    // MARK: - A helper that speaks but says nothing (G-009)
+
+    /// One torn line is not a dead helper, but five in a row is a helper
+    /// whose every record is garbage, and it used to count as healthy: any
+    /// byte refreshed the silence watchdog and an undecodable line was
+    /// dropped without a word.
+    func testFiveGarbledLinesInARowRestartTheHelper() {
+        var watch = UndecodableLineWatch()
+        for _ in 0..<4 { XCTAssertEqual(watch.record(decoded: false), .keep) }
+        XCTAssertEqual(watch.record(decoded: false), .restart, "the fifth in a row")
+
+        var torn = UndecodableLineWatch()
+        for _ in 0..<4 { _ = torn.record(decoded: false) }
+        XCTAssertEqual(torn.record(decoded: true), .keep)
+        for _ in 0..<4 {
+            XCTAssertEqual(torn.record(decoded: false), .keep, "a good line starts the count again")
+        }
+    }
+
+    /// A controller on the helper route, cut off from every real player, with
+    /// Spotify running as pid 77 and no player that may be asked.
+    private func helperRoute(clock: @escaping () -> TimeInterval) -> MediaController {
+        let media = MediaController()
+        media.isolateFromPlayers()
+        media.automationConsent = { _ in .notAsked }
+        media.musicOnly = { false }
+        media.lyricsShown = { false }
+        media.bundleIdentifierForPID = { $0 == 77 ? PlayerApp.spotify.bundleID : nil }
+        media.pidForPlayer = { $0 == .spotify ? 77 : nil }
+        media.isProcessRunning = { _ in true }
+        media.monotonicNow = clock
+        return media
+    }
+
+    private let playingSpotify: [AnyHashable: Any] = [
+        "Name": "A", "Artist": "B", "Album": "C",
+        "Duration": 200000, "Player State": "Playing", "Playback Position": 1.0,
+    ]
+
+    private var emptyRecord: NowPlayingFeed.Snapshot {
+        var snapshot = NowPlayingFeed.Snapshot()
+        snapshot.takenAt = Date()
+        return snapshot
+    }
+
+    /// What a MediaRemote closed to perl looks like: the helper stays up and
+    /// publishes records with every field blank. The island said "Nothing is
+    /// playing" over a playing Spotify, and Settings showed no problem.
+    func testAnEmptyFeedUnderAPlayingSpotifyFallsBack() {
+        var now: TimeInterval = 1_000
+        let media = helperRoute { now }
+        media.hearAnnouncement(from: .spotify, playingSpotify)
+        media.playerAnnouncedChange(.spotify)
+        for second in stride(from: 0.0, through: 12, by: 2) {
+            now = 1_000 + second
+            media.feedDelivered(emptyRecord)
+        }
+        XCTAssertEqual(media.fallbackReason?.rawValue, "reportsNothing")
+        XCTAssertEqual(media.track?.title, "A", "the fallback shows Spotify from its own announcement")
+        media.stop()
+    }
+
+    /// An idle Mac publishes nothing but empty records, and that is the truth.
+    /// Without a player saying it plays, emptiness is never a failure.
+    func testAnEmptyFeedWithNothingPlayingStaysOnTheHelper() {
+        var now: TimeInterval = 1_000
+        let media = helperRoute { now }
+        media.hearAnnouncement(from: .spotify, [
+            "Name": "A", "Artist": "B", "Album": "C", "Duration": 200000, "Player State": "Paused",
+        ])
+        for second in stride(from: 0.0, through: 60, by: 2) {
+            now = 1_000 + second
+            media.feedDelivered(emptyRecord)
+        }
+        XCTAssertNil(media.fallbackReason)
+        media.stop()
+    }
+
+    /// A real record after the announcement proves the route: a song that
+    /// stops later is just a song that stopped.
+    func testARealRecordAfterTheAnnouncementKeepsTheHelper() {
+        var now: TimeInterval = 1_000
+        let media = helperRoute { now }
+        media.hearAnnouncement(from: .spotify, playingSpotify)
+        var real = emptyRecord
+        real.title = "A"
+        real.artist = "B"
+        real.album = "C"
+        real.isPlaying = true
+        real.rate = 1
+        real.duration = 200
+        real.playerPID = 77
+        now = 1_001
+        media.feedDelivered(real)
+        for second in stride(from: 2.0, through: 30, by: 2) {
+            now = 1_000 + second
+            media.feedDelivered(emptyRecord)
+        }
+        XCTAssertNil(media.fallbackReason)
+        media.stop()
+    }
+
+    /// A controller on the fallback, showing whatever the announcements say.
+    private func onFallback() -> MediaController {
+        let media = helperRoute { 1_000 }
+        media.switchToScriptingFallback(.keptStopping)
+        return media
+    }
+
+    /// A wake retry gave the working fallback up on the helper's first
+    /// record, even an empty one from a MediaRemote still waking, and that
+    /// cleared the island over a song that was playing.
+    func testARetryKeepsTheFallbackOnAnEmptyRecordWhileItShowsASong() {
+        let media = onFallback()
+        media.fallbackHeard(.spotify, playingSpotify)
+        XCTAssertEqual(media.track?.title, "A")
+
+        media.retryNowPlaying(userAsked: true)
+        media.feedDelivered(emptyRecord)
+        XCTAssertNotNil(media.fallbackReason, "an empty record proves nothing while the fallback shows a song")
+        XCTAssertEqual(media.track?.title, "A")
+        XCTAssertTrue(media.retryingNowPlaying, "the first real record still hands over")
+
+        var real = emptyRecord
+        real.title = "A"
+        real.artist = "B"
+        real.album = "C"
+        real.isPlaying = true
+        real.rate = 1
+        real.duration = 200
+        real.playerPID = 77
+        media.feedDelivered(real)
+        XCTAssertNil(media.fallbackReason)
+        XCTAssertFalse(media.retryingNowPlaying)
+        media.stop()
+    }
+
+    /// With nothing on the fallback either, an empty record is agreement, so
+    /// Try Again still clears the reason on an idle Mac.
+    func testARetryHandsOverOnAnEmptyRecordWhenTheFallbackShowsNothing() {
+        let media = onFallback()
+        XCTAssertNil(media.track)
+        media.retryNowPlaying(userAsked: true)
+        media.feedDelivered(emptyRecord)
+        XCTAssertNil(media.fallbackReason)
+        XCTAssertFalse(media.retryingNowPlaying)
+        media.stop()
+    }
+
+    // MARK: - The restart budget (K-013)
+
+    /// One player's metadata killing the helper ten seconds after each start
+    /// used to be relaunched forever: the budget was forgiven 300 s after the
+    /// first failure, and a ten-second life with the backoff's delays spans
+    /// more than that before the ninth failure. About 2,000 perl launches a
+    /// day, a stale island for up to a minute each time, and no word.
+    func testAHelperThatDiesEveryTenSecondsFallsBack() {
+        var policy = NowPlayingFailurePolicy()
+        var now: TimeInterval = 10_000
+        var action = NowPlayingFailurePolicy.Action.restart(after: 0)
+        for _ in 0..<12 {
+            policy.recordLaunch(now: now)
+            policy.recordSuccess()
+            now += 10
+            action = policy.recordFailure(now: now)
+            guard case .restart(let delay) = action else { break }
+            now += delay
+        }
+        XCTAssertEqual(action, .fallback)
+    }
+
+    /// A helper that ran five minutes and then died is a fresh failure, not
+    /// one more in a bad streak.
+    func testAHelperThatSurvivedFiveMinutesIsForgiven() {
+        var policy = NowPlayingFailurePolicy()
+        var now: TimeInterval = 10_000
+        for _ in 0..<7 {
+            policy.recordLaunch(now: now)
+            policy.recordSuccess()
+            now += 1
+            guard case .restart(let delay) = policy.recordFailure(now: now) else {
+                return XCTFail("seven quick deaths are inside the budget")
+            }
+            now += delay
+        }
+        policy.recordLaunch(now: now)
+        now += 300
+        XCTAssertEqual(policy.recordFailure(now: now), .restart(after: 2))
+    }
+
     /// With lyrics off nothing is drawing the tenth of a second the
     /// AppleScript poll buys, so it must not run.
     func testThePrecisionPollWaitsForLyrics() {

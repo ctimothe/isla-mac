@@ -692,6 +692,7 @@ final class MediaController: ObservableObject {
         musicStateObserver = nil
         isHolding = false
         announcements = [:]
+        lastFullRecordAt = nil
         feed.stop()
         observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
         observers.removeAll()
@@ -2125,6 +2126,11 @@ final class MediaController: ObservableObject {
         guard feedAvailable else { return }
         feedAvailable = false
         fallbackReason = reason
+        // Every other reason arrives with the helper already down. This one
+        // has it up and publishing, and it is not to be listened to: its
+        // records are empty, and on the fallback they would only be dropped.
+        // A retry starts a fresh one.
+        if reason == .reportsNothing { feed.stop() }
         // The hold and the search describe the helper's view of Now Playing,
         // which this route no longer has. Left set, taps kept going to a held
         // song the fallback was no longer showing.
@@ -2180,8 +2186,17 @@ final class MediaController: ObservableObject {
 
     /// The feed's way in. The first snapshot of a retry is the proof the
     /// helper works, so the fallback goes then, and not before.
+    ///
+    /// Not any snapshot, though (G-009). The fallback used to go on the
+    /// helper's first record, empty or not, and an empty one is what a
+    /// MediaRemote still waking answers, or one closed to perl: the island
+    /// went blank over a Spotify the fallback had been showing. An empty
+    /// record is proof only when it agrees with the fallback, which then
+    /// shows nothing either; otherwise the fallback keeps working, the retry
+    /// stays open, and the first record with a song in it hands over.
     func feedDelivered(_ snapshot: NowPlayingFeed.Snapshot) {
         if retryingNowPlaying {
+            guard !snapshot.isEmpty || track == nil else { return }
             retryingNowPlaying = false
             observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
             observers.removeAll()
@@ -2189,7 +2204,49 @@ final class MediaController: ObservableObject {
             fallbackReason = nil
             Log.media.notice("Now Playing is back")
         }
+        // A record from a helper this route has already given up on describes
+        // nothing the island should show; the fallback is in charge.
+        guard feedAvailable else { return }
         receive(snapshot)
+        watchForEmptyRoute(after: snapshot)
+    }
+
+    /// When the helper last published a record with a song in it, on the
+    /// monotonic clock.
+    private var lastFullRecordAt: TimeInterval?
+
+    /// How long the helper may answer with nothing after a player said it
+    /// plays before the route counts as closed. Several of the helper's
+    /// five-second heartbeats, and long enough for MediaRemote to catch up
+    /// with a player's own announcement, which it can trail by a second.
+    static let emptyRouteLimit: TimeInterval = 10
+
+    /// Falls back when the helper keeps answering with nothing while Music
+    /// or Spotify says it is playing (G-009).
+    ///
+    /// A MediaRemote closed to perl, as 15.4 once closed it, raises no error
+    /// here: the helper stays up and publishes records with every field
+    /// blank, which is also exactly what an idle Mac publishes. So emptiness
+    /// alone proves nothing — a rule of "N empty records" would fire on every
+    /// idle Mac. What does is a scriptable player that is running and
+    /// announced it plays, after the last record that had a song in it, and
+    /// ten seconds of nothing since. The island said "Nothing is playing" over
+    /// that Spotify indefinitely, and Settings showed no problem.
+    private func watchForEmptyRoute(after snapshot: NowPlayingFeed.Snapshot) {
+        let now = monotonicNow()
+        guard snapshot.isEmpty else {
+            lastFullRecordAt = now
+            return
+        }
+        let unanswered = announcements.contains { app, heard in
+            heard.state.isPlaying
+                && heard.heardAt > (lastFullRecordAt ?? -.infinity)
+                && now - heard.heardAt >= Self.emptyRouteLimit
+                && pidForPlayer(app) != nil
+        }
+        guard unanswered else { return }
+        trace("route: only empty records for \(Int(Self.emptyRouteLimit)) s after a player announced it plays")
+        switchToScriptingFallback(.reportsNothing)
     }
 
     /// Asks the scriptable players what they hold and shows it, the way the

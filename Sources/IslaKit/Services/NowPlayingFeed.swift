@@ -19,6 +19,12 @@ enum NowPlayingRouteFailure: String, Equatable {
     /// There was nothing to run: no helper in the bundle, no /usr/bin/perl, or
     /// the process would not launch.
     case cannotStart
+    /// The helper ran and kept publishing, but only empty records, while
+    /// Music or Spotify announced it was playing (G-009). It is what a
+    /// MediaRemote closed to perl answers, as 15.4 did once: no error, every
+    /// field blank. Retried on wake like `keptStopping`, since a MediaRemote
+    /// slow to wake looks the same for a moment.
+    case reportsNothing
 
     /// One sentence for Settings, in the user's words. Each names what
     /// happened and what still works, because "Nothing is playing" while a
@@ -33,6 +39,8 @@ enum NowPlayingRouteFailure: String, Equatable {
             return localized("Isla's Now Playing reader kept stopping. Only Music and Spotify can be seen.")
         case .cannotStart:
             return localized("Isla's Now Playing reader could not start. Only Music and Spotify can be seen.")
+        case .reportsNothing:
+            return localized("Isla's Now Playing reader answered with nothing while a player was playing. Only Music and Spotify can be seen.")
         }
     }
 }
@@ -102,6 +110,9 @@ final class NowPlayingFeed {
     private var output: FileHandle?
     private var buffer = NDJSONBuffer()
     private var failurePolicy = NowPlayingFailurePolicy()
+    /// Lines from the running helper that did not decode, in a row. See
+    /// `UndecodableLineWatch`.
+    private var undecodable = UndecodableLineWatch()
     private var stopped = false
     private var terminationToken: NSObjectProtocol?
     /// Fires when the helper has gone quiet for too long.
@@ -218,12 +229,18 @@ final class NowPlayingFeed {
         Log.media.notice("helper went silent; restarting")
         // Treated exactly like a crash, so the same budget and backoff apply
         // and a helper that is reliably mute eventually hands over to scripting.
-        //
-        // The termination handler is cleared *before* terminating, or the
-        // process's own exit would call `handleTermination` a second time: two
-        // failures recorded for one event, two `launch()` calls two seconds
-        // apart, and the first perl process left running and still feeding the
-        // shared line buffer.
+        restartMisbehavingHelper()
+    }
+
+    /// Kills a helper that is running but not working, and charges it to the
+    /// restart budget as a death.
+    ///
+    /// The termination handler is cleared *before* terminating, or the
+    /// process's own exit would call `handleTermination` a second time: two
+    /// failures recorded for one event, two `launch()` calls two seconds
+    /// apart, and the first perl process left running and still feeding the
+    /// shared line buffer.
+    private func restartMisbehavingHelper() {
         let task = process
         task?.terminationHandler = nil
         process = nil
@@ -307,6 +324,8 @@ final class NowPlayingFeed {
         process = task
         input = commands.fileHandleForWriting
         self.output = outputHandle
+        failurePolicy.recordLaunch()
+        undecodable = UndecodableLineWatch()
         startWatchdog()
 
         // A tap made while the helper was restarting is honoured now rather
@@ -427,6 +446,10 @@ final class NowPlayingFeed {
         // completes a line.
         lastLineAt = ProcessInfo.processInfo.systemUptime
         for line in buffer.append(chunk) {
+            // A line can end this helper — a route closed, or the fifth bad
+            // line in a row — and the rest of the chunk is then the dead
+            // helper's, not the next one's.
+            guard epoch == self.epoch else { return }
             handle(line: line)
         }
     }
@@ -445,6 +468,16 @@ final class NowPlayingFeed {
             guard let name = NSRunningApplication(processIdentifier: pid)?.localizedName else { return nil }
             self.appNames[pid] = name
             return name
+        }
+        // A line that decodes to nothing is not a sign of life, whatever the
+        // watchdog made of its bytes. Five in a row go the way of a silent
+        // helper, so the same budget and backoff apply: a helper writing
+        // nothing but garbage restarts, and after three tries hands over to
+        // scripting instead of leaving the island blank for good.
+        if undecodable.record(decoded: event != nil) == .restart {
+            Log.media.notice("helper wrote nothing readable; restarting")
+            restartMisbehavingHelper()
+            return
         }
         switch event {
         case .unavailable:
