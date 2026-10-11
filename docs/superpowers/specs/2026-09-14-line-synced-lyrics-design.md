@@ -149,3 +149,57 @@ Tests: `LocalLyricsDocumentTests.testABareTimestampEndsTheLineBeforeIt`,
 `…testTheOutroLeavesTheLastLineShownUnswept`,
 `LyricsCoordinatorTests.testLineEndsAreBoundaries`; the lab's L6 now measures
 production's ends (needs the corpus, `Scripts/lyric-lab.sh`).
+
+## Amendment — 2026-10-11: the lead is a sum of named terms
+
+The lead was one 0.20 s constant per path. The lyric lab's L7 (2026-10-11)
+showed no constant can be right: the modelled optimum is about 0.27 s on
+built-in speakers and 0.10 s on an assumed 200 ms Bluetooth route, and the
+owner's by-ear correction sits about 0.35 s from both. So the lead is now the
+sum of what it compensates, each term re-measurable on its own
+(`LyricLeadModel`, `LyricSweep.model`):
+
+`lead = anchorLag + timerWake + frame/2 + compositor + onsetRise + anticipation − outputLatency − unmeasuredPlayerDelay`,
+and the listener's corrections come off it as before (`− userOffset − trackOffset`).
+
+- **anchorLag** 0.138 s: the 2026-09-21 probe's 0.188 s published lag less
+  the 0.05 s mean grid staleness a boundary wake does not suffer.
+- **timerWake** 0.0001 s: the strict dispatch wake's idle median (LY-07).
+- **frame/2 + compositor**: half a frame of vsync wait and one frame of
+  compositing, at 120 Hz (`referenceFrameRate`); 60 Hz when a rate is unknown.
+- **onsetRise**: the time `Theme.lyricScroll` takes to reach 50 %
+  (103.9 ms), computed by `Theme.springRiseTime` from the spring's own
+  constants. The row lights that much earlier, so the crossfade's midpoint
+  lands on the voice; the motion is unchanged, and a retuned spring moves the
+  term with it (L-09).
+- **anticipation** 0.040 s: the centre of ITU-R BT.1359-1's detectability
+  window, the lab's target.
+- **outputLatency**: CoreAudio's reported latency for the default output,
+  read by `OutputLatencyMonitor` on every default-output change while Show
+  Lyrics is on, and logged with every term under `DI_MEDIA=1`.
+- **unmeasuredPlayerDelay** 0.0672 s: a named placeholder, set so the
+  built-in route (27.3 ms reported) sums to the shipped 0.200 s. The acoustic
+  probe or the owner's S-LEAD session must replace it.
+
+**Not applied yet.** `LyricLeadModel.appliesOutputLatency` is false: the sum
+uses the built-in reference (27.3 ms) on every route, and the frame rate
+stays at 120 Hz on every display, so the lead is 0.20 s everywhere and no
+stored correction moves. Applying the live latency would shift every
+correction tuned by ear on an unrecorded route — the owner's +0.247 s, set
+for AirPods, by about 173 ms on the built-in speakers — and would count the
+output twice for a player whose reported position already includes it. The
+plan's `lyrics.leadModelVersion` migration was withdrawn for the same reason:
+it would preserve a correction's lead only on whichever route was active when
+it ran. Applying the term, wiring the island screen's refresh rate and any
+migration are a follow-up gated on S-LEAD (per player, per route).
+
+Tests: `LyricSweepTests.testTheLeadIsTheSumOfItsNamedTerms`,
+`…testTheBuiltInRouteKeepsTheShippedLead`,
+`…testTheMeasuredOutputLatencyIsNotAppliedYet`,
+`…testTheOnsetRiseIsTheLyricSpringsHalfway`,
+`…testAnUnknownFrameRateCountsAsSixtyHertz`,
+`AudioOutputsTests.testOutputLatencyArithmetic`,
+`…testTheMonitorListensOnlyWhileStarted`,
+`…testARouteChangeIsReportedOnceWhenTheLatencyMoves`,
+`LyricsCoordinatorTests.testTheOutputLatencyWatchRunsOnlyWhileLyricsAreOn`,
+`…testAReportedOutputLatencyReachesTheModelButNotTheLead`.

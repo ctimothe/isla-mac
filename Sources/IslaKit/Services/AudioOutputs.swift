@@ -146,6 +146,87 @@ enum AudioOutputs {
         }
     }
 
+    // MARK: - Output latency
+
+    /// What CoreAudio says a device adds between a sample being handed to it
+    /// and the sample leaving it, in frames, with the rate that turns frames
+    /// into time.
+    ///
+    /// Reported, not measured: it is the device's own account of itself, and
+    /// a Bluetooth headset's account covers the Mac's side of the radio link
+    /// at best. The lyric lead logs it per route so the owner's live session
+    /// can compare it with what an ear finds (`LyricLeadModel.outputLatency`).
+    struct OutputLatency: Equatable, Sendable {
+        let sampleRate: Double
+        let deviceFrames: UInt32
+        let safetyOffsetFrames: UInt32
+        let bufferFrames: UInt32
+        let streamFrames: UInt32
+
+        /// The sum the lyric lab read for L7: device latency, safety offset,
+        /// one IO buffer and the first output stream's own latency.
+        var frames: Double {
+            Double(deviceFrames) + Double(safetyOffsetFrames) + Double(bufferFrames) + Double(streamFrames)
+        }
+
+        /// Nil for a device that reports no nominal rate, which has no
+        /// latency to give rather than an infinite one.
+        var seconds: TimeInterval? {
+            sampleRate > 0 ? frames / sampleRate : nil
+        }
+    }
+
+    /// The output latency of one device, as CoreAudio reports it, or nil when
+    /// the device cannot be read at all. A property the device does not
+    /// publish counts as zero frames — most devices publish no stream
+    /// latency, and that is not a reason to know nothing.
+    static func outputLatency(of id: AudioDeviceID) -> OutputLatency? {
+        // Two concrete readers rather than one generic one: CoreAudio writes
+        // through a raw pointer, and the compiler rightly will not vouch for
+        // an arbitrary `T` there (a generic reader warns on exactly this).
+        // Every property read here is a UInt32 except the rate.
+        func frames(_ selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope,
+                    of object: AudioObjectID) -> UInt32? {
+            var result: UInt32 = 0
+            var size = UInt32(MemoryLayout<UInt32>.size)
+            var address = AudioObjectPropertyAddress(
+                mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain
+            )
+            return AudioObjectGetPropertyData(object, &address, 0, nil, &size, &result) == noErr ? result : nil
+        }
+        let output = kAudioDevicePropertyScopeOutput
+        let global = kAudioObjectPropertyScopeGlobal
+        var rate: Float64 = 0
+        var rateSize = UInt32(MemoryLayout<Float64>.size)
+        var rateAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate, mScope: global,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectGetPropertyData(id, &rateAddress, 0, nil, &rateSize, &rate) == noErr else {
+            return nil
+        }
+
+        var stream: UInt32 = 0
+        var streamsSize: UInt32 = 0
+        var streamsAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreams, mScope: output, mElement: kAudioObjectPropertyElementMain
+        )
+        if AudioObjectGetPropertyDataSize(id, &streamsAddress, 0, nil, &streamsSize) == noErr, streamsSize > 0 {
+            var streams = [AudioStreamID](repeating: 0, count: Int(streamsSize) / MemoryLayout<AudioStreamID>.size)
+            if AudioObjectGetPropertyData(id, &streamsAddress, 0, nil, &streamsSize, &streams) == noErr,
+               let first = streams.first {
+                stream = frames(kAudioStreamPropertyLatency, scope: global, of: first) ?? 0
+            }
+        }
+        return OutputLatency(
+            sampleRate: rate,
+            deviceFrames: frames(kAudioDevicePropertyLatency, scope: output, of: id) ?? 0,
+            safetyOffsetFrames: frames(kAudioDevicePropertySafetyOffset, scope: output, of: id) ?? 0,
+            bufferFrames: frames(kAudioDevicePropertyBufferFrameSize, scope: global, of: id) ?? 0,
+            streamFrames: stream
+        )
+    }
+
     // MARK: - One device
 
     /// What the device says it is, when it says so. Absent on most things that
@@ -200,7 +281,7 @@ enum AudioOutputs {
         return string.isEmpty ? nil : string
     }
 
-    private static func transport(of id: AudioDeviceID) -> UInt32 {
+    static func transport(of id: AudioDeviceID) -> UInt32 {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyTransportType,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -448,5 +529,132 @@ final class AudioWatch: ObservableObject {
         // follows the default, and the default can disappear under it.
         AudioObjectRemovePropertyListenerBlock(device, &address, DispatchQueue.main, block)
         volumeListener = nil
+    }
+}
+
+/// Re-reads the default output's latency whenever the route moves, for the
+/// lyric lead.
+///
+/// The lyric lab (L7) found that no single lead fits every route: the
+/// shipped 0.20 s is tuned for built-in speakers, which CoreAudio reports at
+/// about 27 ms, while an assumed 200 ms Bluetooth route wants lines shown
+/// that much later. The lead's `outputLatency` term is the route's share,
+/// and this is where it comes from. It is read on the default-output change
+/// only — the moment AirPods connect or the listener picks another device —
+/// and published to `onChange` only when the number moved, because CoreAudio
+/// sends a burst of notifications for one physical change and each report
+/// re-arms the lyric wakes.
+///
+/// Owned by `LyricsCoordinator` and started only while Show Lyrics is on: a
+/// listener who never turned lyrics on never has a CoreAudio listener
+/// installed for them. The machine is injected the way `AudioWatch`'s is, so
+/// every behaviour above is held by a test without a sound card; the glue at
+/// the foot is the one deliberately untested layer and holds no decisions.
+@MainActor
+final class OutputLatencyMonitor {
+    /// The default output's latency in seconds, or nil when no device
+    /// answers. Nil too before the first start.
+    private(set) var latency: TimeInterval?
+    private(set) var isRunning = false
+    /// Called with every reading that differs from the last one, the first
+    /// reading included.
+    var onChange: ((TimeInterval?) -> Void)?
+
+    typealias Read = () -> TimeInterval?
+    private let read: Read
+    private var installListener: () -> Void
+    private var removeListener: () -> Void
+    private var hasReported = false
+
+    init(
+        read: Read? = nil,
+        installListener: (() -> Void)? = nil,
+        removeListener: (() -> Void)? = nil
+    ) {
+        self.read = read ?? {
+            AudioOutputs.current().flatMap { AudioOutputs.outputLatency(of: $0)?.seconds }
+        }
+        self.installListener = installListener ?? {}
+        self.removeListener = removeListener ?? {}
+        if installListener == nil {
+            self.installListener = { [weak self] in self?.installCoreAudioListener() }
+        }
+        if removeListener == nil {
+            self.removeListener = { [weak self] in self?.removeCoreAudioListener() }
+        }
+    }
+
+    func start() {
+        guard !isRunning else { return }
+        isRunning = true
+        installListener()
+        refresh()
+    }
+
+    func stop() {
+        guard isRunning else { return }
+        isRunning = false
+        removeListener()
+    }
+
+    /// The entry the CoreAudio listener calls, and the tests in its place.
+    /// A stopped watch has removed its listener and ignores a straggler.
+    func defaultOutputChanged() {
+        guard isRunning else { return }
+        refresh()
+    }
+
+    private func refresh() {
+        let fresh = read()
+        guard !hasReported || fresh != latency else { return }
+        hasReported = true
+        latency = fresh
+        onChange?(fresh)
+    }
+
+    deinit {
+        // A safety net, as in `AudioWatch`: the coordinator stops the watch,
+        // and this only catches one released while still running.
+        if let block = listener { Self.removeSystemListener(block) }
+    }
+
+    // MARK: - CoreAudio glue (deliberately untested)
+
+    // `nonisolated(unsafe)` for the same reason as `AudioWatch`'s: written on
+    // the main actor in life, read from `deinit` wherever the last reference
+    // died, and the removal call itself is thread-safe.
+    nonisolated(unsafe) private var listener: AudioObjectPropertyListenerBlock?
+
+    private nonisolated static var defaultOutputAddress: AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+    }
+
+    private func installCoreAudioListener() {
+        guard listener == nil else { return }
+        var address = Self.defaultOutputAddress
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.defaultOutputChanged() }
+        }
+        listener = block
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, block
+        )
+    }
+
+    private func removeCoreAudioListener() {
+        guard let block = listener else { return }
+        Self.removeSystemListener(block)
+        listener = nil
+    }
+
+    private nonisolated static func removeSystemListener(_ block: @escaping AudioObjectPropertyListenerBlock) {
+        var address = defaultOutputAddress
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, block
+        )
     }
 }

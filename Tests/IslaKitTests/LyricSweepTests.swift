@@ -253,4 +253,90 @@ final class LyricSweepTests: XCTestCase {
             FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         ))
     }
+
+    // MARK: - The lead as a sum of named terms
+
+    /// The lead used to be one 0.20 s constant, and no constant fits both a
+    /// built-in route and a Bluetooth one (lyric lab L7). It is now the sum of
+    /// the terms the lab named, each of which can be re-measured on its own;
+    /// the two corrections still come off it exactly as before.
+    func testTheLeadIsTheSumOfItsNamedTerms() {
+        let saved = LyricSweep.model
+        defer { LyricSweep.model = saved }
+        let rise = Theme.springRiseTime(
+            response: Theme.lyricScrollResponse, damping: Theme.lyricScrollDamping, level: 0.5
+        )
+        LyricSweep.model = LyricLeadModel(
+            anchorLag: 0.138, timerWake: 0.0001, frameRate: 120, onsetRise: rise,
+            anticipation: 0.040, outputLatency: 0.0273, unmeasuredPlayerDelay: 0.05
+        )
+        let hand = 0.138 + 0.0001 + 0.5 / 120 + 1.0 / 120 + rise + 0.040 - 0.0273 - 0.05
+
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), hand, accuracy: 1e-9)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: true, userOffset: 0), hand, accuracy: 1e-9)
+        XCTAssertEqual(
+            LyricSweep.lead(precisionSync: false, userOffset: 0.247, trackOffset: 0.1),
+            hand - 0.347, accuracy: 1e-9,
+            "both corrections are delays and come off the summed lead"
+        )
+    }
+
+    /// The model is calibrated so that the built-in route at 120 Hz — the
+    /// one the shipped 0.20 s was tuned on — keeps exactly that lead.
+    func testTheBuiltInRouteKeepsTheShippedLead() {
+        let model = LyricLeadModel.calibrated
+        XCTAssertEqual(model.frameRate, 120)
+        XCTAssertEqual(model.outputLatency, 0.0273, accuracy: 1e-9)
+        XCTAssertEqual(model.lead, 0.200, accuracy: 0.001)
+        XCTAssertEqual(model.lead, LyricLeadModel.calibrationLead, accuracy: 1e-9, "exactly, not nearly")
+        XCTAssertEqual(
+            model.unmeasuredPlayerDelay, 0.0672, accuracy: 0.0001,
+            "the placeholder is the plan's ~67 ms; a large move here means a term changed under it"
+        )
+        XCTAssertEqual(LyricSweep.model, model, "the shipped clock starts on the calibrated model")
+        XCTAssertEqual(LyricSweep.standardLead, model.lead, accuracy: 1e-12)
+        XCTAssertEqual(LyricSweep.precisionLead, model.lead, accuracy: 1e-12)
+    }
+
+    /// The reported output latency is measured and logged but not yet part of
+    /// the sum. Applied, it would move every stored correction tuned on one
+    /// route by the difference to another (173 ms between built-in speakers
+    /// and AirPods), and a player that already compensates for it would count
+    /// it twice. So on every route the lead stays today's.
+    func testTheMeasuredOutputLatencyIsNotAppliedYet() {
+        XCTAssertFalse(LyricLeadModel.appliesOutputLatency)
+        var model = LyricLeadModel.calibrated
+        let builtIn = model.lead
+        for reported in [0, 0.020, 0.0273, 0.200, 0.350] {
+            model.outputLatency = reported
+            XCTAssertEqual(model.lead, builtIn, accuracy: 1e-12, "reported \(reported) s moved the lead")
+        }
+    }
+
+    /// The onset crossfade is the largest render term (L-09): `LyricRow`
+    /// lights a line on `Theme.lyricScroll`, which is half-way there about
+    /// 104 ms after the line is due. The lab's numbers, from the same spring.
+    func testTheOnsetRiseIsTheLyricSpringsHalfway() {
+        let response = Theme.lyricScrollResponse, damping = Theme.lyricScrollDamping
+        XCTAssertEqual(Theme.springRiseTime(response: 0.42, damping: 0.86, level: 0.1), 0.0347, accuracy: 0.0005)
+        XCTAssertEqual(Theme.springRiseTime(response: 0.42, damping: 0.86, level: 0.5), 0.1039, accuracy: 0.0005)
+        XCTAssertEqual(Theme.springRiseTime(response: 0.42, damping: 0.86, level: 0.9), 0.2158, accuracy: 0.0005)
+        // Critically damped, the same response is slower to its midpoint —
+        // the 8 ms the model absorbs if the spring's damping ever changes.
+        XCTAssertEqual(Theme.springRiseTime(response: 0.42, damping: 1, level: 0.5), 0.1122, accuracy: 0.0005)
+        XCTAssertEqual(
+            LyricLeadModel.calibrated.onsetRise,
+            Theme.springRiseTime(response: response, damping: damping, level: 0.5),
+            accuracy: 1e-12, "the rise is read from Theme, so a spring change moves it"
+        )
+    }
+
+    /// An island screen whose refresh rate is unknown is counted as 60 Hz,
+    /// the slower and therefore safer guess for how long a frame waits.
+    func testAnUnknownFrameRateCountsAsSixtyHertz() {
+        var model = LyricLeadModel.calibrated
+        model.frameRate = 0
+        XCTAssertEqual(model.frameHalf, 0.5 / 60, accuracy: 1e-12)
+        XCTAssertEqual(model.compositor, 1.0 / 60, accuracy: 1e-12)
+    }
 }

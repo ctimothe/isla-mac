@@ -658,6 +658,70 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.availability, .disabled)
     }
 
+    /// The output-latency listener is a lyrics concern: it runs while Show
+    /// Lyrics is on and nowhere else, so a listener who never turned lyrics
+    /// on never has a CoreAudio listener installed on their behalf.
+    func testTheOutputLatencyWatchRunsOnlyWhileLyricsAreOn() {
+        let saved = LyricSweep.model
+        defer { LyricSweep.model = saved }
+        var enabled = false
+        var installs = 0, removals = 0
+        let monitor = OutputLatencyMonitor(
+            read: { 0.0273 }, installListener: { installs += 1 }, removeListener: { removals += 1 }
+        )
+        let coordinator = LyricsCoordinator(
+            media: MediaController(), library: LocalLyricsLibrary(directory: root),
+            isEnabled: { enabled }, outputLatency: monitor
+        )
+        coordinator.start()
+        XCTAssertEqual(installs, 0, "lyrics are off: nothing to listen for")
+
+        enabled = true
+        coordinator.refreshVisibility()
+        XCTAssertEqual(installs, 1)
+        XCTAssertTrue(monitor.isRunning)
+
+        enabled = false
+        coordinator.refreshVisibility()
+        XCTAssertEqual(removals, 1)
+        XCTAssertFalse(monitor.isRunning)
+
+        enabled = true
+        coordinator.refreshVisibility()
+        coordinator.stop()
+        XCTAssertEqual(removals, 2, "stopping the coordinator takes the listener with it")
+    }
+
+    /// A route's reported latency reaches the lead model, where the DI_MEDIA
+    /// trail can show it — and, until the owner's live session says how each
+    /// player treats it, leaves the lead exactly where it was.
+    func testAReportedOutputLatencyReachesTheModelButNotTheLead() {
+        let saved = LyricSweep.model
+        defer { LyricSweep.model = saved }
+        var route: TimeInterval? = 0.0273
+        let monitor = OutputLatencyMonitor(read: { route }, installListener: {}, removeListener: {})
+        let coordinator = LyricsCoordinator(
+            media: MediaController(), library: LocalLyricsLibrary(directory: root),
+            isEnabled: { true }, outputLatency: monitor
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        let before = LyricSweep.lead(precisionSync: false, userOffset: 0)
+
+        route = 0.200
+        monitor.defaultOutputChanged()
+
+        XCTAssertEqual(LyricSweep.model.outputLatency, 0.200, accuracy: 1e-12)
+        XCTAssertEqual(LyricSweep.lead(precisionSync: false, userOffset: 0), before, accuracy: 1e-12)
+
+        route = nil
+        monitor.defaultOutputChanged()
+        XCTAssertEqual(
+            LyricSweep.model.outputLatency, LyricLeadModel.referenceOutputLatency, accuracy: 1e-12,
+            "an unknown route falls back to the reference the model was calibrated on"
+        )
+    }
+
     private func playingSnapshot() -> NowPlayingFeed.Snapshot {
         var snapshot = NowPlayingFeed.Snapshot()
         snapshot.title = "Song"
