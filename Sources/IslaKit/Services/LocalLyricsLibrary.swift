@@ -221,6 +221,7 @@ final class LocalLyricsLibrary: ObservableObject {
         state.documents.removeAll { $0.origin == .referencedFolder && $0.path.hasPrefix(path + "/") }
         records = records.filter { $0.value.stored.origin != .referencedFolder || !$0.value.stored.path.hasPrefix(path + "/") }
         state.issues.removeAll { $0.path.hasPrefix(path + "/") }
+        pruneDanglingBindings()
         persist()
         advanceRevision()
         if watching { installFolderWatchers() }
@@ -240,7 +241,10 @@ final class LocalLyricsLibrary: ObservableObject {
         )
         let imports = state.documents.filter { $0.origin == .imported }
         var references: [StoredDocument] = []
-        var issues: [StoredIssue] = []
+        // An import's issue is found by `reloadImportedRecords`, not by a
+        // walk of the folders, so a rescan keeps it: replacing the list
+        // wholesale would forget why a bound import cannot be shown.
+        var issues = state.issues.filter { $0.path.hasPrefix(importsDirectory.path + "/") }
         // Every path this scan has indexed. A folder inside another one the
         // library reads is walked twice — on its own, and as part of its
         // parent — and each walk used to index every file again: one already
@@ -294,10 +298,21 @@ final class LocalLyricsLibrary: ObservableObject {
                     )
                     references.append(stored)
                     records[stored.id] = Record(stored: stored, document: document)
-                } catch is LocalLyricsDocument.Error {
-                    issues.append(StoredIssue(path: path, issue: .malformed))
                 } catch {
-                    issues.append(StoredIssue(path: path, issue: .unreadable))
+                    issues.append(StoredIssue(
+                        path: path, issue: error is LocalLyricsDocument.Error ? .malformed : .unreadable
+                    ))
+                    // A file the library already knew keeps its id while it
+                    // is broken — saved half-edited from a text editor, or
+                    // briefly unreadable. It used to leave the index, so its
+                    // binding dangled and the fixed file came back under a
+                    // new id nothing was bound to. Kept without a record, the
+                    // binding answers `.malformed` until the file is fixed
+                    // and then finds the same document again.
+                    if let id = existingIDs[path] {
+                        references.append(StoredDocument(id: id, origin: .referencedFolder, path: path))
+                        records.removeValue(forKey: id)
+                    }
                 }
             }
         }
@@ -306,12 +321,13 @@ final class LocalLyricsLibrary: ObservableObject {
         records = records.filter { $0.value.stored.origin == .imported || surviving.contains($0.key) }
         state.documents = imports + references
         state.issues = issues
+        let pruned = pruneDanglingBindings()
         // Only news is announced. Every folder-watcher event lands here — any
         // file added, renamed or removed at a folder's top level, `.lrc` or
         // not — and each one rewrote the index and advanced the revision,
         // which sends the track on screen back through resolution and can
         // cancel and re-send its online lookup.
-        guard state.documents != previousDocuments || state.issues != previousIssues
+        guard pruned || state.documents != previousDocuments || state.issues != previousIssues
                 || records.mapValues(\.document) != previousContent else { return }
         persist()
         advanceRevision()
@@ -319,9 +335,26 @@ final class LocalLyricsLibrary: ObservableObject {
 
     func lookup(identity: LocalTrackIdentity) -> LocalLyricsLookup {
         onLookup(identity)
-        if let id = state.bindings[identityKey(identity)] {
+        let key = identityKey(identity)
+        if let id = state.bindings[key] {
             if let record = records[id] { return .ready(record.candidate) }
-            return .invalid(.unreadable)
+            // Still in the index with nothing to show: a folder not reachable
+            // right now, or a file that cannot be read or parsed. That is
+            // said honestly and the binding is kept — a disk plugged back in,
+            // or a file fixed, finds the same id again.
+            if let stored = state.documents.first(where: { $0.id == id }) {
+                let path = location(of: stored)
+                return .invalid(state.issues.first { $0.path == path }?.issue ?? .unreadable)
+            }
+            // Bound to a document the library no longer has at all. This
+            // used to answer `.invalid(.unreadable)` on every play — "No
+            // lyrics for this track." for good, and LRCLIB, asked only on
+            // `.noMatch`, never asked. The binding goes and matching carries
+            // on. Rescans prune these as they happen; this catches an index
+            // saved before they did. Saved without advancing the revision,
+            // which would send the track straight back through this lookup.
+            state.bindings.removeValue(forKey: key)
+            persist()
         }
 
         let candidates = records.values.map(\.candidate).filter { candidate in
@@ -363,6 +396,14 @@ final class LocalLyricsLibrary: ObservableObject {
         advanceRevision()
     }
 
+    /// Whether this track is bound to a document the library still holds,
+    /// readable or not. It is what offers Remove Local Binding, so a binding
+    /// to a broken file can still be removed from the page that shows it.
+    func hasBinding(for identity: LocalTrackIdentity) -> Bool {
+        guard let id = state.bindings[identityKey(identity)] else { return false }
+        return state.documents.contains { $0.id == id }
+    }
+
     func removeBinding(for identity: LocalTrackIdentity) {
         state.bindings.removeValue(forKey: identityKey(identity))
         persist()
@@ -374,12 +415,14 @@ final class LocalLyricsLibrary: ObservableObject {
     func clearImportedDocuments() {
         let imported = state.documents.filter { $0.origin == .imported }
         let importedIDs = Set(imported.map(\.id))
-        for document in imported where document.path.hasPrefix(importsDirectory.path + "/") {
-            try? fileManager.removeItem(atPath: document.path)
+        // Only ever a file inside `imports/`: the path is rebuilt from the
+        // file name there, never taken from the index as saved.
+        for document in imported {
+            try? fileManager.removeItem(atPath: importPath(for: document))
         }
         state.documents.removeAll { $0.origin == .imported }
         records = records.filter { !importedIDs.contains($0.key) }
-        state.bindings = state.bindings.filter { !importedIDs.contains($0.value) }
+        pruneDanglingBindings()
         state.issues.removeAll { $0.path.hasPrefix(importsDirectory.path + "/") }
         state.unassignedImports.removeAll {
             importedIDs.contains($0.id) || $0.path.hasPrefix(importsDirectory.path + "/")
@@ -507,16 +550,64 @@ final class LocalLyricsLibrary: ObservableObject {
         }
     }
 
+    /// Reads every import back as the library opens.
+    ///
+    /// An import that could not be read or parsed used to be skipped here,
+    /// and the next save wrote the index without it: the file stayed in
+    /// `imports/`, its binding pointed at nothing, and the song said "No
+    /// lyrics for this track." with no message. It keeps its place now, with
+    /// an issue that says why it cannot be shown.
     private func reloadImportedRecords() {
         var imported: [StoredDocument] = []
+        var issues: [StoredIssue] = []
         for stored in state.documents where stored.origin == .imported {
-            guard let raw = try? String(contentsOfFile: stored.path, encoding: .utf8),
-                  let document = try? LocalLyricsDocument.parse(raw)
-            else { continue }
-            imported.append(stored)
-            records[stored.id] = Record(stored: stored, document: document)
+            let current = StoredDocument(id: stored.id, origin: .imported, path: importPath(for: stored))
+            imported.append(current)
+            do {
+                let raw = try String(contentsOfFile: current.path, encoding: .utf8)
+                records[stored.id] = Record(stored: current, document: try LocalLyricsDocument.parse(raw))
+            } catch {
+                issues.append(StoredIssue(
+                    path: current.path, issue: error is LocalLyricsDocument.Error ? .malformed : .unreadable
+                ))
+            }
         }
+        let locations = Set(imported.map(\.path))
+        state.issues.removeAll { locations.contains($0.path) }
+        state.issues += issues
         state.documents = imported + state.documents.filter { $0.origin == .referencedFolder }
+    }
+
+    /// Where an import is today: its file name inside this library's own
+    /// `imports/` folder, whatever absolute path the index was saved with.
+    ///
+    /// Imports used to be read from that saved path, which names the home
+    /// folder. Renaming the account, or a Migration Assistant restore under
+    /// another user name, moved Application Support out from under every one
+    /// of them, and every import and saved edit was lost at the next launch.
+    /// Resolving by name needs no migration — an index from any build reads
+    /// the same way — and the path is still saved in full, so a build from
+    /// before this one can read the index too.
+    private func importPath(for stored: StoredDocument) -> String {
+        importsDirectory.appendingPathComponent(URL(fileURLWithPath: stored.path).lastPathComponent).path
+    }
+
+    private func location(of stored: StoredDocument) -> String {
+        stored.origin == .imported ? importPath(for: stored) : stored.path
+    }
+
+    /// Drops every binding to a document that has left the index — a file
+    /// deleted from a folder, a folder removed, imports cleared. Each used to
+    /// leave its song on `.invalid(.unreadable)` for good. A document still
+    /// indexed but unreachable keeps its binding: a disk plugged back in must
+    /// find its songs bound as they were.
+    @discardableResult
+    private func pruneDanglingBindings() -> Bool {
+        let known = Set(state.documents.map(\.id))
+        let kept = state.bindings.filter { known.contains($0.value) }
+        guard kept.count != state.bindings.count else { return false }
+        state.bindings = kept
+        return true
     }
 
     private static func legacyIdentity(for document: LocalLyricsDocument) -> LocalTrackIdentity? {

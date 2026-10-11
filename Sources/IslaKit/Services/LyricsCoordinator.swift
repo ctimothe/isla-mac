@@ -244,25 +244,34 @@ final class LyricsCoordinator: ObservableObject {
     func importLocalFile(at url: URL) throws {
         guard let currentIdentity else { return }
         _ = try library.importDocument(at: url, binding: currentIdentity)
-        markLocalOverride()
+        syncLocalOverride()
     }
 
     func selectLocalCandidate(_ candidate: LocalLyricsCandidate) {
         guard let currentIdentity else { return }
         library.bind(candidate, to: currentIdentity)
-        markLocalOverride()
+        syncLocalOverride()
     }
 
     func removeLocalBinding() {
         guard let currentIdentity else { return }
         library.removeBinding(for: currentIdentity)
-        hasLocalOverride = false
-        presentation?.presentLocalOverride(false)
+        syncLocalOverride()
     }
 
-    private func markLocalOverride() {
-        hasLocalOverride = true
-        presentation?.presentLocalOverride(true)
+    /// Reads whether the track on screen is bound from the library itself.
+    ///
+    /// Remove Local Binding is drawn from this flag, and it used to be a
+    /// session's memory: set by an import or a choice made since launch,
+    /// cleared by every track change. Skip away and back, or relaunch, and a
+    /// song still bound to its file had no way to unbind it from the page —
+    /// only Settings' Clear Bindings and Timing Corrections, which takes every
+    /// binding with it.
+    /// The saved binding is the truth, so it is asked on every resolve.
+    private func syncLocalOverride() {
+        let bound = currentIdentity.map { library.hasBinding(for: $0) } ?? false
+        if hasLocalOverride != bound { hasLocalOverride = bound }
+        if presentation?.hasLocalOverride != bound { presentation?.presentLocalOverride(bound) }
     }
 
     private func reconcileTrack(
@@ -327,8 +336,6 @@ final class LyricsCoordinator: ObservableObject {
             recordingID: nil
         )
         if let currentIdentity { presentation?.activateTrackOffset(for: currentIdentity) }
-        hasLocalOverride = false
-        presentation?.presentLocalOverride(false)
         resolveCurrentTrack()
     }
 
@@ -393,6 +400,8 @@ final class LyricsCoordinator: ObservableObject {
         localLookup = nil
         publishAvailability()
         localLookup = library.lookup(identity: identity)
+        // After the lookup, which prunes a binding whose document is gone.
+        syncLocalOverride()
         publishAvailability()
         lookUpOnlineIfNeeded(for: identity)
     }

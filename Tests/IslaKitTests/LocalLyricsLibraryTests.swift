@@ -262,6 +262,147 @@ final class LocalLyricsLibraryTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent(first)), original)
     }
 
+    /// A binding whose file is gone used to answer `.invalid(.unreadable)`
+    /// forever: the song said "No lyrics for this track." on every play, the
+    /// online path (which runs only on `.noMatch`) was never asked, and the
+    /// only way out was clearing every binding at once. The binding is pruned
+    /// with its document now, so the song is matched as if it had never been
+    /// bound — and the index on disk forgets it too.
+    func testABindingWhoseFileIsGoneFallsBackToMatching() throws {
+        let folder = try makeFolder(named: "Library")
+        let file = try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: folder.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        guard case .ready(let candidate) = library.lookup(identity: identity()) else {
+            return XCTFail("the fixture: the folder's document resolves")
+        }
+        // Bound to a track its tags do not describe, so only the binding finds it.
+        let bound = identity(title: "Renamed", duration: 240)
+        library.bind(candidate, to: bound)
+        XCTAssertTrue(library.hasBinding(for: bound))
+
+        try fileManager.removeItem(at: file)
+        try library.rescanFolders()
+
+        XCTAssertEqual(library.lookup(identity: bound), .noMatch, "matching continues, so LRCLIB can answer")
+        XCTAssertFalse(library.hasBinding(for: bound), "nothing is left to remove")
+        let index = root.appendingPathComponent("lyrics-local/index.json")
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: index)) as? [String: Any]
+        )
+        XCTAssertEqual((json["bindings"] as? [String: Any])?.count, 0, "the dangling binding is not saved")
+    }
+
+    /// Removing the folder a bound file came from prunes the binding the same
+    /// way, and so does clearing the imports a binding pointed at.
+    func testRemovingTheFolderOrTheImportsPrunesTheirBindings() throws {
+        let folder = try makeFolder(named: "Library")
+        try write(
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
+            to: folder.appendingPathComponent("song.lrc")
+        )
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        guard case .ready(let candidate) = library.lookup(identity: identity()) else {
+            return XCTFail("the fixture: the folder's document resolves")
+        }
+        let fromFolder = identity(title: "Renamed", duration: 240)
+        library.bind(candidate, to: fromFolder)
+        let fromImport = identity(title: "Other", duration: 200)
+        _ = try library.importDocument(liveLRC, binding: fromImport)
+
+        library.removeFolder(folder)
+        XCTAssertFalse(library.hasBinding(for: fromFolder))
+        XCTAssertEqual(library.lookup(identity: fromFolder), .noMatch)
+
+        library.clearImportedDocuments()
+        XCTAssertFalse(library.hasBinding(for: fromImport))
+        XCTAssertEqual(library.lookup(identity: fromImport), .noMatch)
+    }
+
+    /// Imports used to be found by the absolute path they were written to, so
+    /// a renamed account or a Migration Assistant restore under another user
+    /// name lost every import and every edit, and their songs said "No lyrics
+    /// for this track." with no message. An import is found by its file name
+    /// inside the imports folder now, wherever that folder has gone.
+    func testImportsSurviveAMovedSupportFolder() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let bound = identity(title: "Renamed", duration: 240)
+        let imported = try library.importDocument(liveLRC, binding: bound)
+
+        let moved = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? fileManager.removeItem(at: moved) }
+        try fileManager.copyItem(at: root, to: moved)
+        // The old home is gone, as it is after a rename or a restore.
+        try fileManager.removeItem(at: root.appendingPathComponent("lyrics-local"))
+
+        let relaunched = LocalLyricsLibrary(directory: moved)
+        guard case .ready(let candidate) = relaunched.lookup(identity: bound) else {
+            return XCTFail("the import is found where the support folder is now")
+        }
+        XCTAssertEqual(candidate.id, imported.id)
+        XCTAssertEqual(candidate.timeline.lines.first?.text, "Live")
+        XCTAssertTrue(relaunched.hasBinding(for: bound))
+    }
+
+    /// An import a later build cannot parse — a hand edit, a stricter parser —
+    /// used to be dropped from the index at launch and gone at the next save,
+    /// its binding left pointing at nothing. It keeps its place now and says
+    /// what is wrong with it, so the binding answers honestly and can still
+    /// be removed.
+    func testAnUnparseableImportKeepsItsPlaceAndItsBinding() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let bound = identity(title: "Renamed", duration: 240)
+        let imported = try library.importDocument(liveLRC, binding: bound)
+        try write(
+            "not lyrics at all",
+            to: root.appendingPathComponent("lyrics-local/imports/\(imported.id.uuidString).lrc")
+        )
+
+        let relaunched = LocalLyricsLibrary(directory: root)
+        XCTAssertEqual(relaunched.lookup(identity: bound), .invalid(.malformed))
+        XCTAssertTrue(relaunched.hasBinding(for: bound), "the binding is still there to remove")
+        // Anything that saves the index must keep the import in it.
+        try relaunched.addFolder(try makeFolder(named: "Empty"))
+        let index = root.appendingPathComponent("lyrics-local/index.json")
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: index)) as? [String: Any]
+        )
+        let ids = (json["documents"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+        XCTAssertTrue(ids.contains(imported.id.uuidString), "the import keeps its place in the index")
+    }
+
+    /// A bound folder file that stops parsing — saved half-edited in a text
+    /// editor — keeps its id while it is broken, so the binding answers
+    /// `.malformed` and finds the same document once the file is fixed.
+    func testABrokenFolderFileKeepsItsBindingUntilItIsFixed() throws {
+        let folder = try makeFolder(named: "Library")
+        let good = "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First"
+        let file = try write(good, to: folder.appendingPathComponent("song.lrc"))
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        guard case .ready(let candidate) = library.lookup(identity: identity()) else {
+            return XCTFail("the fixture: the folder's document resolves")
+        }
+        let bound = identity(title: "Renamed", duration: 240)
+        library.bind(candidate, to: bound)
+
+        try write("not lyrics at all", to: file)
+        try library.rescanFolders()
+        XCTAssertEqual(library.lookup(identity: bound), .invalid(.malformed))
+        XCTAssertTrue(library.hasBinding(for: bound))
+
+        try write(good, to: file)
+        try library.rescanFolders()
+        guard case .ready(let fixed) = library.lookup(identity: bound) else {
+            return XCTFail("the fixed file answers the binding again")
+        }
+        XCTAssertEqual(fixed.id, candidate.id)
+    }
+
     func testAmbiguousLookupUsesAnExplicitChooseCaption() {
         let caption = LyricsPresentation.compactCaption(
             for: .noLocalLyrics,
