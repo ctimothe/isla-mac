@@ -1084,8 +1084,13 @@ final class NotchController {
         // well as the latch, so a release the panel never heard cannot leave
         // an invisible click-eating rect behind.
         pointer.isDragging = { [weak root, weak panel] in
-            (root?.isReceivingDrag ?? false) || ShelfDragSource.isDraggingOut || MenuTracking.shared.isOpen
-                || (panel?.pressIsHeld() ?? false)
+            Self.holdsOpen(
+                receivingDrag: root?.isReceivingDrag ?? false,
+                draggingOut: ShelfDragSource.isDraggingOut,
+                menuOpen: MenuTracking.shared.isOpen,
+                pressHeld: panel?.pressIsHeld() ?? false,
+                sheetAttached: panel?.attachedSheet != nil
+            )
         }
         // A menu held the panel open while it tracked; once it closes, the row
         // that was chosen may have hung below the panel, so the pointer is
@@ -1582,6 +1587,21 @@ final class NotchController {
     ) -> Bool {
         switchOn && !isOpen && !isDropTargeted && !isLocked
             && !pointerInside && !pointerUnderGrownPill && !screensAsleep
+    }
+
+    /// Whether the pointer watcher must treat the panel as held, with the
+    /// pointer off it: what `pointer.isDragging` answers. Pure, so each reason
+    /// is a test.
+    ///
+    /// - An attached sheet holds it (G-012). The Edit Lyrics sheet is taller
+    ///   than the panel's body and hangs below it, so moving down to its lower
+    ///   fields left the hover rect and folded the panel 0.32 s later, and the
+    ///   sheet and its unsaved edits went with it. A sheet is modal: while it
+    ///   is up, the panel is where the person is working.
+    nonisolated static func holdsOpen(
+        receivingDrag: Bool, draggingOut: Bool, menuOpen: Bool, pressHeld: Bool, sheetAttached: Bool
+    ) -> Bool {
+        receivingDrag || draggingOut || menuOpen || pressHeld || sheetAttached
     }
 
     /// Ends a charger or headphones moment at once. For a lock, a dark
