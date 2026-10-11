@@ -123,6 +123,91 @@ final class ContrastRampTests: XCTestCase {
         }
     }
 
+    // MARK: - Lyric context lines (owner decision 9, F-051)
+
+    /// Every lyric line the voice is not in still reads as text.
+    ///
+    /// The floor sat at white 0.28 (2.27:1 over black) and the neighbour at
+    /// 0.34 (2.89:1): under WCAG's 3:1 even for the large type a lyric is set
+    /// in, by a documented preference for depth over contrast. Depth survives
+    /// as steps rather than as a line nobody can read — floor, neighbour, the
+    /// sung line's unsung words, the sung words — and each step is held here.
+    func testLyricContextClearsThreeToOne() {
+        let base = LyricRow.Ramp.panel(increaseContrast: false)
+        XCTAssertGreaterThanOrEqual(ratioOverBlack(whiteOpacity: base.floor), 3.0, "the far floor")
+        XCTAssertGreaterThanOrEqual(ratioOverBlack(whiteOpacity: base.neighbour), 3.9, "the neighbour")
+        let raised = LyricRow.Ramp.panel(increaseContrast: true)
+        XCTAssertGreaterThanOrEqual(raised.floor, base.floor, "Increase Contrast never lowers the floor")
+        XCTAssertGreaterThanOrEqual(raised.neighbour, base.neighbour)
+        for ramp in [base, raised] {
+            XCTAssertGreaterThan(ramp.neighbour, ramp.floor, "depth: the near line above the far ones")
+            XCTAssertLessThan(ramp.neighbour, ramp.unswept, "the sung line is never the dimmer one")
+            XCTAssertLessThan(ramp.reading, ramp.unswept, "not even while the reader scrolls")
+        }
+        // The statics the rest of the app already reads are the ramp, not a
+        // second set of numbers that could drift from it.
+        for contrast in [false, true] {
+            let ramp = LyricRow.Ramp.panel(increaseContrast: contrast)
+            XCTAssertEqual(LyricRow.falloffFloor(increaseContrast: contrast), ramp.floor)
+            XCTAssertEqual(LyricRow.neighbourOpacity(increaseContrast: contrast), ramp.neighbour)
+            XCTAssertEqual(LyricRow.readingOpacity(increaseContrast: contrast), ramp.reading)
+        }
+    }
+
+    /// The lock card's lyrics read over the palest cover the card can carry.
+    ///
+    /// The card drew the panel's falloff — greys tuned against black — over
+    /// a cover-lit backdrop, and in the visual lab's light renders the context
+    /// lines dissolved into the cover. Measured against the backdrop
+    /// `LockCardLegibility` solves for a white cover, in both styles the cover
+    /// lights, the floor holds 3:1 and the neighbour AA.
+    func testCardLyricsHoldOverTheBrightestCover() {
+        for style in [NotchViewModel.LockCardStyle.glass, .clear] {
+            for increaseContrast in [false, true] {
+                let backdrop = LockCardLegibility.backdrop(
+                    coverLuma: 1, style: style, increaseContrast: increaseContrast)
+                let ramp = LyricRow.Ramp.card(increaseContrast: increaseContrast)
+                let label = "\(style.rawValue), increaseContrast \(increaseContrast)"
+                XCTAssertGreaterThanOrEqual(
+                    LockCardLegibility.contrast(textOpacity: ramp.floor, overGrey: backdrop), 3.0,
+                    "the far floor, \(label)")
+                XCTAssertGreaterThanOrEqual(
+                    LockCardLegibility.contrast(textOpacity: ramp.neighbour, overGrey: backdrop), 4.5,
+                    "the neighbour, \(label)")
+                XCTAssertGreaterThan(ramp.unswept, ramp.neighbour, "the sung line stays brightest, \(label)")
+                XCTAssertGreaterThan(ramp.neighbour, ramp.floor, "depth survives, \(label)")
+            }
+        }
+        XCTAssertGreaterThan(
+            LyricRow.Ramp.card(increaseContrast: true).floor,
+            LyricRow.Ramp.card(increaseContrast: false).floor,
+            "Increase Contrast lifts the card's lines too")
+    }
+
+    /// A credit is never dressed as the sung line, and it answers Increase
+    /// Contrast like every other line.
+    ///
+    /// The credit branch's comment said "never bold" while it passed the
+    /// caller's weight through — and both callers pass `.bold` — so "Produced
+    /// by" came out bold italic, like a lyric. Its dim state was a fixed 0.34
+    /// that the setting never moved.
+    func testCreditsAreNeverBold() {
+        XCTAssertNotEqual(LyricRow.creditWeight, .bold)
+        XCTAssertNotEqual(LyricRow.creditWeight, .heavy)
+        XCTAssertNotEqual(LyricRow.creditWeight, .black)
+        XCTAssertGreaterThan(
+            LyricRow.creditOpacity(isCurrent: false, increaseContrast: true),
+            LyricRow.creditOpacity(isCurrent: false, increaseContrast: false)
+        )
+        XCTAssertGreaterThanOrEqual(
+            ratioOverBlack(whiteOpacity: LyricRow.creditOpacity(isCurrent: false, increaseContrast: false)), 3.0,
+            "a waiting credit reads like any context line")
+        XCTAssertGreaterThan(
+            LyricRow.creditOpacity(isCurrent: true, increaseContrast: false),
+            LyricRow.creditOpacity(isCurrent: false, increaseContrast: false)
+        )
+    }
+
     /// Increase Contrast reaches the lock card too.
     ///
     /// The card carried twenty-two raw literals, so the setting moved every
