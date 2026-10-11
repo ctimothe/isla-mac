@@ -159,7 +159,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
     /// name, and after a relaunch every song bound to one of its files said
     /// "No lyrics for this track." (J-011). The documents keep their ids
     /// under the new path, so the bindings survive the move.
-    func testAMovedFolderIsFollowedAndKeepsItsBindings() throws {
+    func testAMovedFolderIsFollowedAndKeepsItsBindings() async throws {
         // Symlinks resolved, as in the missing-folder test: a bookmark
         // resolves to the real path, and ~/Music has no symlink in it. Not
         // "Lyrics": on a case-insensitive disk that is setUp's legacy
@@ -189,6 +189,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
             relaunched.selectedFolders.map { $0.resolvingSymlinksInPath().path },
             [moved.path], "Settings names the folder where it is now"
         )
+        await relaunched.waitForFolderScan()
         guard case .ready(let after) = relaunched.lookup(identity: bound) else {
             return XCTFail("the binding still finds its document after the move")
         }
@@ -201,6 +202,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
 
         // And the move is saved: the next launch starts from the new path.
         let again = LocalLyricsLibrary(directory: root)
+        await again.waitForFolderScan()
         guard case .ready(let third) = again.lookup(identity: bound) else {
             return XCTFail("the followed location was persisted")
         }
@@ -211,7 +213,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
     /// follows it there. Following a move must not read lyrics out of the
     /// Trash: the folder reads as gone, as a deleted one always has, and its
     /// bindings wait for it to be put back.
-    func testAFolderMovedToTheTrashIsNotFollowed() throws {
+    func testAFolderMovedToTheTrashIsNotFollowed() async throws {
         let base = root.resolvingSymlinksInPath()
         let folder = base.appendingPathComponent("Songs", isDirectory: true)
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -242,6 +244,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
         XCTAssertEqual(
             relaunched.selectedFolders.map { $0.resolvingSymlinksInPath().path }, [folder.path]
         )
+        await relaunched.waitForFolderScan()
         XCTAssertEqual(relaunched.lookup(identity: bound), .invalid(.unreadable))
     }
 
@@ -341,7 +344,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
     /// `Dictionary(uniqueKeysWithValues:)`, and since the library rescans as it
     /// opens, a crash at every launch. One arriving later got an id per walk,
     /// and every lookup for its song became a choice between two copies.
-    func testAFolderInsideAnotherReadsEachFileOnce() throws {
+    func testAFolderInsideAnotherReadsEachFileOnce() async throws {
         let outer = try makeFolder(named: "Music")
         let inner = outer.appendingPathComponent("Albums", isDirectory: true)
         try fileManager.createDirectory(at: inner, withIntermediateDirectories: true)
@@ -375,6 +378,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
         json["documents"] = documents + documents
         try JSONSerialization.data(withJSONObject: json).write(to: index)
         let relaunched = LocalLyricsLibrary(directory: root)
+        await relaunched.waitForFolderScan()
         guard case .ready = relaunched.lookup(identity: identity()) else {
             return XCTFail("the next launch reads the same single document")
         }
@@ -385,7 +389,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
     /// library opened empty and wrote that emptiness straight back: every
     /// folder, binding and import record gone, the imported files orphaned.
     /// Only the entry this build cannot read is dropped now.
-    func testAnUnknownOriginLosesOnlyThatEntry() throws {
+    func testAnUnknownOriginLosesOnlyThatEntry() async throws {
         let folder = try makeFolder(named: "Library")
         try write(
             "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]First",
@@ -420,6 +424,7 @@ final class LocalLyricsLibraryTests: XCTestCase {
             [folder.standardizedFileURL.path],
             "the folder outlives an entry this build cannot read"
         )
+        await relaunched.waitForFolderScan()
         guard case .ready(let bound) = relaunched.lookup(identity: renamed) else {
             return XCTFail("the binding outlives an entry this build cannot read")
         }
@@ -584,6 +589,187 @@ final class LocalLyricsLibraryTests: XCTestCase {
             return XCTFail("the fixed file answers the binding again")
         }
         XCTAssertEqual(fixed.id, candidate.id)
+    }
+
+    /// Every folder event — and FSEvents reports any write anywhere under a
+    /// watched folder — re-read and re-parsed every `.lrc` in every folder on
+    /// the main thread, with no look at whether a file had changed (F-043).
+    /// A large library stalled the panel each time a sync client touched it.
+    /// A file whose stamp has not moved is not read again.
+    func testARescanWithNoChangeReadsNothing() throws {
+        let folder = try makeFolder(named: "Library")
+        for number in 0..<20 {
+            try write(lrc(title: "Song \(number)"), to: folder.appendingPathComponent("song-\(number).lrc"))
+        }
+        let reads = ReadCounter()
+        let library = LocalLyricsLibrary(directory: root, readFile: reads.read)
+        try library.addFolder(folder)
+        XCTAssertEqual(reads.count, 20, "the first scan reads every file")
+        let settled = library.revision
+
+        try library.rescanFolders()
+        XCTAssertEqual(reads.count, 20, "nothing changed, so nothing is read again")
+        XCTAssertEqual(library.revision, settled, "and nothing is announced")
+        guard case .ready = library.lookup(identity: identity(title: "Song 7")) else {
+            return XCTFail("a file not re-read is still in the library")
+        }
+    }
+
+    /// One file touched is one file read, and its siblings keep their ids.
+    func testATouchedFileIsReReadAlone() throws {
+        let folder = try makeFolder(named: "Library")
+        for number in 0..<20 {
+            try write(lrc(title: "Song \(number)"), to: folder.appendingPathComponent("song-\(number).lrc"))
+        }
+        let reads = ReadCounter()
+        let library = LocalLyricsLibrary(directory: root, readFile: reads.read)
+        try library.addFolder(folder)
+        guard case .ready(let sibling) = library.lookup(identity: identity(title: "Song 4")) else {
+            return XCTFail("the fixture: a sibling resolves")
+        }
+        let before = reads.count
+
+        let touched = folder.appendingPathComponent("song-3.lrc")
+        let later = Date().addingTimeInterval(60)
+        try fileManager.setAttributes([.modificationDate: later], ofItemAtPath: touched.path)
+        try library.rescanFolders()
+        XCTAssertEqual(reads.count - before, 1, "only the touched file is read")
+        XCTAssertEqual(reads.names.last, "song-3.lrc")
+        guard case .ready(let again) = library.lookup(identity: identity(title: "Song 4")) else {
+            return XCTFail("the sibling still resolves")
+        }
+        XCTAssertEqual(again.id, sibling.id)
+
+        // An edit of the same size, its modification date then put back — a
+        // sync client restoring the server's date does exactly that — is
+        // still seen: the file's status-change time moves with any write and
+        // nothing can set it back.
+        try write(lrc(title: "Song 3", line: "Fresh"), to: touched)
+        try fileManager.setAttributes([.modificationDate: later], ofItemAtPath: touched.path)
+        try library.rescanFolders()
+        guard case .ready(let edited) = library.lookup(identity: identity(title: "Song 3")) else {
+            return XCTFail("the edited file resolves")
+        }
+        XCTAssertEqual(edited.timeline.lines.first?.text, "Fresh")
+    }
+
+    /// The launch scan of the selected folders runs off the main thread now,
+    /// so `init` returns before a large library is read. What it read must
+    /// still be there before anything needs it: an already indexed song is
+    /// found once the scan lands, a bound one meanwhile reads as no match
+    /// rather than as a broken file, and the scan leaves the next rescan
+    /// nothing to read again.
+    func testAnIndexedFolderIsReadyAfterLaunch() async throws {
+        let folder = try makeFolder(named: "Library")
+        try write(lrc(title: "Song"), to: folder.appendingPathComponent("song.lrc"))
+        try write(lrc(title: "Other"), to: folder.appendingPathComponent("other.lrc"))
+        let first = LocalLyricsLibrary(directory: root)
+        try first.addFolder(folder)
+        guard case .ready(let found) = first.lookup(identity: identity(title: "Other")) else {
+            return XCTFail("the fixture: the folder's document resolves")
+        }
+        let bound = identity(title: "Renamed", duration: 240)
+        first.bind(found, to: bound)
+
+        let reads = ReadCounter()
+        let relaunched = LocalLyricsLibrary(directory: root, readFile: reads.read)
+        // Nothing the walk found can have landed yet: it is applied on the
+        // main actor, which this test has not given up since `init`.
+        XCTAssertEqual(relaunched.lookup(identity: identity()), .noMatch, "init does not wait for the walk")
+        XCTAssertEqual(relaunched.lookup(identity: bound), .noMatch, "not yet read is not unreadable")
+        XCTAssertTrue(relaunched.hasBinding(for: bound), "and the binding is not pruned while it waits")
+
+        await relaunched.waitForFolderScan()
+        guard case .ready(let song) = relaunched.lookup(identity: identity()) else {
+            return XCTFail("an indexed folder's song is found once the launch scan lands")
+        }
+        XCTAssertEqual(song.timeline.lines.first?.text, "First")
+        guard case .ready(let other) = relaunched.lookup(identity: bound) else {
+            return XCTFail("the binding finds its document once the launch scan lands")
+        }
+        XCTAssertEqual(other.id, found.id, "the document keeps its id across the launch")
+
+        let launched = reads.count
+        XCTAssertEqual(launched, 2)
+        try relaunched.rescanFolders()
+        XCTAssertEqual(reads.count, launched, "the launch scan's stamps serve the next rescan")
+    }
+
+    /// The launch scan runs while the listener can already act. A Rescan or a
+    /// removed folder in that window must not be undone when the scan, read
+    /// before either, lands afterwards.
+    func testTheLaunchScanNeverUndoesWhatHappenedWhileItRan() async throws {
+        let kept = try makeFolder(named: "Kept")
+        let dropped = try makeFolder(named: "Dropped")
+        let song = try write(lrc(title: "Song"), to: kept.appendingPathComponent("song.lrc"))
+        try write(lrc(title: "Other"), to: dropped.appendingPathComponent("other.lrc"))
+        let first = LocalLyricsLibrary(directory: root)
+        try first.addFolder(kept)
+        try first.addFolder(dropped)
+
+        let relaunched = LocalLyricsLibrary(directory: root)
+        relaunched.removeFolder(dropped)
+        await relaunched.waitForFolderScan()
+        XCTAssertEqual(
+            relaunched.lookup(identity: identity(title: "Other")), .noMatch,
+            "a folder removed during the launch scan stays removed"
+        )
+        guard case .ready = relaunched.lookup(identity: identity()) else {
+            return XCTFail("the folder still selected is read")
+        }
+
+        let again = LocalLyricsLibrary(directory: root)
+        try write(lrc(title: "Song", line: "Rescanned"), to: song)
+        try again.rescanFolders()
+        await again.waitForFolderScan()
+        guard case .ready(let current) = again.lookup(identity: identity()) else {
+            return XCTFail("the rescan's document resolves")
+        }
+        XCTAssertEqual(current.timeline.lines.first?.text, "Rescanned", "an explicit rescan wins over the launch scan")
+    }
+
+    /// The figures F-043 asks for, on a synthetic 1,000-file folder in the
+    /// test's own temporary directory — never the listener's folders. Timed,
+    /// not asserted: the numbers belong in the task's report, and a timing
+    /// bound would fail on a loaded build machine. What is asserted is the
+    /// mechanism: a no-change rescan reads no file, and the launch scan is
+    /// what reads the folder, after `init` has returned.
+    func testAThousandFileFolderIsCheapToRescanAndToOpen() async throws {
+        let folder = try makeFolder(named: "Large")
+        for number in 0..<1_000 {
+            try write(
+                lrc(title: "Song \(number)", lines: 40),
+                to: folder.appendingPathComponent("song-\(number).lrc")
+            )
+        }
+        let reads = ReadCounter()
+        let library = LocalLyricsLibrary(directory: root, readFile: reads.read)
+        var clock = ContinuousClock.now
+        try library.addFolder(folder)
+        let fullScan = ContinuousClock.now - clock
+        XCTAssertEqual(reads.count, 1_000)
+
+        // The best of five: the first after a full scan pays for warming
+        // what the full scan left behind, and a folder event is the steady
+        // state, not the first one.
+        var noChange = Duration.seconds(60)
+        for _ in 0..<5 {
+            clock = ContinuousClock.now
+            try library.rescanFolders()
+            noChange = min(noChange, ContinuousClock.now - clock)
+        }
+        XCTAssertEqual(reads.count, 1_000, "a no-change event reads no file")
+
+        let launchReads = ReadCounter()
+        clock = ContinuousClock.now
+        let relaunched = LocalLyricsLibrary(directory: root, readFile: launchReads.read)
+        let launch = ContinuousClock.now - clock
+        await relaunched.waitForFolderScan()
+        XCTAssertEqual(launchReads.count, 1_000, "the launch scan reads the folder")
+        guard case .ready = relaunched.lookup(identity: identity(title: "Song 999")) else {
+            return XCTFail("the large folder is read at launch")
+        }
+        print("F-043 1,000 files: full scan \(fullScan), no-change rescan \(noChange), init on the main thread \(launch)")
     }
 
     func testAmbiguousLookupUsesAnExplicitChooseCaption() {
@@ -902,6 +1088,12 @@ final class LocalLyricsLibraryTests: XCTestCase {
         return (met, { subscription.cancel() })
     }
 
+    private func lrc(title: String, line: String = "First", lines: Int = 1) -> String {
+        let body = (0..<lines).map { "[\(String(format: "%02d:%02d.00", $0 / 60, $0 % 60 + 1))]\(line)" }
+        return (["[ti:\(title)]", "[ar:Artist]", "[al:Album]", "[length:03:00]"] + body)
+            .joined(separator: "\n")
+    }
+
     private func writeLRC(_ name: String, contents: String) throws -> URL {
         try write(contents, to: root.appendingPathComponent("\(name).lrc"))
     }
@@ -930,5 +1122,20 @@ final class LocalLyricsLibraryTests: XCTestCase {
             hash = hash &* 0x100000001b3
         }
         return String(format: "%016llx.lrc4.json", hash)
+    }
+}
+
+/// A `readFile` that counts what the library reads, from whichever thread
+/// the scan runs on, and reads it the way the library would.
+private final class ReadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var paths: [String] = []
+
+    var count: Int { lock.withLock { paths.count } }
+    var names: [String] { lock.withLock { paths } }
+
+    func read(_ url: URL) throws -> String {
+        lock.withLock { paths.append(url.lastPathComponent) }
+        return try LocalLyricsLibrary.readText(at: url)
     }
 }
