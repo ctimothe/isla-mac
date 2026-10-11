@@ -360,3 +360,5 @@
 "Copy Translation" = "Copy Translation";
 "%@ · %@ · in %@" = "%@ · %@ · in %@";
 "%@ · in %@" = "%@ · in %@";
+"Text to translate" = "Text to translate";
+"Type or paste text" = "Type or paste text";
