@@ -1,4 +1,5 @@
 import AppKit
+import Security
 
 /// Why the app stopped reading Now Playing and fell back to asking Music and
 /// Spotify over AppleScript.
@@ -275,6 +276,71 @@ final class NowPlayingFeed {
         reason == .exit && exitStatus == loadRefusedExitStatus ? .readerRefused : nil
     }
 
+    /// What the helper's host inherits. The child used to get Isla's whole
+    /// environment, so `PERL5OPT` or `PERL5LIB` set through `launchctl setenv`
+    /// would load another party's code into /usr/bin/perl as Isla's child,
+    /// under Isla's permissions, and a `DYLD_*` variable would do the same to
+    /// perl itself (G-028). It gets an allow-list: HOME, the locale, TMPDIR,
+    /// and a fixed PATH, which is all the helper's loader uses.
+    nonisolated static func helperEnvironment(from inherited: [String: String]) -> [String: String] {
+        var environment = ["PATH": "/usr/bin:/bin"]
+        for (name, value) in inherited where name == "HOME" || name == "LANG" || name == "TMPDIR" || name.hasPrefix("LC_") {
+            environment[name] = value
+        }
+        return environment
+    }
+
+    /// Whether the app bundle's seal, the helper dylib's resources included,
+    /// still verifies. `SecStaticCodeCheckValidity` with nested code and the
+    /// strict flag checks every sealed resource, and works for an ad-hoc seal
+    /// too, which a designated-requirement check would not: an ad-hoc
+    /// requirement is a cdhash of the main binary and says nothing about the
+    /// dylib. Report-only: the word goes to the log and to Diagnostics, and
+    /// the helper runs either way, until live installs (ad-hoc and
+    /// quarantined) show no false positives. A bundle that is not an .app
+    /// (tests, `swift run`) is skipped.
+    nonisolated static func helperSignatureVerdict(bundleURL: URL) -> String {
+        guard bundleURL.pathExtension == "app" else { return "not checked (not an app bundle)" }
+        var code: SecStaticCode?
+        let created = SecStaticCodeCreateWithPath(bundleURL as CFURL, [], &code)
+        guard created == errSecSuccess, let code else { return "unreadable (\(created))" }
+        let flags = SecCSFlags(rawValue: kSecCSCheckNestedCode | kSecCSStrictValidate)
+        let status = SecStaticCodeCheckValidity(code, flags, nil)
+        switch status {
+        case errSecSuccess: return "valid"
+        case errSecCSUnsigned: return "unsigned"
+        default: return "invalid (\(status))"
+        }
+    }
+
+    private nonisolated(unsafe) static var recordedVerdict: String?
+    private nonisolated(unsafe) static var verdictStarted = false
+    private static let verdictLock = NSLock()
+
+    /// The verdict `checkHelperSignatureOnce` reached, for Diagnostics.
+    nonisolated static var helperSignature: String {
+        verdictLock.lock()
+        defer { verdictLock.unlock() }
+        return recordedVerdict ?? "not checked yet"
+    }
+
+    /// Runs the check once per process, off the main actor: strict validation
+    /// hashes the bundle's resources, which is too slow for the main thread.
+    nonisolated static func checkHelperSignatureOnce(bundleURL: URL = Bundle.main.bundleURL) {
+        verdictLock.lock()
+        let first = !verdictStarted
+        verdictStarted = true
+        verdictLock.unlock()
+        guard first else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let verdict = helperSignatureVerdict(bundleURL: bundleURL)
+            verdictLock.lock()
+            recordedVerdict = verdict
+            verdictLock.unlock()
+            Log.media.info("helper signature: \(verdict, privacy: .public)")
+        }
+    }
+
     private func launch() {
         guard !stopped else { return }
         guard let helperPath, FileManager.default.isExecutableFile(atPath: "/usr/bin/perl") else {
@@ -285,6 +351,8 @@ final class NowPlayingFeed {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
         task.arguments = ["-e", Self.hostScript, helperPath]
+        task.environment = Self.helperEnvironment(from: ProcessInfo.processInfo.environment)
+        Self.checkHelperSignatureOnce()
 
         let output = Pipe()
         let commands = Pipe()
