@@ -55,7 +55,7 @@ struct TranslatePane: View {
     /// deliberate-looking drop rather than a wobble. Raw points, not roles: a
     /// rung is a fit calculation against the measured pane, and rounding it to
     /// the nearest role would move where every paragraph wraps.
-    private let ladder: [CGFloat] = [27, 20, 15, 11]
+    static let ladder: [CGFloat] = [27, 20, 15, 11]
 
     var body: some View {
         let font = fontSize(in: paneSize)
@@ -270,16 +270,74 @@ struct TranslatePane: View {
     /// from whichever side is longer — sides set at different scales stop
     /// looking like a pair.
     private func fontSize(in size: CGSize) -> CGFloat {
-        let count = CGFloat(max(translator.trimmed.count, translator.output.count))
         // Before the first measurement lands there is nothing to fit type to,
         // and the pane is empty anyway.
-        guard count > 0, size.width > 0, size.height > 0 else { return ladder[0] }
+        guard size.width > 0, size.height > 0 else { return Self.ladder[0] }
+        return Self.fontSize(source: translator.trimmed, output: translator.output, column: textArea(in: size))
+    }
+
+    /// The rung for a pair of texts in a column of `column` (see `textArea`).
+    /// A rung has to pass two tests: the whole text fits its area, and no word
+    /// is wider than a line. The length alone used to decide, and a short
+    /// sentence with one long word got the top rung: "Где находится
+    /// железнодорожная станция?" is 38 characters, comfortably a headline, but
+    /// at 27 points "железнодорожная" is 230 points wide in a 219-point column,
+    /// and the person's own language arrived as "железнодорожна / я станция?"
+    /// (H-006). Shrinking only the line that overflows, `minimumScaleFactor`'s
+    /// way, would set the two columns at different sizes; SwiftUI's `Text`
+    /// cannot hyphenate on macOS 15. So the whole pair steps down a rung.
+    static func fontSize(source: String, output: String, column: CGSize) -> CGFloat {
+        let count = CGFloat(max(source.count, output.count))
+        guard count > 0 else { return ladder[0] }
         // A glyph runs about half its point size wide and 1.3 of it tall with
         // leading, so roughly `area / (0.76 · s²)` characters fit at size `s`.
         // The 0.95 keeps the last line from being the one that overflows.
-        let area = textArea(in: size)
-        let usable = area.width * area.height * 0.95
-        return ladder.first { count <= usable / (0.76 * $0 * $0) } ?? ladder[ladder.count - 1]
+        let usable = column.width * column.height * 0.95
+        // The source is laid out by a text view that keeps 5 points clear on
+        // each side of every line, and the pane pulls only the leading 5 back
+        // (see `source`), so its lines are 5 points narrower than the result
+        // column's. The narrower one decides, since the rung is shared.
+        let line = column.width - 5
+        // Split only once a rung above the last has passed the length test,
+        // which also bounds how much text is ever measured: a text long
+        // enough to be expensive has already been sent to the bottom rung.
+        var words: [String]?
+        for size in ladder.dropLast() where count <= usable / (0.76 * size * size) {
+            let candidates = words ?? (unbreakableRuns(in: source) + unbreakableRuns(in: output))
+            words = candidates
+            // The same font the view sets, `.system(size:)` at regular weight,
+            // or the measurement would answer for type nobody draws.
+            let font = NSFont.systemFont(ofSize: size)
+            if candidates.allSatisfy({ ($0 as NSString).size(withAttributes: [.font: font]).width <= line }) {
+                return size
+            }
+        }
+        // A word too wide even here, a long URL or a hash, still breaks by
+        // character at the bottom rung, as text must when nothing else fits.
+        return ladder[ladder.count - 1]
+    }
+
+    /// The stretches of `text` a line cannot break inside: the pieces between
+    /// Unicode line-break opportunities, with the space that ends each one
+    /// dropped, since a space at the end of a line hangs past the edge. Not a
+    /// split on whitespace: Japanese and Chinese have none and break between
+    /// almost any two characters, so a whitespace split measured a whole
+    /// Japanese sentence as one word and dropped it a rung for nothing. The
+    /// same rules let "железнодорожно-транспортный" break after its hyphen,
+    /// as the renderer does.
+    private static func unbreakableRuns(in text: String) -> [String] {
+        let string = text as NSString
+        let tokenizer = CFStringTokenizerCreate(
+            nil, text as CFString, CFRangeMake(0, string.length), kCFStringTokenizerUnitLineBreak, nil
+        )
+        var runs: [String] = []
+        while CFStringTokenizerAdvanceToNextToken(tokenizer) != [] {
+            let range = CFStringTokenizerGetCurrentTokenRange(tokenizer)
+            let run = string.substring(with: NSRange(location: range.location, length: range.length))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !run.isEmpty { runs.append(run) }
+        }
+        return runs
     }
 
     // MARK: - Languages
