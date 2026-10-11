@@ -95,6 +95,11 @@ final class LyricsStore: ObservableObject {
     @Published private(set) var unassignedLegacyOffsets: [UnassignedLegacyOffset] = []
 
     private var activeLocalTrackIdentity: LocalTrackIdentity?
+    /// The lyric file showing for that track: its document id, or nil for the
+    /// catalogue's words (which have none) and for a track whose words have
+    /// not resolved yet. A nudge records it, so the correction stays with the
+    /// file it was made against (`LocalTrackOffset.applies(to:)`).
+    private var activeDocumentID: UUID?
     private var localTrackOffsets: [String: LocalTrackOffset] = [:]
     private let localOffsetsURL: URL
     private let unassignedOffsetsURL: URL
@@ -173,7 +178,7 @@ final class LyricsStore: ObservableObject {
         // nobody can read into one nobody can recover.
         if let data = try? Data(contentsOf: offsetsURL),
            let stored = try? JSONDecoder().decode([String: LocalTrackOffset].self, from: data) {
-            let flipped = stored.mapValues { LocalTrackOffset(identity: $0.identity, offset: -$0.offset) }
+            let flipped = stored.mapValues { $0.withOffset(-$0.offset) }
             written = writeLocalTrackOffsets(flipped, to: offsetsURL, fileManager: fileManager) && written
         }
         if let data = try? Data(contentsOf: unassignedURL),
@@ -223,23 +228,38 @@ final class LyricsStore: ObservableObject {
         hasLocalOverride = active
     }
 
-    func activateTrackOffset(for identity: LocalTrackIdentity) {
+    /// Called once with the song when it changes, and again with the file
+    /// whenever the words on screen resolve or change (`LyricsCoordinator
+    /// .publishAvailability`). That runs on every recheck of the same song, so
+    /// an unchanged value is not written: a published write redraws every
+    /// lyric surface even when the number is the same.
+    func activateTrackOffset(for identity: LocalTrackIdentity, documentID: UUID? = nil) {
         activeLocalTrackIdentity = identity
-        trackOffset = trackOffset(for: identity)
+        activeDocumentID = documentID
+        let offset = trackOffset(for: identity, documentID: documentID)
+        if trackOffset != offset { trackOffset = offset }
     }
 
-    func trackOffset(for identity: LocalTrackIdentity) -> TimeInterval {
+    /// The nudge for this song as it applies to this file. An entry made
+    /// against another file reads 0 rather than falling back to anything:
+    /// the song's own entry is newer than any pre-local one, and the listener
+    /// has not corrected this file yet.
+    func trackOffset(for identity: LocalTrackIdentity, documentID: UUID? = nil) -> TimeInterval {
         if let exact = localTrackOffsets[Self.localOffsetKey(identity)] {
-            return Self.clampedTrackOffset(exact.offset)
+            return exact.applies(to: documentID) ? Self.clampedTrackOffset(exact.offset) : 0
         }
         return localTrackOffsets.values.first(where: {
             $0.identity.playerID == "legacy" && Self.sameRecording($0.identity, identity)
+                && $0.applies(to: documentID)
         }).map { Self.clampedTrackOffset($0.offset) } ?? 0
     }
 
     func nudgeTrackOffset(by delta: TimeInterval) {
         guard let activeLocalTrackIdentity else { return }
-        setLocalTrackOffset(trackOffset(for: activeLocalTrackIdentity) + delta, for: activeLocalTrackIdentity)
+        setLocalTrackOffset(
+            trackOffset(for: activeLocalTrackIdentity, documentID: activeDocumentID) + delta,
+            for: activeLocalTrackIdentity
+        )
     }
 
     func clearTrackOffset() {
@@ -260,6 +280,7 @@ final class LyricsStore: ObservableObject {
 
     func clear() {
         activeLocalTrackIdentity = nil
+        activeDocumentID = nil
         trackOffset = 0
         presentLocalOverride(false)
         present(.disabled)
@@ -380,14 +401,64 @@ final class LyricsStore: ObservableObject {
         return result
     }
 
+    /// One song's nudge, and the file it was made against.
+    ///
+    /// Nudges were keyed by player, title, artist, album and length alone, so
+    /// they belonged to the song: a song nudged +0.5 s against one file kept
+    /// the +0.5 s after a correctly timed file was imported or a retimed edit
+    /// saved, and the new file was half a second wrong (J-024). The key stays
+    /// the song's — putting the file in it would have orphaned every nudge
+    /// already saved — and the entry records the file instead. One entry per
+    /// song, so a nudge against a second file replaces the first file's;
+    /// switching back starts that file over at 0, which is wrong by at most
+    /// one nudge rather than by a correction made for another file.
     private struct LocalTrackOffset: Codable, Equatable {
         let identity: LocalTrackIdentity
         let offset: TimeInterval
+        /// The local file the nudge was made against.
+        let documentID: UUID?
+        /// True when it was made against the catalogue's words, which carry
+        /// no document id. Nil — together with a nil `documentID` — is an
+        /// entry written before nudges recorded their file (and every
+        /// pre-local one `migrateLegacyOffsets` carries over): nobody knows
+        /// which file it corrected, so it goes on applying to whichever one
+        /// shows, exactly as it always did. Both fields are optional so that
+        /// those entries still decode.
+        let madeOnline: Bool?
+
+        init(
+            identity: LocalTrackIdentity, offset: TimeInterval,
+            documentID: UUID? = nil, madeOnline: Bool? = nil
+        ) {
+            self.identity = identity
+            self.offset = offset
+            self.documentID = documentID
+            self.madeOnline = madeOnline
+        }
+
+        /// Whether this nudge belongs to the file showing: `documentID` is the
+        /// local file's, or nil for the catalogue's words.
+        func applies(to documentID: UUID?) -> Bool {
+            if let made = self.documentID { return made == documentID }
+            if madeOnline == true { return documentID == nil }
+            return true
+        }
+
+        /// The same entry with another value. The sign migration goes through
+        /// this so that it cannot drop the file an entry was made against.
+        func withOffset(_ offset: TimeInterval) -> LocalTrackOffset {
+            LocalTrackOffset(identity: identity, offset: offset, documentID: documentID, madeOnline: madeOnline)
+        }
     }
 
     private func setLocalTrackOffset(_ value: TimeInterval, for identity: LocalTrackIdentity) {
         let offset = Self.clampedTrackOffset(value)
-        localTrackOffsets[Self.localOffsetKey(identity)] = LocalTrackOffset(identity: identity, offset: offset)
+        // Only the active song is ever nudged or cleared, so the file showing
+        // is the one this correction was made against.
+        localTrackOffsets[Self.localOffsetKey(identity)] = LocalTrackOffset(
+            identity: identity, offset: offset,
+            documentID: activeDocumentID, madeOnline: activeDocumentID == nil
+        )
         if activeLocalTrackIdentity == identity { trackOffset = offset }
         persistLocalOffsets()
     }

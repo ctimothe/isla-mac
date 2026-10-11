@@ -63,6 +63,105 @@ final class LyricSweepTests: XCTestCase {
         XCTAssertEqual(reloaded.trackOffset(for: identity), 0.25, accuracy: 0.001)
     }
 
+    /// A nudge corrects the file it was made against, not the song. Nudges
+    /// were keyed by player, title, artist, album and length only, so a song
+    /// nudged +0.5 s against one file kept the +0.5 s after a correctly timed
+    /// file was imported or a retimed edit saved, and the new file came out
+    /// half a second wrong (J-024). The key is unchanged — adding the file to
+    /// it would have orphaned every nudge already saved — and the entry
+    /// records the file instead.
+    func testANudgeDoesNotFollowTheSongToAnotherFile() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "LyricSweepTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let identity = LocalTrackIdentity(
+            playerID: "test", title: "Song", artist: "Artist", album: "Album",
+            duration: 180, recordingID: nil
+        )
+        let first = UUID()
+        let second = UUID()
+        let store = LyricsStore(offsetsDirectory: root, defaults: defaults)
+        store.activateTrackOffset(for: identity, documentID: first)
+        store.nudgeTrackOffset(by: 0.5)
+        XCTAssertEqual(store.trackOffset, 0.5, accuracy: 1e-9)
+
+        store.activateTrackOffset(for: identity, documentID: second)
+        XCTAssertEqual(store.trackOffset, 0, accuracy: 1e-9, "another file starts uncorrected")
+        // The catalogue's timeline is another file too.
+        store.activateTrackOffset(for: identity, documentID: nil)
+        XCTAssertEqual(store.trackOffset, 0, accuracy: 1e-9, "nor does it follow onto the catalogue's words")
+
+        store.activateTrackOffset(for: identity, documentID: first)
+        XCTAssertEqual(store.trackOffset, 0.5, accuracy: 1e-9, "the file it corrected keeps it")
+
+        // And it survives a relaunch with its file.
+        let reloaded = LyricsStore(offsetsDirectory: root, defaults: defaults)
+        XCTAssertEqual(reloaded.trackOffset(for: identity, documentID: first), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(reloaded.trackOffset(for: identity, documentID: second), 0, accuracy: 1e-9)
+    }
+
+    /// J-024's own case: the nudge was made against the catalogue's words,
+    /// which carry no document id, and then a correctly timed file was
+    /// imported. The catalogue's nudge stays with the catalogue.
+    func testACatalogueNudgeDoesNotFollowTheSongToAnImportedFile() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "LyricSweepTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let identity = LocalTrackIdentity(
+            playerID: "test", title: "Song", artist: "Artist", album: "Album",
+            duration: 180, recordingID: nil
+        )
+        let store = LyricsStore(offsetsDirectory: root, defaults: defaults)
+        store.activateTrackOffset(for: identity, documentID: nil)
+        store.nudgeTrackOffset(by: 0.5)
+
+        store.activateTrackOffset(for: identity, documentID: UUID())
+        XCTAssertEqual(store.trackOffset, 0, accuracy: 1e-9)
+
+        store.activateTrackOffset(for: identity, documentID: nil)
+        XCTAssertEqual(store.trackOffset, 0.5, accuracy: 1e-9, "the catalogue's words keep it")
+    }
+
+    /// An entry written before nudges recorded their file says nothing about
+    /// which file it corrected, so it goes on applying to whichever one is
+    /// showing, exactly as it did. Dropping it would have silently undone
+    /// every correction a listener had already made.
+    func testANudgeSavedBeforeFilesWereRecordedStillApplies() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "LyricSweepTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        // Any store opened on the directory leaves it at the new sign, so the
+        // file written below is read as it is.
+        _ = LyricsStore(offsetsDirectory: root, defaults: defaults)
+        let key = ["test", "Song", "Artist", "Album", "180.000", ""].joined(separator: "\u{1F}")
+        // Exactly the shape the previous build wrote: identity and offset,
+        // nothing else.
+        let saved: [String: Any] = [key: [
+            "identity": [
+                "playerID": "test", "title": "Song", "artist": "Artist", "album": "Album", "duration": 180,
+            ],
+            "offset": 0.5,
+        ]]
+        try JSONSerialization.data(withJSONObject: saved)
+            .write(to: root.appendingPathComponent("offsets.json"))
+        let identity = LocalTrackIdentity(
+            playerID: "test", title: "Song", artist: "Artist", album: "Album",
+            duration: 180, recordingID: nil
+        )
+
+        let store = LyricsStore(offsetsDirectory: root, defaults: defaults)
+        store.activateTrackOffset(for: identity, documentID: UUID())
+        XCTAssertEqual(store.trackOffset, 0.5, accuracy: 1e-9)
+        store.activateTrackOffset(for: identity, documentID: nil)
+        XCTAssertEqual(store.trackOffset, 0.5, accuracy: 1e-9)
+    }
+
     /// Word timing wins wherever a source carried it; the singing-speed estimate
     /// is only for lines that never got any.
     func testWordTimingWinsOverTheEstimate() {
