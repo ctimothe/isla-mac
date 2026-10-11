@@ -55,8 +55,11 @@ final class LyricAccuracyLabParseTests: XCTestCase {
             if empties > 0 { count("empty_lines_dropped", lines: empties) }
             if reference.outOfOrder { count("out_of_order_stamps") }
             let sung = reference.sung
+            // Counted on the rows, before equal stamps merge into one line,
+            // so the class still says how many files carry them.
+            let rows = reference.sungRows
             var duplicates = 0
-            for index in sung.indices.dropFirst() where sung[index].ms == sung[index - 1].ms { duplicates += 1 }
+            for index in rows.indices.dropFirst() where rows[index].ms == rows[index - 1].ms { duplicates += 1 }
             if duplicates > 0 { count("duplicate_stamps", lines: duplicates) }
             let beyond = track.duration > 0 ? sung.filter { Double($0.ms) / 1000 > track.duration }.count : 0
             if beyond > 0 { count("lines_beyond_track_duration", lines: beyond) }
