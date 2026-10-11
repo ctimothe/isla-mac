@@ -70,7 +70,9 @@ final class SettingsAccessibilityTests: XCTestCase {
         XCTAssertEqual(width.map(Self.spoken), "\(Int(NotchViewModel.bodyWidth)) points",
                        "the English table reads it in full")
         let delay = sliders.first { $0.label == localized("Lyric Delay") }
-        XCTAssertEqual(delay.map(Self.spoken), localized("%+.2f seconds", isolated.stores.lyrics.userOffset), root.dump)
+        // The delay speaks a direction rather than a sign (LY-16): see
+        // `LyricDelayCopyTests`.
+        XCTAssertEqual(delay.map(Self.spoken), LyricDelayCopy.value(isolated.stores.lyrics.userOffset), root.dump)
         // The drawn title and the drawn figure are not stops of their own:
         // the slider already speaks both.
         for drawn in [localized("Panel Width"), localized("Lyric Delay"),

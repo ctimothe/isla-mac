@@ -335,7 +335,6 @@
 "Edited %@" = "Изменено %@";
 "%d points" = "%d пт";
 "%.2f seconds" = "%.2f секунды";
-"%+.2f seconds" = "%+.2f секунды";
 "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify отказал в «Любимых треках» и сослался на Premium. Spotify требует его от регистрации самой Isla, так что дело может быть не в вашей подписке.";
 "Instrumental" = "Проигрыш";
 "Edit Lyrics for %@" = "Редактировать текст: %@";
@@ -351,3 +350,9 @@
 "Already on the Shelf" = "Уже на полке";
 "The Shelf holds %d, so the oldest card left it. Its file is untouched." = "На полке помещается %d, поэтому самая старая карточка убрана. Сам файл не тронут.";
 "The Shelf holds %d, so the %d oldest left it. Their files are untouched." = "На полке помещается %d, поэтому самые старые убраны: %d. Сами файлы не тронуты.";
+"%.2f s later" = "на %.2f с позже";
+"%.2f s earlier" = "на %.2f с раньше";
+"On time" = "Без сдвига";
+"Move until the line lights with the voice." = "Сдвигайте, пока строка не загорится вместе с голосом.";
+"Earlier" = "Раньше";
+"Later" = "Позже";
