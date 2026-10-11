@@ -633,14 +633,8 @@ struct MediaPane: View {
                         NSWorkspace.shared.open(URL(fileURLWithPath: Self.applicationPath(for: app) ?? ""))
                     } label: {
                         Text(localized("Open %@", app.displayName))
-                            .islandFont(.body)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Theme.surface, in: Capsule())
-                            .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
                     }
-                    .buttonStyle(PanelButtonStyle())
+                    .buttonStyle(OfferButtonStyle(horizontalPadding: 10))
                 }
             }
         }

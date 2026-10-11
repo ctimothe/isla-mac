@@ -533,6 +533,41 @@ struct PanelButtonStyle: ButtonStyle {
     }
 }
 
+/// The panel's one-action pill: a word in a capsule of `Theme.surface` edged
+/// with the hairline, dimmed on press the way `PanelButtonStyle` dims.
+///
+/// It was hand-copied three times — Music's "Open Spotify", the lyrics page's
+/// "Look Up Online", the welcome page's "Get Started" — while Translate's
+/// remedies, the only way forward from the first error a newcomer meets, were
+/// bare bold caption text that did not look clickable at all (H-007). One
+/// style now, so an offer looks like an offer wherever it appears.
+///
+/// The parameters exist so the copies could move onto it without a pixel
+/// changing: Music's empty state is 2 pt narrower on each side, and the
+/// welcome page's primary sits one step brighter on `Theme.surfaceHover`.
+/// A new offer takes the defaults.
+struct OfferButtonStyle: ButtonStyle {
+    var fill: Color = Theme.surface
+    var horizontalPadding: CGFloat = 12
+    var verticalPadding: CGFloat = 5
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .islandFont(.body)
+            .foregroundStyle(.white)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            // Never a caption-sized target, whatever the word. At the body
+            // role and these paddings every label is already larger, so this
+            // changes no existing button; it is the floor for a short one.
+            .frame(minWidth: Theme.minimumHitSize.width, minHeight: Theme.minimumHitSize.height)
+            .background(fill, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
+            .opacity(configuration.isPressed ? 0.55 : 1)
+            .animation(Theme.contentAnimation, value: configuration.isPressed)
+    }
+}
+
 /// A Settings row that is one switch: the label across the row, the track at
 /// its trailing edge, and the whole of it the target.
 ///

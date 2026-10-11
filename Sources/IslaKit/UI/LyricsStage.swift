@@ -628,14 +628,8 @@ struct LyricsStage: View {
     private func offerButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .islandFont(.body)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(Theme.surface, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
         }
-        .buttonStyle(PanelButtonStyle())
+        .buttonStyle(OfferButtonStyle())
         .padding(.top, 2)
     }
 

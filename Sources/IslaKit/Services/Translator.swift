@@ -61,8 +61,13 @@ final class Translator: ObservableObject {
 
         var message: String {
             switch self {
+            // Both sentences sit above a "Turn On Translate Online" button,
+            // and that click is the one that sends text off the Mac. The
+            // offer used to say only that a language "is translated online",
+            // never where the text would go (H-007), so each now names the
+            // service before the button is pressed.
             case .needsNewerSystem:
-                return localized("Translation needs macOS 26 or newer.")
+                return localized("Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory.")
             case .deviceNotEligible:
                 return localized("This Mac does not support Apple Intelligence.")
             case .appleIntelligenceOff:
@@ -70,7 +75,7 @@ final class Translator: ObservableObject {
             case .modelNotReady:
                 return localized("The on-device model is still downloading.")
             case .needsOnline(let language):
-                return localized("%@ is translated online. Turn on Translate Online to use it.", language.name)
+                return localized("%@ is translated online only. Turning on Translate Online sends this text to MyMemory.", language.name)
             case .needsDownload(let language):
                 return localized("%@ is not downloaded for translation on this Mac.", language.name)
             }
@@ -292,6 +297,24 @@ final class Translator: ObservableObject {
         if capabilities.systemSupported { return .needsDownload(missing) }
         if capabilities.modelSupportsPair, let obstacle = capabilities.modelObstacle { return obstacle }
         return .needsOnline(missing)
+    }
+
+    /// Whether this Mac is below the system both on-device engines need. On
+    /// such a Mac nothing is translated locally, and with the switch on every
+    /// pair is sent to MyMemory.
+    nonisolated static var isBelowMinimumSystem: Bool {
+        if #available(macOS 26.0, *) { return false }
+        return true
+    }
+
+    /// What Settings says under Translate Online while it is on. The one note
+    /// used to read "such as Uzbek" on every Mac, but below macOS 26 the
+    /// switch sends English into Russian too — every pair — and a person
+    /// reading the note expected their English to stay local (K-005).
+    static func onlineNote(belowMinimumSystem: Bool = isBelowMinimumSystem) -> String {
+        belowMinimumSystem
+            ? localized("Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet.")
+            : localized("Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet.")
     }
 
     /// The buttons an obstacle offers. Online is offered only where online is

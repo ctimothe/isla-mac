@@ -126,18 +126,12 @@ struct WelcomePane: View {
             // the note at the top.
             Button(action: onDismiss) {
                 Text(copy.action)
-                    .islandFont(.body)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    // The panel's own pill, one step brighter: `Theme.surface`
-                    // with a hairline is what the Music tab's "Open Spotify"
-                    // button is, and this is the same shape carrying the one
-                    // action on screen.
-                    .background(Theme.surfaceHover, in: Capsule())
-                    .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
             }
-            .buttonStyle(PanelButtonStyle())
+            // The panel's own pill, one step brighter and a little roomier:
+            // `OfferButtonStyle` is what the Music tab's "Open Spotify" button
+            // wears, and this is the same shape carrying the one action on
+            // screen.
+            .buttonStyle(OfferButtonStyle(fill: Theme.surfaceHover, horizontalPadding: 14, verticalPadding: 6))
         }
         // Aligned with every other pane rather than inset on its own: the rail
         // is beside it and the body already pads its content by 14.
