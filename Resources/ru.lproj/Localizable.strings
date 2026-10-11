@@ -383,3 +383,5 @@
 "Needs your approval in Login Items." = "Нужно ваше разрешение в разделе «Объекты входа».";
 "Open Login Items…" = "Открыть «Объекты входа»…";
 "Launch at Login failed: %@" = "Не удалось включить автозапуск: %@";
+"Reset Lyric Timing" = "Сбросить смещение текста";
+"Lyric timing correction" = "Смещение текста песни";

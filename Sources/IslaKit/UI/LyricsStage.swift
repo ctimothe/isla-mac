@@ -257,6 +257,10 @@ struct LyricsStage: View {
         }
         .animation(Theme.artworkAnimation, value: media.artwork)
         .clipped()
+        // Light, not content: the lab's dump found the blurred cover in
+        // reading order as a nameless 488x488 image, a stop that says
+        // nothing.
+        .accessibilityHidden(true)
     }
 
     // MARK: - Stage
@@ -587,7 +591,24 @@ struct LyricsStage: View {
                         // nudges meant for its neighbours.
                         .onLongPressGesture { lyrics.clearTrackOffset() }
                         .help(localized("Reset lyric timing"))
-                        .accessibilityHint(localized("Reset lyric timing"))
+                        // The hold is a pointer's way in, and it was the only
+                        // one: VoiceOver read a hint promising a reset that
+                        // neither it nor Switch Control could perform (F-029).
+                        // The same reset is a right-click item — the menu is
+                        // AppKit's, and `MenuTracking` holds the panel open
+                        // while it is up — and a named action on the readout,
+                        // which now says what the number is as well as how
+                        // large. Left as the Text's own static-text element:
+                        // wrapped in `accessibilityElement()` it became an
+                        // AXUnknown that vended no value at all.
+                        .contextMenu {
+                            Button(localized("Reset Lyric Timing")) { lyrics.clearTrackOffset() }
+                        }
+                        .accessibilityLabel(localized("Lyric timing correction"))
+                        .accessibilityValue(localized("%+.2fs", lyrics.trackOffset))
+                        .accessibilityAction(named: localized("Reset Lyric Timing")) {
+                            lyrics.clearTrackOffset()
+                        }
                 }
                 Button { lyrics.nudgeTrackOffset(by: 0.25) } label: {
                     Image(systemName: "plus")
