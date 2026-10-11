@@ -67,6 +67,29 @@ final class PillFoldTests: XCTestCase {
         }
     }
 
+    /// Leaving takes no longer than arriving. The fold used to be 0.50 s
+    /// against the unfold's 0.42 s (settled 529 ms against 444 ms), on the
+    /// argument that a fold nobody asked for should not pull the eye — but
+    /// what it pulled the eye *to* was an empty black slab hanging past the
+    /// notch after the song had already left it (H-013). The floor under the
+    /// fold stays where `testTheFoldIsCalmAndDoesNotOvershoot` puts it.
+    func testLeavingIsNoSlowerThanArriving() {
+        XCTAssertLessThanOrEqual(Theme.pillFoldResponse, Theme.pillUnfoldResponse,
+                                 "the fold outlasts the unfold: leaving takes longer than arriving")
+    }
+
+    /// Between the content settling out and the wing settling into the notch,
+    /// the pill is a black shape with nothing on it. At 0.50 s against a
+    /// 0.22 s content curve that was 296 ms of empty wing, read straight off
+    /// the visual lab's keyframes (t120–t300). Settled means within 1 % of
+    /// the travel, the same line the lab's `settleWithin1PercentMs` draws.
+    func testTheEmptyWingIsShort() {
+        let wingSettles = time(untilRemaining: 0.01, response: Theme.pillFoldResponse)
+        let contentSettles = time(untilRemaining: 0.01, response: Theme.pillContentOutResponse)
+        XCTAssertLessThanOrEqual(wingSettles - contentSettles, 0.24,
+                                 "the wing lingers \(wingSettles - contentSettles)s after its content is gone")
+    }
+
     /// Folded means nothing drawn, and Reduce Motion keeps the change while
     /// refusing the travel: a fade with no shrinking and no blur.
     func testFoldedContentDrawsNothingAndReduceMotionOnlyFades() {
