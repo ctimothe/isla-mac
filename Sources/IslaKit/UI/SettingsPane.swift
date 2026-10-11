@@ -780,24 +780,26 @@ struct SettingsPane: View {
         }
     }
 
+    /// The whole row is the switch: its icon and title are the toggle's label,
+    /// so a click on the words flips it, and `PanelSwitchStyle` draws the
+    /// on-state itself because AppKit's switch only shows one in a key window
+    /// (H-002). The accessibility label stays the bare title so VoiceOver
+    /// reads the row by its name; the row's padding and height live in the
+    /// style, inside the target, so the edges of the row are not dead.
     private func toggleRow(symbol: String, title: String, isOn: Binding<Bool>) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol)
-                .islandFont(.body)
-                .foregroundStyle(Theme.secondary)
-                .frame(width: 16)
-            Text(title)
-                .islandFont(.body)
-                .foregroundStyle(.white)
-            Spacer(minLength: 8)
-            Toggle("", isOn: isOn)
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .labelsHidden()
-                .accessibilityLabel(title)
+        Toggle(isOn: isOn) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .islandFont(.body)
+                    .foregroundStyle(Theme.secondary)
+                    .frame(width: 16)
+                Text(title)
+                    .islandFont(.body)
+                    .foregroundStyle(.white)
+            }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 26)
+        .toggleStyle(PanelSwitchStyle())
+        .accessibilityLabel(title)
     }
 
     /// A row that picks one of a short list. Segmented rather than a menu: two

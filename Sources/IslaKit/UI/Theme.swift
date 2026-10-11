@@ -365,6 +365,57 @@ enum Theme {
     @MainActor static var selectedChipBorder: Color {
         Color.white.opacity(selectedChipBorderOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
     }
+
+    // MARK: - The Settings switch
+    //
+    // AppKit's switch draws its on-state only in a key window, and this panel
+    // is never key outside Translate, so every switch in Settings drew in the
+    // inactive style: on and off differed by which side the knob sat on and a
+    // track a shade lighter (H-002, four personas, the privacy rows worst of
+    // all). `PanelSwitchStyle` draws its own, from these.
+
+    /// On is the person's own accent, the colour every switch on their Mac is
+    /// on in. `controlAccentColor` resolves at draw time and does not ask
+    /// whether the window is key, which is the whole point.
+    static let switchOnFill = Color(nsColor: .controlAccentColor)
+
+    /// Off is a well shaded into the card, not a lighter fill on top of it.
+    ///
+    /// The plan said `surfaceHover`, and the arithmetic said no: a white fill
+    /// on a white-0.16 card brightens the very thing the accent has to stand
+    /// out from, and graphite on that measured 1.86:1 and blue 1.55:1 —
+    /// on and off told apart by the knob again. Shading the card by 0.30
+    /// leaves every accent macOS offers at 3.47:1 or more (purple is the
+    /// lowest, graphite 5.04), and 0.50 holds it at 3.19 once Increase
+    /// Contrast has brightened the card itself. `ContrastRampTests` measures
+    /// all eight against the card. The well is still a shape — the hairline
+    /// draws its edge — the way AppKit's own off track is a recess.
+    static func switchWellOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.50 : 0.30
+    }
+
+    @MainActor static var switchOffFill: Color {
+        Color.black.opacity(switchWellOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// The knob, white in both states as AppKit's is, with the faint shadow
+    /// that keeps it a disc on the yellow accent, where white on yellow is
+    /// barely an edge.
+    static let switchKnob = Color.white
+    static let switchKnobShadow = Color.black.opacity(0.3)
+
+    /// Increase Contrast's defined border, on and off alike: the system draws
+    /// one round its own controls with the setting on, and a switch that
+    /// relies on fill alone is exactly what the setting is for.
+    static let switchContrastOutline = Color.white.opacity(0.7)
+
+    /// A little bigger than the 24×14 mini switch it replaces, so the state is
+    /// worth seeing from across a call, and still well inside the 26 pt row.
+    /// The size is no longer the target — the row is — so it can be sized for
+    /// the eye alone.
+    static let switchTrackSize = CGSize(width: 30, height: 17)
+    static let switchKnobDiameter: CGFloat = 13
+
     // MARK: - The lock card's own ramp
     //
     // The card is not the panel and does not share its numbers. The panel is
@@ -472,6 +523,113 @@ struct PanelButtonStyle: ButtonStyle {
         configuration.label
             .opacity(configuration.isPressed ? 0.55 : 1)
             .animation(Theme.contentAnimation, value: configuration.isPressed)
+    }
+}
+
+/// A Settings row that is one switch: the label across the row, the track at
+/// its trailing edge, and the whole of it the target.
+///
+/// Two things were wrong with `Toggle("", isOn:).toggleStyle(.switch)` and a
+/// title beside it. AppKit draws its switch's on-state only in a key window,
+/// and the panel is not key outside Translate, so on and off were told apart
+/// by the knob's side alone (H-002). And the title was detached, so a click on
+/// "Launch at Login" — the words — did nothing; only the 24×14 capsule at the
+/// far edge flipped it (owner decision 2). Forcing the panel key to get the
+/// active switch back would take the keyboard from whatever app the person is
+/// typing in each time the pointer crossed the notch; the drawn switch asks
+/// nothing of key status at all.
+///
+/// To an assistive client the row is still a plain switch: the drawn one is
+/// replaced by a native `Toggle`, so VoiceOver reads its title, "switch" and
+/// on or off, and its press is the same flip a click makes.
+struct PanelSwitchStyle: ToggleStyle {
+    /// What a state looks like, apart from any drawing, so the rule — that
+    /// colour and edge depend on the state and Increase Contrast and on
+    /// nothing else — is something a test can read.
+    struct Look: Equatable {
+        enum Track: Equatable { case accent, well }
+        enum Knob: Equatable { case leading, trailing }
+        var track: Track
+        var knob: Knob
+        var outlineWidth: CGFloat
+    }
+
+    static func look(isOn: Bool, increaseContrast: Bool) -> Look {
+        Look(
+            track: isOn ? .accent : .well,
+            knob: isOn ? .trailing : .leading,
+            outlineWidth: increaseContrast ? 1 : 0
+        )
+    }
+
+    /// The row's own height and inset, so the hit target is the row the card
+    /// draws rather than the label's text.
+    var rowHeight: CGFloat = 26
+    var horizontalInset: CGFloat = 8
+
+    func makeBody(configuration: Configuration) -> some View {
+        PanelSwitch(configuration: configuration, rowHeight: rowHeight, horizontalInset: horizontalInset)
+    }
+}
+
+private struct PanelSwitch: View {
+    let configuration: ToggleStyleConfiguration
+    let rowHeight: CGFloat
+    let horizontalInset: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let look = PanelSwitchStyle.look(
+            isOn: configuration.isOn, increaseContrast: SystemAppearance.shared.increaseContrast
+        )
+        Button { configuration.isOn.toggle() } label: {
+            HStack(spacing: 8) {
+                configuration.label
+                Spacer(minLength: 8)
+                track(look)
+            }
+            .padding(.horizontal, horizontalInset)
+            .frame(height: rowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PanelButtonStyle())
+        // A plain `Toggle`, not one styled `.switch`: that one is AppKit's
+        // NSSwitch again, which the probe found as a 56 pt checkbox with no
+        // name beside a separate text, refusing the press. This one is a
+        // single AXCheckBox (subrole AXToggle) the width of the row, named by
+        // the label and carrying 0 or 1.
+        .accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }
+        }
+    }
+
+    private func track(_ look: PanelSwitchStyle.Look) -> some View {
+        let size = Theme.switchTrackSize
+        let travel = (size.width - size.height) / 2
+        return Capsule(style: .continuous)
+            .fill(look.track == .accent ? Theme.switchOnFill : Theme.switchOffFill)
+            .overlay {
+                // The hairline is the off well's edge, the only thing that
+                // makes a recess read as a shape; on, the accent is its own.
+                // Increase Contrast replaces either with a defined border.
+                if look.outlineWidth > 0 {
+                    Capsule(style: .continuous)
+                        .strokeBorder(Theme.switchContrastOutline, lineWidth: look.outlineWidth)
+                } else if look.track == .well {
+                    Capsule(style: .continuous).strokeBorder(Theme.hairline, lineWidth: 1)
+                }
+            }
+            .overlay {
+                Circle()
+                    .fill(Theme.switchKnob)
+                    .frame(width: Theme.switchKnobDiameter, height: Theme.switchKnobDiameter)
+                    .shadow(color: Theme.switchKnobShadow, radius: 1, y: 0.5)
+                    .offset(x: look.knob == .trailing ? travel : -travel)
+            }
+            .frame(width: size.width, height: size.height)
+            // Reduce Motion keeps the change and drops the travel: the knob
+            // is simply on the other side.
+            .animation(reduceMotion ? nil : Theme.contentAnimation, value: configuration.isOn)
     }
 }
 
