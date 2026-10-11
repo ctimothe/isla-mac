@@ -324,3 +324,6 @@
 "Copied" = "Copied";
 "macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS is not letting Isla read what you copy, so nothing new is kept.";
 "Open Privacy Settings" = "Open Privacy Settings";
+"Nothing copied yet" = "Nothing copied yet";
+"Text and files you copy appear here. Copies from password managers are skipped." = "Text and files you copy appear here. Copies from password managers are skipped.";
+"Turn On" = "Turn On";

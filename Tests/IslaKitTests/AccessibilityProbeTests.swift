@@ -39,11 +39,13 @@ final class AccessibilityProbeTests: XCTestCase {
         XCTAssertTrue(copied, "pressing Copy did not reach the button's action")
     }
 
-    /// Today's clipboard list, recorded as the baseline the clipboard
-    /// accessibility fix inverts: every row is announced as the same
-    /// "Copy Entry" button, so a VoiceOver user hears three identical buttons
-    /// and nothing of what each one would copy.
-    func testTheProbeSeesTodaysClipboardDefect() async {
+    /// The clipboard list, recorded first as the baseline the clipboard
+    /// accessibility fix (ax/CB-01) inverted: every row was announced as the
+    /// same "Copy Entry" button, so a VoiceOver user heard three identical
+    /// buttons and nothing of what each one would copy. Now each row is named
+    /// by its preview, and none by the old generic name. The full contract
+    /// lives in `ClipboardAccessibilityTests`.
+    func testTheProbeSeesTheClipboardRowsByName() async {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         let clipboard = isolated.stores.clipboard
@@ -52,7 +54,8 @@ final class AccessibilityProbeTests: XCTestCase {
         let pane = ClipboardPane(clipboard: clipboard, privacy: isolated.stores.privacy)
         let root = await AXProbe.tree(of: pane, size: CGSize(width: 560, height: 260))
 
-        let rows = root.all(role: "AXButton").filter { $0.label == "Copy Entry" }
-        XCTAssertEqual(rows.count, 3, root.dump)
+        XCTAssertTrue(root.all(role: "AXButton").filter { $0.label == "Copy Entry" }.isEmpty, root.dump)
+        let rows = root.all(role: "AXButton").filter { ["first", "second", "third"].contains($0.label) }
+        XCTAssertEqual(rows.map(\.label), ["third", "second", "first"], root.dump)
     }
 }

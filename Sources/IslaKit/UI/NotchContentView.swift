@@ -977,7 +977,10 @@ struct NotchContentView: View {
         case .shelf:
             ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)
         case .clipboard:
-            ClipboardPane(clipboard: vm.clipboard, privacy: vm.privacy)
+            ClipboardPane(
+                clipboard: vm.clipboard, privacy: vm.privacy,
+                turnOnHistory: { vm.setClipboardHistory(true) }
+            )
         case .translate:
             TranslatePane(translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
         case .settings:

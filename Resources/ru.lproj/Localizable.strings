@@ -323,3 +323,6 @@
 "Copied" = "Скопировано";
 "macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS не разрешает Isla читать скопированное, поэтому новое не сохраняется.";
 "Open Privacy Settings" = "Открыть настройки конфиденциальности";
+"Nothing copied yet" = "Пока ничего не скопировано";
+"Text and files you copy appear here. Copies from password managers are skipped." = "Здесь появится то, что вы копируете. Копии из менеджеров паролей не сохраняются.";
+"Turn On" = "Включить";
