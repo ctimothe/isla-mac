@@ -26,12 +26,22 @@ enum Theme {
     /// frame, filmed on 2026-09-21 — "too intense, too raw". A fold is the
     /// island's largest idle motion, 52 pt of wing on each side going into a
     /// hole in the display, and at 0.28 s it read as a snap even where it did
-    /// animate. Apple's own reposition is 0.4; the fold sits a little past it
-    /// because nobody asked for it and it should not pull the eye, and the
-    /// unfold a little under the fold because a song starting is news.
-    /// Both critically damped — neither was thrown.
+    /// animate. Apple's own reposition is 0.4, and both sit just past it.
+    ///
+    /// The fold used to sit further out, at 0.5, on the argument that a fold
+    /// nobody asked for should not pull the eye. It pulled it anyway, the
+    /// wrong way: its content leaves on its own faster curve, so for about
+    /// 300 ms after the cover was gone an empty black wing still hung past
+    /// the notch (H-013, settled at 529 ms against the content's 233 ms).
+    /// Leaving took longer than arriving. The fold now matches the unfold,
+    /// which leaves about 230 ms of bare wing and keeps it above the 0.4
+    /// floor that guards the 2026-09-21 "not a snap". Going further — the
+    /// audit's 0.32 — lands within 0.04 s of the 0.28 that was the snap.
+    /// `PillFoldTests` holds the order, the floor and the bare-wing time.
+    /// Both critically damped — neither was thrown. The peek's end rides the
+    /// fold too, so it got quicker by the same amount.
     static let pillUnfoldResponse: Double = 0.42
-    static let pillFoldResponse: Double = 0.5
+    static let pillFoldResponse: Double = 0.42
     static let pillUnfold = Animation.spring(response: pillUnfoldResponse, dampingFraction: 1.0)
     static let pillFold = Animation.spring(response: pillFoldResponse, dampingFraction: 1.0)
 
@@ -50,7 +60,14 @@ enum Theme {
     /// under it before it materializes — content drawn ahead of its surface is
     /// content floating on the wallpaper. `PillFoldTests` holds both halves
     /// against the shape's own springs.
-    static let pillContentOutResponse: Double = 0.22
+    ///
+    /// Out is tied to the fold: when the fold quickened to 0.42 its edge
+    /// reached the 22 pt cover sooner (130 ms instead of 154), and at the old
+    /// 0.22 the cover was still 12 % opaque there. 0.20 is the largest
+    /// hundredth that keeps it under a tenth (about 0.09) when the edge
+    /// arrives; 0.21 misses by a hair. Any slower and the edge slices the
+    /// cover, any faster and the cover blinks out rather than leaves.
+    static let pillContentOutResponse: Double = 0.20
     static let pillContentInResponse: Double = 0.36
     static let pillContentInDelay: Double = 0.07
     static let pillContentOut = Animation.spring(response: pillContentOutResponse, dampingFraction: 1.0)
@@ -95,11 +112,20 @@ enum Theme {
     /// was moving them into view for. The page arrived before the voice did.
     /// The response therefore has to be longer than that 0.25s, not shorter.
     ///
-    /// 0.86 is a small overshoot, deliberately: enough that the page reads as
-    /// having been carried, not enough to wobble. `MotionValuesTests`
+    /// 0.86 is a small overshoot, deliberately — and smaller than it was once
+    /// described: over the 48 pt step it computes to about 0.24 pt past the
+    /// line (`exp(−ζπ/√(1−ζ²))` ≈ 0.5 % of the travel; the visual lab's
+    /// `peakOvershootPoints` for `lyric-scroll` reads the same). That is under
+    /// half a pixel on a Retina panel, so whatever makes the page read as
+    /// carried, it is not a bump anybody sees. It is left at 0.86 on purpose
+    /// until the owner has compared it live against 1.0 (Wave A decision 18);
+    /// `LyricLeadModel` reads the rise from these two constants, so the line
+    /// timing follows either answer. `MotionValuesTests`
     /// `testTheLyricScrollIsSlowerThanTheWordSweepAndMayOvershoot` holds both
-    /// ends of that, and `testNothingWithoutMomentumOvershoots` walks
-    /// `criticallyDampedSprings` so this stays the single exception. Any spring
+    /// ends of the range, and `testNothingWithoutMomentumOvershoots` walks
+    /// `criticallyDampedSprings` so this and `hoverNudge` stay the only
+    /// exceptions (it used to say "the single exception"; the nudge was added
+    /// after it). Any spring
     /// added to this file belongs in that list unless it can name the momentum
     /// it inherited.
     static let lyricScrollResponse: Double = 0.42
@@ -281,8 +307,13 @@ enum Theme {
     /// iPhone's island bumps when touched. It is deliberately *not* the
     /// `RefusalShake`: over the lock screen that shake already means "this will
     /// not open", and the same motion here would say "no" to a click that is
-    /// about to work. 0.72 is a single visible bump that settles, not a wobble;
-    /// `MotionValuesTests` holds that.
+    /// about to work. 0.72 is a single bump that settles, not a wobble;
+    /// `RestingNotchTests.testTheHoverNudgeIsOneBumpNotAWobble` holds that
+    /// (this used to cite `MotionValuesTests`, which never asserted it).
+    /// "Visible" is the open question: over the 15 pt each side travels it
+    /// overshoots by about 0.58 pt (3.8 %), about one Retina pixel. The value
+    /// stays until the owner, who asked for the bump, has looked at it live
+    /// (Wave A decision 18) — a planner's arithmetic does not overrule that.
     static let hoverNudgeDamping: Double = 0.72
     static let hoverNudge = Animation.spring(response: 0.34, dampingFraction: hoverNudgeDamping)
 

@@ -1014,3 +1014,33 @@ copy, and when a read comes back empty; nothing is read to find out.
   `…testAReportedOutputLatencyReachesTheModelButNotTheLead`; the lab's L7 now
   evaluates the production lead with each scenario's latency reported to the
   model (needs the corpus, `Scripts/lyric-lab.sh`).
+
+### The pill folds no slower than it unfolds — 2026-10-11 (vt/MO-03)
+
+Amends **Native motion — 2026-09-21** above, which records the fold at 0.5 s
+and the content leaving at 0.22 s.
+
+- [x] **Leaving takes no longer than arriving.** The fold (`Theme.pillFold`)
+  settled in 529 ms against the unfold's 444 ms, and its content left on its
+  own curve in 233 ms, so for about 296 ms an empty black wing hung past the
+  notch (H-013). The fold is now 0.42 s, equal to the unfold and still above
+  the 0.4 floor that keeps it from reading as the old 0.28 s snap; the content
+  leaves on 0.20 s, the largest hundredth that keeps the cover under a tenth
+  opaque when the faster edge reaches it (0.087, was 0.066). Lab re-sample:
+  fold settles 444 ms, content-out 212 ms, bare wing about 232 ms. The audit's
+  0.32 s / 0.16 s was rejected as within 0.04 s of the snap the owner turned
+  down; it is the owner's to revisit after the live look. The peek's end and
+  the ambient fold ride the same curve and got quicker by the same amount.
+  `PillFoldTests.testLeavingIsNoSlowerThanArriving` and
+  `…testTheEmptyWingIsShort` hold it, beside the existing floor and
+  edge-versus-cover tests.
+- [x] **Decision 18, comments only.** The hover nudge's comment cited
+  `MotionValuesTests`; its assertion lives in
+  `RestingNotchTests.testTheHoverNudgeIsOneBumpNotAWobble`. The lyric scroll's
+  comment called its overshoot enough to read as carried; it is 0.24 pt over
+  a 48 pt step, and the hover nudge's is 0.58 pt over 15 pt. Both damping
+  values are unchanged until the owner compares them live.
+- [ ] **Physical check owed:** pause a song, unlocked and over the lock
+  screen, and watch the fold: no bare black wing lingering after the cover
+  has gone, and no snap. Then hover the resting island and step a lyric line
+  with both bumps in mind for decision 18.
