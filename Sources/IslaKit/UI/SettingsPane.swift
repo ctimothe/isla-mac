@@ -369,17 +369,10 @@ struct SettingsPane: View {
                     // interface, so the only fix for "all my lyrics run fast"
                     // was to nudge every track one at a time.
                     //
-                    // No commit: the store persists the offset on every write
-                    // and nothing is rebuilt for it, so each tick may land.
-                    SettingsSliderRow(
-                        symbol: SettingsIcon.lyricTiming,
-                        title: localized("Lyric Delay"),
-                        value: $lyrics.userOffset,
-                        range: -3...3,
-                        drawnValue: localized("%+.2fs", lyrics.userOffset),
-                        spokenValue: localized("%+.2f seconds", lyrics.userOffset),
-                        drawnValueWidth: 44
-                    )
+                    //
+                    // The slider, fine steps and a live preview of the line:
+                    // see `LyricDelayControls`.
+                    LyricDelayControls(lyrics: lyrics, media: media)
                     if abs(lyrics.userOffset) > 0.01 {
                         actionRow(
                             symbol: SettingsIcon.resetTiming,
@@ -1086,6 +1079,13 @@ struct SettingsSliderRow: View {
     let spokenValue: String
     var drawnValueWidth: CGFloat = 38
     var commit: (() -> Void)? = nil
+    /// Where one VoiceOver increment (`later: true`) or decrement moves the
+    /// value from, when the slider's own step is the wrong size. Left nil the
+    /// slider keeps its native step — and the native editing bracket around
+    /// it, which `commit` relies on (see above). Only Lyric Delay sets one:
+    /// the native step is a tenth of the range, 0.6 s there, wider than the
+    /// whole window inside which a listener stops noticing the offset.
+    var accessibilityStep: ((_ value: Double, _ up: Bool) -> Double)? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1094,14 +1094,7 @@ struct SettingsSliderRow: View {
                 .islandFont(.body)
                 .foregroundStyle(.white)
                 .accessibilityHidden(true)
-            Slider(value: $value, in: range, onEditingChanged: { editing in
-                guard !editing else { return }
-                commit?()
-            })
-            .controlSize(.mini)
-            .tint(Theme.secondary)
-            .accessibilityLabel(title)
-            .accessibilityValue(spokenValue)
+            slider
             Text(drawnValue)
                 .font(Theme.TypeRole.caption.font().monospacedDigit())
                 .foregroundStyle(Theme.tertiary)
@@ -1110,6 +1103,228 @@ struct SettingsSliderRow: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 26)
+    }
+
+    @ViewBuilder
+    private var slider: some View {
+        let base = Slider(value: $value, in: range, onEditingChanged: { editing in
+            guard !editing else { return }
+            commit?()
+        })
+        .controlSize(.mini)
+        .tint(Theme.secondary)
+        .accessibilityLabel(title)
+        .accessibilityValue(spokenValue)
+        if let accessibilityStep {
+            base.accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: value = accessibilityStep(value, true)
+                case .decrement: value = accessibilityStep(value, false)
+                @unknown default: break
+                }
+            }
+        } else {
+            base
+        }
+    }
+}
+
+// MARK: - Lyric Delay
+
+/// What the Lyric Delay value says: a direction, never a sign.
+///
+/// "+0.25 seconds" is a sign the listener has to decode, and until LY-01 the
+/// sign ran backwards: the note under the slider said "positive, later" while
+/// a positive value lit lines early, so the AirPods listener the setting
+/// exists for followed it and doubled the error. A direction cannot be
+/// misread the same way. Positive is later (`LyricSweep.lead`).
+enum LyricDelayCopy {
+    static func value(_ offset: TimeInterval) -> String {
+        // Below half a hundredth the figure prints as 0.00, and "0.00 s
+        // later" names a direction nothing is moved in. A slider drag
+        // leaves residues that small.
+        if abs(offset) < 0.005 { return localized("On time") }
+        return offset > 0
+            ? localized("%.2f s later", offset)
+            : localized("%.2f s earlier", -offset)
+    }
+}
+
+/// One fine step of Lyric Delay: 0.05 s, under a third of the −125/+45 ms
+/// window inside which a viewer does not notice text and sound apart (ITU-R
+/// BT.1359-1, the window `LyricLeadModel.anticipation` aims into), so a
+/// step can always land inside it. On a grid, so that steps after a drag
+/// land on round values instead of carrying the drag's residue along.
+enum LyricDelayStep {
+    static let size: TimeInterval = 0.05
+    /// The store's own clamp, `LyricsStore.userOffset`.
+    static let range: ClosedRange<TimeInterval> = -3...3
+
+    /// The grid point one step later or earlier than `value`, clamped.
+    ///
+    /// Counted in whole steps and divided at the end, so the result is the
+    /// double nearest the round value: adding 0.05 to a sum like
+    /// `0.1 + 0.2`, a hair over 0.3, would carry the hair along with every
+    /// step. The tolerance keeps a value that is on the grid but a hair off
+    /// it from counting as already past its own point.
+    static func next(_ value: TimeInterval, later: Bool) -> TimeInterval {
+        let perSecond = (1 / size).rounded()
+        let units = value * perSecond
+        let tolerance = 1e-6
+        let target = later ? (units + tolerance).rounded(.down) + 1 : (units - tolerance).rounded(.up) - 1
+        return min(max(target / perSecond, range.lowerBound), range.upperBound)
+    }
+}
+
+/// The Lyric Delay row: the slider, Earlier and Later in fine steps, and —
+/// while a song with lyrics plays — the line the panel would draw now, so the
+/// delay can be tuned while watching it.
+///
+/// The correction is the one measurement of the gap between the player's
+/// position and the voice reaching the ear that nothing on the Mac can make
+/// (L-02, L7), and it used to be set here with no lyric in sight: every move
+/// of a ±3 s slider at about 0.04 s a point meant a trip to the Music tab to
+/// see what it did. Tap-along calibration was rejected for this: a tap
+/// carries a motor delay of tens to hundreds of milliseconds, the same kind
+/// of unknown being measured.
+///
+/// The preview is the caption's line through the caption's own
+/// `MediaPane.captionResolution` and `KaraokeText`, so what lights here is
+/// what lights on the Music tab. It reads the clock through
+/// `extrapolatedPosition` inside a 0.1 s `TimelineView` rather than by
+/// observing the controller: the media clock's tick stops off the Music tab
+/// (MS-12), and observing it redrew all of Settings ten times a second
+/// (F-015). `media` is held, not observed, and only `isPlaying` is received
+/// — a handful of times a session — to decide whether there is a preview at
+/// all. `LyricDelayCopyTests` holds both.
+struct LyricDelayControls: View {
+    @ObservedObject var lyrics: LyricsStore
+    let media: MediaController
+    @State private var isPlaying = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(spacing: 1) {
+            SettingsSliderRow(
+                symbol: SettingsIcon.lyricTiming,
+                title: localized("Lyric Delay"),
+                // No commit: the store persists the offset on every write and
+                // nothing is rebuilt for it, so each tick may land.
+                value: $lyrics.userOffset,
+                range: LyricDelayStep.range,
+                drawnValue: localized("%+.2fs", lyrics.userOffset),
+                spokenValue: LyricDelayCopy.value(lyrics.userOffset),
+                drawnValueWidth: 44,
+                accessibilityStep: { LyricDelayStep.next($0, later: $1) }
+            )
+            HStack(spacing: 8) {
+                stepper(later: false)
+                Group {
+                    if let lines = previewLines {
+                        TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+                            preview(lines)
+                        }
+                    } else {
+                        // The value in words between the two buttons that move
+                        // it, so the direction each press went is read where
+                        // the press was. The slider already speaks it.
+                        Text(LyricDelayCopy.value(lyrics.userOffset))
+                            .font(Theme.TypeRole.caption.font().monospacedDigit())
+                            .foregroundStyle(Theme.tertiary)
+                            .lineLimit(1)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                stepper(later: true)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+            if previewLines != nil {
+                Text(localized("Move until the line lights with the voice."))
+                    .islandFont(.body, weight: .regular)
+                    .foregroundStyle(Theme.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        // A publisher hands over its current value on subscription, so a
+        // pane opened mid-song previews at once.
+        .onReceive(media.$isPlaying) { isPlaying = $0 }
+    }
+
+    /// The lines to preview, or nil when there is nothing to line up with:
+    /// no timed lyric, or no voice because the song is paused.
+    private var previewLines: [LyricsStore.Line]? {
+        guard isPlaying, case .ready = lyrics.availability,
+              case .synced(let lines) = lyrics.state, !lines.isEmpty else { return nil }
+        return lines
+    }
+
+    private func stepper(later: Bool) -> some View {
+        let title = later ? localized("Later") : localized("Earlier")
+        let atEnd = later
+            ? lyrics.userOffset >= LyricDelayStep.range.upperBound
+            : lyrics.userOffset <= LyricDelayStep.range.lowerBound
+        return Button {
+            lyrics.userOffset = LyricDelayStep.next(lyrics.userOffset, later: later)
+        } label: {
+            Image(systemName: later ? "plus" : "minus")
+                // Fitted to the 22 pt well, as the lyrics page's own
+                // per-track nudge is: a caption glyph would crowd it.
+                .font(.system(size: 8, weight: .bold))
+        }
+        .buttonStyle(NotchButtonStyle(size: 22))
+        .disabled(atEnd)
+        .opacity(atEnd ? 0.4 : 1)
+        .help(title)
+        .accessibilityLabel(title)
+    }
+
+    /// The caption's line at this moment, drawn the way the caption draws it.
+    @ViewBuilder
+    private func preview(_ lines: [LyricsStore.Line]) -> some View {
+        let wordTiming = LyricsPresentation.usesWordTiming(
+            lyrics.timingGranularity,
+            precisionMeasured: media.precisionSync,
+            wordKaraokeEnabled: lyrics.wordKaraokeEnabled
+        )
+        if let shown = MediaPane.captionResolution(lines: lines, inputs: LyricInputs(
+            position: media.extrapolatedPosition(),
+            precisionSync: media.precisionSync,
+            userOffset: lyrics.userOffset,
+            trackOffset: lyrics.trackOffset,
+            wordTiming: wordTiming
+        )) {
+            let index = shown.centre
+            let line = lines[index]
+            KaraokeText(
+                text: line.text,
+                fraction: shown.fraction,
+                clock: shown.current.flatMap { current in
+                    LyricSweep.liveFraction(
+                        line: line, end: LyricSweep.end(of: current, in: lines),
+                        wordTiming: wordTiming,
+                        clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+                            precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
+                            trackOffset: lyrics.trackOffset
+                        ))
+                    )
+                },
+                reduceMotion: reduceMotion,
+                tracking: Theme.tracking(forSize: Theme.TypeRole.body.size)
+            )
+            .italic(line.isCredit)
+            .id(index)
+            .transition(.lyricLine(reduceMotion: reduceMotion))
+            .frame(maxWidth: .infinity)
+            .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: index)
+            // Read as the words it shows. The sweep is drawn, not text, and
+            // left alone it was an unnamed element with nothing to read.
+            .accessibilityRepresentation { Text(line.text) }
+        }
     }
 }
 

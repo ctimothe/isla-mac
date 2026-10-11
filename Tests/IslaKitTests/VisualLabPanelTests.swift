@@ -617,6 +617,24 @@ final class VisualLabPanelTests: VisualLabCase {
                 stores.privacy.setCovering(.translate, true)
             }
         }
+        // LY-16: with a song and its lyrics playing, the Lyric Delay row
+        // previews the caption's line between Earlier and Later, and says how
+        // to use it. The narrowest panel in Russian is where the note wraps.
+        func playingWithLyrics(_ stores: NotchStores) async {
+            await LabFixtures.play(LabFixtures.Track(elapsed: 25), on: stores.media)
+            stores.lyrics.present(LabFixtures.timeline())
+        }
+        let previewNote = "A track playing 25 s in, with lyrics: the Lyric Delay row previews the line the caption shows."
+        try await shoot.shoot("all-sections-lyric-delay-preview", variants: [.base], size: tall, settle: 0.4,
+                              notes: previewNote) { variant in
+            try await fullLength(variant, prepare: playingWithLyrics)
+        }
+        let tallNarrow = CGSize(width: 480 - 14 * 2 - 30 - 14 + 24, height: 1524)
+        try await shoot.shoot("all-sections-lyric-delay-preview",
+                              variants: [LabVariant(name: "ru-w480", width: 480, language: "ru")],
+                              size: tallNarrow, settle: 0.4, notes: previewNote) { variant in
+            try await fullLength(variant, prepare: playingWithLyrics)
+        }
         try await shoot.shoot("all-sections-spotify-connected", variants: [.base], size: tall, settle: 0.4,
                               notes: "A connected Spotify account, stood in by the lab's isolated account and its temporary credential file.") { variant in
             await session.connectSpotify(liked: false)
