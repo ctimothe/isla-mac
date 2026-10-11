@@ -596,7 +596,7 @@ struct MediaPane: View {
     /// that turns to the next line a beat before the voice reaches it. The
     /// default is no lead, which the Lyric Delay preview relies on.
     static func captionResolution(
-        lines: [LyricsStore.Line], inputs: LyricInputs, readAhead: TimeInterval = 0
+        lines: [LyricsStore.Line], inputs: LyricInputs, readAhead: LyricReadAhead = .off
     ) -> LyricResolution? {
         // With no lines there is nothing to caption. Otherwise it is the
         // moment's centre — the row the stage and the card centre on — which

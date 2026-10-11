@@ -359,6 +359,20 @@ transitions.
 > turns on time. **Settings > Music > Show next line early** (Off, 0.25 s,
 > 0.5 s default, 0.75 s; `lyrics.readAhead`) sets it. Display only; nothing
 > leaves the machine. The lab's L9 case measures it over the corpus.
+>
+> **Amended 2026-10-11 (ly/READ-02) — the default is Auto, not a fixed 0.5 s.**
+> After trying the fixed 0.5 s the owner found it perfect on a slow ballad of
+> long lines and a bit much elsewhere, and asked that it never go below 0.30 s.
+> The setting is now Off, **Auto (default)**, 0.3 s, 0.5 s (0.25 s and 0.75 s
+> are withdrawn). Auto turns `clamp(0.30 + 0.004 × n, 0.30, 0.50)` seconds
+> early, `n` being the visible characters (`Character` count, trimmed) of the
+> line turned *to*: 0.30 s for a few words, 0.42 s for thirty characters,
+> 0.50 s from fifty. Every limit above still applies on top of it, so the 45
+> percent cap may pull a single transition under 0.30 s when the line it
+> leaves is under about 0.67 s long — the cap protects the line being sung and
+> outranks the floor. `lyrics.readAhead`: an absent key is Auto, a stored 0 is
+> Off, and any other stored number snaps to the nearer of 0.3 and 0.5 (an old
+> 0.25 reads as 0.3, 0.75 as 0.5, 0.5 as a fixed 0.5).
 
 ### Notes and Teleprompter
 

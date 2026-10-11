@@ -60,18 +60,20 @@ final class LyricsStore: ObservableObject {
     }
     static let wordKaraokeEnabledKey = "lyrics.wordKaraokeEnabled"
 
-    /// "Show next line early", in seconds: how long before it is sung the
-    /// island's one-line lyric turns to the next line, so a singer can read it
-    /// first. One of `LyricReadAhead`'s values, 0.5 until chosen; 0 is a
-    /// choice (Off), which is why an absent key is not read as 0.
-    @Published var readAhead: TimeInterval {
+    /// "Show next line early": how long before it is sung the island's
+    /// one-line lyric turns to the next line, so a singer can read it first.
+    /// Auto until chosen (ly/READ-02), which sizes the lead to the line about
+    /// to be read. Stored under `readAheadKey` as the fixed number of seconds
+    /// (0 is a choice, Off) and Auto as no value at all: removing the key is
+    /// how a listener goes back to the default, and an absent key is never
+    /// read as 0.
+    @Published var readAhead: LyricReadAhead {
         didSet {
-            let snapped = LyricReadAhead(snapping: readAhead).seconds
-            if snapped != readAhead {
-                readAhead = snapped
-                return
+            if let stored = readAhead.storedValue {
+                defaults.set(stored, forKey: LyricsStore.readAheadKey)
+            } else {
+                defaults.removeObject(forKey: LyricsStore.readAheadKey)
             }
-            defaults.set(readAhead, forKey: LyricsStore.readAheadKey)
         }
     }
     static let readAheadKey = "lyrics.readAhead"
@@ -157,8 +159,7 @@ final class LyricsStore: ObservableObject {
         }
         wordKaraokeEnabled = defaults.bool(forKey: Self.wordKaraokeEnabledKey)
         userOffset = defaults.double(forKey: Self.offsetKey)
-        readAhead = (defaults.object(forKey: Self.readAheadKey) as? Double)
-            .map { LyricReadAhead(snapping: $0).seconds } ?? LyricReadAhead.standard.seconds
+        readAhead = LyricReadAhead(storedValue: defaults.object(forKey: Self.readAheadKey) as? Double)
         localTrackOffsets = Self.loadLocalTrackOffsets(from: localOffsetsURL)
         unassignedLegacyOffsets = Self.loadUnassignedLegacyOffsets(from: unassignedOffsetsURL)
     }

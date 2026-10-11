@@ -235,7 +235,9 @@ the clock — `index`, `centreIndex`, `end`, `lead`, `position`, `fraction`,
 island's stage and the lock card each keep only their own container. They had
 three copies of the binary search once and disagreed about the line before the
 first timestamp; do not add a fourth. The closed island's one-line caption
-alone reads ahead of the voice (Settings "Show next line early", default 0.5 s):
+alone reads ahead of the voice (Settings "Show next line early", default Auto,
+0.30–0.50 s by the length of the line turned to, never below 0.30 s except
+where the 45 percent cap binds):
 `LyricSweep.readingMoment` is the one function that picks its line, and
 `readAheadStart` the one that says when it turns — the boundary wakes ask the
 same function, so route nothing else around them.

@@ -529,13 +529,10 @@ struct SettingsPane: View {
                         symbol: SettingsIcon.readAhead,
                         title: localized("Show next line early"),
                         options: LyricReadAhead.allCases,
-                        selection: Binding(
-                            get: { LyricReadAhead(snapping: lyrics.readAhead) },
-                            set: { lyrics.readAhead = $0.seconds }
-                        ),
+                        selection: $lyrics.readAhead,
                         title: { $0.title }
                     )
-                    noteRow(localized("The island's one-line lyric turns to the next line this much before it is sung. Highlight timing does not change."))
+                    noteRow(localized("The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change."))
                     // The correction that moves every song at once.
                     //
                     // The per-track nudge on the lyrics page fixes one bad

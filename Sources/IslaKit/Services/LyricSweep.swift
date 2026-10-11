@@ -99,9 +99,9 @@ enum LyricSweep {
     ///
     /// `readAhead` is the caption's reading lead (`readingMoment`). The one
     /// caller that asks for the line *sung* — the Shortcuts action — passes
-    /// 0, and so never reads a line ahead of the voice.
+    /// `.off`, and so never reads a line ahead of the voice.
     static func displayed(
-        lines: [LyricsStore.Line], at: TimeInterval, readAhead: TimeInterval = 0
+        lines: [LyricsStore.Line], at: TimeInterval, readAhead: LyricReadAhead = .off
     ) -> (line: LyricsStore.Line, end: TimeInterval, swept: Bool)? {
         guard !lines.isEmpty else { return nil }
         let moment = readingMoment(in: lines, at: at, readAhead: readAhead)
@@ -197,26 +197,34 @@ enum LyricSweep {
     /// caption turning exactly as the voice arrives, the eye is still
     /// finding the words when the mouth should be on them. So for a
     /// transition with no honoured end — continuous singing — the caption
-    /// turns `readAhead` early, capped at 45 percent of the line it leaves
-    /// and never earlier than the start of that line's final word, so the
-    /// last word is still on screen when it is sung. A transition with an
+    /// turns early: `readAhead` says by how much (a fixed 0.3 s or 0.5 s, or
+    /// Auto, which asks `LyricReadAhead.seconds(forNextLine:)` and so gives a
+    /// long line more time to be read than a short one). That is capped at 45
+    /// percent of the line it leaves and never earlier than the start of that
+    /// line's final word, so the last word is still on screen when it is
+    /// sung. The cap is why a single transition can come out below Auto's
+    /// 0.30 s floor: a line only half a second long cannot give away 0.30 s
+    /// of itself without taking the line being sung off the screen, and
+    /// protecting that line wins over the floor. A transition with an
     /// honoured end already shows `next` from the end (`moment`), so there is
     /// nothing to bring forward.
     ///
     /// The one place that decides it: `readingMoment` reads it for the line
     /// to draw and `LyricsCoordinator.registerBoundaries` for the wake that
     /// turns the caption on time, so a drawn turn and an armed wake cannot
-    /// answer two different rules.
+    /// answer two different rules — including the per-line early time Auto
+    /// computes, which differs from one transition to the next.
     static func readAheadStart(
-        before next: Int, in lines: [LyricsStore.Line], readAhead: TimeInterval
+        before next: Int, in lines: [LyricsStore.Line], readAhead: LyricReadAhead
     ) -> TimeInterval? {
         let previous = next - 1
-        guard readAhead > 0, readAhead.isFinite, lines.indices.contains(previous),
+        guard readAhead != .off, lines.indices.contains(previous),
               lines.indices.contains(next),
               effectiveEnd(of: previous, in: lines) == nil else { return nil }
+        let wanted = readAhead.seconds(forNextLine: lines[next].text)
         let length = lines[next].at - lines[previous].at
-        guard length > 0 else { return nil }
-        let early = min(readAhead, maximumReadAheadShare * length)
+        guard wanted > 0, wanted.isFinite, length > 0 else { return nil }
+        let early = min(wanted, maximumReadAheadShare * length)
         var start = lines[next].at - early
         if let finalWord = lines[previous].words.last { start = max(start, finalWord.at) }
         return start < lines[next].at ? start : nil
@@ -227,12 +235,12 @@ enum LyricSweep {
     /// (`readAheadStart`) the next line is already the one shown, unswept —
     /// nothing is current, as in an intro. A pure function of the position
     /// like the rest, so a seek, a pause and a scrub give the same answer
-    /// they would have played through. With `readAhead` 0 it is `moment`.
+    /// they would have played through. With `readAhead` Off it is `moment`.
     static func readingMoment(
-        in lines: [LyricsStore.Line], at: TimeInterval, readAhead: TimeInterval
+        in lines: [LyricsStore.Line], at: TimeInterval, readAhead: LyricReadAhead
     ) -> LyricMoment {
         let base = moment(in: lines, at: at)
-        guard readAhead > 0, let current = base.current,
+        guard readAhead != .off, let current = base.current,
               let start = readAheadStart(before: current + 1, in: lines, readAhead: readAhead),
               at >= start else { return base }
         return LyricMoment(current: nil, centre: current + 1, upcoming: current + 1)
@@ -412,7 +420,7 @@ enum LyricSweep {
     /// voice. It is an argument rather than a field of `LyricInputs` so a
     /// surface cannot pick it up by accident.
     static func resolve(
-        lines: [LyricsStore.Line], inputs: LyricInputs, readAhead: TimeInterval = 0
+        lines: [LyricsStore.Line], inputs: LyricInputs, readAhead: LyricReadAhead = .off
     ) -> LyricResolution {
         let at = position(
             inputs.position, precisionSync: inputs.precisionSync,
@@ -723,32 +731,83 @@ struct LyricResolution: Equatable, Sendable {
 /// How early the island's one-line lyric turns to the next line: "Show next
 /// line early" in Settings. Display only; the highlight's timing is not
 /// among the things it changes.
-enum LyricReadAhead: Double, CaseIterable, Identifiable, Sendable {
-    case off = 0
-    case quarter = 0.25
-    case half = 0.5
-    case threeQuarters = 0.75
+///
+/// Auto is the default (ly/READ-02). A fixed half second was exactly right on
+/// a slow ballad of long lines and a little much on everything else, and the
+/// owner would not go below 0.30 s anywhere, so Auto reads the line it is
+/// about to show: the longer the line, the longer a person needs to take it
+/// in. The two fixed choices remain for a listener who wants the same beat
+/// on every line.
+enum LyricReadAhead: CaseIterable, Identifiable, Sendable {
+    case off
+    case auto
+    case threeTenths
+    case half
 
-    var id: Double { rawValue }
-    var seconds: TimeInterval { rawValue }
+    var id: String {
+        switch self {
+        case .off: return "off"
+        case .auto: return "auto"
+        case .threeTenths: return "0.3"
+        case .half: return "0.5"
+        }
+    }
 
-    /// Half a second: the beat a singer needs to read a line and start on it.
-    static let standard = LyricReadAhead.half
+    /// The fixed early time of a fixed choice; nil for Auto, which has none
+    /// until it is shown a line.
+    var fixedSeconds: TimeInterval? {
+        switch self {
+        case .off: return 0
+        case .auto: return nil
+        case .threeTenths: return 0.3
+        case .half: return 0.5
+        }
+    }
 
-    /// The option nearest to `seconds`; the default for anything that is not
-    /// a finite number, so a hand-edited defaults value cannot arm a wake at
-    /// an absurd time.
-    init(snapping seconds: Double) {
-        guard seconds.isFinite else { self = .standard; return }
-        self = Self.allCases.min { abs($0.rawValue - seconds) < abs($1.rawValue - seconds) } ?? .standard
+    /// Auto's floor and ceiling, and the time each visible character adds:
+    /// 0.30 s for a few words, 0.50 s from fifty characters, 0.42 s for
+    /// thirty. The floor is the owner's ("definitely not lower than 0.30"),
+    /// the ceiling the 0.5 s that was perfect on long lines.
+    static let automaticFloor: TimeInterval = 0.30
+    static let automaticCeiling: TimeInterval = 0.50
+    static let automaticPerCharacter: TimeInterval = 0.004
+
+    /// Auto's early time for a line of `count` visible characters, before
+    /// `LyricSweep.readAheadStart` applies its caps.
+    static func automaticSeconds(forCharacters count: Int) -> TimeInterval {
+        min(max(automaticFloor + automaticPerCharacter * Double(max(count, 0)), automaticFloor), automaticCeiling)
+    }
+
+    /// How early the caption turns to a line with this text. `Character`s,
+    /// not UTF-16 units, so an emoji or an accented letter is one thing to
+    /// read, and trimmed, since padding is not read at all.
+    func seconds(forNextLine text: String) -> TimeInterval {
+        if let fixed = fixedSeconds { return fixed }
+        return Self.automaticSeconds(forCharacters: text.trimmingCharacters(in: .whitespacesAndNewlines).count)
+    }
+
+    /// What is kept in defaults, or nil for Auto: an absent key *is* Auto, so
+    /// the default needs no write and a build that never heard of Auto reads
+    /// a positive number as one of its own fixed values.
+    var storedValue: Double? { self == .auto ? nil : fixedSeconds }
+
+    /// The choice a stored value means. Absent (nil) is Auto; 0 or below is
+    /// Off; a positive number snaps to the nearer of 0.3 and 0.5, which is
+    /// how READ-01's 0.25 s becomes 0.3 s and its 0.75 s becomes 0.5 s. A
+    /// value that is not a finite number is the default rather than a wake
+    /// armed at an absurd time.
+    init(storedValue: Double?) {
+        guard let value = storedValue, value.isFinite else { self = .auto; return }
+        if value <= 0 { self = .off; return }
+        self = abs(value - 0.3) < abs(value - 0.5) ? .threeTenths : .half
     }
 
     var title: String {
         switch self {
         case .off: return localized("Off")
-        case .quarter: return localized("0.25 s")
+        case .auto: return localized("Auto")
+        case .threeTenths: return localized("0.3 s")
         case .half: return localized("0.5 s")
-        case .threeQuarters: return localized("0.75 s")
         }
     }
 }
