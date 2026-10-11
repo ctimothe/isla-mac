@@ -334,3 +334,6 @@
 "This file has no timed lyrics." = "В этом файле нет текста со временем.";
 "Couldn't read: %@" = "Не удалось прочитать: %@";
 "Edited %@" = "Изменено %@";
+"%d points" = "%d пт";
+"%.2f seconds" = "%.2f секунды";
+"%+.2f seconds" = "%+.2f секунды";

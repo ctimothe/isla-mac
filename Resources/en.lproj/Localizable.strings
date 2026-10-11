@@ -335,3 +335,6 @@
 "This file has no timed lyrics." = "This file has no timed lyrics.";
 "Couldn't read: %@" = "Couldn't read: %@";
 "Edited %@" = "Edited %@";
+"%d points" = "%d points";
+"%.2f seconds" = "%.2f seconds";
+"%+.2f seconds" = "%+.2f seconds";

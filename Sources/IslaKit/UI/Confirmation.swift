@@ -250,6 +250,9 @@ struct ConfirmRow: View {
                     .foregroundStyle(arming.armed ? Theme.danger : Theme.secondary)
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                     .frame(width: 16)
+                    // Decoration, as `RowIcon` is for every other row; armed,
+                    // the title already says what the warning glyph means.
+                    .accessibilityHidden(true)
                 Text(arming.armed ? armedTitle : title)
                     .islandFont(.body)
                     .foregroundStyle(arming.armed ? Theme.danger : .white)
