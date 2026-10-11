@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import SwiftUI
 
@@ -39,6 +40,12 @@ final class NotchController {
     /// media tab with no way out but the hotkey itself. A global monitor sees
     /// clicks the app never receives, which is exactly the signal needed.
     private var pinnedClickMonitor: Any?
+    /// Escape, held system-wide for exactly as long as a pinned panel without
+    /// the keyboard stands — see `NotchViewModel.claimsEscape`. A Carbon hot
+    /// key for the same reason the three shortcuts are: it needs no
+    /// permission and sees nothing else that is typed. Registered and given up
+    /// by `updateEscapeHotKey` alone.
+    private var escapeHotKey: HotKeyRegistration?
     /// Monotonic stamp for the deferred half of closing: any newer open or
     /// close outdates the one still in flight.
     private var openGeneration = 0
@@ -58,6 +65,21 @@ final class NotchController {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.screenParametersChanged() }
+        })
+        // ⌘-Tab, the Dock, Spotlight launching something: another app came to
+        // the front, which is the keyboard's click in another app. A pinned
+        // panel ends on it exactly as the outside-click monitor ends it — see
+        // `NotchViewModel.appActivated(ownPID:activatedPID:)`. The pid is read
+        // here, off the notification, so nothing non-Sendable crosses into
+        // the main-actor block.
+        observerTokens.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            let activated = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?
+                .processIdentifier
+            MainActor.assumeIsolated { self?.applicationActivated(activated) }
         })
         observerTokens.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
@@ -492,6 +514,11 @@ final class NotchController {
             NSEvent.removeMonitor(pinnedClickMonitor)
             self.pinnedClickMonitor = nil
         }
+        // Explicitly, not by the sink that normally gives it up: the sinks go
+        // with `cancellables` below, and a registration left behind would
+        // keep Escape from every app for the rest of the session.
+        escapeHotKey?.unregister()
+        escapeHotKey = nil
         stores.stop()
         for token in observerTokens {
             NotificationCenter.default.removeObserver(token)
@@ -666,10 +693,11 @@ final class NotchController {
     /// `DI_OPEN_LYRICS` verification hook. (The Translate service opens through
     /// `translate(_:)`, which sets its own tab and its own grace, not here.)
     ///
-    /// Opens until something closes it — the same command again, Escape, or a
-    /// click outside — rather than until the next pointer sample, which is what
-    /// folded it a third of a second after it appeared and made the keyboard
-    /// route to the panel unusable.
+    /// Opens until something closes it — the same command again, Escape, a
+    /// click outside, or another app coming to the front (⌘-Tab) — rather than
+    /// until the next pointer sample, which is what folded it a third of a
+    /// second after it appeared and made the keyboard route to the panel
+    /// unusable.
     func toggle() {
         guard let viewModel else { return }
         // Refused over the shield, before the pin or `setOpen` is touched: an
@@ -712,7 +740,7 @@ final class NotchController {
     /// at launch, and an unpinned panel nobody is hovering folds a third of a
     /// second after appearing, which is the same as never having opened. Pinned,
     /// it closes the way every commanded open closes — Escape, a second click on
-    /// the island, or a click in another app.
+    /// the island, a click in another app, or switching to one.
     func presentWelcome() {
         guard let viewModel else { return }
         // Not over the shield. The island is deliberately inert while the Mac is
@@ -763,6 +791,71 @@ final class NotchController {
             NSEvent.removeMonitor(monitor)
             pinnedClickMonitor = nil
         }
+    }
+
+    /// Another app came to the front. Ends a pin the way a click in another app
+    /// does, and for the same reason: ⌘-Tab is that click, made from the
+    /// keyboard. Before this a pinned panel outlived every switch of app that
+    /// did not involve the mouse.
+    private func applicationActivated(_ pid: pid_t?) {
+        guard let vm = viewModel, let pid,
+              vm.appActivated(ownPID: ProcessInfo.processInfo.processIdentifier, activatedPID: pid)
+        else { return }
+        vm.isPinnedOpen = false
+        setOpen(false)
+        // The pointer may be anywhere, including inside the rect an arrival is
+        // measured against while the panel folds. See
+        // `PointerWatcher.closedByHand()`.
+        pointer.closedByHand()
+        updatePinnedClickMonitor()
+    }
+
+    /// Holds Escape while a pinned panel without the keyboard stands, and
+    /// gives it back the moment it does not.
+    ///
+    /// Takes the three published values as they arrive rather than reading the
+    /// model: `@Published` emits before the property is written, so the model
+    /// still holds the old value inside the sink. Whether the app is active is
+    /// read live — it is not the model's, and it changes only through the two
+    /// notifications that call this.
+    private func updateEscapeHotKey(pinned: Bool, panelHasKeyboard: Bool, locked: Bool) {
+        let wanted = NotchViewModel.claimsEscape(
+            pinned: pinned,
+            panelHasKeyboard: panelHasKeyboard,
+            appIsActive: NSApp.isActive,
+            locked: locked
+        )
+        if wanted, escapeHotKey == nil {
+            // Plain Escape, no modifiers. A combination macOS refuses leaves
+            // the panel as it was before this existed — closed by the hot key
+            // again or a click elsewhere — and says so in the log rather than
+            // pretending.
+            escapeHotKey = GlobalHotKey(keyCode: UInt32(kVK_Escape), modifiers: 0) { [weak self] in
+                self?.escapeHotKeyPressed()
+            }
+            if escapeHotKey == nil { Log.app.error("macOS refused the transient Escape hot key") }
+        } else if !wanted, let registration = escapeHotKey {
+            registration.unregister()
+            escapeHotKey = nil
+        }
+    }
+
+    /// Escape, caught by the transient hot key: the same two steps
+    /// `NotchPanel.sendEvent` takes when the panel is key — a pane that wants
+    /// it first, then the fold — so the key means the same thing whichever
+    /// route delivered it.
+    private func escapeHotKeyPressed() {
+        guard let vm = viewModel, let panel else { return }
+        // Asked again rather than trusted: the press can be queued behind the
+        // event that just ended the claim.
+        guard NotchViewModel.claimsEscape(
+            pinned: vm.isPinnedOpen,
+            panelHasKeyboard: vm.wantsKeyboard,
+            appIsActive: NSApp.isActive,
+            locked: vm.isLockedPresentation
+        ) else { return }
+        if panel.escapeHandled?() == true { return }
+        panel.onEscape?()
     }
 
     // MARK: - Construction
@@ -884,6 +977,13 @@ final class NotchController {
         // documented "ends three ways" was really one — its pane never held
         // the keyboard, so Escape never reached it and the pin outlived the
         // script.
+        //
+        // The panel only sees Escape while it is key, though, which outside
+        // Translate it never is — so "any tab" was still false for the panels
+        // that most needed it, the ones the keyboard opened (F-004). A pinned
+        // panel now also reaches here through a transient hot key; see
+        // `updateEscapeHotKey`. An unpinned one has the pointer on it, and the
+        // pointer leaving is what closes it.
         panel.onEscape = { [weak self] in
             guard let self else { return }
             self.setOpen(false)
@@ -1085,6 +1185,36 @@ final class NotchController {
             .removeDuplicates()
             .sink { [weak self] wants in
                 MainActor.assumeIsolated { self?.setKeyboard(wants) }
+            }
+            .store(in: &cancellables)
+
+        // Escape for a pinned panel, held while the pin stands and the panel
+        // is not key — see `NotchViewModel.claimsEscape`. Driven by the pin
+        // itself, so every way a pin ends gives Escape back with it: the fold,
+        // the pointer arriving (`pointerArrived()` clears it without going
+        // through the controller), the outside click, a rebuild.
+        vm.$isPinnedOpen
+            .combineLatest(vm.$wantsKeyboard, vm.$isLockedPresentation)
+            .removeDuplicates { $0 == $1 }
+            .sink { [weak self] pinned, keyboard, locked in
+                MainActor.assumeIsolated {
+                    self?.updateEscapeHotKey(pinned: pinned, panelHasKeyboard: keyboard, locked: locked)
+                }
+            }
+            .store(in: &cancellables)
+        // And let go of it while this app is active: Quick Look and AirDrop
+        // activate it from a Shelf card, and their windows answer Escape.
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .merge(with: NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification))
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let vm = self.viewModel else { return }
+                    self.updateEscapeHotKey(
+                        pinned: vm.isPinnedOpen,
+                        panelHasKeyboard: vm.wantsKeyboard,
+                        locked: vm.isLockedPresentation
+                    )
+                }
             }
             .store(in: &cancellables)
 

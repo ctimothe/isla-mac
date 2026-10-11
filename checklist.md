@@ -797,3 +797,35 @@ Amends the **Screen-capture pickup** scope record above.
 - [ ] **Physical check owed (S2):** after `tccutil reset`, with captures set
   to ~/Pictures, opening the Shelf raises no Desktop prompt, and each prompt
   that does appear names what triggered it.
+
+### Escape and ⌘-Tab end a panel the keyboard opened — 2026-10-11 (ax/KB-01)
+
+- [x] **Escape folds a pinned panel from any tab.** After ⌃⌥⌘I, Escape went
+  to the app underneath, because the panel is key only while Translate asks
+  for the keyboard and Escape is read only in `NotchPanel.sendEvent` (F-004).
+  While a pin stands and the panel is not key, `NotchController` now holds
+  plain Escape through a transient `GlobalHotKey` (Carbon, no permission),
+  driven by `isPinnedOpen`, so every way a pin ends gives it back. The press
+  runs the panel's own two steps: `consumeEscape()`, then the fold. Not held
+  while the panel is key, while Isla is active (Quick Look, AirDrop), or
+  locked (`NotchViewModel.claimsEscape`).
+- [x] **⌘-Tab ends a pin** like a click in another app:
+  `NSWorkspace.didActivateApplicationNotification` for any other pid clears
+  the pin and folds the panel (`NotchViewModel.appActivated`).
+- **Divergence from the plan, deliberate:** KB-01 as planned made
+  keyboard-opened panels key. That would change the Shell invariant in
+  `CLAUDE.md` and settle owner decision 1, so key status is unchanged here;
+  the plan's key-status tests were dropped. The one Escape pressed while a
+  pin stands goes to Isla, not to the frontmost app (a vim user reading
+  lyrics loses that keystroke), and closing a Quick Look or AirDrop window
+  opened from a pinned panel ends the pin.
+- Tests: `PinnedKeyboardTests` (testOnlyAPinnedPanelWithoutTheKeyboardClaimsEscape,
+  testThePointerArrivingGivesEscapeBack, testSwitchingToAnotherAppEndsAPin).
+- [ ] **Physical check owed (S5):** ⌃⌥⌘I then Escape closes it; ⌃⌥⌘I then
+  ⌘-Tab closes it; ⌃⌥⌘L then Escape closes it; with no pin up, Escape in
+  TextEdit or Terminal still reaches them; in Translate with text, the first
+  Escape clears the field and the second closes; a click-open never steals
+  the caret; with Quick Look open from a pinned Shelf, Escape closes Quick
+  Look and not the panel. Confirm macOS registers an unmodified
+  Escape hot key (a refusal is logged: "macOS refused the transient Escape
+  hot key").

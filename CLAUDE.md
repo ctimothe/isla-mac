@@ -153,7 +153,10 @@ open/close timing, and the lock transition; `AppDelegate` owns the three global 
 keys (⌃⌥⌘I open, ⌃⌥⌘T translate clipboard, ⌃⌥⌘L lyrics page — rebindable, held
 by `HotKeyCenter`), the "Translate in
 Isla" service (`NSApp.servicesProvider`, no Accessibility permission), and the
-Spotify URL-scheme callback.
+Spotify URL-scheme callback. Since 2026-10-11 a pinned panel that is not key
+also holds plain Escape through a transient Carbon hot key, registered only
+while the pin stands (`NotchController.updateEscapeHotKey`), and ends on
+another app's activation; key status is unchanged by it.
 
 **Window sizing.** The window is cut once to the tallest body any tab can ask
 for and then never resized — it is transparent outside the visible panel, and
