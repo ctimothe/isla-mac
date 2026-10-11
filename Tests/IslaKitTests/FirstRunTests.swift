@@ -208,6 +208,53 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
+    /// J-018: the welcome prints the shortcuts, so the first thing a new user
+    /// does with it is press one — and the hot keys worked invisibly behind
+    /// it. ⌃⌥⌘T filled a field nobody could see, raised the keyboard for it
+    /// and folded the panel; ⌃⌥⌘L put up a lyrics page that appeared only
+    /// after Get Started. A shortcut is an answer the way a rail tab is.
+    ///
+    /// Isolated stores, so the view model reads no real support folder.
+    func testAShortcutRetiresTheWelcome() {
+        withCleanFirstRun {
+            let isolated = ProbeFixtures.isolatedStores()
+            defer { isolated.release() }
+            guard let geometry = NotchGeometry.current() else {
+                return XCTFail("a test host always has a screen")
+            }
+            let vm = NotchViewModel(geometry: geometry, stores: isolated.stores)
+            vm.isShowingWelcome = true
+
+            vm.receiveCommandedTranslation(Translator.prepareCommandInput("bonjour"))
+
+            XCTAssertFalse(vm.isShowingWelcome, "the translation landed behind the welcome")
+            XCTAssertTrue(NotchViewModel.hasCompletedFirstRun)
+            XCTAssertEqual(vm.tab, .translate)
+            XCTAssertTrue(vm.wantsKeyboard, "the field that appears takes the keyboard")
+            XCTAssertEqual(vm.translator.input, "bonjour")
+        }
+    }
+
+    /// An image on the clipboard opens Translate saying so, and leaves what
+    /// was typed there alone rather than emptying it.
+    func testAShortcutWithNoTextKeepsTheFieldAndSaysWhy() {
+        withCleanFirstRun {
+            let isolated = ProbeFixtures.isolatedStores()
+            defer { isolated.release() }
+            guard let geometry = NotchGeometry.current() else {
+                return XCTFail("a test host always has a screen")
+            }
+            let vm = NotchViewModel(geometry: geometry, stores: isolated.stores)
+            vm.translator.input = "typed earlier"
+
+            vm.receiveCommandedTranslation(Translator.prepareCommandInput(nil))
+
+            XCTAssertEqual(vm.tab, .translate)
+            XCTAssertEqual(vm.translator.input, "typed earlier")
+            XCTAssertEqual(vm.translator.notice, "The clipboard has no text.")
+        }
+    }
+
     /// Every string the welcome shows must exist in both tables, and the Russian
     /// one must actually be Russian.
     ///

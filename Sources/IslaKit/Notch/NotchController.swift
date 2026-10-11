@@ -555,9 +555,10 @@ final class NotchController {
 
     /// Opens on the Music tab with the lyrics page already up.
     ///
-    /// The same shape as `translate(_:)` and for the same reasons: refused over
-    /// the shield before anything is touched, and pinned open because the
-    /// pointer that asked for it is on the keyboard rather than on the notch.
+    /// The same shape as `translateCommanded(_:)` and for the same reasons:
+    /// refused over the shield before anything is touched, and pinned open
+    /// because the pointer that asked for it is on the keyboard rather than on
+    /// the notch.
     /// Pressing it again folds the page back to the player rather than doing
     /// nothing, so one key is the whole round trip.
     func toggleLyrics() {
@@ -575,7 +576,11 @@ final class NotchController {
         }
         peekWork?.cancel()
         vm.isPeeking = false
-        vm.select(.media)
+        // `chooseTab`, so a press during the first-run welcome retires it
+        // and the page shows now. Through `select` it went up behind the
+        // welcome and appeared only after Get Started, a lyrics page nobody
+        // remembered asking for (J-018).
+        vm.chooseTab(.media)
         vm.isShowingLyrics = true
         // Pinned, like ⌃⌥⌘I and for the same reason: the hand that pressed it is
         // on the keyboard, not on the notch, and an unpinned panel nobody is
@@ -587,8 +592,11 @@ final class NotchController {
         updatePinnedClickMonitor()
     }
 
-    /// Opens on the translate tab with this text already in it.
-    func translate(_ text: String) {
+    /// Opens on the translate tab with this text already in it — or, with no
+    /// text (an image on the clipboard), on the tab saying so. It used to
+    /// return without a trace on no text, which looked exactly like a shortcut
+    /// that was not registered (F-040).
+    func translateCommanded(_ text: String?) {
         guard let vm = viewModel else { return }
         // Refused over the shield, before the translator, the tab or `setOpen`
         // is touched: this route would open the panel over the password field
@@ -600,24 +608,16 @@ final class NotchController {
             vm.nudgeLockedIsland()
             return
         }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
         peekWork?.cancel()
         vm.isPeeking = false
-        // Covered again before the text lands. The pane's reveal is keyed to
-        // the pane, not to its text, so a pane uncovered for the last thing
-        // translated would otherwise show this clipboard's contents in full,
-        // and the hot key opens the panel at exactly the moment a shared
-        // screen would catch it. Assigned directly rather than through the
-        // editor, so this text does not count as typed and stays covered.
-        vm.privacy.conceal(TranslatePane.revealID)
-        vm.translator.input = trimmed
-        // Through `select`, so the field that appears can be typed into. Set
-        // directly, the tab changed without ever raising `wantsKeyboard`, and
-        // the panel showed a text field whose keystrokes went to the app
-        // underneath — the one thing `select` adds, and the invariant
-        // `NotchViewModel.wantsKeyboard` documents.
-        vm.select(.translate)
+        // Cut to the limit before anything — the field, the pane's measuring,
+        // an engine — sees it: a multi-megabyte clipboard used to stall the
+        // main thread for over a second (J-017). The view model then puts it
+        // in the field, covered, and raises the keyboard through the tab
+        // change: set directly, the tab changed without ever raising
+        // `wantsKeyboard`, and the panel showed a text field whose keystrokes
+        // went to the app underneath.
+        vm.receiveCommandedTranslation(Translator.prepareCommandInput(text))
         setOpen(true)
         // The pointer is wherever the user left it, which is not on the notch,
         // so both halves of the close rule are held off for the same span: the
@@ -714,7 +714,7 @@ final class NotchController {
 
     /// The ⌃⌥⌘I hotkey, `presentWelcome()` on a fresh account, and the
     /// `DI_OPEN_LYRICS` verification hook. (The Translate service opens through
-    /// `translate(_:)`, which sets its own tab and its own grace, not here.)
+    /// `translateCommanded(_:)`, which sets its own tab and its own grace, not here.)
     ///
     /// Opens until something closes it — the same command again, Escape, a
     /// click outside, or another app coming to the front (⌘-Tab) — rather than

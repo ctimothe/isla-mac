@@ -95,4 +95,23 @@ final class TranslatePaneAccessibilityTests: XCTestCase {
         XCTAssertFalse(TranslatePane.showsPlaceholder(input: "a", covered: false))
         XCTAssertFalse(TranslatePane.showsPlaceholder(input: "a", covered: true))
     }
+
+    /// F-040 and J-017: the line about how text arrived is on screen and in the
+    /// tree in both places it can sit — under the placeholder of an empty
+    /// field, and under a field with text in it — unlike the placeholder,
+    /// which VoiceOver does not read.
+    func testTheNoticeIsShownUnderAnEmptyFieldAndUnderText() async {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let translator = isolated.stores.translator
+
+        translator.notice = "The clipboard has no text."
+        let empty = await AXProbe.tree(of: pane(isolated), size: size)
+        XCTAssertFalse(empty.all { $0.value == "The clipboard has no text." }.isEmpty, empty.dump)
+
+        translator.input = "kept"
+        translator.notice = "Only the first 20,000 characters were kept."
+        let filled = await AXProbe.tree(of: pane(isolated), size: size)
+        XCTAssertFalse(filled.all { $0.value == "Only the first 20,000 characters were kept." }.isEmpty, filled.dump)
+    }
 }

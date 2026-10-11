@@ -93,7 +93,17 @@ final class Translator: ObservableObject {
     static let sourceKey = "translate.source"
     static let targetKey = "translate.target"
 
-    @Published var input = ""
+    /// The notice is about the text that arrived with it, so any later change
+    /// to the field — a keystroke, Clear, a swap — takes it down. A notice that
+    /// outlived its text would say "only the first 20,000 characters" over a
+    /// sentence somebody typed by hand.
+    @Published var input = "" {
+        didSet { notice = nil }
+    }
+    /// One line the pane shows under the field about how text arrived there by
+    /// hot key or Service: that there was none, or that it was cut. Set after
+    /// `input`, whose `didSet` would otherwise clear it at once.
+    @Published var notice: String?
     @Published private(set) var output = ""
     @Published private(set) var failure: String?
     @Published private(set) var remedies: [Remedy] = []
@@ -197,6 +207,60 @@ final class Translator: ObservableObject {
             }
         }
         return .english
+    }
+
+    // MARK: - Text from the hot key and the Service
+
+    /// What ⌃⌥⌘T or the Service hands the field, and the line that goes with it.
+    struct CommandInput: Equatable {
+        /// `nil` when there was no text: the field keeps what it holds.
+        var text: String?
+        var notice: String?
+    }
+
+    /// About 3,000 words. The clipboard used to go into the field whole, and a
+    /// 2 MB log held the main thread for 1.1 s in the assignment and the layout
+    /// pass alone, 1.3 s of CPU all told, before the panel could draw again
+    /// (J-017; measured by `TranslateInputBench` on 2026-10-11). At this limit
+    /// that pass is 27–41 ms, inside the 50 ms the limit was chosen against.
+    /// History's 256 KiB cap would not do: a `TextEditor` whose pane
+    /// re-measures its text on every body pass still visibly stalls at that
+    /// size. It also bounds what one press can ever send to the online engine.
+    static let commandInputLimit = 20_000
+
+    /// The clipboard or the selection, made fit for the field.
+    ///
+    /// No text — an image on the clipboard, or only blanks — is a sentence to
+    /// show rather than nothing at all (F-040): silence was indistinguishable
+    /// from a shortcut that is not registered. Too much text is cut to
+    /// `commandInputLimit` characters, and says so.
+    ///
+    /// Leading blanks are skipped before counting and the cut is found by
+    /// walking `commandInputLimit` characters from there, so the work is
+    /// bounded by the limit and not by the size of what was copied: trimming
+    /// the whole 2 MB first would itself be a pass over all of it. Counted in
+    /// characters, so a cut never splits a flag or an accented letter.
+    ///
+    /// The number is grouped the way the app's language groups it — "20 000"
+    /// in the Russian sentence — not the system region's way, or the line
+    /// would read half in one language (see `appLanguage`).
+    static func prepareCommandInput(_ raw: String?, locale: Locale = Locale(identifier: appLanguage)) -> CommandInput {
+        let noText = CommandInput(text: nil, notice: localized("The clipboard has no text."))
+        guard let raw else { return noText }
+        let body = raw.drop { $0.isWhitespace }
+        var notice: String?
+        var kept = body
+        if let cut = body.index(body.startIndex, offsetBy: commandInputLimit, limitedBy: body.endIndex),
+           cut < body.endIndex {
+            kept = body[..<cut]
+            notice = localized(
+                "Only the first %@ characters were kept.",
+                commandInputLimit.formatted(.number.locale(locale))
+            )
+        }
+        let text = String(kept).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return noText }
+        return CommandInput(text: text, notice: notice)
     }
 
     var request: Request { Request(text: input, attempt: attempt, source: source, target: target) }
