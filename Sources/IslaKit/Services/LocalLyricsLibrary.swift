@@ -60,6 +60,98 @@ final class LocalLyricsLibrary: ObservableObject {
         case unreadable
     }
 
+    /// Why `readText(at:)` gave up on a file it could open: its bytes are no
+    /// text in any encoding on the list. Separate from a parse error so the
+    /// panel that asked can say which of the two it was.
+    enum ReadError: Swift.Error, Equatable {
+        case notText
+    }
+
+    /// The legacy encodings tried, in this order, once a file is neither
+    /// UTF-8 nor marked as UTF-16 or UTF-32: the scripts of the people Isla
+    /// is used by — Cyrillic, Chinese, Japanese, Korean — and Western
+    /// European last, because Windows-1252 decodes nearly any byte and would
+    /// win over the rest. It is never a blind guess: Foundation scores each
+    /// candidate against the bytes and refuses one that would need a lossy
+    /// conversion. Guessing Windows-1251 for every file that is not UTF-8 was
+    /// rejected for exactly that reason — it decodes every byte sequence, so a
+    /// GBK file would have come back as confident Cyrillic nonsense.
+    static let legacyEncodings: [String.Encoding] = [
+        .windowsCP1251,
+        encoding(.GB_18030_2000),
+        .shiftJIS,
+        encoding(.EUC_KR),
+        .windowsCP1252,
+    ]
+
+    private static func encoding(_ encoding: CFStringEncodings) -> String.Encoding {
+        String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(encoding.rawValue)))
+    }
+
+    /// Reads a lyric file as text, whatever wrote it.
+    ///
+    /// Every read used to be `String(contentsOf:encoding: .utf8)`. A file
+    /// saved by a Windows lyric tool is rarely UTF-8, so a Russian listener's
+    /// Windows-1251 LRC, a UTF-16 one and a GBK one each threw: Import closed
+    /// its panel with nothing to show, and a folder scan filed the file as
+    /// unreadable for good (G-007). Strict UTF-8 is still the first answer
+    /// for anything it can read; a byte order mark is believed next; only
+    /// then are the legacy encodings scored. What comes back is a `String`,
+    /// so a copy written into `imports/` is UTF-8 from then on.
+    static func readText(at url: URL) throws -> String {
+        let data = try Data(contentsOf: url)
+        // The marks first, though strict UTF-8 is the commoner answer: ASCII
+        // text in UTF-16 is full of NUL bytes, and NUL is valid UTF-8, so
+        // a mark-less read could not be trusted to fail. A UTF-8 mark is
+        // left to the UTF-8 read below; the parser skips it.
+        let marked: [(mark: [UInt8], encoding: String.Encoding)] = [
+            ([0xFF, 0xFE, 0x00, 0x00], .utf32LittleEndian),
+            ([0x00, 0x00, 0xFE, 0xFF], .utf32BigEndian),
+            ([0xFF, 0xFE], .utf16LittleEndian),
+            ([0xFE, 0xFF], .utf16BigEndian),
+        ]
+        for (mark, encoding) in marked where data.starts(with: mark) {
+            if let text = String(data: data.dropFirst(mark.count), encoding: encoding) { return text }
+        }
+        if let text = String(data: data, encoding: .utf8) { return text }
+        var converted: NSString?
+        var lossy = ObjCBool(false)
+        // The answer is read from `converted`, never from the returned
+        // encoding: for bytes no candidate can decode, Foundation still
+        // returns its best-scoring encoding, with no string.
+        _ = NSString.stringEncoding(
+            for: data,
+            encodingOptions: [
+                .suggestedEncodingsKey: legacyEncodings.map(\.rawValue),
+                .useOnlySuggestedEncodingsKey: true,
+                .allowLossyKey: false,
+            ],
+            convertedString: &converted,
+            usedLossyConversion: &lossy
+        )
+        guard let converted, !lossy.boolValue else { throw ReadError.notText }
+        return converted as String
+    }
+
+    /// The files inside one selected folder that could not be shown — not
+    /// text, or text with a broken stamp — by file name, for Settings to
+    /// list under that folder's row. A folder that cannot be reached at all
+    /// is listed under its own name.
+    ///
+    /// A scan always recorded these, and nothing ever drew them: a folder
+    /// with two broken files looked exactly like one with none. It is read
+    /// from the saved issues rather than kept as a second copy, and Settings
+    /// redraws with it because every change to the issues advances
+    /// `revision`.
+    func unreadableFiles(in folder: URL) -> [String] {
+        let path = folder.standardizedFileURL.path
+        let roots = [path, URL(fileURLWithPath: path).resolvingSymlinksInPath().path]
+        return state.issues
+            .filter { issue in roots.contains { issue.path == $0 || issue.path.hasPrefix($0 + "/") } }
+            .map { URL(fileURLWithPath: $0.path).lastPathComponent }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
     @Published private(set) var revision = 0
     @Published private(set) var unassignedImports: [LocalUnassignedImport] = []
 
@@ -182,7 +274,7 @@ final class LocalLyricsLibrary: ObservableObject {
     }
 
     func importDocument(at url: URL, binding: LocalTrackIdentity?) throws -> LocalLyricsCandidate {
-        let raw = try String(contentsOf: url, encoding: .utf8)
+        let raw = try Self.readText(at: url)
         return try importDocument(raw, binding: binding)
     }
 
@@ -291,7 +383,7 @@ final class LocalLyricsLibrary: ObservableObject {
                 let path = fileURL.standardizedFileURL.path
                 guard seen.insert(path).inserted else { continue }
                 do {
-                    let raw = try String(contentsOf: fileURL, encoding: .utf8)
+                    let raw = try Self.readText(at: fileURL)
                     let document = try LocalLyricsDocument.parse(raw)
                     let stored = StoredDocument(
                         id: existingIDs[path] ?? UUID(), origin: .referencedFolder, path: path
@@ -470,7 +562,7 @@ final class LocalLyricsLibrary: ObservableObject {
         ) {
             let id = UUID()
             let destination = importsDirectory.appendingPathComponent("\(id.uuidString).lrc")
-            guard let raw = try? String(contentsOf: source, encoding: .utf8) else {
+            guard let raw = try? Self.readText(at: source) else {
                 state.unassignedImports.append(
                     StoredUnassignedImport(id: id, path: source.path, issue: .unreadable)
                 )
@@ -564,7 +656,7 @@ final class LocalLyricsLibrary: ObservableObject {
             let current = StoredDocument(id: stored.id, origin: .imported, path: importPath(for: stored))
             imported.append(current)
             do {
-                let raw = try String(contentsOfFile: current.path, encoding: .utf8)
+                let raw = try Self.readText(at: URL(fileURLWithPath: current.path))
                 records[stored.id] = Record(stored: current, document: try LocalLyricsDocument.parse(raw))
             } catch {
                 issues.append(StoredIssue(

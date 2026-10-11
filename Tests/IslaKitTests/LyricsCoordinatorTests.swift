@@ -508,7 +508,7 @@ final class LyricsCoordinatorTests: XCTestCase {
             let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
             coordinator.start()
             media.apply(playingSnapshot())
-            try coordinator.importLocalFile(at: try writeLRC())
+            try coordinator.importLocalFile(at: try writeLRC(), for: coordinator.currentLocalTrackIdentity)
             XCTAssertTrue(coordinator.hasLocalOverride, "the fixture: the import binds the song")
             coordinator.stop()
         }
@@ -534,6 +534,120 @@ final class LyricsCoordinatorTests: XCTestCase {
         coordinator.removeLocalBinding()
         XCTAssertFalse(coordinator.hasLocalOverride)
         XCTAssertFalse(store.hasLocalOverride)
+    }
+
+    /// Import binds the song that was playing when Import was pressed, not
+    /// the one playing when the open panel returns. The identity used to be
+    /// read after `runModal`, so browsing through a track change bound song
+    /// B to song A's words for good (G-013). The file here carries no tags,
+    /// so only the binding can make either song find it.
+    func testImportBindsTheSongPlayingWhenImportWasPressed() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        media.apply(playingSnapshot())
+        let pressedFor = try XCTUnwrap(coordinator.currentLocalTrackIdentity)
+
+        var next = playingSnapshot()
+        next.title = "The Next Song"
+        next.takenAt = Date()
+        media.apply(next)
+        let nowPlaying = try XCTUnwrap(coordinator.currentLocalTrackIdentity)
+        XCTAssertNotEqual(nowPlaying, pressedFor, "the fixture: the track changed while the panel was up")
+
+        try coordinator.importLocalFile(at: try writeUntaggedLRC(), for: pressedFor)
+
+        guard case .ready(let candidate) = library.lookup(identity: pressedFor) else {
+            return XCTFail("the song Import was pressed for is the one bound")
+        }
+        XCTAssertEqual(candidate.timeline.lines.first?.text, "Untagged opening")
+        XCTAssertEqual(library.lookup(identity: nowPlaying), .noMatch, "the song playing now is untouched")
+        XCTAssertFalse(coordinator.hasLocalOverride, "and the page on screen offers no remove for it")
+    }
+
+    /// With nothing playing, Import used to return without a word and keep
+    /// nothing. The file is kept now, bound to no song, and matches by its
+    /// own tags when its song plays.
+    func testWithNothingPlayingAnImportIsKeptAndMatchesByItsTags() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+        XCTAssertNil(coordinator.currentLocalTrackIdentity, "the fixture: nothing is playing")
+
+        try coordinator.importLocalFile(at: try writeLRC(), for: nil)
+        media.apply(playingSnapshot())
+
+        guard case .ready(let candidate) = coordinator.localLookup else {
+            return XCTFail("the file imported with nothing playing matches its song by its tags")
+        }
+        XCTAssertEqual(candidate.timeline.lines.first?.text, "Local opening")
+        XCTAssertFalse(coordinator.hasLocalOverride, "matched by tags, not bound")
+    }
+
+    /// The failure is said once, in the section that asked, in words. Every
+    /// import, folder and rescan error used to be dropped with `try?`, so a
+    /// file Isla could not read closed the panel and nothing happened.
+    func testAnImportFailureIsReportedOnceWhereItWasAsked() throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        let url = root.appendingPathComponent("broken.lrc")
+        try Data("[00:01.00]a\n[00:7x.00]b".utf8).write(to: url, options: .atomic)
+        let revision = vm.localLyricsLibrary.revision
+
+        vm.importLocalLyricsFile(at: url, for: nil, from: .stage)
+
+        XCTAssertEqual(vm.lyricsNotice, NotchViewModel.LyricsNotice(
+            origin: .stage, text: localized("Line %d of this file has a time Isla can't read.", 2)
+        ))
+        XCTAssertEqual(vm.localLyricsLibrary.revision, revision, "and nothing else: no document, no binding")
+
+        // The next action starts clean: a good file from Settings clears it.
+        vm.importLocalLyricsFile(at: try writeLRC(), for: nil, from: .settings)
+        XCTAssertNil(vm.lyricsNotice)
+
+        // Each reason in its own words, said where it was asked.
+        let empty = root.appendingPathComponent("empty.lrc")
+        try Data("[ti:Song]\nno stamps here".utf8).write(to: empty, options: .atomic)
+        vm.importLocalLyricsFile(at: empty, for: nil, from: .settings)
+        XCTAssertEqual(vm.lyricsNotice, NotchViewModel.LyricsNotice(
+            origin: .settings, text: localized("This file has no timed lyrics.")
+        ))
+        let noise = root.appendingPathComponent("noise.lrc")
+        try Data([0x98, 0x81, 0xFF]).write(to: noise, options: .atomic)
+        vm.importLocalLyricsFile(at: noise, for: nil, from: .stage)
+        XCTAssertEqual(vm.lyricsNotice, NotchViewModel.LyricsNotice(
+            origin: .stage, text: localized("Couldn't read this file as text.")
+        ))
+    }
+
+    /// A notice is about the song it was raised over. A track change takes
+    /// it away, so it never sits under the next song's lyrics as if it were
+    /// about that one.
+    func testATrackChangeClearsTheNotice() async throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        let url = root.appendingPathComponent("broken.lrc")
+        try Data("[00:01.00]a\n[00:7x.00]b".utf8).write(to: url, options: .atomic)
+        vm.importLocalLyricsFile(at: url, for: nil, from: .stage)
+        XCTAssertNotNil(vm.lyricsNotice, "the fixture: a notice is up")
+
+        vm.media.apply(playingSnapshot())
+        XCTAssertNil(vm.lyricsNotice)
+    }
+
+    private func writeUntaggedLRC() throws -> URL {
+        let url = root.appendingPathComponent("untagged.lrc")
+        try Data("[00:01.00]Untagged opening\n[00:05.00]Second".utf8).write(to: url, options: .atomic)
+        return url
     }
 
     private func writeLRC() throws -> URL {

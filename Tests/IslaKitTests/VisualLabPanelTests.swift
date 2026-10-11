@@ -224,6 +224,20 @@ final class VisualLabPanelTests: VisualLabCase {
         try await shoot.shoot("invalid-local-file", variants: [.base, .russian], size: size, notes: note) { variant in
             try await self.stage(session, blurredCover, .init(), .invalidLocalFile(.malformed), variant: variant)
         }
+        // G-007: an Import from the page refused at line 2. The notice sits
+        // under the header, and has to fit the narrowest panel in Russian.
+        let russianNarrow = LabVariant(name: "ru-w480", width: 480, language: "ru")
+        try await shoot.shoot("import-notice", variants: [.base, .w480, .russian, russianNarrow], size: size, settle: 0.3,
+                              notes: note + " The notice an Import from the page leaves when the file has a broken stamp.") { variant in
+            var track = LabFixtures.Track(elapsed: 27)
+            if variant.backend == .host, track.cover != nil { track.cover = blurredCover }
+            let broken = session.temp.appendingPathComponent("broken.lrc")
+            try Data("[00:01.00]a\n[00:7x.00]b".utf8).write(to: broken, options: .atomic)
+            let vm = try await self.openPanel(session, track: track, lyrics: LabFixtures.timeline())
+            vm.importLocalLyricsFile(at: broken, for: nil, from: .stage)
+            vm.isShowingLyrics = true
+            return Self.scene(vm, variant, height: size.height)
+        }
         try await shoot.shoot("no-artwork", variants: [.base], size: size, settle: 0.3) { variant in
             try await self.stage(session, blurredCover, .init(cover: nil), LabFixtures.timeline(), variant: variant)
         }
