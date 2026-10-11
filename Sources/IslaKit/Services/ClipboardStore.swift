@@ -99,6 +99,9 @@ final class ClipboardStore: ObservableObject {
     private let pasteboard: NSPasteboard
     private var timer: Timer?
     private var lastChangeCount: Int
+    /// Set by a lock's stop, spent by the next start. See
+    /// `stop(rebaseliningOnResume:)`.
+    private var rebaselineOnStart = false
     private let limit = 40
     /// Types an app sets to keep a copy out of history tools. Presence is what
     /// counts, not content: a type can be declared with data that is still on
@@ -165,16 +168,24 @@ final class ClipboardStore: ObservableObject {
 
     func start() {
         stop()
+        // A lock asked for a fresh start (see `stop(rebaseliningOnResume:)`).
+        // Spent here, once, whichever path resumes first — unlock or the
+        // display waking — and before the access check, so a poll that Don't
+        // Allow keeps down cannot carry the request to a later start.
+        if rebaselineOnStart {
+            rebaselineOnStart = false
+            lastChangeCount = pasteboard.changeCount
+        }
         // Don't Allow leaves the poll nothing it may read. A display waking
         // calls this too, and a poll restarted under it would only stop itself
         // again at the next copy; it stays down until the answer changes.
         let now = accessBehavior()
         publish(now)
         guard now != .denied else { return }
-        // Any copy made while the poll was stopped still counts: the counter is
-        // compared against where it stood when the store was built, not
-        // re-baselined here, so a pause for display sleep does not swallow the
-        // copy that happened just before it.
+        // Otherwise any copy made while the poll was stopped still counts: the
+        // counter is compared against where it stood before, not re-baselined
+        // here, so a pause for display sleep does not swallow the copy that
+        // happened just before it.
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.pollNow() }
         }
@@ -186,9 +197,23 @@ final class ClipboardStore: ObservableObject {
         self.timer = timer
     }
 
-    func stop() {
+    /// - Parameter rebaseliningOnResume: true for a lock. Whatever reaches the
+    ///   pasteboard while the Mac is locked — a Universal Clipboard arrival
+    ///   from the phone, a `pbcopy` over ssh — was not copied by the person at
+    ///   the keyboard, and the next `start()` begins from the pasteboard as it
+    ///   is then. Plain `start()` kept the old baseline for display sleep's
+    ///   sake, so the first poll after unlock used to record exactly what the
+    ///   lock had stopped the poll to keep out. A plain stop leaves the
+    ///   request standing rather than clearing it: a display that sleeps after
+    ///   the lock stops the poll again, and the wake after unlock must still
+    ///   start fresh. The cost is a copy made in the half-second before the
+    ///   lock, inside one poll interval, which is not recorded; reading the
+    ///   pasteboard at lock time to catch it would be a content read for a
+    ///   window that short.
+    func stop(rebaseliningOnResume: Bool = false) {
         timer?.invalidate()
         timer = nil
+        if rebaseliningOnResume { rebaselineOnStart = true }
     }
 
     var isPolling: Bool { timer != nil }

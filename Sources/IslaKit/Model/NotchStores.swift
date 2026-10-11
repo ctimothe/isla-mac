@@ -198,8 +198,12 @@ final class NotchStores {
     ///   bar stopped, and the lyric stood still on whichever line it had
     ///   reached. Passed rather than inferred from call order, because order is
     ///   exactly what went wrong.
-    func suspendForIdleScreen(keepingMediaRunning: Bool = false) {
-        clipboard.stop()
+    /// - Parameter forLock: true from both of `screenLocked()`'s branches. The
+    ///   clipboard then resumes from the pasteboard as it stands, so a copy
+    ///   that arrived behind the shield is not recorded at unlock (G-011);
+    ///   display sleep alone keeps the copy made just before it.
+    func suspendForIdleScreen(keepingMediaRunning: Bool = false, forLock: Bool = false) {
+        clipboard.stop(rebaseliningOnResume: forLock)
         if !keepingMediaRunning { media.setActive(false) }
     }
 

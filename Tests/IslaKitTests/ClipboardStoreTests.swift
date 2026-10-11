@@ -367,6 +367,118 @@ final class ClipboardStoreTests: XCTestCase {
         assertMarkerKeepsCopyOut("net.antelle.keeweb")
     }
 
+    // MARK: - Lock and display sleep (G-011)
+
+    /// The lock path stops the poll because a Universal Clipboard arrival
+    /// from a phone, or a `pbcopy` over ssh, is not something to record behind
+    /// a shield. `start()` kept the old baseline, so the first poll after
+    /// unlock recorded exactly what the lock was meant to keep out.
+    func testACopyMadeWhileLockedIsNotRecordedAtUnlock() {
+        let board = NSPasteboard(name: .init("ClipboardStoreTests.\(UUID())"))
+        let store = ClipboardStore(pasteboard: board)
+        store.accessBehavior = { .allowed }
+        store.start()
+        defer { store.stop() }
+
+        store.stop(rebaseliningOnResume: true)
+        board.clearContents()
+        board.setString("phone copy", forType: .string)
+        store.start()
+        store.pollNow()
+
+        XCTAssertTrue(store.items.isEmpty, "a copy that arrived while locked was recorded at unlock")
+    }
+
+    /// The display sleep path keeps the baseline on purpose: the copy made
+    /// just before the lid closed is one the user made, and it still counts.
+    func testACopyMadeDuringDisplaySleepStillCounts() {
+        let board = NSPasteboard(name: .init("ClipboardStoreTests.\(UUID())"))
+        let store = ClipboardStore(pasteboard: board)
+        store.accessBehavior = { .allowed }
+        store.start()
+        defer { store.stop() }
+
+        store.stop()
+        board.clearContents()
+        board.setString("before sleep", forType: .string)
+        store.start()
+        store.pollNow()
+
+        XCTAssertEqual(store.items.map(\.payload), [.text("before sleep")])
+    }
+
+    /// A lock and then a display sleep: the sleep handler stops the poll
+    /// again, plainly. That second stop must not forget the lock asked for a
+    /// fresh start, or the display waking after unlock would record the copy.
+    /// And the re-baseline is spent once: copies after the resume count.
+    func testAPlainStopAfterALockStillRebaselines() {
+        let board = NSPasteboard(name: .init("ClipboardStoreTests.\(UUID())"))
+        let store = ClipboardStore(pasteboard: board)
+        store.accessBehavior = { .allowed }
+        store.start()
+        defer { store.stop() }
+
+        store.stop(rebaseliningOnResume: true)
+        board.clearContents()
+        board.setString("phone copy", forType: .string)
+        store.stop()
+        store.start()
+        store.pollNow()
+        XCTAssertTrue(store.items.isEmpty)
+
+        store.stop()
+        board.clearContents()
+        board.setString("after unlock", forType: .string)
+        store.start()
+        store.pollNow()
+        XCTAssertEqual(store.items.map(\.payload), [.text("after unlock")])
+    }
+
+    /// The stores' lock suspend is what passes the request through: both of
+    /// `screenLocked()`'s branches call it with `forLock: true`. Built on a
+    /// private pasteboard, suite and folder, like the visual lab's stores,
+    /// so nothing of the person's is read or written.
+    func testTheStoresLockSuspendRebaselinesTheClipboard() throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("isla-cb03-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let suiteName = "ClipboardStoreTests.\(UUID().uuidString)"
+        let suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { suite.removePersistentDomain(forName: suiteName) }
+        let paths = AppPaths(
+            supportDirectory: temp.appendingPathComponent("support", isDirectory: true),
+            screenshotDirectory: temp.appendingPathComponent("pictures", isDirectory: true)
+        )
+        let board = NSPasteboard(name: .init("ClipboardStoreTests.\(UUID())"))
+        let clipboard = ClipboardStore(pasteboard: board)
+        clipboard.accessBehavior = { .allowed }
+        let stores = NotchStores(
+            lyricsEnabled: { false },
+            localLyricsDirectory: temp.appendingPathComponent("lyrics", isDirectory: true),
+            shelf: ShelfStore(defaults: suite),
+            clipboard: clipboard,
+            screenshotVault: ScreenshotVault(paths: paths),
+            translator: Translator(defaults: suite, preferredLanguages: ["ru"]),
+            privacy: PrivacyMode(defaults: suite)
+        )
+        stores.media.isolateFromPlayers()
+        clipboard.start()
+        defer { clipboard.stop() }
+
+        stores.suspendForIdleScreen(forLock: true)
+        XCTAssertFalse(clipboard.isPolling)
+        board.clearContents()
+        board.setString("phone copy", forType: .string)
+        // `resumeFromIdleScreen` would end in the same `start()`, but it asks
+        // the standard defaults which switches are on; the store is asked
+        // directly so the test does not depend on the runner's domain.
+        clipboard.start()
+        clipboard.pollNow()
+
+        XCTAssertTrue(clipboard.items.isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func assertMarkerKeepsCopyOut(_ marker: String, line: UInt = #line) {

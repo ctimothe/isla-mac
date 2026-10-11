@@ -224,7 +224,7 @@ final class NotchController {
             collapseNow()
             pointer.setInside(false)
             pointer.stop()
-            stores.suspendForIdleScreen()
+            stores.suspendForIdleScreen(forLock: true)
             return
         }
         setOpen(false)
@@ -269,7 +269,11 @@ final class NotchController {
         //
         // The media clock stays running: the card is about to be presented, and
         // it draws a scrubber and a moving lyric that both depend on it.
-        stores.suspendForIdleScreen(keepingMediaRunning: keepsMediaRunning)
+        //
+        // Stopping the poll was not enough on its own: the resume kept the
+        // old baseline, so the first poll after unlock recorded whatever had
+        // arrived during the lock. `forLock` makes the resume start fresh.
+        stores.suspendForIdleScreen(keepingMediaRunning: keepsMediaRunning, forLock: true)
         applyLockedActiveRect()
         lockPresence.apply(to: panel, locked: true)
         // And the card, in its own window, at the centre of the notch's own
