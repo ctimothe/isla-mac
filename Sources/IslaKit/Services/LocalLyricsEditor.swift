@@ -45,9 +45,10 @@ final class LocalLyricsEditor {
 
     func saveOwnedCopy(
         _ draft: LocalLyricsDraft,
+        editedFrom source: UUID?,
         binding: LocalTrackIdentity?
     ) throws -> LocalLyricsCandidate {
-        try library.importDocument(draft.document().serialize(), binding: binding)
+        try library.importDocument(draft.document().serialize(), binding: binding, editedFrom: source)
     }
 
     func export(_ draft: LocalLyricsDraft, to url: URL) throws {

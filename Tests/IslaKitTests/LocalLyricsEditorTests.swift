@@ -24,7 +24,7 @@ final class LocalLyricsEditorTests: XCTestCase {
         draft.lines[0].text = "After"
         let editor = LocalLyricsEditor(library: library)
 
-        let saved = try editor.saveOwnedCopy(draft, binding: identity())
+        let saved = try editor.saveOwnedCopy(draft, editedFrom: nil, binding: identity())
 
         XCTAssertEqual(try String(contentsOf: source, encoding: .utf8), raw)
         XCTAssertEqual(saved.document.lines[0].text, "After")

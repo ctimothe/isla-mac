@@ -581,6 +581,94 @@ final class LocalLyricsLibraryTests: XCTestCase {
         XCTAssertEqual(library.unreadableFiles(in: folder), ["noise.lrc"])
     }
 
+    /// Save Copy writes a new import with the source's own tags, so once the
+    /// binding was gone — Clear Bindings, or the song playing in another
+    /// player — the song turned ambiguous behind a choice between the source
+    /// and every copy (J-025). One source and its edits are one lineage now,
+    /// and the newest edit is the answer; unrelated files still ask.
+    func testTwoSavedEditsThenClearBindingsPicksTheNewestEdit() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let editor = LocalLyricsEditor(library: library)
+        let track = identity()
+        let source = try library.importDocument(at: try writeLRC("studio", contents: studioLRC), binding: track)
+
+        let firstDraft = LocalLyricsDraft(document: source.document)
+        firstDraft.lines[0].text = "First edit"
+        let first = try editor.saveOwnedCopy(firstDraft, editedFrom: source.id, binding: track)
+        // The second edit starts from the first, as it does on the page: the
+        // bound song shows the first edit, and Edit opens that.
+        let secondDraft = LocalLyricsDraft(document: first.document)
+        secondDraft.lines[0].text = "Second edit"
+        let second = try editor.saveOwnedCopy(secondDraft, editedFrom: first.id, binding: track)
+
+        library.clearBindings()
+
+        guard case .ready(let chosen) = library.lookup(identity: track) else {
+            return XCTFail("one source and its edits resolve to the newest edit, not a chooser")
+        }
+        XCTAssertEqual(chosen.id, second.id)
+        XCTAssertNotNil(chosen.editedAt)
+        XCTAssertNil(source.editedAt)
+
+        // The lineage and save time survive a relaunch.
+        let relaunched = LocalLyricsLibrary(directory: root)
+        guard case .ready(let again) = relaunched.lookup(identity: track) else {
+            return XCTFail("the lineage is saved in the index")
+        }
+        XCTAssertEqual(again.id, second.id)
+
+        // An unrelated file with the same tags still asks.
+        _ = try library.importDocument(at: try writeLRC("live", contents: liveLRC), binding: nil)
+        guard case .ambiguous(let candidates) = library.lookup(identity: track) else {
+            return XCTFail("an unrelated file is still a choice")
+        }
+        XCTAssertEqual(candidates.count, 4)
+    }
+
+    /// The chooser drew the source and its copy as two identical buttons.
+    /// An edit says so, with the time it was saved.
+    func testCandidateLabelsSayWhichIsAnEdit() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let source = try library.importDocument(at: try writeLRC("studio", contents: studioLRC), binding: nil)
+        let edit = try LocalLyricsEditor(library: library).saveOwnedCopy(
+            LocalLyricsDraft(document: source.document), editedFrom: source.id, binding: nil
+        )
+        let savedAt = try XCTUnwrap(edit.editedAt)
+
+        let editLabel = LyricsStage.candidateLabel(edit)
+        let sourceLabel = LyricsStage.candidateLabel(source)
+        XCTAssertNotEqual(editLabel, sourceLabel)
+        XCTAssertTrue(editLabel.contains(localized(
+            "Edited %@", savedAt.formatted(date: .abbreviated, time: .shortened)
+        )), editLabel)
+        XCTAssertFalse(sourceLabel.contains(localized("Edited %@", "")), sourceLabel)
+    }
+
+    /// v0.1.0 cached LRCLIB answers as `<key>.lrc3.json` in the same folder
+    /// the migration reads, and the migration removed only lrc4 and lrc5 —
+    /// and has already run for everyone upgrading — so third-party lyric text
+    /// stayed on disk for good (J-016). It goes once, behind its own flag,
+    /// by its exact suffix, and a user's own file beside it stays.
+    func testLrc3CachesAreRemovedOnceAndUserFilesAreNot() throws {
+        let index = root.appendingPathComponent("lyrics-local/index.json")
+        try fileManager.createDirectory(at: index.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try write("{\"legacyMigrationCompleted\":true}", to: index)
+        let cache = try write("{}", to: legacyV4.appendingPathComponent("0123456789abcdef.lrc3.json"))
+        let userFile = try write(studioLRC, to: legacyV4.appendingPathComponent("song.lrc"))
+        let lookalike = try write("{}", to: legacyV4.appendingPathComponent("notes.lrc3.json.txt"))
+
+        _ = LocalLyricsLibrary(directory: root)
+
+        XCTAssertFalse(fileManager.fileExists(atPath: cache.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: userFile.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: lookalike.path))
+
+        // Once: a second launch leaves the folder alone.
+        let later = try write("{}", to: legacyV4.appendingPathComponent("fedcba9876543210.lrc3.json"))
+        _ = LocalLyricsLibrary(directory: root)
+        XCTAssertTrue(fileManager.fileExists(atPath: later.path))
+    }
+
     private var studioLRC: String {
         "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Studio"
     }

@@ -631,12 +631,13 @@ struct LyricsStage: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(candidates) { candidate in
                         Button { selectLocalCandidate(candidate) } label: {
-                            Text(candidateLabel(candidate))
+                            Text(Self.candidateLabel(candidate))
                                 .islandFont(.caption, weight: .regular)
                                 .lineLimit(1)
+                                .truncationMode(.middle)
                         }
                         .buttonStyle(PanelButtonStyle())
-                        .accessibilityLabel(candidateLabel(candidate))
+                        .accessibilityLabel(Self.candidateLabel(candidate))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -655,9 +656,17 @@ struct LyricsStage: View {
         .padding(.top, 2)
     }
 
-    private func candidateLabel(_ candidate: LocalLyricsCandidate) -> String {
+    /// A saved edit carries its source's tags word for word, so the source
+    /// and its copy were two identical buttons (J-025). An edit ends with
+    /// when it was saved — the time too, since two saves in one sitting are
+    /// the commonest pair — and the row truncates in the middle so that end
+    /// survives a long title.
+    static func candidateLabel(_ candidate: LocalLyricsCandidate) -> String {
         let metadata = candidate.document.metadata
-        return [metadata.title, metadata.artist, metadata.album]
+        let edited = candidate.editedAt.map {
+            localized("Edited %@", $0.formatted(date: .abbreviated, time: .shortened))
+        }
+        return [metadata.title, metadata.artist, metadata.album, edited]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: " — ")

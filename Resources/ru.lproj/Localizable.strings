@@ -333,3 +333,4 @@
 "Line %d of this file has a time Isla can't read." = "В строке %d этого файла время, которое Isla не может прочитать.";
 "This file has no timed lyrics." = "В этом файле нет текста со временем.";
 "Couldn't read: %@" = "Не удалось прочитать: %@";
+"Edited %@" = "Изменено %@";
