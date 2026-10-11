@@ -55,6 +55,12 @@ struct LyricRow: View {
     /// The whole song's text, when the surface has it. Present means the
     /// right-click menu can offer to copy all of it as well as this line.
     var allText: String?
+    /// "Sync Here": the voice is singing this line right now, so make it the
+    /// current one (`LyricsStore.syncTrackOffset`). Present only on the stage.
+    /// The lock card hands none, and offers no such item: it is a glance at
+    /// the song, and a correction made there would be made blind to the
+    /// panel's own Reset.
+    var syncHere: (() -> Void)?
 
     enum Surface {
         /// The island's own black.
@@ -206,9 +212,31 @@ struct LyricRow: View {
             if let allText, !allText.isEmpty {
                 Button(localized("Copy All Lyrics")) { Self.copy(allText) }
             }
+            if let syncHere {
+                Divider()
+                Button(localized("Sync Here"), action: syncHere)
+            }
         }
         .accessibilityLabel(line.text)
         .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
+        // The menu is a pointer's way in; VoiceOver and Switch Control reach
+        // the same item as a named action on the row.
+        .modifier(SyncHereAction(action: syncHere))
+    }
+
+    /// Adds the "Sync Here" accessibility action only where a handler exists.
+    /// A modifier of its own because `accessibilityAction` cannot be applied
+    /// conditionally in place.
+    private struct SyncHereAction: ViewModifier {
+        let action: (() -> Void)?
+
+        func body(content: Content) -> some View {
+            if let action {
+                content.accessibilityAction(named: localized("Sync Here"), action)
+            } else {
+                content
+            }
+        }
     }
 
     /// Plain text, and the pasteboard cleared first — without the clear, a copy

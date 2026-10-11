@@ -373,6 +373,37 @@ transitions.
 > outranks the floor. `lyrics.readAhead`: an absent key is Auto, a stored 0 is
 > Off, and any other stored number snaps to the nearer of 0.3 and 0.5 (an old
 > 0.25 reads as 0.3, 0.75 as 0.5, 0.5 as a fixed 0.5).
+>
+> **Amended 2026-10-11 (ly/VERSION-01) — a lyric timed for a longer version
+> says so, and a line can be synced by hand.** LRCLIB holds one timeline per
+> recording family and copies it onto every release, so a candidate's listed
+> length is only the uploader's metadata: for *We Are The People* (Yandex
+> Music, 248 s) all twenty candidates carried the same stamps, made for a cut of
+> about 267 s, and the lines ran about ten seconds behind the voice with
+> nothing to say so. (1) **Detection.** An online timeline carries its
+> `overrun` — the last sung stamp minus the track's length, measured on the
+> whole answer before the lines past the end are dropped — and is *timed for a
+> longer version* above `OnlineLyrics.durationTolerance` (3 s). It is nil when
+> the length is unknown and for a file the listener imported, which are never
+> flagged; it is kept in the online cache (format 3, so a hit cached without it
+> is asked about once more). (2) **Ranking.** Among candidates one that fits
+> wins; among those that overrun the smallest overrun wins, then the closest
+> listed length; the exact query's answer wins a tie. (3) **Say it.** While the
+> timeline overruns and the track has no correction of its own, the lyrics
+> stage shows one inline notice row (the import-error row's style; it yields to
+> an import error, never a toast): "These lyrics are timed for a longer version
+> of the song and may run late. Right-click the line being sung and choose Sync
+> Here." The caption and the lock card are unchanged. (4) **Fix it.** Every
+> stage row offers **Sync Here** — a context-menu item and a VoiceOver custom
+> action of the same name — which sets this track's delay so that the line is
+> current at that moment, `position + lead(without the track layer) − line.at`
+> (`LyricSweep.syncDelay`; positive is later, the global Lyric Delay stays in
+> force) and persists it through the per-track offset store. A nonzero
+> correction clears the notice; Reset brings it back. The lock card offers no
+> such item. The per-track range, for Sync Here and for the Lyrics Earlier and
+> Later steppers, is **±45 s** (was ±1.5 s); the global Lyric Delay keeps ±3 s.
+> Display only: nothing leaves the machine. The lab's L10 case counts, over the
+> corpus, how many records are stamped past their own length.
 
 ### Notes and Teleprompter
 

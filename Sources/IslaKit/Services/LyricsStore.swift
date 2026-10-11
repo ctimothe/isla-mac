@@ -109,7 +109,16 @@ final class LyricsStore: ObservableObject {
     static let offsetSignMarkerName = "offset-sign-version"
 
     @Published private(set) var trackOffset: TimeInterval = 0
-    static let trackOffsetLimit: TimeInterval = 1.5
+    /// How far one track's own correction may reach, either way. It was 1.5 s,
+    /// fine for a nudge and useless for a lyric timed to another cut of the
+    /// song: the owner's 248 s track carried LRCLIB's timeline for a 267 s
+    /// version, about ten seconds late at the start, and no number the
+    /// stepper could reach undid it (ly/VERSION-01). 45 s covers an extended
+    /// intro with room to spare. The global Lyric Delay keeps its own ±3 s.
+    static let trackOffsetLimit: TimeInterval = 45
+    /// Below this the per-track correction counts as none: the mismatch
+    /// notice treats a track as untouched (see `showsVersionMismatchNotice`).
+    static let trackOffsetSettledThreshold: TimeInterval = 0.005
     @Published private(set) var unassignedLegacyOffsets: [UnassignedLegacyOffset] = []
 
     private var activeLocalTrackIdentity: LocalTrackIdentity?
@@ -284,6 +293,34 @@ final class LyricsStore: ObservableObject {
     func clearTrackOffset() {
         guard let activeLocalTrackIdentity else { return }
         setLocalTrackOffset(0, for: activeLocalTrackIdentity)
+    }
+
+    /// "Sync Here": this song's correction becomes whatever makes the line the
+    /// listener chose current at `position`, through the same lead every
+    /// surface reads (`LyricSweep.syncDelay`). Persisted like a nudge, for
+    /// the file showing, and clamped at `trackOffsetLimit` rather than
+    /// refused, so a mismatch beyond it still lands as near as it can.
+    func syncTrackOffset(toLineAt lineAt: TimeInterval, position: TimeInterval, precisionSync: Bool) {
+        guard let activeLocalTrackIdentity else { return }
+        setLocalTrackOffset(
+            LyricSweep.syncDelay(
+                lineAt: lineAt, position: position, precisionSync: precisionSync, userOffset: userOffset
+            ),
+            for: activeLocalTrackIdentity
+        )
+    }
+
+    /// Whether the stage should say the words on screen were timed for a
+    /// longer version of the song (`LyricTimeline.timedForLongerVersion`).
+    ///
+    /// Gone once the listener has put a correction on this track — Sync Here,
+    /// or a nudge — because they have dealt with it; back after Reset, which
+    /// returns the track to the catalogue's timing. Derived from the offset
+    /// rather than remembered, so there is one source of truth and nothing
+    /// extra to persist.
+    var showsVersionMismatchNotice: Bool {
+        guard case .ready(let timeline) = availability, timeline.timedForLongerVersion else { return false }
+        return abs(trackOffset) < Self.trackOffsetSettledThreshold
     }
 
     func clearLocalTrackOffsets() {

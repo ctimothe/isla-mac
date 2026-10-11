@@ -12,11 +12,35 @@ struct LyricTimeline: Equatable, Sendable {
     let lines: [LyricsStore.Line]
     let granularity: Granularity
     let documentID: UUID?
+    /// The last sung stamp minus the length of the track it was fetched for,
+    /// in seconds; nil when it is not known or not asked.
+    ///
+    /// Only the catalogue sets it (`OnlineLyrics`), at the moment it knows
+    /// both the whole answer and the track: LRCLIB holds one timeline per
+    /// recording family copied onto every release, so a candidate's listed
+    /// length says nothing about its stamps, and a 248 s track was shown the
+    /// words of a 267 s cut, ten seconds late, with nothing to say so. The
+    /// lines past the track's end are dropped from `lines`, so the figure
+    /// cannot be recovered from what is left; it travels beside them, and
+    /// through the cache. A file the listener imported never carries one:
+    /// its stamps are theirs.
+    let overrun: TimeInterval?
 
-    init(lines: [LyricsStore.Line], granularity: Granularity, documentID: UUID? = nil) {
+    /// The lyric was made for a longer version of the song than the one
+    /// playing: its last stamp is further past the end than two services
+    /// rounding one file would differ (`OnlineLyrics.durationTolerance`).
+    var timedForLongerVersion: Bool {
+        (overrun ?? 0) > OnlineLyrics.durationTolerance
+    }
+
+    init(
+        lines: [LyricsStore.Line], granularity: Granularity, documentID: UUID? = nil,
+        overrun: TimeInterval? = nil
+    ) {
         self.lines = lines
         self.granularity = granularity
         self.documentID = documentID
+        self.overrun = overrun
     }
 }
 

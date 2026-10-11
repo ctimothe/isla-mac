@@ -53,7 +53,7 @@ enum LyricSweep {
         precisionSync: Bool, userOffset: TimeInterval, trackOffset: TimeInterval = 0
     ) -> TimeInterval {
         // Three layers, summed at read and clamped nowhere here: the global
-        // correction clamps at ±3s and the track layer at ±1.5s where each is
+        // correction clamps at ±3s and the track layer at ±45s where each is
         // written, in LyricsStore. Clamping the sum instead would let one
         // layer steal another's range — a global +3 with a track −0.5 must
         // still read +2.5, not a clamped +1.5.
@@ -66,6 +66,27 @@ enum LyricSweep {
         // error. Stored values were negated once on the way (LyricsStore's
         // sign migration), so no listener's timing moved with the fix.
         (precisionSync ? precisionLead : standardLead) - userOffset - trackOffset
+    }
+
+    /// A hair past the line's stamp, so that rounding in the sum below cannot
+    /// leave the synced line one ulp short of its own moment and light the
+    /// line before it. A microsecond is not an audible amount.
+    static let syncMargin: TimeInterval = 0.000_001
+
+    /// The per-track delay that makes the line stamped `lineAt` current when
+    /// the player's clock reads `position`: "Sync Here".
+    ///
+    /// Solved from `position(_:…)` with the per-track layer left out — the
+    /// base lead and the global delay stay in force, so the track layer is
+    /// only what remains, and every surface that reads the lead (the stage,
+    /// the caption, the lock card) agrees afterwards. Positive is later, as
+    /// everywhere: a voice ahead of its lyric gives a negative delay. Not
+    /// clamped here; the store clamps where it writes.
+    static func syncDelay(
+        lineAt: TimeInterval, position: TimeInterval, precisionSync: Bool, userOffset: TimeInterval
+    ) -> TimeInterval {
+        let withoutTrackLayer = lead(precisionSync: precisionSync, userOffset: userOffset, trackOffset: 0)
+        return position + withoutTrackLayer - (lineAt + syncMargin)
     }
 
     /// The moment the lyric should be read against: the clock, plus the lead
