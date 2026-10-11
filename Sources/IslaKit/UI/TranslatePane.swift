@@ -48,6 +48,12 @@ struct TranslatePane: View {
         if privacy.covers(.translate) { privacy.reveal(revealID) }
         translator.input = text
     }
+    /// Whether the empty field shows its placeholder. Only empty: a covered
+    /// field holds text by definition, and its dust is what shows.
+    static func showsPlaceholder(input: String, covered: Bool) -> Bool {
+        input.isEmpty && !covered
+    }
+
     /// Measured once, off the layout path. See `body`.
     @State private var paneSize: CGSize = .zero
 
@@ -141,6 +147,24 @@ struct TranslatePane: View {
                 // that back so the first character lines up with the title.
                 .padding(.leading, -5)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // Named, or VoiceOver announced an unnamed text area: the
+                // only field in the panel, and nothing said what it was for
+                // (F-030).
+                .accessibilityLabel(localized("Text to translate"))
+                // An empty field was a dark rectangle that said nothing. The
+                // invitation sits where the first character will, at the size
+                // that character will take, and goes with it. Drawn, not
+                // read: the label above already says it, and clicks pass
+                // through to the editor underneath to place the caret.
+                .overlay(alignment: .topLeading) {
+                    if Self.showsPlaceholder(input: translator.input, covered: covered) {
+                        Text(localized("Type or paste text"))
+                            .font(.system(size: font))
+                            .foregroundStyle(Theme.tertiary)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
                 .contentShape(Rectangle())
                 // No Escape handler here: `NotchPanel.sendEvent` takes every
                 // Escape before it reaches the responder chain, and the reset
@@ -308,11 +332,12 @@ struct TranslatePane: View {
     // both calmer to look at and easier to trust.
 
     /// What the text actually gets to occupy inside one column: half the pane
-    /// minus the gap, minus the padding, minus the title row above it.
+    /// minus the gap, minus the padding, minus the title row above it — 20
+    /// of padding, the 20-point row (`column`) and the 6 under it.
     private func textArea(in size: CGSize) -> CGSize {
         CGSize(
             width: max(40, (size.width - 10) / 2 - 20),
-            height: max(40, size.height - 40)
+            height: max(40, size.height - 46)
         )
     }
 
@@ -465,7 +490,12 @@ struct TranslatePane: View {
             Image(systemName: "arrow.left.arrow.right")
                 .islandFont(.caption, weight: .semibold)
                 .foregroundStyle(Theme.secondary)
-                .frame(width: 18, height: 14)
+                // The panel's minimum target, where the glyph's own 18x14 was
+                // the frame and a swap at the top edge of the screen took a
+                // careful aim (F-014). It stays beside the target language:
+                // between the columns it would sit on the source's surface in
+                // a 10-point gutter (M-16).
+                .frame(width: Theme.minimumHitSize.width, height: Theme.minimumHitSize.height)
                 .contentShape(Rectangle())
         }
         .buttonStyle(PanelButtonStyle())
@@ -516,18 +546,25 @@ struct TranslatePane: View {
 
     /// A column heading: the language, set the way every header in the panel
     /// is set, with the small chevron that says it opens.
+    ///
+    /// One `Text`, the chevron an image inside it. As an `HStack` of a text
+    /// and an image, the menu's label was two elements, and each became a
+    /// menu button of its own: VoiceOver read every picker twice, and one of
+    /// the two stops was the chevron alone, a 7x4-point target (H-021).
+    ///
+    /// Framed to the panel's minimum hit height with the hit shape over the
+    /// whole frame, because the menu is as tall as its label: it was the
+    /// 13-point line of caption type, at the top edge of the screen (F-014).
     private func heading(_ title: String) -> some View {
-        HStack(spacing: 3) {
-            Text(title.uppercased())
-                .islandFont(.caption, weight: .semibold)
-                .tracking(Theme.capsTracking)
-                .lineLimit(1)
-            Image(systemName: "chevron.down")
-                // A glyph fitted to the caption line, not type.
-                .font(.system(size: 7, weight: .bold))
-        }
-        .foregroundStyle(Theme.tertiary)
-        .contentShape(Rectangle())
+        (Text(title.uppercased()).tracking(Theme.capsTracking)
+            + Text(" ")
+            // A glyph fitted to the caption line, not type.
+            + Text(Image(systemName: "chevron.down")).font(.system(size: 7, weight: .bold)))
+            .islandFont(.caption, weight: .semibold)
+            .lineLimit(1)
+            .foregroundStyle(Theme.tertiary)
+            .frame(minHeight: Theme.minimumHitSize.height)
+            .contentShape(Rectangle())
     }
 
     private func column<Heading: View, Accessory: View, Content: View>(
@@ -541,7 +578,12 @@ struct TranslatePane: View {
                 Spacer(minLength: 4)
                 accessory()
             }
-            .frame(height: 14)
+            // The minimum hit height, so the language menus in it can be as
+            // tall as a target (F-014); it was 14. Fixed rather than a
+            // minimum: the 22-point Clear arrives with the first character
+            // and leaves with the last, and a row that grew to hold it would
+            // move the text below by two points at every one of those.
+            .frame(height: Theme.minimumHitSize.height)
 
             content()
         }
