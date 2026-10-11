@@ -42,6 +42,12 @@ update the spec/design first, then checklist and code in the same change.
   decisions bind *that* branch only — nothing in this app references them);
   `docs/research/technical-feasibility.md` is non-binding evidence.
 
+**Prompter (2026-10-11).** The Teleprompter returned as an optional **Prompter**,
+off by default and absent while off — no tab, hot key, library read or audio code
+(`docs/specs/prompter.md` is the contract, `docs/plans/2026-10-11-prompter-plan.md`
+the plan). `TabContractTests` asserts two configurations: five tabs with the
+switch off, a sixth only while it is on. Notes stay removed.
+
 **Removed features stay removed.** Snippets and Calendar went on 2026-08-20;
 Notes and the Teleprompter on 2026-08-22 (`57650e0`), taking the second rail and
 the tall panel body with them. Five tabs ship — Music, Shelf, Clipboard,

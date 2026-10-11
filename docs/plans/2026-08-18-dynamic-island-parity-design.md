@@ -412,6 +412,19 @@ transitions.
 > tests. They are not deferred and not hidden. The parity claim is
 > partial in the same way it already was for Snippets and Calendar.
 
+> **Reinstated 2026-10-11 (Teleprompter only, as an optional Prompter).** The
+> owner asked for a script prompter with a guided scroll and decided to bring it
+> back under a new name, **off by default and absent while off**: with the
+> switch off there is no tab, no hot key, no library read, no timer and no audio
+> code, and the island still ships exactly the five tabs above. With it on a
+> sixth rail tab appears and a running session holds the panel open by its own
+> hold, separate from the pin. The Withdrawn text above is unchanged and still
+> describes the default product. **Notes stay withdrawn.** The binding contract
+> is `docs/specs/prompter.md` and the execution path is
+> `docs/plans/2026-10-11-prompter-plan.md`; the microphone entitlement (release
+> 2) and speech recognition (release 3) are separate, later decisions and ship
+> alone.
+
 ### Settings and app menu
 
 - Provide launch-at-login control.

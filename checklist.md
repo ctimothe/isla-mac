@@ -1378,3 +1378,29 @@ arrives, but a person singing along reads the next line before they sing it.
   notice goes, and Reset (hold the readout) brings it back. The compact caption
   and the lock card show no notice and are not hidden for a mismatched lyric
   (the owner decides later); they read the same lead, so they follow a sync.
+
+## prompter (2026-10-11): an optional script prompter, off by default
+
+Spec `docs/specs/prompter.md`, plan `docs/plans/2026-10-11-prompter-plan.md`.
+Each release below ships alone; the capabilities it adds are listed here because
+they exceed the parity design's non-goals, and every one defaults to off.
+
+- [ ] **Release 1 (Classic scrolling): the Prompter switch** (`prompter.enabled`,
+  default off). Off means absent: no tab, hot key, library read, timer or
+  observer. On adds a sixth rail tab, two hot keys (⌃⌥⌘P toggle, ⌃⌥⌘S stop),
+  and a library file at `~/Library/Application Support/Isla/Prompter/library.json`.
+  While a session runs it holds a **display-awake assertion** (released on every
+  pause and end path) and keeps the panel open by its own hold, not the pin.
+  **Nothing leaves the machine, no account, no permission, no entitlement.**
+- [ ] **Release 2 (Voice-Activated): microphone.** Adds
+  `com.apple.security.device.audio-input` and the microphone usage string. Audio
+  is read as a level only, never recorded or stored; the capture stops on every
+  pause and end path. Ships alone.
+- [ ] **Release 3 (Word Tracking): speech recognition**, on-device only unless
+  the user turns on `prompter.allowAppleSpeech` (default off; audio then goes to
+  Apple). Gated on the owner presenting in a language with an on-device model
+  (US English today). Ships alone.
+- [ ] **Release 4 (Import)** and **release 5 (external display)** are optional
+  and later. Remote, Director and the URL scheme never ship.
+- [ ] **Physical checks owed:** spec 18.2, recorded here with the Mac model and
+  macOS version after each release.
