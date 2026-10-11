@@ -219,6 +219,12 @@
 "Your display is mirrored. People watching the mirror will see your script." = "Экран дублируется. Зрители на втором экране увидят ваш сценарий.";
 "Isla is on your only display. People watching it will see your script." = "Isla на вашем единственном экране. Зрители этого экрана увидят ваш сценарий.";
 "Start Anyway" = "Всё равно начать";
+"Prompter paused" = "Суфлёр приостановлен";
+"Prompter resumed" = "Суфлёр продолжает";
+"Prompter stopped" = "Суфлёр остановлен";
+"End of page" = "Конец страницы";
+"End of script" = "Конец сценария";
+"%@, %d%%" = "%@, %d %%";
 "Keyboard Shortcuts" = "Сочетания клавиш";
 "Type Shortcut" = "Нажмите сочетание";
 "None" = "Нет";

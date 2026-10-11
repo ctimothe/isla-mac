@@ -153,6 +153,8 @@ final class PrompterSession: ObservableObject {
     /// tell a countdown that was called off from the one that replaced it.
     private var countdownSerial = 0
     private var leaseHeld = false
+    /// The stage's elapsed readout (ruling 20.4: running time only).
+    private var elapsed = PromptElapsed()
 
     init(
         now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -185,6 +187,13 @@ final class PrompterSession: ObservableObject {
         return PromptPosition(offset: offset, contentHash: script.contentHash)
     }
 
+    /// How long this run (or the last one, after Stop) has been reading:
+    /// running time only, every pause and the wait in `finished` left out
+    /// (ruling 20.4). In the session's own time base.
+    func elapsedTime() -> TimeInterval {
+        elapsed.value(at: now())
+    }
+
     /// Seconds left on the countdown, in the session's time base.
     var countdownRemaining: TimeInterval? {
         countdown.map { max(0, $0.endsAt - now()) }
@@ -214,6 +223,7 @@ final class PrompterSession: ObservableObject {
         self.mode = mode
         self.pages = pages
         readPages = []
+        elapsed.reset()
         var startPosition: PromptPosition?
         if index == selected, let position, position.contentHash == pages[index].contentHash {
             startPosition = position
@@ -308,6 +318,7 @@ final class PrompterSession: ObservableObject {
         cancelTick()
         cancelCountdown()
         clock?.stop()
+        elapsed.halt(at: now())
         state = .ended
         reconcileKeepAwake()
     }
@@ -335,9 +346,11 @@ final class PrompterSession: ObservableObject {
 
         if target == .running {
             clock?.start(at: now())
+            elapsed.run(at: now())
             armTick()
         } else {
             clock?.stop()
+            elapsed.halt(at: now())
             cancelTick()
         }
 

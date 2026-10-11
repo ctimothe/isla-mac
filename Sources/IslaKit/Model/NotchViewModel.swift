@@ -143,6 +143,24 @@ final class NotchViewModel: ObservableObject {
     /// defaults; a test swaps this so it never writes there.
     var recordFirstRunAnswered: @MainActor () -> Void = { NotchViewModel.completeFirstRun() }
     private var prompterLinks = Set<AnyCancellable>()
+    /// The stage's own state (layout cache, page offset, the hand on the
+    /// wheel), made with the parts and dropped with them, one per model so a
+    /// rebuilt panel never draws another model's cached layout (spec 10.2).
+    @Published private(set) var prompterStage: PrompterStageModel?
+    /// A start whose script is too big to tokenize on the main thread is
+    /// waiting for its pages (E-26). Start and the hot key do nothing more
+    /// while it is; Stop calls it off.
+    @Published private(set) var isPreparingPrompter = false
+    /// How a big script is tokenized: on a background task. A test holds it
+    /// to land a result late.
+    var prompterTokenize: @Sendable ([String]) async -> [PromptScript] = { texts in
+        await PrompterBackground.run { texts.map(PromptScript.init) }
+    }
+    private var prompterPreparation: Task<Void, Never>?
+    /// Bumped by anything that calls a preparing start off, so a result that
+    /// lands afterwards is dropped (spec 7.2's rule, for the one closure a
+    /// start leaves behind before a session exists).
+    private var prompterPreparationGeneration = 0
 
     @Published var isOpen = false {
         didSet {
@@ -1493,9 +1511,11 @@ extension NotchViewModel {
     /// rebuilt model changes nothing about it.
     func attachPrompter(_ parts: PrompterParts?) {
         prompterLinks.removeAll()
+        cancelPrompterPreparation()
         if pendingMirroredStart != nil { pendingMirroredStart = nil }
         prompterParts = parts
         prompterSession = parts?.session
+        prompterStage = parts.map { PrompterStageModel(session: $0.session, settings: $0.settings) }
         guard let parts else { return }
         let session = parts.session
         session.apply(parts.settings.values)
@@ -1534,7 +1554,7 @@ extension NotchViewModel {
     /// commanded open.
     @discardableResult
     func togglePrompter() -> PrompterPresentation {
-        guard let parts = prompterParts else { return .nothing }
+        guard let parts = prompterParts, !isPreparingPrompter else { return .nothing }
         guard admitsCommandedOpen(screensAsleep: prompterHooks.screensAsleep()) else { return .refused }
         if parts.session.state.isLive {
             parts.session.togglePlayback()
@@ -1553,7 +1573,7 @@ extension NotchViewModel {
     /// live is only shown.
     @discardableResult
     func startPrompter() -> PrompterPresentation {
-        guard let parts = prompterParts else { return .nothing }
+        guard let parts = prompterParts, !isPreparingPrompter else { return .nothing }
         guard admitsCommandedOpen(screensAsleep: prompterHooks.screensAsleep()) else { return .refused }
         if parts.session.state.isLive { return present(.openStage) }
         return beginSession(parts, askingAboutSharedDisplays: true)
@@ -1565,6 +1585,7 @@ extension NotchViewModel {
     /// ended before this returns, which the switch relies on.
     @discardableResult
     func stopPrompter() -> PrompterPresentation {
+        cancelPrompterPreparation()
         if pendingMirroredStart != nil { pendingMirroredStart = nil }
         guard let session = prompterSession, session.state.isLive else { return .nothing }
         session.stop()
@@ -1578,7 +1599,7 @@ extension NotchViewModel {
     /// Start Anyway, armed and confirmed in the tab's control row (11.6).
     @discardableResult
     func confirmMirroredStart() -> PrompterPresentation {
-        guard pendingMirroredStart != nil, let parts = prompterParts else { return .nothing }
+        guard pendingMirroredStart != nil, let parts = prompterParts, !isPreparingPrompter else { return .nothing }
         guard admitsCommandedOpen(screensAsleep: prompterHooks.screensAsleep()) else {
             pendingMirroredStart = nil
             return .refused
@@ -1595,7 +1616,7 @@ extension NotchViewModel {
     private func beginSession(_ parts: PrompterParts, askingAboutSharedDisplays ask: Bool) -> PrompterPresentation {
         // Nothing to read: the tab says why (E-20), so that is where the
         // panel goes. A key that silently did nothing would read as broken.
-        guard let pages = parts.pagesToStart() else {
+        guard let texts = parts.readableTexts() else {
             if pendingMirroredStart != nil { pendingMirroredStart = nil }
             chooseTab(.prompter)
             return present(.openTab)
@@ -1606,6 +1627,41 @@ extension NotchViewModel {
             return present(.openTab)
         }
         if pendingMirroredStart != nil { pendingMirroredStart = nil }
+        if PrompterParts.tokenizesAtOnce(texts) {
+            return finishBeginning(parts, pages: texts.map(PromptScript.init))
+        }
+        // E-26: a script this size took the main thread for a visible beat
+        // when it was tokenized here, on the key press. It is tokenized on a
+        // background task instead and the start completes when it lands,
+        // unless something called it off in between (Stop, the switch, a
+        // rebuilt model) or the Mac locked or went dark meanwhile.
+        cancelPrompterPreparation()
+        let generation = prompterPreparationGeneration
+        let tokenize = prompterTokenize
+        isPreparingPrompter = true
+        prompterPreparation = Task { [weak self] in
+            let pages = await tokenize(texts)
+            guard let self, generation == self.prompterPreparationGeneration, !Task.isCancelled else { return }
+            self.prompterPreparation = nil
+            self.isPreparingPrompter = false
+            guard self.prompterParts?.session === parts.session,
+                  self.admitsCommandedOpen(screensAsleep: self.prompterHooks.screensAsleep()) else { return }
+            self.finishBeginning(parts, pages: pages)
+        }
+        return .nothing
+    }
+
+    /// Takes back a start still waiting for its pages.
+    private func cancelPrompterPreparation() {
+        prompterPreparationGeneration &+= 1
+        prompterPreparation?.cancel()
+        prompterPreparation = nil
+        if isPreparingPrompter { isPreparingPrompter = false }
+    }
+
+    /// The start itself, once the pages are tokenized.
+    @discardableResult
+    private func finishBeginning(_ parts: PrompterParts, pages: [PromptScript]) -> PrompterPresentation {
         // Spec 12.1: the library is flushed on session start, so the script
         // being read is the one on disk if the Mac goes down mid-talk.
         parts.library.flush()

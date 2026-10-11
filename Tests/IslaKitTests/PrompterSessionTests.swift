@@ -815,6 +815,62 @@ final class PrompterSessionTests: XCTestCase {
         XCTAssertEqual(session.currentPosition?.offset, page.collapsedCount)
     }
 
+    // MARK: Elapsed (ruling 20.4)
+
+    /// The stage's elapsed readout counts running time only: a pause of any
+    /// kind, `finished` and the gap before a new start are left out, and a
+    /// new start begins again at zero.
+    func testElapsedCountsRunningTimeOnly() {
+        XCTAssertEqual(session.elapsedTime(), 0, "nothing before a start")
+        session.start(pages: pages(twelveWords))
+        run(2)
+        XCTAssertEqual(session.elapsedTime(), 2, accuracy: 1e-9)
+
+        session.pause(.user)
+        run(10)
+        XCTAssertEqual(session.elapsedTime(), 2, accuracy: 1e-9, "a user pause is not counted")
+        session.resume()
+        run(0.5)
+        XCTAssertEqual(session.elapsedTime(), 2.5, accuracy: 1e-9)
+
+        session.handle(.screenLocked)
+        run(30)
+        XCTAssertEqual(session.elapsedTime(), 2.5, accuracy: 1e-9, "nor a lock")
+        session.resume()
+
+        finishCurrentPage()
+        XCTAssertEqual(session.state, .finished)
+        let atEnd = session.elapsedTime()
+        run(15)
+        XCTAssertEqual(session.elapsedTime(), atEnd, accuracy: 1e-9, "nor the wait after the last word")
+
+        session.stop()
+        run(5)
+        XCTAssertEqual(session.elapsedTime(), atEnd, accuracy: 1e-9, "Stop keeps the last run's figure")
+        session.start(pages: pages(twelveWords))
+        XCTAssertEqual(session.elapsedTime(), 0, "a new run starts at zero")
+        session.stop()
+    }
+
+    /// The value type underneath: halts without a run are harmless, a clock
+    /// that runs backwards adds nothing, and a second run keeps the first
+    /// baseline.
+    func testPromptElapsedAddsOnlyForwardRunningTime() {
+        var elapsed = PromptElapsed()
+        elapsed.halt(at: 5)
+        XCTAssertEqual(elapsed.value(at: 10), 0)
+        elapsed.run(at: 10)
+        elapsed.run(at: 12)
+        XCTAssertEqual(elapsed.value(at: 13), 3)
+        elapsed.halt(at: 13)
+        XCTAssertEqual(elapsed.value(at: 100), 3)
+        elapsed.run(at: 100)
+        elapsed.halt(at: 90)
+        XCTAssertEqual(elapsed.value(at: 200), 3, "time running backwards reads nothing")
+        elapsed.reset()
+        XCTAssertEqual(elapsed.value(at: 300), 0)
+    }
+
     // MARK: Helpers
 
     private func setUpFreshSession() {

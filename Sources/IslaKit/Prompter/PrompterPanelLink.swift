@@ -150,13 +150,37 @@ extension PrompterParts {
         library.currentScriptID.flatMap(library.script) ?? library.scripts.first
     }
 
-    /// The current script's pages, tokenized, or nil when no page has a word
-    /// (E-20: Start is refused with a reason, which the tab shows). Uses the
-    /// session's own test for a readable page, so the two cannot disagree
-    /// about a page of cues alone (E-21: that one starts and finishes at once).
-    func pagesToStart() -> [PromptScript]? {
+    /// The current script's page texts, or nil when no page has a word (E-20:
+    /// Start is refused with a reason, which the tab shows). Decided without
+    /// tokenizing anything: the tokenizer makes a word of every run of
+    /// non-whitespace `Character`s, so "has a non-whitespace character" is
+    /// the session's own test for a readable page (`PrompterStageRenderTests`
+    /// holds the two equal on the edge cases) and a page of cues alone still
+    /// starts and finishes at once (E-21). It replaced tokenizing every page
+    /// here, on the main thread, before a start (E-26).
+    func readableTexts() -> [String]? {
         guard let record = currentScript else { return nil }
-        let pages = record.pages.map(PromptScript.init)
-        return pages.contains { !$0.words.isEmpty } ? pages : nil
+        return record.pages.contains(where: Self.hasWords) ? record.pages : nil
+    }
+
+    static func hasWords(_ text: String) -> Bool {
+        text.contains { !$0.isWhitespace }
+    }
+
+    /// Up to this many bytes of script (about 6,000 words of prose, a long
+    /// talk) are tokenized where the start is asked for: 64 KB measured 18 ms
+    /// in a debug build, so this is about 9 ms, inside a frame, and a start
+    /// that shows its stage at once is worth more than a background hop for
+    /// a talk-length script. Past it, a background task (E-26). The UTF-8
+    /// count of a native string is O(1), so deciding costs nothing.
+    static let synchronousTokenizeLimit = 32_768
+
+    static func tokenizesAtOnce(_ texts: [String]) -> Bool {
+        var total = 0
+        for text in texts {
+            total += text.utf8.count
+            if total > synchronousTokenizeLimit { return false }
+        }
+        return true
     }
 }
