@@ -386,3 +386,4 @@
 "Launch at Login failed: %@" = "Launch at Login failed: %@";
 "Reset Lyric Timing" = "Reset Lyric Timing";
 "Lyric timing correction" = "Lyric timing correction";
+"A file from the drag could not be received." = "A file from the drag could not be received.";

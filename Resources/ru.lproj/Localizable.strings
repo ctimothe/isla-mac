@@ -385,3 +385,4 @@
 "Launch at Login failed: %@" = "Не удалось включить автозапуск: %@";
 "Reset Lyric Timing" = "Сбросить смещение текста";
 "Lyric timing correction" = "Смещение текста песни";
+"A file from the drag could not be received." = "Не удалось получить файл из перетаскивания.";

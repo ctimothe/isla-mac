@@ -57,6 +57,9 @@ final class NotchController {
         stores.ambient.onEvent = { [weak self] activity in
             self?.presentAmbient(activity)
         }
+        stores.promises.onBatch = { [weak self] urls in
+            self?.promisedFilesArrived(urls)
+        }
         stores.start()
         build()
         observerTokens.append(NotificationCenter.default.addObserver(
@@ -199,6 +202,41 @@ final class NotchController {
     /// with its display off, so that was hours. The wake handler starts the
     /// clock the moment the card can be seen. Pure, so `LockedClockTests` can
     /// hold the rule without a controller.
+    /// What a file that a drag promised does when it finally lands. A promise
+    /// can take minutes (an iCloud Photos original), long enough for the Mac to
+    /// lock or sleep, and the pointer that dropped it is long gone. Opening the
+    /// panel then put it over the shield (G-025); the card is still added, and
+    /// the user finds it on the Shelf when they next look.
+    enum PromiseArrivalPlan: Equatable {
+        case addQuietly
+        case addAndOpen
+    }
+
+    nonisolated static func promiseArrivalPlan(locked: Bool, asleep: Bool) -> PromiseArrivalPlan {
+        locked || asleep ? .addQuietly : .addAndOpen
+    }
+
+    private func promisedFilesArrived(_ urls: [URL]) {
+        let plan = Self.promiseArrivalPlan(
+            locked: lockPresence.isLocked || viewModel?.isLockedPresentation == true,
+            asleep: screensAreAsleep
+        )
+        switch plan {
+        case .addQuietly:
+            stores.shelf.add(urls)
+        case .addAndOpen:
+            guard let vm = viewModel else {
+                stores.shelf.add(urls)
+                return
+            }
+            vm.isDropTargeted = false
+            _ = vm.accept(urls: urls)
+            pointer.setInside(true)
+            setOpen(true)
+            scheduleCollapseIfPointerAway()
+        }
+    }
+
     static func lockKeepsMediaRunning(screensAsleep: Bool) -> Bool {
         !screensAsleep
     }
@@ -1042,6 +1080,7 @@ final class NotchController {
             // The pointer usually is not over the panel after a drag leaves.
             self.scheduleCollapseIfPointerAway()
         }
+        root.promises = stores.promises
         root.onDrop = { [weak self] urls in
             guard let self, let vm = self.viewModel else { return false }
             vm.isDropTargeted = false

@@ -12,41 +12,103 @@ import XCTest
 final class ShelfDropTests: XCTestCase {
 
     func testAPromisedFileArrivingOffTheMainQueueIsDelivered() {
-        let view = NotchRootView(frame: .zero)
-        let delivered = expectation(description: "the coalesced batch reaches onDrop")
+        let inbox = PromisedDropInbox(shelf: ShelfStore(defaults: privateDefaults()))
+        let delivered = expectation(description: "the coalesced batch reaches onBatch")
         var received: [URL] = []
-        view.onDrop = { urls in
+        inbox.onBatch = { urls in
             received = urls
             delivered.fulfill()
-            return true
         }
 
         let url = URL(fileURLWithPath: "/tmp/isla-promise-test.txt")
         let queue = OperationQueue()
         queue.qualityOfService = .userInitiated
-        queue.addOperation { view.promisedFileArrived(url, error: nil) }
+        queue.addOperation { inbox.arrived(url: url, error: nil) }
 
         wait(for: [delivered], timeout: 3)
         XCTAssertEqual(received, [url])
     }
 
-    /// A cancelled or failed promise still calls the reader, with an error.
-    /// It must be logged and dropped, never delivered as a file.
+    /// A cancelled promise still calls the reader, with an error. It is
+    /// dropped, never delivered as a file, and a cancel is the user's own
+    /// doing, so it says nothing either.
     func testAFailedPromiseDeliversNothing() {
-        let view = NotchRootView(frame: .zero)
-        view.onDrop = { _ in
-            XCTFail("a failed promise must not reach the shelf")
-            return false
-        }
+        let shelf = ShelfStore(defaults: privateDefaults())
+        let inbox = PromisedDropInbox(shelf: shelf)
+        inbox.onBatch = { _ in XCTFail("a failed promise must not reach the shelf") }
 
         let queue = OperationQueue()
         queue.addOperation {
-            view.promisedFileArrived(nil, error: CocoaError(.userCancelled))
+            inbox.arrived(url: nil, error: CocoaError(.userCancelled))
         }
 
         let settled = expectation(description: "the coalesce window closes")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { settled.fulfill() }
         wait(for: [settled], timeout: 3)
+        XCTAssertNil(shelf.notice, "a cancelled promise is not a failure to report")
+    }
+
+    /// F-035, the promise half: a Mail or Photos transfer that fails used to
+    /// only log, so the drop looked accepted and then nothing appeared.
+    func testAFailedPromiseRaisesOneNotice() {
+        let shelf = ShelfStore(defaults: privateDefaults())
+        let inbox = PromisedDropInbox(shelf: shelf)
+        inbox.onBatch = { _ in XCTFail("a failed promise must not reach the shelf") }
+
+        let queue = OperationQueue()
+        queue.addOperation {
+            inbox.arrived(url: nil, error: CocoaError(.fileReadUnknown))
+        }
+
+        let raised = expectation(description: "the notice appears")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { raised.fulfill() }
+        wait(for: [raised], timeout: 3)
+        XCTAssertEqual(shelf.notice, .promiseFailed)
+    }
+
+    /// G-025: the receivers used to hold the root view weakly, so a display
+    /// change in the middle of a transfer (which rebuilds the panel) dropped
+    /// the file, and it was trashed seven days later. The inbox belongs to the
+    /// session; the view is only where the drag came in.
+    func testAPromiseArrivingAfterTheViewIsGoneIsStillDelivered() {
+        let inbox = PromisedDropInbox(shelf: ShelfStore(defaults: privateDefaults()))
+        let delivered = expectation(description: "the batch survives the view")
+        var received: [URL] = []
+        inbox.onBatch = { urls in
+            received = urls
+            delivered.fulfill()
+        }
+
+        weak var weakView: NotchRootView?
+        autoreleasepool {
+            let view = NotchRootView(frame: .zero)
+            view.promises = inbox
+            weakView = view
+        }
+
+        let url = URL(fileURLWithPath: "/tmp/isla-late-promise.txt")
+        let queue = OperationQueue()
+        queue.addOperation { inbox.arrived(url: url, error: nil) }
+
+        wait(for: [delivered], timeout: 3)
+        XCTAssertEqual(received, [url])
+        _ = weakView
+    }
+
+    /// G-025: a late promise has no pointer behind it, and the Mac may be
+    /// locked or asleep by the time it lands. Then it joins the shelf quietly.
+    func testALatePromiseDoesNotOpenThePanelOverALockedOrSleepingMac() {
+        XCTAssertEqual(NotchController.promiseArrivalPlan(locked: true, asleep: false), .addQuietly)
+        XCTAssertEqual(NotchController.promiseArrivalPlan(locked: false, asleep: true), .addQuietly)
+        XCTAssertEqual(NotchController.promiseArrivalPlan(locked: true, asleep: true), .addQuietly)
+        XCTAssertEqual(NotchController.promiseArrivalPlan(locked: false, asleep: false), .addAndOpen)
+    }
+
+    private func privateDefaults() -> UserDefaults {
+        let name = "isla.test.shelfdrop.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+        return defaults
     }
 
     /// A drag over the island asks what it carries once, not on every move.

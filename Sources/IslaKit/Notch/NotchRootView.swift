@@ -68,6 +68,9 @@ final class NotchRootView: NSView {
     var onDragEntered: (() -> Void)?
     var onDragExited: (() -> Void)?
     var onDrop: (([URL]) -> Bool)?
+    /// Receives the files a drag only promised; owned by the session's stores,
+    /// so it outlives this view. See `PromisedDropInbox`.
+    var promises: PromisedDropInbox?
 
     private(set) var isReceivingDrag = false
 
@@ -265,73 +268,17 @@ final class NotchRootView: NSView {
         // finished writing — on the main thread that is the whole UI.
         let queue = OperationQueue()
         queue.qualityOfService = .userInitiated
+        //
+        // The reader holds the inbox, not this view. The view is rebuilt when a
+        // display changes, and a transfer that outlives it (an iCloud original
+        // still downloading) used to find nobody to hand the file to (G-025).
+        guard let inbox = promises else { return false }
         for receiver in receivers {
-            receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: queue) { [weak self] url, error in
-                self?.promisedFileArrived(url, error: error)
+            receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: queue) { url, error in
+                inbox.arrived(url: url, error: error)
             }
         }
         return true
-    }
-
-    /// Where a promised file lands, called by `NSFilePromiseReceiver` on the
-    /// queue handed to it above — never on the main queue.
-    ///
-    /// This used to be `MainActor.assumeIsolated`, which is an assertion, not a
-    /// hop: it traps when it is wrong, and here it was wrong every single time.
-    /// Dragging a Mail attachment or a Photos item — the two sources the whole
-    /// promise path exists for — killed the process the moment the first file
-    /// was written. `Task { @MainActor }` is the hop the code always meant.
-    ///
-    /// `nonisolated` on purpose: `NSView` is main-actor isolated, and the
-    /// compiler has to be told this one entry point is not.
-    nonisolated func promisedFileArrived(_ url: URL?, error: Error?) {
-        if let error {
-            Log.shelf.error("promised file failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
-            return
-        }
-        guard let url else { return }
-        Task { @MainActor [weak self] in
-            self?.enqueuePromisedFile(url)
-        }
-    }
-
-    /// Files received so far that have not been handed over yet.
-    private var pendingPromised: [URL] = []
-    private var promisedDelivery: DispatchWorkItem?
-    private var firstPendingAt: Date?
-
-    /// However slowly files trickle in, a batch is handed over by now.
-    private static let promiseMaximumWait: TimeInterval = 3
-
-    /// Long enough that the files of one drop arrive together, short enough
-    /// that the shelf does not feel slow.
-    private static let promiseCoalesceWindow: TimeInterval = 0.4
-
-    private func enqueuePromisedFile(_ url: URL) {
-        pendingPromised.append(url)
-        // A ceiling on the sliding window: files arriving slower than the
-        // debounce would otherwise push delivery back indefinitely.
-        if firstPendingAt == nil { firstPendingAt = Date() }
-        if let start = firstPendingAt, Date().timeIntervalSince(start) > Self.promiseMaximumWait {
-            promisedDelivery?.cancel()
-            deliverPromised()
-            return
-        }
-        promisedDelivery?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated { self?.deliverPromised() }
-        }
-        promisedDelivery = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.promiseCoalesceWindow, execute: work)
-    }
-
-    private func deliverPromised() {
-        let batch = pendingPromised
-        pendingPromised.removeAll()
-        promisedDelivery = nil
-        firstPendingAt = nil
-        guard !batch.isEmpty else { return }
-        _ = onDrop?(batch)
     }
 
     private func urls(from sender: NSDraggingInfo) -> [URL] {
