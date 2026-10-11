@@ -127,3 +127,26 @@ External or Sidecar display prompter with mirror axes (horizontal, vertical, bot
 ## Definition of ready
 
 D1–D7 are resolved (spec section 19), so T0 and releases 1 and 2 are ready on the owner's "go". Release 3 additionally waits on the D3 gate above. The Textream notice (D6) lands in T0, before any derived code exists.
+
+## T7 design note (2026-10-12, driver; binds T8, T9, T10)
+
+The stage is the lyrics page's sibling: it owns the whole body, the rail is gone, the type is the system face, and every value below is a token or a function of the existing contrast ramp, never a hand-mixed number. White opacities are measured over black, the island's backdrop, with `Theme.contrast` as `ContrastRampTests` does (0.40 gives 3.7:1, 0.50 gives 5.28:1, 0.55 gives 6.27:1, 0.75 gives 11.45:1).
+
+**Word ladder (replaces the figures in spec 10.1 where they differ).** Textream dims the active word to 0.6 and the spoken words to 0.3. Both fail as reading text, and a current word dimmer than the words ahead of it points the eye backwards.
+- Unread: 1.00 of the highlight colour. Current: 1.00, plus a 2 pt underline in the highlight colour (underline, not weight, so the line never reflows as the word changes). Read: 0.40 normally, 0.55 with Increase Contrast (3.7:1 and 6.27:1, both over the 3:1 non-text floor, because a spoken word may still be glanced at).
+- Timer modes draw uniformly at the unread value; no read or current distinction, as in the spec.
+- Highlight colour is `prompter.tint`; white is the default and the only value that is certain to clear contrast on every backdrop. Non-white tints are measured against the stage background in `PrompterStageRenderTests` at 3:1 minimum and any that fails is lightened until it passes.
+
+**Cue ladder.** A cue is a note to the speaker, so it never competes with the script and never drops under the floor. It is italic, one opacity per brightness whatever its state: dim 0.45 (4.0:1), low 0.55, medium 0.70, bright 0.90; Increase Contrast adds 0.15, capped at 1.00. This replaces the unread/read pairs of spec 10.1, which made the unread cue 0.2 (1.9:1), unreadable.
+
+**Type.** System face (`.system`, never `.largeTitle`-style semantic styles, as `Theme.tracking(forSize:)` explains), medium weight, sizes from `PrompterFontSize` (18, 22, 26, 32), tracking from `Theme.tracking(forSize:)`, line spacing 8 pt. Serif, mono and OpenDyslexic come from the family setting; OpenDyslexic absent falls back to the rounded system face, silently, with the option annotated "not installed" in Settings.
+
+**Layout at the standard 208 pt body.** The physical notch row keeps its place. Below it the text column (default 360 pt, 280 to 560, never wider than the body less 24 pt margins), centered under the camera, with `ScrollEdgeFade` at top and bottom (5 percent; the one primitive, not a second gradient). Under the text a 24 pt control row: page chip ("2 / 5"), play or pause, slower, faster, and a stop control that is the only red-free destructive action (it ends a session, nothing is lost, so no confirmation). Controls are 24 pt hit targets with `secondaryOpacity`, brightening to full on pointer-down per the Apple Design response rule. The elapsed time (optional) sits in the right wing of the notch row at `tertiaryOpacity`; the status chip ("Hidden from screen sharing" or "Visible in screen sharing", tied to `hideFromCapture`) sits in the left wing at the same level, and neither is tappable.
+
+**Mirrored or shared display question.** Inline, in the stage's body, never an alert: one line of text ("Your display is being shared. Start anyway?") and an arm-then-confirm control ("Start Anyway") built on `ConfirmationArming`, with Cancel beside it. It replaces the text column only while pending.
+
+**Motion.** Pane in uses `Theme.paneIn`; scroll, Follow and timer modes use the spec 10.3 curves; Reduce Motion replaces every move with an immediate one. Springs are critically damped, nothing overshoots, because there is no gesture momentum here. A manual scroll hands control back when the wheel stops (spec 8.5); the resume position is the line where the wheel stopped, not the old target.
+
+**The tab (T10).** Script row with title and a disclosure for the library; page chips; an editor reusing Translate's key handling and I-beam rect; one primary "Start" button that becomes "Resume" when a session is paused; empty state with a single sentence and a "Add a script" control. Everything on `glassSurface`, labels at `tertiaryOpacity` or above.
+
+**Not decided here, left to the owner's hardware pass:** whether 208 pt shows enough lines at the 32 pt size (expect two to three) and whether the highlight underline needs to be heavier at distance. Both are tokens (`PrompterStageStyle`), not structure.
