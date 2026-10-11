@@ -259,6 +259,30 @@ final class VisualLabLockCardTests: VisualLabCase {
         LabNetworkGuard.slowSpotify = false
         await session.disconnectSpotify()
     }
+
+    /// A stream with no length at both sizes, beside the same card playing a
+    /// song: the bar is gone and the transport has not moved (F-031). Put the
+    /// two side by side to see it; the card's layout is fixed, so they should
+    /// differ only where the bar and its times were.
+    func testLiveStreamDrawsNoBar() async throws {
+        let session = try makeSession()
+        let shoot = LabPhotographer(session: session, surface: "lock-card-states")
+        let variants: [LabVariant] = [.base, LabVariant(name: "dark-ir", backend: .imageRenderer)]
+        for size in NotchViewModel.LockCardSize.allCases {
+            try await shoot.shoot("live-stream-no-duration-\(size.rawValue)", variants: variants, size: Self.canvas(size), settle: 0.25,
+                                  defaults: [NotchViewModel.lockCardSizeKey: size.rawValue],
+                                  notes: "A stream with no length: no seek bar and no 0:00 / -0:00, and the transport where it sits for a song.") { variant in
+                await self.card(session, variant: variant, size: size,
+                                track: .init(duration: 0, elapsed: 0, source: "Radio"),
+                                lyrics: .cannotLookUp(.noLength))
+            }
+            try await shoot.shoot("live-stream-reference-song-\(size.rawValue)", variants: variants, size: Self.canvas(size), settle: 0.25,
+                                  defaults: [NotchViewModel.lockCardSizeKey: size.rawValue],
+                                  notes: "The same card playing a song, to lay over the stream render: the transport must not move.") { variant in
+                await self.card(session, variant: variant, size: size)
+            }
+        }
+    }
 }
 
 /// V1, confirmation and copy feedback that the panel tests do not reach.

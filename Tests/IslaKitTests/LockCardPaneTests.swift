@@ -232,6 +232,18 @@ final class LockCardPaneTests: XCTestCase {
         XCTAssertEqual(LockScreenCard.outputListHeight(count: 0, size: .standard), 0)
     }
 
+    /// A live stream or a browser tab reports no length, and the card drew a
+    /// full-width bar reading 0:00 / -0:00 that refused every drag (F-031),
+    /// while the panel hid its scrubber in the same state. The bar is shown
+    /// only for a length a seek can be measured against.
+    func testNoLengthDrawsNoBar() {
+        XCTAssertFalse(LockScreenCard.showsSeekBar(duration: 0))
+        XCTAssertFalse(LockScreenCard.showsSeekBar(duration: -1))
+        XCTAssertFalse(LockScreenCard.showsSeekBar(duration: .nan))
+        XCTAssertFalse(LockScreenCard.showsSeekBar(duration: .infinity))
+        XCTAssertTrue(LockScreenCard.showsSeekBar(duration: 180))
+    }
+
     static let sevenOutputs: [AudioOutputs.Output] = [
         .init(id: 41, name: "MacBook Pro Speakers", transport: kAudioDeviceTransportTypeBuiltIn),
         .init(id: 42, name: "AirPods Pro", transport: kAudioDeviceTransportTypeBluetooth),
