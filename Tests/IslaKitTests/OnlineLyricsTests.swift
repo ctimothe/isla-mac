@@ -169,4 +169,93 @@ final class OnlineLyricsTests: XCTestCase {
         )
         XCTAssertEqual(OnlineLyricsCache.key(track), OnlineLyricsCache.key(fromMusic))
     }
+
+    /// A synced answer the parser refused is remembered — or every play of
+    /// that song would ask again — but under the parser revision that refused
+    /// it. It used to be cached as a plain miss, so a song whose LRCLIB text
+    /// held one '<3' showed "No lyrics found" for 14 days, through the very
+    /// release that learned to read it.
+    func testAnUnreadableAnswerIsAskedAgainOnceTheParserImproves() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = OnlineLyricsCache(directory: directory)
+        cache.remember(.unreadable, for: track)
+        XCTAssertEqual(cache.cached(track), .some(nil), "presented as a miss, and not asked again at once")
+        await cache.flushForTests()
+
+        let same = OnlineLyricsCache(directory: directory)
+        XCTAssertEqual(same.cached(track), .some(nil), "the same parser would refuse it again")
+
+        let newer = OnlineLyricsCache(
+            directory: directory, parserRevision: LocalLyricsDocument.parserRevision + 1
+        )
+        XCTAssertTrue(newer.cached(track) == nil, "a parser that reads more is worth asking again")
+
+        // An ordinary miss is a fact about the catalogue, not the parser.
+        let other = LocalTrackIdentity(
+            playerID: "music", title: "Other", artist: "Artist", album: "", duration: 100, recordingID: nil
+        )
+        newer.remember(.none, for: other)
+        XCTAssertEqual(newer.cached(other), .some(nil))
+    }
+
+    /// A hit cached before lines carried their ends (2026-10-11) shows at
+    /// once — never a blank stage while the network answers — and is flagged
+    /// for exactly one refresh. Only a found answer replaces it; anything
+    /// else leaves the old words up and settles the flag, so the refresh is
+    /// one request per song, not one per play. A failure settles nothing:
+    /// the next play may well reach the service.
+    func testAHitFromBeforeLineEndsIsRefreshedOnce() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let second = LocalTrackIdentity(
+            playerID: "music", title: "Second", artist: "Artist", album: "", duration: 120, recordingID: nil
+        )
+        let oldLines = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode([LyricsStore.Line(at: 1, text: "Old")])
+        )
+        // Written the way the cache wrote hits before it had a format.
+        let now = Date().timeIntervalSinceReferenceDate
+        let stored: [String: Any] = [
+            OnlineLyricsCache.key(track): ["lines": oldLines, "checkedAt": now],
+            OnlineLyricsCache.key(second): ["lines": oldLines, "checkedAt": now],
+        ]
+        try JSONSerialization.data(withJSONObject: stored)
+            .write(to: directory.appendingPathComponent("cache.json"))
+
+        let cache = OnlineLyricsCache(directory: directory)
+        XCTAssertEqual(cache.cached(track)??.lines.first?.text, "Old", "served at once")
+        XCTAssertTrue(cache.needsRefresh(track))
+
+        cache.remember(.failed, for: track)
+        XCTAssertTrue(cache.needsRefresh(track), "a failure says nothing; ask on the next play")
+
+        cache.remember(.none, for: track)
+        XCTAssertEqual(cache.cached(track)??.lines.first?.text, "Old", "a miss never replaces a hit")
+        XCTAssertFalse(cache.needsRefresh(track), "asked once")
+
+        let fresh = LyricTimeline(
+            lines: [LyricsStore.Line(at: 1, text: "New", end: 3)], granularity: .line
+        )
+        XCTAssertTrue(cache.needsRefresh(second))
+        cache.remember(.found(fresh), for: second)
+        XCTAssertEqual(cache.cached(second)??.lines.first?.end, 3, "replaced by the answer with line ends")
+        XCTAssertFalse(cache.needsRefresh(second))
+
+        // A hit remembered today carries ends already and is never refreshed.
+        let third = LocalTrackIdentity(
+            playerID: "music", title: "Third", artist: "Artist", album: "", duration: 90, recordingID: nil
+        )
+        cache.remember(.found(fresh), for: third)
+        XCTAssertFalse(cache.needsRefresh(third))
+
+        await cache.flushForTests()
+        let relaunched = OnlineLyricsCache(directory: directory)
+        XCTAssertFalse(relaunched.needsRefresh(track), "settled across a relaunch")
+        XCTAssertFalse(relaunched.needsRefresh(second))
+        XCTAssertEqual(relaunched.cached(track)??.lines.first?.text, "Old")
+    }
 }

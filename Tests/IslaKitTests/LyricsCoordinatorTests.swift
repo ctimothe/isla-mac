@@ -264,6 +264,58 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertEqual(timeline.granularity, .line, "never a word sweep from a line timeline")
     }
 
+    /// A hit cached before line ends existed shows at once, from the cache,
+    /// and is asked about exactly once more in the background; the answer
+    /// with ends replaces it on screen. The next play reads the cache alone.
+    func testAnOldCachedHitShowsAtOnceAndIsRefreshedOnce() async throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        let online = root.appendingPathComponent("online", isDirectory: true)
+        try fileManager.createDirectory(at: online, withIntermediateDirectories: true)
+        let identity = LocalTrackIdentity(
+            playerID: "any", title: "Song", artist: "Artist", album: "Album", duration: 180, recordingID: nil
+        )
+        let oldLines = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode([LyricsStore.Line(at: 2, text: "Cached before ends")])
+        )
+        try JSONSerialization.data(withJSONObject: [
+            OnlineLyricsCache.key(identity): ["lines": oldLines, "checkedAt": Date().timeIntervalSinceReferenceDate],
+        ]).write(to: online.appendingPathComponent("cache.json"))
+        let fresh = LyricTimeline(
+            lines: [LyricsStore.Line(at: 2, text: "With an end", end: 5)], granularity: .line
+        )
+        var asked = 0
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true },
+            isOnlineEnabled: { true },
+            onlineCache: OnlineLyricsCache(directory: online),
+            onlineLookUp: { _ in asked += 1; return .found(fresh) }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        media.apply(playingSnapshot())
+        guard case .ready(let shown) = coordinator.availability else {
+            return XCTFail("the old hit shows at once, not after the network")
+        }
+        XCTAssertEqual(shown.lines.first?.text, "Cached before ends")
+
+        for _ in 0..<50 {
+            if case .ready(let timeline) = coordinator.availability, timeline.lines.first?.end != nil { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        guard case .ready(let refreshed) = coordinator.availability else { return XCTFail("still ready") }
+        XCTAssertEqual(refreshed.lines.first?.text, "With an end")
+        XCTAssertEqual(asked, 1)
+
+        // The next play is served by the cache alone.
+        coordinator.refreshVisibility()
+        try? await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(asked, 1, "refreshed once, not once per play")
+    }
+
     /// A length that arrives after the title corrects the identity.
     ///
     /// The player publishes the title before it knows the length, so the first
