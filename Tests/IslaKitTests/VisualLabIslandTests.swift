@@ -135,11 +135,23 @@ final class VisualLabLockCardTests: VisualLabCase {
         AudioWatch(read: { (outputs, 42, 0.62) }, installListeners: {}, removeListeners: {})
     }
 
+    /// Seven devices, the one playing last in the system's order: the list
+    /// that used to stop at five and hide the current device (F-032).
+    static let sevenOutputs: [AudioOutputs.Output] = outputs + [
+        .init(id: 45, name: "BlackHole 2ch", transport: kAudioDeviceTransportTypeVirtual),
+        .init(id: 46, name: "Loopback Audio", transport: kAudioDeviceTransportTypeVirtual),
+        .init(id: 47, name: "Kitchen", transport: kAudioDeviceTransportTypeAirPlay),
+    ]
+
+    static func sevenOutputAudio() -> AudioWatch {
+        AudioWatch(read: { (sevenOutputs, 47, 0.62) }, installListeners: {}, removeListeners: {})
+    }
+
     func card(
         _ session: LabSession, variant: LabVariant,
         pane: LockScreenCard.Pane = .player, size: NotchViewModel.LockCardSize = .standard,
         track: LabFixtures.Track = .init(elapsed: 27), lyrics: LyricsAvailability = LabFixtures.timeline(),
-        pauseAfter: Bool = false, spotifyTrack: Bool = false
+        pauseAfter: Bool = false, spotifyTrack: Bool = false, audio: AudioWatch? = nil
     ) async -> AnyView {
         let stores = session.makeStores()
         await LabFixtures.play(track, on: stores.media)
@@ -157,7 +169,7 @@ final class VisualLabLockCardTests: VisualLabCase {
         return AnyView(
             ZStack {
                 LabLockWallpaper(light: variant.lightDesktop)
-                LockScreenCard(media: stores.media, lyrics: stores.lyrics, audio: Self.audio(), initialPane: pane)
+                LockScreenCard(media: stores.media, lyrics: stores.lyrics, audio: audio ?? Self.audio(), initialPane: pane)
                     .frame(width: cardSize.width, height: cardSize.height)
             }
         )
@@ -207,6 +219,11 @@ final class VisualLabLockCardTests: VisualLabCase {
             try await shoot.shoot("lyrics-finding-\(size.rawValue)", variants: [.base], size: Self.canvas(size), settle: 0.25,
                                   defaults: [NotchViewModel.lockCardSizeKey: size.rawValue]) { variant in
                 await self.card(session, variant: variant, pane: .lyrics, size: size, lyrics: .findingLocalLyrics)
+            }
+            try await shoot.shoot("output-seven-devices-\(size.rawValue)", variants: variants, size: Self.canvas(size), settle: 0.25,
+                                  defaults: [NotchViewModel.lockCardSizeKey: size.rawValue],
+                                  notes: "Seven outputs, the one playing seventh in the system's order: it is listed first with a checkmark, and the list scrolls with half a row showing at its foot.") { variant in
+                await self.card(session, variant: variant, pane: .output, size: size, audio: Self.sevenOutputAudio())
             }
         }
         try await shoot.shoot("lyrics-long-lines", variants: variants, size: canvas, settle: 0.25) { variant in
