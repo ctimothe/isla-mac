@@ -663,12 +663,21 @@ enum LabFixtures {
         }
     }
 
-    static let gapLines: [LyricsStore.Line] = [
-        .init(at: 4, text: "Hold the note until it breaks"),
-        .init(at: 12, text: ""),
-        .init(at: 40, text: "And come back in on the downbeat"),
-        .init(at: 48, text: "Every word where it belongs"),
-    ]
+    /// An instrumental break as a real file writes it: an empty stamp where
+    /// the voice stops. It used to be a line with empty text, which the parser
+    /// never produces — since LY-05 it reads that stamp as the end of the
+    /// line before — so the lab drew a blank row no listener could ever see
+    /// instead of the interlude they do (LY-13).
+    static let gapLRC = """
+    [00:04.00]Hold the note until it breaks
+    [00:12.00]
+    [00:40.00]And come back in on the downbeat
+    [00:48.00]Every word where it belongs
+    """
+
+    static func gapLines() throws -> [LyricsStore.Line] {
+        try LocalLyricsDocument.parse(gapLRC).lines
+    }
 
     static let longLines: [LyricsStore.Line] = [
         .init(at: 4, text: "A first line that is long enough to need the second row the stage allows it"),

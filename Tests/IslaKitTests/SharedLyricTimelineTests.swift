@@ -162,11 +162,20 @@ final class SharedLyricTimelineTests: XCTestCase {
             LyricsStore.Line(at: 26.3, text: "b"),
         ]
         XCTAssertEqual(LyricSweep.moment(in: lines, at: 14.9), LyricMoment(current: 0, centre: 0, upcoming: 1))
+        // The 11.3 s of silence is long enough to be an interlude (LY-13),
+        // so the moment also names it and how far through it the clock is.
+        let gap = LyricSlot.interlude(from: 15, to: 26.3, before: 1)
         XCTAssertEqual(
-            LyricSweep.moment(in: lines, at: 15), LyricMoment(current: nil, centre: 1, upcoming: 1),
+            LyricSweep.moment(in: lines, at: 15),
+            LyricMoment(current: nil, centre: 1, upcoming: 1, interlude: gap, progress: 0),
             "dark on the frame the voice stops"
         )
-        XCTAssertEqual(LyricSweep.moment(in: lines, at: 20), LyricMoment(current: nil, centre: 1, upcoming: 1))
+        let halfway = LyricSweep.moment(in: lines, at: 20)
+        XCTAssertNil(halfway.current)
+        XCTAssertEqual(halfway.centre, 1)
+        XCTAssertEqual(halfway.upcoming, 1)
+        XCTAssertEqual(halfway.interlude, gap)
+        XCTAssertEqual(halfway.progress, 5 / 11.3, accuracy: 0.0001)
         XCTAssertEqual(LyricSweep.moment(in: lines, at: 26.3), LyricMoment(current: 1, centre: 1, upcoming: nil))
         XCTAssertEqual(LyricSweep.effectiveEnd(of: 0, in: lines), 15)
         XCTAssertEqual(LyricSweep.end(of: 0, in: lines), 15, accuracy: 0.0001, "the sweep ends with the voice")
@@ -317,6 +326,130 @@ final class SharedLyricTimelineTests: XCTestCase {
         )
         XCTAssertGreaterThan(timed, 0)
         XCTAssertLessThan(timed, 1)
+    }
+
+    // MARK: - Interludes (M-36, H-011)
+
+    /// After LY-05 a line goes dark at its end, so a twenty-second solo left
+    /// only a dim waiting line at the reading centre — which reads as lost
+    /// sync — and the visual lab's instrumental render was a blank selected
+    /// row VoiceOver called an unlabelled button. A gap of five seconds or
+    /// more, from a line's honoured end to the next start, and an intro of
+    /// five seconds or more, now get a slot of their own between the lines.
+    func testAFiveSecondGapBecomesAnInterludeSlot() {
+        let lines = [
+            LyricsStore.Line(at: 12, text: "a", end: 30),
+            LyricsStore.Line(at: 45, text: "b"),
+        ]
+        let slots = LyricSweep.slots(for: lines)
+        XCTAssertEqual(slots, [
+            .interlude(from: 0, to: 12, before: 0),
+            .line(0),
+            .interlude(from: 30, to: 45, before: 1),
+            .line(1),
+        ])
+
+        let moment = LyricSweep.moment(in: lines, at: 37.5)
+        XCTAssertNil(moment.current, "nothing is sung through the solo")
+        XCTAssertEqual(moment.centre, 1, "the line coming is still the line a caption shows")
+        XCTAssertEqual(moment.interlude, .interlude(from: 30, to: 45, before: 1))
+        XCTAssertEqual(moment.progress, 0.5, accuracy: 0.0001, "half way from the voice stopping to it coming back")
+        XCTAssertEqual(moment.centreSlot, slots[2], "the page centres on the interlude, not on a dim line")
+        XCTAssertEqual(LyricSweep.slotIndex(of: moment.centreSlot, in: slots), 2)
+
+        // The intro is the same statement before the first line.
+        let intro = LyricSweep.moment(in: lines, at: 6)
+        XCTAssertEqual(intro.interlude, slots[0])
+        XCTAssertEqual(intro.progress, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(intro.centreSlot, slots[0])
+        // A clock read before zero — a large delay on the first frame — is
+        // the start of the intro, not a negative fill.
+        XCTAssertEqual(LyricSweep.moment(in: lines, at: -1).progress, 0)
+
+        // Inside a line the centre slot is that line's, with no interlude.
+        let sung = LyricSweep.moment(in: lines, at: 20)
+        XCTAssertNil(sung.interlude)
+        XCTAssertEqual(sung.progress, 0)
+        XCTAssertEqual(sung.centreSlot, .line(0))
+
+        // A three-second gap and a four-second intro add nothing: a slot
+        // that comes and goes inside a breath is a flicker, not a marker.
+        let short = [
+            LyricsStore.Line(at: 4, text: "a", end: 10),
+            LyricsStore.Line(at: 13, text: "b"),
+        ]
+        XCTAssertEqual(LyricSweep.slots(for: short), [.line(0), .line(1)])
+        XCTAssertNil(LyricSweep.moment(in: short, at: 11).interlude)
+        XCTAssertEqual(LyricSweep.moment(in: short, at: 11).centreSlot, .line(1))
+        // A gap only counts from an end the source gave: two stamps twenty
+        // seconds apart with no end are one long line, as LY-05 left them.
+        XCTAssertEqual(
+            LyricSweep.slots(for: [LyricsStore.Line(at: 1, text: "a"), LyricsStore.Line(at: 21, text: "b")]),
+            [.line(0), .line(1)]
+        )
+        XCTAssertEqual(LyricSweep.slots(for: []), [])
+    }
+
+    /// Depth is measured in rows, from the lit row — the sung line, or the
+    /// interlude while one plays — so the line after a solo waits one step
+    /// brighter than the far ones, and a line across an interlude from the
+    /// sung one is not drawn as its neighbour.
+    func testDepthIsMeasuredInSlotsFromTheLitRow() {
+        let lines = [
+            LyricsStore.Line(at: 12, text: "a", end: 30),
+            LyricsStore.Line(at: 45, text: "b"),
+        ]
+        let slots = LyricSweep.slots(for: lines)
+        let solo = LyricSweep.moment(in: lines, at: 37.5)
+        XCTAssertEqual(LyricSweep.litSlotIndex(solo, in: slots), 2)
+        XCTAssertEqual(LyricSweep.distance(ofSlot: 3, lit: 2), 1, "the line coming is the neighbour")
+        let sung = LyricSweep.moment(in: lines, at: 20)
+        XCTAssertEqual(LyricSweep.litSlotIndex(sung, in: slots), 1)
+        XCTAssertEqual(LyricSweep.distance(ofSlot: 3, lit: 1), 2, "across the interlude is two rows away")
+        // A gap too short for a slot lights nothing, and every row sits at
+        // the far floor, as LY-05 drew it.
+        let short = [LyricsStore.Line(at: 4, text: "a", end: 10), LyricsStore.Line(at: 13, text: "b")]
+        XCTAssertNil(LyricSweep.litSlotIndex(LyricSweep.moment(in: short, at: 11), in: LyricSweep.slots(for: short)))
+        XCTAssertEqual(LyricSweep.distance(ofSlot: 0, lit: nil), 2)
+    }
+
+    /// The card's window and its jump test count slots, not lines: singing
+    /// from a line into the solo after it and out into the next line moves
+    /// the window one row at a time and is never mistaken for a seek.
+    func testTheCardStepsThroughAnInterludeWithoutAJump() {
+        let lines = [
+            LyricsStore.Line(at: 2, text: "a", end: 8),
+            LyricsStore.Line(at: 9, text: "b", end: 12),
+            LyricsStore.Line(at: 30, text: "c"),
+            LyricsStore.Line(at: 34, text: "d"),
+        ]
+        let slots = LyricSweep.slots(for: lines)
+        XCTAssertEqual(slots, [.line(0), .line(1), .interlude(from: 12, to: 30, before: 2), .line(2), .line(3)])
+        let centres = [10.0, 20, 31].map {
+            LyricSweep.slotIndex(of: LyricSweep.moment(in: lines, at: $0).centreSlot, in: slots)
+        }
+        XCTAssertEqual(centres, [1, 2, 3])
+        XCTAssertFalse(LockScreenCard.isJump(from: centres[0], to: centres[1]))
+        XCTAssertFalse(LockScreenCard.isJump(from: centres[1], to: centres[2]))
+        XCTAssertEqual(
+            LockScreenCard.window(around: centres[1], count: slots.count, size: 3), [1, 2, 3],
+            "the solo sits in the card's middle row, between the line before and the line coming"
+        )
+    }
+
+    /// VoiceOver hears the interlude by name. The visual lab's dump had it as
+    /// a selected button with no label at all (H-011).
+    func testTheInterludeIsLabelled() {
+        let lines = [
+            LyricsStore.Line(at: 12, text: "a", end: 30),
+            LyricsStore.Line(at: 45, text: "b"),
+        ]
+        XCTAssertEqual(
+            LyricsStage.accessibilityLabel(for: .interlude(from: 30, to: 45, before: 1), in: lines),
+            localized("Instrumental")
+        )
+        XCTAssertEqual(LyricsStage.accessibilityLabel(for: .line(1), in: lines), "b")
+        XCTAssertEqual(InterludeMarker.accessibilityLabel, localized("Instrumental"))
     }
 
     func testWordKaraokeRequiresPreferenceWordTimelineAndMeasuredClock() {
