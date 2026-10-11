@@ -153,7 +153,7 @@ final class SettingsAccessibilityTests: XCTestCase {
     /// once. This holds both halves: a SwiftUI that stopped bracketing would
     /// leave the step uncommitted, and one that reported the end twice would
     /// rebuild the panel twice.
-    func testAVoiceOverStepCommitsTheWidth() async {
+    func testAVoiceOverStepCommitsTheWidth() async throws {
         var commits: [Double] = []
         let root = await AXProbe.tree(
             of: SliderHarness(value: 560, title: "Panel Width", range: 480...620,
@@ -163,6 +163,10 @@ final class SettingsAccessibilityTests: XCTestCase {
         guard let slider = root.all(role: "AXSlider").first else {
             return XCTFail("no slider\n\(root.dump)")
         }
+        try XCTSkipUnless(
+            slider.element.responds(to: NSSelectorFromString("accessibilityPerformIncrement")),
+            "this macOS does not answer a VoiceOver increment on the probe's slider element (the CI runner's 26.6 does not; 27 does)"
+        )
         XCTAssertTrue(Self.perform(slider.element, "accessibilityPerformIncrement"), root.dump)
         await AXProbe.wait(0.35)
         XCTAssertEqual(commits.count, 1, "the increment was not committed exactly once: \(commits)")

@@ -119,9 +119,15 @@ final class SettingsPaneTests: XCTestCase {
         // the count is a floor so a section that hides a row behind another
         // setting cannot make this flaky, and an empty list cannot pass.
         XCTAssertGreaterThanOrEqual(switches.count, 12, root.dump)
-        for title in ["Launch at Login", "Open on Hover", "Show Charging", "Clipboard History",
-                      PrivacyMode.Section.clipboard.settingsTitle, PrivacyMode.Section.translate.settingsTitle,
-                      "Hide from Screen Recording"] {
+        // "Show Charging" is drawn only on a Mac with a battery to report on
+        // (`AmbientWatch.hasBattery`), and a CI virtual machine has none: the
+        // row is not there to count, which is correct and not a missing switch.
+        let titles = ["Launch at Login", "Open on Hover"]
+            + (AmbientWatch.hasBattery ? ["Show Charging"] : [])
+            + ["Clipboard History",
+               PrivacyMode.Section.clipboard.settingsTitle, PrivacyMode.Section.translate.settingsTitle,
+               "Hide from Screen Recording"]
+        for title in titles {
             XCTAssertEqual(switches.filter { $0.label == localized(title) }.count, 1,
                            "exactly one switch named \(title)\n\(root.dump)")
         }
