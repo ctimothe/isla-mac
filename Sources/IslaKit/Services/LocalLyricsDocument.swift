@@ -43,8 +43,9 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
     /// word stamps by `[offset:]` with their line, keeps word text verbatim
     /// (so a line's text is its words joined by nothing), and reads an empty
     /// word marker as the end of the word before it instead of refusing the
-    /// file.
-    static let parserRevision = 4
+    /// file. Revision 5 lets a first word start up to a centisecond before its
+    /// rounded line stamp instead of refusing the file.
+    static let parserRevision = 5
 
     /// The longest minutes field a stamp may carry. Nothing sung runs for
     /// 999 minutes; the bound exists so `1e300` or `inf` can never reach
@@ -310,6 +311,16 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
         return ("0"..."9").contains(first) && trimmed.contains(":")
     }
 
+    /// How far before its line stamp the first word may start. LRCLIB's
+    /// word-timed files write the line in centiseconds, rounded, and the words
+    /// in milliseconds, so `[00:21.98]` sits over a first word at `<00:21.975>`
+    /// and the word is 5 ms "before its own line". That used to throw
+    /// `invalidTimestamp` and refuse the file, one of the very few in the
+    /// corpus that carries real word timing (lab L1, LRCLIB 36877652). One
+    /// centisecond is the whole of the rounding; a word a tenth early is still
+    /// a mistyped file. The word keeps its own start: it is the real timing.
+    private static let lineStampRounding: TimeInterval = 0.01
+
     private struct WordMarker {
         let start: String.Index
         let end: String.Index
@@ -328,7 +339,7 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
         var words: [LyricWord] = []
         // The latest stamp read, word or end, so an end marker is held to the
         // same order as a word start.
-        var latest = lineStart
+        var latest = lineStart - lineStampRounding
         while true {
             var next: WordMarker?
             var search = marker.end
@@ -345,7 +356,7 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
             // 'Hel<…>lo' read 'Hel lo' (G-018). The renderer measures laid-out
             // width, so a trailing space inside a word does not move the sweep.
             let word = String(content[marker.end..<(next?.start ?? content.endIndex)])
-            guard marker.at >= lineStart else { throw Error.invalidTimestamp(line: number) }
+            guard marker.at >= lineStart - lineStampRounding else { throw Error.invalidTimestamp(line: number) }
             if marker.at < latest { throw Error.invalidWordOrder(line: number) }
             latest = marker.at
             if word.isEmpty {

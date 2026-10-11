@@ -257,8 +257,8 @@ final class LocalLyricsDocumentTests: XCTestCase {
 
     func testTheParserRevisionMovesWhenTheGrammarDoes() {
         XCTAssertEqual(
-            LocalLyricsDocument.parserRevision, 4,
-            "4: word stamps take the offset, word text is verbatim, an empty word marker is an end"
+            LocalLyricsDocument.parserRevision, 5,
+            "5: a first word may start a centisecond before its line stamp"
         )
     }
 
@@ -332,5 +332,38 @@ final class LocalLyricsDocumentTests: XCTestCase {
         // marker with no word before it is still not a word.
         XCTAssertThrowsError(try LocalLyricsDocument.parse("[00:01.00]<00:01.00>one<00:00.50>"))
         XCTAssertThrowsError(try LocalLyricsDocument.parse("[00:01.00]<00:01.00><00:01.50>one"))
+    }
+
+    /// LRCLIB's word-timed files (36877652 in the lab corpus) write the line
+    /// stamp in centiseconds, rounded, and the words in milliseconds, so the
+    /// first word starts 5 ms before the line it belongs to: `[00:21.98]` over
+    /// `<00:21.975>`. That read as a word before its own line and refused the
+    /// file with `invalidTimestamp`, though it is the one kind of file that
+    /// carries real word timing. The fixture is invented; it has that shape,
+    /// three-digit fractions and two markers back to back.
+    func testAFirstWordAFewMillisecondsBeforeItsRoundedLineStampKeepsItsRealTiming() throws {
+        let document = try LocalLyricsDocument.parse(
+            "[00:21.98]<00:21.975>alpha <00:22.207>beta <00:22.423>gamma<00:23.071><00:23.247>delta<00:24.119>"
+        )
+        let line = document.lines[0]
+        XCTAssertEqual(line.at, 21.98, accuracy: 0.000_001)
+        XCTAssertEqual(line.words.map(\.text), ["alpha ", "beta ", "gamma", "delta"])
+        XCTAssertEqual(line.words.map(\.at), [21.975, 22.207, 22.423, 23.247])
+        XCTAssertEqual(try XCTUnwrap(line.words[2].end), 23.071, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(line.words[3].end), 24.119, accuracy: 0.000_001)
+        XCTAssertEqual(document.granularity, .word)
+    }
+
+    /// The allowance is one centisecond, the rounding of the line stamp, and
+    /// only for the first word: a word a tenth of a second before its line is
+    /// still a mistyped file, and a later word cannot step back past the one
+    /// before it.
+    func testAWordWellBeforeItsLineStampIsStillRefused() {
+        XCTAssertThrowsError(try LocalLyricsDocument.parse("[00:21.98]<00:21.880>alpha <00:22.100>beta")) { error in
+            XCTAssertEqual(error as? LocalLyricsDocument.Error, .invalidTimestamp(line: 1))
+        }
+        XCTAssertThrowsError(try LocalLyricsDocument.parse("[00:21.98]<00:21.975>alpha <00:21.972>beta")) { error in
+            XCTAssertEqual(error as? LocalLyricsDocument.Error, .invalidWordOrder(line: 1))
+        }
     }
 }
