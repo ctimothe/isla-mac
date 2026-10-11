@@ -81,10 +81,25 @@ struct ShelfPane: View {
                     .fill(isTargeted ? Theme.surface : .clear)
             )
             .overlay(
-                // Something arriving on the stack the tab is drawn as.
-                Image(systemName: "square.and.arrow.down.on.square")
-                    .islandFont(.display, weight: .light)
-                    .foregroundStyle(isTargeted ? .white : Theme.tertiary)
+                // The glyph alone used to be the whole empty state, and
+                // VoiceOver read it by its symbol's name, "Download
+                // Multiple" (F-036). The words say what the Shelf is for, where
+                // files come from and how many it keeps; the glyph is drawing.
+                VStack(spacing: 6) {
+                    // Something arriving on the stack the tab is drawn as.
+                    Image(systemName: "square.and.arrow.down.on.square")
+                        .islandFont(.display, weight: .light)
+                        .foregroundStyle(isTargeted ? .white : Theme.tertiary)
+                        .accessibilityHidden(true)
+                    Text(localized("Drop files here to keep them"))
+                        .islandFont(.body)
+                        .foregroundStyle(isTargeted ? .white : Theme.secondary)
+                    Text(localized("From Finder, Mail, Photos or a browser. Holds %d.", ShelfStore.limit))
+                        .islandFont(.caption, weight: .regular)
+                        .foregroundStyle(Theme.tertiary)
+                }
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(Theme.contentAnimation, value: isTargeted)
@@ -99,10 +114,16 @@ struct ShelfPane: View {
             }
             Spacer()
             if !shelf.selection.isEmpty {
-                Button("Deselect") { shelf.clearSelection() }
-                    .buttonStyle(PanelButtonStyle())
-                    .islandFont(.caption)
-                    .foregroundStyle(Theme.secondary)
+                // The word alone made a 44x13 target right beside the
+                // destructive Clear (F-014): a near miss there arms Clear.
+                Button { shelf.clearSelection() } label: {
+                    Text(localized("Deselect"))
+                        .frame(minWidth: Theme.minimumHitSize.width, minHeight: Theme.minimumHitSize.height)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PanelButtonStyle())
+                .islandFont(.caption)
+                .foregroundStyle(Theme.secondary)
             }
             ConfirmTextButton(
                 title: localized("Clear"),
@@ -230,7 +251,60 @@ private struct ShelfCard: View {
             Divider()
             Button("Remove from Shelf") { shelf.remove(item) }
         }
+        // One element per card, for VoiceOver and every other assistive
+        // client. Without it a card was not an element at all: its name and
+        // its age floated loose in the pane and interleaved across cards
+        // ("Just now" read beside the wrong file), the selection mark was an
+        // image of its own, and select, open and drag lived in the AppKit
+        // overlay, which has no accessibility, so nothing on the Shelf could
+        // be used (F-006). `.ignore` swallows that overlay, the check mark and
+        // the hover ✕ too; what they do is offered here instead. Making
+        // `DragView` accessible was the other way, and it still left two
+        // elements per card with the texts loose beside them.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.name)
+        .accessibilityValue(accessibilityValue)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        // VO-Space opens the file, as a double-click and Finder's Return do.
+        .accessibilityAction { shelf.open(item) }
+        // The context menu's verbs, in the Actions rotor. Written bottom-up:
+        // SwiftUI vends named actions outermost first, so the last declared
+        // is the first offered, and the rotor should read Select, Quick Look,
+        // AirDrop, Copy, Show in Finder, then the destructive Remove last, as
+        // the menu does. Select is the ⌘-click toggle, because a VoiceOver
+        // user picks cards one at a time and a plain click's "this one
+        // instead" would drop the rest.
+        .accessibilityAction(named: Text("Remove from Shelf")) { shelf.remove(item) }
+        .accessibilityAction(named: Text("Show in Finder")) { shelf.reveal(item) }
+        .accessibilityAction(named: Text("Copy")) { shelf.copy(item) }
+        .accessibilityAction(named: Text("AirDrop")) { ShelfSharing.airDrop(shelf.dragURLs(startingAt: item)) }
+        .accessibilityAction(named: Text("Quick Look")) { ShelfSharing.quickLook(shelf.dragURLs(startingAt: item)) }
+        // Translated before it reaches `Text`: a ternary of two literals is a
+        // `String`, which `Text` shows verbatim.
+        .accessibilityAction(named: Text(isSelected ? localized("Deselect") : localized("Select"))) {
+            shelf.select(item, modifiers: .command)
+        }
         .animation(Theme.contentAnimation, value: isHovered)
         .animation(Theme.contentAnimation, value: isSelected)
+    }
+
+    /// What the card's second line says, then whether it is picked.
+    ///
+    /// The age is worked out here rather than read from the drawn line, which
+    /// lives inside its own `TimelineView`: an ignored subtree is not read, so
+    /// the value is as fresh as the card's last pass, and the shelf redraws
+    /// every card on any change to it. "Selected" goes into the value as well
+    /// as the trait, so it is heard wherever the card is read and not only by
+    /// a client that looks for the trait; it used to be a check-mark image of
+    /// its own, read as a stray "Selected" beside whichever text came next.
+    private var accessibilityValue: String {
+        var parts: [String] = []
+        if item.isOffline {
+            parts.append(localized("Disk not connected"))
+        } else if let date = item.date {
+            parts.append(ShelfItem.age(of: date))
+        }
+        if isSelected { parts.append(localized("Selected")) }
+        return parts.joined(separator: ", ")
     }
 }

@@ -302,3 +302,7 @@
 "Can't read the lyrics file for this song." = "Не удаётся прочитать файл с текстом этой песни.";
 "No lyrics for live audio." = "Для прямого эфира текста нет.";
 "This track has no title to look up." = "У этого трека нет названия для поиска.";
+"Drop files here to keep them" = "Перетащите сюда файлы, чтобы держать их под рукой";
+"From Finder, Mail, Photos or a browser. Holds %d." = "Из Finder, Почты, Фото или браузера. Помещается %d.";
+"Select" = "Выбрать";
+"Selected" = "Выбрано";
