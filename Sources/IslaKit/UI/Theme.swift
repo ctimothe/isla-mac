@@ -634,6 +634,12 @@ enum Theme {
     /// The same press under Reduce Motion, which asks for no change of size:
     /// the card dims to this opacity instead.
     static let pressDimOpacity: Double = 0.85
+
+    /// How far a list fades into an edge that cuts it (`scrollEdgeFade`,
+    /// H-017). Ten points: enough to read as "continues" at a 26 pt row, and
+    /// short enough that a covered clipboard row under the drifting dots
+    /// still reads as covered rather than as a third state.
+    static let scrollFadeLength: CGFloat = 10
 }
 
 /// The pressed state `.plain` does not give.

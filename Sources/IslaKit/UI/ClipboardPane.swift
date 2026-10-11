@@ -65,6 +65,11 @@ struct ClipboardPane: View {
                     }
                     .padding(.vertical, 4)
                 }
+                // Six rows in a five-row window cut the fifth square against
+                // Clear, which read as a cropped list rather than one that
+                // scrolls (H-017). The cut edge fades instead, and only
+                // while something is beyond it.
+                .scrollEdgeFade()
                 footer
             }
         }

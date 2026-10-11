@@ -41,6 +41,10 @@ struct ShelfPane: View {
                     .padding(.horizontal, 2)
                     .frame(maxHeight: .infinity)
                 }
+                // A full strip ended on a card cut through the middle with no
+                // cue that more lay past it (H-017). The end with cards
+                // beyond it fades; a strip that fits fades nowhere.
+                .scrollEdgeFade(.horizontal)
                 .coordinateSpace(name: "shelf")
                 .onContinuousHover(coordinateSpace: .named("shelf")) { phase in
                     switch phase {
