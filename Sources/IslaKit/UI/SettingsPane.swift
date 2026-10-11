@@ -379,6 +379,15 @@ struct SettingsPane: View {
                             hotKeys.bindings[action]?.displayString ?? ""
                         ))
                     }
+                    // A combination another action owned moves to this one,
+                    // as in System Settings, and the loser says so: the
+                    // restore row below puts everything back (J-023).
+                    if let taken = hotKeys.displaced {
+                        noteRow(localized(
+                            "%@ now belongs to “%@”. “%@” has no shortcut.",
+                            taken.binding.displayString, taken.to.title, taken.from.title
+                        ))
+                    }
                     if HotKeyAction.allCases.contains(where: { hotKeys.bindings[$0] != $0.defaultBinding }) {
                         actionRow(symbol: SettingsIcon.restoreShortcuts, title: localized("Restore Default Shortcuts")) {
                             hotKeys.restoreDefaults()

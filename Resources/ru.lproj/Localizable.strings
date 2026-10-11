@@ -387,3 +387,4 @@
 "Lyric timing correction" = "Смещение текста песни";
 "GitHub is limiting checks right now. Try again in an hour." = "GitHub сейчас ограничивает проверки. Попробуйте через час.";
 "GitHub did not answer properly. Try again later." = "GitHub ответил с ошибкой. Попробуйте позже.";
+"%@ now belongs to “%@”. “%@” has no shortcut." = "%@ теперь у действия «%@». У «%@» больше нет сочетания клавиш.";
