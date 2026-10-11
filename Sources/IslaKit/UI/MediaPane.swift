@@ -63,7 +63,12 @@ struct MediaPane: View {
     /// is evidently not coming. Some sources never publish a cover, and a
     /// shimmer that promises one forever reads as stuck, not loading.
     @State private var artworkWaitExpired = false
-    @State private var editingCandidate: LocalLyricsCandidate?
+    /// What Edit was pressed on and for which song, captured at the press.
+    /// The sheet used to read `currentLocalTrackIdentity()` in its content
+    /// closure, which runs again on every pass of this body, so a track
+    /// change while the editor was up re-aimed Save Copy at the new song
+    /// (J-009).
+    @State private var editingSession: LocalLyricsEditor.EditingSession?
     /// Hover on the caption, which surfaces its chevron.
     @State private var captionHover = false
 
@@ -99,7 +104,9 @@ struct MediaPane: View {
                         removeLocalBinding: removeLocalBinding,
                         editLocalLyrics: { candidate in
                             guard localLibrary != nil else { return }
-                            editingCandidate = candidate
+                            editingSession = LocalLyricsEditor.EditingSession(
+                                candidate: candidate, identity: currentLocalTrackIdentity()
+                            )
                         }
                     ) {
                         showingLyrics.wrappedValue = false
@@ -121,15 +128,13 @@ struct MediaPane: View {
                     DebugTrail.note("MediaPane track=\(track.title) showingLyrics=\(showingLyrics.wrappedValue)")
                 }
             }
-            .sheet(item: $editingCandidate) { candidate in
+            .sheet(item: $editingSession) { session in
                 if let localLibrary {
                     LocalLyricsEditorView(
-                        document: candidate.document,
+                        session: session,
                         editor: LocalLyricsEditor(library: localLibrary),
-                        editedFrom: candidate.id,
-                        binding: currentLocalTrackIdentity(),
-                        onSaved: { _ in editingCandidate = nil },
-                        onDismiss: { editingCandidate = nil }
+                        onSaved: { _ in editingSession = nil },
+                        onDismiss: { editingSession = nil }
                     )
                 }
             }

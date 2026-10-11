@@ -339,3 +339,6 @@
 "%+.2f seconds" = "%+.2f seconds";
 "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause.";
 "Instrumental" = "Instrumental";
+"Edit Lyrics for %@" = "Edit Lyrics for %@";
+"Insert Line After" = "Insert Line After";
+"Line %d has a time Isla can't use." = "Line %d has a time Isla can't use.";
