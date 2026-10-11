@@ -218,8 +218,10 @@ struct LockScreenCard: View {
                     .aspectRatio(contentMode: .fill)
                     .frame(width: dimensions.width, height: dimensions.height)
                     // Oversized before the blur, so the blur has no soft,
-                    // darker rim to show at the card's edge.
-                    .scaleEffect(1.5)
+                    // darker rim to show at the card's edge. The zoom is
+                    // `LockCardLegibility`'s, because its measurement of the
+                    // cover crops to exactly what this leaves showing.
+                    .scaleEffect(LockCardLegibility.coverZoom)
                     .blur(radius: 44, opaque: true)
                     .saturation(1.3)
                 Color.black.opacity(LockCardLegibility.washOpacity(

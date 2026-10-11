@@ -708,8 +708,9 @@ downloads in total, and no outside issues.
   the Tinted card sat under a fixed 0.34 black wash, which over a near-white
   cover left a 0.66 grey: the artist line measured 1.76:1 and the elapsed
   time and lyric status 1.59:1 (F-003). The wash is now solved per cover by
-  `LockCardLegibility`: the 90th-percentile brightness of the artwork drawn
-  at 8×8, cached once per image, and the least black at or above the old
+  `LockCardLegibility`: the 90th-percentile brightness of the part of the
+  artwork the card shows (zoomed 1.5× and cropped to the card), drawn at
+  8×8, cached once per image, and the least black at or above the old
   value (0.34, Transparent 0.2, Increase Contrast 0.56) at which
   `cardTertiary` clears 4.5:1. A cover whose bright end is at or under 0.3
   keeps exactly the light it had; a white one is washed to about 0.70. The
@@ -717,7 +718,10 @@ downloads in total, and no outside issues.
   0.62 → 0.75, `cardTertiary` 0.50 → 0.62 (Increase Contrast unchanged at
   0.85 / 0.75). Over a white cover the artist line is now 5.7:1.
   `ContrastRampTests` holds AA at the brightest cover and at every brightness
-  between; `LockCardCoverLightTests` holds the reading.
+  between; `LockCardCoverLightTests` holds the reading. In the visual lab's
+  Tinted render (a mid cover with a pale disc) the dimmest label measures
+  4.8:1 at the disc's brightest point, where it was 1.9:1. The cost: a cover
+  with one pale feature dims the whole card, its dark parts included.
 - **Divergence, deliberate:** Transparent guarantees 4.5:1 only over the
   cover's share of the card. The 38% of wallpaper that also shows through is
   behind the login shield, where no window is given a backdrop to measure,

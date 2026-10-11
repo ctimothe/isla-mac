@@ -101,9 +101,23 @@ enum LockCardLegibility {
         return cache
     }()
 
+    /// How far the card zooms its cover before blurring it, so the blur has no
+    /// soft, darker rim to show at the card's edge. Here rather than in the
+    /// view because the measurement below has to crop to exactly what the
+    /// zoom leaves showing.
+    static let coverZoom: CGFloat = 1.5
+
     /// How bright the cover is where it is brightest, as an sRGB grey in 0...1.
     ///
-    /// The cover is drawn down to 8×8 — the 44pt blur leaves no finer detail
+    /// Only the part of the cover the card shows is measured: the card fills
+    /// its width with the cover, crops it to the card's shape and then zooms
+    /// it by `coverZoom`, so a square cover shows its central two thirds
+    /// across and under half its height. The first version measured the whole
+    /// cover, and the visual lab's fixture caught it — a pale disc that is a
+    /// tenth of the cover fills a third of the card, and the times beside it
+    /// came out at 3.9:1 against the 4.5 the model promised.
+    ///
+    /// That region is drawn down to 8×8 — the 44pt blur leaves no finer detail
     /// behind the type than that — and the 90th percentile of relative
     /// luminance is taken rather than the mean. A cover half white and half
     /// black averages to a mid grey, and then the half of the card the white
@@ -118,10 +132,32 @@ enum LockCardLegibility {
         return luma
     }
 
+    /// The part of a `width`×`height` cover that any size of card shows, in
+    /// the image's pixels, centred. Each card size shows a different crop; the
+    /// union of them is measured, so neither size has a bright patch the
+    /// reading missed.
+    static func visibleRegion(width: CGFloat, height: CGFloat) -> CGRect {
+        var visible = CGSize.zero
+        for size in NotchViewModel.LockCardSize.allCases {
+            let card = LockScreenCard.size(for: size)
+            let aspect = card.width / card.height
+            // Aspect-fill: the cover's width or height spans the card, the
+            // other overflows and is cropped; then the zoom crops again.
+            visible.width = max(visible.width, min(width, height * aspect) / coverZoom)
+            visible.height = max(visible.height, min(height, width / aspect) / coverZoom)
+        }
+        return CGRect(
+            x: (width - visible.width) / 2, y: (height - visible.height) / 2,
+            width: visible.width, height: visible.height
+        ).integral.intersection(CGRect(x: 0, y: 0, width: width, height: height))
+    }
+
     private static func measure(_ image: NSImage) -> Double {
         let side = 8
         var proposed = CGRect(origin: .zero, size: image.size)
-        guard let cgImage = image.cgImage(forProposedRect: &proposed, context: nil, hints: nil),
+        guard let whole = image.cgImage(forProposedRect: &proposed, context: nil, hints: nil),
+              let cgImage = whole.cropping(to: visibleRegion(
+                width: CGFloat(whole.width), height: CGFloat(whole.height))),
               let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
                 data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
