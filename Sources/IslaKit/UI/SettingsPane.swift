@@ -738,13 +738,22 @@ struct SettingsPane: View {
                         noteRow(localized("Checking…"))
                     case .upToDate(let version):
                         noteRow(localized("Isla %@ is the latest version.", version))
-                    case .available(let version, let page):
-                        actionRow(symbol: SettingsIcon.downloadUpdate, title: localized("Download Isla %@", version)) {
-                            NSWorkspace.shared.open(page)
+                    case .available:
+                        EmptyView()
+                    case .failed(let reason):
+                        switch reason {
+                        case .offline: noteRow(localized("Could not reach GitHub. Try again later."))
+                        case .rateLimited: noteRow(localized("GitHub is limiting checks right now. Try again in an hour."))
+                        case .server: noteRow(localized("GitHub did not answer properly. Try again later."))
+                        }
+                    }
+                    // Outside the switch on purpose: a known update stays on
+                    // offer through a later failed or in-flight check (J-019).
+                    if let known = updates.lastAvailable {
+                        actionRow(symbol: SettingsIcon.downloadUpdate, title: localized("Download Isla %@", known.version)) {
+                            NSWorkspace.shared.open(known.page)
                         }
                         noteRow(localized("Quit Isla, then replace it in Applications with the new version."))
-                    case .failed:
-                        noteRow(localized("Could not reach GitHub. Try again later."))
                     }
                     toggleRow(
                         symbol: SettingsIcon.online,

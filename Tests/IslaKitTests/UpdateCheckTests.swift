@@ -43,8 +43,8 @@ final class UpdateCheckTests: XCTestCase {
         )
         XCTAssertEqual(UpdateCheck.state(forRelease: newer, localVersion: "0.3.0"), .upToDate(version: "0.3.0"))
         let draft = Data(#"{"tag_name":"v9.0.0","html_url":"https://example.com","draft":true}"#.utf8)
-        XCTAssertEqual(UpdateCheck.state(forRelease: draft, localVersion: "0.2.0"), .failed)
-        XCTAssertEqual(UpdateCheck.state(forRelease: Data("nope".utf8), localVersion: "0.2.0"), .failed)
+        XCTAssertEqual(UpdateCheck.state(forRelease: draft, localVersion: "0.2.0"), .failed(.server))
+        XCTAssertEqual(UpdateCheck.state(forRelease: Data("nope".utf8), localVersion: "0.2.0"), .failed(.server))
     }
 
     /// The request goes to GitHub's releases API and names the version asking,
@@ -76,7 +76,83 @@ final class UpdateCheckTests: XCTestCase {
         for _ in 0..<200 where check.state == .checking {
             try await Task.sleep(for: .milliseconds(5))
         }
-        XCTAssertEqual(check.state, .failed)
+        XCTAssertEqual(check.state, .failed(.offline))
+    }
+
+    private func settle(_ check: UpdateCheck) async throws {
+        for _ in 0..<200 where check.state == .checking {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    /// A Tuesday offline failure used to erase Monday's "Update available":
+    /// the rail dot and the Download row vanished with it.
+    func testAKnownUpdateSurvivesAFailedRecheck() async throws {
+        let calls = Box<Int>()
+        calls.value = 0
+        let check = UpdateCheck(
+            fetch: { request in
+                calls.value! += 1
+                if calls.value! > 1 { throw URLError(.notConnectedToInternet) }
+                let body = Data(#"{"tag_name":"v9.9.9","html_url":"https://github.com/ctimothe/isla-mac/releases/tag/v9.9.9"}"#.utf8)
+                return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            },
+            currentVersion: { "0.2.0" }
+        )
+        check.check()
+        try await settle(check)
+        XCTAssertTrue(check.hasUpdate)
+        check.check()
+        XCTAssertEqual(check.state, .checking)
+        XCTAssertTrue(check.hasUpdate, "an in-flight recheck keeps the known update")
+        try await settle(check)
+        XCTAssertEqual(check.state, .failed(.offline))
+        XCTAssertTrue(check.hasUpdate, "a failed recheck keeps the known update")
+        XCTAssertEqual(check.lastAvailable?.version, "9.9.9")
+    }
+
+    /// Only a newer answer that says up to date (the user installed it) clears it.
+    func testAnUpToDateAnswerClearsAKnownUpdate() async throws {
+        let version = Box<String>()
+        version.value = "9.9.9"
+        let check = UpdateCheck(
+            fetch: { request in
+                let body = Data(#"{"tag_name":"v\#(version.value!)","html_url":"https://github.com/ctimothe/isla-mac/releases/tag/v1"}"#.utf8)
+                return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            },
+            currentVersion: { "0.2.0" }
+        )
+        check.check()
+        try await settle(check)
+        XCTAssertTrue(check.hasUpdate)
+        version.value = "0.2.0"
+        check.check()
+        try await settle(check)
+        XCTAssertFalse(check.hasUpdate)
+        XCTAssertNil(check.lastAvailable)
+    }
+
+    /// A rate limit used to read as "Could not reach GitHub".
+    func testARateLimitIsNamed() async throws {
+        func outcome(status: Int, headers: [String: String]) async throws -> UpdateCheck.State {
+            let check = UpdateCheck(
+                fetch: { request in
+                    (Data(), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!)
+                },
+                currentVersion: { "0.2.0" }
+            )
+            check.check()
+            try await settle(check)
+            return check.state
+        }
+        let limited = try await outcome(status: 403, headers: ["x-ratelimit-remaining": "0"])
+        XCTAssertEqual(limited, .failed(.rateLimited))
+        let tooMany = try await outcome(status: 429, headers: [:])
+        XCTAssertEqual(tooMany, .failed(.rateLimited))
+        let server = try await outcome(status: 500, headers: [:])
+        XCTAssertEqual(server, .failed(.server))
+        let forbidden = try await outcome(status: 403, headers: [:])
+        XCTAssertEqual(forbidden, .failed(.server), "a 403 without the exhausted-quota header is not a rate limit")
     }
 
     /// It reaches the network, so it is off until the user turns it on.

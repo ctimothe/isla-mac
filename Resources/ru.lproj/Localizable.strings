@@ -385,3 +385,5 @@
 "Launch at Login failed: %@" = "Не удалось включить автозапуск: %@";
 "Reset Lyric Timing" = "Сбросить смещение текста";
 "Lyric timing correction" = "Смещение текста песни";
+"GitHub is limiting checks right now. Try again in an hour." = "GitHub сейчас ограничивает проверки. Попробуйте через час.";
+"GitHub did not answer properly. Try again later." = "GitHub ответил с ошибкой. Попробуйте позже.";

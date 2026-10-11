@@ -23,10 +23,27 @@ final class UpdateCheck: ObservableObject {
         case checking
         case upToDate(version: String)
         case available(version: String, page: URL)
-        case failed
+        case failed(Reason)
+    }
+
+    /// Why a check failed, so Settings can say something true. A rate limit
+    /// used to read "Could not reach GitHub", which sent people to debug a
+    /// connection that was fine.
+    enum Reason: Equatable {
+        case offline
+        case rateLimited
+        case server
     }
 
     @Published private(set) var state: State = .idle
+
+    /// The newest release a check has found that is later than this one.
+    /// `state` is only the latest outcome, and `check()` sets `.checking` first
+    /// and then whatever came back, so a Tuesday offline failure used to erase
+    /// Monday's "Update available": the rail dot and the Download row went with
+    /// it. This is kept across `.checking` and `.failed` and cleared only by an
+    /// answer that says the running version is current.
+    @Published private(set) var lastAvailable: (version: String, page: URL)?
 
     static let automaticKey = "updates.checkAutomatically"
 
@@ -68,13 +85,39 @@ final class UpdateCheck: ObservableObject {
             let outcome: State
             do {
                 let (data, response) = try await fetch(request)
-                guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-                outcome = Self.state(forRelease: data, localVersion: local)
+                if let reason = Self.failure(for: response) {
+                    Log.updates.error("update check failed: \(String(describing: reason), privacy: .public)")
+                    outcome = .failed(reason)
+                } else {
+                    outcome = Self.state(forRelease: data, localVersion: local)
+                }
             } catch {
                 Log.updates.error("update check failed: \(error.localizedDescription, privacy: .public)")
-                outcome = .failed
+                outcome = .failed(.offline)
             }
-            self?.state = outcome
+            self?.apply(outcome)
+        }
+    }
+
+    private func apply(_ outcome: State) {
+        switch outcome {
+        case .available(let version, let page): lastAvailable = (version, page)
+        case .upToDate: lastAvailable = nil
+        case .idle, .checking, .failed: break
+        }
+        state = outcome
+    }
+
+    /// What a non-200 answer means. GitHub answers an exhausted unauthenticated
+    /// quota with 403 and `x-ratelimit-remaining: 0`, or with 429; any other
+    /// failing status is the server's, not the network's.
+    nonisolated static func failure(for response: URLResponse) -> Reason? {
+        guard let http = response as? HTTPURLResponse else { return .server }
+        switch http.statusCode {
+        case 200: return nil
+        case 429: return .rateLimited
+        case 403 where http.value(forHTTPHeaderField: "x-ratelimit-remaining") == "0": return .rateLimited
+        default: return .server
         }
     }
 
@@ -88,7 +131,7 @@ final class UpdateCheck: ObservableObject {
         }
         guard let release = try? JSONDecoder().decode(Release.self, from: data),
               release.draft != true, release.prerelease != true
-        else { return .failed }
+        else { return .failed(.server) }
         let remote = release.tag_name.hasPrefix("v") ? String(release.tag_name.dropFirst()) : release.tag_name
         return isNewer(remote, than: localVersion)
             ? .available(version: remote, page: release.html_url)
@@ -150,8 +193,5 @@ final class UpdateCheck: ObservableObject {
     }
 
     /// Whether the Settings tab should wear a mark: an update was found.
-    var hasUpdate: Bool {
-        if case .available = state { return true }
-        return false
-    }
+    var hasUpdate: Bool { lastAvailable != nil }
 }
