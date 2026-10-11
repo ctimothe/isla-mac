@@ -12,10 +12,11 @@ import XCTest
 /// as loose buttons rather than one choice of several.
 @MainActor
 final class SettingsAccessibilityTests: XCTestCase {
-    /// The nine section titles, in the order the pane draws them.
+    /// The nine section titles, in the order the pane draws them. Privacy
+    /// second since SET-03 (H-003): see `SettingsWayfindingTests`.
     private static let sectionTitles = [
-        "General", "Keyboard Shortcuts", "Screenshots", "Music", "Lock Screen",
-        "Translate", "Spotify", "Privacy", "Application",
+        "General", "Privacy", "Keyboard Shortcuts", "Music", "Lock Screen",
+        "Translate", "Spotify", "Screenshots", "Application",
     ]
 
     private func probePane(height: CGFloat = 1400) async -> (AXNode, ProbeStores) {
