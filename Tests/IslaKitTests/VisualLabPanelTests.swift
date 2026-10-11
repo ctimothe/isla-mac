@@ -315,13 +315,30 @@ final class VisualLabPanelTests: VisualLabCase {
             Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { self.stock($0.shelf, session: session, urls: few) }),
                        variant, height: size.height)
         }
-        try await shoot.shoot("two-selected", variants: [.base, .contrast, .russian], size: size, settle: 0.8, notes: note) { variant in
+        // F-037: with cards picked, the footer is the action bar. Russian at
+        // 480 pt is the narrowest it is ever drawn, and the reason the verbs
+        // are glyphs with their words in help rather than words.
+        let russianNarrow = LabVariant(name: "ru-w480", width: 480, language: "ru")
+        try await shoot.shoot("two-selected", variants: [.base, .contrast, .russian, russianNarrow], size: size, settle: 0.8,
+                              notes: note + " Two cards picked: the footer is the action bar.") { variant in
             Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { stores in
                 self.stock(stores.shelf, session: session, urls: few)
             }, configure: { vm in
                 vm.shelf.select(vm.shelf.items[0], modifiers: [])
                 vm.shelf.select(vm.shelf.items[2], modifiers: .command)
             }), variant, height: size.height)
+        }
+        for (variant, labels) in [
+            ("dark", ["Quick Look", "AirDrop", "Copy", "Show in Finder", "Remove 2", "Deselect"]),
+            ("ru-w480", ["Быстрый просмотр", "AirDrop", "Копировать", "Показать в Finder", "Убрать 2", "Снять выбор"]),
+        ] {
+            let url = session.root.appendingPathComponent("a11y/panel-shelf/two-selected__\(variant).txt")
+            let tree = try String(contentsOf: url, encoding: .utf8)
+            let buttons = tree.split(separator: "\n").filter { $0.contains("[AXButton") }
+            for label in labels {
+                XCTAssertTrue(buttons.contains { $0.contains("label=\"\(label)\"") },
+                              "two-selected \(variant) has no \(label) button\n\(tree)")
+            }
         }
         try await shoot.shoot("at-the-60-cap", variants: [.base, .w480, .w620], size: size, settle: 1.5,
                               notes: note + " Sixty cards, the shelf's limit; the row scrolls sideways.") { variant in

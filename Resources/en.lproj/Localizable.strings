@@ -358,3 +358,5 @@
 "Earlier" = "Earlier";
 "Later" = "Later";
 "Copy Translation" = "Copy Translation";
+"%@ · %@ · in %@" = "%@ · %@ · in %@";
+"%@ · in %@" = "%@ · in %@";

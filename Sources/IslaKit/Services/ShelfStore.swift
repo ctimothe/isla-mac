@@ -49,6 +49,117 @@ struct ShelfItem: Identifiable, Equatable {
         formatter.dateTimeStyle = .named
         return formatter
     }()
+
+    // MARK: The name a card draws
+
+    /// A card's width and the inset its text keeps from either edge. Kept
+    /// here, beside the name that has to fit between them, so the column the
+    /// name is fitted to and the card that draws it cannot drift apart.
+    static let cardWidth: CGFloat = 86
+    static let cardInset: CGFloat = 6
+    /// The column the name line has: 74 pt.
+    static let cardNameWidth: CGFloat = cardWidth - 2 * cardInset
+
+    /// The name cut to `budget` characters, keeping what tells it apart.
+    ///
+    /// SwiftUI's middle truncation split an 86 pt card's name in half, which
+    /// kept about five characters each side: "Screenshot 2026-10-11 at
+    /// 15.04.44.png" read "Scree….44.png", and so did every other capture on
+    /// the shelf (H-025). Names in a shelf's families — captures, recordings,
+    /// "Meeting notes", "Invoice 0042" — share their start and differ at their
+    /// last word, so the last word and the extension are kept whole and the
+    /// start gets whatever room is left, none if need be: "…15.04.44.png".
+    /// The thumbnail and the help tag say the rest. A name with no last word
+    /// short enough to keep is cut with its tail weighted two to one, since a
+    /// camera's IMG_… and a download's hash also differ at the end.
+    static func compactName(_ name: String, budget: Int) -> String {
+        guard name.count > budget else { return name }
+        guard budget > 1 else { return String(name.prefix(budget)) }
+        let ellipsis = "…"
+        var stem = name
+        var ext = ""
+        let pathExtension = (name as NSString).pathExtension
+        // An extension the budget can carry with room to spare, and a real
+        // one: "Version 1.5 final" has a dot, not an extension.
+        if !pathExtension.isEmpty, !pathExtension.contains(where: \.isWhitespace),
+           pathExtension.count + 1 <= budget - 3 {
+            ext = "." + pathExtension
+            stem = String(name.dropLast(ext.count))
+        }
+        func head(_ count: Int) -> String {
+            String(stem.prefix(max(0, count))).replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+        }
+        if let space = stem.lastIndex(where: \.isWhitespace) {
+            let tail = String(stem[stem.index(after: space)...]) + ext
+            if !tail.isEmpty, tail.count + 1 <= budget {
+                return head(budget - tail.count - 1) + ellipsis + tail
+            }
+        }
+        let room = budget - ext.count - 1
+        let kept = room / 3
+        return head(kept) + ellipsis + String(stem.suffix(room - kept)) + ext
+    }
+
+    /// The longest `compactName` that `measure` says fits in `width`.
+    static func compactName(_ name: String, fitting width: CGFloat, measure: (String) -> CGFloat) -> String {
+        guard measure(name) > width else { return name }
+        var budget = name.count - 1
+        var candidate = compactName(name, budget: budget)
+        while budget > 2, measure(candidate) > width {
+            budget -= 1
+            candidate = compactName(name, budget: budget)
+        }
+        return candidate
+    }
+
+    /// The card's name line as it is drawn: the caption role, regular, with
+    /// the role's tracking. A count of characters is no measure of a 10 pt
+    /// line — "Scr…15.04.44.png" is 16 of them and 86 pt, where "Invoice
+    /// 0042.pdf" is 16 and 82 pt — and a name cut to a guess was cut again by
+    /// SwiftUI, in the middle, which is the bug this exists to fix.
+    static func measureCardName(_ text: String) -> CGFloat {
+        let size = Theme.TypeRole.caption.size
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: size, weight: .regular),
+            .kern: Theme.tracking(forSize: size),
+        ]
+        return ceil(NSAttributedString(string: text, attributes: attributes).size().width)
+    }
+
+    // MARK: The card menu's header
+
+    /// The disabled first line of the card's menu: what the file is, how big,
+    /// and where — "PNG image · 2.4 MB · in Desktop". Two files of the same
+    /// name, a copy in Downloads and the original on the Desktop, were the
+    /// same card until a person acted on one (M-23).
+    ///
+    /// An offline card has nothing to read, so it names the disk it lives on,
+    /// which is what brings it back. The kind and the folder are in the
+    /// system's words, as Finder shows them; the size is in the app's language.
+    ///
+    /// Asked by the menu's header view, which SwiftUI builds when the menu
+    /// is, not on every pass of the card.
+    func menuHeader(volumes: String = "/Volumes") -> String {
+        let folder = url.deletingLastPathComponent()
+        if isOffline {
+            if let root = ShelfStore.volumeRoot(of: url, volumes: volumes) {
+                return (root as NSString).lastPathComponent
+            }
+            return folder.lastPathComponent
+        }
+        let values = try? url.resourceValues(forKeys: [.localizedTypeDescriptionKey, .fileSizeKey, .isDirectoryKey])
+        let kind = values?.localizedTypeDescription
+            ?? UTType(filenameExtension: url.pathExtension)?.localizedDescription
+            ?? url.pathExtension.uppercased()
+        let place = FileManager.default.displayName(atPath: folder.path)
+        // A folder on the shelf has no size worth stating: `fileSize` is the
+        // directory entry's, not its contents'.
+        guard values?.isDirectory != true, let bytes = values?.fileSize else {
+            return localized("%@ · in %@", kind, place)
+        }
+        let size = Int64(bytes).formatted(.byteCount(style: .file).locale(Locale(identifier: appLanguage)))
+        return localized("%@ · %@ · in %@", kind, size, place)
+    }
 }
 
 /// Drop zone contents. Files are referenced, never copied — the shelf is a
@@ -719,7 +830,13 @@ final class ShelfStore: ObservableObject {
     /// hand over, and the receiving app would be given a path to nothing.
     func dragURLs(startingAt item: ShelfItem) -> [URL] {
         guard selection.contains(item.id) else { return item.isOffline ? [] : [item.url] }
-        return items.filter { selection.contains($0.id) && !$0.isOffline }.map(\.url)
+        return selectedCards.map(\.url)
+    }
+
+    /// The picked cards there is a file behind, in shelf order: what the
+    /// footer's action bar acts on, as a drag of the selection would.
+    var selectedCards: [ShelfItem] {
+        items.filter { selection.contains($0.id) && !$0.isOffline }
     }
 
     /// The cards a drag started on `item` lifts — the same ones as
@@ -729,7 +846,7 @@ final class ShelfStore: ObservableObject {
     /// card's picture where the pointer was.
     func dragCards(startingAt item: ShelfItem) -> [ShelfItem] {
         guard selection.contains(item.id) else { return item.isOffline ? [] : [item] }
-        let picked = items.filter { selection.contains($0.id) && !$0.isOffline }
+        let picked = selectedCards
         return picked.filter { $0.id == item.id } + picked.filter { $0.id != item.id }
     }
 
@@ -851,7 +968,14 @@ final class ShelfStore: ObservableObject {
     }
 
     func reveal(_ item: ShelfItem) {
-        NSWorkspace.shared.activateFileViewerSelecting([item.url])
+        reveal([item])
+    }
+
+    /// Every card at once, as Finder's own Show in Finder does for a
+    /// selection: one window per folder, the files picked in it.
+    func reveal(_ cards: [ShelfItem]) {
+        guard !cards.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(cards.map(\.url))
     }
 
     /// Puts the card back on the pasteboard. Images go as image data as well as
