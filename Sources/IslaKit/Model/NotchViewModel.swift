@@ -1109,6 +1109,25 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    /// ⇧⌘C, asked by the panel before the source field gets the key (H-018).
+    /// Returns false when there is no translation on screen — another tab, or
+    /// no answer yet — and the key falls back to an ordinary copy.
+    ///
+    /// An answer to text since edited claims the key and copies nothing: the
+    /// Copy button is disabled in that window (K-004), and the key does what
+    /// the disabled button does rather than quietly copying the source in the
+    /// translation's place.
+    ///
+    /// Announced here rather than by the button, which only speaks for its
+    /// own presses; the button still ticks, through `outputCopies`.
+    func copyTranslationIfShowing() -> Bool {
+        guard tab == .translate, !translator.output.isEmpty else { return false }
+        if translator.copyOutput() {
+            Announcer.shared.announce(localized("Copied"))
+        }
+        return true
+    }
+
     /// A screenshot that arrived on its own — copied elsewhere, or synced
     /// from a phone by Continuity — rather than one the user handed to the
     /// panel directly. It is already on the shelf by the time this is called;
