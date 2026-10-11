@@ -385,3 +385,6 @@
 "Launch at Login failed: %@" = "Не удалось включить автозапуск: %@";
 "Reset Lyric Timing" = "Сбросить смещение текста";
 "Lyric timing correction" = "Смещение текста песни";
+"Isla could not open your browser for Spotify sign-in." = "Isla не смогла открыть браузер для входа в Spotify.";
+"The account was not imported. Try again, or connect it anew." = "Учётная запись не перенесена. Повторите попытку или подключите её заново.";
+"Spotify signed you in, but Isla could not save the account on this Mac." = "Вход в Spotify выполнен, но Isla не смогла сохранить учётную запись на этом Mac.";

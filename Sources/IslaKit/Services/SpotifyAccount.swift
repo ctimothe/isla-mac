@@ -147,6 +147,34 @@ final class SpotifyAccount: ObservableObject {
     /// is pending, after a success, and before anything was tried.
     @Published private(set) var signInOutcome: SignInOutcome?
 
+    /// What went wrong on this Mac around a sign-in, as opposed to what Spotify
+    /// answered (`signInOutcome`). One value, one inline note in Settings, no
+    /// toast: the person acted on that row, so the row answers. Cleared on the
+    /// next Connect press, and on a sign-in that completes.
+    @Published private(set) var signInProblem: SignInProblem?
+
+    enum SignInProblem: Equatable {
+        /// `NSWorkspace.open` returned false: no browser took the consent URL.
+        case browserDidNotOpen
+        /// The import from the login keychain moved something, but not the
+        /// refresh token, so no account came across. The Import row stays.
+        case importIncomplete
+        /// Spotify signed the person in and the tokens could be written
+        /// nowhere — neither keychain nor file.
+        case tokensNotSaved
+
+        var explanation: String {
+            switch self {
+            case .browserDidNotOpen:
+                return localized("Isla could not open your browser for Spotify sign-in.")
+            case .importIncomplete:
+                return localized("The account was not imported. Try again, or connect it anew.")
+            case .tokensNotSaved:
+                return localized("Spotify signed you in, but Isla could not save the account on this Mac.")
+            }
+        }
+    }
+
     enum SignInOutcome: Equatable {
         /// Cancel was pressed on Spotify's consent page (`access_denied`).
         case cancelled
@@ -174,6 +202,9 @@ final class SpotifyAccount: ObservableObject {
     /// authorization code it never asked for, and the app would exchange it:
     /// textbook OAuth CSRF, which PKCE does not defend against.
     private var authorizationState: String?
+    /// When the pending verifier and state were made, so Connect pressed again
+    /// can keep them while they are young and replace them once they are not.
+    private var pendingSince: Date?
     /// The refresh in flight, if any. Spotify rotates refresh tokens on use,
     /// so two concurrent refreshes with the same token invalidate each other:
     /// a heart tapped in the same beat as a track change silently disconnected
@@ -197,7 +228,7 @@ final class SpotifyAccount: ObservableObject {
     /// Where Connect sends the consent page: the user's browser in
     /// production, a capture in tests, so the whole grant — state, callback,
     /// exchange — can run without opening anything.
-    private let openURL: (URL) -> Void
+    private let openURL: (URL) -> Bool
 
     /// True when an older build left an account in the login keychain that
     /// this build cannot see. Offered in Settings as a one-press import —
@@ -215,7 +246,7 @@ final class SpotifyAccount: ObservableObject {
         credentials: CredentialStore? = nil,
         session: URLSession = PrivateNetwork.session,
         now: @escaping () -> Date = Date.init,
-        openURL: @escaping (URL) -> Void = { _ = NSWorkspace.shared.open($0) }
+        openURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }
     ) {
         let store = credentials ?? CredentialStore(service: "com.ctimothe.isla.spotify")
         self.credentials = store
@@ -243,9 +274,13 @@ final class SpotifyAccount: ObservableObject {
     /// exactly once, because what it finds is rewritten where this build can
     /// read it without asking again.
     func importLegacyAccount() {
+        signInProblem = nil
         Task { [credentials] in
             guard await credentials.importLegacy() else {
-                self.canImportLegacyAccount = false
+                // Said, and the row stays offered. It used to disappear on any
+                // result, so an import that moved only an access token left the
+                // person with no account and no way to try again.
+                self.signInProblem = .importIncomplete
                 return
             }
             self.isConnected = await credentials.read("refreshToken") != nil
@@ -262,17 +297,38 @@ final class SpotifyAccount: ObservableObject {
 
     // MARK: - Authorization (PKCE)
 
+    /// How long a Connect that has not been answered keeps its verifier and
+    /// state. Ten minutes: enough to find a password manager, short enough that
+    /// a tab abandoned at lunch cannot approve into an account hours later.
+    static let pendingSignInLifetime: TimeInterval = 600
+
     func beginAuthorization() {
         guard let clientID else { return }
-        let raw = Data((0..<64).map { _ in UInt8.random(in: 0...255) })
-        let verifier = raw.base64URLEncoded()
-        self.verifier = verifier
-        let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded()
-        let state = Data((0..<32).map { _ in UInt8.random(in: 0...255) }).base64URLEncoded()
-        authorizationState = state
+        // A pending sign-in is reused, not replaced. Connect pressed twice used
+        // to rotate the verifier and state on the second press, so approving the
+        // first browser tab failed the state check and returned silently — the
+        // person did everything right and nothing happened. Both tabs now carry
+        // the one state; the first approval consumes it and the other tab's
+        // callback is dropped, which is correct. Several pending pairs keyed by
+        // state would be more to keep and more to attack for the same outcome.
+        let pendingVerifier: String, state: String
+        if let kept = self.verifier, let keptState = authorizationState,
+           let since = pendingSince, now().timeIntervalSince(since) < Self.pendingSignInLifetime {
+            pendingVerifier = kept
+            state = keptState
+        } else {
+            let raw = Data((0..<64).map { _ in UInt8.random(in: 0...255) })
+            pendingVerifier = raw.base64URLEncoded()
+            state = Data((0..<32).map { _ in UInt8.random(in: 0...255) }).base64URLEncoded()
+            self.verifier = pendingVerifier
+            authorizationState = state
+            pendingSince = now()
+        }
+        let challenge = Data(SHA256.hash(data: Data(pendingVerifier.utf8))).base64URLEncoded()
         // A new attempt: whatever the last one ended in no longer describes
         // what is happening.
         signInOutcome = nil
+        signInProblem = nil
 
         var components = URLComponents(string: "https://accounts.spotify.com/authorize")!
         components.queryItems = [
@@ -283,8 +339,18 @@ final class SpotifyAccount: ObservableObject {
             .init(name: "code_challenge_method", value: "S256"),
             .init(name: "code_challenge", value: challenge),
             .init(name: "state", value: state),
+            // Documented in Spotify's authorization-code guide: the default,
+            // false, lets a browser already signed in to Spotify skip the page
+            // and reuse that account, so a reconnect after Disconnect could
+            // never switch account. Connect is offered only while
+            // disconnected, so the cost is one extra approval click, and in
+            // exchange Spotify shows its "Not you?" switch.
+            .init(name: "show_dialog", value: "true"),
         ]
-        openURL(components.url!)
+        // `NSWorkspace.open` says whether it found a browser. That answer used
+        // to be dropped, so a Mac with none made Connect do nothing and say
+        // nothing.
+        if !openURL(components.url!) { signInProblem = .browserDidNotOpen }
     }
 
     /// The browser lands back here through the app's URL scheme.
@@ -292,6 +358,13 @@ final class SpotifyAccount: ObservableObject {
         guard url.host == "spotify-callback" || url.path.contains("spotify-callback"),
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
         else { return }
+        // A pair kept past its lifetime is gone, the same as after a relaunch:
+        // Connect only reuses a young one, so an old one must not answer either.
+        if let since = pendingSince, now().timeIntervalSince(since) >= Self.pendingSignInLifetime {
+            self.verifier = nil
+            authorizationState = nil
+            pendingSince = nil
+        }
         guard let verifier, let expected = authorizationState else {
             // Nothing is pending, so nothing can be exchanged: most likely Isla
             // was relaunched between Connect and approval and the verifier went
@@ -311,6 +384,7 @@ final class SpotifyAccount: ObservableObject {
         // second chance for a callback nobody asked for.
         authorizationState = nil
         self.verifier = nil
+        pendingSince = nil
         guard let code = items.first(where: { $0.name == "code" })?.value, let clientID else {
             // No code means Spotify sent an error instead. `access_denied` is
             // the Cancel button on the consent page; anything else is a
@@ -416,7 +490,7 @@ final class SpotifyAccount: ObservableObject {
     private func store(_ tokens: Tokens) async {
         let generation = credentialGeneration
         let expiry = String(Date().timeIntervalSince1970 + Double(tokens.expires_in) - 60)
-        await credentials.storeTokens(
+        let backing = await credentials.storeTokens(
             access: tokens.access_token,
             refresh: tokens.refresh_token,
             expiresAt: expiry
@@ -431,10 +505,24 @@ final class SpotifyAccount: ObservableObject {
         // `clear()` is already queued behind this write on the same actor — so
         // wiping again would delete the *new* session's tokens.
         guard credentialGeneration == generation else { return }
+        // Keychain and file both refusing the write used to be dropped on the
+        // floor, and the account went on claiming to be connected over tokens
+        // that would be gone at the next launch. Not claimed now, and said.
+        guard Self.connectedAfterStore(refreshBacking: backing) else {
+            signInProblem = .tokensNotSaved
+            return
+        }
+        signInProblem = nil
         isConnected = true
         canImportLegacyAccount = false
         // Tokens Spotify just issued are proof the account works.
         needsReconnect = false
+    }
+
+    /// Whether a sign-in may call itself connected, given where the write of
+    /// the refresh token landed. Pure, so the rule is tested without a keychain.
+    static func connectedAfterStore(refreshBacking: TokenStore.Backing) -> Bool {
+        refreshBacking != .unavailable
     }
 
     func disconnect() {
@@ -445,6 +533,7 @@ final class SpotifyAccount: ObservableObject {
         // and the last attempt's outcome are about an account that is gone.
         needsReconnect = false
         signInOutcome = nil
+        signInProblem = nil
         Task { [credentials] in await credentials.clear() }
     }
 
@@ -835,14 +924,22 @@ actor CredentialStore {
     /// Brings that account across. This one *can* prompt, which is why it only
     /// ever runs because somebody pressed a button asking it to.
     func importLegacy() -> Bool {
-        var moved = false
+        var moved: [String] = []
         for account in ["accessToken", "refreshToken", "expiresAt"] {
-            guard let value = tokens.readLegacy(account) else { continue }
-            tokens.write(account, value)
-            moved = true
+            guard let value = tokens.readLegacy(account),
+                  tokens.write(account, value) != .unavailable else { continue }
+            moved.append(account)
         }
-        if moved { cache = nil; refused = false }
-        return moved
+        if !moved.isEmpty { cache = nil; refused = false }
+        return Self.importSucceeded(moved: moved)
+    }
+
+    /// An import is an account only if the refresh token came across: the
+    /// access token expires within the hour and the stamp means nothing alone.
+    /// Any one of the three moving used to count, after which the Import row
+    /// was hidden over an account that could not sign in.
+    nonisolated static func importSucceeded(moved: [String]) -> Bool {
+        moved.contains("refreshToken")
     }
 
     func read(_ account: String) -> String? {
@@ -866,16 +963,22 @@ actor CredentialStore {
         return fresh
     }
 
-    func storeTokens(access: String, refresh: String?, expiresAt: String) {
-        tokens.write("accessToken", access)
+    /// Returns where the refresh token landed — the write that decides whether
+    /// the account survives a relaunch — or, when Spotify sent none because it
+    /// is unchanged, where the access token landed. It used to return nothing,
+    /// and a write that failed everywhere was invisible.
+    @discardableResult
+    func storeTokens(access: String, refresh: String?, expiresAt: String) -> TokenStore.Backing {
+        let accessBacking = tokens.write("accessToken", access)
         // Spotify omits the refresh token when it is unchanged; writing nil
         // over the stored one would sign the user out at the next launch.
-        if let refresh { tokens.write("refreshToken", refresh) }
+        let refreshBacking = refresh.map { tokens.write("refreshToken", $0) }
         tokens.write("expiresAt", expiresAt)
         // Write-through, so the next read is answered from memory rather than
         // by asking the keychain — and the user — all over again.
         refused = false
         cache = (Double(expiresAt), access, refresh ?? cache?.refresh)
+        return refreshBacking ?? accessBacking
     }
 
     func clear() {

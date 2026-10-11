@@ -1272,3 +1272,20 @@ first for the hot keys and the Spotify callback).
   reading as ⌘-Tab), and `pgrep -x Isla` lists one process. Over the lock
   screen, all three shake the pill and open nothing.
   `./scripts/check lifecycle` stays green with the installed copy running.
+
+### Spotify sign-in survives edge cases — 2026-10-11 (kx/KX-02, closes K-015)
+
+- Connect pressed twice keeps one verifier and state for ten minutes
+  (`SpotifyAccount.pendingSignInLifetime`); the first approval consumes them
+  and the other tab's callback is dropped. The consent URL now always carries
+  `show_dialog=true` (documented in Spotify's authorization-code guide), so a
+  reconnect after Disconnect offers a way to switch account. Nothing new
+  leaves the machine; the authorize URL was already opened in the browser.
+- `signInProblem` says when the browser did not open, when the keychain import
+  moved no refresh token (the Import row stays), and when Spotify signed in
+  but no token could be written anywhere (the account is not claimed as
+  connected). One inline note in Settings › Spotify, no toast.
+  `SpotifyAccountTests`.
+- [ ] **Physical check owed:** press Connect twice, approve the first tab: the
+  account connects. Disconnect, then Connect: Spotify's consent page appears
+  with its "Not you?" switch.

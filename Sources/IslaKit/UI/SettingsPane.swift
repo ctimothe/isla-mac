@@ -642,6 +642,11 @@ struct SettingsPane: View {
                             SpotifyAccount.shared.importLegacyAccount()
                         }
                     }
+                    // One inline note for a local sign-in failure, never a toast:
+                    // the person acted on this row, so this row answers.
+                    if let problem = spotify.signInProblem {
+                        noteRow(problem.explanation)
+                    }
                     if spotify.isConnected {
                         noteRow(storageNote)
                     }

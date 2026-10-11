@@ -386,3 +386,6 @@
 "Launch at Login failed: %@" = "Launch at Login failed: %@";
 "Reset Lyric Timing" = "Reset Lyric Timing";
 "Lyric timing correction" = "Lyric timing correction";
+"Isla could not open your browser for Spotify sign-in." = "Isla could not open your browser for Spotify sign-in.";
+"The account was not imported. Try again, or connect it anew." = "The account was not imported. Try again, or connect it anew.";
+"Spotify signed you in, but Isla could not save the account on this Mac." = "Spotify signed you in, but Isla could not save the account on this Mac.";
