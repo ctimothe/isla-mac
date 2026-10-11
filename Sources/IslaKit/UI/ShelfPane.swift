@@ -139,6 +139,9 @@ private struct ShelfCard: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 68, height: 40)
+                // A disk that is not plugged in: the card is still the card,
+                // only out of reach until the disk comes back.
+                .opacity(item.isOffline ? Theme.offlineThumbnailOpacity : 1)
             // The name, then how long ago. A capture's name already carries
             // its date, but "Screenshot 2026-09-21 at 15.43.23" has to be read
             // and worked out; "5 min. ago" is known at a glance, and it is what
@@ -149,7 +152,15 @@ private struct ShelfCard: View {
                     .foregroundStyle(Theme.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let date = item.date {
+                if item.isOffline {
+                    // In place of the age, which is the less useful line once
+                    // the file cannot be opened: what a person needs to know
+                    // is why, and what brings it back.
+                    Text(localized("Disk not connected"))
+                        .islandFont(.caption, weight: .regular)
+                        .foregroundStyle(Theme.tertiary)
+                        .lineLimit(1)
+                } else if let date = item.date {
                     // Re-read twice a minute, so "Just now" does not linger
                     // into the afternoon on a shelf left open.
                     TimelineView(.periodic(from: .now, by: 30)) { context in

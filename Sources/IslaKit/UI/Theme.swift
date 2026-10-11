@@ -441,6 +441,13 @@ enum Theme {
     /// little more air than the table gives lowercase at that size. One value:
     /// the three headers used to carry 0.8, 0.8 and 0.6 for the same role.
     static let capsTracking: CGFloat = 0.8
+
+    /// A Shelf card whose disk is not plugged in draws its preview at this
+    /// opacity: present enough to be recognised as the same card, faded
+    /// enough to read as out of reach before its caption is read. The
+    /// caption itself stays at the tertiary ramp, which is what carries the
+    /// words.
+    static let offlineThumbnailOpacity: Double = 0.45
 }
 
 /// The pressed state `.plain` does not give.

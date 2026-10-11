@@ -19,6 +19,11 @@ struct ShelfItem: Identifiable, Equatable {
     /// card from before dates were kept, until the shelf is next opened and
     /// the file itself can be asked.
     var date: Date?
+    /// The file lives on a disk that is not plugged in right now — an
+    /// ejected USB stick, an SMB share that went away with the network.
+    /// The card stays, dimmed, and comes back to life when the disk does.
+    /// Not saved: whether a disk is mounted is asked again on every open.
+    var isOffline = false
     var name: String { url.lastPathComponent }
 
     static func == (lhs: ShelfItem, rhs: ShelfItem) -> Bool { lhs.url == rhs.url }
@@ -79,6 +84,51 @@ final class ShelfStore: ObservableObject {
         try? $0.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
+    /// The roots of every mounted volume, as standardized paths. Asked off
+    /// the main thread by `refreshFromDisk`, and by `load` only for a card
+    /// whose bookmark would not resolve. A seam so tests can eject a disk
+    /// they never had.
+    var mountedVolumes: @Sendable () -> Set<String> = {
+        Set((FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: []) ?? [])
+            .map(\.standardizedFileURL.path))
+    }
+
+    /// What `refreshFromDisk` asks of each card, off the main thread. A seam
+    /// so tests can point `/Volumes` at a folder of their own, and record
+    /// which thread did the asking.
+    var verdictFor: @Sendable (URL, Set<String>) -> Verdict = { url, mounted in
+        ShelfStore.verdict(for: url, mounted: mounted)
+    }
+
+    /// Asks QuickLook for one card's preview; the answer arrives on any
+    /// thread, nil when there is none. A seam so tests can count requests.
+    var requestThumbnail: (URL, @escaping @Sendable (NSImage?) -> Void) -> Void = { url, done in
+        // A square box QuickLook fits the content into, whatever its shape.
+        // Generous enough that a landscape screenshot still lands above the
+        // card's pixel size once it has been fitted.
+        let request = QLThumbnailGenerator.Request(
+            fileAt: url,
+            size: CGSize(width: 96, height: 96),
+            scale: 2,
+            representationTypes: .thumbnail
+        )
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { rep, _ in
+            // `nsImage` already carries the right point size for the
+            // representation; deriving one from `contentRect` risks describing
+            // a shape the bitmap does not have.
+            done(rep?.nsImage)
+        }
+    }
+
+    /// Cards whose preview has been asked for, or has arrived, since the
+    /// shelf was loaded. Every open used to ask QuickLook for all sixty
+    /// again, and each answer landed as its own redraw of the whole panel in
+    /// the middle of the tab transition.
+    private var thumbnailed: Set<URL> = []
+    /// Previews that have arrived and not yet been drawn — flushed together,
+    /// so a burst of sixty answers is one change to `items` rather than sixty.
+    private var pendingIcons: [URL: NSImage] = [:]
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
@@ -108,7 +158,11 @@ final class ShelfStore: ObservableObject {
         // the ids it holds now name nothing. Kept, they showed as a phantom
         // "Selected: N" in the footer with no card marked (#10).
         selection.removeAll()
-        let stored = Self.storedURLs(in: defaults, key: defaultsKey)
+        // A reload builds every card again from its generic icon, so every
+        // preview is owed again.
+        thumbnailed.removeAll()
+        pendingIcons.removeAll()
+        let stored = Self.storedURLs(in: defaults, key: defaultsKey, mounted: mountedVolumes)
         let urls = stored.map(\.url)
         bookmarks = Dictionary(
             stored.compactMap { entry in entry.bookmark.map { (entry.url, $0) } },
@@ -140,10 +194,21 @@ final class ShelfStore: ObservableObject {
     /// Each card comes back with the bookmark worth keeping: one that resolved
     /// and is not stale. A stale one is made again at the next save, which is
     /// what the system asks of a stale bookmark.
-    private static func storedURLs(in defaults: UserDefaults, key: String) -> [(url: URL, bookmark: Data?)] {
+    ///
+    /// One that fails to resolve because its disk is not plugged in is kept
+    /// as it was. Resolution never mounts, so a bookmark to an ejected disk
+    /// always fails here; dropping it meant the next save wrote an empty
+    /// Data in its place, and the one record able to follow the file once
+    /// the disk came back under another name was gone for good (F-001).
+    private static func storedURLs(
+        in defaults: UserDefaults, key: String, mounted: () -> Set<String>
+    ) -> [(url: URL, bookmark: Data?)] {
         let paths = (defaults.stringArray(forKey: key) ?? []).map(URL.init(fileURLWithPath:))
         guard let bookmarks = defaults.array(forKey: key + ".bookmarks") as? [Data],
               bookmarks.count == paths.count else { return paths.map { ($0, nil) } }
+        // Asked at most once, and only if a card on a volume failed to
+        // resolve: the mount table is the kernel's, not a read of any disk.
+        var mountedRoots: Set<String>?
         return zip(bookmarks, paths).map { data, path in
             var stale = false
             guard !data.isEmpty, let url = try? URL(
@@ -154,10 +219,24 @@ final class ShelfStore: ObservableObject {
                 // No bookmark, or one that no longer resolves: the stored path
                 // is still the best answer, and `refreshFromDisk` decides
                 // whether the file is really gone.
+                if !data.isEmpty, let root = volumeRoot(of: path) {
+                    if mountedRoots == nil { mountedRoots = mounted() }
+                    if mountedRoots?.contains(root) == false { return (path, data) }
+                }
                 return (path, nil)
             }
             return (url, stale ? nil : data)
         }
+    }
+
+    /// The root of the volume a path lives on, when it lives under
+    /// `volumes` — `/Volumes/Backup` for `/Volumes/Backup/report.pdf` — and
+    /// nil for anything on the startup disk.
+    nonisolated static func volumeRoot(of url: URL, volumes: String = "/Volumes") -> String? {
+        let base = URL(fileURLWithPath: volumes, isDirectory: true).standardizedFileURL.pathComponents
+        let components = url.standardizedFileURL.pathComponents
+        guard components.count > base.count + 1, Array(components.prefix(base.count)) == base else { return nil }
+        return NSString.path(withComponents: Array(components.prefix(base.count + 1)))
     }
 
     /// An icon for a path, derived from its extension alone.
@@ -177,31 +256,105 @@ final class ShelfStore: ObservableObject {
     /// here — with the shelf on screen and the cards in front of the person
     /// being asked, which is the difference between a question and an
     /// interruption.
-    func refreshFromDisk() {
+    ///
+    /// The asking itself happens off the main thread. It used to run here, on
+    /// the main actor, one reachability check per card in the middle of the
+    /// tab transition — and a card on a sleeping disk or a half-dead network
+    /// share held the whole panel for as long as the check took (F-022). The
+    /// cards are snapshotted here, judged on a utility thread, and the answer
+    /// comes back in one hop, matched by URL rather than by position, so a
+    /// card added or removed while the pass was out is neither lost nor
+    /// brought back.
+    ///
+    /// The count is still taken synchronously: `FirstRunTests` read it right
+    /// after the tab changes. The returned task finishes once the answer has
+    /// been applied, which is what tests wait on.
+    @discardableResult
+    func refreshFromDisk() -> Task<Void, Never> {
         refreshesForTests += 1
-        importNewRecordings()
-        guard !items.isEmpty else { return }
-        let gone = Set(items.filter { Self.isGone($0.url) }.map(\.id))
-        var changed = !gone.isEmpty
-        if !gone.isEmpty {
-            items.removeAll { gone.contains($0.id) }
-            selection.subtract(gone)
+        let urls = items.map(\.url)
+        let undated = Set(items.filter { $0.date == nil }.map(\.url))
+        let pickup = pickupInputs(from: nil)
+        let mountedVolumes = mountedVolumes
+        let verdictFor = verdictFor
+        let pass = Task.detached(priority: .utility) { () -> DiskPass in
+            var pass = DiskPass()
+            if let pickup {
+                pass.recordings = RecordingPickup.fresh(in: pickup.folders, since: pickup.since, seen: pickup.seen)
+            }
+            guard !urls.isEmpty else { return pass }
+            let mounted = mountedVolumes()
+            for url in urls {
+                let verdict = verdictFor(url, mounted)
+                pass.verdicts[url] = verdict
+                // Cards from before dates were kept learn theirs from the
+                // file, now that the file may be asked — when there is a file
+                // to ask.
+                guard undated.contains(url), verdict == .present || verdict == .unreachable else { continue }
+                let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+                if let date = values?.creationDate ?? values?.contentModificationDate {
+                    pass.dates[url] = date
+                }
+            }
+            return pass
         }
-        // Cards from before dates were kept learn theirs from the file, now
-        // that the file may be asked.
-        for index in items.indices where items[index].date == nil {
-            let values = try? items[index].url.resourceValues(
-                forKeys: [.creationDateKey, .contentModificationDateKey])
-            if let date = values?.creationDate ?? values?.contentModificationDate {
-                items[index].date = date
+        return Task { [weak self] in
+            let found = await pass.value
+            self?.apply(found)
+        }
+    }
+
+    /// What one pass over the disk found, carried back to the main thread in
+    /// one piece.
+    private struct DiskPass: Sendable {
+        var verdicts: [URL: Verdict] = [:]
+        var dates: [URL: Date] = [:]
+        var recordings: (urls: [URL], dates: [URL: Date], seen: Set<String>)?
+    }
+
+    /// The pass, applied in one write: gone cards leave, offline ones dim,
+    /// undated ones learn their date, fresh recordings arrive — then one sort,
+    /// at most one save, and previews for whatever has none yet.
+    private func apply(_ pass: DiskPass) {
+        var cards = items
+        // `changed` is anything worth saving; `redrawn`, anything worth
+        // drawing. An offline flag is the second and not the first: whether a
+        // disk is mounted is asked again on every open, never stored.
+        var changed = false
+        var redrawn = false
+        let gone = Set(cards.filter { pass.verdicts[$0.url] == .gone }.map(\.id))
+        if !gone.isEmpty {
+            cards.removeAll { gone.contains($0.id) }
+            selection.subtract(gone)
+            changed = true
+        }
+        for index in cards.indices {
+            let url = cards[index].url
+            if let verdict = pass.verdicts[url], cards[index].isOffline != (verdict == .offline) {
+                cards[index].isOffline = verdict == .offline
+                redrawn = true
+            }
+            if cards[index].date == nil, let date = pass.dates[url] {
+                cards[index].date = date
                 changed = true
             }
         }
-        if changed {
-            sortNewestFirst()
-            persist()
+        var arrived: [URL] = []
+        if let found = pass.recordings {
+            settle(found.seen)
+            arrived = merge(found.urls, dates: found.dates, into: &cards)
         }
-        items.forEach(loadThumbnail)
+        if changed || !arrived.isEmpty {
+            cards = Self.newestFirst(cards)
+            trimToLimit(&cards)
+        }
+        if changed || redrawn || !arrived.isEmpty { items = cards }
+        if changed || !arrived.isEmpty { persist() }
+        // Forget the previews of cards that have left, so the set stays the
+        // size of the shelf; ask for the ones still owed. An offline card is
+        // skipped: QuickLook has no file to read until the disk is back.
+        thumbnailed.formIntersection(items.map(\.url))
+        for card in items where !card.isOffline { loadThumbnail(card.url) }
     }
 
     /// Screen recordings the system saved since the feature first ran, picked
@@ -214,18 +367,48 @@ final class ShelfStore: ObservableObject {
     /// at a temporary directory: the live one is Screenshot.app's save
     /// location, and a test must never scan the real Desktop.
     func importNewRecordings(from folder: URL? = nil) {
-        guard NotchViewModel.importRecordingsEnabled else { return }
-        guard let since = defaults.object(forKey: RecordingPickup.sinceKey) as? Date else { return }
-        let seen = Set(defaults.stringArray(forKey: RecordingPickup.seenKey) ?? [])
-        let result = RecordingPickup.fresh(
-            in: folder.map { [$0] } ?? RecordingPickup.captureFolders(defaults: defaults),
-            since: since, seen: seen
-        )
-        // Persisted even when nothing is offered: settling old files is what
-        // keeps them settled, and a denied folder simply reports nothing.
-        defaults.set(Array(result.seen.suffix(RecordingPickup.seenLimit)), forKey: RecordingPickup.seenKey)
+        guard let pickup = pickupInputs(from: folder) else { return }
+        let result = RecordingPickup.fresh(in: pickup.folders, since: pickup.since, seen: pickup.seen)
+        settle(result.seen)
         guard !result.urls.isEmpty else { return }
         add(result.urls, dates: result.dates)
+    }
+
+    /// What a recordings scan needs from defaults, read on the main thread
+    /// before the scan leaves it. Nil when the feature is off or has not
+    /// started — and then no folder is touched at all.
+    private struct PickupInputs: Sendable {
+        let folders: [URL]
+        let since: Date
+        let seen: Set<String>
+    }
+
+    private func pickupInputs(from folder: URL?) -> PickupInputs? {
+        guard NotchViewModel.importRecordingsEnabled else { return nil }
+        guard let since = defaults.object(forKey: RecordingPickup.sinceKey) as? Date else { return nil }
+        return PickupInputs(
+            folders: folder.map { [$0] } ?? RecordingPickup.captureFolders(defaults: defaults),
+            since: since,
+            seen: Set(defaults.stringArray(forKey: RecordingPickup.seenKey) ?? [])
+        )
+    }
+
+    /// Persisted even when nothing is offered: settling old files is what
+    /// keeps them settled, and a denied folder simply reports nothing.
+    private func settle(_ seen: Set<String>) {
+        defaults.set(Array(seen.suffix(RecordingPickup.seenLimit)), forKey: RecordingPickup.seenKey)
+    }
+
+    /// What became of a card's file, as far as the disk can say.
+    enum Verdict: Sendable, Equatable {
+        /// There, and readable.
+        case present
+        /// On a disk that is not plugged in. Kept, dimmed, until it is.
+        case offline
+        /// Deleted, or in a Trash. The card leaves.
+        case gone
+        /// There, but the app was refused a look. Kept exactly as it was.
+        case unreachable
     }
 
     /// Whether the file is actually gone, as opposed to merely out of reach.
@@ -235,12 +418,29 @@ final class ShelfStore: ObservableObject {
     /// just refused access to should stay exactly where it is. Treating them
     /// alike meant a single "Don't Allow" silently emptied the shelf of
     /// everything kept in Downloads, with the files still sitting there.
-    static func isGone(_ url: URL) -> Bool {
-        if isInTrash(url) { return true }
+    ///
+    /// An ejected disk is the same trap a second time: a path under an
+    /// unmounted `/Volumes` root answers "no such file", exactly like a
+    /// deleted one, and every card on a USB stick or an SMB share used to
+    /// leave the shelf on the next open — for good, since the save after it
+    /// wrote the shorter list (F-001). So the mount table is asked first. A
+    /// root that is a link rather than a mount point — `/Volumes/Macintosh HD`
+    /// points at `/` — is asked like any other path, or a deleted file on the
+    /// startup disk would sit on the shelf as "not connected" forever.
+    ///
+    /// - Parameter mounted: the roots of every mounted volume, standardized.
+    /// - Parameter volumes: where volumes mount; a parameter so tests can
+    ///   stand in a folder of their own.
+    nonisolated static func verdict(for url: URL, mounted: Set<String>, volumes: String = "/Volumes") -> Verdict {
+        if isInTrash(url) { return .gone }
+        if let root = volumeRoot(of: url, volumes: volumes), !mounted.contains(root),
+           (try? FileManager.default.destinationOfSymbolicLink(atPath: root)) == nil {
+            return .offline
+        }
         do {
-            return try !url.checkResourceIsReachable()
+            return try url.checkResourceIsReachable() ? .present : .gone
         } catch let error as NSError {
-            return error.code == NSFileReadNoSuchFileError
+            return error.code == NSFileReadNoSuchFileError ? .gone : .unreachable
         }
     }
 
@@ -248,20 +448,38 @@ final class ShelfStore: ObservableObject {
     ///   without one — a drop, a picture saved from the clipboard — is dated
     ///   now, which is when it happened.
     func add(_ urls: [URL], dates: [URL: Date] = [:]) {
+        var cards = items
+        let arrived = merge(urls, dates: dates, into: &cards)
+        cards = Self.newestFirst(cards)
+        trimToLimit(&cards)
+        items = cards
+        persist()
+        for url in arrived where items.contains(where: { $0.url == url }) { loadThumbnail(url) }
+    }
+
+    /// New cards at the front, in the order they came; a URL already on the
+    /// shelf is left where it is. Returns the URLs that were new.
+    private func merge(_ urls: [URL], dates: [URL: Date], into cards: inout [ShelfItem]) -> [URL] {
         let now = Date()
+        var arrived: [URL] = []
         // Reversed, so that inserting each at the front leaves the drop in the
         // order it was made: A, B, C dropped together used to land C, B, A.
-        for url in urls.reversed() where !items.contains(where: { $0.url == url }) {
+        for url in urls.reversed() where !cards.contains(where: { $0.url == url }) {
             var item = ShelfItem(url: url, icon: NSWorkspace.shared.icon(forFile: url.path))
             item.date = dates[url] ?? now
-            items.insert(item, at: 0)
-            loadThumbnail(item)
+            cards.insert(item, at: 0)
+            // A card back on the shelf after leaving it starts from the
+            // generic icon again, so its preview is owed again.
+            thumbnailed.remove(url)
+            arrived.append(url)
         }
-        sortNewestFirst()
-        // After sorting, so the cards past the limit are the oldest, not the
-        // ones that happened to arrive first.
-        if items.count > limit { items.removeLast(items.count - limit) }
-        persist()
+        return arrived
+    }
+
+    /// After sorting, so the cards past the limit are the oldest, not the
+    /// ones that happened to arrive first.
+    private func trimToLimit(_ cards: inout [ShelfItem]) {
+        if cards.count > limit { cards.removeLast(cards.count - limit) }
     }
 
     /// Newest first, by when each card's moment was.
@@ -271,8 +489,8 @@ final class ShelfStore: ObservableObject {
     /// 14:47 but first seen at 16:40 sat above the one made at 16:37, filmed
     /// on 2026-09-21. Stable, so cards of the same moment keep their order,
     /// and undated ones wait at the end until the file can be asked.
-    private func sortNewestFirst() {
-        items = items.enumerated().sorted { lhs, rhs in
+    private static func newestFirst(_ cards: [ShelfItem]) -> [ShelfItem] {
+        cards.enumerated().sorted { lhs, rhs in
             let left = lhs.element.date ?? .distantPast
             let right = rhs.element.date ?? .distantPast
             return left != right ? left > right : lhs.offset < rhs.offset
@@ -280,32 +498,56 @@ final class ShelfStore: ObservableObject {
     }
 
     /// Whether a file sits in a Trash — the user's, or a volume's.
-    static func isInTrash(_ url: URL) -> Bool {
+    nonisolated static func isInTrash(_ url: URL) -> Bool {
         let components = url.standardizedFileURL.pathComponents
         return components.contains(".Trash") || components.contains(".Trashes")
     }
 
-    private func loadThumbnail(_ item: ShelfItem) {
-        // A square box QuickLook fits the content into, whatever its shape.
-        // Generous enough that a landscape screenshot still lands above the
-        // card's pixel size once it has been fitted.
-        let request = QLThumbnailGenerator.Request(
-            fileAt: item.url,
-            size: CGSize(width: 96, height: 96),
-            scale: 2,
-            representationTypes: .thumbnail
-        )
-        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] rep, _ in
-            guard let rep else { return }
-            // `nsImage` already carries the right point size for the
-            // representation; deriving one from `contentRect` risks describing
-            // a shape the bitmap does not have.
-            let image = rep.nsImage
-            Task { @MainActor in
-                guard let self, let index = self.items.firstIndex(where: { $0.url == item.url }) else { return }
-                self.items[index].icon = image
+    /// Asks for one card's preview, unless it has been asked for already
+    /// since the shelf was loaded.
+    private func loadThumbnail(_ url: URL) {
+        guard thumbnailed.insert(url).inserted else { return }
+        requestThumbnail(url) { [weak self] image in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.thumbnailArrived(image, for: url) }
             }
         }
+    }
+
+    private var flushScheduled = false
+
+    /// One preview's answer. Held rather than drawn, and flushed with every
+    /// other answer that reaches the main queue before the flush does: each
+    /// one used to be its own write to `items`, and every write redraws the
+    /// whole panel the shelf sits in.
+    private func thumbnailArrived(_ image: NSImage?, for url: URL) {
+        guard let image else {
+            // No preview this time — a folder the app was refused, a file
+            // QuickLook could not read yet. Asked again on the next open
+            // rather than never.
+            thumbnailed.remove(url)
+            return
+        }
+        pendingIcons[url] = image
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.flushIcons() }
+        }
+    }
+
+    private func flushIcons() {
+        flushScheduled = false
+        guard !pendingIcons.isEmpty else { return }
+        var cards = items
+        var drawn = false
+        for index in cards.indices {
+            guard let icon = pendingIcons[cards[index].url] else { continue }
+            cards[index].icon = icon
+            drawn = true
+        }
+        pendingIcons.removeAll()
+        if drawn { items = cards }
     }
 
     func remove(_ item: ShelfItem) {
@@ -353,10 +595,12 @@ final class ShelfStore: ObservableObject {
     func clearSelection() { selection.removeAll() }
 
     /// Files a drag started on `item` should carry: the whole selection when
-    /// the grabbed card belongs to it, otherwise just that card.
+    /// the grabbed card belongs to it, otherwise just that card. A card whose
+    /// disk is not plugged in is left out: there is no file behind it to
+    /// hand over, and the receiving app would be given a path to nothing.
     func dragURLs(startingAt item: ShelfItem) -> [URL] {
-        guard selection.contains(item.id) else { return [item.url] }
-        return items.filter { selection.contains($0.id) }.map(\.url)
+        guard selection.contains(item.id) else { return item.isOffline ? [] : [item.url] }
+        return items.filter { selection.contains($0.id) && !$0.isOffline }.map(\.url)
     }
 
     func reveal(_ item: ShelfItem) {

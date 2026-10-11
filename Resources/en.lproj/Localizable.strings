@@ -296,3 +296,6 @@
 /* Charging and headphones */
 "Power adapter connected" = "Power adapter connected";
 "Power adapter connected, %d percent" = "Power adapter connected, %d percent";
+
+/* Shelf: a card whose disk is not plugged in */
+"Disk not connected" = "Disk not connected";
