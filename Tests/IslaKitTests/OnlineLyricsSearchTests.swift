@@ -20,9 +20,10 @@ final class OnlineLyricsSearchTests: XCTestCase {
 
     private static func row(
         title: String = "waltz", artist: String = "Esha Tewari", duration: Double = 164,
-        synced: Bool = true, instrumental: Bool = false
+        synced: Bool = true, instrumental: Bool = false, lyrics text: String? = nil
     ) -> String {
-        let lyrics = synced ? #""syncedLyrics":"[00:10.00]First line\n[00:15.00]Second line","# : ""
+        let body = text ?? #"[00:10.00]First line\n[00:15.00]Second line"#
+        let lyrics = synced ? #""syncedLyrics":"\#(body)","# : ""
         return #"{"trackName":"\#(title)","artistName":"\#(artist)","albumName":"wraith","duration":\#(duration),\#(lyrics)"instrumental":\#(instrumental)}"#
     }
 
@@ -119,5 +120,81 @@ final class OnlineLyricsSearchTests: XCTestCase {
         XCTAssertTrue(cache.cached(identity) == nil, "an exact-only miss is asked again")
         cache.remember(.none, for: identity)
         XCTAssertEqual(cache.cached(identity), .some(nil), "a searched miss is believed")
+    }
+
+    // MARK: - A recording's lyrics fit its length
+
+    /// Two rows inside the three-second tolerance, and the one closer in
+    /// length is timed to another cut: its last line is stamped 40 s after the
+    /// track has ended. The lyric lab found 1,249 lines in 69 of 540 tracks
+    /// stamped past their own record's length, and closest-length-wins took
+    /// them. A row whose words fit the track now outranks one whose words do
+    /// not, before length is compared at all.
+    func testACandidateTimedPastTheTrackRanksBelowOneThatFits() throws {
+        let overrun = Self.row(
+            duration: 164, lyrics: #"[00:10.00]Overrun first\n[03:24.00]Overrun last"#
+        )
+        let fits = Self.row(
+            duration: 166, lyrics: #"[00:10.00]Fits first\n[02:30.00]Fits last"#
+        )
+        let rows = try JSONDecoder().decode(
+            [OnlineLyrics.SearchRow].self, from: Data("[\(overrun),\(fits)]".utf8)
+        )
+        let match = try XCTUnwrap(OnlineLyrics.bestMatch(in: rows, for: track()))
+        XCTAssertEqual(match.lines.map(\.text), ["Fits first", "Fits last"])
+    }
+
+    /// The exact answer overruns and the search has nothing better. It is
+    /// still the recording the four fields named, so it is kept — a found
+    /// lyric never turns into a miss — but only with the lines the clock can
+    /// reach. A line past the track's end can never light, and a stage that
+    /// lists it shows words that are not in the song playing.
+    func testAnOverrunningAnswerWithNoBetterRowKeepsOnlyItsReachableLines() async {
+        let exact = #"{"syncedLyrics":"[00:10.00]Reachable\n[02:40.00]Still reachable\n[03:24.00]Past the end","instrumental":false,"duration":164}"#
+        let server = Server(exact: (200, exact), search: .success("[]"))
+        let outcome = await OnlineLyrics.lookUp(track()) { try server.answer($0) }
+        guard case .found(let timeline) = outcome else { return XCTFail("expected lyrics, got \(outcome)") }
+        XCTAssertEqual(timeline.lines.map(\.text), ["Reachable", "Still reachable"])
+        XCTAssertTrue(timeline.lines.allSatisfy { $0.at <= 164 }, "no line past the track's end")
+        XCTAssertGreaterThan(server.requests.count, 1, "an overrunning answer asks the search for a better row")
+    }
+
+    /// And when the search does have a row that fits, that row is the answer.
+    func testAnOverrunningAnswerGivesWayToARowThatFits() async {
+        let exact = #"{"syncedLyrics":"[00:10.00]Exact\n[03:24.00]Past the end","instrumental":false,"duration":164}"#
+        let fits = Self.row(duration: 165, lyrics: #"[00:10.00]Fits\n[02:30.00]Fits last"#)
+        let server = Server(exact: (200, exact), search: .success("[\(fits)]"))
+        let outcome = await OnlineLyrics.lookUp(track()) { try server.answer($0) }
+        guard case .found(let timeline) = outcome else { return XCTFail("expected lyrics, got \(outcome)") }
+        XCTAssertEqual(timeline.lines.first?.text, "Fits")
+    }
+
+    /// Full-width and CJK brackets are editions too, and a title that is all
+    /// bracket is the title. "(Nice Dream)" used to strip to nothing, and
+    /// `bestMatch` returned nil for an empty title before it read a row.
+    func testFullWidthAndAllBracketTitles() throws {
+        XCTAssertEqual(OnlineLyrics.baseTitle("Title（Remastered）"), "Title")
+        XCTAssertEqual(OnlineLyrics.baseTitle("Title【Live】"), "Title")
+        XCTAssertEqual(OnlineLyrics.baseTitle("Title「Single Version」"), "Title")
+        XCTAssertEqual(OnlineLyrics.baseTitle("(Nice Dream)"), "(Nice Dream)")
+        XCTAssertEqual(OnlineLyrics.baseTitle("(Nice Dream) - 2009 Remaster"), "(Nice Dream)")
+
+        let rows = try JSONDecoder().decode(
+            [OnlineLyrics.SearchRow].self,
+            from: Data("[\(Self.row(title: "(Nice Dream)", artist: "Radiohead", duration: 233))]".utf8)
+        )
+        XCTAssertNotNil(OnlineLyrics.bestMatch(
+            in: rows, for: track(title: "(Nice Dream)", artist: "Radiohead", album: "The Bends", duration: 233)
+        ))
+    }
+
+    /// A timed answer the parser cannot read is not "LRCLIB has no lyrics":
+    /// the words are there, and a later parser may read them.
+    func testASyncedAnswerThatCannotBeReadIsUnreadableNotAMiss() async {
+        let exact = #"{"syncedLyrics":"[00:7x.00]Mistyped stamp","instrumental":false,"duration":164}"#
+        XCTAssertEqual(OnlineLyrics.timeline(from: Data(exact.utf8), status: 200), .unreadable)
+        let server = Server(exact: (200, exact), search: .success("[]"))
+        let outcome = await OnlineLyrics.lookUp(track()) { try server.answer($0) }
+        XCTAssertEqual(outcome, .unreadable)
     }
 }

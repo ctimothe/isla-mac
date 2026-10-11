@@ -142,7 +142,9 @@ enum LyricLab {
     /// only to learn the error a refusal carried.
     static func islaParse(_ track: LabTrack) -> IslaParse {
         if let cached = parseCache[track.id] { return cached }
-        let outcome = OnlineLyrics.timeline(from: track.raw, status: 200)
+        // With the record's own length, as the app passes the track's: lines
+        // stamped past it are dropped there, and the lab measures what shows.
+        let outcome = OnlineLyrics.timeline(from: track.raw, status: 200, duration: track.duration)
         var refusal: String?
         if let synced = track.synced {
             do { _ = try LocalLyricsDocument.parse(synced) } catch { refusal = "\(error)" }
@@ -155,6 +157,8 @@ enum LyricLab {
             parse = IslaParse(lines: nil, granularity: nil, outcome: "none", error: refusal)
         case .failed:
             parse = IslaParse(lines: nil, granularity: nil, outcome: "failed", error: refusal)
+        case .unreadable:
+            parse = IslaParse(lines: nil, granularity: nil, outcome: "unreadable", error: refusal)
         }
         parseCache[track.id] = parse
         return parse

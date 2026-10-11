@@ -63,6 +63,11 @@ final class LyricAccuracyLabParseTests: XCTestCase {
             if duplicates > 0 { count("duplicate_stamps", lines: duplicates) }
             let beyond = track.duration > 0 ? sung.filter { Double($0.ms) / 1000 > track.duration }.count : 0
             if beyond > 0 { count("lines_beyond_track_duration", lines: beyond) }
+            // Isla drops the lines stamped past the record's own length, which
+            // the clock can never reach (`OnlineLyrics.timeline(from:status:duration:)`).
+            // Fidelity is measured against the lines it keeps; the class above
+            // still counts the ones it drops.
+            let shown = track.duration > 0 ? sung.filter { Double($0.ms) / 1000 <= track.duration } : sung
             if reference.untimedTextLines > 0 { count("untimed_text_lines", lines: reference.untimedTextLines) }
             if reference.angleBracketLines > 0 { count("angle_brackets_in_text", lines: reference.angleBracketLines) }
             let unknownTags = reference.metadataTags.filter { !["ti", "ar", "al", "ve", "length", "offset"].contains($0.key) }
@@ -71,55 +76,55 @@ final class LyricAccuracyLabParseTests: XCTestCase {
             guard let lines = isla.lines else {
                 // A file the reference reads words from and Isla refuses is the
                 // whole song lost, not a line.
-                if !sung.isEmpty {
+                if !shown.isEmpty {
                     let reason = isla.error ?? isla.outcome
                     refusals[reason, default: 0] += 1
                     refusedIDs[reason, default: []].append(track.id)
                     perCategoryRejected[track.category, default: 0] += 1
-                    LyricLab.finding("L1 track \(track.id): Isla refused (\(reason)); reference read \(sung.count) lines")
+                    LyricLab.finding("L1 track \(track.id): Isla refused (\(reason)); reference read \(shown.count) lines")
                 }
                 continue
             }
             compared += 1
-            if lines.count != sung.count {
+            if lines.count != shown.count {
                 countMismatch += 1
                 mismatchTracks[track.id] = [
-                    "isla": lines.count, "reference": sung.count,
+                    "isla": lines.count, "reference": shown.count,
                     "untimedTextLines": reference.untimedTextLines,
                     "unparseableStampLines": reference.unparseableStampLines,
                     "metadataTags": reference.metadataTags.values.reduce(0, +),
-                    "firstDivergingLine": zip(lines, sung).enumerated().first {
+                    "firstDivergingLine": zip(lines, shown).enumerated().first {
                         abs($0.element.0.at * 1000 - Double($0.element.1.ms)) > 0.5
                     }?.offset ?? -1,
                 ]
-                LyricLab.finding("L1 track \(track.id): Isla \(lines.count) lines, reference \(sung.count)")
+                LyricLab.finding("L1 track \(track.id): Isla \(lines.count) lines, reference \(shown.count)")
             }
             // Aligned by time, so one lost line counts once rather than
             // shifting every line after it out of step.
             var i = 0, r = 0
-            while i < lines.count || r < sung.count {
-                if i < lines.count, r < sung.count {
-                    let error = abs(lines[i].at * 1000 - Double(sung[r].ms))
+            while i < lines.count || r < shown.count {
+                if i < lines.count, r < shown.count {
+                    let error = abs(lines[i].at * 1000 - Double(shown[r].ms))
                     if error <= 0.5 {
                         linesCompared += 1
                         stampErrorsMs.append(error)
-                        if lines[i].text != sung[r].text {
+                        if lines[i].text != shown[r].text {
                             textMismatch += 1
-                            LyricLab.finding("L1 track \(track.id) line \(sung[r].sourceLine): text differs")
+                            LyricLab.finding("L1 track \(track.id) line \(shown[r].sourceLine): text differs")
                         }
                         i += 1; r += 1
                         continue
                     }
                     stampMismatch += 1
-                    if Double(sung[r].ms) < lines[i].at * 1000 {
+                    if Double(shown[r].ms) < lines[i].at * 1000 {
                         missingInIsla += 1
-                        LyricLab.finding("L1 track \(track.id) line \(sung[r].sourceLine): missing from Isla's timeline")
+                        LyricLab.finding("L1 track \(track.id) line \(shown[r].sourceLine): missing from Isla's timeline")
                         r += 1
                     } else {
                         extraInIsla += 1
                         i += 1
                     }
-                } else if r < sung.count {
+                } else if r < shown.count {
                     stampMismatch += 1; missingInIsla += 1; r += 1
                 } else {
                     stampMismatch += 1; extraInIsla += 1; i += 1

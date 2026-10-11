@@ -402,6 +402,7 @@ final class LyricsCoordinator: ObservableObject {
             // costs one request each rather than one per play.
             onlineTimeline = remembered
             publishAvailability()
+            if remembered != nil, onlineCache.needsRefresh(identity) { refreshOldHit(identity) }
             return
         }
         let generation = lookUpGeneration
@@ -422,6 +423,33 @@ final class LyricsCoordinator: ObservableObject {
             try? await Task.sleep(for: .seconds(Self.quietGrace))
             guard !Task.isCancelled, let self, self.lookUpGeneration == generation else { return }
             self.waitIsWorthAdmitting = true
+            self.publishAvailability()
+        }
+    }
+
+    /// Asks once more about a hit cached before lines carried their ends,
+    /// while that hit is already on screen.
+    ///
+    /// Without this, every song looked up before 2026-10-11 kept its lines
+    /// lit through each instrumental for as long as the cache held it — the
+    /// stale highlight line ends exist to remove. Dropping those hits instead
+    /// would blank the stage until the network answered. So the old words
+    /// show at once, the same four fields go to the same service the
+    /// listener already turned on, and only a found answer replaces them; any
+    /// other answer is settled in the cache (`OnlineLyricsCache.remember`) so
+    /// the song is not asked about again. Quiet throughout: no wait to admit,
+    /// no retry schedule, and a failure leaves the old words up and asks on
+    /// the song's next play. A skip cancels it like any other lookup.
+    private func refreshOldHit(_ identity: LocalTrackIdentity) {
+        let generation = lookUpGeneration
+        lookUpTask?.cancel()
+        lookUpTask = Task { [weak self] in
+            guard let self else { return }
+            let outcome = await self.onlineLookUp(identity)
+            guard !Task.isCancelled, self.lookUpGeneration == generation else { return }
+            self.onlineCache.remember(outcome, for: identity)
+            guard case .found(let timeline) = outcome else { return }
+            self.onlineTimeline = timeline
             self.publishAvailability()
         }
     }

@@ -73,6 +73,15 @@ are the exception the design did not anticipate:
   from it are line-level, so the word sweep stays off for them. The design
   doc carries the dated amendment and `OfflineLyricsIsolationTests` bounds
   the exception to one file and one service.
+  2026-10-11 (LY-09): a hit cached before lines carried their ends is shown
+  at once and asked about **once more** in the background on its next play —
+  one extra request per previously cached song, inside this same switch and
+  with the same four fields. Only a found answer replaces it; a miss leaves
+  the old words up and settles it. A timed answer the parser cannot read is
+  remembered as a miss tied to the parser revision, and asked again only once
+  a newer parser ships. Answers stamped past the track's end lose the lines
+  that can never show, and a search row that fits the track outranks one that
+  does not (`OnlineLyricsTests`, `OnlineLyricsSearchTests`).
 - **Translate Online** (Settings › Translate, default off, added 2026-09-21)
   sends a pair no engine on this Mac offers at all — Uzbek and Kazakh — to
   MyMemory (translated.net): free, no account, no key. It receives the text and
