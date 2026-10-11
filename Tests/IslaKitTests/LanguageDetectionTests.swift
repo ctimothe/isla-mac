@@ -84,4 +84,41 @@ final class LanguageDetectionTests: XCTestCase {
         XCTAssertEqual(LanguageDetection.language(of: "مرحبا"), .arabic)
         XCTAssertEqual(LanguageDetection.language(of: "नमस्ते"), .hindi)
     }
+
+    /// A Russian paragraph that quotes one Kazakh name, about 250 letters with
+    /// two ұ among them. Every letter used to count as a verdict, so this was
+    /// "Kazakh (Detected)" and, with Translate Online on, the whole paragraph
+    /// went to MyMemory (G-014).
+    static let russianParagraphQuotingAKazakhName = """
+        Вчера вечером мы долго говорили о поездке в Астану. Отец вспоминал, как \
+        впервые увидел город зимой, когда улицы были пустыми, а ветер дул так \
+        сильно, что трудно было идти. Он рассказывал о встрече, на которой \
+        выступал Нұрсұлтан, и о том, как все слушали его в полной тишине.
+        """
+
+    /// One letter, one character or one word from another language is a
+    /// quotation, not the language of the text around it.
+    func testOneForeignLetterDoesNotDecideAParagraph() {
+        XCTAssertEqual(LanguageDetection.language(of: Self.russianParagraphQuotingAKazakhName), .russian)
+        XCTAssertEqual(LanguageDetection.language(of: "I had 寿司 for lunch with my friends today"), .english)
+        // What is really written in the language still is, however short.
+        XCTAssertEqual(LanguageDetection.language(of: "Сәлем"), .kazakh)
+        XCTAssertEqual(LanguageDetection.language(of: "Сіз қалайсыз?"), .kazakh)
+        XCTAssertEqual(LanguageDetection.language(of: "Қаерга борасиз?"), .uzbek)
+        XCTAssertEqual(LanguageDetection.language(of: "こんにちは"), .japanese)
+    }
+
+    /// Ї, є and ґ are written by Ukrainian alone among the languages on offer,
+    /// and ы, ё, ъ and э by Russian and not by Ukrainian. Short Cyrillic the
+    /// recognizer is unsure of falls back to Russian, so these used to hang
+    /// on its confidence (K-006); the letters settle them without it.
+    func testUkrainianLettersDecideShortText() {
+        for word in ["Їжак", "Є", "Ґанок", "Її", "Моє"] {
+            XCTAssertEqual(LanguageDetection.byLetters(word), .ukrainian, word)
+            XCTAssertEqual(LanguageDetection.language(of: word), .ukrainian, word)
+        }
+        // A Russian sentence naming a Ukrainian city is not settled by the
+        // letter: the ы says the sentence is not Ukrainian's alone.
+        XCTAssertNil(LanguageDetection.byLetters("Мы поехали в Київ вчера вечером."))
+    }
 }

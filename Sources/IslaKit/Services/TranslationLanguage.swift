@@ -114,45 +114,99 @@ enum LanguageDetection {
         return containsCyrillic(sample) ? .russian : .english
     }
 
-    /// Letters that settle it on their own.
+    /// The smallest share of the Cyrillic letters that Kazakh's or Uzbek's
+    /// own letters must make before they settle anything. Real Kazakh and
+    /// Uzbek run at 5–8 %, and a short word of either at far more ("Сәлем" is
+    /// one letter in five); a Russian paragraph quoting "Нұрсұлтан" is two in
+    /// 250, under 1 %. It used to take one letter, and that paragraph read as
+    /// Kazakh — which only the online engine knows, so with Translate Online
+    /// on, the whole of it went to MyMemory (G-014).
+    static let distinctiveLetterShare = 0.02
+
+    /// The smallest share of all the letters a script must make before it
+    /// names the language. An English sentence with one Japanese word in it
+    /// used to be translated as Chinese, from the two kanji alone; anything
+    /// this mixed now goes to the recognizer, which weighs the whole text.
+    static let scriptShare = 0.3
+
+    /// Letters that settle it on their own — when there are enough of them.
     ///
     /// Cyrillic Uzbek writes ў and ҳ, which no other language on offer does;
     /// Kazakh writes ә ө ү ұ ң һ, which Uzbek does not. Қ and ғ are shared by
     /// the two, and there і and ы decide: Kazakh writes both constantly, and
     /// Uzbek Cyrillic has neither ("Сіз қалайсыз?" is Kazakh, "Қаерга
     /// борасиз?" Uzbek). І alone is also Ukrainian, so without қ or ғ it
-    /// decides nothing — the recognizer tells those two apart well.
+    /// decides nothing — the recognizer tells those two apart well. Each of
+    /// these counts only at `distinctiveLetterShare` of the Cyrillic letters,
+    /// so a quoted name is a quotation and not a verdict.
+    ///
+    /// Ї, є and ґ are Ukrainian's alone, and ы, ё, ъ and э are Russian's and
+    /// not Ukrainian's: one without the other is Ukrainian at any length. That
+    /// takes no share — Ukrainian writes the three at about 1.5 % together,
+    /// under the bar above, and a Russian sentence that names Київ still has
+    /// its ы. One word was too little for the recognizer, so "Їжак" fell back
+    /// to Russian (K-006).
     static func byLetters(_ text: String) -> TranslationLanguage? {
         let lower = text.lowercased()
-        if lower.contains(where: { "әөүұңһ".contains($0) }) { return .kazakh }
-        if lower.contains(where: { "ўҳ".contains($0) }) { return .uzbek }
-        if lower.contains(where: { "қғ".contains($0) }) {
+        var cyrillic = 0, kazakhOnly = 0, uzbekOnly = 0, shared = 0
+        for character in lower where character.isLetter {
+            guard let scalar = character.unicodeScalars.first, isCyrillic(scalar) else { continue }
+            cyrillic += 1
+            if "әөүұңһ".contains(character) {
+                kazakhOnly += 1
+            } else if "ўҳ".contains(character) {
+                uzbekOnly += 1
+            } else if "қғ".contains(character) {
+                shared += 1
+            }
+        }
+        guard cyrillic > 0 else { return nil }
+        func enough(_ count: Int) -> Bool {
+            count > 0 && Double(count) >= distinctiveLetterShare * Double(cyrillic)
+        }
+        if enough(kazakhOnly) { return .kazakh }
+        if enough(uzbekOnly) { return .uzbek }
+        if enough(kazakhOnly + uzbekOnly + shared) {
             return lower.contains(where: { "іы".contains($0) }) ? .kazakh : .uzbek
+        }
+        if lower.contains(where: { "їєґ".contains($0) }), !lower.contains(where: { "ыёъэ".contains($0) }) {
+            return .ukrainian
         }
         return nil
     }
 
     /// Scripts only one offered language writes, which settle it at any
     /// length — a two-character greeting included, where the recognizer is
-    /// least sure. Kana means Japanese even beside kanji; Han alone, Chinese.
+    /// least sure — once they make `scriptShare` of the letters. Kana and Han
+    /// count together, since Japanese writes both: any kana among them means
+    /// Japanese even beside kanji; Han alone, Chinese. The script with the
+    /// most letters wins, so Korean with a little hanja stays Korean.
     static func byScript(_ text: String) -> TranslationLanguage? {
-        var kana = false, hangul = false, han = false, arabic = false, devanagari = false
-        for scalar in text.unicodeScalars {
+        var letters = 0, kana = 0, hangul = 0, han = 0, arabic = 0, devanagari = 0
+        for character in text where character.isLetter {
+            letters += 1
+            guard let scalar = character.unicodeScalars.first else { continue }
             switch scalar.value {
-            case 0x3040...0x30FF, 0x31F0...0x31FF: kana = true
-            case 0xAC00...0xD7AF, 0x1100...0x11FF, 0x3130...0x318F: hangul = true
-            case 0x3400...0x4DBF, 0x4E00...0x9FFF: han = true
-            case 0x0600...0x06FF, 0x0750...0x077F: arabic = true
-            case 0x0900...0x097F: devanagari = true
+            case 0x3040...0x30FF, 0x31F0...0x31FF: kana += 1
+            case 0xAC00...0xD7AF, 0x1100...0x11FF, 0x3130...0x318F: hangul += 1
+            case 0x3400...0x4DBF, 0x4E00...0x9FFF: han += 1
+            case 0x0600...0x06FF, 0x0750...0x077F: arabic += 1
+            case 0x0900...0x097F: devanagari += 1
             default: break
             }
         }
-        if kana { return .japanese }
-        if hangul { return .korean }
-        if han { return .chinese }
-        if arabic { return .arabic }
-        if devanagari { return .hindi }
-        return nil
+        let candidates: [(count: Int, language: TranslationLanguage)] = [
+            (kana + han, kana > 0 ? .japanese : .chinese),
+            (hangul, .korean),
+            (arabic, .arabic),
+            (devanagari, .hindi),
+        ]
+        // max(by:) keeps the first of equals, so a tie goes the way this list
+        // reads — the order the scripts used to be checked in.
+        guard let best = candidates.max(by: { $0.count < $1.count }),
+              best.count > 0,
+              Double(best.count) >= scriptShare * Double(letters) else { return nil }
+        return best.language
     }
 
     private static let apostrophes: Set<Character> = ["'", "‘", "’", "ʻ", "ʼ", "`"]
@@ -228,6 +282,10 @@ enum LanguageDetection {
     }
 
     private static func containsCyrillic(_ text: String) -> Bool {
-        text.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) }
+        text.unicodeScalars.contains(where: isCyrillic)
+    }
+
+    private static func isCyrillic(_ scalar: Unicode.Scalar) -> Bool {
+        (0x0400...0x04FF).contains(scalar.value)
     }
 }

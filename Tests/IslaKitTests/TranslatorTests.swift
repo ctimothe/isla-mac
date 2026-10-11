@@ -32,6 +32,14 @@ final class TranslatorTests: XCTestCase {
                        .init(source: .english, target: .russian))
     }
 
+    /// A Russian paragraph quoting one Kazakh name is translated from Russian,
+    /// on the Mac. It used to be read as Kazakh, which only the online engine
+    /// knows, so with Translate Online on the whole paragraph left the Mac.
+    func testAQuotedForeignNameDoesNotSendAParagraphOnline() {
+        let paragraph = LanguageDetectionTests.russianParagraphQuotingAKazakhName
+        XCTAssertEqual(Translator.route(for: paragraph, source: nil, target: .english).source, .russian)
+    }
+
     /// A source somebody chose is used as chosen, even for text that looks
     /// like something else.
     func testAChosenSourceIsNotSecondGuessed() {
