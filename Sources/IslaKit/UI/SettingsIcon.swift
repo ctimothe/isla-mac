@@ -29,6 +29,9 @@ enum SettingsIcon {
     static let shortcutLyrics = "text.quote"
     static let shortcutTranslate = "translate"
     static let restoreShortcuts = "arrow.uturn.backward"
+    /// The Prompter's two keys: start, pause or resume; and stop.
+    static let shortcutPrompterToggle = "playpause"
+    static let shortcutPrompterStop = "stop"
 
     // Screenshots
     static let saveScreenshots = "square.and.arrow.down"
@@ -93,6 +96,25 @@ enum SettingsIcon {
     /// About recording, not about whether a person can see the panel.
     static let hideFromRecording = "video.slash"
 
+    // Prompter
+    /// The tab's own glyph (`NotchViewModel.Tab.prompter`), so the feature
+    /// reads as the same feature in the rail and here.
+    static let prompter = "scroll"
+    static let prompterSpeed = "speedometer"
+    static let prompterTextSize = "textformat.size"
+    static let prompterFont = "textformat"
+    static let prompterHighlight = "highlighter"
+    static let prompterCueColor = "paintpalette"
+    static let prompterCueBrightness = "sun.min"
+    static let prompterReadingPosition = "arrow.up.and.down.text.horizontal"
+    static let prompterColumnWidth = "text.justify.leading"
+    static let prompterDividers = "paragraphsign"
+    static let prompterLastSpoken = "captions.bubble"
+    static let prompterElapsed = "timer"
+    static let prompterKeepAwake = "display"
+    static let prompterAutoNext = "arrow.turn.down.right"
+    static let prompterAutoNextDelay = "hourglass"
+
     // Application
     static let about = "info.circle"
     /// Examining the app's state, which is what the report is.
@@ -106,11 +128,15 @@ enum SettingsIcon {
     static let all: [String] = [
         launchAtLogin, openOnHover, hoverDelay, panelWidth, showCharging, showHeadphones,
         shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
+        shortcutPrompterToggle, shortcutPrompterStop,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, readAhead, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
         online, lyricTiming, resetTiming, peek, lockScreen, cardStyle, automationAccess, openSystemSettings,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, clipboardHistory, translate, hideFromRecording,
+        prompter, prompterSpeed, prompterTextSize, prompterFont, prompterHighlight, prompterCueColor,
+        prompterCueBrightness, prompterReadingPosition, prompterColumnWidth, prompterDividers,
+        prompterLastSpoken, prompterElapsed, prompterKeepAwake, prompterAutoNext, prompterAutoNextDelay,
         about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,
     ]
 }

@@ -200,6 +200,7 @@ same_in_every_language = {
     "AirDrop": "Apple's own product name, left in Latin script by Apple's Russian UI",
     "Spotify": "a brand name",
     "Isla %@": "the product name and a format value",
+    "OpenDyslexic": "a typeface the user installs, listed under its own Latin name in every language",
 }
 for locale in others:
     _, other_values = tables[locale]

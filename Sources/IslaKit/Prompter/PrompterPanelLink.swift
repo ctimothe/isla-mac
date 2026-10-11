@@ -139,6 +139,10 @@ struct PrompterPanelHooks {
     /// has to count.
     var displayShare: @MainActor () -> PrompterDisplayShare? = { nil }
     var present: @MainActor (PrompterPresentation) -> Void = { _ in }
+    /// Settings' switch row. Goes to the feature (`PrompterFeature.set`), which
+    /// stops a live session, flushes the library and tells the hot keys in its
+    /// own fixed order; the model only follows (`NotchViewModel.follow`).
+    var setSwitch: @MainActor (Bool) -> Void = { _ in }
 }
 
 // MARK: - Parts

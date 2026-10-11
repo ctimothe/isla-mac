@@ -1132,6 +1132,8 @@ struct NotchContentView: View {
                 dismissUnassignedLyricsOffset: vm.dismissUnassignedLyricsOffset,
                 privacy: vm.privacy,
                 prompterEnabled: vm.prompterEnabled,
+                prompterParts: vm.prompterParts,
+                setPrompterEnabled: { vm.prompterHooks.setSwitch($0) },
                 wantsKeyboard: $vm.wantsKeyboard,
                 setClipboardHistory: vm.setClipboardHistory,
                 refreshClipboardPolling: vm.refreshClipboardPolling,

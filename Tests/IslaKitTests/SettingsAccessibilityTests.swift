@@ -12,11 +12,13 @@ import XCTest
 /// as loose buttons rather than one choice of several.
 @MainActor
 final class SettingsAccessibilityTests: XCTestCase {
-    /// The nine section titles, in the order the pane draws them. Privacy
-    /// second since SET-03 (H-003): see `SettingsWayfindingTests`.
+    /// The ten section titles, in the order the pane draws them. Privacy
+    /// second since SET-03 (H-003): see `SettingsWayfindingTests`. Prompter is
+    /// always a section, because its switch is how the feature is turned on;
+    /// the rest of its rows are the Prompter tests' (`PrompterSettingsPaneTests`).
     private static let sectionTitles = [
         "General", "Privacy", "Keyboard Shortcuts", "Music", "Lock Screen",
-        "Translate", "Spotify", "Screenshots", "Application",
+        "Translate", "Prompter", "Spotify", "Screenshots", "Application",
     ]
 
     private func probePane(height: CGFloat = 1400) async -> (AXNode, ProbeStores) {
@@ -42,7 +44,7 @@ final class SettingsAccessibilityTests: XCTestCase {
     }
 
     /// Each section title is a heading named in title case, so the rotor can
-    /// jump between the nine of them and VoiceOver does not spell out the
+    /// jump between the ten of them and VoiceOver does not spell out the
     /// drawn small caps.
     func testSectionTitlesAreHeadings() async {
         let (root, isolated) = await probePane()

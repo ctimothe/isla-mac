@@ -532,3 +532,15 @@ Whether paused time counts toward the elapsed readout was left to the stage task
 14. **Reduce Motion** removes the scroll's animation entirely (10.3: "an immediate move"), not the reduced ease the rest of the panel uses for travel.
 15. **The capture chip reads "Hidden from screen sharing" or "Visible in screen sharing"** (the design note's wording; 5.1's "Visible when sharing" belongs to the tab, T10). It shows the setting, never a promise, and is not a control.
 16. **Slower and Faster write `prompter.speed`**, which reaches the running clock through the settings' change stream, so the stage and Settings never disagree about the speed.
+
+### 20.5 Settings section (`PrompterSettingsRows`, `SettingsQuitButton`, T9)
+
+1. **The section is always there; its rows are not.** The Prompter section's switch row (`Show Prompter`) and its one-sentence note are drawn whatever the switch says; every other row, the two shortcut rows and the Cover Prompter Text row exist only while it is on. The pane asks `HotKeyCenter.isAvailable` for the shortcut rows rather than a second flag, so Settings and the registered keys cannot disagree. The row asks the feature for the change (`PrompterPanelHooks.setSwitch`, `PrompterFeature.set`) and writes nothing itself.
+2. **No guidance-mode row in release 1.** 5.3 lists "guidance mode default", but `PrompterGuidanceMode` has one case, so the row would be a choice of one. It arrives with Voice-Activated. Microphone and speech rows are releases 2 and 3 and are likewise absent.
+3. **Last Spoken Words is drawn dimmed** with the reason "Needs Word Tracking, which is not available yet": 5.3 lists it and the setting exists, but nothing in release 1 reads it.
+4. **Auto-Next Delay is dimmed until Auto-Next Page is on**, with the reason on the row.
+5. **Highlight and cue colours are dots, not words.** Six Russian colour names do not fit the narrowest pane (396 pt row at 480 pt). The word stays each option's accessibility name.
+6. **Russian font names are chosen for width** (Гротеск, Антиква, Моно, "OpenDyslexic (не найден)"); the owner approves the terms with the rest of the glossary. `testRussianRowsFitTheNarrowestPane` measures every choice row.
+7. **Quit already asked twice in every case** (footer, `H-003`); it still does. During a session that holds the panel its armed word becomes "Stop Prompter and Quit" so the second press says what it does. Quitting ends the session in `NotchController.teardown()` (20.3 #12).
+8. **Reset Prompter Settings** removes exactly `PrompterSettings.Key.settings` (never `prompter.enabled`) and does not touch the library.
+9. **Diagnostics** reports `switch`, `scripts`, `pages` and `library` (ready, not loaded, newer version, unreadable) as counts and states; with the switch off it reports the switch alone and is handed no library.

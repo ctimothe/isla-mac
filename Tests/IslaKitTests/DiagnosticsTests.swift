@@ -108,4 +108,88 @@ final class DiagnosticsTests: XCTestCase {
     func testTheReportFormIsOnTheProjectsTracker() {
         XCTAssertTrue(Diagnostics.reportURL.absoluteString.hasPrefix(ProductIdentity.homepage + "/issues/new"))
     }
+
+    // MARK: - The Prompter (spec 14.5)
+
+    private func prompterParts(titles: [(String, [String])] = []) throws -> PrompterParts {
+        let time = StageTime()
+        let library = PrompterLibrary(io: StageFileIO(), scheduler: StageScheduler(time: time))
+        library.load()
+        for (title, pages) in titles { _ = try library.addScript(title: title, pages: pages) }
+        return PrompterParts(
+            settings: PrompterSettings(defaults: InMemoryDefaults()),
+            library: library,
+            session: PrompterSession(now: { time.now }, scheduler: StageScheduler(time: time), keepAwake: StageLease())
+        )
+    }
+
+    /// Off, the report says only that: there is no library to count, and
+    /// nothing else of the Prompter is listed.
+    func testTheReportSaysOnlyThatThePrompterIsOffWhileItIs() {
+        let rows = Diagnostics.prompterReport(nil)
+        XCTAssertEqual(rows.map(\.0), ["switch"])
+        XCTAssertEqual(rows.map(\.1), ["off"])
+        let text = Diagnostics.render(sample())
+        XCTAssertTrue(text.contains("Prompter\n  switch: off\n"), text)
+        XCTAssertFalse(text.contains("scripts:"), text)
+    }
+
+    /// On, it reports counts and the library's state, and no script text and
+    /// no title: scripts are what a speaker would least want in a bug report.
+    func testTheReportCountsScriptsAndPagesAndNeverTheirWords() throws {
+        let parts = try prompterParts(titles: [
+            ("Quarterly Secret Plan", ["launch the hidden thing", "second page text"]),
+            ("Untitled", ["only page"]),
+        ])
+        let rows = Diagnostics.prompterReport(parts)
+        XCTAssertEqual(rows.first?.0, "switch")
+        XCTAssertEqual(rows.first?.1, "on")
+        XCTAssertTrue(rows.contains { $0 == ("scripts", "2") }, "\(rows)")
+        XCTAssertTrue(rows.contains { $0 == ("pages", "3") }, "\(rows)")
+        XCTAssertTrue(rows.contains { $0 == ("library", "ready") }, "\(rows)")
+
+        var snapshot = sample()
+        snapshot.prompter = rows
+        let text = Diagnostics.render(snapshot)
+        XCTAssertTrue(text.contains("  scripts: 2"), text)
+        for secret in ["Quarterly", "Secret", "hidden thing", "second page", "Untitled", "only page"] {
+            XCTAssertFalse(text.contains(secret), "\(secret) leaked\n\(text)")
+        }
+    }
+
+    /// A library that could not be read is a state worth reporting, with the
+    /// count left at what is known (nothing), not a crash or a guess.
+    func testAnUnreadableLibraryIsNamedNotCounted() {
+        final class Garbage: PrompterFileIO {
+            func exists() -> Bool { true }
+            func read() throws -> Data { Data("{ not json, but a private script".utf8) }
+            func writeAtomically(_ data: Data) throws {}
+            func copyAside(as name: String) throws -> String { name }
+        }
+        let time = StageTime()
+        let library = PrompterLibrary(io: Garbage(), scheduler: StageScheduler(time: time))
+        library.load()
+        let parts = PrompterParts(
+            settings: PrompterSettings(defaults: InMemoryDefaults()), library: library,
+            session: PrompterSession(now: { time.now }, scheduler: StageScheduler(time: time), keepAwake: StageLease())
+        )
+        let rows = Diagnostics.prompterReport(parts)
+        XCTAssertTrue(rows.contains { $0 == ("library", "unreadable") }, "\(rows)")
+        XCTAssertTrue(rows.contains { $0 == ("scripts", "0") }, "\(rows)")
+        XCTAssertFalse("\(rows)".contains("private script"))
+    }
+
+    /// The live snapshot takes the Prompter's parts, nil while the switch is
+    /// off, and never reads a library to say so.
+    func testTheLiveReportCarriesThePrompterSection() throws {
+        let media = MediaController()
+        let off = Diagnostics.render(Diagnostics.current(media: media, hotKeys: HotKeyCenter(defaults: InMemoryDefaults(), registrar: { _, _ in nil }), includeLog: false))
+        XCTAssertTrue(off.contains("Prompter\n  switch: off"), off)
+        let on = Diagnostics.render(Diagnostics.current(
+            media: media, hotKeys: HotKeyCenter(defaults: InMemoryDefaults(), registrar: { _, _ in nil }),
+            prompter: try prompterParts(titles: [("T", ["a b"])]), includeLog: false
+        ))
+        XCTAssertTrue(on.contains("  switch: on"), on)
+        XCTAssertTrue(on.contains("  scripts: 1"), on)
+    }
 }

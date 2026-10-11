@@ -29,9 +29,24 @@ struct SettingsPane: View {
     var clearBindingsAndTimingCorrections: () -> Void = {}
     var dismissUnassignedLyricsOffset: (String) -> Void = { _ in }
     @ObservedObject var privacy: PrivacyMode
-    /// Whether the Prompter's switch is on, for the one thing this pane owes
-    /// it so far: its cover row appears only then. T9 adds the section.
+    /// Whether the Prompter's switch is on. The section's one always-present
+    /// row is the switch; every other row of it, its shortcuts and its cover
+    /// row exist only while this is true (spec 4: absent, not hidden).
     var prompterEnabled = false
+    /// What the Prompter's rows read and write, nil while the switch is off:
+    /// the feature builds nothing for a switch that is off, and the pane takes
+    /// that as given rather than building a second copy of the settings.
+    var prompterParts: PrompterParts? = nil
+    /// Asks the feature for the change (`PrompterFeature.set`). The feature,
+    /// not this row, owns the order of a change: stopping a live session
+    /// before the surfaces go, flushing the library, telling the hot keys.
+    var setPrompterEnabled: (Bool) -> Void = { _ in }
+    /// Whether OpenDyslexic is installed, for the "not installed" note. A seam
+    /// so a test does not depend on what the runner's Mac has.
+    var prompterFontInstalled: (PrompterFontFamily) -> Bool = PrompterFontResolver.isInstalled
+    /// What Quit does once it is confirmed. A seam: a test cannot terminate
+    /// the process that is running it.
+    var quit: () -> Void = { NSApp.terminate(nil) }
     /// The panel's claim on the keyboard, which recording a shortcut needs.
     var wantsKeyboard: Binding<Bool> = .constant(false)
     @ObservedObject var hotKeys: HotKeyCenter = .shared
@@ -284,9 +299,7 @@ struct SettingsPane: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(PanelButtonStyle())
-            ConfirmTextButton(title: localized("Quit"), armedTitle: localized("Quit Isla")) {
-                NSApp.terminate(nil)
-            }
+            SettingsQuitButton(session: prompterParts?.session, quit: quit)
         }
         .padding(.horizontal, 8)
         .frame(height: Self.footerHeight)
@@ -451,6 +464,17 @@ struct SettingsPane: View {
                         action: .translateClipboard, symbol: SettingsIcon.shortcutTranslate,
                         center: hotKeys, wantsKeyboard: wantsKeyboard
                     )
+                    // The Prompter's keys exist only while its switch is on, so
+                    // the rows are asked of the center, which is what decides it
+                    // (`HotKeyCenter.setFeature`), and not of a second flag.
+                    ForEach(HotKeyAction.allCases.filter { $0.feature == .prompter && hotKeys.isAvailable($0) }) { action in
+                        ShortcutRecorderRow(
+                            action: action,
+                            symbol: action == .prompterToggle
+                                ? SettingsIcon.shortcutPrompterToggle : SettingsIcon.shortcutPrompterStop,
+                            center: hotKeys, wantsKeyboard: wantsKeyboard
+                        )
+                    }
                     ForEach(HotKeyAction.allCases.filter { hotKeys.refused.contains($0) }) { action in
                         noteRow(localized(
                             "macOS would not register %@. Choose another shortcut.",
@@ -728,6 +752,21 @@ struct SettingsPane: View {
                     }
                 }
 
+                // Optional, off by default, and absent while off: the switch
+                // and its sentence are all this section shows until the
+                // feature is turned on (Prompter spec 4, 5.3).
+                section(localized("Prompter")) {
+                    toggleRow(
+                        symbol: SettingsIcon.prompter,
+                        title: localized("Show Prompter"),
+                        isOn: Binding(get: { prompterEnabled }, set: { setPrompterEnabled($0) })
+                    )
+                    noteRow(localized("Show a script in the island and move it along as you read."))
+                    if prompterEnabled, let parts = prompterParts {
+                        PrompterSettingsRows(settings: parts.settings, fontInstalled: prompterFontInstalled)
+                    }
+                }
+
                 section(localized("Spotify")) {
                     // Notes are inline, never a toast: the person acted on this
                     // section, so this section answers (one failure surface).
@@ -802,7 +841,7 @@ struct SettingsPane: View {
                     ) {
                         collectingDiagnostics = true
                         Task { @MainActor in
-                            await Diagnostics.copyToPasteboard(media: media)
+                            await Diagnostics.copyToPasteboard(media: media, prompter: prompterParts)
                             collectingDiagnostics = false
                             let copied = Date()
                             diagnosticsCopied = copied
@@ -1238,7 +1277,7 @@ struct SettingsPane: View {
 
 // MARK: - Dependent rows
 
-private extension View {
+extension View {
     @ViewBuilder
     func reasonHelp(_ reason: String?) -> some View {
         if let reason { self.help(reason).accessibilityHint(reason) } else { self }
@@ -1636,6 +1675,15 @@ struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
     let options: [Option]
     @Binding var selection: Option
     let optionTitle: (Option) -> String
+    /// Draws an option as a colour dot instead of its word, for a row whose
+    /// options are colours: six names in Russian are wider than the pane at
+    /// its narrowest, and a colour is read faster as the colour. The word stays
+    /// the option's accessibility name, in the radio group below.
+    var swatch: ((Option) -> Color)? = nil
+    /// Why the row is dimmed, when it is (the dimming itself is the caller's,
+    /// `disabledWithReason`). Said on the radio group, because the help set
+    /// outside an `accessibilityRepresentation` does not reach it.
+    var reason: String? = nil
 
     /// One line when the title and the capsules both fit, the capsules under
     /// the title when they do not. The new Show Next Line Early row, with
@@ -1670,11 +1718,12 @@ struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
         .accessibilityRepresentation {
             Picker(title, selection: $selection) {
                 ForEach(options) { option in
-                    Text(optionTitle(option)).tag(option)
+                    Text(optionTitle(option)).tag(option).reasonHelp(reason)
                 }
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
+            .reasonHelp(reason)
         }
     }
 
@@ -1684,13 +1733,27 @@ struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
             .foregroundStyle(.white)
     }
 
+    @ViewBuilder
+    private func optionLabel(_ option: Option) -> some View {
+        if let swatch {
+            Circle()
+                .fill(swatch(option))
+                .frame(width: 12, height: 12)
+                // A defined edge, so a dark tint is still a dot on the capsule.
+                .overlay(Circle().strokeBorder(Theme.hairline, lineWidth: 1))
+                .padding(.vertical, 1)
+        } else {
+            Text(optionTitle(option))
+        }
+    }
+
     private var capsules: some View {
         let increaseContrast = SystemAppearance.shared.increaseContrast
         return HStack(spacing: 2) {
             ForEach(options) { option in
                 let isSelected = option == selection
                 Button { selection = option } label: {
-                    Text(optionTitle(option))
+                    optionLabel(option)
                         .islandFont(.body)
                         // Raised to clear 4.5:1 over the fills it really
                         // sits on, which the base ramp does not (3.26:1

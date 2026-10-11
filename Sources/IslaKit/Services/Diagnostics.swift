@@ -49,6 +49,10 @@ enum Diagnostics {
         var pasteFromOtherApps: ClipboardAccess = .unknown
         var settings: [(String, String)]
         var shortcuts: [(String, String)]
+        /// The Prompter's switch and, while it is on, counts: never a title
+        /// or a word of a script (spec 14.5). Off by default so a snapshot
+        /// nobody told about the Prompter says only that.
+        var prompter: [(String, String)] = [("switch", "off")]
         var log: [String]
     }
 
@@ -81,6 +85,9 @@ enum Diagnostics {
         lines.append("Shortcuts")
         for (name, value) in snapshot.shortcuts { lines.append("  \(name): \(value)") }
         lines.append("")
+        lines.append("Prompter")
+        for (name, value) in snapshot.prompter { lines.append("  \(name): \(value)") }
+        lines.append("")
         lines.append("Log (last 30 minutes)")
         if snapshot.log.isEmpty { lines.append("  nothing logged") }
         lines.append(contentsOf: snapshot.log.map { "  " + $0 })
@@ -88,6 +95,32 @@ enum Diagnostics {
     }
 
     private static func yesNo(_ value: Bool) -> String { value ? "yes" : "no" }
+
+    /// What the report says about the Prompter (spec 14.5): the switch and,
+    /// while it is on, how many scripts and pages exist and whether the library
+    /// could be read. `parts` is nil exactly while the switch is off, so the
+    /// off report is built without a library to ask: nothing is read to say
+    /// that nothing is there. Counts only. A script is what a speaker would
+    /// least want pasted into a public issue, and its title is as private as
+    /// its words.
+    @MainActor
+    static func prompterReport(_ parts: PrompterParts?) -> [(String, String)] {
+        guard let parts else { return [("switch", "off")] }
+        let library = parts.library
+        let state: String
+        switch library.status {
+        case .notLoaded: state = "not loaded"
+        case .ready: state = "ready"
+        case .newerVersion: state = "newer version"
+        case .unreadable: state = "unreadable"
+        }
+        return [
+            ("switch", "on"),
+            ("scripts", "\(library.scripts.count)"),
+            ("pages", "\(library.scripts.reduce(0) { $0 + $1.pages.count })"),
+            ("library", state),
+        ]
+    }
 
     /// `unknown` is the system's `.default`, which AppKit reports until Isla
     /// has raised its first pasteboard alert (it is not listed in System
@@ -111,6 +144,7 @@ enum Diagnostics {
     static func current(
         media: MediaController, hotKeys: HotKeyCenter? = nil,
         clipboardAccess: ClipboardAccess = ClipboardStore.systemAccess(of: .general),
+        prompter: PrompterParts? = nil,
         includeLog: Bool = true
     ) -> Snapshot {
         let hotKeys = hotKeys ?? .shared
@@ -168,6 +202,7 @@ enum Diagnostics {
             pasteFromOtherApps: clipboardAccess,
             settings: settings,
             shortcuts: shortcuts,
+            prompter: prompterReport(prompter),
             log: includeLog ? recentLog() : []
         )
     }
@@ -181,8 +216,8 @@ enum Diagnostics {
     /// main thread that froze the panel the button sits in. Everything else is
     /// read on the main actor, where it lives, before the hop.
     @MainActor
-    static func copyToPasteboard(media: MediaController) async {
-        var snapshot = current(media: media, includeLog: false)
+    static func copyToPasteboard(media: MediaController, prompter: PrompterParts? = nil) async {
+        var snapshot = current(media: media, prompter: prompter, includeLog: false)
         snapshot.log = await Task.detached(priority: .userInitiated) { recentLog() }.value
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()

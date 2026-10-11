@@ -1210,7 +1210,8 @@ final class NotchController {
         vm.prompterHooks = PrompterPanelHooks(
             screensAsleep: { [weak self] in self?.screensAreAsleep ?? true },
             displayShare: { [weak self] in self?.prompterDisplayShare() },
-            present: { [weak self] presentation in self?.presentPrompter(presentation) }
+            present: { [weak self] presentation in self?.presentPrompter(presentation) },
+            setSwitch: { [weak self] enabled in self?.prompterFeature?.set(enabled) }
         )
         // Before any rect is cut. The tab decides how far down the panel
         // reaches, and restoring it afterwards left every rect cut for the
