@@ -13,7 +13,14 @@ extension MediaController {
     /// `testAFilmOverAPausedSongKeepsTheSong` on the runner only. Each seam
     /// answers "not asked" here unless a test says otherwise, and the Spotify
     /// track-id lookup is switched off, since the fixtures name Spotify.
+    ///
+    /// The fixtures model a Mac that already allows Isla to script both
+    /// players, so a closed panel asks what it always asked. What changes when
+    /// it does not — nothing asked until the panel opens, nothing over the
+    /// lock card, nothing once refused — is `AutomationConsentTests`' to pin.
     func isolateFromPlayers() {
+        automationConsent = { _ in .allowed }
+        spotifyTrackIDLookup = { _ in }
         heldPlayerState = { (_: PlayerApp, reply: @escaping (PlayerBridge.StateReply) -> Void) in reply(.unknown) }
         loadedSong = { (reply: @escaping (PlayerState?) -> Void) in reply(nil) }
         heldArtwork = { (_: PlayerState, reply: @escaping (NSImage?) -> Void) in reply(nil) }

@@ -209,6 +209,29 @@ Screenshots keeps the poll alive. S7 decides whether the capture note
 becomes a stronger warning or, if every path honours `.none`, a firmer
 sentence.
 
+Amended 2026-10-11 (G-005, J-003, K-014, K-016; ms/MS-02): the Automation
+note above promised that nothing is requested at launch, and three paths
+broke it. The Spotify track-id lookup ran on every track with the panel
+closed, the scripting fallback read every running player the moment it took
+over, and the search for a song under a film asked the players whenever a
+film appeared. Isla now sends no background Apple Event to a player unless
+macOS already allows it (`AutomationAccess`, checked read-only with
+`AEDeterminePermissionToAutomateTarget` at launch and on every panel open,
+and corrected by every script's outcome). The prompt appears the first time
+the panel opens on Music or Spotify, never at launch and never over the lock
+screen, where the card asks a player only what is already allowed. A tap on
+play, pause or skip is the user's own action and is not gated. Once access is
+refused (-1743), the background stops asking, which ends the once-a-second
+position poll that logged an error for every refusal. With no Spotify account
+connected, no track-id lookup is made at all, since the lock-card heart is the
+id's only reader. The id usually comes from Spotify's own playback
+announcement, which needs no permission, and a scripted id is accepted only
+when its name and artist match the song on screen. No per-track catalogue
+request (`GET /v1/tracks/{id}`) is made any more: its ISRC and exact duration
+had no reader. Accepted cost: right after a fresh grant, the heart can be
+missing on the lock card until Spotify's first play, pause or skip. Live
+check: session S2 (`docs/audits/2026-10-11-live-validation-script.md`).
+
 ## Manual parity gates
 
 - [ ] Every tab passes its workflow on a clean macOS account.

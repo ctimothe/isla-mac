@@ -67,7 +67,7 @@ enum PlayerBridge {
 
     static func stateReply(of app: PlayerApp, completion: @escaping (StateReply) -> Void) {
         guard app.isRunning else { return completion(.empty) }
-        runScript(Script.state(for: app)) { descriptor in
+        runScript(Script.state(for: app), app: app) { descriptor in
             completion(descriptor?.stringValue.map { interpret($0, app: app) } ?? .unknown)
         }
     }
@@ -78,14 +78,44 @@ enum PlayerBridge {
         }
     }
 
-    /// The Spotify catalogue id of the current track ("spotify:track:…" →
-    /// the bare id). The licensed broker can use it to refine a match.
-    static func spotifyTrackID(completion: @escaping @MainActor (String?) -> Void) {
-        runScript(Script.spotifyTrackID) { result in
-            MainActor.assumeIsolated {
-                let raw = result?.stringValue ?? ""
-                completion(raw.hasPrefix("spotify:track:") ? String(raw.dropFirst("spotify:track:".count)) : nil)
+    /// What Spotify said when asked which track it is playing.
+    ///
+    /// Three answers, not two. An episode, an ad or a local file is a real
+    /// answer with no catalogue track behind it; read as "no answer", it was
+    /// asked again at 1, 2, 4 and 8 seconds, five Apple Events for an id that
+    /// does not exist (K-014). And the name and artist come back with the id,
+    /// because MediaRemote trails Spotify by about a second: right after a
+    /// skip the script names the next song while the island still shows the
+    /// last one, and the id must not attach to the wrong title (K-016).
+    enum SpotifyTrackLookup: Equatable {
+        case track(id: String, name: String, artist: String)
+        case notATrack
+        case noAnswer
+
+        private static let trackPrefix = "spotify:track:"
+
+        static func parse(_ raw: String?) -> SpotifyTrackLookup {
+            guard let raw, !raw.isEmpty else { return .noAnswer }
+            let parts = raw.components(separatedBy: "\u{1}")
+            let uri = parts[0]
+            if uri.hasPrefix(trackPrefix) {
+                let id = String(uri.dropFirst(trackPrefix.count))
+                guard !id.isEmpty else { return .noAnswer }
+                return .track(
+                    id: id,
+                    name: parts.count > 1 ? parts[1] : "",
+                    artist: parts.count > 2 ? parts[2] : ""
+                )
             }
+            return uri.hasPrefix("spotify:") ? .notATrack : .noAnswer
+        }
+    }
+
+    /// The Spotify catalogue id of the current track, with the name and
+    /// artist it belongs to. The lock-card heart is its only reader.
+    static func spotifyTrackID(completion: @escaping @MainActor (SpotifyTrackLookup) -> Void) {
+        runScript(Script.spotifyTrackID, app: .spotify) { result in
+            MainActor.assumeIsolated { completion(.parse(result?.stringValue)) }
         }
     }
 
@@ -95,7 +125,7 @@ enum PlayerBridge {
         of app: PlayerApp,
         completion: @escaping @MainActor (TimeInterval?) -> Void
     ) {
-        runScript(Script.position(of: app), priority: .pollable) { result in
+        runScript(Script.position(of: app), app: app, priority: .pollable) { result in
             MainActor.assumeIsolated {
                 completion(result?.stringValue.flatMap { TimeInterval($0.replacingOccurrences(of: ",", with: ".")) })
             }
@@ -104,9 +134,14 @@ enum PlayerBridge {
 
     /// Never launches a player: only already-running ones are queried, and a
     /// playing app wins over a merely-open one. See `choose(among:prefer:)`
-    /// for what `preferred` buys.
-    static func currentState(prefer preferred: PlayerApp? = nil, completion: @escaping (PlayerState?) -> Void) {
-        let candidates = PlayerApp.allCases.filter(\.isRunning)
+    /// for what `preferred` buys. `asking` leaves out a player that may not be
+    /// asked now (`MediaController.mayScript`), so its prompt is not raised.
+    static func currentState(
+        prefer preferred: PlayerApp? = nil,
+        asking: (PlayerApp) -> Bool = { _ in true },
+        completion: @escaping (PlayerState?) -> Void
+    ) {
+        let candidates = PlayerApp.allCases.filter { $0.isRunning && asking($0) }
         guard !candidates.isEmpty else { return completion(nil) }
 
         var results: [PlayerState] = []
@@ -152,7 +187,7 @@ enum PlayerBridge {
             Task { @MainActor in completion(nil) }
             return
         }
-        runScript(Script.playbackModes(of: app), priority: .pollable) { result in
+        runScript(Script.playbackModes(of: app), app: app, priority: .pollable) { result in
             MainActor.assumeIsolated {
                 guard let raw = result?.stringValue else { return completion(nil) }
                 let parts = raw.split(separator: "|").map(String.init)
@@ -215,7 +250,7 @@ enum PlayerBridge {
     /// sent against a state the island misread lands backwards.
     static func send(_ action: Transport, to app: PlayerApp) {
         guard app.isRunning else { return }
-        runScript(Script.command(action.body(for: app), on: app), priority: .transport) { _ in }
+        runScript(Script.command(action.body(for: app), on: app), app: app, priority: .transport) { _ in }
     }
 
     /// System-wide media key, used when no scriptable player is running.
@@ -259,7 +294,7 @@ enum PlayerBridge {
                 DispatchQueue.main.async { completion(image) }
             }.resume()
         case .music:
-            runScript(Script.musicArtwork) { descriptor in
+            runScript(Script.musicArtwork, app: .music) { descriptor in
                 guard let data = descriptor?.data, !data.isEmpty else { return completion(nil) }
                 completion(NSImage(data: data))
             }
@@ -327,9 +362,11 @@ enum PlayerBridge {
         }
 
         static let spotifyTrackID = """
+        \(separator)
         tell application id "\(PlayerApp.spotify.bundleID)"
             if it is running then
-                return (id of current track as text)
+                set currentTrackRef to current track
+                return (id of currentTrackRef as text) & fieldSeparator & (name of currentTrackRef) & fieldSeparator & (artist of currentTrackRef)
             end if
         end tell
         """
@@ -485,8 +522,30 @@ enum PlayerBridge {
     /// the run until someone answered it.
     static let isRunningTests = NSClassFromString("XCTestCase") != nil
 
+    /// The one number a script run says about Automation consent.
+    ///
+    /// An AppleScript error carries it directly. The state scripts catch
+    /// their own errors and return them as text — "error", then the number —
+    /// so a refusal inside one arrives as a successful run whose answer is
+    /// that string, and is read from there. Anything else is an answer, and
+    /// an answer means the event got through.
+    static func outcome(errorNumber: Int?, result: String?) -> OSStatus {
+        if let errorNumber, errorNumber != 0 { return OSStatus(truncatingIfNeeded: errorNumber) }
+        if let result {
+            let parts = result.components(separatedBy: "\u{1}")
+            if parts.first == "error", parts.count > 1, let code = Int(parts[1]) {
+                return OSStatus(truncatingIfNeeded: code)
+            }
+        }
+        return OSStatus(noErr)
+    }
+
+    /// Runs one script against `app` and tells `AutomationAccess` what the
+    /// outcome said about consent, so a refusal stops the background asking
+    /// and a grant lets it ask again without waiting for the next check.
     static func runScript(
         _ source: String,
+        app: PlayerApp,
         priority: Priority = .background,
         completion: @escaping (NSAppleEventDescriptor?) -> Void
     ) {
@@ -508,12 +567,17 @@ enum PlayerBridge {
             var error: NSDictionary?
             let result = script(for: source, cacheable: priority != .transport)?
                 .executeAndReturnError(&error)
-            if let error, let code = error[NSAppleScript.errorNumber] as? Int, code != 0 {
+            let errorNumber = error?[NSAppleScript.errorNumber] as? Int
+            if let error, let code = errorNumber, code != 0 {
                 // The message can echo a value from the script, a track name
                 // among them, so only the code is public.
                 Log.media.error("AppleScript error \(code, privacy: .public): \(String(describing: error[NSAppleScript.errorMessage] ?? ""), privacy: .private)")
             }
-            DispatchQueue.main.async { completion(result) }
+            let said = PlayerBridge.outcome(errorNumber: errorNumber, result: result?.stringValue)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { AutomationAccess.shared.learn(app, outcome: said) }
+                completion(result)
+            }
         }
     }
 

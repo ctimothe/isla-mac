@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// Now Playing for whatever the system is playing — browser tabs included.
 ///
@@ -458,9 +459,107 @@ final class MediaController: ObservableObject {
     /// Whether the panel is open — the ticker below runs only then.
     private var isActive = false
 
+    // MARK: - Automation consent
+
+    /// What is showing the clock while it is active.
+    ///
+    /// Two surfaces activate it, and they differ in the one thing that matters
+    /// here: a system prompt raised over the lock card sits under the shield,
+    /// where nobody can answer it. Only the panel may raise the first one.
+    enum Surface { case panel, lockCard }
+    private var surface: Surface = .panel
+
+    /// Where macOS stands on scripting a player. Production reads
+    /// `AutomationAccess`; tests pin it, since a test must never reach a real
+    /// player or TCC.
+    var automationConsent: (PlayerApp) -> AutomationConsent = { app in
+        MainActor.assumeIsolated { AutomationAccess.shared.status(app) }
+    }
+
+    /// Whether a Spotify account is connected. The track id exists for the
+    /// lock-card heart alone, and the heart is drawn only for a connected
+    /// account, so without one the lookup was an Apple Event for nothing.
+    var spotifyAccountConnected: () -> Bool = {
+        MainActor.assumeIsolated { SpotifyAccount.shared.isConnected }
+    }
+
+    /// Asks Spotify which track it is playing. A seam so a test can count the
+    /// questions: under test the bridge answers nothing, so a lookup sent at
+    /// the wrong moment was invisible until it could be counted.
+    var spotifyTrackIDLookup: (@escaping @MainActor (PlayerBridge.SpotifyTrackLookup) -> Void) -> Void = { reply in
+        PlayerBridge.spotifyTrackID(completion: reply)
+    }
+
+    /// Whether a background question may be sent to `app` now.
+    ///
+    /// Isla launched at login with Spotify playing and the panel closed, and
+    /// "Isla wants to control Spotify" appeared unprompted, with nothing on
+    /// screen to say what Isla was (G-005). The fallback did the same for
+    /// every running player at launch (J-003). So: a player macOS already
+    /// allows is asked as before; a refused one is never asked from the
+    /// background, which also ends the once-a-second -1743 the position poll
+    /// logged after a refusal (K-014); and one that would prompt is asked
+    /// only once the panel is open, the moment the prompt is in context. Not
+    /// on the lock card, which activates the clock too.
+    ///
+    /// A tap is not gated: it is the user's own action, and its prompt
+    /// arrives in context by definition.
+    private func mayScript(_ app: PlayerApp) -> Bool {
+        let consent = automationConsent(app)
+        if consent == .allowed { return true }
+        return consent != .denied && isActive && surface == .panel
+    }
+
+    private var mayScriptAnyPlayer: Bool {
+        PlayerApp.allCases.contains { mayScript($0) }
+    }
+
+    /// A question about a held song that consent kept back, so the panel
+    /// opening — or the grant arriving — asks it then. Without it a song
+    /// paused under a film while the panel was shut opened still reading as
+    /// playing, because the one question that would have said so was skipped.
+    private var owedPlayerQuestion = false
+
+    /// Asks what consent kept back, now that it may be asked. Each question
+    /// carries its own gate, so this asks nothing a surface may not.
+    private func payOwedQuestions() {
+        updatePrecisionSync()
+        if spotifyTrackID == nil, let key = track?.key {
+            requestSpotifyTrackID(for: key, playerPID: displayedPlayerPID, attempt: 0)
+        }
+        if owedPlayerQuestion {
+            if isHolding {
+                syncHeldPlayer()
+            } else if searchedUnder != nil, track == nil {
+                adoptLoadedSong()
+            }
+        }
+        if !feedAvailable { refreshFromPlayers() }
+    }
+
+    private var consentWatch: AnyCancellable?
+
+    /// The consent changed: a prompt answered, a refusal learnt from a
+    /// script, or the read-only check at launch. The last is what lets a Mac
+    /// that already allows Isla get its heart without opening anything; a
+    /// refusal stops the position poll at once rather than on its next tick.
+    func automationConsentChanged() {
+        payOwedQuestions()
+        if isActive { refreshPlaybackModes() }
+    }
+
     // MARK: - Lifecycle
 
     func start() {
+        // Read-only, never a prompt: whether macOS already allows each running
+        // player, so a Mac that granted access keeps everything it had.
+        // Delivered on the next pass, because `@Published` announces before it
+        // stores and the consent read on delivery must be the new one.
+        consentWatch = AutomationAccess.shared.$consents
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.automationConsentChanged() } }
+        AutomationAccess.shared.refresh()
         feed.onUpdate = { [weak self] snapshot in self?.feedDelivered(snapshot) }
         feed.onUnavailable = { [weak self] reason in self?.switchToScriptingFallback(reason) }
         feed.start()
@@ -515,8 +614,20 @@ final class MediaController: ObservableObject {
     /// Spotify's own announcement, as its fields. Internal so a test can hand
     /// one in without Spotify.
     func receiveSpotifyBroadcast(_ info: [AnyHashable: Any]) {
-        guard displayedPlayerIsSpotify,
-              let position = info["Playback Position"] as? Double else { return }
+        // Remembered whatever is on screen: on a skip the announcement comes
+        // before any report names the new song, so it is the report, when it
+        // catches up, that takes the id from here.
+        if let uri = info["Track ID"] as? String, uri.hasPrefix(Self.spotifyTrackPrefix),
+           let name = info["Name"] as? String, !name.isEmpty {
+            lastSpotifyAnnouncement = SpotifyAnnouncement(
+                id: String(uri.dropFirst(Self.spotifyTrackPrefix.count)),
+                name: name,
+                artist: info["Artist"] as? String ?? ""
+            )
+        }
+        guard displayedPlayerIsSpotify else { return }
+        adoptAnnouncedTrackID()
+        guard let position = info["Playback Position"] as? Double else { return }
         guard pendingSeek == nil else { return }
         if broadcastNamesAnotherSong(info) {
             beginAwaitingTrackChange("Spotify announced another song")
@@ -564,6 +675,7 @@ final class MediaController: ObservableObject {
         fallbackReason = nil
         retryingNowPlaying = false
         isActive = false
+        consentWatch = nil
         precisionTimer?.invalidate()
         precisionTimer = nil
         if let spotifyStateObserver {
@@ -589,9 +701,10 @@ final class MediaController: ObservableObject {
     /// never lost, because the anchor records where it stood and when: opening
     /// computes it from there instantly, and the feed's fresh answer corrects
     /// whatever drifted a beat later.
-    func setActive(_ active: Bool) {
+    func setActive(_ active: Bool, surface: Surface = .panel) {
         trace("setActive \(active ? 1 : 0)")
         isActive = active
+        if active { self.surface = surface }
         // Only a playing track can have moved while the panel was shut. A
         // paused one is exactly where it was left, so what is already known
         // about it stays authoritative — and clearing the flag there stranded
@@ -612,15 +725,18 @@ final class MediaController: ObservableObject {
             }
         }
         updateTicker()
-        updatePrecisionSync()
-        guard active else { return }
+        guard active else { return updatePrecisionSync() }
+        // Every panel open re-reads consent: the user may have changed it in
+        // System Settings, and an update resets it (J-002).
+        if surface == .panel { AutomationAccess.shared.refresh() }
         refreshPlaybackModes()
+        // Whatever consent kept back while nothing was open — the heart's id,
+        // the held song's state, the position poll, the fallback's read — is
+        // asked now, if this surface may ask. The panel may; the lock card
+        // only where macOS already allows it.
+        payOwedQuestions()
         tick()
-        if feedAvailable {
-            feed.refresh()
-        } else {
-            refreshFromPlayers()
-        }
+        if feedAvailable { feed.refresh() }
     }
 
     // MARK: - Shuffle & repeat
@@ -635,6 +751,7 @@ final class MediaController: ObservableObject {
             return
         }
         supportsRepeatOne = app == .music
+        guard mayScript(app) else { return }
         PlayerBridge.playbackModes(of: app) { [weak self] modes in
             guard let self, self.displayedPlayerApp == app else { return }
             self.shuffleEnabled = modes?.shuffle
@@ -712,25 +829,58 @@ final class MediaController: ObservableObject {
 
     /// Asks Spotify which track this is, and asks again if it does not answer.
     ///
-    /// Everything Spotify-specific hangs off this id: the word-synced lyrics
-    /// database is keyed by it, and so is the heart, which is simply not drawn
+    /// The lock-card heart is the id's one reader, and it is simply not drawn
     /// while the id is nil. One attempt was not enough. The very first lookup
-    /// after launch routinely fails — it is the call that triggers macOS's
+    /// after a grant routinely fails — it is the call that triggers macOS's
     /// one-time automation consent, and it returns nothing while the dialog is
     /// still on screen — and a script can also come back empty if Spotify is
     /// mid-track-change. The id then stayed nil for the rest of that track, so
     /// the heart never appeared for the song that happened to be playing at
     /// launch, which is exactly when somebody would look for it.
+    ///
+    /// Spotify's own announcement usually supplies the id first, with no
+    /// Apple Event at all (`adoptAnnouncedTrackID`); this is for the track that
+    /// was playing before any announcement was heard. It asks only where
+    /// `mayScript` lets it, and only for a connected account, since without
+    /// one there is no heart to draw (G-005).
     private func requestSpotifyTrackID(for key: String, playerPID: pid_t?, attempt: Int) {
-        guard displayedPlayerIsSpotify else { return }
-        PlayerBridge.spotifyTrackID { [weak self] id in
-            guard let self,
-                  self.track?.key == key,
-                  self.displayedPlayerPID == playerPID else { return }
-            if let id {
-                self.spotifyTrackID = id
-                Task { [weak self] in await self?.requestSpotifyMetadata(trackID: id, forKey: key) }
+        // The key first: a retry scheduled for a song since skipped asked
+        // Spotify again only to drop the answer.
+        guard track?.key == key, displayedPlayerIsSpotify, spotifyTrackID == nil,
+              spotifyTrackIDLookupKey != key,
+              spotifyAccountConnected(), mayScript(.spotify) else { return }
+        // One question in flight per track. The panel opening and the consent
+        // arriving can both ask for the same missing id a moment apart.
+        spotifyTrackIDLookupKey = key
+        spotifyTrackIDLookup { [weak self] answer in
+            guard let self else { return }
+            if self.spotifyTrackIDLookupKey == key { self.spotifyTrackIDLookupKey = nil }
+            guard self.track?.key == key,
+                  self.displayedPlayerPID == playerPID,
+                  self.spotifyTrackID == nil else { return }
+            switch answer {
+            case let .track(id, name, artist):
+                // MediaRemote trails Spotify by about a second, so right after
+                // a skip the script names the next song while the island still
+                // shows this one. The key guard above cannot see that — it is
+                // still this track's key — and the heart then liked the song
+                // the user had just skipped to (K-016). A mismatch is a
+                // non-answer: asked again, by when the report has caught up or
+                // the key has moved on.
+                if Self.names(self.track, name: name, artist: artist) {
+                    self.spotifyTrackID = id
+                    // No catalogue request follows. One went to the Web API
+                    // for every track, and its ISRC and exact duration had no
+                    // reader (G-005); `requestSpotifyMetadata` stays for the
+                    // lyrics work that may want it.
+                    return
+                }
+            case .notATrack:
+                // An episode, an ad or a local file. It has no id to find, and
+                // asking four more times cost four more Apple Events (K-014).
                 return
+            case .noAnswer:
+                break
             }
             // Backing off, and giving up well before it could become a poll.
             guard attempt < 4 else { return }
@@ -743,13 +893,60 @@ final class MediaController: ObservableObject {
         }
     }
 
+    /// The track whose id is being asked for, while the question is out.
+    private var spotifyTrackIDLookupKey: String?
+
+    private static let spotifyTrackPrefix = "spotify:track:"
+
+    /// Spotify's last announcement that named a catalogue track.
+    private struct SpotifyAnnouncement {
+        var id: String
+        var name: String
+        var artist: String
+    }
+    private var lastSpotifyAnnouncement: SpotifyAnnouncement?
+
+    /// Takes the heart's id from Spotify's own announcement when it names the
+    /// song on screen. The announcement is a distributed notification that
+    /// needs no permission at all, so on a fresh grant — or none — the heart
+    /// usually has its id after the first play, pause or skip without a single
+    /// Apple Event.
+    private func adoptAnnouncedTrackID() {
+        guard spotifyTrackID == nil, displayedPlayerIsSpotify,
+              let announced = lastSpotifyAnnouncement,
+              Self.names(track, name: announced.name, artist: announced.artist) else { return }
+        spotifyTrackID = announced.id
+    }
+
+    /// Whether Spotify's name and artist describe the track on screen.
+    ///
+    /// The name must match, ignoring case and surrounding space. The artist is
+    /// looser: MediaRemote and Spotify's scripting do not always list the same
+    /// performers for a song with several, so one containing the other is a
+    /// match, and an empty side says nothing either way.
+    private static func names(_ track: Track?, name: String, artist: String) -> Bool {
+        guard let track else { return false }
+        let trimmed = { (text: String) in text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        guard trimmed(name) == trimmed(track.title) else { return false }
+        let theirs = trimmed(artist)
+        let ours = trimmed(track.artist)
+        if theirs.isEmpty || ours.isEmpty { return true }
+        return theirs == ours || theirs.contains(ours) || ours.contains(theirs)
+    }
+
     /// Fetches the catalogue's exact identity for the resolved Spotify track.
     ///
+    /// Nothing calls this any more. It ran beside every resolved id, and its
+    /// answer — `spotifyISRC`, `spotifyExactDuration` — had no reader outside
+    /// this file, so every Spotify track cost a request to api.spotify.com for
+    /// nothing (G-005). It and its fields stay, tested, for the lyric matching
+    /// they were built for to wire up or delete.
+    ///
     /// One attempt, not the retry loop above: a lookup that fails simply
-    /// leaves the fields nil and title/artist matching covers the track. The
-    /// next track change refetches, so a failure never needs polling for the
-    /// rest of the song — and a failed lookup must never raise anything,
-    /// because there is no user-grantable permission behind it.
+    /// leaves the fields nil and title/artist matching covers the track. A
+    /// failure never needs polling for the rest of the song — and a failed
+    /// lookup must never raise anything, because there is no user-grantable
+    /// permission behind it.
     func requestSpotifyMetadata(trackID: String, forKey key: String) async {
         let metadata: SpotifyAccount.TrackMetadata?
         if let provider = spotifyMetadataProvider {
@@ -812,7 +1009,12 @@ final class MediaController: ObservableObject {
         // a scrubber cannot show the tenth of a second it buys. Without this
         // gate it ran whenever the panel was open on Spotify or Music, one
         // AppleScript compile a second for a number nothing was drawing.
-        let wanted = isActive && isPlaying && precisionPlayer != nil && lyricsShown()
+        //
+        // And only where the player may be asked. With Automation refused it
+        // kept sending an Apple Event a second and logging -1743 for each,
+        // about 3,600 log records an hour crowding Diagnostics (K-014); over
+        // the lock card it would raise the first prompt under the shield.
+        let wanted = isActive && isPlaying && precisionPlayer.map(mayScript) == true && lyricsShown()
         if precisionSync != wanted { precisionSync = wanted }
         guard wanted else {
             precisionTimer?.invalidate()
@@ -862,12 +1064,21 @@ final class MediaController: ObservableObject {
     /// displayed, no seek in flight, sane value) stay with the caller.
     func handleSpotifyPlaybackState(position broadcastPosition: TimeInterval) {
         setAnchor(broadcastPosition)
+        // Unsettled only when a correction can actually be asked for. Over the
+        // lock card on a Mac that has not granted Automation, none can, and
+        // nothing else settles the position there: the card's lyric would
+        // have waited on an answer that was never going to come. The
+        // broadcast's own millisecond reading is then the best there is.
+        guard let player = precisionPlayer, isActive, mayScript(player) else { return }
         positionSettled = false
         precisionCorrect()
     }
 
     private func precisionCorrect() {
-        guard !precisionInFlight, let player = precisionPlayer else { return }
+        // Active, as well as allowed: the answer is dropped below unless the
+        // clock is on screen, so asking with everything closed — on every
+        // Spotify announcement — was an Apple Event for nothing.
+        guard !precisionInFlight, isActive, let player = precisionPlayer, mayScript(player) else { return }
         precisionInFlight = true
         let askedMono = monotonicNow()
         // The seek verdict below is the one place the wall clock stays: it
@@ -1354,8 +1565,15 @@ final class MediaController: ObservableObject {
     /// Lazy only so the default can name the player on screen: with nothing
     /// playing, that one wins the tie (`PlayerBridge.choose`), so two paused
     /// players no longer trade places on every announcement.
+    ///
+    /// Only the players that may be asked now are asked: with Spotify allowed
+    /// and Music never asked, a closed panel's search reads Spotify and leaves
+    /// Music's prompt for the panel.
     lazy var loadedSong: (@escaping (PlayerState?) -> Void) -> Void = { [weak self] reply in
-        PlayerBridge.currentState(prefer: self?.displayedPlayerApp ?? self?.activeApp) { state in
+        PlayerBridge.currentState(
+            prefer: self?.displayedPlayerApp ?? self?.activeApp,
+            asking: { app in MainActor.assumeIsolated { self?.mayScript(app) ?? false } }
+        ) { state in
             MainActor.assumeIsolated { reply(state) }
         }
     }
@@ -1376,6 +1594,13 @@ final class MediaController: ObservableObject {
 
     /// Shows a song found in a music player while a film owns Now Playing.
     private func adoptLoadedSong() {
+        // The search runs on a film's arrival, panel open or not. With nothing
+        // open and no player allowed, it waits for the panel.
+        guard mayScriptAnyPlayer else {
+            owedPlayerQuestion = true
+            return
+        }
+        owedPlayerQuestion = false
         loadedSong { [weak self] state in
             guard let self, !self.isHolding, self.searchedUnder != nil,
                   let state, let pid = self.pidForPlayer(state.app) else { return }
@@ -1403,7 +1628,9 @@ final class MediaController: ObservableObject {
     /// song that has none — adopted, or changed under the film — asks its
     /// player for one.
     private func fetchHeldArtwork(_ state: PlayerState) {
-        guard let key = track?.key else { return }
+        // Music's cover is a script; Spotify's is a download from the address
+        // its state already gave, and asks Spotify nothing.
+        guard let key = track?.key, state.app != .music || mayScript(.music) else { return }
         heldArtwork(state) { [weak self] image in
             guard let self, self.track?.key == key, let image else { return }
             self.blankArtwork?.cancel()
@@ -1423,6 +1650,15 @@ final class MediaController: ObservableObject {
     /// question.
     private func syncHeldPlayer() {
         guard let app = displayedPlayerApp else { return }
+        // A film taking over with the panel shut, or over the lock card, is
+        // not a moment the user can be asked anything in. The song stays as
+        // last known — exactly what an unanswered question leaves — and the
+        // question is put when the panel opens.
+        guard mayScript(app) else {
+            owedPlayerQuestion = true
+            return
+        }
+        owedPlayerQuestion = false
         let pid = displayedPlayerPID
         heldPlayerState(app) { [weak self] reply in
             guard let self, self.isHolding, self.displayedPlayerPID == pid else { return }
@@ -1536,6 +1772,9 @@ final class MediaController: ObservableObject {
         if trackChanged || playerChanged {
             // A new song is a new line for the regression too.
             correctionWindow = []
+            // Spotify's announcement of this song usually came first, and its
+            // id costs nothing; the lookup is for when it did not.
+            adoptAnnouncedTrackID()
             requestSpotifyTrackID(for: key, playerPID: snapshot.playerPID, attempt: 0)
         }
         if playerChanged {
@@ -1962,6 +2201,11 @@ final class MediaController: ObservableObject {
     ///
     /// Internal so a test can stand in for a player's announcement.
     func refreshFromPlayers() {
+        // J-003: a DMG user whose helper is refused lands here at launch, and
+        // reading every running player there raised one Automation prompt per
+        // player over whatever they were doing, with no panel to explain it.
+        // Where no player may be asked yet, the panel opening asks.
+        guard mayScriptAnyPlayer else { return }
         loadedSong { [weak self] state in
             // A reply that lands after the helper is back describes a route
             // no longer in charge; shown, it replaced the helper's song with
@@ -2018,6 +2262,9 @@ final class MediaController: ObservableObject {
     /// old cover — kept for an album-mate, or blanked after its 180 ms grace —
     /// stands until this one lands.
     private func fallbackArtwork(for state: PlayerState, key: String) {
+        // Before an attempt is counted: a cover consent kept back is not a
+        // cover that failed, and the next refresh asks again.
+        guard state.app != .music || mayScript(.music) else { return }
         if fallbackArtworkAttempts[key] == nil { fallbackArtworkAttempts = [key: 0] }
         guard let attempts = fallbackArtworkAttempts[key], attempts < 2 else { return }
         fallbackArtworkAttempts[key] = attempts + 1
