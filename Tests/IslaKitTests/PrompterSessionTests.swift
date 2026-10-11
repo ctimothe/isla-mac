@@ -506,6 +506,21 @@ final class PrompterSessionTests: XCTestCase {
         }
     }
 
+    /// Ruling 20.6 #8b. Stop lets the tokenized pages go (megabytes for a big
+    /// script) and keeps what the tab still shows: the read marks.
+    func testStopReleasesThePagesAndKeepsTheReadMarks() {
+        session.start(pages: pages("one two", "three four"))
+        finishCurrentPage()
+        session.stop()
+        XCTAssertTrue(session.pages.isEmpty, "the run's pages are not kept after it")
+        XCTAssertNil(session.script)
+        XCTAssertNil(session.currentPosition)
+        XCTAssertFalse(session.hasNextPage)
+        XCTAssertEqual(session.readPages, [0], "the chips' read marks stay until the next start")
+        XCTAssertTrue(session.start(pages: pages("five six")), "and a new start has what it needs")
+        XCTAssertEqual(session.script?.source, "five six")
+    }
+
     func testStopWithoutASessionDoesNothing() {
         session.stop()
         XCTAssertEqual(session.state, .idle)

@@ -978,6 +978,11 @@ struct NotchContentView: View {
                     reduceTransparency: appearance.reduceTransparency,
                     stop: { vm.stopPrompter() }
                 )
+                // The tab's editor is gone and sent no last word, so its
+                // I-beam rectangle would stand over the stage (ruling 20.6
+                // #6). A start clears it too; this covers a stage that
+                // appears by any other route, a rebuilt panel among them.
+                .onAppear { vm.textInputRect = .zero }
                 .transition(.asymmetric(
                     insertion: .opacity.animation(Theme.paneIn),
                     removal: .opacity.animation(Theme.paneOut)

@@ -397,6 +397,39 @@ final class PrompterHoldTests: XCTestCase {
         ), "Escape after Stop ends the slideshow, not Isla")
     }
 
+    /// Ruling 20.6 #6. The I-beam rectangle is the editor's; when the stage
+    /// replaced the tab (Start, or ⌃⌥⌘P from Translate) the last rectangle
+    /// stayed, and the stage showed a text cursor over words nobody types in.
+    func testAStartTakesTheEditorsIBeamAway() throws {
+        let feature = makeFeature()
+        try addScript(to: feature)
+        let vm = try makeModel(feature)
+        let editor = CGRect(x: 40, y: 60, width: 300, height: 80)
+
+        vm.chooseTab(.translate)
+        vm.textInputRect = editor
+        vm.togglePrompter()
+        XCTAssertEqual(vm.textInputRect, .zero, "⌃⌥⌘P from Translate")
+        vm.stopPrompter()
+
+        vm.chooseTab(.prompter)
+        vm.textInputRect = editor
+        vm.startPrompter()
+        XCTAssertEqual(vm.textInputRect, .zero, "Start from the tab")
+    }
+
+    /// Ruling 20.6 #7b (20.3 #6): system sleep folds the panel as the lock and
+    /// display sleep do. It only paused before, so a lid shut on an external
+    /// display woke to the stage still open.
+    func testEverySleepAndTheLockFoldThePanelAndNothingElseDoes() {
+        XCTAssertTrue(PrompterSystemEvent.screenLocked.foldsPanel)
+        XCTAssertTrue(PrompterSystemEvent.displaysSlept.foldsPanel)
+        XCTAssertTrue(PrompterSystemEvent.systemWillSleep.foldsPanel)
+        for event in [PrompterSystemEvent.screenUnlocked, .woke, .screenParametersChanged, .appWillTerminate] {
+            XCTAssertFalse(event.foldsPanel, "\(event)")
+        }
+    }
+
     // MARK: Lock and sleep
 
     /// 11.3, E-39: a lock pauses with the lock's reason, and unlocking leaves

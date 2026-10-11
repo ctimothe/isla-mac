@@ -176,6 +176,59 @@ final class PrompterStagePerformanceTests: XCTestCase {
         XCTAssertEqual(fixture.session.state, .running)
         fixture.vm.stopPrompter()
     }
+
+    /// Waits for a gated start's result to land.
+    private func waitWhilePreparing(_ fixture: StartFixture) async throws {
+        let deadline = ContinuousClock.now + .seconds(20)
+        while fixture.vm.isPreparingPrompter, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertFalse(fixture.vm.isPreparingPrompter)
+    }
+
+    /// Ruling 20.6 #7a. A start whose pages land after the Mac locked is
+    /// dropped quietly: it used to go through the commanded-open refusal and
+    /// shake the locked island, with no hand anywhere near it.
+    func testAStartThatLandsBehindTheLockDoesNotShakeTheIsland() async throws {
+        let fixture = try StartFixture()
+        defer { fixture.release() }
+        try fixture.addScript([Self.bigPage])
+        let gate = Gate()
+        fixture.vm.prompterTokenize = { texts in
+            await gate.wait()
+            return texts.map(PromptScript.init)
+        }
+        XCTAssertEqual(fixture.vm.startPrompter(), .nothing)
+        fixture.vm.isLockedPresentation = true
+        gate.open()
+        try await waitWhilePreparing(fixture)
+        XCTAssertEqual(fixture.session.state, .idle, "nothing starts behind the lock")
+        XCTAssertEqual(fixture.vm.lockedHoverNudges, 0, "and nothing shakes: nobody asked for anything just now")
+        XCTAssertFalse(fixture.panel.presented.contains(.openStage))
+    }
+
+    /// Ruling 20.6 #8a. The pages are read at the press, so the page is too:
+    /// a different page chosen while "Preparing…" no longer starts the old
+    /// pages at the new page's index.
+    func testAStartBeginsOnThePageThatWasSelectedAtThePress() async throws {
+        let fixture = try StartFixture()
+        defer { fixture.release() }
+        try fixture.addScript([Self.bigPage, "the second page", "the third page"])
+        let gate = Gate()
+        fixture.vm.prompterTokenize = { texts in
+            await gate.wait()
+            return texts.map(PromptScript.init)
+        }
+        fixture.vm.prompterPage = 1
+        XCTAssertEqual(fixture.vm.startPrompter(), .nothing)
+        fixture.vm.prompterPage = 2
+        gate.open()
+        try await waitWhilePreparing(fixture)
+        XCTAssertEqual(fixture.session.state, .running)
+        XCTAssertEqual(fixture.session.pageIndex, 1, "the page of the press, with the pages of the press")
+        XCTAssertEqual(fixture.session.script?.source, "the second page")
+        fixture.vm.stopPrompter()
+    }
 }
 
 // MARK: - Fixtures

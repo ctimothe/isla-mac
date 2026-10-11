@@ -338,6 +338,14 @@ final class PrompterSession: ObservableObject {
         state = .ended
         if isPausedBySystem { isPausedBySystem = false }
         reconcileKeepAwake()
+        // The run's tokenized pages go with it (ruling 20.6 #8b): a big
+        // script's are megabytes, and they were kept until the next Start,
+        // which might be never. After `state`, so whatever hears the end
+        // (the stage's "End of script" or "Prompter stopped") still reads
+        // the run as it was. What the tab shows after Stop, the read marks,
+        // and the elapsed figure stay.
+        clock = nil
+        pages = []
     }
 
     // MARK: Transitions

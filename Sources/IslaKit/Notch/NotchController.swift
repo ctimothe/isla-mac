@@ -177,7 +177,16 @@ final class NotchController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.prompterSession?.handle(.systemWillSleep) }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.prompterSession?.handle(.systemWillSleep)
+                // And folds, as the lock and display sleep do (ruling 20.3
+                // #6, 20.6 #7b): it only paused before, so the Mac woke with
+                // the stage open over whatever came up first.
+                guard PrompterSystemEvent.systemWillSleep.foldsPanel else { return }
+                self.setOpen(false)
+                self.pointer.setInside(false)
+            }
         })
         // Locking replaces the desktop with the shield, and the pill stays on
         // it — see `LockScreenPresence` for the mechanism. Wired here because

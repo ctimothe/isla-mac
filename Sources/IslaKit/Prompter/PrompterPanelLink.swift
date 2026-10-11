@@ -30,6 +30,19 @@ enum PrompterSystemEvent: Sendable, Equatable {
     case appWillTerminate
 }
 
+extension PrompterSystemEvent {
+    /// Whether the panel folds for this event (ruling 20.3 #6, 20.6 #7b). The
+    /// lock and every kind of sleep fold it, session or not; nothing else
+    /// does. System sleep only paused once, so a lid shut on an external
+    /// display (no display-sleep notice first) woke to the stage still open.
+    var foldsPanel: Bool {
+        switch self {
+        case .screenLocked, .displaysSlept, .systemWillSleep: return true
+        case .screenUnlocked, .woke, .screenParametersChanged, .appWillTerminate: return false
+        }
+    }
+}
+
 extension PrompterSession {
     /// Spec 7.1 and 11.3 to 11.8, one row per event.
     ///

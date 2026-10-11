@@ -1663,8 +1663,14 @@ extension NotchViewModel {
             return present(.openTab)
         }
         if pendingMirroredStart != nil { pendingMirroredStart = nil }
+        // The page and the placed position are read here, with the texts,
+        // and carried to the start (ruling 20.6 #8a): a big script's start
+        // read `prompterPage` when its pages landed, so a page chosen while
+        // "Preparing…" started the pages of the press at the new page's index.
+        let page = prompterPage
+        let position = prompterStartPosition
         if PrompterParts.tokenizesAtOnce(texts) {
-            return finishBeginning(parts, pages: texts.map(PromptScript.init))
+            return finishBeginning(parts, pages: texts.map(PromptScript.init), page: page, position: position)
         }
         // E-26: a script this size took the main thread for a visible beat
         // when it was tokenized here, on the key press. It is tokenized on a
@@ -1680,9 +1686,14 @@ extension NotchViewModel {
             guard let self, generation == self.prompterPreparationGeneration, !Task.isCancelled else { return }
             self.prompterPreparation = nil
             self.isPreparingPrompter = false
+            // Asked as a verdict, not through `admitsCommandedOpen`: a start
+            // that lands behind the lock is dropped quietly. The refusal's
+            // shake belongs to a hand that just asked for something, and this
+            // hand asked before the lock (ruling 20.6 #7a).
             guard self.prompterParts?.session === parts.session,
-                  self.admitsCommandedOpen(screensAsleep: self.prompterHooks.screensAsleep()) else { return }
-            self.finishBeginning(parts, pages: pages)
+                  self.verdictForDeliberateOpen(screensAsleep: self.prompterHooks.screensAsleep()) == .proceed
+            else { return }
+            self.finishBeginning(parts, pages: pages, page: page, position: position)
         }
         return .nothing
     }
@@ -1697,13 +1708,15 @@ extension NotchViewModel {
 
     /// The start itself, once the pages are tokenized.
     @discardableResult
-    private func finishBeginning(_ parts: PrompterParts, pages: [PromptScript]) -> PrompterPresentation {
+    private func finishBeginning(
+        _ parts: PrompterParts, pages: [PromptScript], page: Int, position: PromptPosition?
+    ) -> PrompterPresentation {
         // Spec 12.1: the library is flushed on session start, so the script
         // being read is the one on disk if the Mac goes down mid-talk.
         parts.library.flush()
         parts.session.apply(parts.settings.values)
         guard parts.session.start(
-            pages: pages, page: prompterPage, at: prompterStartPosition, mode: parts.settings.mode
+            pages: pages, page: page, at: position, mode: parts.settings.mode
         ) else {
             chooseTab(.prompter)
             return present(.openTab)
@@ -1715,6 +1728,11 @@ extension NotchViewModel {
         // The stage never takes the keyboard (5.2). A start from the tab
         // comes from a panel that had it.
         wantsKeyboard = false
+        // Nor shows the editor's I-beam (ruling 20.6 #6). The tab's editor
+        // goes with the stage's arrival and a vanished view reports nothing,
+        // and `tab`'s own clearing skips Translate and the Prompter, the two
+        // tabs a start comes from.
+        if textInputRect != .zero { textInputRect = .zero }
         // `chooseTab`, so a start during the first-run welcome retires it
         // (11.9, E-51), as the lyrics key does. After `start`, so `select`
         // already sees the session and raises no keyboard.
