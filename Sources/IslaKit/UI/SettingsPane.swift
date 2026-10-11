@@ -1633,53 +1633,36 @@ struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
     @Binding var selection: Option
     let optionTitle: (Option) -> String
 
+    /// One line when the title and the capsules both fit, the capsules under
+    /// the title when they do not. The new Show Next Line Early row, with
+    /// four capsules and a Russian title, was squeezed at the 480 pt panel
+    /// until its options read "В… / 0,… / 0,… / 0,…" and could not be told
+    /// apart; truncating a choice is worse than a second line, so a row that
+    /// does not fit takes the height it needs.
     var body: some View {
-        let increaseContrast = SystemAppearance.shared.increaseContrast
-        return HStack(spacing: 8) {
-            RowIcon(symbol: symbol)
-            Text(title)
-                .islandFont(.body)
-                .foregroundStyle(.white)
-            Spacer(minLength: 8)
-            HStack(spacing: 2) {
-                ForEach(options) { option in
-                    let isSelected = option == selection
-                    Button { selection = option } label: {
-                        Text(optionTitle(option))
-                            .islandFont(.body)
-                            // Raised to clear 4.5:1 over the fills it really
-                            // sits on, which the base ramp does not (3.26:1
-                            // on the stacked capsules, F-052).
-                            .foregroundStyle(isSelected ? .white : Theme.tertiary(
-                                over: Theme.choiceOptionFills(increaseContrast: increaseContrast)
-                            ))
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 3)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(isSelected ? Theme.surfaceHover : .clear)
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    }
-                    .buttonStyle(PanelButtonStyle())
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                RowIcon(symbol: symbol)
+                titleText.fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 8)
+                capsules
             }
-            .padding(2)
-            .background {
-                // Increase Contrast swaps the group's fill for the defined
-                // edge that setting asks for: stacked on the section card the
-                // fill left white text at 4.24:1 at best (see
-                // `Theme.choiceOptionFills`).
-                if increaseContrast {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(Theme.hairline, lineWidth: 1)
-                } else {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface)
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    RowIcon(symbol: symbol)
+                    titleText
+                    Spacer(minLength: 0)
                 }
+                // Under the title, not the glyph: the 8 pt inset, the 16 pt
+                // glyph and the 8 pt gap `lyricsIssueRow` lines up with.
+                capsules.padding(.leading, 24)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
         }
-        .padding(.horizontal, 8)
-        .frame(height: 26)
         .accessibilityRepresentation {
             Picker(title, selection: $selection) {
                 ForEach(options) { option in
@@ -1688,6 +1671,53 @@ struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
+        }
+    }
+
+    private var titleText: some View {
+        Text(title)
+            .islandFont(.body)
+            .foregroundStyle(.white)
+    }
+
+    private var capsules: some View {
+        let increaseContrast = SystemAppearance.shared.increaseContrast
+        return HStack(spacing: 2) {
+            ForEach(options) { option in
+                let isSelected = option == selection
+                Button { selection = option } label: {
+                    Text(optionTitle(option))
+                        .islandFont(.body)
+                        // Raised to clear 4.5:1 over the fills it really
+                        // sits on, which the base ramp does not (3.26:1
+                        // on the stacked capsules, F-052).
+                        .foregroundStyle(isSelected ? .white : Theme.tertiary(
+                            over: Theme.choiceOptionFills(increaseContrast: increaseContrast)
+                        ))
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(isSelected ? Theme.surfaceHover : .clear)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+                .buttonStyle(PanelButtonStyle())
+            }
+        }
+        .padding(2)
+        .background {
+            // Increase Contrast swaps the group's fill for the defined
+            // edge that setting asks for: stacked on the section card the
+            // fill left white text at 4.24:1 at best (see
+            // `Theme.choiceOptionFills`).
+            if increaseContrast {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Theme.hairline, lineWidth: 1)
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface)
+            }
         }
     }
 }
