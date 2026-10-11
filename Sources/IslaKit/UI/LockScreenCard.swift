@@ -63,6 +63,9 @@ struct LockScreenCard: View {
     /// not a line index: an interlude is a row, and comparing a slot against
     /// a line index would call the step out of every solo a seek.
     @State private var lastCentre: Int?
+    /// How many rows the window held at the last draw. A window that changes
+    /// size is a cut: see `isJump(from:to:windowFrom:to:)`.
+    @State private var lastWindow: Int?
     @State private var outputs: [AudioOutputs.Output] = []
     @State private var currentOutput: AudioDeviceID?
     @State private var volume: Float?
@@ -261,7 +264,7 @@ struct LockScreenCard: View {
                 rail
                     .padding(.top, 14)
             }
-            .padding(.horizontal, cardSize == .compact ? 20 : 24)
+            .padding(.horizontal, Self.horizontalPadding(for: cardSize))
             .padding(.top, cardSize == .compact ? 18 : 22)
             .padding(.bottom, cardSize == .compact ? 14 : 18)
             // Every mark on the card carries its own shadow on glass. That is
@@ -556,16 +559,31 @@ struct LockScreenCard: View {
                 let slots = LyricSweep.slots(for: lines)
                 let centre = LyricSweep.slotIndex(of: resolution.moment.centreSlot, in: slots)
                 let lit = LyricSweep.litSlotIndex(resolution.moment, in: slots)
-                let window = Self.window(around: centre, count: slots.count, size: Self.visibleLyricLines(for: cardSize))
-                let jump = Self.isJump(from: lastCentre, to: centre)
-                VStack(alignment: .leading, spacing: 7) {
+                // The centre row may take two lines when its line needs them
+                // (H-019), and the window narrows to pay for it. The centre
+                // line, not the sung one: through an intro the opening line
+                // waits in the centre unsung, and it is the row the window is
+                // laid around either way. An interlude marker is one row.
+                let centreLine: Int? = {
+                    if case .line(let index) = slots[centre] { return index }
+                    return nil
+                }()
+                let layout = Self.lyricLayout(
+                    currentText: centreLine.map { lines[$0].text },
+                    width: Self.lyricTextWidth(for: cardSize),
+                    cardSize: cardSize
+                )
+                let window = Self.window(around: centre, count: slots.count, size: layout.window)
+                let jump = Self.isJump(from: lastCentre, to: centre, windowFrom: lastWindow, to: layout.window)
+                VStack(alignment: .leading, spacing: Self.lyricRowSpacing) {
                     ForEach(window, id: \.self) { position in
                         Group {
                             switch slots[position] {
                             case .line(let index):
                                 lyricRow(
                                     lines: lines, index: index, resolution: resolution,
-                                    distance: LyricSweep.distance(ofSlot: position, lit: lit)
+                                    distance: LyricSweep.distance(ofSlot: position, lit: lit),
+                                    lineLimit: index == centreLine ? layout.currentLineLimit : 1
                                 )
                             case .interlude:
                                 interludeRow(
@@ -596,15 +614,20 @@ struct LockScreenCard: View {
                 // laid the old line and the new one over each other in the same
                 // slot — two lyrics legible at once, filmed on 2026-09-21. A
                 // line reached by singing still lights up on the lyric spring;
-                // a line reached by clicking is simply there.
+                // a line reached by clicking is simply there. So is a line that
+                // changes the window's size, for the same reason.
                 .transaction { transaction in
-                    if Self.isJump(from: lastCentre, to: centre) {
+                    if jump {
                         transaction.animation = nil
                         transaction.disablesAnimations = true
                     }
                 }
                 .onChange(of: centre) { _, now in lastCentre = now }
-                .onAppear { lastCentre = centre }
+                .onChange(of: layout.window) { _, now in lastWindow = now }
+                .onAppear {
+                    lastCentre = centre
+                    lastWindow = layout.window
+                }
             } else {
                 VStack(spacing: 8) {
                     if case .findingLocalLyrics = lyrics.availability {
@@ -651,7 +674,7 @@ struct LockScreenCard: View {
     }
 
     private func lyricRow(
-        lines: [LyricsStore.Line], index: Int, resolution: LyricResolution, distance: Int
+        lines: [LyricsStore.Line], index: Int, resolution: LyricResolution, distance: Int, lineLimit: Int
     ) -> some View {
         LyricRow(
             line: lines[index],
@@ -672,7 +695,8 @@ struct LockScreenCard: View {
                 : nil,
             fontSize: Theme.TypeRole.title.size,
             weight: .bold,
-            lineLimit: 1,
+            // One row, except the centre line when `lyricLayout` gave it two.
+            lineLimit: lineLimit,
             accent: accent,
             reduceMotion: reduceMotion,
             wordTimingEnabled: wordTimingEnabled,
@@ -1119,11 +1143,100 @@ struct LockScreenCard: View {
 
     // MARK: - Pure layout arithmetic
 
+    /// One row of lyric type: the title role's 16pt bold, which lays out 19pt
+    /// tall. `LockCardLyricGlideTests` measures it.
+    static let lyricLineHeight: CGFloat = 19
+    /// The spacing of the window's stack, between one row and the next.
+    static let lyricRowSpacing: CGFloat = 7
+
     /// How far a line travels entering or leaving the window: one row of the
     /// title role plus the stack's spacing, so the leaving line moves exactly
     /// as far as the lines behind it and the arriving one starts where the
     /// next row would have been. The page moves as one.
-    static let lineTravel: CGFloat = 26
+    static let lineTravel: CGFloat = lyricLineHeight + lyricRowSpacing
+
+    /// The card's side padding, which is all that stands between its edge and
+    /// the lyric rows: they span the rest.
+    static func horizontalPadding(for cardSize: NotchViewModel.LockCardSize) -> CGFloat {
+        cardSize == .compact ? 20 : 24
+    }
+
+    /// The width a lyric row has to set its line in: 412pt on the standard
+    /// card, 380pt on the compact one.
+    static func lyricTextWidth(for cardSize: NotchViewModel.LockCardSize) -> CGFloat {
+        size(for: cardSize).width - 2 * horizontalPadding(for: cardSize)
+    }
+
+    /// How many rows the window shows, and how many lines the centre row may
+    /// take.
+    struct LyricLayout: Equatable {
+        var window: Int
+        var currentLineLimit: Int
+    }
+
+    /// The window for one centre line: the plain one while that line fits a
+    /// row, and a narrower one around a two-row line when it does not.
+    ///
+    /// Every row used to be one line, the line being sung included, so on the
+    /// lock screen a long line read "…past the point wh…" while the stage
+    /// beside it wrapped the same line whole (H-019) — the surface with the
+    /// least room was the one that knew least, and the line cut was the one
+    /// being sung. Now the centre row takes the stage's second row, and the
+    /// window gives up a neighbour each side to pay for it, so the card's
+    /// middle never asks for more than it already had:
+    ///
+    /// - standard, plain: 5 rows × 19 + 4 gaps × 7 = 123pt, in a middle
+    ///   measured at 126pt. Wrapped, five rows would be 6 lines × 19 + 4 × 7
+    ///   = 142pt; three are 4 lines × 19 + 2 × 7 = 90pt, which fits.
+    /// - compact, plain: 3 × 19 + 2 × 7 = 71pt in a middle of 84pt. Wrapped,
+    ///   three rows are the same 90pt, too tall, so the sung line stands
+    ///   alone on its two rows, 38pt.
+    ///
+    /// The window stays odd, so the sung line keeps the centre. Neither a
+    /// scroll view (see `lyricsPane`: not above the shield) nor a smaller font
+    /// (the rows share the title role with the card's title) was the answer.
+    static func lyricLayout(
+        currentText: String?, width: CGFloat, cardSize: NotchViewModel.LockCardSize
+    ) -> LyricLayout {
+        let plain = LyricLayout(window: visibleLyricLines(for: cardSize), currentLineLimit: 1)
+        guard let currentText, measureLyricLine(currentText) > width else { return plain }
+        let room = lyricStackHeight(plain)
+        var window = plain.window
+        while window > 1, lyricStackHeight(LyricLayout(window: window, currentLineLimit: 2)) > room {
+            window -= 2
+        }
+        return LyricLayout(window: window, currentLineLimit: 2)
+    }
+
+    /// The height a window of rows lays out at, its centre row at its limit.
+    static func lyricStackHeight(_ layout: LyricLayout) -> CGFloat {
+        let lines = layout.window - 1 + layout.currentLineLimit
+        return CGFloat(lines) * lyricLineHeight + CGFloat(max(layout.window - 1, 0)) * lyricRowSpacing
+    }
+
+    /// The width a lyric line takes on one unbroken row, set exactly as
+    /// `KaraokeText` sets the sung line: the system font at the title role's
+    /// size, bold, with that size's tracking. A different font or tracking
+    /// here and the decision would disagree with the wrap — a line measured
+    /// as fitting would be cut by a one-row limit, or a line that fits would
+    /// cost two neighbours for nothing. `LockCardPaneTests` holds the two
+    /// together against the drawn row.
+    ///
+    /// Asked on every draw, and the card draws on every clock tick, so the
+    /// last answer is kept: the centre line changes a few times a minute.
+    static func measureLyricLine(_ text: String) -> CGFloat {
+        if let measuredLine, measuredLine.text == text { return measuredLine.width }
+        let size = Theme.TypeRole.title.size
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: size, weight: .bold),
+            .kern: Theme.tracking(forSize: size),
+        ]
+        let width = NSAttributedString(string: text, attributes: attributes).size().width
+        measuredLine = (text, width)
+        return width
+    }
+
+    private static var measuredLine: (text: String, width: CGFloat)?
 
     static func lineTransition(reduceMotion: Bool) -> AnyTransition {
         guard !reduceMotion else { return .opacity }
@@ -1137,6 +1250,17 @@ struct LockScreenCard: View {
     static func isJump(from previous: Int?, to centre: Int) -> Bool {
         guard let previous else { return false }
         return abs(centre - previous) > 1
+    }
+
+    /// The same, counting a window that changed size as a jump. Singing into
+    /// a two-row line narrows the window from five rows to three, and out of
+    /// it widens it again; glided, every row would travel `lineTravel` against
+    /// a row pitch that had just changed under it and land between slots. So
+    /// those turns are a cut, like a seek — the price of the sung line being
+    /// whole.
+    static func isJump(from previous: Int?, to centre: Int, windowFrom previousWindow: Int?, to window: Int) -> Bool {
+        if let previousWindow, previousWindow != window { return true }
+        return isJump(from: previous, to: centre)
     }
 
     /// A window of `size` indices centred on `centre`, slid inside the song

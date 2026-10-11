@@ -1,4 +1,5 @@
 import CoreAudio
+import SwiftUI
 import XCTest
 @testable import IslaKit
 
@@ -32,6 +33,105 @@ final class LockCardPaneTests: XCTestCase {
         XCTAssertEqual(LockScreenCard.window(around: 1, count: 3, size: 5), [0, 1, 2])
         XCTAssertEqual(LockScreenCard.window(around: 0, count: 1, size: 5), [0])
         XCTAssertEqual(LockScreenCard.window(around: 0, count: 0, size: 5), [])
+    }
+
+    /// The line from the visual lab's long-lines fixture that the card cut to
+    /// "…past the point wh…" while the stage wrapped it whole (H-019).
+    static let longSungLine =
+        "And another that keeps going well past the point where a single line would have stopped and wrapped"
+
+    /// The line being sung gets the second row the stage gives it, and the
+    /// window gives up a neighbour each side to make the room: three rows on
+    /// the standard card, the sung line alone on the compact one, whose middle
+    /// is not tall enough for a two-row line and a neighbour either side.
+    func testALongSungLineWrapsAndTheWindowNarrows() {
+        let long = Self.longSungLine
+        XCTAssertEqual(
+            LockScreenCard.lyricLayout(currentText: long, width: 412, cardSize: .standard),
+            LockScreenCard.LyricLayout(window: 3, currentLineLimit: 2)
+        )
+        XCTAssertEqual(
+            LockScreenCard.lyricLayout(currentText: "Short again", width: 412, cardSize: .standard),
+            LockScreenCard.LyricLayout(window: 5, currentLineLimit: 1)
+        )
+        XCTAssertEqual(
+            LockScreenCard.lyricLayout(currentText: long, width: 380, cardSize: .compact),
+            LockScreenCard.LyricLayout(window: 1, currentLineLimit: 2)
+        )
+        XCTAssertEqual(
+            LockScreenCard.lyricLayout(currentText: "Short again", width: 380, cardSize: .compact),
+            LockScreenCard.LyricLayout(window: 3, currentLineLimit: 1)
+        )
+        // Through a solo the centre row is the interlude marker, one row tall.
+        XCTAssertEqual(
+            LockScreenCard.lyricLayout(currentText: nil, width: 412, cardSize: .standard),
+            LockScreenCard.LyricLayout(window: 5, currentLineLimit: 1)
+        )
+    }
+
+    /// The card's own text width is what the line is measured against: the
+    /// card less its side padding on each edge.
+    func testTheLyricTextWidthIsTheCardLessItsPadding() {
+        XCTAssertEqual(LockScreenCard.lyricTextWidth(for: .standard), 412)
+        XCTAssertEqual(LockScreenCard.lyricTextWidth(for: .compact), 380)
+    }
+
+    /// A wrapped window never asks for more height than the plain one, which
+    /// the card already proved it has — so the two-row line can never push
+    /// the title or the transport off a card whose window is never resized.
+    func testTheWrappedWindowNeverNeedsMoreRoomThanThePlainOne() {
+        for size in NotchViewModel.LockCardSize.allCases {
+            let width = LockScreenCard.lyricTextWidth(for: size)
+            let plain = LockScreenCard.lyricLayout(currentText: "Short", width: width, cardSize: size)
+            let wrapped = LockScreenCard.lyricLayout(currentText: Self.longSungLine, width: width, cardSize: size)
+            XCTAssertEqual(wrapped.window % 2, 1, "\(size): the sung line keeps the centre")
+            XCTAssertLessThanOrEqual(
+                LockScreenCard.lyricStackHeight(wrapped), LockScreenCard.lyricStackHeight(plain),
+                "\(size): the wrapped window is taller than the room the card has"
+            )
+        }
+    }
+
+    /// The decision to wrap agrees with the wrap itself. The card measures the
+    /// line with the font and tracking `KaraokeText` draws it in; if the two
+    /// ever disagreed, a line measured short would be cut by a one-row limit
+    /// it was never given room past, or a short line would cost two
+    /// neighbours for nothing.
+    func testTheMeasurementAgreesWithTheDrawnRow() {
+        let texts = [
+            Self.longSungLine,
+            "A first line that is long enough to need the second row the stage allows it",
+            "The line being sung right now",
+            "Short again",
+            "沈むように溶けてゆくように",
+        ]
+        for size in NotchViewModel.LockCardSize.allCases {
+            let width = LockScreenCard.lyricTextWidth(for: size)
+            for text in texts {
+                let row = LyricRow(
+                    line: LyricsStore.Line(at: 1, text: text),
+                    isCurrent: true, distance: 0, at: 2, end: 5,
+                    fontSize: Theme.TypeRole.title.size, weight: .bold, lineLimit: 2
+                )
+                let drawn = NSHostingController(rootView: row.frame(width: width))
+                    .sizeThatFits(in: CGSize(width: width, height: 400)).height
+                let drawnLines = Int((drawn / LockScreenCard.lyricLineHeight).rounded())
+                let layout = LockScreenCard.lyricLayout(currentText: text, width: width, cardSize: size)
+                XCTAssertEqual(layout.currentLineLimit, drawnLines,
+                               "\(size) '\(text)': measured \(layout.currentLineLimit) row(s), drawn \(drawn)pt")
+            }
+        }
+    }
+
+    /// The window changing size between two lines is a cut, like a seek:
+    /// rows gliding one 26pt step against a row pitch that just changed
+    /// would land between slots.
+    func testAWindowThatChangesSizeIsACut() {
+        XCTAssertTrue(LockScreenCard.isJump(from: 4, to: 5, windowFrom: 5, to: 3))
+        XCTAssertTrue(LockScreenCard.isJump(from: 5, to: 6, windowFrom: 3, to: 5))
+        XCTAssertFalse(LockScreenCard.isJump(from: 4, to: 5, windowFrom: 5, to: 5))
+        XCTAssertFalse(LockScreenCard.isJump(from: nil, to: 5, windowFrom: nil, to: 3), "the first draw is not a cut")
+        XCTAssertTrue(LockScreenCard.isJump(from: 2, to: 9, windowFrom: 5, to: 5), "a seek is still a cut")
     }
 
     /// The centre follows the one rule every lyric surface follows — the same
