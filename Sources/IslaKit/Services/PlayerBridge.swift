@@ -302,18 +302,29 @@ enum PlayerBridge {
     static func artwork(for state: PlayerState, completion: @escaping (NSImage?) -> Void) {
         switch state.app {
         case .spotify:
-            // The one thing the app ever fetches over the network. The address
-            // comes out of another app's scripting dictionary, so the scheme is
-            // checked: https answers for itself through TLS, while file:// or
-            // some private scheme answers to nobody.
+            // The one request no setting gates. Spotify's scripting dictionary
+            // names its cover only by address, so on the fallback route and on
+            // a held cover the image is fetched from Spotify's image server.
+            // It carries the cover's address and nothing about the listener
+            // beyond the IP that any request carries; the README's privacy
+            // table lists it beside the switches. This comment used to call it
+            // "the one thing the app ever fetches", which stopped being true
+            // when lyrics, translation, the account and the update check
+            // arrived (audit G-030).
+            //
+            // The address comes out of another app's scripting dictionary, so
+            // the scheme is checked: https answers for itself through TLS,
+            // while file:// or some private scheme answers to nobody.
             guard let url = state.artworkURL, url.scheme?.lowercased() == "https" else {
                 return completion(nil)
             }
             // Decoded small and here, on URLSession's own queue: the same
             // ceiling MediaController puts on the helper's covers, so a held
             // or fallback cover does not stand in memory at the source's full
-            // size (audit F-044).
-            URLSession.shared.dataTask(with: url) { data, _, _ in
+            // size (audit F-044). Through the session that keeps nothing, so
+            // a listening history does not pile up in the HTTP cache one cover
+            // at a time (audit G-016).
+            PrivateNetwork.session.dataTask(with: url) { data, _, _ in
                 let image = data.flatMap(MediaController.artworkImage)
                 DispatchQueue.main.async { completion(image) }
             }.resume()

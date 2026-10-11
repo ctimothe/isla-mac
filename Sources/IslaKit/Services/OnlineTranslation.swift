@@ -63,7 +63,7 @@ enum OnlineTranslation {
 
     /// Translates `text`, a piece at a time when it is longer than one query.
     static func translate(_ text: String, from source: TranslationLanguage, to target: TranslationLanguage,
-                          session: URLSession = .shared) async throws -> String {
+                          session: URLSession = PrivateNetwork.session) async throws -> String {
         var translated: [String] = []
         for piece in chunks(of: text) {
             try Task.checkCancellation()

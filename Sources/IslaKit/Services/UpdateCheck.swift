@@ -47,7 +47,7 @@ final class UpdateCheck: ObservableObject {
     private var timer: Timer?
 
     init(
-        fetch: @escaping Fetch = { try await URLSession.shared.data(for: $0) },
+        fetch: @escaping Fetch = { try await PrivateNetwork.session.data(for: $0) },
         currentVersion: @escaping () -> String = { ProductIdentity.version }
     ) {
         self.fetch = fetch
