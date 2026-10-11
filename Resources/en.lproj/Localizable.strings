@@ -334,3 +334,6 @@
 "Line %d of this file has a time Isla can't read." = "Line %d of this file has a time Isla can't read.";
 "This file has no timed lyrics." = "This file has no timed lyrics.";
 "Couldn't read: %@" = "Couldn't read: %@";
+"%d points" = "%d points";
+"%.2f seconds" = "%.2f seconds";
+"%+.2f seconds" = "%+.2f seconds";

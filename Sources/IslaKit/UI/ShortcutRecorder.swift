@@ -25,13 +25,14 @@ struct ShortcutRecorderRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: symbol)
-                .islandFont(.body)
-                .foregroundStyle(Theme.secondary)
-                .frame(width: 16)
+            RowIcon(symbol: symbol)
+            // Hidden like the glyph: the well below carries this title as its
+            // own name, so VoiceOver read the row's name twice, once as text
+            // and once on the control it belongs to (H-009).
             Text(action.title)
                 .islandFont(.body)
                 .foregroundStyle(.white)
+                .accessibilityHidden(true)
             Spacer(minLength: 8)
             Button(action: toggleRecording) {
                 Text(wellText)

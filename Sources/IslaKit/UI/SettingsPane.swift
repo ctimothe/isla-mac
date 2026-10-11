@@ -139,66 +139,30 @@ struct SettingsPane: View {
                     // near the top of the screen can slow it so a drive-by never
                     // opens the panel.
                     if opensOnHover {
-                        HStack(spacing: 8) {
-                            Image(systemName: SettingsIcon.hoverDelay)
-                                .islandFont(.body)
-                                .foregroundStyle(Theme.secondary)
-                                .frame(width: 16)
-                            Text(localized("Hover Delay"))
-                                .islandFont(.body)
-                                .foregroundStyle(.white)
-                            Slider(
-                                value: hoverDelayBinding,
-                                in: 0.05...1.0,
-                                onEditingChanged: { editing in
-                                    guard !editing else { return }
-                                    commitHoverDelay()
-                                }
-                            )
-                            .controlSize(.mini)
-                            .tint(Theme.secondary)
-                            Text(localized("%.2fs", hoverDelay))
-                                .font(Theme.TypeRole.caption.font().monospacedDigit())
-                                .foregroundStyle(Theme.tertiary)
-                                .frame(width: 38, alignment: .trailing)
-                        }
-                        .padding(.horizontal, 8)
-                        .frame(height: 26)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel(localized("Hover Delay"))
+                        SettingsSliderRow(
+                            symbol: SettingsIcon.hoverDelay,
+                            title: localized("Hover Delay"),
+                            value: hoverDelayBinding,
+                            range: 0.05...1.0,
+                            drawnValue: localized("%.2fs", hoverDelay),
+                            spokenValue: localized("%.2f seconds", hoverDelay),
+                            commit: commitHoverDelay
+                        )
                     }
 
                     // How wide the panel opens. The window behind it never
                     // changes size — only how much of it the island draws in —
                     // so this is free to move. The drag previews in state and
                     // commits once, on release: see `bodyWidthBinding`.
-                    HStack(spacing: 8) {
-                        Image(systemName: SettingsIcon.panelWidth)
-                            .islandFont(.body)
-                            .foregroundStyle(Theme.secondary)
-                            .frame(width: 16)
-                        Text(localized("Panel Width"))
-                            .islandFont(.body)
-                            .foregroundStyle(.white)
-                        Slider(
-                            value: bodyWidthBinding,
-                            in: Double(NotchMetrics.minimumBodyWidth)...Double(NotchMetrics.maximumBodyWidth),
-                            onEditingChanged: { editing in
-                                guard !editing else { return }
-                                commitBodyWidth()
-                            }
-                        )
-                        .controlSize(.mini)
-                        .tint(Theme.secondary)
-                        Text(localized("%d pt", Int(bodyWidth)))
-                            .font(Theme.TypeRole.caption.font().monospacedDigit())
-                            .foregroundStyle(Theme.tertiary)
-                            .frame(width: 38, alignment: .trailing)
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: 26)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(localized("Panel Width"))
+                    SettingsSliderRow(
+                        symbol: SettingsIcon.panelWidth,
+                        title: localized("Panel Width"),
+                        value: bodyWidthBinding,
+                        range: Double(NotchMetrics.minimumBodyWidth)...Double(NotchMetrics.maximumBodyWidth),
+                        drawnValue: localized("%d pt", Int(bodyWidth)),
+                        spokenValue: localized("%d points", Int(bodyWidth)),
+                        commit: commitBodyWidth
+                    )
                     // The island's two moments without music. Each is on by
                     // default and leaves nothing but a picture on the notch.
                     // Only on a Mac with a battery to report on.
@@ -339,27 +303,18 @@ struct SettingsPane: View {
                     // It existed in the store and had no writer anywhere in the
                     // interface, so the only fix for "all my lyrics run fast"
                     // was to nudge every track one at a time.
-                    HStack(spacing: 8) {
-                        Image(systemName: SettingsIcon.lyricTiming)
-                            .islandFont(.body)
-                            .foregroundStyle(Theme.secondary)
-                            .frame(width: 16)
-                        Text(localized("Lyric Delay"))
-                            .islandFont(.body)
-                            .foregroundStyle(.white)
-                        Slider(value: $lyrics.userOffset, in: -3...3)
-                            .controlSize(.mini)
-                            .tint(Theme.secondary)
-                        Text(localized("%+.2fs", lyrics.userOffset))
-                            .font(Theme.TypeRole.caption.font().monospacedDigit())
-                            .foregroundStyle(Theme.tertiary)
-                            .frame(width: 44, alignment: .trailing)
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: 26)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(localized("Lyric Delay"))
-                    .accessibilityValue(localized("%+.2fs", lyrics.userOffset))
+                    //
+                    // No commit: the store persists the offset on every write
+                    // and nothing is rebuilt for it, so each tick may land.
+                    SettingsSliderRow(
+                        symbol: SettingsIcon.lyricTiming,
+                        title: localized("Lyric Delay"),
+                        value: $lyrics.userOffset,
+                        range: -3...3,
+                        drawnValue: localized("%+.2fs", lyrics.userOffset),
+                        spokenValue: localized("%+.2f seconds", lyrics.userOffset),
+                        drawnValueWidth: 44
+                    )
                     if abs(lyrics.userOffset) > 0.01 {
                         actionRow(
                             symbol: SettingsIcon.resetTiming,
@@ -847,11 +802,17 @@ struct SettingsPane: View {
     @ViewBuilder
     private func section<Rows: View>(_ title: String, @ViewBuilder rows: () -> Rows) -> some View {
         VStack(alignment: .leading, spacing: 3) {
+            // A heading, named in the title's own case: the drawn small caps
+            // were plain static text, so the pane's nine sections gave the
+            // headings rotor nothing to land on in some sixty stops, and
+            // VoiceOver read "GENERAL" as it was drawn (H-024).
             Text(title.uppercased())
                 .islandFont(.caption, weight: .semibold)
                 .tracking(Theme.capsTracking)
                 .foregroundStyle(Theme.tertiary)
                 .padding(.leading, 8)
+                .accessibilityLabel(title)
+                .accessibilityAddTraits(.isHeader)
             VStack(spacing: 1) {
                 rows()
             }
@@ -872,10 +833,7 @@ struct SettingsPane: View {
     private func toggleRow(symbol: String, title: String, isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
             HStack(spacing: 8) {
-                Image(systemName: symbol)
-                    .islandFont(.body)
-                    .foregroundStyle(Theme.secondary)
-                    .frame(width: 16)
+                RowIcon(symbol: symbol)
                 Text(title)
                     .islandFont(.body)
                     .foregroundStyle(.white)
@@ -885,51 +843,21 @@ struct SettingsPane: View {
         .accessibilityLabel(title)
     }
 
-    /// A row that picks one of a short list. Segmented rather than a menu: two
-    /// or three options fit, and a menu on a panel that never becomes key is a
-    /// window opening over a window that cannot own it.
-    private func choiceRow<Option: Identifiable & Equatable>(
+    /// A row that picks one of a short list: see `SettingsChoiceRow`.
+    private func choiceRow<Option: Identifiable & Hashable>(
         symbol: String,
         title: String,
         options: [Option],
         selection: Binding<Option>,
         title optionTitle: @escaping (Option) -> String
     ) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol)
-                .islandFont(.body)
-                .foregroundStyle(Theme.secondary)
-                .frame(width: 16)
-            Text(title)
-                .islandFont(.body)
-                .foregroundStyle(.white)
-            Spacer(minLength: 8)
-            HStack(spacing: 2) {
-                ForEach(options) { option in
-                    let isSelected = option == selection.wrappedValue
-                    Button { selection.wrappedValue = option } label: {
-                        Text(optionTitle(option))
-                            .islandFont(.body)
-                            .foregroundStyle(isSelected ? .white : Theme.tertiary)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 3)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(isSelected ? Theme.surfaceHover : .clear)
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    }
-                    .buttonStyle(PanelButtonStyle())
-                    .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-                }
-            }
-            .padding(2)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface)
-            )
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 26)
+        SettingsChoiceRow(
+            symbol: symbol,
+            title: title,
+            options: options,
+            selection: selection,
+            optionTitle: optionTitle
+        )
     }
 
     /// An action row that destroys something, so it asks first — same two-press
@@ -984,10 +912,7 @@ struct SettingsPane: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: symbol)
-                    .islandFont(.body)
-                    .foregroundStyle(Theme.secondary)
-                    .frame(width: 16)
+                RowIcon(symbol: symbol)
                 Text(title)
                     .islandFont(.body)
                     .foregroundStyle(.white)
@@ -1000,5 +925,152 @@ struct SettingsPane: View {
         .buttonStyle(PanelButtonStyle())
         .disabled(disabled)
         .opacity(disabled ? 0.4 : 1)
+    }
+}
+
+// MARK: - Row parts
+
+/// The glyph at the head of a Settings row. Decoration, so VoiceOver never
+/// stops on it: the row's title already says what the row is, and the
+/// glyph's system name said something else — "Skip Slide" for Card Size,
+/// "Circle With The Left Half Filled" for Glass, "Audiobook" for headphones —
+/// one extra stop per row before the control it sat beside (H-009).
+struct RowIcon: View {
+    let symbol: String
+
+    var body: some View {
+        Image(systemName: symbol)
+            .islandFont(.body)
+            .foregroundStyle(Theme.secondary)
+            .frame(width: 16)
+            .accessibilityHidden(true)
+    }
+}
+
+/// A Settings row that sets a number: glyph, title, slider, and the value
+/// drawn short at the trailing edge.
+///
+/// To VoiceOver the row is the slider alone, named by the title and valued
+/// with its unit spelled out — "Panel Width, 560 points". Each of the three
+/// copies this replaces combined its children into one element, which named
+/// it but let the slider's bare number win the value: "560", and "0" for the
+/// Lyric Delay row that had declared "+0.00s" (H-024). The drawn title and
+/// figure are hidden rather than combined, so neither is a second stop.
+///
+/// `commit` is for a value that is expensive to apply (a panel rebuild, a
+/// sampler retune), so it is applied once, when the slider reports editing
+/// ended, rather than on every tick of a drag (audit A7). Without one, every
+/// write lands as it is made.
+///
+/// A VoiceOver step needs nothing more. The plan for this row assumed an
+/// increment writes the value without reporting any editing, so the panel
+/// would never resize from VO-Up; on macOS 27 the probe saw SwiftUI bracket
+/// each `accessibilityPerformIncrement` as editing began, one write, editing
+/// ended, so a step commits once, on its own.
+/// `SettingsAccessibilityTests.testAnIncrementOnTheRowCommits` holds that,
+/// and would catch a SwiftUI that stopped bracketing.
+struct SettingsSliderRow: View {
+    let symbol: String
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    /// Compact, for the eye: "560 pt", "+0.25s".
+    let drawnValue: String
+    /// Whole words, for the ear: "560 points", "+0.25 seconds".
+    let spokenValue: String
+    var drawnValueWidth: CGFloat = 38
+    var commit: (() -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 8) {
+            RowIcon(symbol: symbol)
+            Text(title)
+                .islandFont(.body)
+                .foregroundStyle(.white)
+                .accessibilityHidden(true)
+            Slider(value: $value, in: range, onEditingChanged: { editing in
+                guard !editing else { return }
+                commit?()
+            })
+            .controlSize(.mini)
+            .tint(Theme.secondary)
+            .accessibilityLabel(title)
+            .accessibilityValue(spokenValue)
+            Text(drawnValue)
+                .font(Theme.TypeRole.caption.font().monospacedDigit())
+                .foregroundStyle(Theme.tertiary)
+                .frame(width: drawnValueWidth, alignment: .trailing)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 26)
+    }
+}
+
+/// A Settings row that picks one of a short list, drawn as capsules.
+/// Segmented rather than a menu: two or three options fit, and a menu on a
+/// panel that never becomes key is a window opening over a window that
+/// cannot own it.
+///
+/// Drawn by hand because a native `Picker(.segmented)` looks like AppKit on
+/// the dark pane (owner decision 4), but to an assistive client it is a
+/// native picker: one radio group named by the row, a radio button per
+/// option, the selected one valued 1. The capsules alone were loose buttons,
+/// three stops with "selected" the only hint that they were one choice.
+///
+/// The stand-in is the `.radioGroup` style, not `.segmented`: the probe found
+/// SwiftUI's segmented picker vends a tab group of tab buttons, which
+/// VoiceOver announces as tabs, beside a separate unattached text for its
+/// label. Nothing of the stand-in is ever drawn, so its look costs nothing;
+/// `labelsHidden()` folds its title into the group's own name rather than
+/// leaving it as a separate text beside the group.
+struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
+    let symbol: String
+    let title: String
+    let options: [Option]
+    @Binding var selection: Option
+    let optionTitle: (Option) -> String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            RowIcon(symbol: symbol)
+            Text(title)
+                .islandFont(.body)
+                .foregroundStyle(.white)
+            Spacer(minLength: 8)
+            HStack(spacing: 2) {
+                ForEach(options) { option in
+                    let isSelected = option == selection
+                    Button { selection = option } label: {
+                        Text(optionTitle(option))
+                            .islandFont(.body)
+                            .foregroundStyle(isSelected ? .white : Theme.tertiary)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 3)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(isSelected ? Theme.surfaceHover : .clear)
+                            )
+                            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    }
+                    .buttonStyle(PanelButtonStyle())
+                }
+            }
+            .padding(2)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface)
+            )
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 26)
+        .accessibilityRepresentation {
+            Picker(title, selection: $selection) {
+                ForEach(options) { option in
+                    Text(optionTitle(option)).tag(option)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+        }
     }
 }

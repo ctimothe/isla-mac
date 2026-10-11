@@ -574,9 +574,11 @@ Open, for the owner — each is a design decision, not a defect:
   (K-017). The literals remain open. Owed one look on a locked macOS 26 Mac
   with a coverless song; if the system material read better there, amend this
   record, not the code (`GlassRoutingTests`).
-- [ ] `SettingsPane.choiceRow` is a hand-rolled segmented control; a native
+- [x] `SettingsPane.choiceRow` is a hand-rolled segmented control; a native
   `Picker(.segmented)` would restore arrow keys and radio-group VoiceOver but
   look like AppKit on a dark pane.
+  **Closed 2026-10-11 (ax/SET-02, owner decision 4)** — see the dated section
+  "Settings reads cleanly to VoiceOver".
 - [x] Hovering the rail for 150 ms switches tabs. macOS does not navigate on
   hover outside menus; kept because it is documented and cheap to cancel.
   **Decided by the owner, 2026-09-21: a click only.** A fast pass across the
@@ -1044,3 +1046,40 @@ and the content leaving at 0.22 s.
   screen, and watch the fold: no bare black wing lingering after the cover
   has gone, and no snap. Then hover the resting island and step a lyric line
   with both bumps in mind for decision 18.
+
+### Settings reads cleanly to VoiceOver — 2026-10-11 (ax/SET-02)
+
+Closes H-009 (row glyphs read by their system names) and H-024 (slider
+values without units, section titles that were not headings) in Settings,
+and owner decision 4. H-004, the cover switches' titles, belongs to sp/PV-02.
+
+- [x] **No row speaks its glyph.** Every row draws its symbol through
+  `RowIcon`, which is hidden from VoiceOver; `ConfirmRow` hides its own, and
+  a shortcut row hides its drawn title, which the well already carries. The
+  pane's first 1400 pt had five symbol stops ("Rectangle With A Filled
+  Top-Third Inset", "Skip Slide", …) and now has none.
+- [x] **Nine headings.** Each section title is a heading named in title case
+  ("General", not the drawn "GENERAL"), so the rotor can jump between them.
+- [x] **Sliders say their unit.** Panel Width speaks "560 points", Hover Delay
+  "0.25 seconds", Lyric Delay "+0.00 seconds" (ru "560 пт", "0.25 секунды"),
+  as the slider's value description, which is what VoiceOver reads; the
+  drawn title and short figure are no longer stops of their own. The three
+  rows are one `SettingsSliderRow`.
+- [x] **Glass and Card Size are radio groups.** The capsules stay drawn;
+  `SettingsChoiceRow` stands a `.radioGroup` picker in for them, so an
+  assistive client finds one group named by the row, one radio button per
+  option and the selected one on. `.segmented` was tried first and vends a tab
+  group of tab buttons with a detached label. The "Glass title equals its
+  first option" half of decision 4 was already stale (Transparent, Tinted,
+  Solid).
+- [x] **A VoiceOver step commits.** The plan expected an increment to skip
+  the commit, which lives in `onEditingChanged(false)`. On macOS 27 SwiftUI
+  brackets each accessibility increment as editing began, one write, editing
+  ended, so a step already commits once, at once; no debounce was added.
+  `SettingsAccessibilityTests` (`testNoRowSpeaksASymbolName`,
+  `testSectionTitlesAreHeadings`, `testSlidersCarryUnits`,
+  `testTheHoverDelaySaysSeconds`, `testCardStyleIsARadioGroup`,
+  `testAVoiceOverStepCommitsTheWidth`) hold all five.
+- [ ] **Physical check owed (VoiceOver on):** VO-Up on Panel Width resizes the
+  panel at once; the rotor's Headings list shows nine; Glass reads as a radio
+  group, "1 of 3"; Russian VoiceOver reads "560 пт" as points, not a weekday.
