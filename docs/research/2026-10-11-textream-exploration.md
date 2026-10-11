@@ -141,9 +141,11 @@ Persistence quirks: bools use `object(forKey:) as? Bool ?? default`; enums fall 
 
 Port as-is or adapted: tokenizer collapse and CJK split (`:765`), balanced vs unmatched cues (`:773`), annotation ranges including `[]`, stray `]`, unclosed `[` (`:783`), adjacent and embedded cues (`:793`), UTF-16 safety after emoji (`:804`), whole-cue styling (`:814,853,861,876,922`), matcher cue skip with fuzzy transcript and never-backward (`:960,972`), word-progress round trip (`:981`), VAD activation frames and hangover (`:990`), RMS meter (`:1001,1062`), speaking state from levels (`:1161`), fractional progress (`:1141,1176`), end-of-prompt clearance (`:1200`), reading position (`:1248,1270`), follow-near-camera mapping with annotations, emoji and CJK (`:1293,1341`), tap mapping (`:1419`), animated retarget (`:1464`), speed clamp (`:1892`), language suggestion thresholds, short text and brackets (`:447-532`), RTL direction ignoring leading cue (`:1667`). Not covered by Textream's tests and needed for Isla: `isFuzzyMatch` boundaries, the 500-character jump rule, the 0.3 s stale window, codes 1110/216, retry back-off, the 55 s timer, contextual strings, anchor trimming, repeated phrases, skips beyond 5 words, numbers, diacritics, apostrophes.
 
-## 12. Measured on this Mac (2026-10-11, macOS 27.0.1, probe run inside the agent sandbox)
+## 12. Measured on this Mac (2026-10-11, macOS 27.0.1)
 
-`SFSpeechRecognizer.supportedLocales()` returns 62 identifiers. **Uzbek (`uz`, `uz-UZ`) and Kazakh (`kk-KZ`) are not supported; no recognizer can be made.** Russian (`ru-RU` only), English (US, GB), Turkish, Arabic, Hebrew, Chinese and Japanese are. `supportsOnDeviceRecognition` returned `false` for every locale tried, so on-device recognition may be unavailable here until the system's on-device models are present. That value came from a process inside the agent sandbox; re-measure in Terminal before relying on it (snippet below). Consequence: with the owner's default locale `uz`, Word Tracking cannot work for Uzbek scripts at all, and Classic and Voice-Activated are the modes that serve them.
+`SFSpeechRecognizer.supportedLocales()` returns 62 identifiers. **Uzbek (`uz`, `uz-UZ`) and Kazakh (`kk-KZ`) are not supported; no recognizer can be made.** Russian (`ru-RU` only), English (US, GB), Turkish, Arabic, Hebrew, Chinese and Japanese are.
+
+On-device support, re-measured in Terminal outside the agent sandbox the same day (the first run, inside the sandbox, had reported `false` for every locale and was wrong): **`en-US` is on-device; `ru-RU`, `en-GB`, `tr-TR`, `ar-SA`, `he-IL`, `zh-CN` and `ja-JP` are not**, though all of them report `available`. The sandbox value was not trustworthy, which is why the spec asks for this measurement outside it. Consequence: with the owner's default locale `uz`, Word Tracking cannot work for Uzbek scripts at all, and Classic and Voice-Activated are the modes that serve them. Under the on-device-only policy (D3), Follow would work for US English only until the user downloads the Russian model in System Settings > Keyboard > Dictation (not yet tried; the probe would need rerunning after) or opts in to Apple processing.
 
 ```swift
 import Speech
@@ -159,6 +161,6 @@ Web check, same day: `NSWindow.sharingType = .none` and ScreenCaptureKit is a kn
 ## 13. Open questions this exploration could not answer
 
 - Whether `sharingType = .none` hides the panel from each capture app on this macOS (needs hardware).
-- Whether on-device Speech models exist on the owner's Mac, and for Russian specifically.
+- Whether the Russian on-device model can be installed on the owner's Mac (US English is already on-device; Russian is not).
 - Whether `NSPanel` clicks land on first click when another app is active, at Isla's window level, over a full-screen Keynote or Zoom share.
 - The Mac classic-mode timer's driver (`smoothWordProgress`) lives in `TextreamService`/view code the scouts did not read; the iOS controller shows the intended rule: `words/s * elapsed`, `elapsed` capped at 0.25 s, 50 ms tick.

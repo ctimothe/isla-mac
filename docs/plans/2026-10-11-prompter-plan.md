@@ -88,7 +88,7 @@ Done when: a Developer ID build shows the microphone prompt on first Voice start
 
 ## Release 3 — Word Tracking (speech; needs D2, D3)
 
-**Gate (D3):** do not start until the locale probe, run in Terminal outside the agent sandbox (`scratchpad/probe/locales` from the exploration session, or rebuilt from the research note section 12), reports `supportsOnDeviceRecognition` true for a language the owner scripts in, and the owner confirms they present in it. If it reports false everywhere, Follow would exist only behind the Apple-processing opt-in: do not build it.
+**Gate (D3):** the Terminal probe ran on 2026-10-11: `en-US` is on-device, `ru-RU` and the other locales tried are not, `uz` and `kk` have no recognizer. Do not start until the owner confirms they present in a language with an on-device model (US English today; Russian after the Dictation model is installed and the probe is rerun in Terminal, outside the agent sandbox, whose own reading was wrong). Otherwise Follow would exist only behind the Apple-processing opt-in: do not build it.
 
 Done when: Russian and English scripts follow a reader through a 20-minute read, including a mic change and the 55 s restarts, with Apple processing off unless the user turned it on; Follow is disabled with a reason for unsupported languages (Uzbek, Kazakh).
 
