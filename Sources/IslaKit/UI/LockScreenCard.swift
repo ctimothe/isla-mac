@@ -442,7 +442,12 @@ struct LockScreenCard: View {
             // read as a nameless 690x690 image (H-009). The cover the listener
             // can name is the one in the header.
             .accessibilityHidden(true)
-            .animation(reduceMotion ? nil : Theme.artworkAnimation, value: media.artwork)
+            // With Reduce Motion on too. The light only changes colour and
+            // brightness under a skip — nothing in it moves — and it used to
+            // cut there, so the whole card behind the type changed in one
+            // frame, the most abrupt thing on the lock screen for the people
+            // who asked for calm. A fade is not motion (F-055).
+            .animation(Theme.artworkAnimation, value: media.artwork)
         }
     }
 
@@ -556,16 +561,30 @@ struct LockScreenCard: View {
     private var middle: some View {
         ZStack {
             switch pane {
-            case .lyrics: lyricsPane
+            case .lyrics: lyricsPane.transition(middleFade)
             // The picker is not a pane. It opens *over* the card, the way the
             // system's own output list opens over whatever raised it, so what
             // is playing stays visible behind the thing choosing where it
             // plays.
-            case .player, .output: playerPane
+            case .player, .output: playerPane.transition(middleFade)
             }
         }
+        // Reduce Motion cuts the middle's geometry, because its frame follows
+        // the cover in the header, which changes size with the pane and cuts
+        // too: animated here, the seek bar slid up to meet a header that had
+        // already jumped. The panes themselves still fade, on `middleFade`.
         .animation(reduceMotion ? nil : Theme.paneAnimation, value: pane)
         .transition(.opacity)
+    }
+
+    /// How the words and the player swap places.
+    ///
+    /// Under Reduce Motion the fade carries its own animation, so it plays in
+    /// a transaction the middle has stripped of one. It used to have none and
+    /// the pane cut: words gone and seek bar there in one frame (F-055). A
+    /// fade is not motion, and the setting never asked for it to go.
+    private var middleFade: AnyTransition {
+        reduceMotion ? AnyTransition.opacity.animation(Theme.contentAnimation) : .opacity
     }
 
     private var playerPane: some View {
@@ -893,7 +912,11 @@ struct LockScreenCard: View {
             // a VoiceOver user could leave only by choosing a device. Escape
             // closes it as a click on the scrim does.
             .accessibilityAction(.escape) { pane = .player }
-            .animation(reduceMotion ? nil : Theme.paneAnimation, value: pane)
+            // Under Reduce Motion the picker is a scrim and a list fading in
+            // place (its transition is already plain opacity), so it fades.
+            // It used to cut, and blinked on over the card (F-055). The
+            // card's size is fixed, so nothing in this overlay can travel.
+            .animation(reduceMotion ? Theme.contentAnimation : Theme.paneAnimation, value: pane)
         }
     }
 

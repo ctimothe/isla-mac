@@ -30,9 +30,29 @@ struct SkeletonBox: View {
             // Reduce Motion is asked to stop; the plain surface still reads
             // as a placeholder.
             guard !reduceMotion else { return }
-            withAnimation(.linear(duration: 1.15).repeatForever(autoreverses: false)) {
-                sweep = true
+            startSweep()
+        }
+        // And the setting is honoured live, not only at appearance. This used
+        // to read it once in `onAppear`, so turning Reduce Motion on while a
+        // cover was loading left the shimmer running until the box went away
+        // (F-055), and turning it off left a still box.
+        .onChange(of: reduceMotion) { _, reduced in
+            if reduced {
+                // Back to the start in a transaction that disables animations,
+                // so the repeat is replaced by a still value rather than by
+                // one more pass of the sweep carried in from outside.
+                var stop = Transaction()
+                stop.disablesAnimations = true
+                withTransaction(stop) { sweep = false }
+            } else {
+                startSweep()
             }
+        }
+    }
+
+    private func startSweep() {
+        withAnimation(.linear(duration: 1.15).repeatForever(autoreverses: false)) {
+            sweep = true
         }
     }
 }

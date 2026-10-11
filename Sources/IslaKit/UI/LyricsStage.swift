@@ -383,8 +383,12 @@ struct LyricsStage: View {
                             .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
                     }
                 }
-                .animation(reduceMotion ? nil : Theme.contentAnimation, value: following)
-                .animation(reduceMotion ? nil : Theme.contentAnimation, value: strayed)
+                // With Reduce Motion on too: the pill's transition is already
+                // plain opacity there, and the context lines dimming as the
+                // reader takes over are opacity alone. Cut, the pill blinked
+                // on in a single frame (F-055). A fade is not motion.
+                .animation(Theme.contentAnimation, value: following)
+                .animation(Theme.contentAnimation, value: strayed)
         }
         .padding(.horizontal, 22)
     }
@@ -507,7 +511,10 @@ struct LyricsStage: View {
             allText: Self.plainText(lines)
         )
         .frame(maxHeight: .infinity, alignment: .center)
-        .animation(reduceMotion ? nil : Theme.contentAnimation, value: isCurrent)
+        // A row lighting is depth through opacity alone — `LyricRow` gave up
+        // its blur and scale — so it brightens under Reduce Motion as well
+        // rather than switching on in one frame (F-055).
+        .animation(Theme.contentAnimation, value: isCurrent)
         .accessibilityHint(localized("Jumps the song to this line"))
     }
 

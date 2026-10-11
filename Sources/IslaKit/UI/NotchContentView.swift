@@ -47,6 +47,22 @@ struct NotchContentView: View {
     /// can both see.
     @Namespace private var morph
 
+    /// Whether the cover and the equalizer fly between the pill and the panel.
+    ///
+    /// Not under Reduce Motion. The shell's own open was already reduced, but
+    /// the cover still morphed across the panel inside it, 22 pt to 118 pt in
+    /// the reduced open's time — the largest travel on screen, left untouched
+    /// by the setting that refuses travel (F-055). With no namespace each end
+    /// is a lone view: the pill's cover leaves with the compact header and the
+    /// panel's arrives with its pane, both fades. The lock path passes `nil`
+    /// for the same reason, with nowhere to travel to.
+    nonisolated static func travels(reduceMotion: Bool) -> Bool { !reduceMotion }
+
+    /// The namespace both ends travel in, or none when nothing may travel.
+    private var travellingMorph: Namespace.ID? {
+        Self.travels(reduceMotion: reduceMotion) ? morph : nil
+    }
+
     private var isOpen: Bool { vm.isOpen || vm.isDropTargeted }
     private var size: CGSize { vm.bodySize }
     @State private var isPressed = false
@@ -424,7 +440,7 @@ struct NotchContentView: View {
                 // The music stays mounted under the moment, faded rather than
                 // removed, so the cover's morph and the fold described above
                 // are exactly as they were when the moment ends.
-                compactMediaHeader(morph: morph)
+                compactMediaHeader(morph: travellingMorph)
                     .opacity(vm.ambient == nil ? 1 : 0)
                 if let ambient = vm.ambient {
                     ambientHeader(ambient)
@@ -874,7 +890,7 @@ struct NotchContentView: View {
                     // transition instead of collapsing onto a frame that is not
                     // there.
                     EqualizerBars(isAnimating: vm.media.isPlaying)
-                        .morph(MorphID.equalizer, in: morph)
+                        .morph(MorphID.equalizer, in: travellingMorph)
                 }
                 Text(vm.media.sourceName ?? "")
                     .islandFont(.caption)
@@ -936,14 +952,18 @@ struct NotchContentView: View {
                 WelcomePane(onDismiss: { vm.dismissWelcome() })
                     .transition(.opacity)
             } else {
+                // The slight zoom is the only travel a swap has, and Reduce
+                // Motion takes it: the scales come from the theme, 1 under
+                // the setting, so the swap is a plain crossfade (F-017).
+                let scales = Theme.paneSwapScales(reduceMotion: reduceMotion)
                 pane
                     .id(vm.tab)
                     .transition(.asymmetric(
                         insertion: .opacity
-                            .combined(with: .scale(scale: 0.97))
+                            .combined(with: .scale(scale: scales.insertion))
                             .animation(Theme.paneIn),
                         removal: .opacity
-                            .combined(with: .scale(scale: 1.02))
+                            .combined(with: .scale(scale: scales.removal))
                             .animation(Theme.paneOut)
                     ))
             }
@@ -979,7 +999,7 @@ struct NotchContentView: View {
                 localLibrary: vm.localLyricsLibrary,
                 currentLocalTrackIdentity: { vm.lyricsCoordinator.currentLocalTrackIdentity },
                 openMusicOnlySetting: vm.openMusicOnlySetting,
-                morph: morph,
+                morph: travellingMorph,
                 showingLyrics: $vm.isShowingLyrics
             )
         case .shelf:

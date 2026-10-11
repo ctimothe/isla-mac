@@ -29,6 +29,71 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertFalse(reduced.contains("spring"), "a spring is travel, and that is what was refused")
     }
 
+    /// Reduce Motion never jumps on its first frame (F-055).
+    ///
+    /// Every reduced variant used to be an ease-out of 0.12 or 0.15 s. An
+    /// ease-out leaves at its fastest, so the reduced open moved 38.6 pt in
+    /// its first frame and peaked at 2,518 pt/s — twice the 1,197 pt/s of the
+    /// spring it replaces. The people who asked for calm got the fastest,
+    /// most abrupt path in the app. One ease-in-out of 0.24 s now stands for
+    /// every travel the setting keeps: zero speed at both ends, a peak of
+    /// about 1,264 pt/s over the panel's 176 pt, and 1.7 pt in the first
+    /// frame at 60 Hz.
+    ///
+    /// Asserted twice: by description, so a variant cannot quietly grow its
+    /// own curve, and by sampling the curve SwiftUI actually built (the
+    /// visual lab's parser), so the numbers above are the ones on screen.
+    func testReduceMotionNeverJumpsTheFirstFrame() throws {
+        let reduced = String(describing: Theme.reducedMotion)
+        let variants: [(String, Animation)] = [
+            ("open", Theme.open(reduceMotion: true)),
+            ("close", Theme.close(reduceMotion: true)),
+            ("compact", Theme.compact(reduceMotion: true)),
+            ("pill unfold", Theme.pill(appearing: true, reduceMotion: true)),
+            ("pill fold", Theme.pill(appearing: false, reduceMotion: true)),
+            ("pill content in", Theme.pillContent(shown: true, reduceMotion: true)),
+            ("pill content out", Theme.pillContent(shown: false, reduceMotion: true)),
+            ("lyric page", Theme.lyricScroll(reduceMotion: true)),
+            ("hover nudge", Theme.hoverNudge(reduceMotion: true)),
+        ]
+        for (name, animation) in variants {
+            XCTAssertEqual(String(describing: animation), reduced, "\(name) has a reduced curve of its own")
+        }
+        XCTAssertEqual(reduced, String(describing: Animation.easeInOut(duration: 0.24)),
+                       "an ease-in-out: no speed at either end")
+
+        let travel = 176.0
+        let curve = try XCTUnwrap(LabCurve.parse(Theme.reducedMotion, name: "reduced", usedFor: "", source: ""))
+        let firstFrame = curve.sample(1.0 / 60).value * travel
+        XCTAssertLessThan(firstFrame, 2, "the first frame jumped \(firstFrame) pt")
+        let peak = stride(from: 0.0, through: 0.24, by: 0.001)
+            .map { abs(curve.sample($0).velocity) * travel }.max() ?? 0
+        XCTAssertLessThan(peak, 1_300, "peaks at \(peak) pt/s, faster than the spring it stands in for")
+        XCTAssertLessThan(abs(curve.sample(0.0005).velocity) * travel, 20, "it starts from rest")
+    }
+
+    /// The tab swap fades and does not zoom under Reduce Motion (F-017).
+    ///
+    /// The pane swap built its 0.97 in, 1.02 out scale inline, beside a
+    /// `Theme.scaleIn(_:reduceMotion:)` that exists for exactly this, so every
+    /// tab switch still zoomed with the setting on.
+    func testTheTabSwapOnlyFadesUnderReduceMotion() {
+        let reduced = Theme.paneSwapScales(reduceMotion: true)
+        XCTAssertEqual(reduced.insertion, 1)
+        XCTAssertEqual(reduced.removal, 1)
+        let full = Theme.paneSwapScales(reduceMotion: false)
+        XCTAssertEqual(full.insertion, 0.97)
+        XCTAssertEqual(full.removal, 1.02)
+    }
+
+    /// Under Reduce Motion the cover and the equalizer do not fly between the
+    /// pill and the panel: they fade with the pane they belong to (F-055).
+    @MainActor
+    func testNothingTravelsUnderReduceMotion() {
+        XCTAssertFalse(NotchContentView.travels(reduceMotion: true))
+        XCTAssertTrue(NotchContentView.travels(reduceMotion: false))
+    }
+
     /// The page is carried by the song, so this is the one animation in the app
     /// entitled to overshoot: the words have momentum the way a flick does. It
     /// also has to be slower than the sweep it carries — borrowing the generic
