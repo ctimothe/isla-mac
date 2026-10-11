@@ -96,15 +96,30 @@ final class AmbientWatch {
         // next real plug-in look like the first reading, which is no event.
         guard let now = Self.readPower() else { return }
         defer { lastPower = now }
-        guard Self.pluggedIn(previous: lastPower, now: now) else { return }
+        let date = Date()
+        guard Self.pluggedIn(previous: lastPower, now: now, lastAnnounced: lastPowerAnnounced, at: date) else { return }
+        lastPowerAnnounced = date
         onEvent?(.charging(level: now.level, isCharging: now.isCharging))
     }
 
-    /// Only the moment external power arrives. A level change while charging,
-    /// or a desktop Mac that was on AC all along, is not an event.
-    nonisolated static func pluggedIn(previous: Power?, now: Power) -> Bool {
-        guard let previous else { return false }
-        return !previous.onExternalPower && now.onExternalPower
+    /// When the charger was last announced, for `repeatQuiet`.
+    private var lastPowerAnnounced: Date?
+
+    /// Only the moment external power arrives, and not again within `quiet`
+    /// of the last time it was announced. A level change while charging, or a
+    /// desktop Mac that was on AC all along, is not an event.
+    ///
+    /// The window is G-033: a loose USB-C dock drops and restores power every
+    /// few seconds, each restore is a genuine false-to-true edge, and with no
+    /// window each one re-grew the pill. Headphones had the same window from
+    /// the start for the same reason; the charger now keeps it too.
+    nonisolated static func pluggedIn(
+        previous: Power?, now: Power, lastAnnounced: Date?, at date: Date,
+        quiet: TimeInterval = repeatQuiet
+    ) -> Bool {
+        guard let previous, !previous.onExternalPower, now.onExternalPower else { return false }
+        guard let lastAnnounced else { return true }
+        return date.timeIntervalSince(lastAnnounced) >= quiet
     }
 
     /// The internal battery, or nil on a Mac that has none.
