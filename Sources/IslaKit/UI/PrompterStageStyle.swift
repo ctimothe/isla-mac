@@ -199,6 +199,10 @@ enum PrompterStageMetrics {
     static let cullBuffer: Double = 400
     /// Spec 10.5: the fade at each end of the text region is 5 percent of it.
     static let fadeFraction: CGFloat = 0.05
+    /// The stage's glass sits 14 pt inside the panel's 22 pt bottom corners
+    /// (the body's padding), so its own corners are the panel's less that
+    /// inset: concentric curves, as the system draws nested shapes.
+    static let cornerRadius: CGFloat = Theme.openBottomRadius - NotchGeometry.bodyBottomPadding
 
     /// `prompter.columnWidth`, never wider than the body less the margins, and
     /// never negative on a body too small to hold any.

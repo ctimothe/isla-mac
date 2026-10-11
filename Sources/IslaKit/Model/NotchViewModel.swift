@@ -156,6 +156,10 @@ final class NotchViewModel: ObservableObject {
     var prompterTokenize: @Sendable ([String]) async -> [PromptScript] = { texts in
         await PrompterBackground.run { texts.map(PromptScript.init) }
     }
+    /// Whether the panel is hidden from screen sharing, for the stage's
+    /// capture chip (spec 11.5). The global setting; a test answers it so
+    /// nothing it renders reads the real defaults.
+    var prompterCaptureHidden: @MainActor () -> Bool = { NotchViewModel.hideFromCaptureEnabled }
     private var prompterPreparation: Task<Void, Never>?
     /// Bumped by anything that calls a preparing start off, so a result that
     /// lands afterwards is dropped (spec 7.2's rule, for the one closure a

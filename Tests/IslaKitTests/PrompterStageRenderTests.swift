@@ -356,6 +356,66 @@ final class PrompterStageRenderTests: XCTestCase {
         )
     }
 
+    // MARK: - Drawn (offscreen)
+
+    /// E-24 as drawn: a short right-to-left line ends at the column's right
+    /// edge and leaves its left side empty. The first stage drew it mirrored a
+    /// second time (the layout's right-edge placement and then a flipped
+    /// layout direction), which pushed Hebrew off the column's left side; a
+    /// render on 2026-10-12 caught it.
+    func testARightToLeftLineIsDrawnAgainstTheRightEdge() async throws {
+        let rig = StageRig()
+        let stage = PrompterStageModel(
+            session: rig.session, settings: rig.settings, scheduler: rig.scheduler,
+            runner: PrompterStageModel.inlineRunner
+        )
+        XCTAssertTrue(rig.session.start(pages: [PromptScript("שלום עולם")]))
+        let size = CGSize(width: 532, height: 162)
+        let rep = try await Self.render(
+            PrompterStage(session: rig.session, settings: rig.settings, stage: stage,
+                          reduceMotion: true, increaseContrast: false, reduceTransparency: false, stop: {}),
+            size: size
+        )
+        let column = try XCTUnwrap(stage.layout).columnWidth
+        let left = (Double(size.width) - column) / 2
+        let right = left + column
+        let lineMiddle = Int(size.height / 2) - 25
+        let band = lineMiddle...(lineMiddle + 50)
+        XCTAssertGreaterThan(Self.litPixels(rep, x: Int(right - 60)..<Int(right), y: band), 20,
+                             "the line reaches the column's right edge")
+        XCTAssertEqual(Self.litPixels(rep, x: Int(left)..<Int(left + 120), y: band), 0,
+                       "and its left side is empty")
+        rig.session.stop()
+    }
+
+    private static func render<V: View>(_ view: V, size: CGSize) async throws -> NSBitmapImageRep {
+        let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height)
+            .background(Color.black).environment(\.colorScheme, .dark))
+        host.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(150))
+        host.layoutSubtreeIfNeeded()
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
+    }
+
+    /// Pixels brighter than the glass can be on its own: type.
+    private static func litPixels(_ rep: NSBitmapImageRep, x: Range<Int>, y: ClosedRange<Int>) -> Int {
+        let scaleX = Double(rep.pixelsWide) / rep.size.width
+        let scaleY = Double(rep.pixelsHigh) / rep.size.height
+        var count = 0
+        for py in Int(Double(y.lowerBound) * scaleY)..<Int(Double(y.upperBound) * scaleY) {
+            for px in Int(Double(x.lowerBound) * scaleX)..<Int(Double(x.upperBound) * scaleX) {
+                guard let color = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) else { continue }
+                if color.redComponent + color.greenComponent + color.blueComponent > 1.8 { count += 1 }
+            }
+        }
+        return count
+    }
+
     /// The real measurer agrees with itself off the main thread and gives
     /// the metrics the layout's line rule reads.
     func testTheCoreTextMeasurerMeasuresOffTheMainThread() async {

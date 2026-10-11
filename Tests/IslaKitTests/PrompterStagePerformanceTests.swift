@@ -271,6 +271,8 @@ final class StartFixture {
         stores.media.isolateFromPlayers()
         vm = NotchViewModel(geometry: geometry, stores: stores, prompterEnabled: true)
         vm.recordFirstRunAnswered = {}
+        // Visible, the setting's non-default, so a chip that ignored it shows.
+        vm.prompterCaptureHidden = { false }
         vm.prompterHooks = panel.hooks
         vm.attachPrompter(feature.parts)
     }

@@ -134,6 +134,9 @@ final class PrompterStageModel: ObservableObject {
     static let wheelSettleDelay: TimeInterval = 0.25
 
     @Published private(set) var layout: PromptLayout?
+    /// Changes with every layout installed, so the lines view can compare
+    /// layouts by a number rather than by a hundred thousand positions.
+    private(set) var layoutStamp = 0
     /// What the view draws the page at, and how it should get there.
     @Published private(set) var offset: Double = 0
     @Published private(set) var motion: PrompterStageMotion = .cut
@@ -153,6 +156,7 @@ final class PrompterStageModel: ObservableObject {
 
     private var cache = PromptLayoutCache(capacity: 4)
     private var measurer: (typeface: PrompterTypeface, value: any PromptTextMeasuring)?
+    private var resolvedFont: (typeface: PrompterTypeface, font: NSFont)?
     private var layoutKey: PromptStageLayoutKey?
     /// Bumped for every layout asked for; a background result for an older
     /// one is dropped (a resize mid-layout, a page turned, a Stop).
@@ -263,6 +267,16 @@ final class PrompterStageModel: ObservableObject {
 
     // MARK: Reading
 
+    /// The face the words are drawn in: the one they were measured in, made
+    /// once per setting rather than on every 20 Hz redraw, so the lines view
+    /// sees the same font from frame to frame and is not rebuilt for it.
+    func displayFont(for typeface: PrompterTypeface) -> NSFont {
+        if let resolvedFont, resolvedFont.typeface == typeface { return resolvedFont.font }
+        let font = PrompterFontResolver.resolve(family: typeface.family, size: typeface.size).font
+        resolvedFont = (typeface, font)
+        return font
+    }
+
     /// What VoiceOver hears for the page (15).
     var accessibilityValue: String {
         PrompterStageSpeech.accessibilityValue(script: session.script, layout: layout, progress: session.progress)
@@ -303,6 +317,7 @@ final class PrompterStageModel: ObservableObject {
         wheelPaused = false
         cache.removeAll()
         layoutKey = nil
+        layoutStamp &+= 1
         layout = nil
         planner = PromptScrollPlanner()
         anchoredPlacement = nil
@@ -391,6 +406,7 @@ final class PrompterStageModel: ObservableObject {
         } else {
             // Reading stands past the screenful (a resume deep in the page):
             // nothing rather than the wrong lines, for the moment it takes.
+            layoutStamp &+= 1
             layout = nil
         }
         let generation = layoutGeneration
@@ -407,6 +423,7 @@ final class PrompterStageModel: ObservableObject {
     }
 
     private func install(_ layout: PromptLayout, script: PromptScript, progress: Double) {
+        layoutStamp &+= 1
         self.layout = layout
         anchoredPlacement = settings.values.readingPosition
         anchoredHeight = viewport.height

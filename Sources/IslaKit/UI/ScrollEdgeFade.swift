@@ -115,4 +115,22 @@ extension View {
     func scrollEdgeFade(_ axis: Axis = .vertical, length: CGFloat = Theme.scrollFadeLength) -> some View {
         modifier(ScrollEdgeFade(axis: axis, length: length))
     }
+
+    /// The same fade, for a region that moves its own content rather than
+    /// being a `ScrollView` — the Prompter's stage, whose page is placed by
+    /// an offset it computes (spec 10.3), so there is no scroll geometry to
+    /// observe. The caller says which edges are clipped (`ScrollEdgeFade.edges`
+    /// from its own offset); the mask is `ScrollEdgeFade.stops`, so the two
+    /// cannot come to look different.
+    func edgeFade(_ edges: Edge.Set, length: CGFloat) -> some View {
+        mask {
+            GeometryReader { geo in
+                LinearGradient(
+                    stops: ScrollEdgeFade.stops(viewport: geo.size.height, fade: length, edges: edges),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+        }
+    }
 }

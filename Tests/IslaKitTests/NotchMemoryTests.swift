@@ -57,3 +57,60 @@ final class NotchMemoryTests: XCTestCase {
         XCTAssertEqual(decision, NotchGeometry.NotchReading.none)
     }
 }
+
+// MARK: - The Prompter leaves nothing behind (plan T8, T13)
+
+/// The suite's other half: not the notch's memory but the process's. A
+/// Prompter session is the one thing in the panel that holds a power
+/// assertion, a 20 Hz timer, a background layout of a page that can run to
+/// megabytes, and a wheel watch's pending settle. Starting and stopping one,
+/// and then letting the model go, must leave none of them, and nothing of the
+/// session, its stage or its parts alive.
+extension NotchMemoryTests {
+    @MainActor
+    func testStartingAndStoppingAPrompterSessionLeaksNothing() async throws {
+        weak var session: PrompterSession?
+        weak var stage: PrompterStageModel?
+        weak var settings: PrompterSettings?
+        weak var library: PrompterLibrary?
+        weak var model: NotchViewModel?
+        let rig: StageRig
+        do {
+            let fixture = try StartFixture()
+            rig = fixture.rig
+            try fixture.addScript([promptFixturePage(words: 3_000), "a second page"])
+            XCTAssertEqual(fixture.vm.startPrompter(), .openStage)
+            let liveStage = try XCTUnwrap(fixture.vm.prompterStage)
+            liveStage.setViewport(CGSize(width: 532, height: 120))
+            XCTAssertNotNil(liveStage.layout)
+            fixture.rig.read(for: 1)
+            liveStage.wheel(deltaY: -30, final: false)   // a settle left pending
+            fixture.vm.stopPrompter()
+
+            XCTAssertEqual(fixture.session.state, .ended)
+            XCTAssertTrue(fixture.rig.scheduler.live.filter { $0.interval != nil }.isEmpty, "no tick left running")
+            fixture.rig.scheduler.advance(by: 1)   // the settle, if any, finds nothing to do
+            XCTAssertEqual(fixture.session.state, .ended)
+            XCTAssertFalse(fixture.rig.lease.held, "the display-awake lease is let go")
+            XCTAssertNil(liveStage.layout, "the page's layout is let go")
+            XCTAssertEqual(liveStage.cachedLayoutCount, 0)
+            XCTAssertNil(liveStage.layoutTask)
+
+            session = fixture.session
+            stage = liveStage
+            settings = fixture.feature.parts?.settings
+            library = fixture.feature.parts?.library
+            model = fixture.vm
+            fixture.feature.set(false)
+            fixture.release()
+        }
+        // Let any task the run left finish unwinding before counting.
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertNil(session, "the session outlived the switch")
+        XCTAssertNil(stage, "the stage model outlived its view model")
+        XCTAssertNil(settings)
+        XCTAssertNil(library)
+        XCTAssertNil(model, "the view model outlived everything that held it")
+        _ = rig
+    }
+}

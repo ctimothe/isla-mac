@@ -43,10 +43,52 @@ private struct ScrollWheelWatch: ViewModifier {
     }
 }
 
+/// The same watch, reporting how far and whether the gesture is over: the
+/// Prompter's stage moves its page by the hand's own deltas (spec 8.5) rather
+/// than handing the page to a `ScrollView`, whose physics would fight the
+/// clock that moves it the rest of the time.
+private struct ScrollWheelDeltaWatch: ViewModifier {
+    var onScroll: (_ deltaY: CGFloat, _ ended: Bool) -> Void
+
+    @State private var monitor: Any?
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                guard monitor == nil else { return }
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                    // The system's own word that the hand is done: the end of
+                    // a momentum tail, or fingers lifted with no momentum to
+                    // follow. A plain wheel has no phases; the stage ends that
+                    // gesture itself when the wheel goes quiet.
+                    let ended = event.momentumPhase == .ended || event.momentumPhase == .cancelled
+                        || (event.phase == .cancelled)
+                    if event.scrollingDeltaY != 0 || ended {
+                        // A line-based wheel reports lines, not points.
+                        let delta = event.hasPreciseScrollingDeltas
+                            ? event.scrollingDeltaY : event.scrollingDeltaY * 10
+                        onScroll(delta, ended)
+                    }
+                    return event
+                }
+            }
+            .onDisappear {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            }
+    }
+}
+
 extension View {
     /// Calls `action` whenever a scroll event reaches this app while the view
     /// is on screen.
     func onScrollWheel(perform action: @escaping () -> Void) -> some View {
         modifier(ScrollWheelWatch(onScroll: action))
+    }
+
+    /// Calls `action` with each scroll event's vertical delta in points and
+    /// whether the system says the gesture ended, while the view is on screen.
+    func onScrollWheelDelta(perform action: @escaping (_ deltaY: CGFloat, _ ended: Bool) -> Void) -> some View {
+        modifier(ScrollWheelDeltaWatch(onScroll: action))
     }
 }

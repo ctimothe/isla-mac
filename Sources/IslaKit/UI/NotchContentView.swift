@@ -510,6 +510,16 @@ struct NotchContentView: View {
     /// (see `openHeader`), so there it names the welcome instead.
     private var openIslandValue: String {
         if vm.isShowingWelcome { return localized("Welcome") }
+        // During a session the strip's wings are the capture chip and the
+        // elapsed time, and this element is all of the strip there is to
+        // VoiceOver (its children are ignored), so it says both.
+        if let session = stageSession {
+            var parts = [vm.tab.title, PrompterStageWings.captureChip(hidden: vm.prompterCaptureHidden())]
+            if vm.prompterParts?.settings.showElapsed ?? false {
+                parts.append(localized("Elapsed time %@", formatTime(session.elapsedTime())))
+            }
+            return parts.joined(separator: ", ")
+        }
         let detail: String?
         switch vm.tab {
         case .media: detail = vm.media.sourceName
@@ -575,7 +585,14 @@ struct NotchContentView: View {
             // nothing to do with Music and the right end named a player for it.
             // The pane carries its own heading; the header has nothing to add for
             // one launch.
-            if !vm.isShowingWelcome {
+            // A Prompter session owns the body, and the wings with it: the
+            // capture chip on the left and the elapsed time on the right
+            // (design note), in place of the tab's title and detail.
+            if stageSession != nil {
+                PrompterCaptureChip(hidden: vm.prompterCaptureHidden())
+                    .padding(.leading, 16)
+                    .transition(.opacity)
+            } else if !vm.isShowingWelcome {
                 Text(vm.tab.title.uppercased())
                     .islandFont(.caption, weight: .semibold)
                     .tracking(Theme.capsTracking)
@@ -587,7 +604,13 @@ struct NotchContentView: View {
             Spacer(minLength: 0)
             Color.clear.frame(width: vm.geometry.notchSize.width, height: 1)
             Spacer(minLength: 0)
-            if !vm.isShowingWelcome {
+            if let session = stageSession {
+                if vm.prompterParts?.settings.showElapsed ?? false {
+                    PrompterElapsedReadout(session: session)
+                        .padding(.trailing, 16)
+                        .transition(.opacity)
+                }
+            } else if !vm.isShowingWelcome {
                 trailing
                     .padding(.trailing, 16)
                     .transition(.opacity)
@@ -935,12 +958,39 @@ struct NotchContentView: View {
 
     // MARK: - Body
 
+    /// The session whose stage owns the body, or nil. Only while it holds the
+    /// panel (running, paused, finished): spec 5.2.
+    private var stageSession: PrompterSession? {
+        vm.prompterHoldsPanel ? vm.prompterSession : nil
+    }
+
     private var content: some View {
-        HStack(spacing: 14) {
-            let groups = NotchViewModel.Tab.railGroups(prompterEnabled: vm.prompterEnabled)
-            Rail(vm: vm, tabs: groups.content, footer: groups.footer)
-            panes
+        Group {
+            // The stage owns the whole body while a session holds the panel,
+            // and the rail goes with the tabs it would switch: the tab cannot
+            // change during a session (7.3, ruling 20.3 #5). The lyrics page
+            // is the precedent for a pane that owns the body.
+            if let session = stageSession, let parts = vm.prompterParts, let stage = vm.prompterStage {
+                PrompterStage(
+                    session: session, settings: parts.settings, stage: stage,
+                    reduceMotion: reduceMotion,
+                    increaseContrast: appearance.increaseContrast,
+                    reduceTransparency: appearance.reduceTransparency,
+                    stop: { vm.stopPrompter() }
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.animation(Theme.paneIn),
+                    removal: .opacity.animation(Theme.paneOut)
+                ))
+            } else {
+                HStack(spacing: 14) {
+                    let groups = NotchViewModel.Tab.railGroups(prompterEnabled: vm.prompterEnabled)
+                    Rail(vm: vm, tabs: groups.content, footer: groups.footer)
+                    panes
+                }
+            }
         }
+        .animation(Theme.paneAnimation, value: stageSession != nil)
         .padding(.horizontal, 14)
         // The body's height is measured from this same number, so the two
         // cannot drift apart into a rail that does not fit.
@@ -1034,7 +1084,18 @@ struct NotchContentView: View {
             TranslatePane(translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
                 .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
         case .prompter:
-            PrompterTab()
+            // A start waiting on the shared-display question shows it in the
+            // tab's body (11.6, design note); T10's control row builds the
+            // rest of the tab around this.
+            if let share = vm.pendingMirroredStart {
+                PrompterShareQuestion(
+                    share: share,
+                    confirm: { vm.confirmMirroredStart() },
+                    cancel: { vm.cancelMirroredStart() }
+                )
+            } else {
+                PrompterTab()
+            }
         case .settings:
             SettingsPane(
                 shelf: vm.shelf,
