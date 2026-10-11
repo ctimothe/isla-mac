@@ -74,6 +74,10 @@ struct LockScreenCard: View {
         NotchViewModel.LockCardStyle(rawValue: styleRaw) ?? .glass
     }
 
+    private var glassRoute: (samplesBackdrop: Bool, preferDrawn: Bool, solid: Bool) {
+        Self.glassRouting(style: style, hasArtwork: media.artwork != nil)
+    }
+
     @AppStorage(NotchViewModel.lockCardSizeKey) private var sizeRaw = NotchViewModel.LockCardSize.standard.rawValue
 
     private var cardSize: NotchViewModel.LockCardSize {
@@ -93,6 +97,32 @@ struct LockScreenCard: View {
     }
 
     private var dimensions: CGSize { Self.size(for: cardSize) }
+
+    /// Which glass the card asks `glassSurface` for: always the drawn recipe.
+    ///
+    /// checklist.md has said so since the card went over the shield — the
+    /// shield is protected content, no window above it is given a backdrop to
+    /// blur, so the glass is a recipe and not a sample, as the system's own
+    /// lock-screen widgets are. The code disagreed (F-012). A coverless
+    /// Transparent or Tinted card asked for a backdrop and nothing more, so on
+    /// macOS 26 it took `glassEffect` with nothing to sample and the cover
+    /// light gone, while a card with a cover drew the recipe.
+    ///
+    /// That split had a second cost (K-017). `GlassSurfaceStyle` picks
+    /// between `glassEffect` and the recipe with an `if`, so when a coverless
+    /// song followed one with art the card's whole content changed identity,
+    /// and a scrub or volume drag in flight was torn down without its
+    /// `onEnded` — the bar stayed pinned to the old finger. `preferDrawn`
+    /// held constant keeps the branch where it is; only the vibrancy laid
+    /// under the recipe follows the cover, and that lives in the background.
+    ///
+    /// The `drawnGlass` default stays for the panel. It was the escape hatch
+    /// for this card while the question was open, and the record closed it.
+    static func glassRouting(
+        style: NotchViewModel.LockCardStyle, hasArtwork: Bool
+    ) -> (samplesBackdrop: Bool, preferDrawn: Bool, solid: Bool) {
+        (samplesBackdrop: style != .solid && !hasArtwork, preferDrawn: true, solid: style == .solid)
+    }
 
     /// How many lyric lines the middle shows. Odd, so the line being sung sits
     /// in the centre with the same amount of song either side of it.
@@ -152,14 +182,17 @@ struct LockScreenCard: View {
                 // No tint from the cover either. The glass takes its character
                 // from the wallpaper it is actually over, which is the point of
                 // it being glass.
-                samplesBackdrop: style != .solid && media.artwork == nil,
+                samplesBackdrop: glassRoute.samplesBackdrop,
+                // Always the recipe, never Apple's material: see
+                // `glassRouting`, which is what the tests hold.
+                preferDrawn: glassRoute.preferDrawn,
                 // Solid is the panel Reduce Transparency draws, chosen on
                 // purpose. It used to be the drawn glass laid over an
                 // `.ultraThinMaterial` and a black scrim — three surfaces for
                 // one card, and above the shield the material had nothing to
                 // sample anyway, so what it added was a muddier version of the
                 // recipe already on top of it. One surface, one rule.
-                solid: style == .solid
+                solid: glassRoute.solid
             )
             // No drop shadow. The system's own lock player has none — the
             // material defines its own edge, and a card floating on a drawn
@@ -185,6 +218,16 @@ struct LockScreenCard: View {
             // speaks for a Mac that is not locked, and the island's own peek is
             // refused over the shield, so the two never say one track twice.
             .onChange(of: media.track?.key) { _, _ in
+                // A drag that a new song cut short lets go here (K-017). A
+                // gesture torn down without `onEnded` left the seek bar pinned
+                // to the old finger and the volume mirror deaf until the next
+                // drag. A finger still down simply writes its place again on
+                // the next move, so nothing live is lost by clearing these.
+                scrubbing = nil
+                if draggingVolume != nil {
+                    draggingVolume = nil
+                    volume = audio.volume
+                }
                 guard let now = media.track else { return }
                 Announcer.shared.announce(now.artist.isEmpty ? now.title : "\(now.title), \(now.artist)")
             }
@@ -560,7 +603,14 @@ struct LockScreenCard: View {
                 }
                 .padding(.vertical, 10)
                 .frame(width: 268)
-                .glassSurface(cornerRadius: 20, elevation: .popover)
+                // The recipe here too (F-012). Left to the default it took
+                // `glassEffect` on macOS 26 and stacked real glass on the
+                // card's recipe under the scrim — the glass-on-glass the scrim
+                // above exists to prevent, and the same shield with nothing
+                // behind it to sample. The recipe's vibrancy layer stays, as it
+                // always was below 26: over the shield it samples nothing and
+                // the drawn pane carries the surface on its own.
+                .glassSurface(cornerRadius: 20, elevation: .popover, preferDrawn: true)
                 .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
                 // Grown from the corner it belongs to, not from the middle of
                 // the card. The anchor is what makes it read as *this button's*

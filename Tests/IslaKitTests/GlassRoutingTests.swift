@@ -84,4 +84,40 @@ final class GlassRoutingTests: XCTestCase {
         defaults.set(false, forKey: NotchViewModel.drawnGlassKey)
         XCTAssertFalse(NotchViewModel.forcesDrawnGlass)
     }
+
+    /// The lock card is the recipe, every finish, cover or no cover — which is
+    /// what checklist.md has always said of it: no window above the shield is
+    /// given a backdrop, so there is nothing for Apple's material to sample.
+    ///
+    /// F-012: the coverless Tinted and Transparent cards asked for a backdrop
+    /// and nothing else, so on macOS 26 they took `glassEffect` over the shield
+    /// while the record said recipe. K-017: because that answer flipped with
+    /// the cover, the glass modifier switched branches when a coverless song
+    /// followed one with art, and SwiftUI rebuilt the card's whole content —
+    /// a scrub or a volume drag in flight was torn down without `onEnded`.
+    /// Constant `false` closes both.
+    ///
+    /// With Reduce Transparency pinned off, the one setting that would make
+    /// this pass for the wrong reason.
+    func testTheLockCardNeverAsksForTheSystemMaterial() {
+        SystemAppearance.shared.overrideForTests(reduceTransparency: false)
+        defer { SystemAppearance.shared.resetForTests() }
+
+        for cardStyle in NotchViewModel.LockCardStyle.allCases {
+            for hasArtwork in [true, false] {
+                let routing = LockScreenCard.glassRouting(style: cardStyle, hasArtwork: hasArtwork)
+                let surface = style(
+                    samplesBackdrop: routing.samplesBackdrop,
+                    preferDrawn: routing.preferDrawn,
+                    solid: routing.solid
+                )
+                XCTAssertFalse(
+                    surface.usesSystemGlass,
+                    "\(cardStyle) with\(hasArtwork ? "" : "out") a cover must not take glassEffect"
+                )
+                XCTAssertEqual(routing.solid, cardStyle == .solid, "Solid stays the opaque panel")
+                XCTAssertEqual(surface.isOpaque, cardStyle == .solid, "and only Solid is opaque")
+            }
+        }
+    }
 }
