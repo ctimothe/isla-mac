@@ -382,6 +382,12 @@ final class LyricAccuracyLabClockTests: XCTestCase {
 
     // MARK: - L7 lead calibration
 
+    /// The owner's "Lyric Delay", set for AirPods (checklist.md 2026-09-21).
+    /// Stored as −0.247 s while the lead added the correction; the sign
+    /// migration of 2026-10-11 rewrote it as the +0.247 s of delay it always
+    /// meant, at the same effective lead.
+    static let ownerDelay: TimeInterval = 0.247
+
     /// Every term between a timestamp and the eye, summed as a distribution,
     /// and the lead that keeps the result inside what people cannot detect.
     ///
@@ -468,7 +474,7 @@ final class LyricAccuracyLabClockTests: XCTestCase {
                 lead += 0.005
             }
             let shipped = LyricSweep.lead(precisionSync: false, userOffset: 0)
-            let owner = LyricSweep.lead(precisionSync: false, userOffset: -0.247)
+            let owner = LyricSweep.lead(precisionSync: false, userOffset: Self.ownerDelay)
             defaultInWindow.append(inWindow(lead: shipped, low: detectEarly, high: detectLate))
             optimalLeads.append(best.lead)
             results.append([
@@ -488,13 +494,19 @@ final class LyricAccuracyLabClockTests: XCTestCase {
             ])
         }
 
-        // What the owner's −0.247 s says. With it the effective lead is
-        // −0.047 s; if that is where the owner hears the line on the voice
+        // What the owner's correction says. Tuned as −0.247 s when the lead
+        // added it, it reads +0.247 s since the 2026-10-11 sign migration,
+        // and either way the effective lead is −0.047 s; if that is where the
+        // owner hears the line on the voice
         // (median offset at the window's centre), the unmodelled delay between
         // the player's position and the voice reaching the ear is:
         let modelled = results.first { ($0["scenario"] as? String)?.hasPrefix("120Hz, output 0") == true }
         let baseMedianMs = (modelled?["offsetBeforeLeadMs"] as? [String: Any])?["p50"] as? Double ?? .nan
-        let ownerLead = LyricSweep.lead(precisionSync: false, userOffset: -0.247)
+        let ownerLead = LyricSweep.lead(precisionSync: false, userOffset: Self.ownerDelay)
+        XCTAssertEqual(
+            ownerLead, -0.047, accuracy: 1e-9,
+            "the sign migration must leave the owner's calibration at the lead it was tuned to"
+        )
         let impliedHidden = baseMedianMs / 1000 - ownerLead - target
         let impliedHiddenAtZero = baseMedianMs / 1000 - ownerLead
 
@@ -528,7 +540,8 @@ final class LyricAccuracyLabClockTests: XCTestCase {
             ],
             "scenarios": results,
             "ownerCorrection": [
-                "userOffset": -0.247,
+                "userOffset": Self.ownerDelay,
+                "userOffsetBeforeSignMigration": -Self.ownerDelay,
                 "effectiveLead": ownerLead,
                 "impliedHiddenDelaySIfOwnerAimsAtWindowCentre": impliedHidden,
                 "impliedHiddenDelaySIfOwnerAimsAtZero": impliedHiddenAtZero,
@@ -540,7 +553,7 @@ final class LyricAccuracyLabClockTests: XCTestCase {
             "verdict": "concern",
             "summary": "shipped lead 0.20 s keeps \(fmt(defaultInWindow.first.map { $0 * 100 }))% of line onsets undetectable at 60 Hz with zero output latency; "
                 + "optimal lead per scenario \(optimalLeads.map { String(format: "%.3f", $0) }.joined(separator: "/")) s; "
-                + "owner's −0.247 s implies ≈\(String(format: "%.0f", impliedHidden * 1000)) ms of delay the model does not contain",
+                + "owner's +0.247 s delay implies ≈\(String(format: "%.0f", impliedHidden * 1000)) ms of delay the model does not contain",
         ])
     }
 

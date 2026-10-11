@@ -490,7 +490,10 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
         let configs = [
             Config(name: "standard", precision: false, userOffset: 0, wordTiming: false),
             Config(name: "precision", precision: true, userOffset: 0, wordTiming: false),
-            Config(name: "owner -0.247", precision: false, userOffset: -0.247, wordTiming: false),
+            // The owner's AirPods calibration: −0.247 s when the lead added the
+            // correction, +0.247 s of delay since the 2026-10-11 sign migration.
+            // Same effective lead, −0.047 s.
+            Config(name: "owner +0.247", precision: false, userOffset: 0.247, wordTiming: false),
             Config(name: "word timing (SYNTHETIC words)", precision: true, userOffset: 0, wordTiming: true),
         ]
         var samples = 0

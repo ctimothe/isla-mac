@@ -69,13 +69,14 @@ final class LyricRoutesTests: XCTestCase {
         store.userOffset = -12
         XCTAssertEqual(store.userOffset, -3, accuracy: 0.0001)
 
-        store.userOffset = -0.4
+        store.userOffset = 0.4
         XCTAssertEqual(
-            UserDefaults.standard.double(forKey: LyricsStore.offsetKey), -0.4, accuracy: 0.0001,
+            UserDefaults.standard.double(forKey: LyricsStore.offsetKey), 0.4, accuracy: 0.0001,
             "a correction the listener made has to survive the next launch"
         )
         // And it reaches the surfaces through the one clock every one of them
-        // reads, rather than through a copy per surface.
+        // reads, rather than through a copy per surface — as a delay, so a
+        // positive value shows the line later.
         XCTAssertEqual(
             LyricSweep.lead(precisionSync: false, userOffset: store.userOffset),
             LyricSweep.standardLead - 0.4, accuracy: 0.0001

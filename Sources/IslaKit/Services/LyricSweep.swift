@@ -47,10 +47,19 @@ enum LyricSweep {
         // written, in LyricsStore. Clamping the sum instead would let one
         // layer steal another's range — a global +3 with a track −0.5 must
         // still read +2.5, not a clamped +1.5.
-        (precisionSync ? precisionLead : standardLead) + userOffset + trackOffset
+        //
+        // Both corrections are *delays*, so they come off the lead. They were
+        // added until 2026-10-11, which ran every control backwards: "Lyric
+        // Delay" +0.5 lit lines half a second early, the stage's "Lyrics
+        // Earlier" made them later, and the AirPods listener the setting
+        // exists for followed the note under the slider and doubled the
+        // error. Stored values were negated once on the way (LyricsStore's
+        // sign migration), so no listener's timing moved with the fix.
+        (precisionSync ? precisionLead : standardLead) - userOffset - trackOffset
     }
 
-    /// The moment the lyric should be read against: the clock, plus the lead.
+    /// The moment the lyric should be read against: the clock, plus the lead
+    /// (which a positive delay shrinks).
     static func position(
         _ position: TimeInterval, precisionSync: Bool, userOffset: TimeInterval,
         trackOffset: TimeInterval = 0
