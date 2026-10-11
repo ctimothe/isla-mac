@@ -303,6 +303,16 @@ final class NotchViewModel: ObservableObject {
         return canFoldOnRequest
     }
 
+    /// The one way a command raises the pin (⌃⌥⌘I, ⌃⌥⌘L, the Show intents, a
+    /// click that is not the mouse's, the Prompter tab opened for a reason).
+    /// Refused while a session holds the panel (ruling 20.6 #3): the session
+    /// already holds it, and a pin raised then claimed plain Escape the
+    /// moment Stop lifted the session's veto. ⌃⌥⌘L during a Keynote talk,
+    /// then ⌃⌥⌘S, left a pin that took the next Escape from the slideshow.
+    func setPinned(_ pinned: Bool) {
+        isPinnedOpen = pinned && !prompterHoldsPanel
+    }
+
     /// The pointer reaching the island: the panel is handed back to it.
     ///
     /// State, not event plumbing, so it can be tested without a pointer.
@@ -393,7 +403,7 @@ final class NotchViewModel: ObservableObject {
         // arriving is a transition that had already happened before the click.
         // So the departure was refused by `holdsOpen` and the panel stayed open
         // until something else was clicked (fixed 2026-09-10).
-        isPinnedOpen = !pointerIsOnPanel
+        setPinned(!pointerIsOnPanel)
     }
 
     /// Raised when the panel was opened with the pointer nowhere near it: ⌃⌥⌘I,
@@ -1611,6 +1621,10 @@ extension NotchViewModel {
         if pendingMirroredStart != nil { pendingMirroredStart = nil }
         guard let session = prompterSession, session.state.isLive else { return .nothing }
         session.stop()
+        // No pin outlives the session (ruling 20.6 #3). One standing now
+        // would claim plain Escape as soon as the session's veto is gone,
+        // and the next Escape would fold Isla instead of ending a slideshow.
+        if isPinnedOpen { isPinnedOpen = false }
         // Nothing to hand back over the shield or in the dark: the lock and
         // sleep paths already folded the panel, and the pointer sampler they
         // stopped must not be told where the cursor is.

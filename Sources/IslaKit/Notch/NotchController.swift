@@ -744,7 +744,7 @@ final class NotchController {
             // opened the panel by now, so "was it shut" always read no.
             // The stage needs no pin: the session holds the panel (11.1), and
             // a pin would claim Escape for it (5.4).
-            if presentation == .openTab, !pointerIsOnOpenPanel { vm.isPinnedOpen = true }
+            if presentation == .openTab, !pointerIsOnOpenPanel { vm.setPinned(true) }
             setOpen(true)
             pointer.setInside(true)
             updatePinnedClickMonitor()
@@ -821,7 +821,9 @@ final class NotchController {
         // on the keyboard, not on the notch, and an unpinned panel nobody is
         // hovering folds a third of a second after it appears. Lyrics are read
         // for the length of a song, which is the longest any of these stays up.
-        vm.isPinnedOpen = true
+        // Not under a Prompter session, which holds the panel itself: a pin
+        // raised there outlived Stop and took the slideshow's Escape.
+        vm.setPinned(true)
         setOpen(true)
         pointer.setInside(true)
         updatePinnedClickMonitor()
@@ -976,7 +978,9 @@ final class NotchController {
         // read the stale, pre-close value. Capture the intended target state
         // once, up front, and use that for both calls.
         let opening = !viewModel.isOpen
-        viewModel.isPinnedOpen = opening
+        // Through the rule: reopening a panel the lock folded on a live
+        // session must not pin it (ruling 20.6 #3).
+        viewModel.setPinned(opening)
         setOpen(opening)
         if opening {
             pointer.setInside(true)

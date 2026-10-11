@@ -351,6 +351,52 @@ final class PrompterHoldTests: XCTestCase {
         XCTAssertFalse(vm.holdsOpen)
     }
 
+    /// Ruling 20.6 #3. The scenario the review found: a Keynote talk, a
+    /// session running, ⌃⌥⌘L (which pinned unconditionally), then ⌃⌥⌘S. The
+    /// pin survived Stop and claimed plain Escape, so the next Escape folded
+    /// Isla instead of ending the slideshow. Nothing pins while a session
+    /// holds the panel: not the lyrics key, not ⌃⌥⌘I reopening a panel the
+    /// lock folded, not a click from VoiceOver.
+    func testNothingPinsThePanelWhileASessionHoldsIt() throws {
+        let feature = makeFeature()
+        try addScript(to: feature)
+        let vm = try makeModel(feature)
+        vm.togglePrompter()
+
+        vm.setPinned(true)
+        XCTAssertFalse(vm.isPinnedOpen, "⌃⌥⌘L and ⌃⌥⌘I pin through here; the session already holds the panel")
+        vm.clickOpened(pointerIsOnPanel: false)
+        XCTAssertFalse(vm.isPinnedOpen, "VoiceOver's click on the island does not pin either")
+        try session(feature).handle(.screenLocked)
+        vm.setPinned(true)
+        XCTAssertFalse(vm.isPinnedOpen, "the lock folded the panel; reopening it on the paused session still does not pin")
+        XCTAssertTrue(vm.holdsOpen, "the session holds it instead")
+
+        vm.stopPrompter()
+        vm.setPinned(true)
+        XCTAssertTrue(vm.isPinnedOpen, "without a session a command pins as before")
+        vm.setPinned(false)
+        XCTAssertFalse(vm.isPinnedOpen)
+    }
+
+    /// And a pin that stands anyway (one made before this rule, a path not yet
+    /// routed through it) is cleared by Stop, so Escape goes back to the app
+    /// in front the moment the session ends.
+    func testStopClearsAPinSoEscapeGoesBackToTheAppInFront() throws {
+        let feature = makeFeature()
+        try addScript(to: feature)
+        let vm = try makeModel(feature)
+        vm.togglePrompter()
+        vm.isPinnedOpen = true
+
+        vm.stopPrompter()
+        XCTAssertFalse(vm.isPinnedOpen)
+        XCTAssertFalse(NotchViewModel.claimsEscape(
+            pinned: vm.isPinnedOpen, panelHasKeyboard: vm.wantsKeyboard, appIsActive: false,
+            locked: vm.isLockedPresentation, sessionHoldsPanel: vm.prompterHoldsPanel
+        ), "Escape after Stop ends the slideshow, not Isla")
+    }
+
     // MARK: Lock and sleep
 
     /// 11.3, E-39: a lock pauses with the lock's reason, and unlocking leaves
