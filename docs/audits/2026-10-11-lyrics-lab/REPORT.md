@@ -188,3 +188,19 @@ Recommendation:
 - Real word-timed lyrics at scale: only 2 lines and 12 words exist in this corpus, so L5 rests mostly on SYNTHETIC words.
 - The audio route in use when the owner set −0.247 s (CoreAudio reported built-in output, 27.3 ms, during this run).
 - 9 of the 20 planned categories were empty when the run started (240 of the planned 500 tracks; no _index.json yet). The harness takes the corpus path from the environment for a rerun on the full set.
+
+## Full-corpus run (540 tracks, 20 categories)
+
+Rerun once the corpus was complete: 540 unique LRCLIB tracks, 25 396 lines, 20 categories (pop, fast and slow hip-hop, classic rock, metal, electronic, country and folk, R&B and soul, jazz standards, opera and art song, Latin, K-pop, J-pop and anime, Mandarin and Cantonese, Russian and Ukrainian, Arabic, Turkish and Hindi, tracks over 7 minutes, short tracks and long intros, live and remastered variants, duets and choirs). Raw aggregates: `report-540-tracks.json` (numbers and LRCLIB ids only; the corpus itself stays outside the repo). The full run took 550 s.
+
+| Measure | Result |
+|---|---|
+| L1 parse | Isla accepted 537 of 540 and refused 2 that an independent reader parses (both Mandarin tracks, `invalidTimestamp`): one file carries angle brackets in 44 lines of text, one uses the `mm:ss:ff` dialect. 25 396 lines match to the millisecond, 0 text mismatches, 1 sung line lost to a leading BOM. 1 694 empty gap stamps dropped by design |
+| L2 index | 25 396 boundaries, 1 074 000 random seeks and 160 587 382 one-millisecond steps: 0 disagreements. One line is unreachable because its stamp duplicates the next |
+| L3 frame grid | 60 Hz p50 8.29 ms, max 16.66 ms; 120 Hz p50 4.16 ms, max 8.33 ms. Never more than one frame. 1 207 lines in 68 tracks are stamped past the track's own end and never show |
+| L4 clock | Timer arithmetic exact over 1 440 arms; a rate change during a pending seek jumps the clock by a median of -200 ms; the snapshot re-base leaves the anchor behind a perfect player 36 percent of the time, worst 49.9 ms |
+| L6 gaps | Stale highlight per track: median 28.9 s, 12.5 percent of track time; 447 mid-song lines lit through more than 8 s of silence and 295 outros. Ending lines at the empty stamps Isla already receives removes 99.8 percent of it |
+| L7 lead | Optimal lead 0.27 to 0.31 s on a wired or built-in route, 0.10 s on an assumed 200 ms Bluetooth route; the shipped 0.20 s leaves 17.6 percent of onsets undetectable at 60 Hz. The owner's -0.247 s implies about 346 ms of delay the model cannot place |
+| L8 surfaces | 52 013 disagreements in 953 448 samples, all before the first line (p50 12.9 s per track): the lock card draws line 1 as sung while the stage draws none. Zero disagreement after the first line |
+
+The first run's conclusions stand and are stronger: Isla's arithmetic is exact, and the defects sit in what Isla throws away (gap stamps, line ends, file dialects), in the clock's re-base and rate handling, and in a lead that no single constant can set.
