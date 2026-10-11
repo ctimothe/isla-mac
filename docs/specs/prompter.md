@@ -455,12 +455,14 @@ New test files: `PrompterScriptTests` (tokenizer, cues, direction, offsets, UTF-
 7. Visual and motion review against the `apple-design` skill; contrast measured.
 8. 100,000-word script scroll at frame rate.
 
-## 19. Decisions for the owner
+## 19. Decisions
 
-- **D1. Reverse the 2026-08-22 withdrawal** (amend the design doc and `TabContractTests`). Recommended: yes, as an optional feature that is absent when off.
-- **D2. Add `com.apple.security.device.audio-input` and the microphone usage string** (release 2). Needed for Voice and Follow. Recommended: yes, shipped alone in its own release.
-- **D3. Speech policy**: on-device only unless the user opts in to Apple processing (recommended), or allow Apple processing by default (Textream's behavior). Also confirm the owner accepts that Follow is unavailable for Uzbek.
-- **D4. Placement**: sixth tab shown only while the switch is on (recommended), or no tab and a stage launched only from Settings and hot key.
-- **D5. Stage height**: standard 208 pt body (recommended for release 1: about four to five lines), or a taller stage up to the 400 pt the window is already cut for (a geometry change that touches the lock-transition invariants).
-- **D6. Attribution**: add a Textream MIT notice to `THIRD_PARTY_NOTICES.md` and a provenance check (recommended; the matcher is derived from its structure and constants), or reimplement clean-room from this spec and add none.
-- **D7. Surfaces after the notch**: external-display prompter (release 5) and network features (never or separately), as section 17.
+Resolved 2026-10-11. The owner asked for the most optimal choice on each open decision, considering everything, and left it to the driver. Each line records the choice and the reason; the owner can reopen any of them before the task it gates starts.
+
+- **D1. Reverse the 2026-08-22 withdrawal: yes**, as an optional feature that is absent when off. The owner asked for the feature by name, the default configuration still shows exactly the five tabs the withdrawal left, and the design doc gets a dated **Reinstated** amendment with the Withdrawn text left in place (plan T0).
+- **D2. Microphone entitlement: yes, in release 2 only.** Release 1 adds none. Voice-Activated needs no Speech permission, so it is the mode that serves the owner's `uz` scripts; this is the release that matters most to them. The entitlement raises no prompt for anyone who never starts a voice session.
+- **D3. Speech policy: on-device only**; `prompter.allowAppleSpeech` stays off by default with a plain note that audio then goes to Apple. Follow unavailable for Uzbek and Kazakh is accepted. **Release 3 is gated**: it does not start until (a) a Terminal run of the locale probe (outside the agent sandbox) shows on-device support for a language the owner scripts in, and (b) the owner says they present in such a language. Reason: it is the largest and riskiest part (matcher, engine, five Opus tasks) and serves none of the owner's default locale; if the probe still reports no on-device model anywhere, Follow would exist only behind the Apple-processing opt-in and should not be built.
+- **D4. Placement: sixth tab shown only while the switch is on.** The library and editor need a keyboard pane that Settings is too cramped to hold, and absent-when-off keeps the default five-tab contract.
+- **D5. Stage height: standard 208 pt body** for release 1. A taller stage is a geometry change that touches the lock-transition invariants; reopen it only if the hardware reading test in release 1 shows four to five lines is too few.
+- **D6. Attribution: add the Textream MIT notice** to `THIRD_PARTY_NOTICES.md` with a provenance check (plan T0 and T12). The matcher and its constants were read from the source, so a clean-room claim could not be defended; the notice costs one paragraph and one grep.
+- **D7. Surfaces after the notch**: the external-display prompter stays release 5, optional, and not scheduled until releases 1 and 2 are in use. Remote, Director and the URL scheme never ship in Isla: they need a network listener, which breaks the rule that nothing leaves the machine by default and adds a security surface Textream itself has not secured.

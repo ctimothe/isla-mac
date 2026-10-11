@@ -4,7 +4,7 @@
 
 **Goal:** an optional Prompter — a script shown in the island and moved along as the speaker reads — absent when off, shipped in releases that never mix risk.
 
-**Status:** plan only, written 2026-10-11. No code exists. Implementation starts when the owner answers D1 (spec section 19); D2 and D3 are needed only before release 2 and 3.
+**Status:** plan only, written 2026-10-11. No code exists. Decisions D1–D7 are resolved in spec section 19 (2026-10-11). Releases 0–2 are cleared to start on the owner's "go"; release 3 is gated on a Terminal measurement and the owner's confirmation (D3).
 
 ## Tier and process
 
@@ -88,6 +88,8 @@ Done when: a Developer ID build shows the microphone prompt on first Voice start
 
 ## Release 3 — Word Tracking (speech; needs D2, D3)
 
+**Gate (D3):** do not start until the locale probe, run in Terminal outside the agent sandbox (`scratchpad/probe/locales` from the exploration session, or rebuilt from the research note section 12), reports `supportsOnDeviceRecognition` true for a language the owner scripts in, and the owner confirms they present in it. If it reports false everywhere, Follow would exist only behind the Apple-processing opt-in: do not build it.
+
 Done when: Russian and English scripts follow a reader through a 20-minute read, including a mic change and the 55 s restarts, with Apple processing off unless the user turned it on; Follow is disabled with a reason for unsupported languages (Uzbek, Kazakh).
 
 - [ ] **T18 (Sonnet/medium) `PromptMatcher`.** Port the iOS matcher and the tests listed in research section 11; add the changes in spec 8.4 (per-word folding, apostrophe/modifier-letter removal, ё/е, bounded window) with tests for each, the 40 gaps the research note lists, and the 1,000,000-character cost budget. Pure, no I/O.
@@ -124,4 +126,4 @@ External or Sidecar display prompter with mirror axes (horizontal, vertical, bot
 
 ## Definition of ready
 
-Owner has answered D1. T0 runs. For release 2, D2; for release 3, D2 and D3. D4 (tab placement), D5 (stage height) and D6 (attribution) are needed before T5, T8 and T18 respectively; the spec's recommendation applies if the owner says "your call".
+D1–D7 are resolved (spec section 19), so T0 and releases 1 and 2 are ready on the owner's "go". Release 3 additionally waits on the D3 gate above. The Textream notice (D6) lands in T0, before any derived code exists.
