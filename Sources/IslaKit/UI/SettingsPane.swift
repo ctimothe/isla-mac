@@ -80,6 +80,22 @@ struct SettingsPane: View {
 
     /// Under the two cover switches: what covering looks like and when it
     /// comes back, so turning one on is not a leap into an unknown state.
+    /// One note per shortcut that is bound but not registered because an
+    /// earlier action holds the same key (`HotKeyCenter.shadowed`): a core
+    /// action that took ⌃⌥⌘P while the Prompter was off keeps it when the
+    /// switch comes back. The Prompter's row still showed ⌃⌥⌘P, looking bound
+    /// while the key did nothing (ruling 20.6 #7d). Drawn the way a refused
+    /// shortcut's note is.
+    static func shadowedShortcutNotes(_ center: HotKeyCenter) -> [String] {
+        center.availableActions.compactMap { action in
+            guard let holder = center.shadowed[action], let binding = center.bindings[action] else { return nil }
+            return localized(
+                "%@ is already used by “%@”, so “%@” does nothing. Choose another shortcut.",
+                binding.displayString, holder.title, action.title
+            )
+        }
+    }
+
     static var privacyCoversNote: String {
         localized("Covered text shows as moving dots until you click it, and is covered again when the panel closes.")
     }
@@ -480,6 +496,9 @@ struct SettingsPane: View {
                             "macOS would not register %@. Choose another shortcut.",
                             hotKeys.bindings[action]?.displayString ?? ""
                         ))
+                    }
+                    ForEach(Self.shadowedShortcutNotes(hotKeys), id: \.self) { note in
+                        noteRow(note)
                     }
                     // A combination another action owned moves to this one,
                     // as in System Settings, and the loser says so: the

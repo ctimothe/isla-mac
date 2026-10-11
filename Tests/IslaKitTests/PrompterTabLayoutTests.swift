@@ -175,6 +175,33 @@ final class PrompterTabLayoutTests: XCTestCase {
         )
     }
 
+    // MARK: The script row
+
+    /// Ruling 20.6 #8c. The script menu's label was `.fixedSize()`, so a long
+    /// title pushed New Script and Delete Script off the pane. An 80-character
+    /// title (the longest a rename allows) is far wider than the room beside
+    /// the two controls at the narrowest width, in either language, which is
+    /// why the label truncates at its tail; the controls keep their room.
+    func testALongTitleTruncatesInsteadOfPushingTheControlsOff() throws {
+        let pane = PrompterTabMetrics.paneSize(bodyWidth: 480, notchHeight: NotchGeometry.deepestSupportedNotchHeight)
+        let title = String(repeating: "W", count: PrompterLibrary.maxTitleLength)
+        for locale in ["en", "ru"] {
+            let strings = try table(locale)
+            let delete = try ["Delete Script", "Delete This Script"].map { key -> CGFloat in
+                max(Theme.minimumHitSize.width, width(of: try XCTUnwrap(strings[key], "\(locale) has \(key)"), role: .caption, weight: .regular))
+            }.max() ?? 0
+            let controls = PrompterTabMetrics.addButtonWidth + delete + 2 * PrompterTabMetrics.scriptRowGap + 4
+            XCTAssertLessThanOrEqual(
+                PrompterTabMetrics.minimumScriptMenuWidth + controls, pane.width,
+                "\(locale): the menu keeps a readable width beside both controls"
+            )
+            XCTAssertGreaterThan(
+                width(of: title, role: .subhead) + controls, pane.width,
+                "\(locale): an 80-character title cannot be drawn whole, so it must truncate"
+            )
+        }
+    }
+
     // MARK: Whole-tab blocks
 
     func testTheAlertAndTheEmptyStateFitTheDeepestNotchAtTheNarrowestWidth() {

@@ -27,6 +27,11 @@ enum PrompterTabMetrics {
     // MARK: Rows
 
     static let scriptRowHeight: CGFloat = 22
+    /// Between the script menu, New Script and Delete Script.
+    static let scriptRowGap: CGFloat = 6
+    /// The least the script menu is squeezed to before its title truncates
+    /// no further: a few words of the title and the chevron.
+    static let minimumScriptMenuWidth: CGFloat = 96
     static let chipRowHeight: CGFloat = 22
     static let quietLineHeight: CGFloat = 14
     static let controlRowHeight: CGFloat = 26

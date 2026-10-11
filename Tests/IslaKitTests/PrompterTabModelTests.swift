@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import XCTest
 @testable import IslaKit
 
@@ -376,6 +377,79 @@ final class PrompterTabModelTests: XCTestCase {
         XCTAssertEqual(rig.model.script?.title, "Keynote", "a blank title would leave a row with no name")
         rig.model.renameScript("  Padded  ")
         XCTAssertEqual(rig.model.script?.title, "Padded")
+    }
+
+    /// Ruling 20.6 #8c. A title is at most 80 characters; a longer rename is
+    /// refused with a field error and the title kept. The menu's label is cut
+    /// at its tail rather than pushing the row's controls off the pane.
+    func testATitleIsCappedAtEightyCharacters() throws {
+        let rig = TabRig()
+        try rig.script("Talk")
+        let eighty = String(repeating: "Quarterly results ", count: 5).prefix(80)
+        XCTAssertEqual(eighty.count, PrompterLibrary.maxTitleLength)
+        rig.model.renameScript(String(eighty))
+        XCTAssertEqual(rig.model.script?.title, String(eighty), "eighty characters is a title")
+        XCTAssertNil(rig.model.inlineError)
+
+        rig.model.renameScript(String(eighty) + "!")
+        XCTAssertEqual(rig.model.script?.title, String(eighty), "one more is refused, not cut")
+        let error = try XCTUnwrap(rig.model.inlineError)
+        XCTAssertEqual(error.target, .rename)
+        XCTAssertEqual(error.message, localized("A script title can be up to %d characters.", PrompterLibrary.maxTitleLength))
+        XCTAssertThrowsError(try rig.library.renameScript(try XCTUnwrap(rig.model.script?.id), title: String(eighty) + "!"))
+
+        rig.model.renameScript("Short")
+        XCTAssertNil(rig.model.inlineError, "the next good rename takes the message back")
+    }
+
+    /// The view's half of ruling 20.6 #8c: with an 80-character title at the
+    /// narrowest pane, New Script and Delete Script are still inside it. With
+    /// the label `.fixedSize()` they were pushed off the right edge.
+    func testAnEightyCharacterTitleLeavesTheRowsControlsOnThePane() async throws {
+        let rig = TabRig()
+        try rig.script(String(repeating: "Quarterly results ", count: 5).prefix(80).description)
+        let suite = "PrompterTabModelTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let pane = PrompterTabMetrics.paneSize(bodyWidth: 480, notchHeight: NotchGeometry.deepestSupportedNotchHeight)
+        let tab = PrompterTab(
+            model: rig.model, library: rig.library, session: rig.session,
+            settings: PrompterSettings(defaults: InMemoryDefaults()), privacy: PrivacyMode(defaults: defaults),
+            isPreparing: false, captureHidden: true, start: {}, resume: {}, openSettings: {},
+            wantsKeyboard: .constant(false)
+        )
+        let tree = await AXProbe.tree(of: tab, size: pane)
+        for name in ["New Script", "Delete Script"] {
+            let control = try XCTUnwrap(tree.first(label: name), tree.dump)
+            let frame = try XCTUnwrap(control.frame, name)
+            XCTAssertLessThanOrEqual(frame.maxX, pane.width + 0.5, "\(name) is pushed off the pane: \(frame)")
+            XCTAssertGreaterThanOrEqual(frame.minX, 0, name)
+        }
+        let menu = try XCTUnwrap(tree.first(label: "Scripts"), tree.dump)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(menu.frame).maxX, pane.width, "the title truncates inside the pane")
+    }
+
+    /// Ruling 20.6 #7c, the model's half: the arming of each Delete control
+    /// is keyed to the item it would delete, so it lapses when the selection
+    /// moves to another script or page, or the page moves under it.
+    func testTheDeleteControlsArmForTheItemTheyWouldDelete() throws {
+        let rig = TabRig()
+        let a = try rig.script("A", pages: ["one", "two", "three"])
+        let b = try rig.script("B", pages: ["four"])
+        rig.model.selectScript(a)
+        let first = rig.model.pageDeletionTarget
+        rig.model.selectPage(1)
+        XCTAssertNotEqual(rig.model.pageDeletionTarget, first, "another page is another target")
+        let second = rig.model.pageDeletionTarget
+        rig.model.movePage(from: 1, to: 2)
+        XCTAssertNotEqual(rig.model.pageDeletionTarget, second, "a page moved under the arming is another target")
+
+        let scriptA = rig.model.scriptDeletionTarget
+        rig.model.selectScript(b)
+        XCTAssertNotEqual(rig.model.scriptDeletionTarget, scriptA)
+        XCTAssertNotEqual(rig.model.pageDeletionTarget, first, "page 1 of B is not page 1 of A")
+        rig.model.selectScript(a)
+        XCTAssertEqual(rig.model.scriptDeletionTarget, scriptA, "the same script is the same target")
     }
 
     func testDuplicateSitsAfterTheOriginalAndIsSelected() throws {

@@ -177,6 +177,7 @@ struct PrompterInlineError: Equatable {
         case editor
         case newScript
         case duplicateScript
+        case rename
     }
 
     let target: Target
@@ -291,6 +292,19 @@ final class PrompterTabModel: ObservableObject {
         return pages.indices.contains(page) ? pages[page] : ""
     }
 
+    /// What Delete Page and Delete Script would delete, as the identity
+    /// their arm-then-confirm control is armed for (ruling 20.6 #7c): the
+    /// arming lapses when the selection moves to another script or page, or
+    /// a page moves under it, so a confirmation is never spent on an item
+    /// nobody armed it for.
+    var pageDeletionTarget: AnyHashable { AnyHashable(PageKey(script: script?.id, page: page)) }
+    var scriptDeletionTarget: AnyHashable { AnyHashable(script?.id) }
+
+    private struct PageKey: Hashable {
+        let script: UUID?
+        let page: Int
+    }
+
     var showsFirstRunHint: Bool {
         guard let seededScriptID else { return false }
         return seededScriptID == script?.id
@@ -342,11 +356,17 @@ final class PrompterTabModel: ObservableObject {
         }
     }
 
-    /// A blank title would leave a row with no name, so it is refused.
+    /// A blank title would leave a row with no name, so it is refused. A
+    /// title over the limit is refused with a field error (ruling 20.6 #8c).
     func renameScript(_ title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let id = script?.id else { return }
-        try? library.renameScript(id, title: trimmed)
+        do {
+            try library.renameScript(id, title: trimmed)
+            inlineError = nil
+        } catch {
+            surface(error, on: .rename)
+        }
     }
 
     @discardableResult
@@ -467,6 +487,8 @@ final class PrompterTabModel: ObservableObject {
             inlineError = PrompterInlineError(target: target, message: localized("A script can hold up to %@ characters.", formatted))
         case .tooManyScripts(let limit):
             inlineError = PrompterInlineError(target: target, message: localized("You can keep up to %d scripts.", limit))
+        case .titleTooLong(let limit):
+            inlineError = PrompterInlineError(target: target, message: localized("A script title can be up to %d characters.", limit))
         default:
             return
         }

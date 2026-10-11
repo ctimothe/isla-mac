@@ -145,18 +145,35 @@ final class ArmedConfirmations {
 /// pause, no voice and no way for Escape to reach them; one object now, so
 /// the Settings row and the pane footers cannot drift apart again.
 @MainActor
-private final class ConfirmationArming: ObservableObject {
+final class ConfirmationArming: ObservableObject {
     @Published private(set) var armed = false
 
     private var lapse: Task<Void, Never>?
     private var token: UUID?
     private var hovering = false
+    /// What the arming is for, when the control can point at different
+    /// things over its life (the Prompter tab's Delete Page follows the
+    /// selected page). nil for a control that only ever means one thing.
+    private var armedTarget: AnyHashable?
 
-    func press(armedTitle: String, action: () -> Void) {
-        if armed {
+    /// The thing the control would act on changed under it: an arming made
+    /// for the old one lapses. An armed "Delete This Page" used to survive
+    /// selecting another page and then deleted that one, which nobody had
+    /// confirmed (ruling 20.6 #7c).
+    func retarget(_ target: AnyHashable?) {
+        if armed, armedTarget != target { disarm() }
+    }
+
+    /// A press confirms only the item the arming was made for. A press for
+    /// another one, however it got there (a missed `retarget`, a selection
+    /// changed in the same frame), is a first press for that one.
+    func press(armedTitle: String, target: AnyHashable? = nil, action: () -> Void) {
+        if armed, armedTarget == target {
             disarm()
             action()
         } else {
+            if armed { disarm() }
+            armedTarget = target
             arm(armedTitle)
         }
     }
@@ -221,13 +238,16 @@ private final class ConfirmationArming: ObservableObject {
 struct ConfirmTextButton: View {
     let title: String
     let armedTitle: String
+    /// The item the action would act on, for a control whose item changes
+    /// (`ConfirmationArming.retarget`). nil when it never does.
+    var target: AnyHashable? = nil
     let action: () -> Void
 
     @StateObject private var arming = ConfirmationArming()
 
     var body: some View {
         Button {
-            arming.press(armedTitle: armedTitle, action: action)
+            arming.press(armedTitle: armedTitle, target: target, action: action)
         } label: {
             Text(arming.armed ? armedTitle : title)
                 .islandFont(.caption)
@@ -244,6 +264,7 @@ struct ConfirmTextButton: View {
         .accessibilityHint(arming.armed ? "" : localized("Asks for confirmation before acting."))
         .animation(Theme.contentAnimation, value: arming.armed)
         .onHover { arming.hover($0) }
+        .onChange(of: target) { _, new in arming.retarget(new) }
         .onDisappear { arming.disarm() }
     }
 }

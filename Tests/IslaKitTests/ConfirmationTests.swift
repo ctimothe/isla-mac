@@ -121,4 +121,31 @@ final class ConfirmationTests: XCTestCase {
         )
         XCTAssertNotNil(root.all(role: "AXButton").first { $0.label == "Copy Translation" }, root.dump)
     }
+
+    /// Ruling 20.6 #7c. An armed "Delete This Page" survived selecting another
+    /// page and then deleted the page now selected, which nobody had asked to
+    /// delete. An arming is for the item it was armed on: it lapses when the
+    /// selection moves, and a press for any other item only arms that one.
+    func testAnArmingIsForOneItemAndLapsesWhenTheSelectionMoves() {
+        let arming = ConfirmationArming()
+        // The pointer on the button, as for a click: no lapse timer starts.
+        arming.hover(true)
+        var deleted: [String] = []
+
+        arming.press(armedTitle: "Delete This Page", target: "page 1") { deleted.append("page 1") }
+        XCTAssertTrue(arming.armed)
+        arming.retarget("page 2")
+        XCTAssertFalse(arming.armed, "choosing another page takes the question back")
+
+        arming.press(armedTitle: "Delete This Page", target: "page 2") { deleted.append("page 2") }
+        XCTAssertTrue(deleted.isEmpty, "the first press for the new page only arms")
+        arming.press(armedTitle: "Delete This Page", target: "page 3") { deleted.append("page 3") }
+        XCTAssertTrue(deleted.isEmpty, "a press for another item, however it got there, arms that one")
+        XCTAssertTrue(arming.armed)
+        arming.retarget("page 3")
+        XCTAssertTrue(arming.armed, "the same item keeps its arming")
+        arming.press(armedTitle: "Delete This Page", target: "page 3") { deleted.append("page 3") }
+        XCTAssertEqual(deleted, ["page 3"])
+        XCTAssertFalse(arming.armed)
+    }
 }

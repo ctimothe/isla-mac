@@ -238,6 +238,7 @@
 "None" = "None";
 "Records a new shortcut. Press Delete to clear it, Escape to cancel." = "Records a new shortcut. Press Delete to clear it, Escape to cancel.";
 "macOS would not register %@. Choose another shortcut." = "macOS would not register %@. Choose another shortcut.";
+"%@ is already used by “%@”, so “%@” does nothing. Choose another shortcut." = "%@ is already used by “%@”, so “%@” does nothing. Choose another shortcut.";
 "Restore Default Shortcuts" = "Restore Default Shortcuts";
 
 /* Now Playing fallback */
@@ -464,6 +465,7 @@
 "A script can have up to %d pages." = "A script can have up to %d pages.";
 "A script can hold up to %@ characters." = "A script can hold up to %@ characters.";
 "You can keep up to %d scripts." = "You can keep up to %d scripts.";
+"A script title can be up to %d characters." = "A script title can be up to %d characters.";
 "Visible when sharing" = "Visible when sharing";
 "Hiding works only where the app capturing your screen honors it, and never from a hardware mirror." = "Hiding works only where the app capturing your screen honors it, and never from a hardware mirror.";
 "Script %d" = "Script %d";

@@ -156,6 +156,7 @@ enum PrompterLibraryError: Error, Equatable {
     case tooManyPages(limit: Int)
     case scriptTooLong(limit: Int)
     case tooManyScripts(limit: Int)
+    case titleTooLong(limit: Int)
     case noSuchScript
     case noSuchPage
     /// The last write failed (disk full, read-only folder, volume gone). The
@@ -182,6 +183,9 @@ final class PrompterLibrary: ObservableObject {
     static let maxPagesPerScript = 200
     static let maxCharactersPerScript = 1_000_000
     static let maxScripts = 500
+    /// Characters in a script's title (ruling 20.6 #8c). Long enough for any
+    /// talk's name, short enough that a pasted paragraph cannot become one.
+    nonisolated static let maxTitleLength = 80
     static let saveDelay: TimeInterval = 0.5
 
     @Published private(set) var scripts: [PrompterScriptRecord] = []
@@ -384,9 +388,14 @@ final class PrompterLibrary: ObservableObject {
         return record.id
     }
 
+    /// A title over `maxTitleLength` is refused, never cut, like every other
+    /// limit here.
     func renameScript(_ id: UUID, title: String) throws {
         try requireWritable()
         let at = try index(of: id)
+        guard title.count <= Self.maxTitleLength else {
+            throw PrompterLibraryError.titleTooLong(limit: Self.maxTitleLength)
+        }
         scripts[at].title = title
         scripts[at].updatedAt = now()
         markChanged()

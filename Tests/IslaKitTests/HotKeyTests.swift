@@ -369,8 +369,18 @@ extension HotKeyTests {
         XCTAssertEqual(fake.live, [p, HotKeyAction.showLyrics.defaultBinding,
                                    HotKeyAction.translateClipboard.defaultBinding, HotKeyAction.prompterStop.defaultBinding])
 
+        // Ruling 20.6 #7d: Settings says so, or the row shows ⌃⌥⌘P bound to
+        // a key that does nothing.
+        let notes = SettingsPane.shadowedShortcutNotes(center)
+        XCTAssertEqual(notes.count, 1)
+        XCTAssertEqual(notes.first, localized(
+            "%@ is already used by “%@”, so “%@” does nothing. Choose another shortcut.",
+            p.displayString, HotKeyAction.openPanel.title, HotKeyAction.prompterToggle.title
+        ))
+
         center.setBinding(HotKeyAction.openPanel.defaultBinding, for: .openPanel)
         XCTAssertTrue(center.shadowed.isEmpty, "the key is free again")
+        XCTAssertTrue(SettingsPane.shadowedShortcutNotes(center).isEmpty, "and the note goes with it")
         XCTAssertEqual(fake.live, coreKeys.union(prompterKeys))
     }
 

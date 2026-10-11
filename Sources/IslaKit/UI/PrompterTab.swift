@@ -99,7 +99,7 @@ struct PrompterTab: View {
     // MARK: - Script row
 
     private var scriptRow: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: PrompterTabMetrics.scriptRowGap) {
             if renaming {
                 TextField(localized("Script"), text: $draftTitle)
                     .textFieldStyle(.plain)
@@ -126,11 +126,15 @@ struct PrompterTab: View {
             .disabled(!model.canEdit)
             .help(localized("New Script"))
             .accessibilityLabel(localized("New Script"))
+            .layoutPriority(1)
             ConfirmTextButton(
                 title: localized("Delete Script"),
-                armedTitle: localized("Delete This Script")
+                armedTitle: localized("Delete This Script"),
+                target: model.scriptDeletionTarget
             ) { model.deleteScript() }
                 .disabled(!model.canEdit)
+                .fixedSize()
+                .layoutPriority(1)
         }
     }
 
@@ -165,7 +169,12 @@ struct PrompterTab: View {
         .menuStyle(.button)
         .buttonStyle(PanelButtonStyle())
         .menuIndicator(.hidden)
-        .fixedSize()
+        // Not `.fixedSize()`: a long title then pushed New Script and Delete
+        // Script off the pane. The label gives way and truncates at its tail
+        // (its `lineLimit` and `truncationMode`); the controls beside it are
+        // fixed and keep their room (ruling 20.6 #8c).
+        .frame(minWidth: PrompterTabMetrics.minimumScriptMenuWidth, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
         .disabled(library.scripts.isEmpty)
         .accessibilityLabel(localized("Scripts"))
         .accessibilityValue(model.script.map { $0.title } ?? "")
@@ -236,7 +245,8 @@ struct PrompterTab: View {
             if model.deletionNeedsConfirmation(page: model.page) {
                 ConfirmTextButton(
                     title: localized("Delete Page"),
-                    armedTitle: localized("Delete This Page")
+                    armedTitle: localized("Delete This Page"),
+                    target: model.pageDeletionTarget
                 ) { model.deletePage(model.page) }
             } else {
                 Button { model.deletePage(model.page) } label: {

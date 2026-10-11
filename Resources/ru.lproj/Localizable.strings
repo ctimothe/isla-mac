@@ -244,6 +244,7 @@
 "None" = "Нет";
 "Records a new shortcut. Press Delete to clear it, Escape to cancel." = "Записывает новое сочетание. Delete — очистить, Escape — отменить.";
 "macOS would not register %@. Choose another shortcut." = "macOS не зарегистрировала %@. Выберите другое сочетание.";
+"%@ is already used by “%@”, so “%@” does nothing. Choose another shortcut." = "%@ уже занято действием «%@», поэтому «%@» не работает. Выберите другое сочетание.";
 "Restore Default Shortcuts" = "Вернуть стандартные сочетания";
 
 /* Запасной путь Now Playing */
@@ -470,6 +471,7 @@
 "A script can have up to %d pages." = "В сценарии может быть до %d страниц.";
 "A script can hold up to %@ characters." = "В сценарии может быть до %@ символов.";
 "You can keep up to %d scripts." = "Можно хранить до %d сценариев.";
+"A script title can be up to %d characters." = "Название сценария может быть не длиннее %d символов.";
 "Visible when sharing" = "Виден при показе экрана";
 "Hiding works only where the app capturing your screen honors it, and never from a hardware mirror." = "Скрытие работает, только если программа, записывающая экран, его учитывает, и не скрывает от аппаратного зеркала.";
 "Script %d" = "Сценарий %d";
