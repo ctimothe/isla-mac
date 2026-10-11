@@ -494,6 +494,48 @@ final class LyricsCoordinatorTests: XCTestCase {
         XCTAssertEqual(media.lyricBoundariesForTests, [10, 15, 26.3, 30.8, 40])
     }
 
+    /// Remove Local Binding is drawn from `hasLocalOverride`, which used to be
+    /// set only by an import or a choice made in this session and was reset by
+    /// every track change. After a skip back or a relaunch, a song still bound
+    /// to its file had no way to unbind it from the page. The flag is read
+    /// from the library's saved binding on every resolve now.
+    func testTheRemoveButtonSurvivesARelaunch() throws {
+        // First launch: the song is bound to an imported file.
+        do {
+            let library = LocalLyricsLibrary(directory: root)
+            let media = MediaController()
+            media.isolateFromPlayers()
+            let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+            coordinator.start()
+            media.apply(playingSnapshot())
+            try coordinator.importLocalFile(at: try writeLRC())
+            XCTAssertTrue(coordinator.hasLocalOverride, "the fixture: the import binds the song")
+            coordinator.stop()
+        }
+
+        // The next launch: a new library and a new coordinator, nothing
+        // remembered from the session that made the binding.
+        let library = LocalLyricsLibrary(directory: root)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let store = LyricsStore(offsetsDirectory: root)
+        let coordinator = LyricsCoordinator(
+            media: media, library: library, isEnabled: { true }, presentation: store
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        media.apply(playingSnapshot())
+        let identity = try XCTUnwrap(coordinator.currentLocalTrackIdentity)
+        XCTAssertTrue(library.hasBinding(for: identity), "the fixture: the binding was saved")
+        XCTAssertTrue(coordinator.hasLocalOverride, "a saved binding offers its remove button")
+        XCTAssertTrue(store.hasLocalOverride)
+
+        coordinator.removeLocalBinding()
+        XCTAssertFalse(coordinator.hasLocalOverride)
+        XCTAssertFalse(store.hasLocalOverride)
+    }
+
     private func writeLRC() throws -> URL {
         let url = root.appendingPathComponent("song.lrc")
         try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Local opening".utf8)
