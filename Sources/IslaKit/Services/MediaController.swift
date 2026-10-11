@@ -126,8 +126,39 @@ final class MediaController: ObservableObject {
     /// routinely play at 1.5× or 2×, and the ticker extrapolating at 1×
     /// regardless meant the bar fell behind between polls and lurched forward
     /// on each one; below 1× it ran ahead and was yanked back.
+    ///
+    /// A change re-anchors first, at where the old rate has carried the clock.
+    /// The anchor stores a position and a moment, not a rate, so without that
+    /// the new rate was applied backwards over every second since the anchor
+    /// was set. Usually the snapshot carrying the new rate re-anchors anyway,
+    /// but not when its position is not adopted — a seek still unconfirmed,
+    /// precision sync steering, a stale or held reading — and then the next
+    /// tick jumped (by 0.8s in the lab's L4, for a 1x → 2x change one second
+    /// after a seek) and the lyric wake was armed seconds off. Doing it here
+    /// rather than in each branch of `apply` that declines a position means a
+    /// new branch cannot forget it.
     private var playbackRate: Double = 1 {
+        willSet {
+            if newValue != playbackRate, isPlaying, anchor != nil {
+                let nowMono = monotonicNow()
+                anchor = (extrapolatedPosition(at: nowMono), nowMono)
+            }
+        }
         didSet { if playbackRate != oldValue { armBoundaryTimer() } }
+    }
+
+    /// Where the clock stands at `nowMono` (now, by default): the anchor run
+    /// forward at the player's rate while playing, capped at the track's end;
+    /// the published position otherwise. The one copy of that arithmetic —
+    /// the tick, the rate change and the re-base all read it, and so should
+    /// anything that needs the live position between ticks, because
+    /// `position` is only as fresh as the last tick. Separate copies are how
+    /// the lyric surfaces once came to disagree (see `LyricSweep`). Only the
+    /// lyric wake runs its own, uncapped, and says why.
+    func extrapolatedPosition(at nowMono: TimeInterval? = nil) -> TimeInterval {
+        guard isPlaying, let anchor else { return position }
+        let value = anchor.position + ((nowMono ?? monotonicNow()) - anchor.atMono) * playbackRate
+        return duration > 0 ? min(value, duration) : value
     }
     /// Where we asked the player to jump, when — and from where, because the
     /// pre-seek trajectory is the only thing that can unmask a reading taken
@@ -260,6 +291,10 @@ final class MediaController: ObservableObject {
         boundaryTimer?.invalidate()
         boundaryTimer = nil
         guard isPlaying, isActive, let anchor, !lyricBoundaries.isEmpty else { return }
+        // Deliberately not `extrapolatedPosition()`: that one stops at the
+        // track's end, and lyric files do stamp lines past it. A clock pinned
+        // at the end would re-arm the same unreachable boundary on every wake
+        // for as long as the player kept saying it was playing.
         let now = anchor.position + (monotonicNow() - anchor.atMono) * playbackRate
         guard let delay = Self.nextLyricWake(
             boundaries: lyricBoundaries, lead: lyricLead(), position: now, rate: playbackRate
@@ -1470,6 +1505,14 @@ final class MediaController: ObservableObject {
         } else {
             queuedTarget = playbackIntent.reconcile(reported: reportedPlaying, at: now)
         }
+        // A resume the player reports starts the clock where the track stopped.
+        // The anchor kept through a pause is only re-based by a reading the
+        // player publishes, and a paused session often publishes none, so it
+        // can be minutes old; the re-base in `adopt` runs the clock forward
+        // from it, and would credit every paused minute as playback.
+        if !isPlaying, playbackIntent.desired, anchor != nil {
+            anchor = (position, monotonicNow())
+        }
         // Same reason as `track` above: unconditional writes to @Published are
         // what turned a quiet 2s poll into a full SwiftUI invalidation.
         if isPlaying != playbackIntent.desired { isPlaying = playbackIntent.desired }
@@ -2096,8 +2139,9 @@ final class MediaController: ObservableObject {
                          confirmed ? "REWIND-CONFIRMED" : "REWIND-HELD"))
             guard confirmed else {
                 // Keep the clock running under the held reading, so the ignored
-                // difference cannot accumulate into the next comparison.
-                anchor = (position, nowMono)
+                // difference cannot accumulate into the next comparison — from
+                // where it stands now, not from the last tick (see below).
+                anchor = (extrapolatedPosition(at: nowMono), nowMono)
                 return
             }
             position = value
@@ -2112,9 +2156,15 @@ final class MediaController: ObservableObject {
             position = value
             anchor = (value, nowMono)
         } else {
-            // Keep what is on screen and re-base the clock under it, so the
-            // ignored difference cannot accumulate into the next comparison.
-            anchor = (position, nowMono)
+            // Keep the clock and re-base it, so the ignored difference cannot
+            // accumulate into the next comparison. On the clock as it runs,
+            // not on `position`: that is the last tick, up to a grid interval
+            // old, and re-basing on it threw the interval away on every such
+            // reading — the lab's clock-fidelity run left the anchor behind a
+            // perfect player 36% of the time, by up to 50ms. `delta` is still
+            // measured against what is on screen, so which readings are taken
+            // and which are held is unchanged.
+            anchor = (extrapolatedPosition(at: nowMono), nowMono)
         }
     }
 
@@ -2146,9 +2196,8 @@ final class MediaController: ObservableObject {
     /// Advances the bar from the anchor. Internal so tests can drive the clock
     /// without waiting on the quarter-second timer.
     func tick() {
-        guard let anchor, isPlaying else { return }
-        let value = anchor.position + (monotonicNow() - anchor.atMono) * playbackRate
-        position = duration > 0 ? min(value, duration) : value
+        guard anchor != nil, isPlaying else { return }
+        position = extrapolatedPosition()
         // Whether this was the grid or a boundary, the next boundary is armed
         // from the position just published.
         armBoundaryTimer()

@@ -837,6 +837,104 @@ final class MediaControllerTests: XCTestCase {
                        "a wall-clock jump with the monotonic clock frozen must not move the bar")
     }
 
+    /// A playing snapshot of "Track" at `elapsed`, stamped now, for the clock
+    /// tests below that step `monotonicNow` by hand.
+    private func clockSnapshot(
+        elapsed: TimeInterval, rate: Double = 1, playing: Bool = true
+    ) -> NowPlayingFeed.Snapshot {
+        var s = NowPlayingFeed.Snapshot()
+        s.title = "Track"
+        s.artist = "Artist"
+        s.album = "Album"
+        s.duration = 200
+        s.elapsed = elapsed
+        s.rate = rate
+        s.isPlaying = playing
+        s.takenAt = Date()
+        s.playerPID = 1
+        return s
+    }
+
+    /// A rate change the controller does not adopt a position from — here the
+    /// reading lands while our own seek is still unconfirmed — must not rescale
+    /// the time the clock already ran at the old rate. The lab's L4 measured
+    /// the next tick jumping by up to 0.8s, and the lyric wake armed off by
+    /// seconds, because the new rate was applied backwards to the anchor.
+    func testARateChangeWhileASeekIsPendingKeepsTheClockContinuous() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let controller = MediaController()
+        controller.lyricsShown = { false }
+        controller.sendToPlayer = { _, _ in }
+        controller.monotonicNow = { clock.now }
+        controller.apply(clockSnapshot(elapsed: 10))
+
+        controller.seek(to: 40)
+        // A full second, not the lab's 0.8: a reading exactly 0.8 from the
+        // target sits on the seek judge's own boundary, and a few microseconds
+        // of aging decide which side of it the test lands on.
+        clock.now += 1.0
+        controller.tick()
+        let standing = controller.position
+        XCTAssertEqual(standing, 41, accuracy: 0.001)
+
+        // The player now says 2x, at a position the pending seek discards.
+        controller.apply(clockSnapshot(elapsed: standing, rate: 2))
+        clock.now += 0.1
+        controller.tick()
+        XCTAssertEqual(controller.position, standing + 0.2, accuracy: 0.001,
+                       "the new rate runs from the moment it was reported, not from the anchor")
+    }
+
+    /// A reading inside the forward jitter is not taken, and the clock re-bases
+    /// under it — on where the clock is *now*, not on the last tick it
+    /// published, which can be a grid interval old. Re-basing on the tick threw
+    /// that interval away on every such reading: the lab's clock-fidelity run
+    /// left the anchor behind a perfect player 36% of the time, by up to 50ms.
+    func testASnapshotInsideTheJitterRebasesOnTheRunningClock() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let controller = MediaController()
+        controller.lyricsShown = { false }
+        controller.monotonicNow = { clock.now }
+        controller.apply(clockSnapshot(elapsed: 10))
+        XCTAssertEqual(controller.position, 10, accuracy: 0.001)
+
+        // No tick: the published position is still 10.0 while the clock is at
+        // 10.03, and the reading agrees with the clock.
+        clock.now += 0.03
+        controller.apply(clockSnapshot(elapsed: 10.03))
+        clock.now += 0.1
+        controller.tick()
+        XCTAssertEqual(controller.position, 10.13, accuracy: 0.001,
+                       "a re-base must not lose the time since the last tick")
+    }
+
+    /// The re-base above extrapolates from the anchor, which is only sound if
+    /// the clock was running since it was set. A pause leaves the anchor where
+    /// the track stopped; resuming must start the clock from there, not credit
+    /// the paused minutes as playback.
+    func testResumingAfterALongPauseStartsTheClockWhereItStopped() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let controller = MediaController()
+        controller.lyricsShown = { false }
+        controller.monotonicNow = { clock.now }
+        controller.apply(clockSnapshot(elapsed: 10))
+        clock.now += 2
+        controller.tick()
+        controller.apply(clockSnapshot(elapsed: 12, rate: 0, playing: false))
+        XCTAssertFalse(controller.isPlaying)
+
+        clock.now += 300
+        controller.apply(clockSnapshot(elapsed: 12))
+        XCTAssertTrue(controller.isPlaying)
+        clock.now += 0.1
+        controller.tick()
+        XCTAssertEqual(controller.position, 12.1, accuracy: 0.01,
+                       "five paused minutes are not five minutes of playback")
+    }
+
     /// A Spotify play/pause/track-change broadcast re-anchors at once: the
     /// reading is unsettled until the authoritative correction lands, and the
     /// correction is asked for immediately rather than on the next poll.
