@@ -304,7 +304,7 @@ final class LyricTranslationLayoutTests: XCTestCase {
                 backend: LyricTranslation.Backend(
                     capabilities: { _ in Translator.Capabilities(systemInstalled: true, systemSupported: true) },
                     system: { texts, _ in texts.map { "перевод: \($0)" } },
-                    model: { _, _ in [] }, online: { _, _ in [] },
+                    model: { _, _ in [] }, online: { _, _ in "" },
                     detect: { _ in .english }
                 )
             )
@@ -321,6 +321,9 @@ final class LyricTranslationLayoutTests: XCTestCase {
             )
 
             // With one: a pair a slot, and the translation is read with its line.
+            // A batch is asked for only while a lyric surface is up (the stage
+            // below sets the same demand when it appears).
+            service.setDemand(.lyricArea, true)
             service.present(lines: Self.lines)
             await service.settled()
             let root = await AXProbe.tree(

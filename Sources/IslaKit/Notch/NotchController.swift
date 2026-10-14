@@ -7,14 +7,16 @@ import SwiftUI
 @MainActor
 final class NotchController {
     private var panel: NotchPanel?
-    private var rootView: NotchRootView?
+    private(set) var rootView: NotchRootView?
     private var viewModel: NotchViewModel?
 
     /// The live model, for App Intents. Read-only and optional on purpose: the
     /// panel builds its model in `install()`, so an intent that launched the app
     /// can arrive before there is one, and "not ready yet" is an honest answer.
     var intentModel: NotchViewModel? { viewModel }
-    private let pointer = PointerWatcher()
+    /// Internal so a test can read the rects the controller cuts
+    /// (`NotchControllerRectTests`); nothing outside this file writes to it.
+    let pointer = PointerWatcher()
     private let lockPresence = LockScreenPresence()
     /// The lock screen's player, in a window of its own — see `LockCardWindow`.
     private let lockCard = LockCardWindow()
@@ -22,6 +24,12 @@ final class NotchController {
     /// the panel and its view model and leaves these untouched.
     private let stores = NotchStores()
     private var closeActiveRectWork: DispatchWorkItem?
+    /// The body height the open rects are cut for right now. It trails the
+    /// body's own height on the way down (see `openRectHeight`), so it is the
+    /// controller, not the model, that knows it.
+    private var appliedOpenHeight: CGFloat?
+    /// The pass that lets the rects shrink once the body has stopped moving.
+    private var rectShrinkWork: DispatchWorkItem?
     private var collapseCheckWork: DispatchWorkItem?
     private var peekWork: DispatchWorkItem?
     private var cancellables = Set<AnyCancellable>()
@@ -1656,11 +1664,48 @@ final class NotchController {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
+    /// The height the open rects are cut for: growing is immediate, so the
+    /// pointer never falls through a region the animation has not covered yet,
+    /// but shrinking waits for the body to stop. Collapse springs the body from
+    /// 400 down to 208 over `Theme.expandSettle`, and the rects used to drop to
+    /// 208 on the first frame: for that long the still-drawn lower part of the
+    /// panel let every click through to the app beneath it, and a pointer
+    /// resting there stood outside the close rect and folded the panel shut
+    /// (review 2026-10-15). `bodySettled` is true on the pass scheduled for the
+    /// end of the spring.
+    nonisolated static func openRectHeight(applied: CGFloat?, target: CGFloat, bodySettled: Bool) -> CGFloat {
+        guard let applied, target < applied, !bodySettled else { return target }
+        return applied
+    }
+
+    /// Test seam: gives the controller a model and a root view without building
+    /// a panel, starting the stores or reading a screen, so the rect logic can be
+    /// held at the controller rather than by its pure helpers alone.
+    func attachForTesting(viewModel: NotchViewModel, rootView: NotchRootView) {
+        self.viewModel = viewModel
+        self.rootView = rootView
+    }
+
     /// Re-cuts both rects for the body currently on screen.
-    private func refreshOpenRects() {
+    func refreshOpenRects(bodySettled: Bool = false) {
         guard let vm = viewModel, vm.isOpen else { return }
-        applyActiveRect(open: true)
-        pointer.closeRect = vm.geometry.hoverRect(for: vm.openBodySize)
+        rectShrinkWork?.cancel()
+        rectShrinkWork = nil
+        var size = vm.openBodySize
+        let height = Self.openRectHeight(applied: appliedOpenHeight, target: size.height, bodySettled: bodySettled)
+        if height > size.height {
+            // Still shrinking: look again when the spring has settled. A newer
+            // refresh cancels this one and decides afresh.
+            let work = DispatchWorkItem { [weak self] in
+                self?.rectShrinkWork = nil
+                self?.refreshOpenRects(bodySettled: true)
+            }
+            rectShrinkWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + Theme.expandSettle, execute: work)
+        }
+        size.height = height
+        applyActiveRect(open: true, body: size)
+        pointer.closeRect = vm.geometry.hoverRect(for: size)
     }
 
     /// Shows the new track for a moment, then folds back.
@@ -1902,8 +1947,14 @@ final class NotchController {
     }
 
 
-    private func applyActiveRect(open: Bool) {
+    private func applyActiveRect(open: Bool, body: CGSize? = nil) {
         guard let vm = viewModel, let rootView else { return }
+        // Any cut that is not a refresh's own outdates the shrink one is waiting
+        // to make; a refresh passes `body` and has scheduled its own.
+        if body == nil {
+            rectShrinkWork?.cancel()
+            rectShrinkWork = nil
+        }
         // Collapsed, the panel claims the island as drawn — the full notch
         // height on every display, synthetic or not. It used to stop 8 pt down
         // on a synthetic notch so that menu-bar status items underneath kept
@@ -1914,13 +1965,15 @@ final class NotchController {
         // leave the bottom half of it visible but untouchable.
         let size: CGSize
         if open {
-            size = vm.openBodySize
+            size = body ?? vm.openBodySize
+            appliedOpenHeight = size.height
             // The way back in. `openRect` was only ever cut for the collapsed
             // strip, so once the pointer had been counted as away from an open
             // panel, moving back onto its 620×208 body registered as nothing
             // and only a trip to the notch could reopen it.
-            pointer.openRect = vm.geometry.hoverRect(for: vm.openBodySize)
+            pointer.openRect = vm.geometry.hoverRect(for: size)
         } else {
+            appliedOpenHeight = nil
             // The full drawn depth, and the full width of the visible compact
             // activity — the pill widens with what is playing, and every point
             // of what is drawn has to open the panel.

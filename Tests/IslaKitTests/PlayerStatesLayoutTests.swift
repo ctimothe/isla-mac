@@ -278,6 +278,34 @@ final class PlayerStatesLayoutTests: XCTestCase {
 
     // MARK: - A new track (spec §5.1)
 
+    /// The whole decision (review 2026-10-15): only from the column, and only for
+    /// the song the timer was set for.
+    func testTheFoldBackIsTheColumnsAndOnlyForTheSongTheTimerWasSetFor() {
+        func fold(
+            page: PlayerLayout.State, availability: LyricsAvailability = .noLocalLyrics,
+            scheduled: String = "B", current: String? = "B", waiting: Bool = true
+        ) -> Bool {
+            PlayerLayout.shouldFoldBack(
+                awaitingNewTrack: waiting, availability: availability, page: page,
+                scheduledFor: scheduled, currentTrack: current
+            )
+        }
+        XCTAssertTrue(fold(page: .column), "a settled miss in the column goes back")
+        XCTAssertFalse(fold(page: .tall), "the tall page is where the person chose to be: dropping 400 to 208 under a still pointer folded the panel")
+        XCTAssertFalse(fold(page: .player), "already there")
+        XCTAssertFalse(fold(page: .column, waiting: false))
+        // Skipping A → B → C: B's timer fires while C plays.
+        XCTAssertFalse(fold(page: .column, scheduled: "B", current: "C"),
+                       "B's stale 'no lyrics' must not fold C back")
+        XCTAssertTrue(fold(page: .column, scheduled: "C", current: "C"))
+        XCTAssertFalse(fold(page: .column, current: nil), "the player emptied")
+        // Lyrics found, or still being looked for: stay.
+        let timeline = LyricTimeline(lines: [.init(at: 1, text: "a")], granularity: .line)
+        XCTAssertFalse(fold(page: .column, availability: .ready(timeline)))
+        XCTAssertFalse(fold(page: .column, availability: .resolving))
+        XCTAssertFalse(fold(page: .column, availability: .findingLocalLyrics))
+    }
+
     func testANewTrackReturnsToThePlayerOnlyForASettledMiss() {
         let timeline = LyricTimeline(lines: [.init(at: 1, text: "a")], granularity: .line)
         // Not waiting on a new track: never.

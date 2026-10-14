@@ -11,6 +11,23 @@ import Translation
 /// The rows appear together, never one by one: nothing is published until the
 /// batch is whole.
 ///
+/// **Only while it is shown.** A batch starts only while a surface that draws
+/// translations is on screen (`setDemand`: the lyric column or tall page now,
+/// the lock card in R2) *and* Show Translation is on. Before this a batch ran
+/// for every song the moment its lyrics arrived — panel closed, translations
+/// hidden — and below macOS 26, where neither on-device engine exists, with
+/// Translate Online on that meant a request per line of every song played
+/// against MyMemory's 5,000 characters a day (review 2026-10-15). Closing the
+/// panel, hiding translations or switching Translate Lyrics off cancels the
+/// batch in flight. A song's distinct lines are each sent once, whatever the
+/// engine: a chorus sung four times is one request, its answer laid under all
+/// four.
+///
+/// **Consent is part of the question.** What the Translate Online switch says
+/// is read with the song and the language: turning it off cancels an online
+/// batch before its next line goes out, and turning it on asks again about a
+/// song that had no engine a moment ago.
+///
 /// **No second policy.** Which engines may run for a pair is
 /// `Translator.deviceCapabilities` and `Translator.engines(given:)`, the very
 /// functions the Translate tab runs on: Apple's Translation framework for an
@@ -26,6 +43,10 @@ import Translation
 /// untranslated and unmarked. No toast, no banner: the Translate tab is where
 /// translation errors are explained, and a column of lyrics is no place for one.
 /// A failure is not cached, so a later change of song or language tries again.
+/// An online batch cut short — a line failed, the per-song budget or the day's
+/// allowance (`OnlineAllowance`) ran out — is shown for what it has but is
+/// **not cached**: the lines it answered are kept apart, and the next time the
+/// song is presented only the lines still missing are sent.
 ///
 /// **What the lock card needs (R2).** `translation(atLine:)` is the one read:
 /// the translation row of a line of the timeline most recently presented. It is
@@ -58,9 +79,9 @@ final class LyricTranslation: ObservableObject {
 
     // MARK: - The engines, as seams
 
-    /// The four things a batch needs from outside, so a test runs the whole
-    /// service with fakes and never reaches the network, a real model or the
-    /// Translation framework.
+    /// What a batch needs from outside, so a test runs the whole service with
+    /// fakes and never reaches the network, a real model or the Translation
+    /// framework.
     struct Backend {
         /// What this Mac can do for the pair: `Translator.Capabilities`, whose
         /// `onlineEnabled` is how the Translate Online switch reaches the batch.
@@ -70,11 +91,18 @@ final class LyricTranslation: ObservableObject {
         var system: @MainActor ([String], Translator.Route) async throws -> [String?]
         /// The on-device language model.
         var model: @MainActor ([String], Translator.Route) async throws -> [String?]
-        /// MyMemory. Nil where the allowance or a failure cut the batch short.
-        var online: @MainActor ([String], Translator.Route) async throws -> [String?]
+        /// MyMemory, **one line**: the service owns the loop, so it can stop
+        /// between lines when the person withdraws consent, the panel closes or
+        /// the allowance is spent.
+        var online: @MainActor (String, Translator.Route) async throws -> String
         /// The language a piece of text is in, for the song as a whole and for
         /// each line.
         var detect: @MainActor (String) -> TranslationLanguage
+        /// Translate Online as Settings has it *right now*: asked before every
+        /// online line and when a song is evaluated.
+        var onlineEnabled: @MainActor () -> Bool = { true }
+        /// Whether the service's allowance still has room (`OnlineAllowance`).
+        var onlineAvailable: @MainActor () -> Bool = { true }
 
         /// The app's own engines. `onlineEnabled` is read when the batch
         /// runs, not when the service is built: the switch moves while the app
@@ -94,8 +122,12 @@ final class LyricTranslation: ObservableObject {
                     guard #available(macOS 26.0, *) else { throw Failure.unavailable }
                     return try await LyricTranslation.modelBatch(texts, route: route)
                 },
-                online: { texts, route in try await LyricTranslation.onlineBatch(texts, route: route) },
-                detect: { LanguageDetection.language(of: $0) }
+                online: { text, route in
+                    try await OnlineTranslation.translate(text, from: route.source, to: route.target).text
+                },
+                detect: { LanguageDetection.language(of: $0) },
+                onlineEnabled: { defaults.bool(forKey: NotchViewModel.onlineTranslationKey) },
+                onlineAvailable: { !OnlineAllowance.shared.isExhausted }
             )
         }
 
@@ -103,8 +135,9 @@ final class LyricTranslation: ObservableObject {
         /// behind it.
         static let inert = Backend(
             capabilities: { _ in Translator.Capabilities() },
-            system: { _, _ in [] }, model: { _, _ in [] }, online: { _, _ in [] },
-            detect: { LanguageDetection.language(of: $0) }
+            system: { _, _ in [] }, model: { _, _ in [] }, online: { _, _ in "" },
+            detect: { LanguageDetection.language(of: $0) },
+            onlineEnabled: { false }, onlineAvailable: { false }
         )
     }
 
@@ -137,17 +170,56 @@ final class LyricTranslation: ObservableObject {
     private let backend: Backend
     private let preferredLanguages: [String]
     private var lines: [LyricsStore.Line]?
-    /// The key the service last settled on: in flight, answered, or failed.
-    /// Evaluating again with the same key is a no-op, so a lyrics recheck or
-    /// an unrelated defaults write never starts a second batch, and a failed
-    /// batch is not retried in a loop.
-    private var evaluatedKey: Key?
+
+    /// What a batch is asked: the words, the language, and whether the person
+    /// allows the one engine that leaves the Mac. Consent is part of the
+    /// question, so withdrawing it ends the batch and granting it asks again
+    /// about a song that had no engine a moment ago (review 2026-10-15, Codex
+    /// P1).
+    private struct Evaluation: Equatable {
+        let key: Key
+        let online: Bool
+    }
+
+    /// The evaluation the service last settled on: in flight, answered, or
+    /// failed. Evaluating again with the same one is a no-op, so a lyrics
+    /// recheck or an unrelated defaults write never starts a second batch, and a
+    /// failed batch is not retried in a loop.
+    private var evaluated: Evaluation?
+    /// True only once a batch ended with part of an online answer. The next
+    /// `present(lines:)` or change of demand may then go again for the lines
+    /// still missing; an unrelated defaults write may not.
+    private var retryable = false
+    /// The online lines that did come back for a batch that ended short, by
+    /// the text sent, so the retry sends only what is missing and a song's
+    /// share of the day's allowance is spent once.
+    private var onlineKept: [Key: [String: String]] = [:]
     private var cache: [Key: Presented] = [:]
     /// Insertion order of `cache`, oldest first, so it can be capped.
     private var cacheOrder: [Key] = []
     private var task: Task<Void, Never>?
     private var generation = 0
     private var observer: NSObjectProtocol?
+    /// The song's language, from all of its sung lines, kept for the lines it
+    /// was read from.
+    private var songLanguageCache: (texts: [String], language: TranslationLanguage)?
+
+    /// The surfaces that draw translations and are on screen right now.
+    enum Surface: Hashable {
+        /// The lyric column and the tall page (`LyricsStage`).
+        case lyricArea
+        /// The lock card's sung-line translation (R2 adds itself here).
+        case lockCard
+    }
+    /// Counted, not a set: SwiftUI may bring a new stage on screen (the column
+    /// becoming the tall page) before the old one's `onDisappear` has run, and
+    /// a set would read that as the surface going.
+    private var demand: [Surface: Int] = [:]
+
+    /// Whether any surface that draws translations is on screen: what a batch
+    /// waits for. Not published — nothing draws differently for it, and the
+    /// views that set it must not redraw because they did.
+    var isPresentedSomewhere: Bool { !demand.isEmpty }
 
     /// A session of songs is a few hundred at most and a batch is a few kilobytes;
     /// the cap keeps a week of idle listening from being a leak.
@@ -191,21 +263,33 @@ final class LyricTranslation: ObservableObject {
     /// The song on screen: its lines, or nil when there are none (looking, off,
     /// not found). Called whenever the lyrics store changes state, with the same
     /// lines again on every recheck of one song — which is why nothing starts
-    /// unless the key moved.
+    /// unless the evaluation moved. A batch that ended short is the one
+    /// exception: presenting the song again goes for its missing lines.
     func present(lines: [LyricsStore.Line]?) {
         self.lines = lines
-        evaluate()
+        evaluate(retrying: true)
+    }
+
+    /// A surface that draws translations came on screen or went. A batch runs
+    /// only while at least one is up (see the type's comment); the lock card
+    /// adds itself here in R2.
+    func setDemand(_ surface: Surface, _ on: Bool) {
+        let before = isPresentedSomewhere
+        if on {
+            demand[surface, default: 0] += 1
+        } else if let count = demand[surface] {
+            demand[surface] = count > 1 ? count - 1 : nil
+        }
+        if before != isPresentedSomewhere { evaluate(retrying: true) }
     }
 
     /// Reads Settings again. Cheap and idempotent: it runs on every write to
     /// the defaults domain, and changes only what actually changed.
     func refresh() {
         let enabled = NotchViewModel.translateLyricsEnabled(in: defaults)
-        let target = NotchViewModel.translateTarget(in: defaults, preferredLanguages: preferredLanguages)
         let shown = NotchViewModel.showTranslationEnabled(in: defaults)
         let recents = Self.recentTargets(in: defaults)
         if isEnabled != enabled { isEnabled = enabled }
-        if self.target != target { self.target = target }
         if isShown != shown { isShown = shown }
         if self.recents != recents { self.recents = recents }
         evaluate()
@@ -241,37 +325,88 @@ final class LyricTranslation: ObservableObject {
             .compactMap(TranslationLanguage.withCode)
     }
 
-    private func evaluate() {
+    /// The language lyrics go into: what was chosen, else the system's unless the
+    /// song is in it, then English (spec §5.3). The song is looked at only when
+    /// nothing was chosen.
+    private func resolvedTarget() -> TranslationLanguage {
+        let song = NotchViewModel.storedTranslateTarget(in: defaults) == nil ? songLanguage() : nil
+        return NotchViewModel.translateTarget(
+            in: defaults, preferredLanguages: preferredLanguages, songLanguage: song
+        )
+    }
+
+    /// The language of the song on screen, read once for its sung lines.
+    private func songLanguage() -> TranslationLanguage? {
+        guard let lines else { return nil }
+        let sung = lines.filter(Self.isTranslatable).map(\.text)
+        guard !sung.isEmpty else { return nil }
+        if let known = songLanguageCache, known.texts == sung { return known.language }
+        // The song's language, from all of it: a line is too little for the
+        // recognizer, and a Russian song with an English chorus is still a
+        // Russian song to translate from.
+        let language = backend.detect(sung.joined(separator: "\n"))
+        songLanguageCache = (sung, language)
+        return language
+    }
+
+    /// Ends whatever is in flight and forgets that it was asked, so the next
+    /// time something wants translations the question is asked afresh.
+    private func stop() {
+        generation += 1
+        task?.cancel()
+        task = nil
+        evaluated = nil
+        retryable = false
+    }
+
+    private func evaluate(retrying: Bool = false) {
         guard isEnabled, let lines, !lines.isEmpty else {
-            generation += 1
-            task?.cancel()
-            task = nil
-            evaluatedKey = nil
+            stop()
             if presented != nil { presented = nil }
+            let resolved = resolvedTarget()
+            if target != resolved { target = resolved }
+            return
+        }
+        let resolved = resolvedTarget()
+        if target != resolved { target = resolved }
+        // Nothing draws a translation, so nothing is asked for one: no panel,
+        // or translations hidden. What was answered stays, hidden or not on
+        // screen, for the next time.
+        guard isShown, isPresentedSomewhere else {
+            stop()
             return
         }
         let key = Key(texts: lines.map(\.text), target: target.code)
-        guard key != evaluatedKey else { return }
-        evaluatedKey = key
+        let evaluation = Evaluation(key: key, online: backend.onlineEnabled())
+        let again = evaluation == evaluated
+        guard !again || (retrying && retryable) else { return }
+        evaluated = evaluation
+        retryable = false
         generation += 1
         task?.cancel()
         task = nil
         // The previous answer is for another song or another language. It is
         // dropped at once, rather than left under lines it does not belong to
-        // for the length of a batch.
+        // for the length of a batch. (A retry keeps the part it has: those rows
+        // are still right.)
         if let hit = cache[key] {
             presented = hit
             return
         }
-        if presented != nil { presented = nil }
+        if !again, presented != nil { presented = nil }
         let generation = generation
         let target = target
         task = Task { [weak self] in
             guard let self else { return }
-            let answer = await self.translate(lines: lines, key: key, target: target)
-            guard !Task.isCancelled, self.generation == generation, let answer else { return }
-            self.store(answer)
-            self.presented = answer
+            let outcome = await self.translate(lines: lines, key: key, target: target)
+            guard !Task.isCancelled, self.generation == generation, let outcome else { return }
+            if outcome.complete {
+                self.onlineKept[key] = nil
+                self.store(outcome.presented)
+            } else {
+                self.retryable = true
+            }
+            self.presented = outcome.presented
         }
     }
 
@@ -299,50 +434,77 @@ final class LyricTranslation: ObservableObject {
             && !line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// Nil when nothing could be done and nothing should be remembered (no
-    /// engine for the pair, every engine failed, cancelled); a `Presented`
-    /// with empty rows when the song is already in the target language, which
-    /// is an answer and is kept.
-    private func translate(lines: [LyricsStore.Line], key: Key, target: TranslationLanguage) async -> Presented? {
-        let indices = lines.indices.filter { Self.isTranslatable(lines[$0]) }
-        let empty = Presented(key: key, rows: Array(repeating: nil, count: lines.count), engine: nil)
-        guard !indices.isEmpty else { return empty }
+    private struct Outcome {
+        let presented: Presented
+        /// False for an online answer that stopped short: shown, not kept.
+        let complete: Bool
+    }
 
-        // The song's language, from all of it: a line is too little for the
-        // recognizer, and a Russian song with an English chorus is still a
-        // Russian song to translate from.
-        let song = backend.detect(indices.map { lines[$0].text }.joined(separator: "\n"))
+    /// Nil when nothing could be done and nothing should be remembered (no
+    /// engine for the pair, every engine failed, cancelled); an outcome with
+    /// empty rows when the song is already in the target language, which is an
+    /// answer and is kept.
+    private func translate(lines: [LyricsStore.Line], key: Key, target: TranslationLanguage) async -> Outcome? {
+        let indices = lines.indices.filter { Self.isTranslatable(lines[$0]) }
+        let empty = Outcome(
+            presented: Presented(key: key, rows: Array(repeating: nil, count: lines.count), engine: nil),
+            complete: true
+        )
+        guard !indices.isEmpty, let song = songLanguage() else { return empty }
         guard song != target else { return empty }
 
         // A line already in the target language gets no row — the English
         // chorus of a song translated into English. Only the lines that
-        // remain are sent.
-        let sent = indices.filter { backend.detect(lines[$0].text) != target }
-        guard !sent.isEmpty else { return empty }
-        let texts = sent.map { lines[$0].text }
+        // remain are sent, and each distinct text once: a chorus sung four
+        // times is one question, its answer laid under all four.
+        var languages: [String: TranslationLanguage] = [:]
+        var positions: [String: [Int]] = [:]
+        var texts: [String] = []
+        for index in indices {
+            let text = lines[index].text
+            if languages[text] == nil { languages[text] = backend.detect(text) }
+            guard languages[text] != target else { continue }
+            if positions[text] == nil { texts.append(text) }
+            positions[text, default: []].append(index)
+        }
+        guard !texts.isEmpty else { return empty }
 
         let route = Translator.Route(source: song, target: target)
         let capabilities = await backend.capabilities(route)
         guard !Task.isCancelled else { return nil }
         for engine in Translator.engines(given: capabilities) {
             do {
-                let answers: [String?]
+                var answers: [String: String] = [:]
+                var complete = true
                 switch engine {
-                case .system: answers = try await backend.system(texts, route)
-                case .intelligence: answers = try await backend.model(texts, route)
-                case .online: answers = try await backend.online(texts, route)
+                case .system, .intelligence:
+                    let batch: [String?]
+                    if engine == .system {
+                        batch = try await backend.system(texts, route)
+                    } else {
+                        batch = try await backend.model(texts, route)
+                    }
+                    for (position, text) in texts.enumerated() where position < batch.count {
+                        if let answer = batch[position] { answers[text] = answer }
+                    }
+                case .online:
+                    // The switch is asked again here, not trusted from the
+                    // capabilities a moment ago: it may have moved since, and
+                    // this is the engine that sends the song away.
+                    guard backend.onlineEnabled(), backend.onlineAvailable() else { continue }
+                    (answers, complete) = try await askOnline(texts, key: key, route: route)
                 }
                 var rows = [String?](repeating: nil, count: lines.count)
                 var any = false
-                for (position, index) in sent.enumerated() where position < answers.count {
-                    if let row = Self.usable(answers[position], for: texts[position]) {
-                        rows[index] = row
+                for (text, at) in positions {
+                    if let row = Self.usable(answers[text], for: text) {
+                        for index in at { rows[index] = row }
                         any = true
                     }
                 }
                 // An engine that answered nothing for any line did not answer.
                 guard any else { throw Failure.nothingTranslated }
-                return Presented(key: key, rows: rows, engine: engine)
+                return Outcome(presented: Presented(key: key, rows: rows, engine: engine), complete: complete)
             } catch is CancellationError {
                 return nil
             } catch {
@@ -352,6 +514,38 @@ final class LyricTranslation: ObservableObject {
             }
         }
         return nil
+    }
+
+    /// MyMemory, one distinct line at a time inside one batch's budget
+    /// (`OnlineTranslation.maximumOnlineCharacters` — the day's allowance is
+    /// about the same size, which is why nothing else is allowed to ask for a
+    /// song twice). Stops, keeping what it has, the moment the person withdraws
+    /// consent, the allowance is spent, the budget is, or a line fails; throws
+    /// cancellation so a batch the panel no longer wants sends nothing more.
+    private func askOnline(
+        _ texts: [String], key: Key, route: Translator.Route
+    ) async throws -> (answers: [String: String], complete: Bool) {
+        var answers = onlineKept[key] ?? [:]
+        // What an earlier, shorter try of this song already spent counts
+        // against its budget.
+        var budget = OnlineTranslation.maximumOnlineCharacters - answers.keys.reduce(0) { $0 + $1.count }
+        defer {
+            if onlineKept.count >= 8 { onlineKept.removeAll() }
+            onlineKept[key] = answers
+        }
+        for text in texts where answers[text] == nil {
+            try Task.checkCancellation()
+            guard backend.onlineEnabled(), backend.onlineAvailable(), text.count <= budget else { break }
+            budget -= text.count
+            do {
+                answers[text] = try await backend.online(text, route)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                break
+            }
+        }
+        return (answers, texts.allSatisfy { answers[$0] != nil })
     }
 
     /// A translation worth drawing: not blank, and not the line itself — a name
@@ -434,6 +628,20 @@ final class LyricTranslation: ObservableObject {
         return displayRows(for: lines)[index]
     }
 
+    /// What Settings says under Translate To: where the work is done, true for
+    /// the state it is in. It used to say "Translated on this Mac" with
+    /// Translate Online on, and below macOS 26 — where nothing is translated
+    /// on this Mac — with it off (review 2026-10-15). With the switch on it is
+    /// the Translate tab's own note (`Translator.onlineNote`, K-005).
+    static func settingsNote(
+        onlineEnabled: Bool, belowMinimumSystem: Bool = Translator.isBelowMinimumSystem
+    ) -> String {
+        if onlineEnabled { return Translator.onlineNote(belowMinimumSystem: belowMinimumSystem) }
+        return belowMinimumSystem
+            ? localized("Before macOS 26 this Mac cannot translate lyrics itself. Turn on Translate Online to translate them.")
+            : localized("Translated on this Mac. Nothing is sent over the internet.")
+    }
+
     /// Where the batch the column shows went: the menu's last row.
     var engine: Translator.Engine? { presented?.engine }
 
@@ -473,31 +681,6 @@ final class LyricTranslation: ObservableObject {
                 throw CancellationError()
             } catch {
                 answers[index] = nil
-            }
-        }
-        return answers
-    }
-
-    /// MyMemory, a line at a time and within the same daily character budget
-    /// one Translate-tab paste has (`OnlineTranslation.maximumOnlineCharacters`):
-    /// a song's lines are short and answered separately, so no line is
-    /// ever folded into another's answer. A failure after some lines answered
-    /// keeps them; a failure on the first throws.
-    private static func onlineBatch(_ texts: [String], route: Translator.Route) async throws -> [String?] {
-        var answers = [String?](repeating: nil, count: texts.count)
-        var budget = OnlineTranslation.maximumOnlineCharacters
-        for (index, text) in texts.enumerated() {
-            try Task.checkCancellation()
-            guard text.count <= budget else { break }
-            budget -= text.count
-            do {
-                let reply = try await OnlineTranslation.translate(text, from: route.source, to: route.target)
-                answers[index] = reply.text
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                if index == 0 { throw error }
-                break
             }
         }
         return answers

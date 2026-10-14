@@ -187,6 +187,25 @@ final class LocalLyricsEditor {
         /// an Isla-owned copy bound to the song, which replaces the broken
         /// binding the way any saved edit does. The candidate's id is a fresh one
         /// that names nothing the library holds, so the copy records no source.
+        /// The editor for the unreadable state: on the bound file's own content
+        /// where it can be read tolerantly, else on `blank`.
+        @MainActor
+        static func unreadable(identity: LocalTrackIdentity?, library: LocalLyricsLibrary) -> EditingSession {
+            guard let identity, var document = library.repairableDocument(for: identity) else {
+                return blank(identity: identity)
+            }
+            // The song's own tags fill what the file left out, as `blank` seeds
+            // them, so the sheet has a title either way.
+            document.metadata.title = document.metadata.title ?? identity.title
+            document.metadata.artist = document.metadata.artist ?? identity.artist
+            document.metadata.album = document.metadata.album ?? identity.album
+            document.metadata.duration = document.metadata.duration ?? identity.duration
+            return EditingSession(
+                candidate: LocalLyricsCandidate(id: UUID(), document: document, origin: .imported),
+                identity: identity
+            )
+        }
+
         static func blank(identity: LocalTrackIdentity?) -> EditingSession {
             let document = LocalLyricsDocument(
                 metadata: LocalLyricsMetadata(

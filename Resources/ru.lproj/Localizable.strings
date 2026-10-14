@@ -443,4 +443,5 @@
 "Translate Lyrics" = "Переводить текст";
 "Translation" = "Перевод";
 "Translated on this Mac" = "Переведено на этом Mac";
-"Translated on this Mac. Languages it cannot translate itself use Translate Online, if it is on." = "Перевод выполняется на этом Mac. Языки, которые он не переводит сам, переводятся онлайн, если это включено.";
+"Translated on this Mac. Nothing is sent over the internet." = "Перевод выполняется на этом Mac. В интернет ничего не отправляется.";
+"Before macOS 26 this Mac cannot translate lyrics itself. Turn on Translate Online to translate them." = "До macOS 26 этот Mac сам не переводит тексты песен. Включите «Переводить онлайн», чтобы перевести их.";

@@ -84,6 +84,26 @@ final class OutputMenuTests: XCTestCase {
         XCTAssertEqual(entries.filter { $0 == .volume }.count, 1)
     }
 
+    /// An output with a fixed volume has no level to set. The player and the lock
+    /// card omit their sliders for it, and so does the folded menu — it used to
+    /// add one that read 0 % and moved nothing (review 2026-10-15).
+    func testTheFoldedMenuHasNoSliderForAnOutputWithNoVolume() {
+        let entries = OutputMenuModel.entries(
+            outputs: Self.outputs, current: 41, includesVolume: true, hasVolume: false
+        )
+        XCTAssertFalse(entries.contains(.volume))
+        XCTAssertFalse(entries.contains(.header("Volume")))
+        XCTAssertEqual(entries.first, .header("Output"))
+
+        let fixed = AudioWatch(
+            read: { (Self.outputs, 41, nil) }, readMuted: { false }, installListeners: {}, removeListeners: {}
+        )
+        fixed.start()
+        let menu = controller(fixed).makeMenu(includesVolume: true)
+        XCTAssertTrue(menu.items.allSatisfy { $0.view == nil }, "no slider row in the NSMenu either")
+        XCTAssertEqual(menu.items.first?.title, "Output")
+    }
+
     /// With no known default nothing is marked playing, and the list is the
     /// system's.
     func testNoDefaultMarksNothing() {

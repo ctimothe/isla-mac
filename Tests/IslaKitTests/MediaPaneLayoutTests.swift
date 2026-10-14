@@ -7,6 +7,61 @@ import XCTest
 @MainActor
 final class MediaPaneLayoutTests: XCTestCase {
 
+    // MARK: - Built once, not per body pass
+
+    @MainActor final class Counter: ObservableObject {
+        var built = 0
+        var inits = 0
+        @Published var tick = 0
+    }
+
+    /// The menu buttons used to build a presenter (and for Output a controller
+    /// behind it) in `State(initialValue:)` on every body pass, about ten a
+    /// second while a song plays. `BuiltOnce` runs its builder once per view
+    /// however often the parent redraws (review 2026-10-15).
+    func testBuiltOnceBuildsOnceHoweverOftenTheParentRedraws() async throws {
+        struct Child: View {
+            @StateObject private var holder: BuiltOnce<Int>
+            init(counter: Counter) {
+                counter.inits += 1
+                _holder = StateObject(wrappedValue: BuiltOnce { counter.built += 1; return counter.built })
+            }
+            var body: some View { Text("\(holder.value)") }
+        }
+        struct Parent: View {
+            @ObservedObject var counter: Counter
+            var body: some View {
+                Child(counter: counter).id("same").overlay(Text("\(counter.tick)"))
+            }
+        }
+        let counter = Counter()
+        let host = NSHostingView(rootView: Parent(counter: counter))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 40), styleMask: [], backing: .buffered, defer: true)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        for _ in 0..<5 {
+            counter.tick += 1
+            try await Task.sleep(for: .milliseconds(30))
+            host.layoutSubtreeIfNeeded()
+        }
+        XCTAssertGreaterThan(counter.inits, 1, "the parent did redraw, and the child was made again each time")
+        XCTAssertEqual(counter.built, 1, "the value behind it was built exactly once")
+    }
+
+    // MARK: - Bilingual lines in the band
+
+    /// A bilingual LRC line holds its translation after a newline; the band's
+    /// 17 pt slot draws the sung row only, as the column draws the pair
+    /// (review 2026-10-15).
+    func testTheBandDrawsTheFirstRowOfABilingualLine() {
+        let bilingual = LyricsStore.Line(at: 4, text: "in the dark by the camera\nв темноте у камеры")
+        XCTAssertEqual(MediaPane.bandText(of: bilingual), "in the dark by the camera")
+        XCTAssertFalse(MediaPane.bandText(of: bilingual).contains("\n"))
+        XCTAssertEqual(MediaPane.bandText(of: .init(at: 8, text: "humming everything you need")),
+                       "humming everything you need", "a plain line is itself")
+        XCTAssertEqual(MediaPane.bandText(of: .init(at: 8, text: "")), "")
+    }
+
     // MARK: - Which line to show
 
     /// A paused track sitting before its first timestamp used to show nothing at

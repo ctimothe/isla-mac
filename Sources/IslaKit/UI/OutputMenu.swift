@@ -22,11 +22,16 @@ enum OutputMenuModel {
     /// rest as the system lists them (`LockScreenCard.orderedOutputs`, F-032):
     /// a Mac with more devices than rows must still show the one that answers
     /// "where is this going".
+    ///
+    /// `hasVolume` is whether the default output has a level to set. An output
+    /// with a fixed volume (many HDMI and DisplayPort sinks) reads nil, and the
+    /// player and the lock card omit their sliders for it; a folded menu that
+    /// still added one drew a bar at 0 % that moved nothing (review 2026-10-15).
     static func entries(
-        outputs: [AudioOutputs.Output], current: AudioDeviceID?, includesVolume: Bool
+        outputs: [AudioOutputs.Output], current: AudioDeviceID?, includesVolume: Bool, hasVolume: Bool = true
     ) -> [OutputMenuEntry] {
         var entries: [OutputMenuEntry] = []
-        if includesVolume {
+        if includesVolume && hasVolume {
             entries.append(.header(localized("Volume")))
             entries.append(.volume)
             entries.append(.separator)
@@ -95,7 +100,8 @@ final class OutputMenuController: NSObject {
         menu.minimumWidth = Self.menuWidth
         menu.autoenablesItems = false
         for entry in OutputMenuModel.entries(
-            outputs: audio.outputs, current: audio.current, includesVolume: includesVolume
+            outputs: audio.outputs, current: audio.current, includesVolume: includesVolume,
+            hasVolume: audio.volume != nil
         ) {
             switch entry {
             case .header(let title):

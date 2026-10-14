@@ -218,7 +218,16 @@ final class NotchViewModel: ObservableObject {
     /// panel is up) and acting through the same entry points the page's own
     /// buttons use.
     lazy var lyricsMoreMenu: LyricsMoreMenuController = LyricsMoreMenuController(
-        context: { [unowned self] in
+        // `weak`, not `unowned`: these controllers are held by `@State`
+        // presenters in the views, which can outlive this model when the panel
+        // is rebuilt for a display change, and a menu action on the old panel
+        // then crashed. An orphaned menu does nothing (review 2026-10-15).
+        context: { [weak self] in
+            guard let self else {
+                return LyricsMoreMenuController.Context(
+                    localFileName: nil, hasBinding: false, onlineOn: false, offset: 0, canNudge: false
+                )
+            }
             var localFile: String?
             if case .some(.ready(let candidate)) = lyricsCoordinator.localLookup {
                 localFile = LyricsMoreMenuModel.fileName(
@@ -234,18 +243,19 @@ final class NotchViewModel: ObservableObject {
             )
         },
         actions: LyricsMoreMenuController.Actions(
-            nudge: { [unowned self] in lyrics.nudgeTrackOffset(by: $0) },
-            resetTiming: { [unowned self] in lyrics.clearTrackOffset() },
-            editLyrics: { [unowned self] in
+            nudge: { [weak self] in self?.lyrics.nudgeTrackOffset(by: $0) },
+            resetTiming: { [weak self] in self?.lyrics.clearTrackOffset() },
+            editLyrics: { [weak self] in
+                guard let self else { return }
                 guard case .some(.ready(let candidate)) = lyricsCoordinator.localLookup else { return }
                 lyricEditing = LocalLyricsEditor.EditingSession(
                     candidate: candidate, identity: lyricsCoordinator.currentLocalTrackIdentity
                 )
             },
-            removeBinding: { [unowned self] in lyricsCoordinator.removeLocalBinding() },
-            importFile: { [unowned self] in chooseLocalLyricsFile(from: .stage) },
-            searchAgain: { [unowned self] in lyricsCoordinator.retry() },
-            openSettings: { [unowned self] in openLyricsSettings() }
+            removeBinding: { [weak self] in self?.lyricsCoordinator.removeLocalBinding() },
+            importFile: { [weak self] in self?.chooseLocalLyricsFile(from: .stage) },
+            searchAgain: { [weak self] in self?.lyricsCoordinator.retry() },
+            openSettings: { [weak self] in self?.openLyricsSettings() }
         )
     )
 
@@ -261,8 +271,13 @@ final class NotchViewModel: ObservableObject {
     /// it opens — the recents, the current language and where the batch went all
     /// move while the panel is up.
     lazy var lyricsTranslateMenu: LyricsTranslateMenuController = LyricsTranslateMenuController(
-        context: { [unowned self] in
-            LyricsTranslateMenuController.Context(
+        context: { [weak self] in
+            guard let self else {
+                return LyricsTranslateMenuController.Context(
+                    isShown: false, languages: [], current: .english, engine: nil
+                )
+            }
+            return LyricsTranslateMenuController.Context(
                 isShown: translation.isShown, languages: LyricsTranslateMenuModel.languages(
                     recents: translation.recents, current: translation.target
                 ),
@@ -270,8 +285,8 @@ final class NotchViewModel: ObservableObject {
             )
         },
         actions: LyricsTranslateMenuController.Actions(
-            toggleShown: { [unowned self] in translation.toggleShown() },
-            choose: { [unowned self] in translation.choose(target: $0) }
+            toggleShown: { [weak self] in self?.translation.toggleShown() },
+            choose: { [weak self] in self?.translation.choose(target: $0) }
         )
     )
 
@@ -1221,15 +1236,31 @@ final class NotchViewModel: ObservableObject {
 
     static let translateTargetKey = "lyrics.translateTarget"
 
+    /// What Settings stored as the target, if it is still on offer; nil when
+    /// nothing was chosen (or the code is no longer one the tab offers).
+    static func storedTranslateTarget(in defaults: UserDefaults) -> TranslationLanguage? {
+        defaults.string(forKey: translateTargetKey).flatMap(TranslationLanguage.withCode)
+    }
+
     /// The language lyrics are translated into: what was chosen, else the first of
     /// the system's languages the Translate tab offers, else English — the rule
-    /// the Translate tab's own default follows (`Translator.defaultTarget`). A
-    /// stored code that is no longer on offer reads as unset.
+    /// the Translate tab's own default follows (`Translator.defaultTarget`) —
+    /// **unless the song is in that language**, when the default is English
+    /// (spec §5.3: "the system language when it differs from the lyric's, else
+    /// English"). A Russian song on a Russian Mac used to be "translated" into
+    /// the language it was already in, and so got nothing; a person who never
+    /// opened Settings expected to read it (review 2026-10-15). `songLanguage`
+    /// is the detected language of the lyric, nil where there is none to
+    /// compare (Settings' own picker). A stored code that is no longer on offer
+    /// reads as unset; a stored choice always wins, even the song's own language.
     static func translateTarget(
-        in defaults: UserDefaults, preferredLanguages: [String] = Locale.preferredLanguages
+        in defaults: UserDefaults, preferredLanguages: [String] = Locale.preferredLanguages,
+        songLanguage: TranslationLanguage? = nil
     ) -> TranslationLanguage {
-        defaults.string(forKey: translateTargetKey).flatMap(TranslationLanguage.withCode)
-            ?? Translator.defaultTarget(preferredLanguages: preferredLanguages)
+        if let stored = storedTranslateTarget(in: defaults) { return stored }
+        let system = Translator.defaultTarget(preferredLanguages: preferredLanguages)
+        if let songLanguage, songLanguage == system, system != .english { return .english }
+        return system
     }
 
     static let showTranslationKey = "lyrics.showTranslation"

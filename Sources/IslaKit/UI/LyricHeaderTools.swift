@@ -228,12 +228,25 @@ struct MenuAnchor: NSViewRepresentable {
     }
 }
 
+/// A reference built exactly once for the life of a view.
+///
+/// `State(initialValue:)` takes its argument eagerly, so a presenter (and, for
+/// the Output button, a controller behind it) was built on **every** body pass —
+/// about ten a second while a song plays — and all but the first thrown away
+/// (review 2026-10-15). `@StateObject`'s `wrappedValue` is an autoclosure SwiftUI
+/// runs once, so holding the value in one of these builds it once.
+final class BuiltOnce<Value>: ObservableObject {
+    let value: Value
+    init(_ build: () -> Value) { value = build() }
+}
+
 /// The More button: `ellipsis`, "More Lyrics Options", opening the one menu.
 struct LyricsMoreButton: View {
-    @State private var presenter: LyricsMoreMenuPresenter
+    @StateObject private var holder: BuiltOnce<LyricsMoreMenuPresenter>
+    private var presenter: LyricsMoreMenuPresenter { holder.value }
 
     init(controller: LyricsMoreMenuController) {
-        _presenter = State(initialValue: LyricsMoreMenuPresenter(controller: controller))
+        _holder = StateObject(wrappedValue: BuiltOnce { LyricsMoreMenuPresenter(controller: controller) })
     }
 
     var body: some View {
@@ -490,12 +503,13 @@ private struct SecondaryClickMonitor: ViewModifier {
 struct TranslationToolButton: View {
     let isShown: Bool
     let toggle: () -> Void
-    @State private var presenter: LyricsTranslateMenuPresenter
+    @StateObject private var holder: BuiltOnce<LyricsTranslateMenuPresenter>
+    private var presenter: LyricsTranslateMenuPresenter { holder.value }
 
     init(isShown: Bool, controller: LyricsTranslateMenuController, toggle: @escaping () -> Void) {
         self.isShown = isShown
         self.toggle = toggle
-        _presenter = State(initialValue: LyricsTranslateMenuPresenter(controller: controller))
+        _holder = StateObject(wrappedValue: BuiltOnce { LyricsTranslateMenuPresenter(controller: controller) })
     }
 
     static func symbol(isShown: Bool) -> String {

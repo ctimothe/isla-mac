@@ -519,6 +519,30 @@ extension PlayerLayout {
         case .disabled, .resolving, .findingLocalLyrics, .ready: return false
         }
     }
+
+    /// The whole fold-back decision, as the pane takes it when its timer fires
+    /// or the availability settles.
+    ///
+    /// Three things beyond `shouldReturnToPlayer` (review 2026-10-15):
+    ///
+    /// - **Only from the column.** Spec §5.1 sends a person back to the player
+    ///   from the column; the tall page is where they chose to be, and folding
+    ///   it dropped the body 400 → 208 under a pointer resting on its lower
+    ///   half — the close rect shrank to leave the pointer outside it, and the
+    ///   panel folded shut on someone who had touched nothing.
+    /// - **Only for the song the timer was set for.** The 1 s timer used to
+    ///   outlive its song: skipping A → B → C quickly let B's timer read B's
+    ///   stale "no lyrics" and fold C back although C had lyrics. A timer that
+    ///   fires for a track that is no longer current decides nothing.
+    /// - A timer fired with no current track (the player emptied) decides
+    ///   nothing either.
+    static func shouldFoldBack(
+        awaitingNewTrack: Bool, availability: LyricsAvailability, page: State,
+        scheduledFor scheduledTrack: String, currentTrack: String?
+    ) -> Bool {
+        guard page == .column, currentTrack == scheduledTrack else { return false }
+        return shouldReturnToPlayer(awaitingNewTrack: awaitingNewTrack, availability: availability)
+    }
 }
 
 /// The three header tools' frames, in body coordinates (spec §5.2, §6): Show

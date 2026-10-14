@@ -61,8 +61,110 @@ final class WallpaperToneTests: XCTestCase {
     private let screen = CGSize(width: 1512, height: 982)
     private var centre: CGFloat { screen.width / 2 }
 
+    /// The fixtures live in a temporary folder, which the real gate rightly
+    /// refuses (it is neither the system's nor the home folder's), so the tests
+    /// that are about *measuring* open the gate; the gate has its own tests.
     private func reading(of url: URL?) -> WallpaperTone.Reading {
-        WallpaperTone.reading(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre)
+        WallpaperTone.reading(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre, mayRead: { _ in true })
+    }
+
+    // MARK: The privacy gate
+
+    private let home = "/Users/tester"
+
+    private func mayRead(_ path: String) -> Bool {
+        WallpaperTone.isReadableWithoutPrompt(URL(fileURLWithPath: path), home: home)
+    }
+
+    /// Wallpapers in a place macOS guards (or that is another app's) are not
+    /// opened: opening one raised "Isla would like to access files in your
+    /// Downloads folder" at launch, with nothing on screen to explain it
+    /// (review 2026-10-15).
+    func testAWallpaperBehindAPrivacyGateIsNeverOpened() {
+        for path in [
+            "/Users/tester/Downloads/sky.jpg",
+            "/Users/tester/Desktop/sky.jpg",
+            "/Users/tester/Documents/Walls/sky.jpg",
+            "/Users/tester/Library/Mobile Documents/com~apple~CloudDocs/sky.jpg",
+            "/Users/tester/Library/CloudStorage/Dropbox/sky.jpg",
+            "/Users/tester/Library/Containers/com.apple.Photos/Data/sky.jpg",
+            "/Users/tester/Library/Group Containers/group.com.apple.wallpaper/sky.jpg",
+            "/Users/tester/Pictures/Photos Library.photoslibrary/originals/A/sky.jpg",
+            "/Users/tester/Movies/sky.jpg",
+            "/Users/tester/Music/sky.jpg",
+            "/Volumes/Backup/Walls/sky.jpg",
+            "/Volumes/Backup/Users/tester/Pictures/sky.jpg",
+            "/Users/someone-else/Pictures/sky.jpg",
+            "/private/var/folders/xx/T/sky.jpg",
+            "/tmp/sky.jpg",
+            "/Users/tester",
+        ] {
+            XCTAssertFalse(mayRead(path), "\(path) must not be opened")
+        }
+        // Folded before it is judged, and the case of the volume does not matter.
+        XCTAssertFalse(mayRead("/Users/tester/Pictures/../Downloads/sky.jpg"))
+        XCTAssertFalse(mayRead("/Users/tester/DOWNLOADS/sky.jpg"))
+        XCTAssertFalse(WallpaperTone.isReadableWithoutPrompt(URL(string: "https://example.com/sky.jpg")!, home: home),
+                       "not a file")
+    }
+
+    func testTheSystemsOwnPicturesAndTheHomeFolderOutsideTheGatedPlacesAreOpened() {
+        for path in [
+            "/System/Library/Desktop Pictures/Sonoma.heic",
+            "/Library/Desktop Pictures/Solid Colors/Black.png",
+            "/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS/aerial.heic",
+            "/Users/tester/Pictures/sky.jpg",
+            "/Users/tester/Library/Application Support/com.apple.mobileAssetDesktop/sky.heic",
+            "/Users/tester/Pictures/Wallpapers/Photos Library notes/sky.jpg",
+        ] {
+            XCTAssertTrue(mayRead(path), "\(path) is readable without a prompt")
+        }
+    }
+
+    /// The gate is decided before any file call: the reader is never invoked
+    /// for a gated file, and the answer is "unknown" — no key line. For a
+    /// system picture the reader is asked.
+    func testAGatedWallpaperAnswersUnknownWithoutTouchingTheFile() throws {
+        var asked: [URL] = []
+        let reader: (URL) -> CGImage? = { url in
+            asked.append(url)
+            return try? self.solid(grey: 0.02)
+        }
+        let gated = [
+            "/Users/tester/Downloads/gated-\(UUID().uuidString).jpg",
+            "/Users/tester/Desktop/gated-\(UUID().uuidString).jpg",
+            "/Users/tester/Documents/gated-\(UUID().uuidString).jpg",
+            "/Users/tester/Library/Mobile Documents/gated-\(UUID().uuidString).jpg",
+            "/Volumes/Backup/gated-\(UUID().uuidString).jpg",
+            "/Users/tester/Library/Containers/gated-\(UUID().uuidString).jpg",
+        ].map { URL(fileURLWithPath: $0) }
+        for url in gated {
+            let reading = WallpaperTone.reading(
+                ofWallpaperAt: url, screenSize: screen, notchCenterX: centre,
+                mayRead: { WallpaperTone.isReadableWithoutPrompt($0, home: self.home) }, thumbnail: reader
+            )
+            XCTAssertEqual(reading, .unknown, url.path)
+        }
+        XCTAssertTrue(asked.isEmpty, "a gated file is never handed to the reader: \(asked)")
+
+        let system = URL(fileURLWithPath: "/System/Library/Desktop Pictures/gate-test-\(UUID().uuidString).heic")
+        let reading = WallpaperTone.reading(
+            ofWallpaperAt: system, screenSize: screen, notchCenterX: centre,
+            mayRead: { WallpaperTone.isReadableWithoutPrompt($0, home: self.home) }, thumbnail: reader
+        )
+        XCTAssertEqual(asked, [system], "a system picture is read")
+        XCTAssertEqual(reading, .dark)
+    }
+
+    /// The gate is what the app runs with unless told otherwise: a perfectly
+    /// readable dark picture in a folder the gate does not know answers nothing.
+    func testTheRealGateIsTheDefault() throws {
+        let url = try write(solid(grey: 0.02), as: "default-gate")
+        XCTAssertEqual(reading(of: url), .dark, "with the gate opened by the fixture helper")
+        XCTAssertEqual(
+            WallpaperTone.reading(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre), .unknown,
+            "a temporary folder is neither the system's nor the home folder's"
+        )
     }
 
     // MARK: Dark and light
@@ -204,20 +306,20 @@ final class WallpaperToneTests: XCTestCase {
         // survive the round trip through `Date`.
         let original = Date(timeIntervalSince1970: 1_700_000_000)
         try FileManager.default.setAttributes([.modificationDate: original], ofItemAtPath: url.path)
-        let first = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre))
+        let first = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre, mayRead: { _ in true }))
         XCTAssertLessThan(first, 0.2)
 
         // Replace the contents with a bright picture and put the date back: to
         // the cache, nothing has changed.
         try write(solid(grey: 0.9), as: "cached")
         try FileManager.default.setAttributes([.modificationDate: original], ofItemAtPath: url.path)
-        let cached = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre))
+        let cached = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre, mayRead: { _ in true }))
         XCTAssertEqual(cached, first, "the same file and date is a cache hit")
 
         try FileManager.default.setAttributes(
             [.modificationDate: original.addingTimeInterval(60)], ofItemAtPath: url.path
         )
-        let fresh = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre))
+        let fresh = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre, mayRead: { _ in true }))
         XCTAssertGreaterThan(fresh, 0.5, "a new modification date is read again")
     }
 
@@ -233,7 +335,8 @@ final class WallpaperToneTests: XCTestCase {
         var url: URL? = dark
         let model = WallpaperToneModel(
             target: { (screens[0], screens[0].frame.midX) },
-            wallpaperURL: { _ in url }
+            wallpaperURL: { _ in url },
+            mayRead: { _ in true }
         )
         XCTAssertEqual(model.reading, .unknown, "nothing is known before the first look")
 

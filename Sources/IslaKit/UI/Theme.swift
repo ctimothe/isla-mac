@@ -156,6 +156,12 @@ enum Theme {
     static let expandResponse: Double = 0.40
     static let expandAnimation = Animation.spring(response: expandResponse, dampingFraction: 1.0)
 
+    /// When the expand spring has, for a pointer, stopped: a critically damped
+    /// spring of response 0.40 is within a pixel of its end a little after
+    /// 0.45 s. What may only shrink once the body has stopped (the active and
+    /// close rects, `NotchController.openRectHeight`) waits this long.
+    static let expandSettle: TimeInterval = 0.5
+
     /// Reduce Motion: no travel, the 0.24 crossfade the rest of the panel uses.
     static func expand(reduceMotion: Bool) -> Animation {
         reduceMotion ? reducedMotion : expandAnimation

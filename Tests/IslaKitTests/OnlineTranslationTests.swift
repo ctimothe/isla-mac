@@ -144,23 +144,66 @@ final class OnlineTranslationTests: XCTestCase {
         let text = String(repeating: "Bugun havo juda issiq, suv ichishni unutmang. ", count: 15)
         XCTAssertGreaterThan(OnlineTranslation.chunks(of: text).count, 1)
 
+        // A private allowance, so the process-wide one the lyric batches read is
+        // not left spent for whatever test runs next.
+        let allowance = OnlineAllowance()
+        XCTAssertFalse(allowance.isExhausted)
         do {
-            _ = try await OnlineTranslation.translate(text, from: .uzbek, to: .english, session: session)
+            _ = try await OnlineTranslation.translate(
+                text, from: .uzbek, to: .english, session: session, allowance: allowance
+            )
             XCTFail("the second piece failed")
         } catch {
             XCTAssertEqual(error as? OnlineTranslation.Failure,
                            .partial(text: "Birinchi qism.", cause: .quotaExhausted))
         }
         XCTAssertEqual(MyMemoryStub.queries.count, 2, "nothing more is asked once the allowance is spent")
+        XCTAssertTrue(allowance.isExhausted, "the refusal is remembered where the lyric batches can read it")
 
         // A failure on the very first piece has nothing to keep.
         let failing = stubbedSession { _, _ in Self.quotaAnswer }
         do {
-            _ = try await OnlineTranslation.translate(text, from: .uzbek, to: .english, session: failing)
+            _ = try await OnlineTranslation.translate(
+                text, from: .uzbek, to: .english, session: failing, allowance: OnlineAllowance()
+            )
             XCTFail("every piece failed")
         } catch {
             XCTAssertEqual(error as? OnlineTranslation.Failure, .quotaExhausted)
         }
+    }
+}
+
+/// The allowance flag: set by the service's refusal, kept to the end of its
+/// UTC day, never by anything else.
+final class OnlineAllowanceTests: XCTestCase {
+    func testTheFlagLastsUntilTheNextUTCMidnight() {
+        let clock = LockedDate(Date(timeIntervalSince1970: 1_700_000_000)) // 2023-11-14 22:13:20 UTC
+        let allowance = OnlineAllowance(now: { clock.value })
+        XCTAssertFalse(allowance.isExhausted)
+        allowance.markExhausted()
+        XCTAssertTrue(allowance.isExhausted)
+        clock.value = Date(timeIntervalSince1970: 1_700_000_000 + 3600) // 23:13 UTC
+        XCTAssertTrue(allowance.isExhausted, "still the same day")
+        clock.value = Date(timeIntervalSince1970: 1_700_000_000 + 2 * 3600) // 00:13 UTC next day
+        XCTAssertFalse(allowance.isExhausted, "the service's day turned over")
+    }
+
+    func testOnlyTheSpentAllowanceCountsAsSpent() {
+        XCTAssertTrue(OnlineTranslation.Failure.quotaExhausted.isQuotaExhausted)
+        XCTAssertTrue(OnlineTranslation.Failure.partial(text: "a", cause: .quotaExhausted).isQuotaExhausted)
+        XCTAssertFalse(OnlineTranslation.Failure.unreachable.isQuotaExhausted)
+        XCTAssertFalse(OnlineTranslation.Failure.refused("no").isQuotaExhausted)
+        XCTAssertFalse(OnlineTranslation.Failure.partial(text: "a", cause: .unreachable).isQuotaExhausted)
+    }
+}
+
+private final class LockedDate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date: Date
+    init(_ date: Date) { self.date = date }
+    var value: Date {
+        get { lock.withLock { date } }
+        set { lock.withLock { date = newValue } }
     }
 }
 

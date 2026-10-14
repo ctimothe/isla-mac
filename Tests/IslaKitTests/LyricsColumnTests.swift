@@ -210,6 +210,27 @@ final class LyricsColumnTests: XCTestCase {
         XCTAssertEqual(vm.openBodySize.height, 208, "Settings stays standard until R4")
     }
 
+    /// The menus' controllers can outlive the model when the panel is rebuilt
+    /// for a display change; a late action must do nothing, not crash
+    /// (review 2026-10-15: `unowned` self).
+    func testAMenuControllerOutlivingItsModelDoesNothing() throws {
+        var controllers: (LyricsMoreMenuController, LyricsTranslateMenuController)?
+        weak var weakModel: NotchViewModel?
+        autoreleasepool {
+            let vm = try! NotchViewModel(geometry: LabGeometry.make(), stores: NotchStores())
+            weakModel = vm
+            controllers = (vm.lyricsMoreMenu, vm.lyricsTranslateMenu)
+        }
+        let (more, translate) = try XCTUnwrap(controllers)
+        XCTAssertNil(weakModel, "the controllers do not keep the model alive")
+        for kind: LyricsMoreMenuItem.Kind in [.earlier, .later, .reset, .edit, .removeBinding, .importFile, .searchAgain, .settings] {
+            more.perform(kind)
+        }
+        _ = more.makeMenu()
+        translate.perform(.showTranslation)
+        _ = translate.makeMenu()
+    }
+
     // MARK: - The stage's geometry
 
     func testTheStageHoldsTheSungLineWhereTheBoardPutsIt() throws {

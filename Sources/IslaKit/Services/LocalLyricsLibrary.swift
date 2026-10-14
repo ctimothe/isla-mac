@@ -851,6 +851,19 @@ final class LocalLyricsLibrary: ObservableObject {
         }
     }
 
+    /// What Edit Lyrics… opens on for a bound file Isla could not read: the file's
+    /// own text, read tolerantly (`LocalLyricsDocument.parseRepairing`), so the
+    /// good lines are rows and the broken one is a row to fix. It used to open an
+    /// empty document, and Save Copy then replaced the binding with a near-empty
+    /// copy of a file that had one bad stamp in it (review 2026-10-15). Nil when
+    /// the song has no binding or its file cannot be read at all.
+    func repairableDocument(for identity: LocalTrackIdentity) -> LocalLyricsDocument? {
+        guard let id = state.bindings[identityKey(identity)],
+              let stored = state.documents.first(where: { $0.id == id }),
+              let raw = try? Self.readText(at: URL(fileURLWithPath: location(of: stored))) else { return nil }
+        return LocalLyricsDocument.parseRepairing(raw)
+    }
+
     func removeBinding(for identity: LocalTrackIdentity) {
         state.bindings.removeValue(forKey: identityKey(identity))
         persist()

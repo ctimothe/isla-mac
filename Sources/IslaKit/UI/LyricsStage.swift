@@ -234,7 +234,11 @@ struct LyricsStage: View {
             if DebugTrail.openLyrics {
                 DebugTrail.note("stage appeared: \(debugStateDescription)")
             }
+            // The lyric column or the tall page is on screen: translations are
+            // wanted, and only now (spec §5.3; `LyricTranslation.setDemand`).
+            translation.setDemand(.lyricArea, true)
         }
+        .onDisappear { translation.setDemand(.lyricArea, false) }
         // Verification hook, environment-gated like the open hook: replays the
         // row button's exact statement on the line after the current one, then
         // samples the position for the backward yank this hook exists to catch.

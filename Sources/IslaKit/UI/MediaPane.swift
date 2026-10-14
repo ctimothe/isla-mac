@@ -108,6 +108,8 @@ struct MediaPane: View {
     /// lyrics are known to be there or known to be missing (spec §5.1: the page
     /// returns to the player only for a song with no lyrics).
     @State private var awaitingNewTrack = false
+    /// The timer behind that wait, kept so the next track change can end it.
+    @State private var foldBackTask: Task<Void, Never>?
     /// The state the pane was last settled in, so a change of state can pick the
     /// animation by where it is coming from (`PlayerLayout.animation`).
     @State private var settledPage: PlayerLayout.State = .player
@@ -155,15 +157,23 @@ struct MediaPane: View {
             // new song turns out to have no lyrics (spec §5.1), which is known
             // once the lookup settles — never at the instant of the change,
             // when the answer is not in — so the flag waits for it.
-            .onChange(of: track.key) { _, _ in
-                awaitingNewTrack = showingLyrics.wrappedValue
+            .onChange(of: track.key) { _, newKey in
+                // The last song's timer ends with it: a timer left running read
+                // its own song's stale "no lyrics" and folded the next song back
+                // (review 2026-10-15).
+                foldBackTask?.cancel()
+                foldBackTask = nil
+                // Only the column waits for the new song's answer; the tall
+                // page stays where it is (`PlayerLayout.shouldFoldBack`).
+                awaitingNewTrack = showingLyrics.wrappedValue && page == .column
                 guard awaitingNewTrack else { return }
-                Task { @MainActor in
+                foldBackTask = Task { @MainActor in
                     // After the coordinator's own grace (0.6 s) and a beat: an
                     // answer that had already settled the same way as the last
                     // song's publishes nothing new for `onChange` to see.
                     try? await Task.sleep(for: .seconds(1.0))
-                    returnToPlayerIfLyricsAreMissing()
+                    guard !Task.isCancelled else { return }
+                    returnToPlayerIfLyricsAreMissing(scheduledFor: newKey)
                 }
             }
             .onChange(of: lyrics.availability) { _, _ in returnToPlayerIfLyricsAreMissing() }
@@ -212,10 +222,16 @@ struct MediaPane: View {
 
     /// Folds the column back to the player if a song that arrived while it was
     /// up has settled without lyrics; clears the wait the moment it has them.
-    private func returnToPlayerIfLyricsAreMissing() {
+    private func returnToPlayerIfLyricsAreMissing(scheduledFor scheduled: String? = nil) {
         guard awaitingNewTrack else { return }
-        if PlayerLayout.shouldReturnToPlayer(awaitingNewTrack: true, availability: lyrics.availability) {
+        let current = media.track?.key
+        if PlayerLayout.shouldFoldBack(
+            awaitingNewTrack: true, availability: lyrics.availability, page: page,
+            scheduledFor: scheduled ?? current ?? "", currentTrack: current
+        ) {
             awaitingNewTrack = false
+            foldBackTask?.cancel()
+            foldBackTask = nil
             showingLyrics.wrappedValue = false
         } else if case .ready = lyrics.availability {
             awaitingNewTrack = false
@@ -250,6 +266,16 @@ struct MediaPane: View {
     static func drawsLyricBand(setting: Bool, availability: LyricsAvailability, state: LyricsStore.State) -> Bool {
         guard setting, case .ready = availability, case .synced(let lines) = state else { return false }
         return !lines.isEmpty
+    }
+
+    /// What the band draws for a line: its first row. A bilingual LRC line
+    /// carries its translation after a newline (`LocalLyricsDocument.parse`), and
+    /// a 17 pt one-line slot drew the line raw — the second row running into the
+    /// first, or cut mid-glyph by the clip (review 2026-10-15). The column draws
+    /// the pair; the band has room for one, and the original is the one that was
+    /// sung.
+    static func bandText(of line: LyricsStore.Line) -> String {
+        LyricTranslation.rows(of: line.text).primary
     }
 
     /// The row after `index`, the band's second line, or nil at the last line.
@@ -356,9 +382,11 @@ struct MediaPane: View {
                 )
             },
             editBlankLyrics: {
-                guard localLibrary != nil else { return }
-                editingSession.wrappedValue = LocalLyricsEditor.EditingSession.blank(
-                    identity: currentLocalTrackIdentity()
+                guard let localLibrary else { return }
+                // On the file's own lines where they can be read, so the one
+                // bad stamp is a row to fix and not a reason to start over.
+                editingSession.wrappedValue = LocalLyricsEditor.EditingSession.unreadable(
+                    identity: currentLocalTrackIdentity(), library: localLibrary
                 )
             },
             invalidLine: invalidFileLine,
@@ -772,7 +800,7 @@ struct MediaPane: View {
                     ZStack(alignment: .leading) {
                         Color.clear
                         KaraokeText(
-                            text: line.text,
+                            text: Self.bandText(of: line),
                             // Where the voice stands inside this line, 0...1,
                             // and 0 for a credit or a line the voice has not
                             // reached: a filled sweep across "Produced by", or
@@ -826,7 +854,7 @@ struct MediaPane: View {
                 .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: index)
                 .animation(Theme.contentAnimation, value: media.isPlaying)
                 .accessibilityLabel(localized("Lyrics"))
-                .accessibilityValue(line.text)
+                .accessibilityValue(Self.bandText(of: line))
                 .accessibilityHint(localized("Opens the full lyrics"))
                 .placed(layout.inPane(layout.sungLine))
                 // One band per song. A new song's first line arrives with its
@@ -840,7 +868,7 @@ struct MediaPane: View {
                 if let nextIndex {
                     ZStack(alignment: .leading) {
                         Color.clear
-                        Text(lines[nextIndex].text)
+                        Text(Self.bandText(of: lines[nextIndex]))
                             .islandFont(.subhead, weight: .semibold)
                             .foregroundStyle(Theme.lyricBandNext)
                             .italic(lines[nextIndex].isCredit)
@@ -1122,12 +1150,16 @@ private struct PlayerVolumeSlider: View {
 private struct PlayerOutputButton: View {
     @ObservedObject var audio: AudioWatch
     let includesVolume: Bool
-    @State private var presenter: OutputMenuPresenter
+    @StateObject private var holder: BuiltOnce<OutputMenuPresenter>
+    private var presenter: OutputMenuPresenter { holder.value }
 
     init(audio: AudioWatch, includesVolume: Bool) {
         self.audio = audio
         self.includesVolume = includesVolume
-        _presenter = State(initialValue: OutputMenuPresenter(controller: OutputMenuController(audio: audio)))
+        // Built once (`BuiltOnce`): this runs on every body pass of the pane.
+        _holder = StateObject(wrappedValue: BuiltOnce {
+            OutputMenuPresenter(controller: OutputMenuController(audio: audio))
+        })
     }
 
     var body: some View {

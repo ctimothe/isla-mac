@@ -621,7 +621,7 @@ struct SettingsPane: View {
                     )
                     .disabled(!translateLyrics || lyricsOffReason != nil)
                     .opacity(translateLyrics && lyricsOffReason == nil ? 1 : 0.4)
-                    noteRow(localized("Translated on this Mac. Languages it cannot translate itself use Translate Online, if it is on."))
+                    noteRow(LyricTranslation.settingsNote(onlineEnabled: onlineTranslation))
                     noteRow(localized("Local Lyrics Library"))
                     actionRow(symbol: SettingsIcon.importLyrics, title: localized("Import LRC…")) {
                         importLocalLyrics()
