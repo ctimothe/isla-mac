@@ -1425,8 +1425,12 @@ New settings and their defaults (spec §14):
 
 ### R1 — Island, Music, Lyrics (`feat/redesign-r1-island-music-lyrics`)
 
-- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
-  installed.
+- [x] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed — 2026-10-15 at `fa5c466`: 11 of 11 steps, 1401 tests with 30
+  skipped and 0 failures. Codex (two passes) and Opus (review and re-review)
+  findings fixed in `c76cc89`, `6c28315` and `fa5c466`. Installed in
+  /Applications over the Prompter release-1 build. The hardware checks below
+  are owed.
 - [ ] **R1-H1** On the 14-inch MacBook Pro, the 300 pt island's cover and
   equalizer sit 8 pt from its ends and the wings read as even.
 - [ ] **R1-H2** Key line: visible on Aerial and Pro Black, absent on Sonoma;
