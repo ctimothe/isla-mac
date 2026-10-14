@@ -120,12 +120,9 @@
 "Cannot be stored on this Mac." = "Cannot be stored on this Mac.";
 
 /* Lyrics stage */
-"Back to Player" = "Back to Player";
 "Lyrics Earlier" = "Lyrics Earlier";
 "Lyrics Later" = "Lyrics Later";
 "Lyric Timing" = "Lyric Timing";
-"Reset lyric timing" = "Reset lyric timing";
-"Import Local LRC" = "Import Local LRC";
 "Remove Local Binding" = "Remove Local Binding";
 "Edit Lyrics" = "Edit Lyrics";
 "Save Copy" = "Save Copy";
@@ -136,7 +133,6 @@
 "Title" = "Title";
 "Artist" = "Artist";
 "Album" = "Album";
-"Version" = "Version";
 "Duration" = "Duration";
 "Add Lyric Line" = "Add Lyric Line";
 "Remove Lyric Line" = "Remove Lyric Line";
@@ -238,7 +234,6 @@
 "Update available" = "Update available";
 
 /* Lyrics page offers */
-"Look Up Online" = "Look Up Online";
 "Sends the title, artist, album and length to LRCLIB." = "Sends the title, artist, album and length to LRCLIB.";
 
 /* Clipboard History */
@@ -385,7 +380,6 @@
 "Open Login Items…" = "Open Login Items…";
 "Launch at Login failed: %@" = "Launch at Login failed: %@";
 "Reset Lyric Timing" = "Reset Lyric Timing";
-"Lyric timing correction" = "Lyric timing correction";
 "GitHub is limiting checks right now. Try again in an hour." = "GitHub is limiting checks right now. Try again in an hour.";
 "GitHub did not answer properly. Try again later." = "GitHub did not answer properly. Try again later.";
 "%@ now belongs to “%@”. “%@” has no shortcut." = "%@ now belongs to “%@”. “%@” has no shortcut.";
@@ -424,3 +418,17 @@
 "Volume and Output" = "Volume and Output";
 "Lyric Band" = "Lyric Band";
 "Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title." = "Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title.";
+
+/* The lyric column, the tall page and the header's tools (spec 5, 6, 15) */
+"Expand" = "Expand";
+"Collapse" = "Collapse";
+"Hide Lyrics" = "Hide Lyrics";
+"Show Translation" = "Show Translation";
+"Hide Translation" = "Hide Translation";
+"More Lyrics Options" = "More Lyrics Options";
+"Import LRC File…" = "Import LRC File…";
+"Search Again" = "Search Again";
+"Search Online" = "Search Online";
+"Lyrics Settings…" = "Lyrics Settings…";
+"Looking for lyrics…" = "Looking for lyrics…";
+"Edit Lyrics…" = "Edit Lyrics…";

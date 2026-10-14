@@ -97,7 +97,9 @@ struct NotchContentView: View {
     }
 
     private var shapeBottomRadius: CGFloat {
-        if isOpen { return Theme.openBottomRadius }
+        // 22 on the standard body, 26 on the tall one (spec §2.3); the shape
+        // animates its radii, so it springs 22 → 26 with the body's height.
+        if isOpen { return Theme.openBottomRadius(tall: vm.isCurrentTabExpanded) }
         if restsInNotch && !isAwake { return Theme.restingNotchBottomRadius }
         // The peek is a taller island, and its corners grow with it (spec
         // §2.3): 16 against the compact island's 12.
@@ -448,6 +450,12 @@ struct NotchContentView: View {
         .animation(Theme.pill(appearing: vm.isPeeking, reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.pill(appearing: vm.ambient != nil, reduceMotion: reduceMotion), value: vm.ambient)
         .animation(Theme.paneAnimation, value: vm.tab)
+        // The body growing or folding (spec §6): its height, its bottom radius
+        // and — through the same value — the key line that follows them, on the
+        // expand spring, or the 0.24 crossfade under Reduce Motion. Keyed to the
+        // *open* body's height, which opening and closing do not change, so this
+        // never answers the open spring's own change of size.
+        .animation(Theme.expand(reduceMotion: reduceMotion), value: vm.openBodySize.height)
         // The welcome ending is a pane change like any other, and it arrives
         // from a `Button` — which animates nothing by itself, so without this
         // the crossfade above would be a cut.
@@ -627,6 +635,43 @@ struct NotchContentView: View {
     }
 
     private var openHeader: some View {
+        headerRow
+            // The same close for assistive tech, as the same Isla button the shut
+            // island is — the gesture above has no trait and no action, so a panel
+            // opened from VoiceOver had no discoverable way to close (G-015).
+            .modifier(islandAccessibility(open: true))
+            // The lyric page's tools (spec §5.2) are laid over the strip *after*
+            // the accessibility element above, which ignores its children: put
+            // inside, the three buttons would be unreachable to VoiceOver. Each
+            // is placed by its own offset, so the rest of the strip keeps its
+            // click-to-close.
+            .modifier(LyricHeaderTools(
+                isShown: showsLyricTools,
+                bodyWidth: size.width,
+                showsTranslation: vm.showsTranslationTool,
+                translationShown: false,
+                // The translation release wires this (spec §5.3); the tool is
+                // hidden until then, so it is unreachable meanwhile.
+                toggleTranslation: {},
+                moreController: vm.lyricsMoreMenu,
+                isExpanded: Binding(
+                    get: { vm.expandedTabs.contains(.media) },
+                    set: { wants in
+                        withAnimation(Theme.expand(reduceMotion: reduceMotion)) {
+                            vm.setExpanded(wants, for: .media)
+                        }
+                    }
+                )
+            ))
+    }
+
+    /// Whether the header carries the lyric tools: the Music tab on the column
+    /// or the tall page, and not the welcome (which owns the pane for one launch).
+    private var showsLyricTools: Bool {
+        !vm.isShowingWelcome && vm.tab == .media && vm.musicPage != .player
+    }
+
+    private var headerRow: some View {
         HStack(spacing: 0) {
             // Both ends go quiet for the welcome. This row labels the pane below
             // it, and the welcome is not a pane the row can name: it is not a tab
@@ -666,10 +711,6 @@ struct NotchContentView: View {
         // the right. The rail and the panes begin below it.
         .contentShape(Rectangle())
         .onTapGesture { vm.onIslandClick?() }
-        // The same close for assistive tech, as the same Isla button the shut
-        // island is — the gesture above has no trait and no action, so a panel
-        // opened from VoiceOver had no discoverable way to close (G-015).
-        .modifier(islandAccessibility(open: true))
     }
 
     /// - Parameter morph: the namespace the cover and the equalizer travel in,
@@ -919,6 +960,11 @@ struct NotchContentView: View {
                     }
                 }
             }
+            // The lyric column and the tall page put their own tools where the
+            // source tag is (spec §5.1: `src` is hidden in C and T), so it gives
+            // the corner up rather than sit under them.
+            .opacity(vm.musicPage == .player ? 1 : 0)
+            .accessibilityHidden(vm.musicPage != .player)
         case .shelf:
             counter(vm.shelf.items.count)
         case .clipboard:
@@ -1028,7 +1074,6 @@ struct NotchContentView: View {
                 media: vm.media,
                 lyrics: vm.lyrics,
                 localLookup: vm.lyricsCoordinator.localLookup,
-                retryLyrics: vm.lyricsCoordinator.retry,
                 turnOnLyrics: vm.turnOnLyrics,
                 turnOnOnlineLyrics: vm.turnOnOnlineLyrics,
                 importLocalFile: { vm.chooseLocalLyricsFile(from: .stage) },
@@ -1037,6 +1082,11 @@ struct NotchContentView: View {
                 removeLocalBinding: vm.lyricsCoordinator.removeLocalBinding,
                 localLibrary: vm.localLyricsLibrary,
                 currentLocalTrackIdentity: { vm.lyricsCoordinator.currentLocalTrackIdentity },
+                invalidLine: {
+                    vm.lyricsCoordinator.currentLocalTrackIdentity.flatMap { vm.localLyricsLibrary.invalidLine(for: $0) }
+                },
+                isExpanded: vm.expandedTabs.contains(.media),
+                editingSession: $vm.lyricEditing,
                 openMusicOnlySetting: vm.openMusicOnlySetting,
                 morph: travellingMorph,
                 showingLyrics: $vm.isShowingLyrics,
@@ -1141,7 +1191,9 @@ struct Rail: View {
         .frame(width: PlayerLayout.railWidth)
         // The rail owns the body's full content height: the run of tabs at the
         // top, settings held to the bottom by the gap between them.
-        .frame(height: vm.geometry.standardContentHeight, alignment: .center)
+        // The open body's, not the standard one's: on the tall body (spec §6)
+        // the top items stay put and Settings rides the foot.
+        .frame(height: vm.geometry.contentHeight(forBodyHeight: vm.openBodySize.height), alignment: .center)
         .frame(maxHeight: .infinity, alignment: .top)
         // The five tabs together, under one name, and apart from the pane —
         // see the pane's own group in `NotchContentView.panes`.

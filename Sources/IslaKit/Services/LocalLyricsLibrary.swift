@@ -819,6 +819,38 @@ final class LocalLyricsLibrary: ObservableObject {
         return state.documents.contains { $0.id == id }
     }
 
+    /// The name of the file a document lives in, for the More menu's header
+    /// (spec §5.2) — but only where the name is the person's own. A file from a
+    /// selected folder keeps the name it has there; an import or a saved edit is
+    /// an Isla-owned copy stored as `<uuid>.lrc`, a name nobody chose, so those
+    /// answer nil and the caller names the file by its tags instead.
+    func fileName(of documentID: UUID) -> String? {
+        guard let stored = state.documents.first(where: { $0.id == documentID }),
+              stored.origin == .referencedFolder else { return nil }
+        return URL(fileURLWithPath: stored.path).lastPathComponent
+    }
+
+    /// The line a bound file's refusal points at, for "Line %d of this file has
+    /// a time Isla can't read." (spec §5.4). The library keeps *that* a file is
+    /// malformed (`FileIssue`) and not where, so this reads the bound file again
+    /// and asks the parser; nil when the song has no binding, the file cannot be
+    /// read, or the refusal is not about a time (an empty file).
+    func invalidLine(for identity: LocalTrackIdentity) -> Int? {
+        guard let id = state.bindings[identityKey(identity)],
+              let stored = state.documents.first(where: { $0.id == id }),
+              let raw = try? Self.readText(at: URL(fileURLWithPath: location(of: stored))) else { return nil }
+        do {
+            _ = try LocalLyricsDocument.parse(raw)
+            return nil
+        } catch LocalLyricsDocument.Error.invalidTimestamp(let line) {
+            return line
+        } catch LocalLyricsDocument.Error.invalidWordOrder(let line) {
+            return line
+        } catch {
+            return nil
+        }
+    }
+
     func removeBinding(for identity: LocalTrackIdentity) {
         state.bindings.removeValue(forKey: identityKey(identity))
         persist()

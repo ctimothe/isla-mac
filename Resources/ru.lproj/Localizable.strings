@@ -126,12 +126,9 @@
 "Cannot be stored on this Mac." = "Не удаётся сохранить на этом Mac.";
 
 /* Lyrics stage */
-"Back to Player" = "Назад к плееру";
 "Lyrics Earlier" = "Текст раньше";
 "Lyrics Later" = "Текст позже";
 "Lyric Timing" = "Тайминг текста";
-"Reset lyric timing" = "Сбросить тайминг текста";
-"Import Local LRC" = "Импортировать локальный LRC";
 "Remove Local Binding" = "Удалить привязку локального текста";
 "Edit Lyrics" = "Редактировать текст";
 "Save Copy" = "Сохранить копию";
@@ -142,7 +139,6 @@
 "Title" = "Название";
 "Artist" = "Исполнитель";
 "Album" = "Альбом";
-"Version" = "Версия";
 "Duration" = "Длительность";
 "Add Lyric Line" = "Добавить строку текста";
 "Remove Lyric Line" = "Удалить строку текста";
@@ -244,7 +240,6 @@
 "Update available" = "Доступно обновление";
 
 /* Предложения страницы текста */
-"Look Up Online" = "Найти в интернете";
 "Sends the title, artist, album and length to LRCLIB." = "Отправляет в LRCLIB название, исполнителя, альбом и длительность.";
 
 /* История буфера обмена */
@@ -391,7 +386,6 @@
 "Open Login Items…" = "Открыть «Объекты входа»…";
 "Launch at Login failed: %@" = "Не удалось включить автозапуск: %@";
 "Reset Lyric Timing" = "Сбросить смещение текста";
-"Lyric timing correction" = "Смещение текста песни";
 "GitHub is limiting checks right now. Try again in an hour." = "GitHub сейчас ограничивает проверки. Попробуйте через час.";
 "GitHub did not answer properly. Try again later." = "GitHub ответил с ошибкой. Попробуйте позже.";
 "%@ now belongs to “%@”. “%@” has no shortcut." = "%@ теперь у действия «%@». У «%@» больше нет сочетания клавиш.";
@@ -430,3 +424,17 @@
 "Volume and Output" = "Громкость и выход";
 "Lyric Band" = "Строка текста";
 "Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title." = "«Громкость и выход» добавляют в плеер системную громкость и меню AirPlay. «Строка текста» — исполняемая и следующая строки под названием.";
+
+/* The lyric column, the tall page and the header's tools (spec 5, 6, 15) */
+"Expand" = "Развернуть";
+"Collapse" = "Свернуть";
+"Hide Lyrics" = "Скрыть текст";
+"Show Translation" = "Показать перевод";
+"Hide Translation" = "Скрыть перевод";
+"More Lyrics Options" = "Другие параметры текста";
+"Import LRC File…" = "Импортировать файл LRC…";
+"Search Again" = "Искать снова";
+"Search Online" = "Искать в интернете";
+"Lyrics Settings…" = "Настройки текста…";
+"Looking for lyrics…" = "Ищем текст…";
+"Edit Lyrics…" = "Изменить текст…";

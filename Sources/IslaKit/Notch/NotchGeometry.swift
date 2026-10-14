@@ -50,7 +50,16 @@ struct NotchGeometry {
     /// opened, which put the icon just clicked well below the pointer that had
     /// clicked it.
     var standardContentHeight: CGFloat {
-        expandedSize.height - notchSize.height - Self.bodyBottomPadding
+        contentHeight(forBodyHeight: expandedSize.height)
+    }
+
+    /// What a body of `height` has left for content once the header and the
+    /// padding beneath are taken out. The tall body (spec §6) hands the rail
+    /// more of it: the four top items stay where they are — they hang from the
+    /// header — and Settings rides the foot, `h − 39`, so the gap between them
+    /// is the only thing that grows.
+    func contentHeight(forBodyHeight height: CGFloat) -> CGFloat {
+        height - notchSize.height - Self.bodyBottomPadding
     }
 
     /// Height each rail icon gets. A ceiling, not a constant: six icons at

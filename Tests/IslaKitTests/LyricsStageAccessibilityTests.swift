@@ -37,35 +37,42 @@ final class LyricsStageAccessibilityTests: XCTestCase {
         return store
     }
 
-    /// The correction is one element that says what it is and how large it
-    /// is, and Reset is among its actions — VoiceOver's Actions rotor and
-    /// Switch Control both reach it, where a long press reached neither.
-    /// Performing it clears this track's correction, as the held pointer does.
-    func testTheTimingCorrectionCanBeResetWithoutAPress() async throws {
+    /// The correction is reset from the More menu now (redesign 2026-10-15,
+    /// spec §5.2): the readout that carried a long-press and a named action went
+    /// with the page's header, and the menu is what VoiceOver and Switch Control
+    /// reach through the More button. It shows the correction as a line that
+    /// cannot be pressed, offers Reset Lyric Timing while there is one to clear,
+    /// and performing it clears this track's correction and stores the clearing.
+    func testTheTimingCorrectionIsResetFromTheMoreMenu() async throws {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        await LabFixtures.play(LabFixtures.Track(elapsed: 27), on: isolated.stores.media)
         let lyrics = lyrics(isolated, offset: 0.5)
         XCTAssertEqual(lyrics.trackOffset, 0.5, accuracy: 0.0001, "the fixture did not set a correction")
 
-        let stage = LyricsStage(media: isolated.stores.media, lyrics: lyrics, dismiss: {})
-            .defaultAppStorage(isolated.suite)
-        let root = await AXProbe.tree(of: stage, size: Self.size)
-
-        let readout = try XCTUnwrap(
-            root.all { $0.value == "+0.50s" }.first,
-            "no element carries the correction as its value\n\(root.dump)"
+        let controller = LyricsMoreMenuController(
+            context: {
+                .init(localFileName: nil, hasBinding: false, onlineOn: false, offset: lyrics.trackOffset, canNudge: true)
+            },
+            actions: .init(nudge: { lyrics.nudgeTrackOffset(by: $0) }, resetTiming: { lyrics.clearTrackOffset() })
         )
-        XCTAssertEqual(readout.label, "Lyric timing correction", root.dump)
-        XCTAssertTrue(readout.customActions.contains("Reset Lyric Timing"), "the reset is not an action\n\(root.dump)")
+        let menu = controller.makeMenu()
+        let readout = try XCTUnwrap(menu.items.first { $0.title == "+0.50s" }, "the correction is not in the menu")
+        XCTAssertFalse(readout.isEnabled, "the readout is a line, not a control")
+        let reset = try XCTUnwrap(menu.items.first { $0.title == "Reset Lyric Timing" })
+        XCTAssertTrue(reset.isEnabled)
 
-        XCTAssertTrue(readout.perform(named: "Reset Lyric Timing"), root.dump)
+        controller.perform(.reset)
         XCTAssertEqual(lyrics.trackOffset, 0, "the action did not clear the correction")
         XCTAssertEqual(lyrics.trackOffset(for: Self.identity), 0, "the cleared correction was not stored")
 
-        // At zero the readout is not drawn at all, so nothing is left to reset.
-        let after = await root.reread(settle: 0.3)
-        XCTAssertTrue(after.all { $0.customActions.contains("Reset Lyric Timing") }.isEmpty, after.dump)
+        // At zero there is nothing to reset.
+        let after = LyricsMoreMenuController(
+            context: {
+                .init(localFileName: nil, hasBinding: false, onlineOn: false, offset: lyrics.trackOffset, canNudge: true)
+            },
+            actions: .init()
+        ).makeMenu()
+        XCTAssertEqual(after.items.first { $0.title == "Reset Lyric Timing" }?.isEnabled, false)
     }
 
     /// The cover is light, not picture: blurred to a wash behind the lines.
@@ -82,7 +89,12 @@ final class LyricsStageAccessibilityTests: XCTestCase {
         let stage = LyricsStage(media: isolated.stores.media, lyrics: lyrics, dismiss: {})
             .defaultAppStorage(isolated.suite)
         let root = await AXProbe.tree(of: stage, size: Self.size)
-        XCTAssertNotNil(root.first(label: "Back to Player"), "the stage did not render\n\(root.dump)")
+        // The page's furniture is gone (its header moved to the panel), so the
+        // proof it rendered is a row: a line of the song that can be jumped to.
+        XCTAssertFalse(
+            root.all { $0.customActions.contains("Sync Here") }.isEmpty,
+            "the stage did not render\n\(root.dump)"
+        )
 
         let decorative = root.all(role: "AXImage").filter { image in
             guard image.label.isEmpty, image.title.isEmpty, let frame = image.frame else { return false }

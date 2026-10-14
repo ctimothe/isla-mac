@@ -4,7 +4,6 @@ struct MediaPane: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
     var localLookup: LocalLyricsLookup? = nil
-    var retryLyrics: () -> Void = {}
     var turnOnLyrics: () -> Void = {}
     var turnOnOnlineLyrics: () -> Void = {}
     var importLocalFile: () -> Void = {}
@@ -15,6 +14,19 @@ struct MediaPane: View {
     var removeLocalBinding: () -> Void = {}
     var localLibrary: LocalLyricsLibrary?
     var currentLocalTrackIdentity: () -> LocalTrackIdentity? = { nil }
+    /// The line the parser names in a bound file it refused, asked of the
+    /// library when the unreadable state is on screen (spec §5.4).
+    var invalidLine: () -> Int? = { nil }
+    /// Whether the Music tab is at the tall body: with the lyrics page up, the
+    /// tall page; the player never expands. The header owns the Expand button
+    /// and the model owns the value (`NotchViewModel.expandedTabs`); the pane
+    /// only draws the state it is told.
+    var isExpanded = false
+    /// The Edit Lyrics session the sheet is open on. A binding to the model's,
+    /// because two places ask for it — the header's More menu and the unreadable
+    /// state's button — and only this pane draws the sheet. Constant outside the
+    /// panel, where nothing can ask.
+    var editingSession: Binding<LocalLyricsEditor.EditingSession?> = .constant(nil)
     /// Settings, scrolled to the Music section, for the empty tab's one remedy
     /// when Music Only is what keeps a playing source off the island.
     var openMusicOnlySetting: () -> Void = {}
@@ -87,12 +99,17 @@ struct MediaPane: View {
     /// is evidently not coming. Some sources never publish a cover, and a
     /// shimmer that promises one forever reads as stuck, not loading.
     @State private var artworkWaitExpired = false
-    /// What Edit was pressed on and for which song, captured at the press.
-    /// The sheet used to read `currentLocalTrackIdentity()` in its content
-    /// closure, which runs again on every pass of this body, so a track
-    /// change while the editor was up re-aimed Save Copy at the new song
-    /// (J-009).
-    @State private var editingSession: LocalLyricsEditor.EditingSession?
+    /// Set when the track changed with the lyric page up, until the new song's
+    /// lyrics are known to be there or known to be missing (spec §5.1: the page
+    /// returns to the player only for a song with no lyrics).
+    @State private var awaitingNewTrack = false
+    /// The state the pane was last settled in, so a change of state can pick the
+    /// animation by where it is coming from (`PlayerLayout.animation`).
+    @State private var settledPage: PlayerLayout.State = .player
+    /// The line the parser names in the bound file the library refused, read
+    /// once when the unreadable state appears — it re-reads and re-parses the
+    /// file, which is no work for a body that redraws with the clock.
+    @State private var invalidFileLine: Int?
 
     /// One line of the lyric band: 17 pt, the height both slots keep so a line
     /// turning out and the next turning in share a window that clips them.
@@ -105,44 +122,56 @@ struct MediaPane: View {
     /// have not arrived lays out as a song without any until they do.)
     static let captionHeight: CGFloat = 17
 
+    /// Where the Music tab is: the player, the lyric column or the tall page.
+    private var page: PlayerLayout.State {
+        NotchViewModel.musicPage(
+            showingLyrics: showingLyrics.wrappedValue, expandedTabs: isExpanded ? [.media] : []
+        )
+    }
+
     var body: some View {
         if let track = media.track {
+            // The player, the column and the tall page are one view whose
+            // elements travel (spec §5.1). Under Reduce Motion nothing travels:
+            // each state is its own view and the change is the 0.24 crossfade,
+            // which is what an identity that follows the state gives. Otherwise
+            // the identity is constant and what moves is the frames.
             ZStack {
-                if showingLyrics.wrappedValue {
-                    // The Liquid Glass entrance: blur, scale and opacity settle
-                    // together, so the stage materializes rather than pops.
-                    LyricsStage(
-                        media: media,
-                        lyrics: lyrics,
-                        localLookup: localLookup,
-                        retry: retryLyrics,
-                        turnOnLyrics: turnOnLyrics,
-                        turnOnOnlineLyrics: turnOnOnlineLyrics,
-                        importLocalFile: importLocalFile,
-                        notice: lyricsNotice,
-                        selectLocalCandidate: selectLocalCandidate,
-                        removeLocalBinding: removeLocalBinding,
-                        editLocalLyrics: { candidate in
-                            guard localLibrary != nil else { return }
-                            editingSession = LocalLyricsEditor.EditingSession(
-                                candidate: candidate, identity: currentLocalTrackIdentity()
-                            )
-                        }
-                    ) {
-                        showingLyrics.wrappedValue = false
-                    }
-                    .transition(reduceMotion ? AnyTransition.opacity : .materialize)
-                } else {
-                    player(for: track)
-                        .transition(reduceMotion ? AnyTransition.opacity : .materialize)
+                stage(for: track)
+                    .id(reduceMotion ? page : PlayerLayout.State.player)
+                    .transition(.opacity)
+            }
+            // Attached only under the setting: an `.animation(nil, value:)` here
+            // would also be the one wrapped round the frames' own spring below,
+            // and a cut that is not wanted is worse than none.
+            .animating(when: reduceMotion, Theme.reducedMotion, value: page)
+            // A new song does not take the person off the lyric column: it is
+            // where they chose to be. It returns to the player only when the
+            // new song turns out to have no lyrics (spec §5.1), which is known
+            // once the lookup settles — never at the instant of the change,
+            // when the answer is not in — so the flag waits for it.
+            .onChange(of: track.key) { _, _ in
+                awaitingNewTrack = showingLyrics.wrappedValue
+                guard awaitingNewTrack else { return }
+                Task { @MainActor in
+                    // After the coordinator's own grace (0.6 s) and a beat: an
+                    // answer that had already settled the same way as the last
+                    // song's publishes nothing new for `onChange` to see.
+                    try? await Task.sleep(for: .seconds(1.0))
+                    returnToPlayerIfLyricsAreMissing()
                 }
             }
-            .animation(Theme.paneAnimation, value: showingLyrics.wrappedValue)
-            // Leaving the track folds the stage: the next song starts on the
-            // player, and a stage left open for a track without lyrics would
-            // open onto its own empty state.
-            .onChange(of: track.key) { _, _ in showingLyrics.wrappedValue = false }
+            .onChange(of: lyrics.availability) { _, _ in returnToPlayerIfLyricsAreMissing() }
+            .onChange(of: page) { _, new in settledPage = new }
+            .task(id: lyrics.availability) {
+                if case .invalidLocalFile = lyrics.availability {
+                    invalidFileLine = invalidLine()
+                } else if invalidFileLine != nil {
+                    invalidFileLine = nil
+                }
+            }
             .onAppear {
+                settledPage = page
                 media.refreshPlaybackModes()
                 if volumeAndOutputOn { audio.start() }
                 if DebugTrail.openLyrics {
@@ -156,13 +185,13 @@ struct MediaPane: View {
                 if on { audio.start() } else { audio.stop() }
             }
             .onDisappear { audio.stop() }
-            .sheet(item: $editingSession) { session in
+            .sheet(item: editingSession) { session in
                 if let localLibrary {
                     LocalLyricsEditorView(
                         session: session,
                         editor: LocalLyricsEditor(library: localLibrary),
-                        onSaved: { _ in editingSession = nil },
-                        onDismiss: { editingSession = nil }
+                        onSaved: { _ in editingSession.wrappedValue = nil },
+                        onDismiss: { editingSession.wrappedValue = nil }
                     )
                 }
             }
@@ -176,9 +205,21 @@ struct MediaPane: View {
         }
     }
 
-    // MARK: - The player (spec §4)
+    /// Folds the column back to the player if a song that arrived while it was
+    /// up has settled without lyrics; clears the wait the moment it has them.
+    private func returnToPlayerIfLyricsAreMissing() {
+        guard awaitingNewTrack else { return }
+        if PlayerLayout.shouldReturnToPlayer(awaitingNewTrack: true, availability: lyrics.availability) {
+            awaitingNewTrack = false
+            showingLyrics.wrappedValue = false
+        } else if case .ready = lyrics.availability {
+            awaitingNewTrack = false
+        }
+    }
 
-    /// What the player is laid out with at this pane width. Everything below is
+    // MARK: - The player, the column and the tall page (spec §4, §5)
+
+    /// What everything is laid out with at this pane width. Everything below is
     /// placed by frames from this, in the pane's own coordinates — the board's
     /// body coordinates converted in one place (`PlayerLayout.inPane`).
     private func layout(paneWidth: CGFloat) -> PlayerLayout {
@@ -199,8 +240,8 @@ struct MediaPane: View {
     /// synced lines to show (spec §4.3). Show Lyrics off is `availability ==
     /// .disabled`, so the band is never drawn then; a song whose words are
     /// still being looked for, missing, or unreadable has no band either — the
-    /// layout takes the no-lyric positions and the status lives on the lyrics
-    /// page, one place for it.
+    /// layout takes the no-lyric positions, and the status lives in the lyric
+    /// column, one place for it (spec §5.4).
     static func drawsLyricBand(setting: Bool, availability: LyricsAvailability, state: LyricsStore.State) -> Bool {
         guard setting, case .ready = availability, case .synced(let lines) = state else { return false }
         return !lines.isEmpty
@@ -211,57 +252,74 @@ struct MediaPane: View {
         index + 1 < count ? index + 1 : nil
     }
 
-    private func player(for track: MediaController.Track) -> some View {
+    private func stage(for track: MediaController.Track) -> some View {
         GeometryReader { geo in
             let layout = layout(paneWidth: geo.size.width)
+            let frames = layout.frames(for: page)
             ZStack(alignment: .topLeading) {
                 // The pane's own size, so the children are placed from its
                 // top-left corner whatever they measure.
                 Color.clear
 
-                artwork(for: track)
-                    .placed(layout.inPane(layout.cover))
+                artwork(for: track, radius: frames.coverRadius)
+                    .placed(layout.inPane(frames.cover))
 
                 // One line, tail-truncated, and the whole title as the tooltip:
                 // a long title (the Russian one on `Music-Long-Title`) is cut at
                 // `bw − 220` and never wraps into the band under it.
                 Text(track.title)
-                    .islandFont(.title)
+                    .islandFont(frames.titleSize, weight: .semibold)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(track.title)
-                    .placed(layout.inPane(layout.title))
-                Text(subtitle(for: track))
-                    .islandFont(.reading, weight: .regular)
+                    .placed(layout.inPane(frames.title))
+                // "Artist — Album" in the player; the artist alone beside the
+                // column's and the tall page's smaller cover (spec §5.1).
+                Text(frames.subtitleIsArtistOnly ? track.artist : subtitle(for: track))
+                    .islandFont(frames.subtitleSize, weight: .regular)
                     .foregroundStyle(Theme.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help(subtitle(for: track))
-                    .placed(layout.inPane(layout.subtitle))
+                    .help(frames.subtitleIsArtistOnly ? track.artist : subtitle(for: track))
+                    .placed(layout.inPane(frames.subtitle))
 
-                if layout.hasLyricBand {
-                    lyricBand(for: track, layout: layout)
+                if page == .player {
+                    if layout.hasLyricBand {
+                        lyricBand(for: track, layout: layout)
+                    }
+                } else if let area = frames.lyricArea, let sung = frames.sungLine {
+                    lyricArea(area: area, sungLine: sung, layout: layout)
                 }
 
                 progressRow
-                    .placed(layout.inPane(layout.progress))
+                    .placed(layout.inPane(frames.progress))
 
-                modeButtons(layout: layout)
+                modeButtons(frames: frames, layout: layout)
                 transport
-                    .placed(layout.inPane(layout.transport))
+                    .placed(layout.inPane(frames.transport))
 
-                if let volume = layout.volume {
+                if let volume = frames.volume {
                     PlayerVolumeSlider(audio: audio, trackKey: track.key)
                         .placed(layout.inPane(volume))
                 }
-                if let output = layout.output {
-                    PlayerOutputButton(audio: audio, includesVolume: layout.volumeFoldsIntoMenu)
-                        .placed(layout.inPane(output))
+                if let output = frames.output {
+                    PlayerOutputButton(
+                        audio: audio, includesVolume: layout.volumeFoldsIntoMenu && page == .player
+                    )
+                    .placed(layout.inPane(output))
                 }
-                lyricsButton
-                    .placed(layout.inPane(layout.lyrics))
+                lyricsButton(isOpen: page != .player)
+                    .placed(layout.inPane(frames.lyrics))
             }
+            // The one animation of the three states (spec §2.4): P ↔ C on the
+            // open spring, C ↔ T on the expand spring, chosen by where the
+            // change comes from. Not under Reduce Motion, which crossfades by
+            // identity above and moves nothing.
+            .animation(
+                reduceMotion ? nil : PlayerLayout.animation(from: settledPage, to: page, reduceMotion: false),
+                value: page
+            )
             // The block moving up when the band folds away is a short ease, so a
             // lyric arriving does not teleport the controls (spec §4.1).
             .animation(reduceMotion ? nil : Theme.contentAnimation, value: layout.hasLyricBand)
@@ -269,6 +327,40 @@ struct MediaPane: View {
             // fade as one unit when the track changes.
             .animation(Theme.artworkAnimation, value: track.key)
         }
+    }
+
+    /// The column's and the tall page's lyric region: `LyricsStage` drawn in the
+    /// area the table gives it, its sung line held at the table's y.
+    private func lyricArea(area: CGRect, sungLine: CGRect, layout: PlayerLayout) -> some View {
+        LyricsStage(
+            media: media,
+            lyrics: lyrics,
+            localLookup: localLookup,
+            turnOnLyrics: turnOnLyrics,
+            turnOnOnlineLyrics: turnOnOnlineLyrics,
+            importLocalFile: importLocalFile,
+            notice: lyricsNotice,
+            selectLocalCandidate: selectLocalCandidate,
+            removeLocalBinding: removeLocalBinding,
+            editLocalLyrics: { candidate in
+                guard localLibrary != nil else { return }
+                editingSession.wrappedValue = LocalLyricsEditor.EditingSession(
+                    candidate: candidate, identity: currentLocalTrackIdentity()
+                )
+            },
+            editBlankLyrics: {
+                guard localLibrary != nil else { return }
+                editingSession.wrappedValue = LocalLyricsEditor.EditingSession.blank(
+                    identity: currentLocalTrackIdentity()
+                )
+            },
+            invalidLine: invalidFileLine,
+            mode: page == .tall ? .tall : .column,
+            // The sung line's centre, measured from the area's own top.
+            readingCentre: sungLine.midY - area.minY
+        )
+        .placed(layout.inPane(area), alignment: .topLeading)
+        .transition(.opacity)
     }
 
     /// The system often repeats the title as the album name; showing
@@ -298,8 +390,10 @@ struct MediaPane: View {
     /// is free to overflow and be clipped. `.frame(maxWidth: .infinity)` looks
     /// like it would do the same job and does not: it grows to whatever the
     /// child reports, so a 16:9 cover took the clip out to 164 pt with it.
-    private func artwork(for track: MediaController.Track) -> some View {
-        let metrics = Theme.artworkMetrics(isOpen: true)
+    private func artwork(for track: MediaController.Track, radius: CGFloat) -> some View {
+        // The corner comes from the state's frame (14 in the player, 9 in the
+        // column, 7 on the tall page — spec §2.3) and the size from where the
+        // caller places it; `Theme.artworkMetrics` still names the pill's end.
         return Color.clear
             .overlay {
                 if let image = media.artwork {
@@ -317,10 +411,10 @@ struct MediaPane: View {
                     // cover is not coming for this track. The 132 pt well at
                     // white 0.08 with the note at 35 pt (spec §4.7) — never a
                     // stretched app icon.
-                    MissingCoverWell(cornerRadius: metrics.cornerRadius)
+                    MissingCoverWell(cornerRadius: radius)
                         .transition(.opacity)
                 } else {
-                    SkeletonBox(cornerRadius: metrics.cornerRadius)
+                    SkeletonBox(cornerRadius: radius)
                 }
             }
         .task(id: track.key) {
@@ -329,7 +423,7 @@ struct MediaPane: View {
             guard !Task.isCancelled else { return }
             artworkWaitExpired = true
         }
-        .clipShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         // Paused, the cover is 0.8 of itself (spec §4.2). A colour multiply, not
         // `.brightness`, which is additive and lifts the black of a dark cover
         // towards grey — the island's own paused dim learnt that on 2026-10-15.
@@ -342,17 +436,16 @@ struct MediaPane: View {
         // this 132 pt box, so 51 pt of invisible picture hangs over each side.
         // The left side is the tab rail, and the four icons behind that
         // overhang stopped answering the pointer (#22).
-        .contentShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .strokeBorder(Theme.coverEdge, lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.5), radius: 12, y: 5)
         .morph(NotchContentView.MorphID.artwork, in: morph)
-        // Outside the morph, so the pane's layout keeps reserving 132 pt no
-        // matter where the cover is on its way to. Inside it, the frame would
-        // be the thing refusing the pill's size.
-        .frame(width: metrics.side, height: metrics.side)
+        // Outside the morph, so the pane's layout keeps reserving the cover's
+        // own frame (the caller's `placed`) no matter where it is on its way
+        // to. Inside it, the frame would be the thing refusing the pill's size.
         .animation(Theme.artworkAnimation, value: media.artwork)
     }
 
@@ -519,8 +612,13 @@ struct MediaPane: View {
     /// Shuffle and Repeat flank the transport (spec §4.1, §4.4): shown only when
     /// the source reports them, and the slots are held when it does not, so the
     /// transport keeps its place whichever track is next.
+    ///
+    /// In the column and on the tall page they fold away — "for reading", the
+    /// board says — into the transport's own frame rather than vanishing from
+    /// where they stood: still laid out, drawn at nothing, out of reach of the
+    /// pointer and of VoiceOver.
     @ViewBuilder
-    private func modeButtons(layout: PlayerLayout) -> some View {
+    private func modeButtons(frames: PlayerLayout.StateFrames, layout: PlayerLayout) -> some View {
         Group {
             if let shuffle = media.shuffleEnabled {
                 // Off: a tertiary 12 pt glyph. On: white, with a 3 pt dot 2 pt
@@ -532,7 +630,8 @@ struct MediaPane: View {
                     .accessibilityValue(shuffle ? localized("On") : localized("Off"))
             }
         }
-        .placed(layout.inPane(layout.shuffle), alignment: .center)
+        .foldedAway(!frames.showsModes)
+        .placed(layout.inPane(frames.shuffle), alignment: .center)
         Group {
             if let mode = media.repeatMode {
                 // `repeat.1` is the system's own "1" at the glyph's top right,
@@ -548,7 +647,8 @@ struct MediaPane: View {
                     .accessibilityValue(repeatValueLabel(mode))
             }
         }
-        .placed(layout.inPane(layout.repeatButton), alignment: .center)
+        .foldedAway(!frames.showsModes)
+        .placed(layout.inPane(frames.repeatButton), alignment: .center)
     }
 
     /// Previous 16 pt, play/pause 20 pt, next 16 pt, in 28 pt targets spread over
@@ -592,22 +692,29 @@ struct MediaPane: View {
         .animation(Theme.contentAnimation, value: media.canSkip)
     }
 
-    /// The Lyrics door at the trailing edge (spec §4.1): `quote.bubble`, 14 pt in
-    /// a 26 pt target. For now it opens the existing lyrics page; the lyric
-    /// column replaces that destination in the next task, and this is also where
-    /// the open state (`quote.bubble.fill` on the selected fill) will be drawn.
-    private var lyricsButton: some View {
-        Button { showingLyrics.wrappedValue = true } label: {
-            Image(systemName: "quote.bubble")
+    /// The Lyrics door at the trailing edge (spec §4.1, §5.1): `quote.bubble`,
+    /// 14 pt in a 26 pt target. Closed it opens the lyric column; open — the
+    /// column or the tall page — it is `quote.bubble.fill` on the selected fill,
+    /// named Hide Lyrics, and takes the pane back to the player. The same button
+    /// in the same place in every state, so the person who opened the lyrics
+    /// closes them without moving the pointer.
+    private func lyricsButton(isOpen: Bool) -> some View {
+        Button { showingLyrics.wrappedValue = !isOpen } label: {
+            Image(systemName: isOpen ? "quote.bubble.fill" : "quote.bubble")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.white)
                 .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isOpen ? Theme.selectedChip : Color.clear)
+                )
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(PanelButtonStyle())
-        .help(localized("Lyrics"))
-        .accessibilityLabel(localized("Lyrics"))
-        .accessibilityHint(localized("Opens the full lyrics"))
+        .help(isOpen ? localized("Hide Lyrics") : localized("Lyrics"))
+        .accessibilityLabel(isOpen ? localized("Hide Lyrics") : localized("Lyrics"))
+        .accessibilityHint(isOpen ? "" : localized("Opens the full lyrics"))
+        .accessibilityAddTraits(isOpen ? .isSelected : [])
     }
 
     private func repeatValueLabel(_ mode: PlayerBridge.RepeatMode) -> String {
@@ -948,6 +1055,25 @@ struct MissingCoverWell: View {
 // MARK: - Placement
 
 private extension View {
+    /// `animation(_:value:)` only when `condition` holds; otherwise the view as
+    /// it is, with no animation of its own to override a caller's.
+    @ViewBuilder
+    func animating<Value: Equatable>(when condition: Bool, _ animation: Animation, value: Value) -> some View {
+        if condition {
+            self.animation(animation, value: value)
+        } else {
+            self
+        }
+    }
+
+    /// Drawn at nothing and out of reach, but still laid out where it is: a
+    /// control that folds into its neighbour's frame rather than leaving it.
+    func foldedAway(_ folded: Bool) -> some View {
+        opacity(folded ? 0 : 1)
+            .allowsHitTesting(!folded)
+            .accessibilityHidden(folded)
+    }
+
     /// Puts the view in `rect`, in the pane's coordinates: sized to it, aligned
     /// to its leading edge, and offset to its corner. The frames come from
     /// `PlayerLayout`, so nothing here knows a number.

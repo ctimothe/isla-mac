@@ -180,6 +180,28 @@ final class LocalLyricsEditor {
         /// when nothing was playing; nil when neither says.
         let title: String?
 
+        /// A session on an empty document for this song: the editor for a bound
+        /// file Isla could not read, where there is no document to open it on
+        /// (`Lyrics-Invalid-File`'s Edit Lyrics…). The song's own tags seed the
+        /// metadata and a single empty row waits to be typed into; saving writes
+        /// an Isla-owned copy bound to the song, which replaces the broken
+        /// binding the way any saved edit does. The candidate's id is a fresh one
+        /// that names nothing the library holds, so the copy records no source.
+        static func blank(identity: LocalTrackIdentity?) -> EditingSession {
+            let document = LocalLyricsDocument(
+                metadata: LocalLyricsMetadata(
+                    title: identity?.title, artist: identity?.artist, album: identity?.album,
+                    version: nil, duration: identity.map(\.duration)
+                ),
+                lines: [LyricsStore.Line(at: 0, text: "")],
+                offset: 0
+            )
+            return EditingSession(
+                candidate: LocalLyricsCandidate(id: UUID(), document: document, origin: .imported),
+                identity: identity
+            )
+        }
+
         init(candidate: LocalLyricsCandidate, identity: LocalTrackIdentity?) {
             self.candidate = candidate
             self.identity = identity

@@ -142,8 +142,24 @@ enum Theme {
     /// a fourth spring at 0.7 would have passed it without anyone noticing.
     static let criticallyDampedSprings: [Animation] = [
         openAnimation, closeAnimation, compactAnimation, pillUnfold, pillFold, pillContentOut, pillContentIn,
-        captionTurnOut, captionTurnIn,
+        captionTurnOut, captionTurnIn, expandAnimation,
     ]
+
+    /// The body growing from 208 to 400 and back (spec §2.4, §6): spring 0.40 /
+    /// 1.0. A little slower than the open's 0.34 because it moves a body that is
+    /// already on screen by 192 pt, with a cover, a title and a transport riding
+    /// it — the longest travel the panel makes, and a travel the eye follows
+    /// from a button at the top to a row at the bottom. Critically damped: a
+    /// tall body that rebounded would show the tail of its own cut (the
+    /// window is never resized, so the clip is the edge). `Lyrics-Frames` is the
+    /// board.
+    static let expandResponse: Double = 0.40
+    static let expandAnimation = Animation.spring(response: expandResponse, dampingFraction: 1.0)
+
+    /// Reduce Motion: no travel, the 0.24 crossfade the rest of the panel uses.
+    static func expand(reduceMotion: Bool) -> Animation {
+        reduceMotion ? reducedMotion : expandAnimation
+    }
 
     /// The Music pane's caption giving one lyric line up to the next
     /// (`AnyTransition.lyricLine`): the old line leaving and the new one
@@ -456,6 +472,42 @@ enum Theme {
     static let peekBottomRadius: CGFloat = 16
     static let openTopRadius: CGFloat = 12
     static let openBottomRadius: CGFloat = 22
+    /// The tall body's bottom corners (spec §2.3): 26 against the standard
+    /// body's 22, so the corner stays in proportion with the height it closes
+    /// and the radius springs 22 → 26 with the body (`NotchShape` animates it).
+    static let tallBottomRadius: CGFloat = 26
+
+    static func openBottomRadius(tall: Bool) -> CGFloat {
+        tall ? tallBottomRadius : openBottomRadius
+    }
+
+    // MARK: - Lyric column and tall page (spec §5.4)
+
+    /// The Sync pill's solid fill: `#3A3A3C` at 0.96. A solid, not glass — it
+    /// sits in an opaque panel with nothing behind it to sample — and a Theme
+    /// value rather than a colour written at the view, as the rule asks.
+    static let syncPillFill = Color(red: 58.0 / 255, green: 58.0 / 255, blue: 60.0 / 255).opacity(0.96)
+    static let syncPillSize = CGSize(width: 74, height: 24)
+
+    /// The version-mismatch notice: 488 x 40, radius 9, white 0.07 with a
+    /// hairline (`Lyrics-Version-Mismatch`). Its width is the pane's at the
+    /// default body; it follows the pane at other widths.
+    static let mismatchNoticeHeight: CGFloat = 40
+    static let mismatchNoticeRadius: CGFloat = 9
+    static let mismatchNoticeFill = Color.white.opacity(0.07)
+
+    /// The Edit Lyrics sheet (spec §5.5, `Lyrics-Editor`): `#2A2A2C`, with fields
+    /// at white 0.06 inside a white 0.16 hairline.
+    static let sheetFill = Color(red: 42.0 / 255, green: 42.0 / 255, blue: 44.0 / 255)
+    static let editorFieldFill = Color.white.opacity(0.06)
+    static let editorFieldEdge = Color.white.opacity(0.16)
+
+    /// The instrumental gap's three dots (spec §5.4): 7 pt, white at 0.9, 0.55
+    /// and 0.3 — a rest in the song, not a loading indicator, so they do not
+    /// move.
+    static let instrumentalDotSize: CGFloat = 7
+    static let instrumentalDotSpacing: CGFloat = 6
+    static let instrumentalDotOpacities: [Double] = [0.9, 0.55, 0.3]
 
     // MARK: - Artwork
 

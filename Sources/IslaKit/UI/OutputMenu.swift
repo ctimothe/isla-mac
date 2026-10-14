@@ -212,7 +212,8 @@ final class OutputMenuPresenter {
     }
 }
 
-private final class FlippedAnchorView: NSView {
+/// Shared with the lyric More menu's anchor (`MenuAnchor`).
+final class FlippedAnchorView: NSView {
     override var isFlipped: Bool { true }
     /// Never in the way of the button laid over it.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

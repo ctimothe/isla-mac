@@ -141,7 +141,119 @@ final class NotchViewModel: ObservableObject {
     /// pointer. State that only the view holds is state nothing else can ask
     /// for — which is what made the hook an `onAppear` reading an environment
     /// variable rather than a route like every other way in.
+    ///
+    /// Since the redesign (spec §5.1) this is "the Music tab is on the lyric
+    /// column or the tall page" — the lyric page is no longer a pane of its own
+    /// but the player's state `C` (or `T`, see `musicPage`).
     @Published var isShowingLyrics = false
+
+    /// The tabs the person has grown to the tall body (spec §6). Memory only: a
+    /// relaunch starts every tab collapsed, and neither closing the panel nor
+    /// changing tabs touches it — "a tab change keeps each tab's own expansion".
+    ///
+    /// For the Music tab, expanded means the **tall lyric page**. The player
+    /// itself never expands (it has no Expand button), so a Music tab that is
+    /// remembered as expanded but is showing the player is 208 tall; the memory
+    /// is what the Lyrics button opens onto next (`musicPage`).
+    @Published var expandedTabs: Set<Tab> = []
+
+    /// Where the Music tab is: the player, the lyric column, or the tall lyric
+    /// page — the one value `MediaPane`'s layout, the header's tools and the
+    /// body's height all read.
+    var musicPage: PlayerLayout.State {
+        Self.musicPage(showingLyrics: showsLyricPage, expandedTabs: expandedTabs)
+    }
+
+    /// Whether the lyric page is what the Music tab shows: asked for, and a song
+    /// to put it on. With nothing playing the tab is the empty player whatever
+    /// was asked (⌃⌥⌘L on a silent Mac), and an empty player is 208 tall with
+    /// no lyric tools over it.
+    var showsLyricPage: Bool { isShowingLyrics && media.track != nil }
+
+    nonisolated static func musicPage(showingLyrics: Bool, expandedTabs: Set<Tab>) -> PlayerLayout.State {
+        guard showingLyrics else { return .player }
+        return expandedTabs.contains(.media) ? .tall : .column
+    }
+
+    /// The height a tab's body asks for when open (spec §6): 400 when it is
+    /// expanded, else 208.
+    ///
+    /// Settings stays 208 for now. **Release R4 owns it**: Settings becomes
+    /// always tall there (spec §10), with its own sidebar; until then it is the
+    /// one tab no Expand button reaches, so it must not read `expandedTabs`.
+    nonisolated static func openBodyHeight(
+        tab: Tab, showingLyrics: Bool, expandedTabs: Set<Tab>
+    ) -> CGFloat {
+        switch tab {
+        case .media:
+            return musicPage(showingLyrics: showingLyrics, expandedTabs: expandedTabs).bodyHeight
+        case .shelf, .clipboard, .translate:
+            return expandedTabs.contains(tab)
+                ? NotchMetrics.tallestBody.height : NotchMetrics.standardBodyHeight
+        case .settings:
+            return NotchMetrics.standardBodyHeight
+        }
+    }
+
+    /// Grows or folds a tab's body. The caller animates (`Theme.expand`); this
+    /// is state only, so the rects the controller cuts from `openBodySize` and
+    /// the drawn body change on the same turn.
+    func setExpanded(_ expanded: Bool, for tab: Tab) {
+        // Settings has no Expand button until R4; refusing here keeps a stray
+        // call from leaving a remembered 400 that R4 would inherit by accident.
+        guard tab != .settings else { return }
+        if expanded { expandedTabs.insert(tab) } else { expandedTabs.remove(tab) }
+    }
+
+    /// Whether the tab on screen is showing its tall body.
+    var isCurrentTabExpanded: Bool { openBodySize.height > NotchMetrics.standardBodyHeight }
+
+    /// Edit Lyrics, from the header's More menu or from a state's button: the
+    /// session the editor sheet is open on. Held here and not in `MediaPane`
+    /// because two places ask for it and only the pane draws the sheet.
+    @Published var lyricEditing: LocalLyricsEditor.EditingSession?
+
+    /// The More menu's controller: built once, reading the model when it opens
+    /// (the correction, the bound file and the online switch all move while the
+    /// panel is up) and acting through the same entry points the page's own
+    /// buttons use.
+    lazy var lyricsMoreMenu: LyricsMoreMenuController = LyricsMoreMenuController(
+        context: { [unowned self] in
+            var localFile: String?
+            if case .some(.ready(let candidate)) = lyricsCoordinator.localLookup {
+                localFile = LyricsMoreMenuModel.fileName(
+                    stored: localLyricsLibrary.fileName(of: candidate.id),
+                    candidate: candidate, trackTitle: media.track?.title
+                )
+            }
+            var canNudge = false
+            if case .ready = lyrics.availability, case .synced = lyrics.state { canNudge = true }
+            return LyricsMoreMenuController.Context(
+                localFileName: localFile, hasBinding: lyrics.hasLocalOverride,
+                onlineOn: Self.onlineLyricsEnabled, offset: lyrics.trackOffset, canNudge: canNudge
+            )
+        },
+        actions: LyricsMoreMenuController.Actions(
+            nudge: { [unowned self] in lyrics.nudgeTrackOffset(by: $0) },
+            resetTiming: { [unowned self] in lyrics.clearTrackOffset() },
+            editLyrics: { [unowned self] in
+                guard case .some(.ready(let candidate)) = lyricsCoordinator.localLookup else { return }
+                lyricEditing = LocalLyricsEditor.EditingSession(
+                    candidate: candidate, identity: lyricsCoordinator.currentLocalTrackIdentity
+                )
+            },
+            removeBinding: { [unowned self] in lyricsCoordinator.removeLocalBinding() },
+            importFile: { [unowned self] in chooseLocalLyricsFile(from: .stage) },
+            searchAgain: { [unowned self] in lyricsCoordinator.retry() },
+            openSettings: { [unowned self] in openLyricsSettings() }
+        )
+    )
+
+    /// The header's Show Translation tool. **Hidden until the translation
+    /// release wires it** (T4: it reads Settings › Translate Lyrics); a flag
+    /// rather than a missing view so the header's layout, which leaves its slot
+    /// empty, is already the final one.
+    @Published var showsTranslationTool = false
 
     /// Why the last lyric import or folder action did not work, said once,
     /// in the section that asked.
@@ -717,7 +829,16 @@ final class NotchViewModel: ObservableObject {
     /// leaves room for two lines in the standard body, and two lines is not a
     /// teleprompter — it is a countdown. The extra height buys the paragraph
     /// the reader needs to see coming.
-    var openBodySize: CGSize { geometry.expandedSize }
+    ///
+    /// The height is now per tab (spec §6): 208 standard, 400 when the tab is
+    /// expanded. The window is cut for 620 × 400 once and never resized, so only
+    /// the rects and the drawn body follow this.
+    var openBodySize: CGSize {
+        CGSize(
+            width: geometry.expandedSize.width,
+            height: Self.openBodyHeight(tab: tab, showingLyrics: showsLyricPage, expandedTabs: expandedTabs)
+        )
+    }
 
     /// Bumped each time the island is hovered while the Mac is locked.
     ///
@@ -1278,6 +1399,15 @@ final class NotchViewModel: ObservableObject {
     /// island: Settings, scrolled to the switch. The target goes first so the
     /// pane that appears for the tab change finds it already set.
     func openMusicOnlySetting() {
+        settingsScrollTarget = SettingsPane.musicSectionID
+        select(.settings)
+    }
+
+    /// "Lyrics Settings…" in the More menu (spec §5.2): Settings, scrolled to the
+    /// section the lyric switches are in. Today they live in the Music section
+    /// (Show Lyrics, Look Up Lyrics Online and the library are its rows); when
+    /// R4 gives Lyrics a section of its own this is the one place that learns it.
+    func openLyricsSettings() {
         settingsScrollTarget = SettingsPane.musicSectionID
         select(.settings)
     }

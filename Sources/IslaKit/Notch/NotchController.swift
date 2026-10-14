@@ -1303,6 +1303,30 @@ final class NotchController {
             }
             .store(in: &cancellables)
 
+        // Growing or folding the body — Expand, Collapse, or the lyric page
+        // opening onto a tall state it was left in — changes how far down the
+        // panel reaches exactly as a tab change did, and the same two rects are
+        // cut from it (spec §6: the active rect, the hover rect and the close
+        // area follow `openBodySize`). Through the one path an open uses,
+        // `refreshOpenRects`; not a second place that knows how to cut them.
+        // A pass later for the reason the tab sink above gives: `@Published`
+        // announces before it stores, and `openBodySize` reads the stored value.
+        vm.$expandedTabs
+            .map { _ in () }
+            .merge(with: vm.$isShowingLyrics.removeDuplicates().map { _ in () })
+            // The lyric page is only there with a song to show it on
+            // (`NotchViewModel.showsLyricPage`), so the song going or coming
+            // changes the height too.
+            .merge(with: vm.media.$track.map { $0 == nil }.removeDuplicates().map { _ in () })
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    guard let vm = self.viewModel, vm.isOpen else { return }
+                    DispatchQueue.main.async { self.refreshOpenRects() }
+                }
+            }
+            .store(in: &cancellables)
+
         // The media clock follows the tab while the panel is open: on for
         // Music, off for everything else (see `mediaClockWanted`). Coming back
         // to Music goes through `setActive(true)` exactly as an open does, so
