@@ -1455,8 +1455,11 @@ New settings and their defaults (spec §14):
 
 ### R2 — Lock screen (`feat/redesign-r2-lock`)
 
-- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
-  installed.
+- [x] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed — 2026-10-15 at `4641334`: 11 of 11 steps, 1460 tests with 30
+  skipped and 0 failures. Codex (two passes) and Opus (review and re-review)
+  findings fixed in `6cfb47e` and `9fa985f`. The hardware checks below are
+  owed.
 - [ ] **R2-H1** The banner under the clock on Aerial, Pro Black, Sonoma and
   Sky Blue.
 - [ ] **R2-H2** Banner → card by a click, card → banner by the chevron; the
