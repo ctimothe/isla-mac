@@ -49,7 +49,8 @@ enum LockCardMaterial {
         reduceTransparency ? .solid : stored
     }
 
-    /// Transparent: black at 0.30 and a hairline (spec §7.2).
+    /// Transparent: black at 0.30 and a hairline (spec §7.2). The least it is;
+    /// bright wallpaper raises it (`LockCardLegibility.transparentWash`).
     static let transparentAlpha = 0.30
     /// Tinted: the cover's light at 0.88 (spec §7.2).
     static let tintedAlpha = 0.88
@@ -76,7 +77,8 @@ enum LockCardMaterial {
     /// **The material, as a function of everything that chooses it** (spec §7.2).
     ///
     /// - Automatic: the cover's light at `automaticAlpha(luminance:)`.
-    /// - Transparent: black at 0.30, hairline.
+    /// - Transparent: black at 0.30 or, where the wallpaper is bright or unknown,
+    ///   the least more at which the dimmest type clears AA; hairline.
     /// - Tinted: the cover's light at 0.88.
     /// - Solid: `#1C1C1E`, hairline. Reduce Transparency makes every style this.
     ///
@@ -103,9 +105,12 @@ enum LockCardMaterial {
         case .automatic: return Decision(layer: light, alpha: automaticAlpha(luminance: luminance))
         case .glass: return Decision(layer: light, alpha: tintedAlpha)
         case .clear:
+            // 0.30 is the floor, not the answer: over a bright or unknown
+            // wallpaper the dimmest type needs more black to clear AA
+            // (`LockCardLegibility.transparentWash`, re-review 2026-10-15).
             return increaseContrast
                 ? Decision(layer: .solid, alpha: 1)
-                : Decision(layer: .blackWash, alpha: transparentAlpha)
+                : Decision(layer: .blackWash, alpha: LockCardLegibility.transparentWash(luminance: luminance))
         }
     }
 }
@@ -164,6 +169,21 @@ final class LockCardToneModel: ObservableObject {
             }.value
             guard let self, self.generation == mine, self.luminance != answer else { return }
             self.luminance = answer
+        }
+    }
+}
+
+extension LockCardMaterial {
+    /// The shadow behind every mark on the card, by what is **drawn** (re-review
+    /// 2026-10-15). It keyed off the stored style, so under Increase Contrast a
+    /// Transparent choice drew a Solid panel with Transparent's 0.5 shadow. A
+    /// panel that is opaque carries none; the black wash, through which the
+    /// wallpaper shows, carries the most; the cover's light a little.
+    static func textShadowOpacity(for layer: Layer) -> Double {
+        switch layer {
+        case .solid: return 0
+        case .blackWash: return 0.5
+        case .coverLight, .neutralFill: return 0.35
         }
     }
 }

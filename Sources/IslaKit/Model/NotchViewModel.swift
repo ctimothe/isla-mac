@@ -93,6 +93,11 @@ final class NotchViewModel: ObservableObject {
     /// True while the shield is up and the panel is presenting the lock-screen
     /// card instead of its normal shell.
     @Published var isLockedPresentation = false
+    /// Whether Show on Lock Screen is on, read at each use. The setting lives in
+    /// `UserDefaults.standard`; a test that depended on it skipped itself on a
+    /// machine with the switch off (re-review 2026-10-15), so it is a closure a
+    /// test replaces and production leaves at the real default.
+    var showOnLockScreen: () -> Bool = { NotchViewModel.showOnLockScreenEnabled }
     /// A screenshot arrived while another tab was showing; the rail marks the
     /// Shelf until it comes into view.
     @Published private(set) var shelfHasNew = false

@@ -94,12 +94,12 @@ final class LockedIslandTests: XCTestCase {
     /// the rect that heard it. The model's size is computed; the rect is the
     /// controller's to keep in step.
     func testTheLockedHoverRectIsRecutWhenATrackStartsMidLock() async throws {
-        guard NotchViewModel.showOnLockScreenEnabled else {
-            throw XCTSkip("this machine has Show on Lock Screen off; the rule is held row by row above")
-        }
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         let vm = NotchViewModel(geometry: try LabGeometry.make(physical: true), stores: isolated.stores)
+        // Injected, not read from this machine's defaults: the test used to skip
+        // itself wherever Show on Lock Screen was off (re-review 2026-10-15).
+        vm.showOnLockScreen = { true }
         let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
         let controller = NotchController()
         controller.attachForTesting(viewModel: vm, rootView: root)

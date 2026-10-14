@@ -670,7 +670,11 @@ enum Theme {
     static let lockCardSolid = islandHover
 
     /// The lock card's Transparent panel (spec §7.2): black at 0.30.
-    static let lockCardTransparent = Color.black.opacity(LockCardMaterial.transparentAlpha)
+    static let lockCardTransparent = lockCardTransparent(alpha: LockCardMaterial.transparentAlpha)
+
+    /// The same black at the alpha the decision gave it: 0.30 over a dark
+    /// wallpaper, more where the type needs it (`LockCardLegibility.transparentWash`).
+    static func lockCardTransparent(alpha: Double) -> Color { Color.black.opacity(alpha) }
 
     /// The system green, `#30D158`: the charging bolt and its level.
     static let chargingGreen = Color(red: 48.0 / 255, green: 209.0 / 255, blue: 88.0 / 255)

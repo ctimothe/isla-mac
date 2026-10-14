@@ -130,7 +130,57 @@ final class LockCardWindow {
 
     /// What a second `present` does for the card's translation demand: look at the
     /// service's epoch again.
-    func resyncTranslationDemand() { presentation?.resync() }
+    private func resyncTranslationDemand() { presentation?.resync() }
+
+    /// **The re-present branch of `present`, on its own so a test can hold it**
+    /// (re-review 2026-10-15). A second lock notification, or a display that
+    /// changed shape underneath a live card: the audio watch is still running, so
+    /// one re-read in case the machine moved with the display; the translation
+    /// demand is looked at again, because the controller's `rebuild()` reset it on
+    /// the same display change and the card's registration went with it unheard
+    /// (with Rest as Banner off nothing else would raise it); then the wallpaper
+    /// and the window. The test used to call `resyncTranslationDemand()` itself,
+    /// so deleting that call from `present` stayed green. `refreshTone` and
+    /// `placeWindow` are the parts that need a real screen and a real window.
+    func representExisting(refreshTone: () -> Void, placeWindow: () -> Void) {
+        audioWatch?.systemAudioChanged()
+        resyncTranslationDemand()
+        refreshTone()
+        placeWindow()
+    }
+
+    /// Feeds the presentation whether there is a song, for as long as the
+    /// returned subscription is held: no song at present means no demand, and one
+    /// started mid-lock raises it (review 2026-10-15). A seam over the publisher
+    /// so a test can drive it with a subject instead of a copy of this sink.
+    static func follow<Tracks: Publisher, Track>(
+        _ tracks: Tracks, presentation: LockCardPresentation
+    ) -> AnyCancellable where Tracks.Output == Track?, Tracks.Failure == Never {
+        tracks
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak presentation] hasTrack in
+                MainActor.assumeIsolated { presentation?.hasTrack = hasTrack }
+            }
+    }
+
+    /// What takes clicks right now, in the root view's coordinates: the banner's
+    /// rect until the grow has been drawn, then the card's
+    /// (`LockCardLayout.hitForm`, review 2026-10-15). Asked at the moment of each
+    /// click. Weak, a missing presentation is a card. The clock and Reduce Motion
+    /// are parameters so a test can hold both.
+    static func hitArea(
+        following presentation: LockCardPresentation?,
+        cardSize: NotchViewModel.LockCardSize,
+        canvas: CGRect,
+        reduceMotion: @escaping () -> Bool,
+        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) -> () -> CGRect {
+        { [weak presentation] in
+            let form = presentation?.hitForm(reduceMotion: reduceMotion(), now: now()) ?? .card
+            return LockCardLayout.visibleRect(form, cardSize, canvas: canvas)
+        }
+    }
 
     /// Puts the card on screen above the shield.
     func present(
@@ -144,24 +194,21 @@ final class LockCardWindow {
         let frame = Self.frame(on: screen.frame, size: Self.windowSize)
         if let panel {
             // Already up — a second lock notification, or a display that
-            // changed shape underneath us. The audio watch is still running;
-            // one re-read in case the machine moved with the display.
-            audioWatch?.systemAudioChanged()
-            // The controller's `rebuild()` resets the translation demand on the
-            // same display change, and the card's registration went with it
-            // without the card hearing of it: ask again, under the new epoch
-            // (review 2026-10-15; with Rest as Banner off nothing else would).
-            resyncTranslationDemand()
-            tone.refresh(on: screen, cardSize: LockScreenCard.size)
-            panel.setFrame(frame, display: true)
-            // Straight to full, no fade: this path is a correction to a card
-            // that is already being looked at, and re-fading it would read as a
-            // flicker for no reason. It also guarantees the card cannot be left
-            // part-transparent if the notification lands mid fade-in — the
-            // in-flight animation is heading for 1 as well, so whichever writes
-            // last, the card ends up visible.
-            panel.alphaValue = 1
-            panel.orderFrontRegardless()
+            // changed shape underneath us (`representExisting`).
+            representExisting(
+                refreshTone: { tone.refresh(on: screen, cardSize: LockScreenCard.size) },
+                placeWindow: {
+                    panel.setFrame(frame, display: true)
+                    // Straight to full, no fade: this path is a correction to a card
+                    // that is already being looked at, and re-fading it would read as a
+                    // flicker for no reason. It also guarantees the card cannot be left
+                    // part-transparent if the notification lands mid fade-in — the
+                    // in-flight animation is heading for 1 as well, so whichever writes
+                    // last, the card ends up visible.
+                    panel.alphaValue = 1
+                    panel.orderFrontRegardless()
+                }
+            )
             return
         }
 
@@ -188,12 +235,7 @@ final class LockCardWindow {
         )
         // A card with no song draws no lyric and asks for no translation; a song
         // started mid-lock makes the card wanted (review 2026-10-15).
-        trackFollowing = media.$track
-            .map { $0 != nil }
-            .removeDuplicates()
-            .sink { [weak presentation] hasTrack in
-                MainActor.assumeIsolated { presentation?.hasTrack = hasTrack }
-            }
+        trackFollowing = Self.follow(media.$track, presentation: presentation)
         // The card's own demand for translations, raised now if it opens as the
         // card and on the click that grows the banner otherwise; lowered at
         // dismiss under the epoch it was raised in.
@@ -230,10 +272,10 @@ final class LockCardWindow {
         let cardSize = NotchViewModel.lockCardSize
         // The banner's rect until the grow has been drawn, not the instant `form`
         // flips (review 2026-10-15; `LockCardLayout.hitForm`).
-        root.hitArea = { [weak presentation] in
-            let form = presentation?.hitForm(reduceMotion: SystemAppearance.shared.reduceMotion) ?? .card
-            return LockCardLayout.visibleRect(form, cardSize, canvas: cardRect)
-        }
+        root.hitArea = Self.hitArea(
+            following: presentation, cardSize: cardSize, canvas: cardRect,
+            reduceMotion: { SystemAppearance.shared.reduceMotion }
+        )
         root.isInteractive = Self.interactive(following: media)
         root.autoresizingMask = [.width, .height]
         root.addSubview(hosting)

@@ -35,7 +35,7 @@ extension NotchViewModel {
     /// The banner or the card holds the song on the lock screen right now.
     var lockSurfacePresentsSong: Bool {
         LockedIsland.presentsSong(
-            locked: isLockedPresentation, showOnLockScreen: Self.showOnLockScreenEnabled, hasTrack: media.track != nil
+            locked: isLockedPresentation, showOnLockScreen: showOnLockScreen(), hasTrack: media.track != nil
         )
     }
 
@@ -43,7 +43,7 @@ extension NotchViewModel {
     var lockedIslandShowsWings: Bool {
         LockedIsland.showsWings(
             compactVisible: compactMediaActivity.isVisible, locked: isLockedPresentation,
-            showOnLockScreen: Self.showOnLockScreenEnabled, hasTrack: media.track != nil
+            showOnLockScreen: showOnLockScreen(), hasTrack: media.track != nil
         )
     }
 

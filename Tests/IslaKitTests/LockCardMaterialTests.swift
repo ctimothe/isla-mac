@@ -153,8 +153,9 @@ final class LockCardMaterialTests: XCTestCase {
         XCTAssertEqual(decide(.automatic, l: 0.03).alpha, 0.90, accuracy: 0.01)
         XCTAssertEqual(decide(.automatic, l: 0.36).alpha, 0.84, accuracy: 0.01)
         XCTAssertEqual(decide(.automatic).alpha, 0.84, "unknown wallpaper: the floor")
-        // Transparent: "black alpha 0.30, hairline".
-        XCTAssertEqual(decide(.clear), Decision(layer: .blackWash, alpha: 0.30))
+        // Transparent: "black alpha 0.30, hairline" over a dark wallpaper; heavier
+        // where the type would not clear AA (testTransparentIs...).
+        XCTAssertEqual(decide(.clear, l: 0.03), Decision(layer: .blackWash, alpha: 0.30))
         XCTAssertEqual(LockCardMaterial.transparentAlpha, 0.30)
         // Tinted: "the cover's light at 0.88".
         XCTAssertEqual(decide(.glass), Decision(layer: .coverLight, alpha: 0.88))
@@ -199,7 +200,7 @@ final class LockCardMaterialTests: XCTestCase {
         )
         // Styles that never wanted a cover are unaffected by its absence.
         XCTAssertEqual(
-            LockCardMaterial.decision(style: .clear, hasArtwork: false, luminance: nil, reduceTransparency: false),
+            LockCardMaterial.decision(style: .clear, hasArtwork: false, luminance: 0.03, reduceTransparency: false),
             Decision(layer: .blackWash, alpha: 0.30)
         )
         XCTAssertEqual(
@@ -228,6 +229,22 @@ final class LockCardMaterialTests: XCTestCase {
                 style: .automatic, hasArtwork: true, luminance: nil, reduceTransparency: false, increaseContrast: true
             ).alpha, 0.84, "Automatic is already near-opaque"
         )
+    }
+
+    /// **The shadow follows what is drawn** (re-review 2026-10-15): Increase
+    /// Contrast on Transparent draws Solid, and Solid carries no text shadow; the
+    /// stored style used to pick it.
+    func testTheTextShadowFollowsTheDrawnLayer() {
+        func shadow(_ style: NotchViewModel.LockCardStyle, rt: Bool = false, ic: Bool = false) -> Double {
+            LockCardMaterial.textShadowOpacity(for: LockCardMaterial.decision(
+                style: style, hasArtwork: true, luminance: 0.5, reduceTransparency: rt, increaseContrast: ic).layer)
+        }
+        XCTAssertEqual(shadow(.clear), 0.5)
+        XCTAssertEqual(shadow(.clear, ic: true), 0, "Solid is drawn, so no Transparent shadow")
+        XCTAssertEqual(shadow(.clear, rt: true), 0)
+        XCTAssertEqual(shadow(.solid), 0)
+        XCTAssertEqual(shadow(.automatic), 0.35)
+        XCTAssertEqual(shadow(.glass), 0.35)
     }
 
     /// The panel routing follows the decision: Solid and Transparent are panels.

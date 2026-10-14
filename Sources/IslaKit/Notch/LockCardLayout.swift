@@ -425,11 +425,13 @@ final class LockCardPresentation: ObservableObject {
     var showsCollapse: Bool { restsAsBanner }
 
     /// Whether this form draws a translated line: the card, with a song, and a
-    /// pane that carries a lyric — the standard card's player or the Lyrics pane
-    /// (the compact card's player pane has none; the Output pane is not asked to
-    /// let go, so a visit there does not cancel a batch in flight).
+    /// pane that carries a lyric — the standard card's player or the Lyrics pane.
+    /// Only the compact card's player pane has none. The Output pane is not asked
+    /// to let go on either size, so a visit there does not cancel a batch in
+    /// flight (re-review 2026-10-15: on the compact card it did, against this
+    /// very comment, and Lyrics -> Output -> Lyrics threw the batch away).
     var wantsTranslation: Bool {
-        !ended && form == .card && hasTrack && (size == .standard || pane == .lyrics)
+        !ended && form == .card && hasTrack && (size == .standard || pane != .player)
     }
 
     // MARK: - Translation demand

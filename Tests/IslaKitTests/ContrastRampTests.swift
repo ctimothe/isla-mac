@@ -231,24 +231,20 @@ final class ContrastRampTests: XCTestCase {
     /// The card drew the panel's falloff — greys tuned against black — over
     /// a cover-lit backdrop, and in the visual lab's light renders the context
     /// lines dissolved into the cover. Measured against the backdrop
-    /// `LockCardLegibility` solves for a white cover, in both styles the cover
-    /// lights, the floor holds 3:1 and the neighbour AA.
+    /// `LockCardLegibility` solves for a white cover, the floor holds 3:1 and the neighbour AA.
     func testCardLyricsHoldOverTheBrightestCover() {
-        for style in [NotchViewModel.LockCardStyle.glass, .clear] {
-            for increaseContrast in [false, true] {
-                let backdrop = LockCardLegibility.backdrop(
-                    coverLuma: 1, style: style, increaseContrast: increaseContrast)
-                let ramp = LyricRow.Ramp.card(increaseContrast: increaseContrast)
-                let label = "\(style.rawValue), increaseContrast \(increaseContrast)"
-                XCTAssertGreaterThanOrEqual(
-                    LockCardLegibility.contrast(textOpacity: ramp.floor, overGrey: backdrop), 3.0,
-                    "the far floor, \(label)")
-                XCTAssertGreaterThanOrEqual(
-                    LockCardLegibility.contrast(textOpacity: ramp.neighbour, overGrey: backdrop), 4.5,
-                    "the neighbour, \(label)")
-                XCTAssertGreaterThan(ramp.unswept, ramp.neighbour, "the sung line stays brightest, \(label)")
-                XCTAssertGreaterThan(ramp.neighbour, ramp.floor, "depth survives, \(label)")
-            }
+        for increaseContrast in [false, true] {
+            let backdrop = LockCardLegibility.backdrop(coverLuma: 1, increaseContrast: increaseContrast)
+            let ramp = LyricRow.Ramp.card(increaseContrast: increaseContrast)
+            let label = "increaseContrast \(increaseContrast)"
+            XCTAssertGreaterThanOrEqual(
+                LockCardLegibility.contrast(textOpacity: ramp.floor, overGrey: backdrop), 3.0,
+                "the far floor, \(label)")
+            XCTAssertGreaterThanOrEqual(
+                LockCardLegibility.contrast(textOpacity: ramp.neighbour, overGrey: backdrop), 4.5,
+                "the neighbour, \(label)")
+            XCTAssertGreaterThan(ramp.unswept, ramp.neighbour, "the sung line stays brightest, \(label)")
+            XCTAssertGreaterThan(ramp.neighbour, ramp.floor, "depth survives, \(label)")
         }
         XCTAssertGreaterThan(
             LyricRow.Ramp.card(increaseContrast: true).floor,
@@ -333,7 +329,7 @@ final class ContrastRampTests: XCTestCase {
     /// has. This measures against the brightest backdrop it can have.
     func testEveryCardLabelHoldsAAOverTheBrightestCover() {
         for increaseContrast in [false, true] {
-            let backdrop = LockCardLegibility.backdrop(coverLuma: 1.0, style: .glass, increaseContrast: increaseContrast)
+            let backdrop = LockCardLegibility.backdrop(coverLuma: 1.0, increaseContrast: increaseContrast)
             XCTAssertGreaterThanOrEqual(
                 LockCardLegibility.contrast(
                     textOpacity: Theme.cardSecondaryOpacity(increaseContrast: increaseContrast), overGrey: backdrop),
@@ -347,25 +343,57 @@ final class ContrastRampTests: XCTestCase {
         }
     }
 
-    /// The same promise at every brightness between, and in Transparent for
-    /// the part of the card the cover lights: the wash is solved for the
+    /// The same promise at every brightness between: the wash is solved for the
     /// cover, so no grey along the way is the one the rule forgot.
     func testEveryCoverBrightnessHoldsAA() {
-        for style in [NotchViewModel.LockCardStyle.glass, .clear] {
-            for increaseContrast in [false, true] {
-                for step in 0...20 {
-                    let luma = Double(step) / 20
-                    let backdrop = LockCardLegibility.backdrop(
-                        coverLuma: luma, style: style, increaseContrast: increaseContrast)
-                    XCTAssertGreaterThanOrEqual(
-                        LockCardLegibility.contrast(
-                            textOpacity: Theme.cardTertiaryOpacity(increaseContrast: increaseContrast),
-                            overGrey: backdrop),
-                        4.5, "\(style.rawValue) luma \(luma) increaseContrast \(increaseContrast)"
-                    )
-                }
+        for increaseContrast in [false, true] {
+            for step in 0...20 {
+                let luma = Double(step) / 20
+                let backdrop = LockCardLegibility.backdrop(coverLuma: luma, increaseContrast: increaseContrast)
+                XCTAssertGreaterThanOrEqual(
+                    LockCardLegibility.contrast(
+                        textOpacity: Theme.cardTertiaryOpacity(increaseContrast: increaseContrast),
+                        overGrey: backdrop),
+                    4.5, "luma \(luma) increaseContrast \(increaseContrast)"
+                )
             }
         }
+    }
+
+    /// **Transparent keeps a contrast guarantee** (re-review 2026-10-15). Spec 7.2's
+    /// black 0.30 had dropped out of the solver, so white secondary and tertiary
+    /// type over a bright wallpaper had only a text shadow. 0.30 is now the floor:
+    /// a dark wallpaper holds at it, a bright or unknown one gets the least more at
+    /// which the dimmest type clears the same 4.5:1 the cover wash is solved for.
+    func testTransparentIsBlackAt030OverADarkWallpaperAndHeavierOverABrightOne() {
+        for increaseContrast in [false, true] {
+            let text = Theme.cardTertiaryOpacity(increaseContrast: increaseContrast)
+            XCTAssertEqual(
+                LockCardLegibility.transparentWash(luminance: 0.03, increaseContrast: increaseContrast),
+                LockCardMaterial.transparentAlpha,
+                "a dark wallpaper holds at the spec's 0.30")
+            var last = LockCardMaterial.transparentAlpha
+            for step in 0...20 {
+                let luma = Double(step) / 20
+                let wash = LockCardLegibility.transparentWash(luminance: luma, increaseContrast: increaseContrast)
+                XCTAssertGreaterThanOrEqual(wash, last, "a brighter wallpaper never gets less black, luma \(luma)")
+                XCTAssertLessThan(wash, 1)
+                XCTAssertGreaterThanOrEqual(
+                    LockCardLegibility.contrast(textOpacity: text, overGrey: luma * (1 - wash)),
+                    LockCardLegibility.minimumContrast, "AA over wallpaper luma \(luma)")
+                last = wash
+            }
+        }
+        let bright = LockCardLegibility.transparentWash(luminance: 0.9)
+        XCTAssertGreaterThan(bright, 0.30)
+        XCTAssertEqual(
+            LockCardLegibility.transparentWash(luminance: nil), LockCardLegibility.transparentWash(luminance: 1),
+            "unknown is the worst case, white")
+        XCTAssertGreaterThan(LockCardLegibility.transparentWash(luminance: nil), 0.30)
+        // The decision routes it: same alpha, still the black wash.
+        XCTAssertEqual(
+            LockCardMaterial.decision(style: .clear, hasArtwork: true, luminance: 0.9, reduceTransparency: false),
+            LockCardMaterial.Decision(layer: .blackWash, alpha: bright))
     }
 
     /// A dark cover keeps the light it had.
@@ -375,11 +403,10 @@ final class ContrastRampTests: XCTestCase {
     /// every dark cover. Below the brightness where the old wash already held,
     /// nothing changes.
     func testADarkCoverKeepsTheLightItHad() {
-        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0.25, style: .glass, increaseContrast: false), 0.34)
-        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0.3, style: .glass, increaseContrast: false), 0.34)
-        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0.25, style: .glass, increaseContrast: true), 0.56)
-        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0.25, style: .clear, increaseContrast: false), 0.2)
-        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0, style: .glass, increaseContrast: false), 0.34)
+        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0.25, increaseContrast: false), 0.34)
+        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0.3, increaseContrast: false), 0.34)
+        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0.25, increaseContrast: true), 0.56)
+        XCTAssertEqual(LockCardLegibility.washOpacity(coverLuma: 0, increaseContrast: false), 0.34)
     }
 
     /// A brighter cover never gets a lighter wash — otherwise two covers a
@@ -389,7 +416,7 @@ final class ContrastRampTests: XCTestCase {
             var last = 0.0
             for step in 0...50 {
                 let wash = LockCardLegibility.washOpacity(
-                    coverLuma: Double(step) / 50, style: .glass, increaseContrast: increaseContrast)
+                    coverLuma: Double(step) / 50, increaseContrast: increaseContrast)
                 XCTAssertGreaterThanOrEqual(wash, last)
                 XCTAssertLessThan(wash, 1, "the cover is dimmed, never painted out")
                 last = wash

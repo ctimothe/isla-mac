@@ -148,7 +148,7 @@ struct LockScreenCard: View {
     /// The panel's colour when it is a panel: Solid's `#1C1C1E`, or Transparent's
     /// black 0.30.
     private var panelFill: Color? {
-        material.layer == .blackWash ? Theme.lockCardTransparent : Theme.lockCardSolid
+        material.layer == .blackWash ? Theme.lockCardTransparent(alpha: material.alpha) : Theme.lockCardSolid
     }
 
     @AppStorage(NotchViewModel.lockCardSizeKey) private var sizeRaw = NotchViewModel.LockCardSize.standard.rawValue
@@ -415,8 +415,9 @@ struct LockScreenCard: View {
         // lock screen, and it is why the clock there is readable over
         // anything.
         // More of the wallpaper shows through Transparent, so its type
-        // carries more shadow to stay legible over it.
-        .shadow(color: .black.opacity(style == .solid ? 0 : (style == .clear ? 0.5 : 0.35)), radius: 3, y: 1)
+        // carries more shadow to stay legible over it. Keyed off the layer that
+        // is drawn, not the stored style (re-review 2026-10-15).
+        .shadow(color: .black.opacity(LockCardMaterial.textShadowOpacity(for: material.layer)), radius: 3, y: 1)
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .background { coverLight(size: size) }
         .glassSurface(
@@ -497,7 +498,6 @@ struct LockScreenCard: View {
                     .saturation(1.3)
                 Color.black.opacity(LockCardLegibility.washOpacity(
                     coverLuma: LockCardLegibility.coverLuma(of: image),
-                    style: style,
                     increaseContrast: appearance.increaseContrast
                 ))
                 LinearGradient(
