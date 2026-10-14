@@ -343,4 +343,13 @@ final class PlayerStatesLayoutTests: XCTestCase {
             XCTAssertGreaterThan(translation.minX, width / 2 + 220 / 2)
         }
     }
+
+    /// Moving column to tall inside the timer's window ends the wait, so coming
+    /// back to the column cannot fold on a stale flag (review 2026-10-15).
+    func testTheNewTrackWaitSurvivesOnlyOnTheColumn() {
+        XCTAssertTrue(PlayerLayout.keepsWaiting(awaitingNewTrack: true, page: .column))
+        XCTAssertFalse(PlayerLayout.keepsWaiting(awaitingNewTrack: true, page: .tall))
+        XCTAssertFalse(PlayerLayout.keepsWaiting(awaitingNewTrack: true, page: .player))
+        XCTAssertFalse(PlayerLayout.keepsWaiting(awaitingNewTrack: false, page: .column))
+    }
 }

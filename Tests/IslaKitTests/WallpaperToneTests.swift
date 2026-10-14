@@ -90,6 +90,8 @@ final class WallpaperToneTests: XCTestCase {
             "/Users/tester/Library/Containers/com.apple.Photos/Data/sky.jpg",
             "/Users/tester/Library/Group Containers/group.com.apple.wallpaper/sky.jpg",
             "/Users/tester/Pictures/Photos Library.photoslibrary/originals/A/sky.jpg",
+            "/Users/tester/Pictures/Family.photoslibrary/originals/A/sky.jpg",
+            "/Users/tester/Pictures/Trips/2024.PhotosLibrary/resources/sky.jpg",
             "/Users/tester/Movies/sky.jpg",
             "/Users/tester/Music/sky.jpg",
             "/Volumes/Backup/Walls/sky.jpg",

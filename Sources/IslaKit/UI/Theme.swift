@@ -328,7 +328,8 @@ enum Theme {
     /// keep `contentAnimation` with the setting on.
     /// `MotionValuesTests.testReduceMotionNeverJumpsTheFirstFrame` holds
     /// every variant to this one description and samples its first frame.
-    static let reducedMotion = Animation.easeInOut(duration: 0.24)
+    static let reducedMotionDuration: TimeInterval = 0.24
+    static let reducedMotion = Animation.easeInOut(duration: reducedMotionDuration)
 
     static func scaleIn(_ scale: CGFloat, reduceMotion: Bool) -> AnyTransition {
         reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: scale))

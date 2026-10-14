@@ -273,7 +273,13 @@ final class LyricTranslation: ObservableObject {
     /// A surface that draws translations came on screen or went. A batch runs
     /// only while at least one is up (see the type's comment); the lock card
     /// adds itself here in R2.
-    func setDemand(_ surface: Surface, _ on: Bool) {
+    ///
+    /// `epoch` is the `demandEpoch` the registration was made under. A lowering
+    /// that names an older epoch is ignored: `resetDemand` already dropped it,
+    /// and a late `onDisappear` from a discarded view must not take away the
+    /// rebuilt panel's own registration. Nil means "now" (tests, raising).
+    func setDemand(_ surface: Surface, _ on: Bool, epoch: Int? = nil) {
+        if !on, let epoch, epoch != demandEpoch { return }
         let before = isPresentedSomewhere
         if on {
             demand[surface, default: 0] += 1
@@ -281,6 +287,24 @@ final class LyricTranslation: ObservableObject {
             demand[surface] = count > 1 ? count - 1 : nil
         }
         if before != isPresentedSomewhere { evaluate(retrying: true) }
+    }
+
+    /// Bumped by every `resetDemand`; the registration token of `setDemand`.
+    private(set) var demandEpoch = 0
+
+    /// Forgets every registration. The controller calls it when it drops the
+    /// panel's content (`rebuild()`, `teardown()`): demand is a counter on a
+    /// session store, lowered by a view's `onDisappear`, and AppKit hosting
+    /// does not promise that call when a content view is discarded. A column
+    /// open through a display change raised it again on the rebuild while the
+    /// old view's lowering never came, so the count stuck above zero and every
+    /// song's lyrics were translated, online too, with the panel closed (review
+    /// 2026-10-15). Views registered afterwards carry the new epoch.
+    func resetDemand() {
+        demandEpoch += 1
+        guard !demand.isEmpty else { return }
+        demand.removeAll()
+        evaluate()
     }
 
     /// Reads Settings again. Cheap and idempotent: it runs on every write to
@@ -318,6 +342,42 @@ final class LyricTranslation: ObservableObject {
         var seen = Set<String>()
         let unique = codes.filter { seen.insert($0).inserted }
         defaults.set(Array(unique.prefix(recentLimit)), forKey: NotchViewModel.translateRecentsKey)
+    }
+
+    /// One row of Settings' Translate To pop-up: Automatic first, then the
+    /// languages. Settings used to list only languages and show the system
+    /// language as if it were chosen, while the service sent a song already in
+    /// that language to English, so the two disagreed about the same default
+    /// (review 2026-10-15). Automatic is "nothing stored" and means spec §5.3:
+    /// the system language, or English when the song is in it.
+    enum TargetChoice: Hashable, Identifiable {
+        case automatic
+        case language(TranslationLanguage)
+
+        var id: String {
+            switch self {
+            case .automatic: return "automatic"
+            case .language(let language): return language.code
+            }
+        }
+
+        /// The pop-up's items in order; `separatorAfter` is the first one.
+        static var all: [TargetChoice] { [.automatic] + TranslationLanguage.all.map(TargetChoice.language) }
+        static func separatorAfter(_ choice: TargetChoice) -> Bool { choice == .automatic }
+
+        /// What the defaults say right now: Automatic unless a language is stored.
+        @MainActor static func current(in defaults: UserDefaults) -> TargetChoice {
+            NotchViewModel.storedTranslateTarget(in: defaults).map(TargetChoice.language) ?? .automatic
+        }
+
+        /// A language is stored (and joins the recents); Automatic removes the
+        /// stored value.
+        @MainActor func apply(to defaults: UserDefaults) {
+            switch self {
+            case .automatic: defaults.removeObject(forKey: NotchViewModel.translateTargetKey)
+            case .language(let language): LyricTranslation.record(target: language, in: defaults)
+            }
+        }
     }
 
     static func recentTargets(in defaults: UserDefaults) -> [TranslationLanguage] {
@@ -520,7 +580,8 @@ final class LyricTranslation: ObservableObject {
     /// (`OnlineTranslation.maximumOnlineCharacters` — the day's allowance is
     /// about the same size, which is why nothing else is allowed to ask for a
     /// song twice). Stops, keeping what it has, the moment the person withdraws
-    /// consent, the allowance is spent, the budget is, or a line fails; throws
+    /// consent, the allowance is spent, the budget is, or the service cannot be
+    /// reached (a line it merely refuses is skipped, remembered as untranslated); throws
     /// cancellation so a batch the panel no longer wants sends nothing more.
     private func askOnline(
         _ texts: [String], key: Key, route: Translator.Route
@@ -541,7 +602,18 @@ final class LyricTranslation: ObservableObject {
                 answers[text] = try await backend.online(text, route)
             } catch is CancellationError {
                 throw CancellationError()
+            } catch OnlineTranslation.Failure.refused {
+                // The service answered, and declined this one text. That is a
+                // fact about the line, not about the batch: it is recorded as
+                // "no translation" for the session (blank, which `usable`
+                // drops and `answers[text] != nil` counts as asked) and the
+                // rest of the song goes on. It used to stop the batch, so one
+                // line MyMemory always refuses starved every line after it
+                // and was sent again on every reopen (review 2026-10-15).
+                answers[text] = ""
             } catch {
+                // The allowance, an unreachable service, anything unknown: the
+                // batch ends, partial and uncached, as before.
                 break
             }
         }

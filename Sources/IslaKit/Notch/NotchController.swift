@@ -471,7 +471,9 @@ final class NotchController {
         pointer.warmZone = vm.geometry.warmZone
         pointer.coolZone = vm.geometry.coolZone
         pointer.closeRect = vm.geometry.hoverRect(for: vm.openBodySize)
-        if vm.isOpen { refreshOpenRects() } else { refreshCollapsedRects() }
+        // A display change moves the geometry without animating the body: no
+        // spring to wait for, so a shrink applies at once.
+        if vm.isOpen { refreshOpenRects(animated: false) } else { refreshCollapsedRects() }
     }
 
     /// A synthetic notch found at launch is checked again shortly after.
@@ -631,6 +633,9 @@ final class NotchController {
         cancellables.removeAll()
         panel?.acceptsKeyboard = false
         panel?.orderOut(nil)
+        // Nothing is on screen any more, whatever the views report on the way
+        // out: no batch may outlive the panel.
+        stores.lyricTranslation.resetDemand()
     }
 
     /// Plays out `verdictForDeliberateOpen` for a commanded open — a hot key, a
@@ -1047,6 +1052,10 @@ final class NotchController {
         // replacement is lifted again below when the Mac is still locked.
         lockPresence.release(panel)
         panel?.orderOut(nil)
+        // Demand the old content registered is dropped here, not left to its
+        // `onDisappear` (which the line below does not promise): see
+        // `LyricTranslation.resetDemand` (review 2026-10-15).
+        stores.lyricTranslation.resetDemand()
         panel?.contentView = nil
         panel = nil
         rootView = nil
@@ -1678,6 +1687,20 @@ final class NotchController {
         return applied
     }
 
+    /// How long a shrink of the open rects waits for the drawn body to stop.
+    ///
+    /// The hold used to be `Theme.expandSettle` (0.5 s) for every shrink. That
+    /// is right while the body springs down (Expand to Collapse, a tab switch,
+    /// a song ending), but under Reduce Motion the body crossfades in 0.24 s,
+    /// so a 0.5 s hold left a strip of dead, click-swallowing panel for the
+    /// better part of a quarter second after nothing was drawn there; and a
+    /// change of height that is not animated at all (a display change re-cutting
+    /// the rects) has nothing to wait for (review 2026-10-15).
+    nonisolated static func shrinkHold(reduceMotion: Bool, animated: Bool) -> TimeInterval {
+        guard animated else { return 0 }
+        return reduceMotion ? Theme.reducedMotionDuration : Theme.expandSettle
+    }
+
     /// Test seam: gives the controller a model and a root view without building
     /// a panel, starting the stores or reading a screen, so the rect logic can be
     /// held at the controller rather than by its pure helpers alone.
@@ -1687,12 +1710,20 @@ final class NotchController {
     }
 
     /// Re-cuts both rects for the body currently on screen.
-    func refreshOpenRects(bodySettled: Bool = false) {
+    func refreshOpenRects(
+        bodySettled: Bool = false, animated: Bool = true,
+        reduceMotion: Bool? = nil
+    ) {
         guard let vm = viewModel, vm.isOpen else { return }
         rectShrinkWork?.cancel()
         rectShrinkWork = nil
         var size = vm.openBodySize
-        let height = Self.openRectHeight(applied: appliedOpenHeight, target: size.height, bodySettled: bodySettled)
+        let hold = Self.shrinkHold(
+            reduceMotion: reduceMotion ?? SystemAppearance.shared.reduceMotion, animated: animated
+        )
+        let height = Self.openRectHeight(
+            applied: appliedOpenHeight, target: size.height, bodySettled: bodySettled || hold == 0
+        )
         if height > size.height {
             // Still shrinking: look again when the spring has settled. A newer
             // refresh cancels this one and decides afresh.
@@ -1701,7 +1732,7 @@ final class NotchController {
                 self?.refreshOpenRects(bodySettled: true)
             }
             rectShrinkWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + Theme.expandSettle, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + hold, execute: work)
         }
         size.height = height
         applyActiveRect(open: true, body: size)

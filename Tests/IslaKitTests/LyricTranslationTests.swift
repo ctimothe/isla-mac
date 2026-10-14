@@ -31,6 +31,9 @@ final class LyricTranslationTests: XCTestCase {
         var onlineDelay: Duration?
         /// Lines the online fake refuses (an unreachable service) until cleared.
         var onlineFails: Set<String> = []
+        /// Lines the service answers but declines (`Failure.refused`): a fact
+        /// about the line, not about the batch.
+        var onlineRefuses: Set<String> = []
         /// Hook run after each online answer, for a test that wants the day's
         /// allowance to run out partway.
         var afterOnline: ((String) -> Void)?
@@ -90,6 +93,7 @@ final class LyricTranslationTests: XCTestCase {
                     calls.online.append(text)
                     if let delay = calls.onlineDelay { try await Task.sleep(for: delay) }
                     if calls.onlineFails.contains(text) { throw OnlineTranslation.Failure.unreachable }
+                    if calls.onlineRefuses.contains(text) { throw OnlineTranslation.Failure.refused("NO") }
                     calls.afterOnline?(text)
                     return "«\(text)»"
                 },
@@ -724,7 +728,7 @@ extension LyricTranslationTests {
         let service = service(defaults: defaults, calls: calls, capabilities: Translator.Capabilities(onlineEnabled: true))
         service.present(lines: Self.english)
         await service.settled()
-        XCTAssertEqual(calls.online, ["in the dark by the camera", "humming everything you need"], "stopped at the failure")
+        XCTAssertEqual(calls.online, ["in the dark by the camera", "humming everything you need"], "an unreachable service ends the batch: stopped at the failure")
         XCTAssertEqual(service.presented?.rows, [nil, "«in the dark by the camera»", nil, nil], "what came back is shown")
 
         // Not a loop: a write to the defaults is not a reason to ask again.
@@ -878,5 +882,103 @@ extension LyricTranslationTests {
             LyricTranslation.settingsNote(onlineEnabled: true, belowMinimumSystem: true).contains("on this Mac."),
             "it never claims the work stays here while the switch sends it away"
         )
+    }
+
+    // MARK: Review 2026-10-15, second pass
+
+    /// A rebuild (a display plugged in) drops the content view without a
+    /// promised `onDisappear`: the controller resets demand, and the old
+    /// view's late lowering, tagged with the old epoch, does not touch the new
+    /// panel's registration.
+    func testARebuildResetsDemandWithoutTheDisappearAndStartsNoBatch() async {
+        let defaults = suiteOn()
+        let calls = Calls()
+        calls.systemDelay = .milliseconds(80)
+        let service = service(defaults: defaults, calls: calls)
+        let oldEpoch = service.demandEpoch
+        service.present(lines: Self.english)
+        await until { !calls.system.isEmpty }
+        XCTAssertTrue(service.isPresentedSomewhere)
+
+        service.resetDemand()   // rebuild(): no onDisappear ever arrives
+        XCTAssertFalse(service.isPresentedSomewhere, "the old view's demand is gone")
+        await service.settled()
+        XCTAssertNil(service.presented, "the batch in flight was dropped")
+
+        // Panel closed: another song starts nothing.
+        let before = calls.system.count
+        service.present(lines: [.init(at: 1, text: "something else entirely")])
+        await service.settled()
+        XCTAssertEqual(calls.system.count, before, "no batch with the panel closed")
+
+        // The rebuilt panel registers under the new epoch; the old view's late
+        // lowering must not cancel it.
+        service.setDemand(.lyricArea, true)
+        service.setDemand(.lyricArea, false, epoch: oldEpoch)
+        XCTAssertTrue(service.isPresentedSomewhere, "a stale lowering is ignored")
+        service.setDemand(.lyricArea, false, epoch: service.demandEpoch)
+        XCTAssertFalse(service.isPresentedSomewhere)
+    }
+
+    func testALineTheServiceRefusesIsSkippedAndNotSentAgain() async {
+        let defaults = suite()
+        turnOn(defaults, target: .uzbek)
+        let calls = Calls()
+        let lines: [LyricsStore.Line] = (1...10).map { .init(at: TimeInterval($0), text: "line number \($0)") }
+        calls.onlineRefuses = ["line number 3"]
+        let service = service(defaults: defaults, calls: calls, capabilities: Translator.Capabilities(onlineEnabled: true))
+        service.present(lines: lines)
+        await service.settled()
+        XCTAssertEqual(calls.online.count, 10, "lines 4 to 10 were still asked")
+        XCTAssertEqual(service.presented?.rows.compactMap { $0 }.count, 9, "the refused line has no translation")
+        XCTAssertNil(service.presented?.rows[2])
+
+        // Whole, so kept: reopening asks nothing, and the refused line is not re-sent.
+        service.setDemand(.lyricArea, false)
+        service.setDemand(.lyricArea, true)
+        await service.settled()
+        XCTAssertEqual(calls.online.count, 10)
+        XCTAssertEqual(calls.online.filter { $0 == "line number 3" }.count, 1)
+    }
+
+    func testARefusedLineIsNotResentWhenALaterLineEndsTheBatchShort() async {
+        let defaults = suite()
+        turnOn(defaults, target: .uzbek)
+        let calls = Calls()
+        let lines: [LyricsStore.Line] = (1...5).map { .init(at: TimeInterval($0), text: "line number \($0)") }
+        calls.onlineRefuses = ["line number 2"]
+        calls.onlineFails = ["line number 4"]
+        let service = service(defaults: defaults, calls: calls, capabilities: Translator.Capabilities(onlineEnabled: true))
+        service.present(lines: lines)
+        await service.settled()
+        XCTAssertEqual(calls.online, ["line number 1", "line number 2", "line number 3", "line number 4"])
+        calls.onlineFails = []
+        service.present(lines: lines)
+        await service.settled()
+        XCTAssertEqual(calls.online.suffix(2), ["line number 4", "line number 5"], "line 2 is not asked again")
+    }
+
+    // MARK: Translate To: Automatic
+
+    func testTranslateToOffersAutomaticFirstThenTheLanguages() {
+        let choices = LyricTranslation.TargetChoice.all
+        XCTAssertEqual(choices.first, .automatic)
+        XCTAssertEqual(choices.dropFirst().count, TranslationLanguage.all.count)
+        XCTAssertTrue(LyricTranslation.TargetChoice.separatorAfter(.automatic))
+        XCTAssertFalse(LyricTranslation.TargetChoice.separatorAfter(.language(.english)))
+        XCTAssertEqual(Set(choices.map(\.id)).count, choices.count, "ids are unique")
+    }
+
+    @MainActor
+    func testAutomaticIsSelectedWhenNothingIsStoredAndClearsTheStoredLanguage() {
+        let defaults = suite()
+        XCTAssertEqual(LyricTranslation.TargetChoice.current(in: defaults), .automatic)
+        LyricTranslation.TargetChoice.language(.german).apply(to: defaults)
+        XCTAssertEqual(defaults.string(forKey: NotchViewModel.translateTargetKey), TranslationLanguage.german.code)
+        XCTAssertEqual(LyricTranslation.TargetChoice.current(in: defaults), .language(.german))
+        XCTAssertTrue(LyricTranslation.recentTargets(in: defaults).contains(.german), "joins the recents")
+        LyricTranslation.TargetChoice.automatic.apply(to: defaults)
+        XCTAssertNil(defaults.object(forKey: NotchViewModel.translateTargetKey), "Automatic removes the stored value")
+        XCTAssertEqual(LyricTranslation.TargetChoice.current(in: defaults), .automatic)
     }
 }

@@ -221,7 +221,7 @@ struct SettingsPane: View {
     /// Translate Lyrics and Translate To (spec §5.3, §14). Off until chosen — the
     /// translation is made on this Mac and reaches nothing by itself.
     @State private var translateLyrics = NotchViewModel.translateLyricsEnabled
-    @State private var translateTarget = NotchViewModel.translateTarget(in: .standard)
+    @State private var translateTarget = LyricTranslation.TargetChoice.current(in: .standard)
     @State private var showCharging = NotchViewModel.showChargingEnabled
     @State private var showHeadphones = NotchViewModel.showHeadphonesEnabled
     /// Observed, not snapshotted: the connect flow completes in the browser
@@ -608,16 +608,21 @@ struct SettingsPane: View {
                     SettingsPopUpRow(
                         symbol: SettingsIcon.translateTarget,
                         title: localized("Translate To"),
-                        options: TranslationLanguage.all,
+                        options: LyricTranslation.TargetChoice.all,
                         selection: Binding(
                             get: { translateTarget },
-                            set: { language in
-                                translateTarget = language
-                                // Also the translation menu's short list of recents.
-                                LyricTranslation.record(target: language, in: .standard)
+                            set: { choice in
+                                translateTarget = choice
+                                choice.apply(to: .standard)
                             }
                         ),
-                        optionTitle: { $0.name }
+                        optionTitle: { choice in
+                            switch choice {
+                            case .automatic: return localized("Automatic")
+                            case .language(let language): return language.name
+                            }
+                        },
+                        dividerAfter: LyricTranslation.TargetChoice.separatorAfter
                     )
                     .disabled(!translateLyrics || lyricsOffReason != nil)
                     .opacity(translateLyrics && lyricsOffReason == nil ? 1 : 0.4)
@@ -1808,6 +1813,8 @@ struct SettingsPopUpRow<Option: Identifiable & Hashable>: View {
     let options: [Option]
     @Binding var selection: Option
     let optionTitle: (Option) -> String
+    /// A separator under this option (Translate To: Automatic, then the languages).
+    var dividerAfter: (Option) -> Bool = { _ in false }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1824,6 +1831,7 @@ struct SettingsPopUpRow<Option: Identifiable & Hashable>: View {
                         get: { option == selection },
                         set: { wants in if wants { selection = option } }
                     ))
+                    if dividerAfter(option) { Divider() }
                 }
             } label: {
                 HStack(spacing: 6) {

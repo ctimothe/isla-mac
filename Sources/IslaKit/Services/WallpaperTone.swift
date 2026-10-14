@@ -82,13 +82,14 @@ enum WallpaperTone {
     /// `Library/Mobile Documents` and the File Provider mounts (Dropbox, Drive,
     /// OneDrive, iCloud's newer home) are `Library/CloudStorage`; the two
     /// containers folders are other apps' data, Photos and wallpaper shuffles
-    /// among them; the Photos library is a package whose originals are not
+    /// among them; a Photos library (any package ending in `.photoslibrary`, wherever under
+    /// home it sits — `isReadableWithoutPrompt` checks every path component, not
+    /// one fixed name; review 2026-10-15) is a package whose originals are not
     /// Isla's to read; Movies and Music are guarded media folders.
     static let protectedHomeFolders: [String] = [
         "desktop", "documents", "downloads", "movies", "music",
         "library/mobile documents", "library/cloudstorage",
         "library/containers", "library/group containers",
-        "pictures/photos library.photoslibrary",
     ]
 
     /// Roots whose pictures the system owns and any process may open without
@@ -112,6 +113,7 @@ enum WallpaperTone {
         guard let homePath = normalized(home), homePath.count > 1, isInside(homePath) else { return false }
         let relative = path.dropFirst(homePath.count).drop(while: { $0 == "/" })
         guard !relative.isEmpty else { return false }
+        if relative.split(separator: "/").contains(where: { $0.hasSuffix(".photoslibrary") }) { return false }
         return !protectedHomeFolders.contains { folder in
             relative == folder || relative.hasPrefix(folder + "/")
         }

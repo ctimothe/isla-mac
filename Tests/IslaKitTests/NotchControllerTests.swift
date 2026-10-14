@@ -106,4 +106,14 @@ final class NotchControllerRectTests: XCTestCase {
         XCTAssertEqual(NotchController.openRectHeight(applied: 400, target: 400, bodySettled: false), 400)
         XCTAssertGreaterThanOrEqual(Theme.expandSettle, Theme.expandResponse, "the spring has stopped by then")
     }
+
+    /// How long a shrink waits for the drawn body (review 2026-10-15).
+    func testTheShrinkHoldFollowsTheMotionTheBodyActuallyMakes() {
+        XCTAssertEqual(NotchController.shrinkHold(reduceMotion: false, animated: true), Theme.expandSettle)
+        XCTAssertEqual(NotchController.shrinkHold(reduceMotion: true, animated: true), Theme.reducedMotionDuration,
+                       "the crossfade is 0.24 s, not the spring's 0.5")
+        XCTAssertEqual(NotchController.shrinkHold(reduceMotion: false, animated: false), 0)
+        XCTAssertEqual(NotchController.shrinkHold(reduceMotion: true, animated: false), 0)
+        XCTAssertLessThan(Theme.reducedMotionDuration, Theme.expandSettle)
+    }
 }

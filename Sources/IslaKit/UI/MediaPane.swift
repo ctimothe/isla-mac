@@ -177,7 +177,17 @@ struct MediaPane: View {
                 }
             }
             .onChange(of: lyrics.availability) { _, _ in returnToPlayerIfLyricsAreMissing() }
-            .onChange(of: page) { _, new in settledPage = new }
+                        .onChange(of: page) { _, new in
+                settledPage = new
+                // The wait belongs to the column. Left set, it outlived a move
+                // to the tall page and a later availability change back on the
+                // column could still fold it (review 2026-10-15).
+                if !PlayerLayout.keepsWaiting(awaitingNewTrack: awaitingNewTrack, page: new) {
+                    awaitingNewTrack = false
+                    foldBackTask?.cancel()
+                    foldBackTask = nil
+                }
+            }
             .task(id: lyrics.availability) {
                 if case .invalidLocalFile = lyrics.availability {
                     invalidFileLine = invalidLine()

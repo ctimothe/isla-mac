@@ -161,9 +161,13 @@ final class NotchStores {
         ambient.start()
     }
 
-    /// The song's lines go to the translation whenever the lyrics change state, so
-    /// a batch is made for a song whether or not the panel is up — the lock card
-    /// shows it with the panel closed. `$state` hands over the value being set,
+    /// The song's lines go to the translation whenever the lyrics change state,
+    /// but handing them over starts nothing: a batch runs only while a surface
+    /// that draws translations has registered demand (`LyricTranslation.setDemand`)
+    /// and Show Translation is on. With the panel closed no batch runs; the lock
+    /// card in R2 registers its own demand when it is up (review 2026-10-15 —
+    /// this comment used to promise a batch for every song, which was the bug).
+    /// `$state` hands over the value being set,
     /// and a recheck of the same song hands over the same lines, which the
     /// service treats as nothing new. Its own function, so a test can wire the
     /// two without starting a player feed.

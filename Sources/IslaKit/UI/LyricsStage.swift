@@ -108,6 +108,8 @@ struct LyricsStage: View {
     /// then stays where it was put, and the song moving on no longer drags the
     /// page out from under the eye. The sync pill puts it back.
     @State private var following = true
+    /// The `LyricTranslation.demandEpoch` this stage raised its demand under.
+    @State private var demandEpoch = 0
     /// The row sitting at the reading centre, as the scroll view itself
     /// reports it. Both the way the page is driven when it follows the song and
     /// the way it is read when it does not.
@@ -236,9 +238,12 @@ struct LyricsStage: View {
             }
             // The lyric column or the tall page is on screen: translations are
             // wanted, and only now (spec §5.3; `LyricTranslation.setDemand`).
+            demandEpoch = translation.demandEpoch
             translation.setDemand(.lyricArea, true)
         }
-        .onDisappear { translation.setDemand(.lyricArea, false) }
+        // Lowered under the epoch it was raised in: after a rebuild reset the
+        // demand, this view's late lowering must not cancel the new panel's.
+        .onDisappear { translation.setDemand(.lyricArea, false, epoch: demandEpoch) }
         // Verification hook, environment-gated like the open hook: replays the
         // row button's exact statement on the line after the current one, then
         // samples the position for the backward yank this hook exists to catch.

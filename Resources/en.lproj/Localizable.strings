@@ -439,3 +439,6 @@
 "Translated on this Mac" = "Translated on this Mac";
 "Translated on this Mac. Nothing is sent over the internet." = "Translated on this Mac. Nothing is sent over the internet.";
 "Before macOS 26 this Mac cannot translate lyrics itself. Turn on Translate Online to translate them." = "Before macOS 26 this Mac cannot translate lyrics itself. Turn on Translate Online to translate them.";
+
+/* Translate To: the stored-nothing choice (review 2026-10-15). */
+"Automatic" = "Automatic";

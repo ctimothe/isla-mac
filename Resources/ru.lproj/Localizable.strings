@@ -445,3 +445,6 @@
 "Translated on this Mac" = "Переведено на этом Mac";
 "Translated on this Mac. Nothing is sent over the internet." = "Перевод выполняется на этом Mac. В интернет ничего не отправляется.";
 "Before macOS 26 this Mac cannot translate lyrics itself. Turn on Translate Online to translate them." = "До macOS 26 этот Mac сам не переводит тексты песен. Включите «Переводить онлайн», чтобы перевести их.";
+
+/* Translate To: the stored-nothing choice (review 2026-10-15). */
+"Automatic" = "Автоматически";

@@ -520,6 +520,14 @@ extension PlayerLayout {
         }
     }
 
+    /// Whether the new-track wait survives a change of page: only on the
+    /// column, the one page that can fold back. Leaving it (to the tall page,
+    /// or to the player) ends the wait, so coming back later cannot fold on a
+    /// stale flag.
+    static func keepsWaiting(awaitingNewTrack: Bool, page: State) -> Bool {
+        awaitingNewTrack && page == .column
+    }
+
     /// The whole fold-back decision, as the pane takes it when its timer fires
     /// or the availability settles.
     ///
