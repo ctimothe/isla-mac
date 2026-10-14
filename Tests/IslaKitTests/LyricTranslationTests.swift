@@ -461,6 +461,30 @@ final class LyricTranslationTests: XCTestCase {
         XCTAssertEqual(calls.system.count, 1, "showing it again is not a second batch")
     }
 
+    func testTheMenuNeverCreditsAnEngineWithALanguageItHasNotTranslated() async {
+        let defaults = suite()
+        turnOn(defaults, target: .uzbek)
+        let calls = Calls()
+        let service = service(defaults: defaults, calls: calls, capabilities: Translator.Capabilities(onlineEnabled: true))
+        service.present(lines: Self.english)
+        await service.settled()
+        XCTAssertEqual(service.engine, .online)
+        // Hidden, then another language chosen: nothing has run for it.
+        service.setShown(false)
+        service.choose(target: .russian)
+        await service.settled()
+        XCTAssertNotNil(service.presented, "the cached answer for the first language stays")
+        XCTAssertNil(service.engine)
+        let items = LyricsTranslateMenuModel.items(
+            isShown: service.isShown, languages: [.uzbek, .russian], current: service.target, engine: service.engine
+        )
+        XCTAssertFalse(items.contains { $0.kind == .provenance }, "no engine is credited with a language nothing ran for")
+        service.choose(target: .uzbek)
+        await service.settled()
+        XCTAssertEqual(service.engine, .online, "back on the language it was made for, from the cache")
+        XCTAssertTrue(calls.online.count == 3, "no second batch")
+    }
+
     func testTheReadForTheLockCardIsTheColumnsOwnAnswer() async {
         let defaults = suite()
         turnOn(defaults)

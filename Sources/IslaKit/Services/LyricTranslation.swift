@@ -714,8 +714,19 @@ final class LyricTranslation: ObservableObject {
             : localized("Translated on this Mac. Nothing is sent over the internet.")
     }
 
-    /// Where the batch the column shows went: the menu's last row.
-    var engine: Translator.Engine? { presented?.engine }
+    /// Where the batch the column shows went: the menu's last row. Answers only
+    /// for the timeline and language on screen now. `evaluate()` leaves
+    /// `presented` standing while translations are hidden (so showing them again
+    /// is free), which let Translate To move to a language nothing had run for
+    /// and the menu still credit "Translated online" to it (Codex review
+    /// 2026-10-15). The cached answer is not dropped, only not claimed: switch
+    /// back and it is credited again.
+    var engine: Translator.Engine? {
+        guard let presented, let lines,
+              presented.key == Key(texts: lines.map(\.text), target: target.code)
+        else { return nil }
+        return presented.engine
+    }
 
     // MARK: - Live engines
 

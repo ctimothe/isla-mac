@@ -315,6 +315,11 @@ enum LyricsTranslateMenuModel {
         for language in languages {
             items.append(.init(kind: .language(language.code), title: language.name, isChecked: language == current))
         }
+        // No engine, no row: nil means nothing has run for the language chosen
+        // (or the song needed no translation), and "Translated on this Mac"
+        // under it was a claim about work that never happened (Codex review
+        // 2026-10-15).
+        guard engine != nil else { return items }
         items.append(.init(kind: .separator, title: ""))
         items.append(.init(
             kind: .provenance,
