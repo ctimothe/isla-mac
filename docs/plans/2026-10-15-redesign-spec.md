@@ -600,6 +600,15 @@ The floor (decision 5) is what keeps the lyric legible over Aerial's bright
 lines. With Reduce Transparency every style draws as Solid. Existing users who
 chose a style keep it; only the default (no stored value) becomes Automatic.
 
+> **Amended 2026-10-15 (R2 review).** Transparent's black 0.30 is a floor,
+> not a fixed value: the card's existing contrast solver raises it to the
+> least black at which the dimmest type clears 4.5:1 over the wallpaper's
+> luminance behind the card, and an unmeasured wallpaper counts as white.
+> Automatic and Tinted with no cover lay the Solid colour at the chosen
+> alpha, so a podcast or a browser tab keeps decision 5's floor. Under
+> Increase Contrast Transparent draws as Solid, as before. Picking a device on
+> the Output pane stays on that pane, as the system's Sound module does.
+
 ### 7.3 Panes inside the card
 
 - **Lyrics** (`Lock-Card-Lyrics`): header (cover 34, title, artist, a Back

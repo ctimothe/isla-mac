@@ -1465,6 +1465,14 @@ New settings and their defaults (spec §14):
 - [ ] **R2-H4** The output pane switches to AirPods, with the haptic.
 - [ ] **R2-H5** No wings at the notch while the banner or card shows; a
   click on the notch still shakes.
+- [ ] **R2-H6** A song with no cover (a podcast, a browser tab) at
+  Automatic: the card stays mostly solid and every line reads.
+- [ ] **R2-H7** Transparent over Sky Blue and a white wallpaper: the black
+  rises enough that the artist line and the times read; over Aerial it stays
+  at 0.30. This supersedes the 2026-10-11 divergence "Transparent guarantees
+  4.5:1 only over the cover's share" — the wallpaper is now measured.
+- [ ] **R2-H8** Picking a device on the Output pane stays on the pane; with
+  Rest as Banner off the card otherwise behaves as before R2.
 
 ### R3 — Shelf and Clipboard (`feat/redesign-r3-shelf-clipboard`)
 
