@@ -1439,6 +1439,15 @@ New settings and their defaults (spec §14):
   AirPods switch; the Output menu lists and switches devices.
 - [ ] **R1-H6** Translate Lyrics on a Russian or English song: the
   translations arrive together and sit under each line.
+- [ ] **R1-H7** The Output menu, the More menu and the translation menu
+  (right-click on Show Translation) open under their buttons from the
+  non-activating panel; below 540 pt the slider row inside the Output menu
+  takes a drag; `.help` tooltips appear.
+- [ ] **R1-H8** Translations arriving re-space the column and the tall page
+  without a jump that loses the sung line; the tall page's 400 pt growth and
+  Collapse leave no click-through gap at the foot.
+- [ ] **R1-H9** A wallpaper set from Downloads raises no privacy prompt (the
+  key line is simply absent there).
 
 ### R2 — Lock screen (`feat/redesign-r2-lock`)
 

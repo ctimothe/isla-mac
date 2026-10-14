@@ -232,6 +232,15 @@ involved: the wallpaper file is readable, the screen is never captured. The
 1.0 pt width and 0.50 / 0.26 strengths are to be confirmed on notch hardware
 (owed check R1-H2).
 
+> **Amended 2026-10-15 (R1 review).** "No permission is involved" was wrong
+> for a wallpaper kept in a protected place: opening a picture in
+> `~/Downloads`, `~/Desktop`, `~/Documents`, iCloud Drive, a cloud-storage
+> mount, another app's container or the Photos library makes macOS ask for
+> access, with nothing on screen to explain why. `WallpaperTone` therefore
+> decides on the URL's text, before any file call, whether it may read it:
+> `/System/Library`, `/Library` and the home folder outside those places are
+> read; everything else, `/Volumes` included, answers "not dark" unopened.
+
 ### 3.4 The cover's tint
 
 The equalizer and `keyLineMusic` take one colour from the cover: the most
@@ -473,6 +482,22 @@ mismatch notice, editor) move with it.
 - Bilingual LRC files (two lines at one time stamp, merged today with a
   newline) keep working and are drawn the same way, their second line as the
   translation.
+
+> **Amended 2026-10-15 (R1 review).** Translation is made **on demand**, not
+> per track: a batch starts only while a surface shows translations (the lyric
+> column or tall page with Show Translation on; R2 adds the lock card). Each
+> distinct line is sent once and its answer reused for every repeat. A batch
+> the online engine cut short is shown but not cached, so the missing lines
+> are asked for again later. When MyMemory answers that the day's allowance is
+> spent, lyric batches stop until the next UTC midnight (`OnlineAllowance`).
+> Turning Translate Online off ends an online batch before its next line.
+> Below macOS 26 neither on-device engine exists, so every pair would go
+> online; these rules are what keep that inside MyMemory's free allowance.
+> The Settings footnote states where translation happens in the current state
+> (the Translate tab's own wording), not a fixed "on this Mac". Two keys the
+> table below lacked: `lyrics.showTranslation` (absent means on; the header
+> button's state) and `lyrics.translateRecents` (the menu's recent targets,
+> on this Mac only).
 
 ### 5.4 States inside the column and tall page
 
@@ -908,6 +933,11 @@ so).
 | `translate.speakButton` | true | Translate | R4 | no |
 | `settings.lastSection` | General | — | R4 | no |
 | `island.showHUD` | false | General | R5 | **yes**: replaces the system pop-up, sets volume and brightness, needs Accessibility |
+
+> **Amended 2026-10-15 (R1).** Added `lyrics.showTranslation` (true when
+> unset, Lyrics header, no) and `lyrics.translateRecents` (empty, Lyrics
+> header, no). The default target with nothing stored is the system language,
+> or English when the song is already in the system language.
 
 ## 15. New strings
 
