@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// The stores that belong to the session rather than to the panel.
@@ -25,6 +26,10 @@ final class NotchStores {
     let lyrics: LyricsStore
     let localLyricsLibrary: LocalLyricsLibrary
     let lyricsCoordinator: LyricsCoordinator
+    /// A translated line under each lyric line (spec §5.3). Session-owned like the
+    /// lyrics it follows: the lock card (R2) reads it with the panel closed, and
+    /// a panel rebuilt for a new display must not lose what it has translated.
+    let lyricTranslation: LyricTranslation
     /// Shared by every pane that shows something worth not showing.
     let privacy: PrivacyMode
     /// The charger and headphones, for the island's moments without music.
@@ -36,6 +41,8 @@ final class NotchStores {
     var onScreenshot: ((URL) -> Void)?
 
     private var started = false
+    private var cancellables = Set<AnyCancellable>()
+    private var followsLyrics = false
 
     /// The store parameters are a seam for the headless visual lab
     /// (`Tests/IslaKitTests/VisualLab*`), which builds whole panels without
@@ -51,7 +58,8 @@ final class NotchStores {
         clipboard: ClipboardStore? = nil,
         screenshotVault: ScreenshotVault? = nil,
         translator: Translator? = nil,
-        privacy: PrivacyMode? = nil
+        privacy: PrivacyMode? = nil,
+        lyricTranslation: LyricTranslation? = nil
     ) {
         let shelfStore = shelf ?? ShelfStore()
         self.shelf = shelfStore
@@ -60,6 +68,7 @@ final class NotchStores {
         self.screenshotVault = screenshotVault ?? ScreenshotVault()
         self.translator = translator ?? Translator()
         self.privacy = privacy ?? PrivacyMode()
+        self.lyricTranslation = lyricTranslation ?? LyricTranslation()
         // Import a listener's old local override and timing correction before
         // the retired cache helper gets a chance to prune its cache files.
         // The local library is now the coordinator's only lyric authority.
@@ -100,6 +109,7 @@ final class NotchStores {
         }
         media.start()
         lyricsCoordinator.start()
+        followLyricsForTranslation()
         localLyricsLibrary.startWatchingFolders()
         shelf.load()
         // Drop folders from previous sessions, once, off the main thread —
@@ -151,6 +161,26 @@ final class NotchStores {
         ambient.start()
     }
 
+    /// The song's lines go to the translation whenever the lyrics change state, so
+    /// a batch is made for a song whether or not the panel is up — the lock card
+    /// shows it with the panel closed. `$state` hands over the value being set,
+    /// and a recheck of the same song hands over the same lines, which the
+    /// service treats as nothing new. Its own function, so a test can wire the
+    /// two without starting a player feed.
+    func followLyricsForTranslation() {
+        guard !followsLyrics else { return }
+        followsLyrics = true
+        lyrics.$state
+            .sink { [weak self] state in
+                if case .synced(let lines) = state {
+                    self?.lyricTranslation.present(lines: lines)
+                } else {
+                    self?.lyricTranslation.present(lines: nil)
+                }
+            }
+            .store(in: &cancellables)
+    }
+
     /// The pasteboard is read only while something wants what is on it:
     /// history, or clipboard screenshots for the Shelf. With both off,
     /// nothing polls at all.
@@ -183,6 +213,8 @@ final class NotchStores {
     func stop() {
         guard started else { return }
         started = false
+        cancellables.removeAll()
+        followsLyrics = false
         lyricsCoordinator.stop()
         localLyricsLibrary.stopWatchingFolders()
         media.stop()

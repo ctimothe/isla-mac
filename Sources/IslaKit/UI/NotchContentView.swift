@@ -649,10 +649,9 @@ struct NotchContentView: View {
                 isShown: showsLyricTools,
                 bodyWidth: size.width,
                 showsTranslation: vm.showsTranslationTool,
-                translationShown: false,
-                // The translation release wires this (spec §5.3); the tool is
-                // hidden until then, so it is unreachable meanwhile.
-                toggleTranslation: {},
+                translationShown: vm.translation.isShown,
+                toggleTranslation: { vm.translation.toggleShown() },
+                translateController: vm.lyricsTranslateMenu,
                 moreController: vm.lyricsMoreMenu,
                 isExpanded: Binding(
                     get: { vm.expandedTabs.contains(.media) },
@@ -1091,7 +1090,8 @@ struct NotchContentView: View {
                 morph: travellingMorph,
                 showingLyrics: $vm.isShowingLyrics,
                 headerHeight: vm.geometry.notchSize.height,
-                audio: vm.playerAudio
+                audio: vm.playerAudio,
+                translation: vm.translation
             )
         case .shelf:
             ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)

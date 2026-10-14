@@ -71,6 +71,10 @@ enum SettingsIcon {
     static let volumeAndOutput = "speaker.wave.2"
     /// The sung line and the next one under the title: lines of text, left-set.
     static let lyricBand = "text.alignleft"
+    /// A translated line under each lyric line: speech with text in it.
+    static let translateLyrics = "text.bubble"
+    /// Into which language: the direction, and nothing more.
+    static let translateTarget = "arrow.right"
     static let lockScreen = "lock.display"
     static let cardSize = "rectangle.compress.vertical"
     /// Glass or solid is an appearance choice, and this is the system's
@@ -112,7 +116,7 @@ enum SettingsIcon {
         shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, readAhead, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
-        online, lyricTiming, resetTiming, peek, volumeAndOutput, lyricBand, lockScreen, cardStyle, automationAccess, openSystemSettings,
+        online, lyricTiming, resetTiming, peek, volumeAndOutput, lyricBand, translateLyrics, translateTarget, lockScreen, cardStyle, automationAccess, openSystemSettings,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, clipboardHistory, translate, hideFromRecording,
         about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,

@@ -72,6 +72,17 @@ struct LyricRow: View {
     /// drawn on (`tall`). Nil keeps the symmetric `Ramp.context` falloff, which
     /// is what the lock card uses.
     var board: BoardDepth? = nil
+    /// The translation drawn under the line (spec §5.3), or nil. Plain text in
+    /// the board's own sizes (`PlayerLayout.translationStyle`) and brightness
+    /// (`translationOpacity`): the sung line's translation sweeps nothing, so a
+    /// song with word timing never has two things moving in one row. Needs
+    /// `board` — which says whether this is the column or the tall page — and is
+    /// ignored without it, which is what the lock card's rows are until R2.
+    var translation: String? = nil
+    /// What to draw as the line itself when it is not the whole of `line.text`:
+    /// a bilingual file's first row, its second being the translation. Nil is
+    /// `line.text`, as every surface drew until the redesign.
+    var displayText: String? = nil
 
     struct BoardDepth: Equatable {
         /// Rows from the sung row, negative above it.
@@ -213,7 +224,10 @@ struct LyricRow: View {
 
     var body: some View {
         Button { seek?() } label: {
-            content
+            VStack(alignment: .leading, spacing: Self.translationGap) {
+                content
+                translationRow
+            }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
         }
@@ -234,11 +248,39 @@ struct LyricRow: View {
                 Button(localized("Sync Here"), action: syncHere)
             }
         }
-        .accessibilityLabel(line.text)
+        .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
         // The menu is a pointer's way in; VoiceOver and Switch Control reach
         // the same item as a named action on the row.
         .modifier(SyncHereAction(action: syncHere))
+    }
+
+    /// The air between a line and its translation: 2 pt, the board's gap at both
+    /// sizes (`Ct` 89 → 107 under a 13 pt line, `Tt` 188 → 212 under 17).
+    static let translationGap: CGFloat = 2
+
+    /// What VoiceOver reads: the line, then its translation as a second
+    /// sentence — one element per row, as the line always was.
+    private var accessibilityText: String {
+        guard let translation else { return line.text }
+        return [displayText ?? line.text, translation].joined(separator: ". ")
+    }
+
+    @MainActor
+    @ViewBuilder
+    private var translationRow: some View {
+        if let translation, let board, !line.isCredit {
+            let style = PlayerLayout.translationStyle(tall: board.tall, isSung: isCurrent)
+            Text(translation)
+                .islandFont(style.size, weight: style.weight)
+                .foregroundStyle(.white.opacity(PlayerLayout.translationOpacity(
+                    isSung: isCurrent, tall: board.tall,
+                    increaseContrast: SystemAppearance.shared.increaseContrast
+                )))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .transition(.opacity)
+        }
     }
 
     /// Adds the "Sync Here" accessibility action only where a handler exists.
@@ -290,7 +332,7 @@ struct LyricRow: View {
             ZStack(alignment: .leading) {
                 if isCurrent {
                     KaraokeText(
-                        text: line.text,
+                        text: displayText ?? line.text,
                         // The same function the lab's resolutions report, so
                         // the sweep a surface claims is the sweep it draws.
                         fraction: LyricSweep.drawnFraction(
@@ -324,7 +366,7 @@ struct LyricRow: View {
                     // rasterises every glyph soft. Clamped to the ramp's floor,
                     // never the bare 0.18: without the clamp the far lines sat
                     // at 1.54:1, unreadable as text.
-                    Text(line.text)
+                    Text(displayText ?? line.text)
                         .islandFont(fontSize, weight: contextWeight ?? weight)
                         .foregroundStyle(.white.opacity(contextOpacity))
                         .lineLimit(lineLimit)

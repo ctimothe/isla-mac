@@ -42,6 +42,13 @@ struct LyricsStage: View {
     struct Metrics: Equatable {
         /// Distance between two rows' tops: the fixed slot each occupies.
         let pitch: CGFloat
+        /// The same with a translation under every line (spec §5.1, `Ct` and
+        /// `Tt`): a line and its translation are one slot, 46 in the column and
+        /// 52 on the tall page. Every slot takes it at once — an untranslated
+        /// line (a credit, a line already in the target language) and an
+        /// interlude included — so the page still maps the clock to a row by
+        /// plain subtraction.
+        let translatedPitch: CGFloat
         /// The size every line is set in. The sung line is never larger
         /// (decision 6): weight and brightness set it apart.
         let fontSize: CGFloat
@@ -50,8 +57,15 @@ struct LyricsStage: View {
         let contextWeight: Font.Weight
         let tall: Bool
 
-        static let column = Metrics(pitch: 23, fontSize: 13, weight: .bold, contextWeight: .semibold, tall: false)
-        static let tall = Metrics(pitch: 34, fontSize: 17, weight: .bold, contextWeight: .bold, tall: true)
+        static let column = Metrics(
+            pitch: 23, translatedPitch: 46, fontSize: 13, weight: .bold, contextWeight: .semibold, tall: false
+        )
+        static let tall = Metrics(
+            pitch: 34, translatedPitch: 52, fontSize: 17, weight: .bold, contextWeight: .bold, tall: true
+        )
+
+        /// The slot a row takes: one line, or a line over its translation.
+        func slot(translated: Bool) -> CGFloat { translated ? translatedPitch : pitch }
     }
 
     @ObservedObject var media: MediaController
@@ -84,6 +98,10 @@ struct LyricsStage: View {
     /// y 96 in the column's body coordinates, 166 on the tall page). Nil centres
     /// it, which is what a stage with no board to follow does.
     var readingCentre: CGFloat? = nil
+    /// The translated lines (spec §5.3). The session's service in the panel; the
+    /// idle one — which translates nothing — everywhere a stage is drawn on its
+    /// own. Observed, so the rows arrive together the moment its batch does.
+    @ObservedObject var translation: LyricTranslation = .idle
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// False once the reader has scrolled away under their own hand: the stage
@@ -334,13 +352,19 @@ struct LyricsStage: View {
         let anchor = moment.centreSlot
         let anchorIndex = LyricSweep.slotIndex(of: anchor, in: slots)
         let lit = LyricSweep.litSlotIndex(moment, in: slots)
+        // The row under each line — a machine translation, or the second row of a
+        // bilingual file — and with it the slot: every row takes the translated
+        // pitch the moment any line carries one.
+        let translations = translation.displayRows(for: lines)
+        let translated = LyricTranslation.hasRows(translations)
+        let pitch = metrics.slot(translated: translated)
         return GeometryReader { geo in
                 // Air above the first line and below the last, so either end can
                 // still reach the reading centre instead of stopping short
                 // against the scroll bounds.
                 let centre = Self.holdingCentre(centre: viewportCentre, viewport: geo.size.height)
-                let unit = Self.anchorUnit(centre: centre, viewport: geo.size.height, slot: metrics.pitch)
-                let air = Self.air(viewport: geo.size.height, slot: metrics.pitch, centre: centre)
+                let unit = Self.anchorUnit(centre: centre, viewport: geo.size.height, slot: pitch)
+                let air = Self.air(viewport: geo.size.height, slot: pitch, centre: centre)
                 let strayed = Self.linesStrayed(
                     reading: reading.flatMap { slots.firstIndex(of: $0) }, from: anchorIndex
                 )
@@ -361,7 +385,7 @@ struct LyricsStage: View {
                                         // that the board has no row for it. Zero would be the
                                         // sung line's own, at full white.
                                         offset: lit.map { position - $0 } ?? Self.unlitOffset,
-                                        lines: lines
+                                        lines: lines, translation: translations[index]
                                     )
                                 case .interlude:
                                     interludeRow(
@@ -370,7 +394,7 @@ struct LyricsStage: View {
                                     )
                                 }
                             }
-                            .frame(height: metrics.pitch, alignment: .leading)
+                            .frame(height: pitch, alignment: .leading)
                             .id(slot)
                         }
                     }
@@ -430,6 +454,11 @@ struct LyricsStage: View {
                 // on in a single frame (F-055). A fade is not motion.
                 .animation(Theme.contentAnimation, value: following)
                 .animation(Theme.contentAnimation, value: strayed)
+                // The translations arrive as one: the rows fade in together and
+                // the slots take their new pitch on the same 0.16 s ease
+                // (spec §5.3) — and on the 0.24 s crossfade under Reduce Motion
+                // (§13), the one place this ease is not the right answer.
+                .animation(reduceMotion ? Theme.reducedMotion : Theme.contentAnimation, value: translations)
         }
     }
 
@@ -550,7 +579,7 @@ struct LyricsStage: View {
 
     private func row(
         line: LyricsStore.Line, index: Int, moment: LyricMoment, distance: Int, offset: Int,
-        lines: [LyricsStore.Line]
+        lines: [LyricsStore.Line], translation: String?
     ) -> some View {
         let current = moment.current
         let isCurrent = index == current
@@ -599,7 +628,12 @@ struct LyricsStage: View {
             },
             // The board's own depth: lines above the sung one dimmer than the
             // lines below it, raised where the contrast floor needs it.
-            board: .init(offset: offset, tall: metrics.tall)
+            board: .init(offset: offset, tall: metrics.tall),
+            translation: translation,
+            // A bilingual line is drawn as its first row alone; the second is
+            // the translation row under it, or hidden with the rest.
+            displayText: LyricTranslation.rows(of: line.text).secondary == nil
+                ? nil : LyricTranslation.rows(of: line.text).primary
         )
         .frame(maxHeight: .infinity, alignment: .center)
         // A row lighting is depth through opacity alone — `LyricRow` gave up

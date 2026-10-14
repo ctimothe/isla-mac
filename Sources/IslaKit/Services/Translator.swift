@@ -470,7 +470,9 @@ final class Translator: ObservableObject {
     }
 
     /// Why the model is not answering, or nil when it is ready.
-    var modelObstacle: Obstacle? {
+    var modelObstacle: Obstacle? { Self.modelObstacle() }
+
+    static func modelObstacle() -> Obstacle? {
         guard #available(macOS 26.0, *) else { return .needsNewerSystem }
         switch SystemLanguageModel.default.availability {
         case .available:
@@ -494,26 +496,44 @@ final class Translator: ObservableObject {
 
     private func capabilities(for route: Route) async -> Capabilities {
         if let capabilitiesOverride { return capabilitiesOverride(route) }
-        var capabilities = Capabilities()
-        capabilities.onlineEnabled = defaults.bool(forKey: NotchViewModel.onlineTranslationKey)
-        guard #available(macOS 26.0, *) else {
-            capabilities.belowMinimumSystem = true
-            return capabilities
-        }
-        let status = await Self.systemStatus(from: route.source, to: route.target)
-        capabilities.systemSupported = status != .unsupported
-        capabilities.systemInstalled = status == .installed
-        capabilities.modelSupportsPair = Self.modelHandles(route.source) && Self.modelHandles(route.target)
-        capabilities.modelObstacle = modelObstacle
+        var capabilities = await Self.deviceCapabilities(
+            for: route, onlineEnabled: defaults.bool(forKey: NotchViewModel.onlineTranslationKey)
+        )
+        guard !capabilities.belowMinimumSystem else { return capabilities }
         if onDeviceLanguages == nil { onDeviceLanguages = await Self.languagesOnThisMac() }
         capabilities.sourceOffDevice = isOnlineOnly(route.source)
         capabilities.targetOffDevice = isOnlineOnly(route.target)
         return capabilities
     }
 
+    /// What this Mac can do for one pair, without a `Translator` to ask. The
+    /// Translate tab asks it through the instance above; the lyric translation
+    /// (`LyricTranslation`, spec §5.3) asks it here, so both decide which
+    /// engines may run — and above all whether the online one may — from this
+    /// one function and `engines(given:)`, never from a second policy.
+    ///
+    /// `sourceOffDevice` and `targetOffDevice` stay false: they only decide
+    /// which language an obstacle's sentence names, and a lyric that cannot be
+    /// translated says nothing (one failure surface; the Translate tab is where
+    /// translation errors are explained).
+    static func deviceCapabilities(for route: Route, onlineEnabled: Bool) async -> Capabilities {
+        var capabilities = Capabilities()
+        capabilities.onlineEnabled = onlineEnabled
+        guard #available(macOS 26.0, *) else {
+            capabilities.belowMinimumSystem = true
+            return capabilities
+        }
+        let status = await systemStatus(from: route.source, to: route.target)
+        capabilities.systemSupported = status != .unsupported
+        capabilities.systemInstalled = status == .installed
+        capabilities.modelSupportsPair = modelHandles(route.source) && modelHandles(route.target)
+        capabilities.modelObstacle = modelObstacle()
+        return capabilities
+    }
+
     /// Asked off the main actor, where the framework's availability object is
     /// made and used, so nothing that is not `Sendable` crosses an actor.
-    nonisolated private static func systemStatus(
+    nonisolated static func systemStatus(
         from source: TranslationLanguage, to target: TranslationLanguage
     ) async -> LanguageAvailability.Status {
         await LanguageAvailability().status(from: source.locale, to: target.locale)
@@ -721,7 +741,7 @@ final class Translator: ObservableObject {
     }
 
     @available(macOS 26.0, *)
-    private static func askModel(_ text: String, route: Route) async throws -> String {
+    static func askModel(_ text: String, route: Route) async throws -> String {
         let source = route.source.englishName
         let target = route.target.englishName
         // Guided generation, not a free-form reply, and this is the whole

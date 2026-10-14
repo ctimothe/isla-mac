@@ -292,7 +292,77 @@ extension PlayerLayout {
     }
 
     /// The spec's table, for this layout's width, header and settings.
-    func frames(for state: State) -> StateFrames {
+    ///
+    /// `translated` is the `Ct` and `Tt` columns of the board (§5.1): a
+    /// translation under each line, which grows the pitch and — on the tall
+    /// page — moves where the sung pair sits. The player has no lines of its own
+    /// to translate, so it ignores the flag.
+    func frames(for state: State, translated: Bool = false) -> StateFrames {
+        var frames = untranslatedFrames(for: state)
+        guard translated, state != .player, let sung = frames.sungLine, let pitch = Self.translatedPitch(for: state) else {
+            return frames
+        }
+        frames.lyricPitch = pitch
+        frames.sungLine = Self.translatedSungLine(for: state, plain: sung)
+        return frames
+    }
+
+    /// The sung pair's frame when each line carries a translation: the line and
+    /// its translation as one block, centred where the sung line was centred in
+    /// the column (`Ct`: the line moves from y 96 to 89 and the translation
+    /// under it ends the block, so the middle is the same) and, on the tall page,
+    /// where the board puts it (`Tt`: y 188, the block's middle at 208 — the
+    /// middle of the page between the cover row and the footer, which the lone
+    /// line's 166 sat above).
+    static func translatedSungLine(for state: State, plain: CGRect) -> CGRect {
+        switch state {
+        case .column: return CGRect(x: plain.minX, y: 89, width: plain.width, height: 32)
+        case .tall: return CGRect(x: plain.minX, y: 188, width: plain.width, height: 40)
+        case .player: return plain
+        }
+    }
+
+    /// Distance between two lines' tops with a translation under each (§5.1):
+    /// 23 → 46 in the column, 34 → 52 on the tall page.
+    static func translatedPitch(for state: State) -> CGFloat? {
+        switch state {
+        case .column: return 46
+        case .tall: return 52
+        case .player: return nil
+        }
+    }
+
+    /// The translation row's type (§5.1, §2.2 roles): 10.5 → `caption` in the
+    /// column and 12 → `reading` on the tall page, regular; the sung line's
+    /// 11.5 → `body` and 13 → `subhead`, medium. Plain text throughout — the
+    /// sung line's translation sweeps nothing.
+    static func translationStyle(tall: Bool, isSung: Bool) -> (size: CGFloat, weight: Font.Weight) {
+        switch (tall, isSung) {
+        case (false, false): return (Theme.TypeRole.caption.size, .regular)
+        case (false, true): return (Theme.TypeRole.body.size, .medium)
+        case (true, false): return (Theme.TypeRole.reading.size, .regular)
+        case (true, true): return (Theme.TypeRole.subhead.size, .medium)
+        }
+    }
+
+    /// How bright a translation row is drawn: the sung line's at the board's
+    /// 0.62 (0.66 on the tall page) and every other line's at the panel's
+    /// tertiary label grey, 0.50 (0.65 with Increase Contrast).
+    ///
+    /// The board dims a context line's translation to 0.24–0.34, as it dims the
+    /// line above it, but a translation is 10–12.5 pt regular text and the
+    /// panel's contrast floor for text that small is `Theme.tertiaryOpacity`
+    /// (4.5:1 over black); the spec says the floor wins over the boards (§2.1).
+    /// The lyric ramp's own 0.36 floor is the large-type one and would leave a
+    /// 10 pt row at 3.1:1. The sung translation clears the floor already, and is
+    /// raised to it under Increase Contrast, where 0.62 would fall under 0.65.
+    static func translationOpacity(isSung: Bool, tall: Bool, increaseContrast: Bool) -> Double {
+        let floor = Theme.tertiaryOpacity(increaseContrast: increaseContrast)
+        guard isSung else { return floor }
+        return max(tall ? 0.66 : 0.62, floor)
+    }
+
+    private func untranslatedFrames(for state: State) -> StateFrames {
         switch state {
         case .player:
             return StateFrames(
@@ -369,10 +439,10 @@ extension PlayerLayout {
     /// has only a width.
     static func frames(
         for state: State, bodyWidth: CGFloat, headerHeight: CGFloat = referenceHeaderHeight,
-        hasVolumeAndOutput: Bool = true
+        hasVolumeAndOutput: Bool = true, translated: Bool = false
     ) -> StateFrames {
         PlayerLayout(bodyWidth: bodyWidth, headerHeight: headerHeight, hasVolumeAndOutput: hasVolumeAndOutput)
-            .frames(for: state)
+            .frames(for: state, translated: translated)
     }
 
     /// Where the column's lines start (`x 268`), and how wide the title may be

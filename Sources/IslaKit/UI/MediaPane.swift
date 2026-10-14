@@ -56,6 +56,11 @@ struct MediaPane: View {
     /// panel — a test, a render — must not reach the owner's output devices, even
     /// to read them. The panel hands in `NotchViewModel.playerAudio`.
     @ObservedObject var audio: AudioWatch = MediaPane.quietAudio()
+    /// The lyric translation (spec §5.3): whether the lyric area carries a
+    /// translation under each line decides the pitch and, on the tall page, the
+    /// sung line's place. The idle service by default — a pane built anywhere but
+    /// the panel translates nothing.
+    @ObservedObject var translation: LyricTranslation = .idle
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Volume and Output, and Lyric Band: Settings › Music (spec §14). Read
@@ -255,7 +260,9 @@ struct MediaPane: View {
     private func stage(for track: MediaController.Track) -> some View {
         GeometryReader { geo in
             let layout = layout(paneWidth: geo.size.width)
-            let frames = layout.frames(for: page)
+            let frames = layout.frames(
+                for: page, translated: page != .player && translation.drawsTranslations(in: lyrics.state)
+            )
             ZStack(alignment: .topLeading) {
                 // The pane's own size, so the children are placed from its
                 // top-left corner whatever they measure.
@@ -357,7 +364,8 @@ struct MediaPane: View {
             invalidLine: invalidFileLine,
             mode: page == .tall ? .tall : .column,
             // The sung line's centre, measured from the area's own top.
-            readingCentre: sungLine.midY - area.minY
+            readingCentre: sungLine.midY - area.minY,
+            translation: translation
         )
         .placed(layout.inPane(area), alignment: .topLeading)
         .transition(.opacity)

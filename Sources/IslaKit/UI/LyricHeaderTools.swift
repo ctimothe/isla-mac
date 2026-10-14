@@ -252,11 +252,275 @@ struct LyricsMoreButton: View {
     }
 }
 
+// MARK: - The translation menu (spec §5.2)
+
+/// One row of the translation menu, as a value (`Lyrics-Translate-Menu`).
+struct LyricsTranslateMenuItem: Equatable {
+    enum Kind: Equatable {
+        case showTranslation
+        case separator
+        case header
+        case language(String)
+        /// Where the batch was made, shown and never pressed.
+        case provenance
+    }
+
+    let kind: Kind
+    let title: String
+    var isChecked = false
+    var isEnabled = true
+}
+
+enum LyricsTranslateMenuModel {
+    /// The menu, top to bottom:
+    ///
+    /// ```
+    /// ✓ Show Translation
+    /// ─────
+    /// Translate To                       (header)
+    ///   English
+    /// ✓ Russian
+    ///   Ukrainian
+    ///   German
+    ///   Spanish
+    /// ─────
+    /// Translated on this Mac             (disabled)
+    /// ```
+    ///
+    /// The last row says "Translated online by MyMemory" instead when that is
+    /// where the batch went — the one place a lyric's translation says it left
+    /// the Mac, and the existing sentence the Translate tab's globe uses.
+    static func items(
+        isShown: Bool, languages: [TranslationLanguage], current: TranslationLanguage,
+        engine: Translator.Engine?
+    ) -> [LyricsTranslateMenuItem] {
+        var items: [LyricsTranslateMenuItem] = [
+            .init(kind: .showTranslation, title: localized("Show Translation"), isChecked: isShown),
+            .init(kind: .separator, title: ""),
+            .init(kind: .header, title: localized("Translate To")),
+        ]
+        for language in languages {
+            items.append(.init(kind: .language(language.code), title: language.name, isChecked: language == current))
+        }
+        items.append(.init(kind: .separator, title: ""))
+        items.append(.init(
+            kind: .provenance,
+            title: engine == .online ? localized("Translated online by MyMemory") : localized("Translated on this Mac"),
+            isEnabled: false
+        ))
+        return items
+    }
+
+    /// The languages the menu lists: the five most recent targets, and the
+    /// current one when it is not among them — which is only a language never
+    /// chosen from here, the default. Fewer than five are made up to five from
+    /// the languages most people ask for first, so a menu opened before anything
+    /// was chosen is a menu and not a single row. Listed in the Translate tab's
+    /// own order (the panel's alphabet), so choosing one never moves the others.
+    static func languages(
+        recents: [TranslationLanguage], current: TranslationLanguage,
+        fill: [TranslationLanguage] = [.english, .russian, .ukrainian, .german, .spanish]
+    ) -> [TranslationLanguage] {
+        var chosen: [TranslationLanguage] = []
+        func add(_ language: TranslationLanguage) {
+            if !chosen.contains(language) { chosen.append(language) }
+        }
+        recents.prefix(LyricTranslation.recentLimit).forEach(add)
+        add(current)
+        for language in fill where chosen.count < LyricTranslation.recentLimit { add(language) }
+        let order = TranslationLanguage.all
+        return chosen.sorted {
+            (order.firstIndex(of: $0) ?? .max) < (order.firstIndex(of: $1) ?? .max)
+        }
+    }
+}
+
+/// Builds the translation menu and acts on it, the way `LyricsMoreMenuController`
+/// does for More: an `NSMenu` popped up from the panel, every effect a closure,
+/// the context read when the menu opens.
+@MainActor
+final class LyricsTranslateMenuController: NSObject {
+    struct Context {
+        var isShown: Bool
+        var languages: [TranslationLanguage]
+        var current: TranslationLanguage
+        var engine: Translator.Engine?
+    }
+
+    struct Actions {
+        var toggleShown: () -> Void = {}
+        var choose: (TranslationLanguage) -> Void = { _ in }
+    }
+
+    /// The board's width for this menu.
+    static let menuWidth: CGFloat = 214
+
+    private let context: () -> Context
+    private let actions: Actions
+    private var kinds: [ObjectIdentifier: LyricsTranslateMenuItem.Kind] = [:]
+
+    init(context: @escaping () -> Context, actions: Actions) {
+        self.context = context
+        self.actions = actions
+    }
+
+    func makeMenu() -> NSMenu {
+        let state = context()
+        let menu = NSMenu(title: localized("Translate To"))
+        menu.minimumWidth = Self.menuWidth
+        menu.autoenablesItems = false
+        kinds.removeAll()
+        let items = LyricsTranslateMenuModel.items(
+            isShown: state.isShown, languages: state.languages, current: state.current, engine: state.engine
+        )
+        for entry in items {
+            switch entry.kind {
+            case .separator:
+                menu.addItem(.separator())
+            case .header:
+                menu.addItem(NSMenuItem.sectionHeader(title: entry.title))
+            case .showTranslation, .language, .provenance:
+                let item = NSMenuItem(title: entry.title, action: #selector(chosen(_:)), keyEquivalent: "")
+                item.target = self
+                item.isEnabled = entry.isEnabled
+                item.state = entry.isChecked ? .on : .off
+                kinds[ObjectIdentifier(item)] = entry.kind
+                if entry.kind == .provenance { item.action = nil }
+                menu.addItem(item)
+            }
+        }
+        return menu
+    }
+
+    @objc private func chosen(_ item: NSMenuItem) {
+        guard let kind = kinds[ObjectIdentifier(item)] else { return }
+        perform(kind)
+    }
+
+    /// What a row does, apart from the menu, so a test can press each.
+    func perform(_ kind: LyricsTranslateMenuItem.Kind) {
+        switch kind {
+        case .showTranslation: actions.toggleShown()
+        case .language(let code):
+            if let language = TranslationLanguage.withCode(code) { actions.choose(language) }
+        case .separator, .header, .provenance: break
+        }
+    }
+}
+
+/// Pops the translation menu up under the Show Translation button, its right
+/// edge on the button's, through the same anchor rule as More and Output.
+@MainActor
+final class LyricsTranslateMenuPresenter {
+    weak var anchor: NSView?
+    let controller: LyricsTranslateMenuController
+
+    init(controller: LyricsTranslateMenuController) { self.controller = controller }
+
+    func present() {
+        guard let anchor else { return }
+        let menu = controller.makeMenu()
+        let width = max(menu.size.width, LyricsTranslateMenuController.menuWidth)
+        _ = menu.popUp(
+            positioning: nil,
+            at: OutputMenuPresenter.popUpPoint(anchorSize: anchor.bounds.size, menuWidth: width),
+            in: anchor
+        )
+    }
+}
+
+/// What counts as a secondary click, and a monitor that hears one over a view.
+///
+/// Heard by a local event monitor, the way `onScrollWheel` hears the wheel, and
+/// for the same reason: a view laid over the button to catch the event would sit
+/// in the hit-test path of the button it covers, and swallow the primary click
+/// the button exists for. The monitor looks at where the event landed, in the
+/// button's own anchor view, and consumes only a secondary press that landed on
+/// it. A SwiftUI `.contextMenu` would have been the shorter way, but draws
+/// SwiftUI's menu where the other two header menus are `NSMenu`s popped from the
+/// same kind of anchor.
+enum SecondaryClick {
+    /// The right button, or the left with Control held — the Mac's other way to
+    /// say the same thing.
+    static func isSecondary(type: NSEvent.EventType, modifiers: NSEvent.ModifierFlags) -> Bool {
+        switch type {
+        case .rightMouseDown: return true
+        case .leftMouseDown: return modifiers.contains(.control)
+        default: return false
+        }
+    }
+
+    /// Whether `event` is a secondary press inside `view`.
+    @MainActor
+    static func lands(_ event: NSEvent, in view: NSView) -> Bool {
+        guard isSecondary(type: event.type, modifiers: event.modifierFlags),
+              let window = view.window, event.window === window else { return false }
+        return view.bounds.contains(view.convert(event.locationInWindow, from: nil))
+    }
+}
+
+private struct SecondaryClickMonitor: ViewModifier {
+    let anchor: () -> NSView?
+    let action: () -> Void
+    @State private var monitor: Any?
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                guard monitor == nil else { return }
+                monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { event in
+                    guard let view = anchor(), MainActor.assumeIsolated({ SecondaryClick.lands(event, in: view) }) else {
+                        return event
+                    }
+                    action()
+                    return nil
+                }
+            }
+            .onDisappear {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            }
+    }
+}
+
+/// The Show Translation button: `character.bubble`, filled on the selected fill
+/// while the translations are shown. A click toggles; a right-click, a
+/// Control-click or the VoiceOver action "Translation Options" opens the
+/// translation menu.
+struct TranslationToolButton: View {
+    let isShown: Bool
+    let toggle: () -> Void
+    @State private var presenter: LyricsTranslateMenuPresenter
+
+    init(isShown: Bool, controller: LyricsTranslateMenuController, toggle: @escaping () -> Void) {
+        self.isShown = isShown
+        self.toggle = toggle
+        _presenter = State(initialValue: LyricsTranslateMenuPresenter(controller: controller))
+    }
+
+    static func symbol(isShown: Bool) -> String {
+        isShown ? "character.bubble.fill" : "character.bubble"
+    }
+
+    static func label(isShown: Bool) -> String {
+        isShown ? localized("Hide Translation") : localized("Show Translation")
+    }
+
+    var body: some View {
+        HeaderIconButton(
+            symbol: Self.symbol(isShown: isShown), label: Self.label(isShown: isShown),
+            isOn: isShown, action: toggle
+        )
+        .background(MenuAnchor { presenter.anchor = $0 })
+        .modifier(SecondaryClickMonitor(anchor: { presenter.anchor }, action: { presenter.present() }))
+        .accessibilityAction(named: localized("Translate To")) { presenter.present() }
+    }
+}
+
 // MARK: - The tools together
 
 /// The lyric column's and the tall page's header tools, in the header's own
-/// coordinates: Show Translation (hidden until the translation release wires
-/// it), More, and Expand / Collapse (spec §5.2).
+/// coordinates: Show Translation (there while Translate Lyrics is on), More, and Expand / Collapse (spec §5.2).
 ///
 /// Each tool is placed by its own offset instead of one full-width container, so
 /// the header's click-to-close — which is the rest of the strip — keeps every
@@ -271,6 +535,7 @@ struct LyricHeaderTools: ViewModifier {
     let showsTranslation: Bool
     let translationShown: Bool
     let toggleTranslation: () -> Void
+    let translateController: LyricsTranslateMenuController
     let moreController: LyricsMoreMenuController
     @Binding var isExpanded: Bool
 
@@ -278,10 +543,8 @@ struct LyricHeaderTools: ViewModifier {
         content
             .overlay(alignment: .topLeading) {
                 if isShown, showsTranslation {
-                    HeaderIconButton(
-                        symbol: translationShown ? "character.bubble.fill" : "character.bubble",
-                        label: translationShown ? localized("Hide Translation") : localized("Show Translation"),
-                        isOn: translationShown, action: toggleTranslation
+                    TranslationToolButton(
+                        isShown: translationShown, controller: translateController, toggle: toggleTranslation
                     )
                     .offset(x: HeaderToolFrames.showTranslation(bodyWidth: bodyWidth).minX, y: HeaderToolFrames.top)
                     .transition(.opacity)

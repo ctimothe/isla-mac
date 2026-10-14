@@ -218,6 +218,10 @@ struct SettingsPane: View {
     /// default — the owner-waived exception, see `NotchViewModel.volumeAndOutputKey`.
     @State private var volumeAndOutput = NotchViewModel.volumeAndOutputEnabled
     @State private var lyricBand = NotchViewModel.lyricBandEnabled
+    /// Translate Lyrics and Translate To (spec §5.3, §14). Off until chosen — the
+    /// translation is made on this Mac and reaches nothing by itself.
+    @State private var translateLyrics = NotchViewModel.translateLyricsEnabled
+    @State private var translateTarget = NotchViewModel.translateTarget(in: .standard)
     @State private var showCharging = NotchViewModel.showChargingEnabled
     @State private var showHeadphones = NotchViewModel.showHeadphonesEnabled
     /// Observed, not snapshotted: the connect flow completes in the browser
@@ -582,6 +586,42 @@ struct SettingsPane: View {
                     } else {
                         noteRow(localized("Lyrics stay on this Mac."))
                     }
+                    // A translated line under each lyric line (spec §5.3, decision
+                    // 11): off until chosen. The target is a choice from the
+                    // Translate tab's own languages, and does nothing while the
+                    // switch above it is off. The note says where the work is
+                    // done before either is touched: on this Mac, and online
+                    // only through the consent Translate Online already is.
+                    noteRow(localized("Translation"))
+                    toggleRow(
+                        symbol: SettingsIcon.translateLyrics,
+                        title: localized("Translate Lyrics"),
+                        isOn: Binding(
+                            get: { translateLyrics },
+                            set: { wants in
+                                translateLyrics = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.translateLyricsKey)
+                            }
+                        ),
+                        disabledReason: lyricsOffReason
+                    )
+                    SettingsPopUpRow(
+                        symbol: SettingsIcon.translateTarget,
+                        title: localized("Translate To"),
+                        options: TranslationLanguage.all,
+                        selection: Binding(
+                            get: { translateTarget },
+                            set: { language in
+                                translateTarget = language
+                                // Also the translation menu's short list of recents.
+                                LyricTranslation.record(target: language, in: .standard)
+                            }
+                        ),
+                        optionTitle: { $0.name }
+                    )
+                    .disabled(!translateLyrics || lyricsOffReason != nil)
+                    .opacity(translateLyrics && lyricsOffReason == nil ? 1 : 0.4)
+                    noteRow(localized("Translated on this Mac. Languages it cannot translate itself use Translate Online, if it is on."))
                     noteRow(localized("Local Lyrics Library"))
                     actionRow(symbol: SettingsIcon.importLyrics, title: localized("Import LRC…")) {
                         importLocalLyrics()
@@ -1749,6 +1789,71 @@ struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
             } else {
                 RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface)
             }
+        }
+    }
+}
+
+/// A Settings row that picks one of a long list — the languages — drawn as the
+/// board's pop-up: the title, and at the trailing edge a capsule holding the
+/// chosen value over a pair of chevrons.
+///
+/// A `Menu`, the way the Translate tab's own language headings are: a menu from
+/// a panel that never becomes key works through SwiftUI's own button menu, and
+/// the segmented capsules of `SettingsChoiceRow` do not fit sixteen choices. To
+/// an assistive client it is a native pop-up button named by the row and valued
+/// by the choice.
+struct SettingsPopUpRow<Option: Identifiable & Hashable>: View {
+    let symbol: String
+    let title: String
+    let options: [Option]
+    @Binding var selection: Option
+    let optionTitle: (Option) -> String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            RowIcon(symbol: symbol)
+            Text(title)
+                .islandFont(.body)
+                .foregroundStyle(.white)
+            Spacer(minLength: 8)
+            Menu {
+                ForEach(options) { option in
+                    // A toggle, because a menu draws one as the native
+                    // checkmarked item (see the Translate tab's `languageItem`).
+                    Toggle(optionTitle(option), isOn: Binding(
+                        get: { option == selection },
+                        set: { wants in if wants { selection = option } }
+                    ))
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(optionTitle(selection))
+                        .islandFont(.body)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .islandFont(.caption, weight: .semibold)
+                        .foregroundStyle(Theme.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.surface))
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .menuStyle(.button)
+            .buttonStyle(PanelButtonStyle())
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+        .padding(.horizontal, 8)
+        .frame(minHeight: 26)
+        .accessibilityRepresentation {
+            Picker(title, selection: $selection) {
+                ForEach(options) { option in
+                    Text(optionTitle(option)).tag(option)
+                }
+            }
+            .pickerStyle(.menu)
         }
     }
 }

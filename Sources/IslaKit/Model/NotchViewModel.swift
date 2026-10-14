@@ -249,11 +249,31 @@ final class NotchViewModel: ObservableObject {
         )
     )
 
-    /// The header's Show Translation tool. **Hidden until the translation
-    /// release wires it** (T4: it reads Settings › Translate Lyrics); a flag
-    /// rather than a missing view so the header's layout, which leaves its slot
-    /// empty, is already the final one.
-    @Published var showsTranslationTool = false
+    /// The header's Show Translation tool: there while Translate Lyrics is on in
+    /// Settings (spec §5.2). Read through the service, which hears of the switch
+    /// from the defaults it is written to.
+    var showsTranslationTool: Bool { translation.isEnabled }
+
+    /// The lyric translation, the session's own (`NotchStores`).
+    var translation: LyricTranslation { stores.lyricTranslation }
+
+    /// The translation menu's controller, built once and reading the service when
+    /// it opens — the recents, the current language and where the batch went all
+    /// move while the panel is up.
+    lazy var lyricsTranslateMenu: LyricsTranslateMenuController = LyricsTranslateMenuController(
+        context: { [unowned self] in
+            LyricsTranslateMenuController.Context(
+                isShown: translation.isShown, languages: LyricsTranslateMenuModel.languages(
+                    recents: translation.recents, current: translation.target
+                ),
+                current: translation.target, engine: translation.engine
+            )
+        },
+        actions: LyricsTranslateMenuController.Actions(
+            toggleShown: { [unowned self] in translation.toggleShown() },
+            choose: { [unowned self] in translation.choose(target: $0) }
+        )
+    )
 
     /// Why the last lyric import or folder action did not work, said once,
     /// in the section that asked.
@@ -668,6 +688,15 @@ final class NotchViewModel: ObservableObject {
         // A film starting under Music Only folds a paused song's pill at once.
         media.$otherMediaIsPlaying.removeDuplicates().filter { $0 }
             .sink { [weak self] _ in self?.otherMediaStartedPlaying() }
+            .store(in: &cancellables)
+
+        // The header's Show Translation tool appears and fills with Settings and
+        // the service. Only while the panel is up: nothing paints otherwise.
+        stores.lyricTranslation.objectWillChange
+            .sink { [weak self] _ in
+                guard let self, self.isOpen else { return }
+                self.objectWillChange.send()
+            }
             .store(in: &cancellables)
 
         // The remaining stores have nothing to paint while collapsed.
@@ -1173,6 +1202,50 @@ final class NotchViewModel: ObservableObject {
         guard defaults.object(forKey: lyricBandKey) != nil else { return true }
         return defaults.bool(forKey: lyricBandKey)
     }
+
+    // MARK: Lyric translation (spec §5.3, §14; owner decision 11)
+
+    static let translateLyricsKey = "lyrics.translate"
+
+    /// Defaults to **off** (decision 11). On its own it reaches nothing: the
+    /// translation is made on this Mac, and goes to MyMemory only for a pair
+    /// nothing here offers and only if Translate Online — its own, older
+    /// consent — is on as well (`LyricTranslation`).
+    static var translateLyricsEnabled: Bool { translateLyricsEnabled(in: .standard) }
+
+    /// The same, read from a given suite: the rule a test holds without touching
+    /// the standard domain.
+    static func translateLyricsEnabled(in defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: translateLyricsKey)
+    }
+
+    static let translateTargetKey = "lyrics.translateTarget"
+
+    /// The language lyrics are translated into: what was chosen, else the first of
+    /// the system's languages the Translate tab offers, else English — the rule
+    /// the Translate tab's own default follows (`Translator.defaultTarget`). A
+    /// stored code that is no longer on offer reads as unset.
+    static func translateTarget(
+        in defaults: UserDefaults, preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> TranslationLanguage {
+        defaults.string(forKey: translateTargetKey).flatMap(TranslationLanguage.withCode)
+            ?? Translator.defaultTarget(preferredLanguages: preferredLanguages)
+    }
+
+    static let showTranslationKey = "lyrics.showTranslation"
+
+    /// The header's Show Translation switch; **on** when never touched, so
+    /// turning Translate Lyrics on shows something. Not in §14's table — it is
+    /// the toggle's own memory, so a hidden translation stays hidden across a
+    /// launch.
+    static func showTranslationEnabled(in defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: showTranslationKey) != nil else { return true }
+        return defaults.bool(forKey: showTranslationKey)
+    }
+
+    /// The last targets chosen, newest first (`LyricTranslation.record`): the
+    /// translation menu's short list. Also outside §14's table.
+    static let translateRecentsKey = "lyrics.translateRecents"
 
     static let onlineLyricsKey = "lyrics.onlineEnabled"
 

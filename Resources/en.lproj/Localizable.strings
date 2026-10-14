@@ -432,3 +432,9 @@
 "Lyrics Settings…" = "Lyrics Settings…";
 "Looking for lyrics…" = "Looking for lyrics…";
 "Edit Lyrics…" = "Edit Lyrics…";
+
+/* Lyric translation (spec 5.3, 14, 15) */
+"Translate Lyrics" = "Translate Lyrics";
+"Translation" = "Translation";
+"Translated on this Mac" = "Translated on this Mac";
+"Translated on this Mac. Languages it cannot translate itself use Translate Online, if it is on." = "Translated on this Mac. Languages it cannot translate itself use Translate Online, if it is on.";

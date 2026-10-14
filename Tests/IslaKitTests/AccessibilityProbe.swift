@@ -357,7 +357,10 @@ final class ProbeStores {
             clipboard: clipboard,
             screenshotVault: ScreenshotVault(paths: paths),
             translator: Translator(defaults: suite, preferredLanguages: ["ru"]),
-            privacy: PrivacyMode(defaults: suite)
+            privacy: PrivacyMode(defaults: suite),
+            // Reads the private suite and can translate nothing: a probe must
+            // never reach the network or a real model.
+            lyricTranslation: LyricTranslation(defaults: suite, backend: .inert, preferredLanguages: ["en"])
         )
         stores.media.isolateFromPlayers()
         stores.media.monotonicNow = { 50_000 }

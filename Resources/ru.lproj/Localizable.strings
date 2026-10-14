@@ -75,7 +75,7 @@
 "%@ (Online)" = "%@ (онлайн)";
 "Swap Languages" = "Поменять языки местами";
 "Translate From" = "Исходный язык";
-"Translate To" = "Язык перевода";
+"Translate To" = "Переводить на";
 "%@ is not downloaded for translation on this Mac." = "%@: язык не загружен для перевода на этом Mac.";
 "Online translation is not reachable right now." = "Онлайн-перевод сейчас недоступен.";
 "Today's free online translations are used up." = "Бесплатный онлайн-перевод на сегодня исчерпан.";
@@ -438,3 +438,9 @@
 "Lyrics Settings…" = "Настройки текста…";
 "Looking for lyrics…" = "Ищем текст…";
 "Edit Lyrics…" = "Изменить текст…";
+
+/* Lyric translation (spec 5.3, 14, 15) */
+"Translate Lyrics" = "Переводить текст";
+"Translation" = "Перевод";
+"Translated on this Mac" = "Переведено на этом Mac";
+"Translated on this Mac. Languages it cannot translate itself use Translate Online, if it is on." = "Перевод выполняется на этом Mac. Языки, которые он не переводит сам, переводятся онлайн, если это включено.";
