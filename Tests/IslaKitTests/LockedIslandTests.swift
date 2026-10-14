@@ -49,29 +49,90 @@ final class LockedIslandTests: XCTestCase {
         ))
     }
 
-    func testTheRuleIsTotal() {
-        for locked in [false, true] {
-            for show in [false, true] {
-                for track in [false, true] {
-                    for visible in [false, true] {
-                        let wings = LockedIsland.showsWings(
-                            compactVisible: visible, locked: locked, showOnLockScreen: show, hasTrack: track
-                        )
-                        let presenting = LockedIsland.presentsSong(locked: locked, showOnLockScreen: show, hasTrack: track)
-                        XCTAssertEqual(wings, visible && !presenting)
-                        XCTAssertEqual(presenting, locked && show && track)
-                        if presenting { XCTAssertFalse(wings) }
-                    }
-                }
-            }
+    /// The whole table, written out (review 2026-10-15: the loop it replaces
+    /// restated the production formula, so it could only agree with it). Each row
+    /// is (locked, Show on Lock Screen, a song, the compact island has something)
+    /// and the two answers a person would give by looking at the lock screen.
+    func testTheRuleRowByRow() {
+        // locked, show, track, visible -> presents, wings
+        let rows: [(Bool, Bool, Bool, Bool, presents: Bool, wings: Bool)] = [
+            (false, false, false, false, presents: false, wings: false),
+            (false, false, false, true,  presents: false, wings: true),
+            (false, false, true,  false, presents: false, wings: false),
+            (false, false, true,  true,  presents: false, wings: true),
+            (false, true,  false, false, presents: false, wings: false),
+            (false, true,  false, true,  presents: false, wings: true),
+            (false, true,  true,  false, presents: false, wings: false),
+            (false, true,  true,  true,  presents: false, wings: true),
+            (true,  false, false, false, presents: false, wings: false),
+            (true,  false, false, true,  presents: false, wings: true),
+            (true,  false, true,  false, presents: false, wings: false),
+            (true,  false, true,  true,  presents: false, wings: true),
+            (true,  true,  false, false, presents: false, wings: false),
+            (true,  true,  false, true,  presents: false, wings: true),
+            (true,  true,  true,  false, presents: true,  wings: false),
+            (true,  true,  true,  true,  presents: true,  wings: false),
+        ]
+        for (locked, show, track, visible, presents, wings) in rows {
+            let label = "locked \(locked) show \(show) track \(track) visible \(visible)"
+            XCTAssertEqual(
+                LockedIsland.presentsSong(locked: locked, showOnLockScreen: show, hasTrack: track), presents, label
+            )
+            XCTAssertEqual(
+                LockedIsland.showsWings(
+                    compactVisible: visible, locked: locked, showOnLockScreen: show, hasTrack: track
+                ), wings, label
+            )
         }
+    }
+
+    /// **The hover rect follows a song that starts mid-lock** (review 2026-10-15).
+    /// With no song the locked island answers across its compact width; once the
+    /// banner holds the song it rests in the notch and answers across the notch
+    /// grown for a hover, and the rect the controller cut for the first must be
+    /// re-cut, through `refreshCollapsedRects`, or the nudge would land outside
+    /// the rect that heard it. The model's size is computed; the rect is the
+    /// controller's to keep in step.
+    func testTheLockedHoverRectIsRecutWhenATrackStartsMidLock() async throws {
+        guard NotchViewModel.showOnLockScreenEnabled else {
+            throw XCTSkip("this machine has Show on Lock Screen off; the rule is held row by row above")
+        }
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(physical: true), stores: isolated.stores)
+        let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
+        let controller = NotchController()
+        controller.attachForTesting(viewModel: vm, rootView: root)
+        vm.isLockedPresentation = true
+
+        controller.refreshCollapsedRects()
+        let before = root.lockedHoverRect
+        XCTAssertEqual(before.width, vm.lockedIslandSize.width, accuracy: 0.5)
+        XCTAssertFalse(vm.lockSurfacePresentsSong)
+        XCTAssertEqual(before.width, vm.bodySize.width, accuracy: 0.5, "no song: the compact island's own width")
+
+        await LabFixtures.play(LabFixtures.Track(), on: isolated.stores.media)
+        XCTAssertTrue(vm.lockSurfacePresentsSong)
+        controller.refreshCollapsedRects()
+        let after = root.lockedHoverRect
+        let notch = vm.geometry.notchSize
+        XCTAssertEqual(
+            after.width, notch.width + 2 * (Theme.collapsedTopRadius + NotchMetrics.hoverNudgeWidth), accuracy: 0.5,
+            "the song is the banner's: the rect is the notch grown for a hover"
+        )
+        XCTAssertGreaterThan(after.width, before.width, "the hover's room is the notch grown, which the old cut lacked")
+        XCTAssertEqual(after.midX, before.midX, accuracy: 0.5, "still centred on the notch")
+        XCTAssertEqual(after.maxY, before.maxY, accuracy: 0.5, "and still hung from the top")
     }
 
     /// A click still refuses and says so, whichever form the lock screen shows.
     func testAClickOnTheRestingNotchStillRefuses() {
-        let stores = NotchStores()
-        guard let geometry = NotchGeometry.current() else { return XCTFail("a test host always has a screen") }
-        let vm = NotchViewModel(geometry: geometry, stores: stores)
+        // Fixture geometry: `NotchGeometry.current()` is nil on a headless host
+        // (Codex review 2026-10-15).
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        guard let geometry = try? LabGeometry.make(physical: true) else { return XCTFail("no fixture geometry") }
+        let vm = NotchViewModel(geometry: geometry, stores: isolated.stores)
         vm.isLockedPresentation = true
         vm.nudgeLockedIsland()
         XCTAssertEqual(vm.lockedHoverNudges, 1, "the shake")

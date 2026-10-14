@@ -49,16 +49,63 @@ enum LockCardMaterial {
         reduceTransparency ? .solid : stored
     }
 
-    /// How opaque the cover's light is drawn: the wallpaper-driven alpha for
-    /// Automatic, Transparent's 0.62 (opaque again under Increase Contrast,
-    /// which asks against see-through), and full for Tinted, as it always was.
-    static func coverLightOpacity(
-        style: NotchViewModel.LockCardStyle, alpha: Double, increaseContrast: Bool
-    ) -> Double {
-        switch style {
-        case .automatic: return alpha
-        case .clear: return increaseContrast ? 1 : 0.62
-        case .glass, .solid: return 1
+    /// Transparent: black at 0.30 and a hairline (spec §7.2).
+    static let transparentAlpha = 0.30
+    /// Tinted: the cover's light at 0.88 (spec §7.2).
+    static let tintedAlpha = 0.88
+
+    /// What the card is made of, drawn under its content.
+    enum Layer: Equatable {
+        /// The blurred cover, lit from behind (`LockScreenCard.coverLight`).
+        case coverLight
+        /// A dark neutral standing in for the cover's light when there is no
+        /// cover (`Theme.lockCardSolid`).
+        case neutralFill
+        /// Black, nothing else, and a hairline: Transparent.
+        case blackWash
+        /// `#1C1C1E` and a hairline: Solid, and every style under Reduce
+        /// Transparency.
+        case solid
+    }
+
+    struct Decision: Equatable {
+        var layer: Layer
+        var alpha: Double
+    }
+
+    /// **The material, as a function of everything that chooses it** (spec §7.2).
+    ///
+    /// - Automatic: the cover's light at `automaticAlpha(luminance:)`.
+    /// - Transparent: black at 0.30, hairline.
+    /// - Tinted: the cover's light at 0.88.
+    /// - Solid: `#1C1C1E`, hairline. Reduce Transparency makes every style this.
+    ///
+    /// **No cover is not no material** (review 2026-10-15). Automatic and Tinted
+    /// are the cover's light, and a podcast or a browser tab has no cover: the
+    /// view then drew nothing at all in its place, so the alpha — and the 0.84
+    /// floor of owner decision 5 — was never applied, and the card was the bare
+    /// drawn recipe over a shield it cannot sample, the exact thin pane the floor
+    /// exists to prevent. The same alpha is laid as a dark neutral instead.
+    ///
+    /// Transparent under Increase Contrast is Solid: see-through is what that
+    /// setting asks against. Before 2026-10-15 Transparent was the cover's light
+    /// at 0.62 and Tinted at 1.0, neither of which the spec says.
+    static func decision(
+        style stored: NotchViewModel.LockCardStyle,
+        hasArtwork: Bool,
+        luminance: Double?,
+        reduceTransparency: Bool,
+        increaseContrast: Bool = false
+    ) -> Decision {
+        let light: Layer = hasArtwork ? .coverLight : .neutralFill
+        switch effectiveStyle(stored: stored, reduceTransparency: reduceTransparency) {
+        case .solid: return Decision(layer: .solid, alpha: 1)
+        case .automatic: return Decision(layer: light, alpha: automaticAlpha(luminance: luminance))
+        case .glass: return Decision(layer: light, alpha: tintedAlpha)
+        case .clear:
+            return increaseContrast
+                ? Decision(layer: .solid, alpha: 1)
+                : Decision(layer: .blackWash, alpha: transparentAlpha)
         }
     }
 }

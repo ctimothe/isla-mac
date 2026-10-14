@@ -74,7 +74,11 @@ final class LockCardWindow {
 
     /// Which form is showing and which pane, for the length of one lock. The
     /// hit-test reads it; the translation service is told by it.
-    private var presentation: LockCardPresentation?
+    /// Internal so a test can stand one in; nothing else touches it.
+    var presentation: LockCardPresentation?
+
+    /// Feeds the presentation whether there is a song (translation demand).
+    private var trackFollowing: AnyCancellable?
 
     /// The wallpaper's brightness behind the card, kept for the window's life.
     private let tone = LockCardToneModel()
@@ -124,6 +128,10 @@ final class LockCardWindow {
         { [weak media] in media?.track != nil }
     }
 
+    /// What a second `present` does for the card's translation demand: look at the
+    /// service's epoch again.
+    func resyncTranslationDemand() { presentation?.resync() }
+
     /// Puts the card on screen above the shield.
     func present(
         media: MediaController,
@@ -139,6 +147,11 @@ final class LockCardWindow {
             // changed shape underneath us. The audio watch is still running;
             // one re-read in case the machine moved with the display.
             audioWatch?.systemAudioChanged()
+            // The controller's `rebuild()` resets the translation demand on the
+            // same display change, and the card's registration went with it
+            // without the card hearing of it: ask again, under the new epoch
+            // (review 2026-10-15; with Rest as Banner off nothing else would).
+            resyncTranslationDemand()
             tone.refresh(on: screen, cardSize: LockScreenCard.size)
             panel.setFrame(frame, display: true)
             // Straight to full, no fade: this path is a correction to a card
@@ -169,7 +182,18 @@ final class LockCardWindow {
         // Banner or card, from the setting as it stands now: read at present, like
         // the card's size, so a switch flipped mid-lock applies at the next lock.
         let translation = translation ?? .idle
-        let presentation = LockCardPresentation(restsAsBanner: NotchViewModel.restAsBannerEnabled)
+        let presentation = LockCardPresentation(
+            restsAsBanner: NotchViewModel.restAsBannerEnabled, size: NotchViewModel.lockCardSize,
+            hasTrack: media.track != nil
+        )
+        // A card with no song draws no lyric and asks for no translation; a song
+        // started mid-lock makes the card wanted (review 2026-10-15).
+        trackFollowing = media.$track
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak presentation] hasTrack in
+                MainActor.assumeIsolated { presentation?.hasTrack = hasTrack }
+            }
         // The card's own demand for translations, raised now if it opens as the
         // card and on the click that grows the banner otherwise; lowered at
         // dismiss under the epoch it was raised in.
@@ -204,8 +228,11 @@ final class LockCardWindow {
         root.cardRect = cardRect
         // What takes clicks is the banner or the card, whichever is showing.
         let cardSize = NotchViewModel.lockCardSize
+        // The banner's rect until the grow has been drawn, not the instant `form`
+        // flips (review 2026-10-15; `LockCardLayout.hitForm`).
         root.hitArea = { [weak presentation] in
-            LockCardLayout.visibleRect(presentation?.form ?? .card, cardSize, canvas: cardRect)
+            let form = presentation?.hitForm(reduceMotion: SystemAppearance.shared.reduceMotion) ?? .card
+            return LockCardLayout.visibleRect(form, cardSize, canvas: cardRect)
         }
         root.isInteractive = Self.interactive(following: media)
         root.autoresizingMask = [.width, .height]
@@ -262,6 +289,8 @@ final class LockCardWindow {
         guard let panel else { return }
         watchFollowing?.cancel()
         watchFollowing = nil
+        trackFollowing?.cancel()
+        trackFollowing = nil
         // The demand for translations goes now, not at an `onDisappear` AppKit
         // hosting does not promise when a content view is discarded.
         presentation?.end()

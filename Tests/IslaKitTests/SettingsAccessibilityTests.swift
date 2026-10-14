@@ -8,7 +8,7 @@ import XCTest
 /// name before rows ("Rectangle With A Filled Top-Third Inset", "Skip Slide",
 /// "Circle With The Left Half Filled"), slider values with no unit ("560",
 /// "0"), section titles that were plain uppercase text with nothing for the
-/// headings rotor to land on, and the lock card's Glass and Card Size choices
+/// headings rotor to land on, and the lock card's Card Style and Card Size choices
 /// as loose buttons rather than one choice of several.
 @MainActor
 final class SettingsAccessibilityTests: XCTestCase {
@@ -109,7 +109,23 @@ final class SettingsAccessibilityTests: XCTestCase {
         XCTAssertEqual(slider.map(Self.spoken), "0.25 seconds", root.dump)
     }
 
-    /// Glass and Card Size are each one choice of several: a radio group
+    /// **The real pane's rows, not a copy of them** (review 2026-10-15): Card Style
+    /// and Card Size are radio groups named by their rows, Card Style with the four
+    /// styles of spec §7.2 in order.
+    func testThePanesLockScreenChoicesAreNamedRadioGroups() async {
+        let (root, isolated) = await probePane()
+        defer { isolated.release() }
+        let groups = root.all(role: "AXRadioGroup")
+        let style = groups.first { $0.label == "Card Style" }
+        XCTAssertNotNil(style, root.dump)
+        XCTAssertNotNil(groups.first { $0.label == "Card Size" }, root.dump)
+        XCTAssertEqual(
+            style?.all(role: "AXRadioButton").map(Self.name),
+            ["Automatic", "Transparent", "Tinted", "Solid"].map { localized($0) }, root.dump
+        )
+    }
+
+    /// Card Style and Card Size are each one choice of several: a radio group
     /// named by the row, one radio button per option, exactly one of them on,
     /// and a press on another moves the selection. They were loose buttons,
     /// with "selected" the only hint they belonged together (owner decision 4).
@@ -123,7 +139,10 @@ final class SettingsAccessibilityTests: XCTestCase {
         let groups = root.all(role: "AXRadioGroup")
         XCTAssertEqual(groups.count, 1, root.dump)
         guard let group = groups.first else { return }
-        XCTAssertEqual(group.label, localized("Glass"), root.dump)
+        // The row's real title. "Glass" was deleted from the tables on 2026-10-15
+        // and `localized` falls back to the key, so asserting it passed on nothing.
+        XCTAssertEqual(group.label, "Card Style", root.dump)
+        XCTAssertEqual(localized("Card Style"), "Card Style", "the key exists in the English table")
         let buttons = group.all(role: "AXRadioButton")
         XCTAssertEqual(buttons.map(Self.name),
                        NotchViewModel.LockCardStyle.allCases.map(\.title), root.dump)
@@ -292,7 +311,7 @@ private struct SliderHarness: View {
     }
 }
 
-/// The Glass row over state of its own.
+/// The Card Style row over state of its own.
 private struct ChoiceHarness: View {
     @State var selection: NotchViewModel.LockCardStyle
     let onPick: (NotchViewModel.LockCardStyle) -> Void
@@ -305,7 +324,7 @@ private struct ChoiceHarness: View {
     var body: some View {
         SettingsChoiceRow(
             symbol: SettingsIcon.cardStyle,
-            title: localized("Glass"),
+            title: localized("Card Style"),
             options: NotchViewModel.LockCardStyle.allCases,
             selection: Binding(get: { selection }, set: { selection = $0; onPick($0) }),
             optionTitle: { $0.title }

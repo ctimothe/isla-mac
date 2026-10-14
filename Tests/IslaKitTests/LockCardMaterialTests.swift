@@ -1,4 +1,5 @@
 import AppKit
+import Dispatch
 import ImageIO
 import UniformTypeIdentifiers
 import XCTest
@@ -134,13 +135,108 @@ final class LockCardMaterialTests: XCTestCase {
         XCTAssertTrue(LockScreenCard.glassRouting(style: .solid, hasArtwork: false).solid)
     }
 
-    func testTheCoverLightIsDrawnAtTheMaterialsOpacity() {
-        XCTAssertEqual(LockCardMaterial.coverLightOpacity(style: .automatic, alpha: 0.9, increaseContrast: false), 0.9)
-        XCTAssertEqual(LockCardMaterial.coverLightOpacity(style: .automatic, alpha: 0.9, increaseContrast: true), 0.9,
-                       "Automatic is already near-opaque")
-        XCTAssertEqual(LockCardMaterial.coverLightOpacity(style: .clear, alpha: 0.9, increaseContrast: false), 0.62)
-        XCTAssertEqual(LockCardMaterial.coverLightOpacity(style: .clear, alpha: 0.9, increaseContrast: true), 1)
-        XCTAssertEqual(LockCardMaterial.coverLightOpacity(style: .glass, alpha: 0.9, increaseContrast: false), 1)
+    // MARK: - The material, per spec §7.2
+
+    private typealias Decision = LockCardMaterial.Decision
+
+    /// **Spec §7.2, row by row.** Automatic: the cover's light at the wallpaper's
+    /// alpha. Transparent: black at 0.30, hairline. Tinted: the cover's light at
+    /// 0.88. Solid: `#1C1C1E`, hairline. The old code kept Tinted at 1.0 and drew
+    /// Transparent as the cover's light at 0.62, and its test asserted the code's
+    /// own numbers (review 2026-10-15).
+    func testEachStyleIsWhatSection72Says() {
+        func decide(_ style: NotchViewModel.LockCardStyle, artwork: Bool = true, l: Double? = nil) -> Decision {
+            LockCardMaterial.decision(style: style, hasArtwork: artwork, luminance: l, reduceTransparency: false)
+        }
+        // Automatic: Aerial 0.03 -> 0.90, Sonoma 0.36 -> 0.84 (the board's rows).
+        XCTAssertEqual(decide(.automatic, l: 0.03).layer, .coverLight)
+        XCTAssertEqual(decide(.automatic, l: 0.03).alpha, 0.90, accuracy: 0.01)
+        XCTAssertEqual(decide(.automatic, l: 0.36).alpha, 0.84, accuracy: 0.01)
+        XCTAssertEqual(decide(.automatic).alpha, 0.84, "unknown wallpaper: the floor")
+        // Transparent: "black alpha 0.30, hairline".
+        XCTAssertEqual(decide(.clear), Decision(layer: .blackWash, alpha: 0.30))
+        XCTAssertEqual(LockCardMaterial.transparentAlpha, 0.30)
+        // Tinted: "the cover's light at 0.88".
+        XCTAssertEqual(decide(.glass), Decision(layer: .coverLight, alpha: 0.88))
+        XCTAssertEqual(LockCardMaterial.tintedAlpha, 0.88)
+        // Solid: #1C1C1E, hairline.
+        XCTAssertEqual(decide(.solid), Decision(layer: .solid, alpha: 1))
+    }
+
+    /// The Solid token is `#1C1C1E` and Transparent's is black at 0.30; both are
+    /// in `Theme`, so no view carries a raw colour for them.
+    func testTheSolidAndTransparentTokensAreTheSpecs() throws {
+        let solid = try XCTUnwrap(NSColor(Theme.lockCardSolid).usingColorSpace(.sRGB))
+        XCTAssertEqual(solid.redComponent * 255, 0x1C, accuracy: 0.5)
+        XCTAssertEqual(solid.greenComponent * 255, 0x1C, accuracy: 0.5)
+        XCTAssertEqual(solid.blueComponent * 255, 0x1E, accuracy: 0.5)
+        let clear = try XCTUnwrap(NSColor(Theme.lockCardTransparent).usingColorSpace(.sRGB))
+        XCTAssertEqual(clear.redComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(clear.alphaComponent, 0.30, accuracy: 0.001)
+    }
+
+    /// **No cover is not no material** (review 2026-10-15): Automatic and Tinted
+    /// without artwork lay the same alpha as a dark neutral, so the 0.84 floor of
+    /// owner decision 5 holds for a podcast or a browser tab. Before, the view
+    /// drew no light at all and the card was the bare recipe over a shield it
+    /// cannot sample.
+    func testAutomaticWithoutACoverIsStillMostlySolid() {
+        for l in [nil, 0.03, 0.36, 0.9] as [Double?] {
+            let bare = LockCardMaterial.decision(
+                style: .automatic, hasArtwork: false, luminance: l, reduceTransparency: false
+            )
+            XCTAssertEqual(bare.layer, .neutralFill, "L \(String(describing: l))")
+            XCTAssertGreaterThanOrEqual(bare.alpha, 0.84, "L \(String(describing: l)): the floor")
+            XCTAssertEqual(
+                bare.alpha, LockCardMaterial.decision(
+                    style: .automatic, hasArtwork: true, luminance: l, reduceTransparency: false
+                ).alpha, "the same alpha as with a cover"
+            )
+        }
+        XCTAssertEqual(
+            LockCardMaterial.decision(style: .glass, hasArtwork: false, luminance: nil, reduceTransparency: false),
+            Decision(layer: .neutralFill, alpha: 0.88)
+        )
+        // Styles that never wanted a cover are unaffected by its absence.
+        XCTAssertEqual(
+            LockCardMaterial.decision(style: .clear, hasArtwork: false, luminance: nil, reduceTransparency: false),
+            Decision(layer: .blackWash, alpha: 0.30)
+        )
+        XCTAssertEqual(
+            LockCardMaterial.decision(style: .solid, hasArtwork: false, luminance: nil, reduceTransparency: false),
+            Decision(layer: .solid, alpha: 1)
+        )
+    }
+
+    func testReduceTransparencyAndIncreaseContrastInTheDecision() {
+        for style in NotchViewModel.LockCardStyle.allCases {
+            for artwork in [false, true] {
+                XCTAssertEqual(
+                    LockCardMaterial.decision(
+                        style: style, hasArtwork: artwork, luminance: 0.03, reduceTransparency: true
+                    ), Decision(layer: .solid, alpha: 1), "\(style) artwork \(artwork): Solid under Reduce Transparency"
+                )
+            }
+        }
+        XCTAssertEqual(
+            LockCardMaterial.decision(
+                style: .clear, hasArtwork: true, luminance: nil, reduceTransparency: false, increaseContrast: true
+            ), Decision(layer: .solid, alpha: 1), "see-through is what Increase Contrast asks against"
+        )
+        XCTAssertEqual(
+            LockCardMaterial.decision(
+                style: .automatic, hasArtwork: true, luminance: nil, reduceTransparency: false, increaseContrast: true
+            ).alpha, 0.84, "Automatic is already near-opaque"
+        )
+    }
+
+    /// The panel routing follows the decision: Solid and Transparent are panels.
+    func testSolidAndTransparentAreRoutedToThePanel() {
+        XCTAssertTrue(LockScreenCard.glassRouting(style: .clear, hasArtwork: true).solid)
+        XCTAssertTrue(LockScreenCard.glassRouting(style: .clear, hasArtwork: false).solid)
+        XCTAssertFalse(LockScreenCard.glassRouting(style: .glass, hasArtwork: true).solid)
+        XCTAssertFalse(LockScreenCard.glassRouting(style: .glass, hasArtwork: false).solid)
+        XCTAssertTrue(LockScreenCard.glassRouting(style: .automatic, hasArtwork: false, increaseContrast: false).samplesBackdrop)
     }
 
     // MARK: - Reading the wallpaper behind the card
@@ -291,5 +387,54 @@ final class LockCardMaterialTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertNil(gated.luminance)
         XCTAssertEqual(gated.alpha, 0.84)
+    }
+
+    /// Blocking is fine on a detached thread, and `wait` is only unavailable to the
+    /// compiler inside an async closure, so the wait lives in a plain function.
+    nonisolated private static func signalled(_ semaphore: DispatchSemaphore) -> Bool {
+        semaphore.wait(timeout: .now() + 5) == .success
+    }
+
+    /// **A stale answer never lands.** The display changed under a slow read: the
+    /// earlier request finishes after the later one has been answered, and must
+    /// not overwrite it (the generation guard in `refresh`).
+    func testAStaleWallpaperAnswerNeverLands() async throws {
+        let release = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let model = LockCardToneModel(measure: { url, _, _ in
+            if url.lastPathComponent == "old.png" {
+                release.wait()
+                finished.signal()
+                return 0.05
+            }
+            return 0.90
+        })
+        let screen = CGSize(width: 640, height: 400)
+        let card = CGSize(width: 460, height: 300)
+        model.refresh(wallpaper: URL(fileURLWithPath: "/tmp/old.png"), screenSize: screen, cardSize: card)
+        model.refresh(wallpaper: URL(fileURLWithPath: "/tmp/new.png"), screenSize: screen, cardSize: card)
+        for _ in 0..<200 where model.luminance == nil { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(model.luminance, 0.90)
+
+        release.signal()
+        let ran = await Task.detached { Self.signalled(finished) }.value
+        XCTAssertTrue(ran, "the earlier read did finish")
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(model.luminance, 0.90, "and its answer was dropped")
+
+        // A newer request that finds no wallpaper also outdates a read in flight.
+        let slow = DispatchSemaphore(value: 0)
+        let slowDone = DispatchSemaphore(value: 0)
+        let second = LockCardToneModel(measure: { _, _, _ in
+            slow.wait()
+            slowDone.signal()
+            return 0.05
+        })
+        second.refresh(wallpaper: URL(fileURLWithPath: "/tmp/old.png"), screenSize: screen, cardSize: card)
+        second.refresh(wallpaper: nil, screenSize: screen, cardSize: card)
+        slow.signal()
+        _ = await Task.detached { Self.signalled(slowDone) }.value
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertNil(second.luminance, "an unknown is not overwritten by the read it replaced")
     }
 }

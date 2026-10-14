@@ -377,7 +377,10 @@ final class NotchController {
     /// answers a hover with a nudge and nothing else, per the product call.
     /// Everywhere else on the shield belongs to the password field.
     private func applyLockedActiveRect() {
-        guard let panel, let rootView, let vm = viewModel else { return }
+        guard let rootView, let vm = viewModel else { return }
+        // The panel's frame is the geometry's window frame; a controller built for
+        // a test has no panel, and the cut is the same arithmetic against it.
+        let window = panel?.frame.size ?? vm.geometry.windowSize
         rootView.activeRect = .zero
         rootView.dropRect = .zero
 
@@ -391,13 +394,13 @@ final class NotchController {
         // is in the middle, and nothing else up there belongs to loginwindow.
         let pill = vm.lockedIslandSize
         let rect = CGRect(
-            x: (panel.frame.width - pill.width) / 2,
-            y: panel.frame.height - pill.height,
+            x: (window.width - pill.width) / 2,
+            y: window.height - pill.height,
             width: pill.width,
             height: pill.height
         )
         rootView.lockedHoverRect = rect
-        rootView.activeRect = NotchRootView.reachingTopEdge(rect, windowHeight: panel.frame.height)
+        rootView.activeRect = NotchRootView.reachingTopEdge(rect, windowHeight: window.height)
     }
 
     /// Unconditional, unlike the lock side: the toggle may have been flipped
@@ -1966,7 +1969,7 @@ final class NotchController {
         viewModel?.ambient = nil
     }
 
-    private func refreshCollapsedRects() {
+    func refreshCollapsedRects() {
         guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted else { return }
         // The locked panel's rect is the card's, and it is cut against a
         // screen-sized window — see `sneakPeek`. Re-cut it for the card, not

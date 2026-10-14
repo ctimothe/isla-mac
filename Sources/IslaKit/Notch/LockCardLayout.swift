@@ -81,6 +81,30 @@ enum LockCardLayout {
         return CGRect(x: rect.midX - shape.width / 2, y: rect.maxY - shape.height, width: shape.width, height: shape.height)
     }
 
+    /// **Which shape takes clicks, given how long ago the banner began to grow**
+    /// (review 2026-10-15). `LockCardPresentation.form` flips to `.card` the
+    /// instant `expand()` runs, and the shape then spends `Theme.lockCardMorph`
+    /// growing into it. Cutting the hit rect from `form` handed the whole 460 x 300
+    /// to clicks for those 0.36 s while the glass was still the banner's size, so
+    /// a quick second click below the banner landed on a control half-faded in
+    /// outside the glass. The banner's rect stays the hit area until the shape has
+    /// drawn the card, and then the card's takes over.
+    ///
+    /// Folding back needs no such wait: the card is leaving, and a click in the
+    /// room it gives up is the lock screen's. `sinceExpand` is nil for a card that
+    /// never was a banner (Rest as Banner off) and after a fold.
+    static func hitForm(_ form: Form, sinceExpand: TimeInterval?, settle: TimeInterval) -> Form {
+        guard form == .card, let sinceExpand else { return form }
+        return sinceExpand >= settle ? .card : .banner
+    }
+
+    /// How long the grow takes to be drawn: the spring's response, or the 0.24 s
+    /// crossfade under Reduce Motion (the same two the shape animates on,
+    /// `Theme.lockCardMorph(reduceMotion:)`).
+    static func morphSettle(reduceMotion: Bool) -> TimeInterval {
+        reduceMotion ? Theme.reducedMotionDuration : Theme.lockCardMorphResponse
+    }
+
     // MARK: - The song's header: cover, title, artist
 
     /// The three things that travel. Their frames in the shape: `Lock-Frames`.
@@ -330,25 +354,48 @@ private extension LockCardLayout.Header {
 @MainActor
 final class LockCardPresentation: ObservableObject {
     @Published private(set) var form: LockCardLayout.Form
-    @Published var pane: LockScreenCard.Pane
+    @Published var pane: LockScreenCard.Pane {
+        didSet { if pane != oldValue { syncDemand() } }
+    }
     /// Whether the card rests as a banner and has a chevron to fold back to.
     let restsAsBanner: Bool
+
+    /// The Card Size the lock window was cut for. Only the standard card draws a
+    /// lyric on its player pane, so the compact one asks for a translation only on
+    /// the Lyrics pane (review 2026-10-15: it used to ask for every locked song).
+    var size: NotchViewModel.LockCardSize {
+        didSet { if size != oldValue { syncDemand() } }
+    }
+
+    /// Whether there is a song. The window feeds it from the media controller; a
+    /// card with no track draws nothing, so it has nothing to translate.
+    var hasTrack: Bool {
+        didSet { if hasTrack != oldValue { syncDemand() } }
+    }
 
     private var translation: LyricTranslation?
     private var raisedEpoch: Int?
     private var ended = false
+    /// When the banner began to grow into the card, on the system uptime clock.
+    private var expandedAt: TimeInterval?
 
-    init(restsAsBanner: Bool, pane: LockScreenCard.Pane = .player) {
+    init(
+        restsAsBanner: Bool, pane: LockScreenCard.Pane = .player,
+        size: NotchViewModel.LockCardSize = .standard, hasTrack: Bool = true
+    ) {
         self.restsAsBanner = restsAsBanner
         self.form = restsAsBanner ? .banner : .card
         self.pane = pane
+        self.size = size
+        self.hasTrack = hasTrack
     }
 
     /// The banner grows into the card. A click on the banner anywhere but its
     /// ring.
-    func expand() {
+    func expand(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         guard form == .banner else { return }
         form = .card
+        expandedAt = now
         syncDemand()
     }
 
@@ -358,15 +405,32 @@ final class LockCardPresentation: ObservableObject {
         guard restsAsBanner, form == .card else { return }
         pane = .player
         form = .banner
+        expandedAt = nil
         syncDemand()
+    }
+
+    /// The shape that takes clicks right now: the banner's until the grow has
+    /// been drawn (`LockCardLayout.hitForm`), then `form`.
+    func hitForm(
+        reduceMotion: Bool, now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> LockCardLayout.Form {
+        LockCardLayout.hitForm(
+            form, sinceExpand: expandedAt.map { now - $0 },
+            settle: LockCardLayout.morphSettle(reduceMotion: reduceMotion)
+        )
     }
 
     /// Whether the player pane draws the Collapse chevron: only when there is a
     /// banner to fold back to (Rest as Banner off has no chevron, spec §7.1).
     var showsCollapse: Bool { restsAsBanner }
 
-    /// Whether this form draws a translated line under the sung one.
-    var wantsTranslation: Bool { !ended && form == .card }
+    /// Whether this form draws a translated line: the card, with a song, and a
+    /// pane that carries a lyric — the standard card's player or the Lyrics pane
+    /// (the compact card's player pane has none; the Output pane is not asked to
+    /// let go, so a visit there does not cancel a batch in flight).
+    var wantsTranslation: Bool {
+        !ended && form == .card && hasTrack && (size == .standard || pane == .lyrics)
+    }
 
     // MARK: - Translation demand
 
@@ -383,12 +447,26 @@ final class LockCardPresentation: ObservableObject {
         syncDemand()
     }
 
+    /// Asks the service for what this card wants, again. A second `present` (a
+    /// display change while locked) lands here: the controller's `rebuild()` had
+    /// called `resetDemand()`, which dropped the registration without telling the
+    /// card, so the card must look at the epoch again (review 2026-10-15).
+    func resync() { syncDemand() }
+
+    /// **Raised under an epoch, and raised again under a newer one.** `raisedEpoch`
+    /// used to be only "have I raised?": after `resetDemand()` it still held the
+    /// old epoch, the card believed it was registered, and with Rest as Banner off
+    /// nothing re-raised it until unlock. Now a registration under an epoch that is
+    /// no longer the service's counts as none, so the card raises under the current
+    /// one; and a lowering is made under the epoch that was raised, which the
+    /// service ignores once it has moved on (`LyricTranslation.setDemand`).
     private func syncDemand() {
         guard let translation else { return }
-        if wantsTranslation, raisedEpoch == nil {
+        if wantsTranslation {
+            guard raisedEpoch != translation.demandEpoch else { return }
             raisedEpoch = translation.demandEpoch
             translation.setDemand(.lockCard, true)
-        } else if !wantsTranslation, let epoch = raisedEpoch {
+        } else if let epoch = raisedEpoch {
             raisedEpoch = nil
             translation.setDemand(.lockCard, false, epoch: epoch)
         }

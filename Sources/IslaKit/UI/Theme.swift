@@ -663,6 +663,15 @@ enum Theme {
     /// nudge (`hoverNudge`) grows into the same fill.
     static let islandHover = Color(red: 28.0 / 255, green: 28.0 / 255, blue: 30.0 / 255)
 
+    /// The lock card's Solid panel (spec §7.2): `#1C1C1E`, the same grey the
+    /// island takes under the pointer. Also what stands in for the cover's light
+    /// when a song has no cover (`LockCardMaterial.Layer.neutralFill`) — Automatic
+    /// and Tinted keep their opacity floor with or without a picture.
+    static let lockCardSolid = islandHover
+
+    /// The lock card's Transparent panel (spec §7.2): black at 0.30.
+    static let lockCardTransparent = Color.black.opacity(LockCardMaterial.transparentAlpha)
+
     /// The system green, `#30D158`: the charging bolt and its level.
     static let chargingGreen = Color(red: 48.0 / 255, green: 209.0 / 255, blue: 88.0 / 255)
 

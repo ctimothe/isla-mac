@@ -130,8 +130,25 @@ struct LockScreenCard: View {
 
     private var glassRoute: (samplesBackdrop: Bool, preferDrawn: Bool, solid: Bool) {
         Self.glassRouting(
-            style: style, hasArtwork: media.artwork != nil, reduceTransparency: appearance.reduceTransparency
+            style: style, hasArtwork: media.artwork != nil, reduceTransparency: appearance.reduceTransparency,
+            increaseContrast: appearance.increaseContrast
         )
+    }
+
+    /// What the card is made of right now (spec §7.2): one pure decision of the
+    /// style, whether there is a cover, the wallpaper's brightness and the two
+    /// accessibility settings, read by the panel and the light alike.
+    private var material: LockCardMaterial.Decision {
+        LockCardMaterial.decision(
+            style: style, hasArtwork: media.artwork != nil, luminance: tone.luminance,
+            reduceTransparency: appearance.reduceTransparency, increaseContrast: appearance.increaseContrast
+        )
+    }
+
+    /// The panel's colour when it is a panel: Solid's `#1C1C1E`, or Transparent's
+    /// black 0.30.
+    private var panelFill: Color? {
+        material.layer == .blackWash ? Theme.lockCardTransparent : Theme.lockCardSolid
     }
 
     @AppStorage(NotchViewModel.lockCardSizeKey) private var sizeRaw = NotchViewModel.LockCardSize.standard.rawValue
@@ -179,10 +196,19 @@ struct LockScreenCard: View {
     ///
     /// The `drawnGlass` default stays for the panel. It was the escape hatch
     /// for this card while the question was open, and the record closed it.
+    ///
+    /// **Transparent is a panel too** (spec §7.2: black at 0.30 and a hairline),
+    /// so it routes to the same surface as Solid with a fill of its own — the
+    /// drawn recipe's highlights and rim are not in the spec's description of it.
     static func glassRouting(
-        style: NotchViewModel.LockCardStyle, hasArtwork: Bool, reduceTransparency: Bool = false
+        style: NotchViewModel.LockCardStyle, hasArtwork: Bool, reduceTransparency: Bool = false,
+        increaseContrast: Bool = false
     ) -> (samplesBackdrop: Bool, preferDrawn: Bool, solid: Bool) {
-        let solid = style == .solid || reduceTransparency
+        let layer = LockCardMaterial.decision(
+            style: style, hasArtwork: hasArtwork, luminance: nil,
+            reduceTransparency: reduceTransparency, increaseContrast: increaseContrast
+        ).layer
+        let solid = layer == .solid || layer == .blackWash
         return (samplesBackdrop: !solid && !hasArtwork, preferDrawn: true, solid: solid)
     }
 
@@ -298,7 +324,11 @@ struct LockScreenCard: View {
             stage(track)
                 .frame(width: dimensions.width, height: dimensions.height, alignment: .top)
                 .environment(\.colorScheme, .dark)
-                .onAppear { readAudio() }
+                .onAppear {
+                    readAudio()
+                    presentation.size = cardSize
+                }
+                .onChange(of: cardSize) { _, now in presentation.size = now }
                 .onChange(of: pane) { _, _ in readAudio() }
                 // A skip on the card swaps the title in place, which a sighted
                 // listener sees and a VoiceOver user used to have to go and find.
@@ -405,7 +435,8 @@ struct LockScreenCard: View {
             // one card, and above the shield the material had nothing to
             // sample anyway, so what it added was a muddier version of the
             // recipe already on top of it. One surface, one rule.
-            solid: glassRoute.solid
+            solid: glassRoute.solid,
+            solidFill: panelFill
         )
         // No drop shadow. The system's own lock player has none — the
         // material defines its own edge, and a card floating on a drawn
@@ -434,13 +465,24 @@ struct LockScreenCard: View {
     /// this. Glass only: Solid stays the neutral panel it promises, and with no
     /// cover the glass falls back to sampling what it can.
     ///
-    /// Its opacity is the material: Automatic draws it at the alpha the
-    /// wallpaper behind the card asks for (`LockCardMaterial.automaticAlpha`,
-    /// never under 0.84), Transparent at 0.62, Tinted in full. It is drawn at the
-    /// size of the shape — the banner's or the card's — so it grows with it.
+    /// Its opacity is the material (`LockCardMaterial.decision`): Automatic draws
+    /// it at the alpha the wallpaper behind the card asks for
+    /// (`LockCardMaterial.automaticAlpha`, never under 0.84), Tinted at 0.88; the
+    /// spec's Transparent is not the cover's light at all but black at 0.30. It is
+    /// drawn at the size of the shape — the banner's or the card's — so it grows
+    /// with it.
     @ViewBuilder
     private func coverLight(size: CGSize) -> some View {
-        if style != .solid, let image = media.artwork {
+        let decision = material
+        if decision.layer == .neutralFill {
+            // No cover to light the card from: the same opacity on a dark neutral
+            // (review 2026-10-15), so Automatic keeps its 0.84 floor for a podcast
+            // or a browser tab instead of being the bare recipe over the shield.
+            Theme.lockCardSolid
+                .frame(width: size.width, height: size.height)
+                .opacity(decision.alpha)
+                .accessibilityHidden(true)
+        } else if decision.layer == .coverLight, let image = media.artwork {
             ZStack {
                 Image(nsImage: image)
                     .resizable()
@@ -465,14 +507,11 @@ struct LockScreenCard: View {
                 )
             }
             .frame(width: size.width, height: size.height)
-            // Transparent lets the wallpaper through the cover's light, the
-            // most glass a card above the login shield can be: no window up
-            // there is given a backdrop to blur. Increase Contrast keeps it
-            // opaque — see-through is exactly what that setting asks against.
-            // Automatic is the same idea at a much higher floor (0.84).
-            .opacity(LockCardMaterial.coverLightOpacity(
-                style: style, alpha: tone.alpha, increaseContrast: appearance.increaseContrast
-            ))
+            // Automatic and Tinted let a little of the wallpaper through the
+            // cover's light (no window above the shield is given a backdrop to
+            // blur, so this is as much glass as the card can be), never under
+            // the 0.84 floor of Automatic.
+            .opacity(decision.alpha)
             .clipped()
             // Light, not a picture: blurred past recognition on purpose, it was
             // read as a nameless 690x690 image (H-009). The cover the listener
@@ -515,7 +554,10 @@ struct LockScreenCard: View {
         .opacity(header.visible ? 1 : 0)
         .animation(Theme.contentAnimation, value: header.visible)
         .allowsHitTesting(false)
-        .accessibilityHidden(!header.visible)
+        // Hidden on the banner too (review 2026-10-15): there the song is the
+        // banner button's label ("title, artist"), and the two text elements
+        // beside it made VoiceOver read the song twice.
+        .accessibilityHidden(!header.visible || form == .banner)
         // On the header, not the heart. The heart is not drawn while Spotify
         // refuses the account, and while its task was the only thing that
         // asked, nothing ever asked again: one 403 hid it for good. Here the

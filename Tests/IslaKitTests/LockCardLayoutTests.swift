@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CoreAudio
 import SwiftUI
 import XCTest
@@ -207,8 +208,11 @@ final class LockCardLayoutTests: XCTestCase {
         let presentation = LockCardPresentation(restsAsBanner: true)
         let root = LockCardRootView(frame: CGRect(origin: .zero, size: LockCardWindow.windowSize))
         root.cardRect = canvas
+        // The window's own rule, on a clock the test holds: the card's rect takes
+        // clicks once the grow has been drawn.
+        var now: TimeInterval = 1_000
         root.hitArea = { [weak presentation] in
-            Layout.visibleRect(presentation?.form ?? .card, size, canvas: canvas)
+            Layout.visibleRect(presentation?.hitForm(reduceMotion: false, now: now) ?? .card, size, canvas: canvas)
         }
 
         // AppKit's space is bottom-left: the top of the area is canvas.maxY.
@@ -225,7 +229,8 @@ final class LockCardLayoutTests: XCTestCase {
         XCTAssertEqual(banner.maxY, canvas.maxY, "hung from the card's top edge")
         XCTAssertEqual(banner.midX, canvas.midX)
 
-        presentation.expand()
+        presentation.expand(now: now)
+        now += Theme.lockCardMorphResponse
         XCTAssertNotNil(root.hitTest(inBanner))
         XCTAssertNotNil(root.hitTest(besideBanner), "the card has taken its corner")
         XCTAssertNotNil(root.hitTest(underBanner), "and the room under the banner")
@@ -242,6 +247,56 @@ final class LockCardLayoutTests: XCTestCase {
         XCTAssertEqual(banner.midX, canvas.midX)
         XCTAssertEqual(banner.maxY, canvas.maxY)
         XCTAssertTrue(canvas.contains(banner))
+    }
+
+    /// **The banner's rect holds until the grow has been drawn** (review
+    /// 2026-10-15). `form` flips to `.card` the instant `expand()` runs, and the
+    /// shape then takes 0.36 s to grow; the whole 460 x 300 took clicks meanwhile,
+    /// so a quick second click below the banner hit a half-faded control outside
+    /// the glass. The rule: (form, time since the grow began, settle) -> the shape
+    /// that takes clicks. Folding back switches at once.
+    func testTheHitAreaStaysTheBannersUntilTheGrowIsDrawn() {
+        let settle = Layout.morphSettle(reduceMotion: false)
+        XCTAssertEqual(settle, Theme.lockCardMorphResponse, "the spring's 0.36 s")
+        XCTAssertEqual(Layout.morphSettle(reduceMotion: true), Theme.reducedMotionDuration, "the 0.24 crossfade")
+
+        XCTAssertEqual(Layout.hitForm(.banner, sinceExpand: nil, settle: settle), .banner)
+        XCTAssertEqual(Layout.hitForm(.banner, sinceExpand: 5, settle: settle), .banner, "a banner is a banner")
+        XCTAssertEqual(Layout.hitForm(.card, sinceExpand: nil, settle: settle), .card,
+                       "a card that never was a banner (Rest as Banner off) takes the card's rect")
+        XCTAssertEqual(Layout.hitForm(.card, sinceExpand: 0, settle: settle), .banner, "growing: not yet")
+        XCTAssertEqual(Layout.hitForm(.card, sinceExpand: settle - 0.001, settle: settle), .banner)
+        XCTAssertEqual(Layout.hitForm(.card, sinceExpand: settle, settle: settle), .card, "drawn")
+        XCTAssertEqual(Layout.hitForm(.card, sinceExpand: 0.30, settle: Layout.morphSettle(reduceMotion: true)),
+                       .card, "Reduce Motion is drawn sooner: 0.24 s")
+    }
+
+    func testAQuickSecondClickBelowTheGrowingBannerGoesToTheLockScreen() {
+        let size = NotchViewModel.LockCardSize.standard
+        let canvas = CGRect(x: 12, y: 12, width: 460, height: 300)
+        let presentation = LockCardPresentation(restsAsBanner: true)
+        let root = LockCardRootView(frame: CGRect(origin: .zero, size: LockCardWindow.windowSize))
+        root.cardRect = canvas
+        var now: TimeInterval = 50
+        root.hitArea = { [weak presentation] in
+            Layout.visibleRect(presentation?.hitForm(reduceMotion: false, now: now) ?? .card, size, canvas: canvas)
+        }
+        let underBanner = NSPoint(x: canvas.midX, y: canvas.maxY - 150)
+        let inBanner = NSPoint(x: canvas.midX, y: canvas.maxY - 32)
+
+        presentation.expand(now: now)
+        XCTAssertEqual(presentation.form, .card, "the state has flipped")
+        now += 0.10
+        XCTAssertNil(root.hitTest(underBanner), "but the glass has not grown there yet")
+        XCTAssertNotNil(root.hitTest(inBanner))
+        now += 0.30
+        XCTAssertNotNil(root.hitTest(underBanner), "0.40 s on, the card is drawn and answers")
+
+        presentation.collapse()
+        XCTAssertNil(root.hitTest(underBanner), "folding gives the room back at once")
+        presentation.expand(now: now)
+        now += 0.10
+        XCTAssertNil(root.hitTest(underBanner), "and a second grow waits again")
     }
 
     // MARK: - Rest as Banner
@@ -320,6 +375,28 @@ final class LockCardLayoutTests: XCTestCase {
             root.all(role: "AXButton").first { $0.label.contains(LabFixtures.Track().title) },
             "the banner is one button named for the song\n\(root.dump)"
         )
+        // And only one element for the song (review 2026-10-15): the button's label
+        // is "title, artist", so a text element for each beside it made VoiceOver
+        // read the song twice.
+        let track = LabFixtures.Track()
+        let texts = root.all { node in
+            node.role == "AXStaticText"
+                && [track.title, track.artist].contains(where: { node.label == $0 || node.value == $0 })
+        }
+        XCTAssertTrue(texts.isEmpty, "title and artist are the button's label alone\n\(root.dump)")
+    }
+
+    /// The card, in contrast, reads its title and artist as text of their own.
+    func testTheCardKeepsTheTitleAndArtistAsText() async throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let root = await AXProbe.tree(
+            of: await card(LockCardPresentation(restsAsBanner: false), isolated),
+            size: LockScreenCard.size(for: .standard)
+        )
+        let track = LabFixtures.Track()
+        XCTAssertFalse(root.all { $0.role == "AXStaticText" && ($0.label == track.title || $0.value == track.title) }.isEmpty,
+                       root.dump)
     }
 
     func testTheCardHasTheChevronOnlyWhenItRestsAsABanner() async throws {
@@ -423,6 +500,124 @@ final class LockCardLayoutTests: XCTestCase {
 
         presentation.end()
         XCTAssertTrue(service.isPresentedSomewhere, "the old card's lowering named the old epoch")
+    }
+
+    /// **A rebuild while locked must not lose the card's demand** (review
+    /// 2026-10-15, both reviewers). A display change while locked rebuilds the
+    /// panel, `rebuild()` calls `resetDemand()`, and the lock window then presents
+    /// again. `raisedEpoch` still held the old epoch, the card thought itself
+    /// registered, and with Rest as Banner off nothing raised it again until unlock.
+    /// The old test called `setDemand(.lockCard, true)` by hand, which is the
+    /// repair this one stands in for: it goes through the window's real
+    /// re-present call instead.
+    func testTheCardRaisesItsDemandAgainAfterARebuildWhileLocked() {
+        let (service, _) = makeService(translating: true, defaults: makeSuite())
+        let window = LockCardWindow()
+        let presentation = LockCardPresentation(restsAsBanner: false)
+        window.presentation = presentation
+        presentation.attach(translation: service)
+        XCTAssertTrue(service.isPresentedSomewhere, "the card opened as the card")
+
+        service.resetDemand()                      // NotchController.rebuild()
+        XCTAssertFalse(service.isPresentedSomewhere, "the registration went with the rebuild")
+        window.resyncTranslationDemand()           // the re-present branch of present()
+        XCTAssertTrue(service.isPresentedSomewhere, "and the card has asked again")
+
+        window.resyncTranslationDemand()
+        service.setDemand(.lockCard, false)
+        XCTAssertFalse(service.isPresentedSomewhere, "one registration, not two")
+
+        presentation.end()
+        XCTAssertFalse(service.isPresentedSomewhere)
+    }
+
+    func testABannerThatGrowsAfterARebuildRaisesUnderTheNewEpoch() {
+        let (service, _) = makeService(translating: true, defaults: makeSuite())
+        let presentation = LockCardPresentation(restsAsBanner: true)
+        presentation.attach(translation: service)
+        presentation.expand()
+        XCTAssertTrue(service.isPresentedSomewhere)
+        service.resetDemand()
+        presentation.resync()
+        XCTAssertTrue(service.isPresentedSomewhere, "raised again under the epoch the rebuild made")
+        presentation.collapse()
+        XCTAssertFalse(service.isPresentedSomewhere, "and the fold lowers it under that epoch, not the old one")
+    }
+
+    // MARK: - Where the card asks for translations (review 2026-10-15)
+
+    /// The compact card's player pane has no lyric, so it has nothing to
+    /// translate; the lyric-bearing panes (the standard player, the Lyrics pane) do,
+    /// and only with a song.
+    func testTheCardAsksForTranslationsOnlyWhereItDrawsAndOnlyWithASong() {
+        func wants(
+            _ card: Bool, size: NotchViewModel.LockCardSize, pane: LockScreenCard.Pane, track: Bool
+        ) -> Bool {
+            LockCardPresentation(restsAsBanner: !card, pane: pane, size: size, hasTrack: track).wantsTranslation
+        }
+        XCTAssertTrue(wants(true, size: .standard, pane: .player, track: true))
+        XCTAssertTrue(wants(true, size: .standard, pane: .lyrics, track: true))
+        XCTAssertTrue(wants(true, size: .compact, pane: .lyrics, track: true), "the Lyrics pane draws them at any size")
+        XCTAssertFalse(wants(true, size: .compact, pane: .player, track: true), "the compact player draws no lyric")
+        XCTAssertFalse(wants(true, size: .standard, pane: .player, track: false), "no song, nothing to translate")
+        XCTAssertFalse(wants(true, size: .compact, pane: .lyrics, track: false))
+        XCTAssertFalse(wants(false, size: .standard, pane: .player, track: true), "a banner draws no lyric")
+    }
+
+    func testTheDemandFollowsThePaneTheSizeAndTheSong() {
+        let (service, _) = makeService(translating: true, defaults: makeSuite())
+        let presentation = LockCardPresentation(restsAsBanner: false, size: .compact, hasTrack: false)
+        presentation.attach(translation: service)
+        XCTAssertFalse(service.isPresentedSomewhere, "a lock with no track raises nothing, Rest as Banner or not")
+
+        presentation.hasTrack = true
+        XCTAssertFalse(service.isPresentedSomewhere, "a compact player pane still has no lyric")
+        presentation.pane = .lyrics
+        XCTAssertTrue(service.isPresentedSomewhere, "the Lyrics pane does")
+        presentation.pane = .player
+        XCTAssertFalse(service.isPresentedSomewhere)
+        presentation.size = .standard
+        XCTAssertTrue(service.isPresentedSomewhere, "and a standard card's player does")
+        presentation.hasTrack = false
+        XCTAssertFalse(service.isPresentedSomewhere, "the song ended")
+        presentation.hasTrack = true
+        presentation.end()
+        XCTAssertFalse(service.isPresentedSomewhere)
+    }
+
+    /// The window feeds the presentation from the media controller: no song at
+    /// present means no demand, and one started mid-lock raises it.
+    func testTheDemandIsRaisedForASongStartedMidLock() async {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let (service, _) = makeService(translating: true, defaults: makeSuite())
+        let presentation = LockCardPresentation(
+            restsAsBanner: false, hasTrack: isolated.stores.media.track != nil
+        )
+        presentation.attach(translation: service)
+        XCTAssertFalse(service.isPresentedSomewhere, "no song yet")
+        let following = isolated.stores.media.$track.map { $0 != nil }.removeDuplicates()
+            .sink { has in MainActor.assumeIsolated { presentation.hasTrack = has } }
+        await LabFixtures.play(LabFixtures.Track(), on: isolated.stores.media)
+        XCTAssertTrue(service.isPresentedSomewhere)
+        following.cancel()
+        presentation.end()
+    }
+
+    /// Ending the lock while the morph is still in flight lowers the demand now:
+    /// the grow's animation has nothing to do with it.
+    func testDismissEndsTheDemandWhileTheMorphIsInFlight() {
+        let (service, _) = makeService(translating: true, defaults: makeSuite())
+        let presentation = LockCardPresentation(restsAsBanner: true)
+        presentation.attach(translation: service)
+        presentation.expand(now: 10)
+        XCTAssertTrue(service.isPresentedSomewhere)
+        XCTAssertEqual(presentation.hitForm(reduceMotion: false, now: 10.1), .banner, "the morph is in flight")
+        presentation.end()
+        XCTAssertFalse(service.isPresentedSomewhere, "dismissed mid-morph")
+        presentation.expand(now: 11)
+        presentation.collapse()
+        XCTAssertFalse(service.isPresentedSomewhere, "and nothing later raises it")
     }
 
     /// The translation line under the sung one exists only when Translate Lyrics
