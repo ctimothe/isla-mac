@@ -370,10 +370,19 @@ enum Theme {
         case caption
         /// The reading voice: row titles, translated text, status lines.
         case body
+        /// The redesign's reading text (spec §2.2): the boards' 12 and 12.5 —
+        /// a player's subtitle, a clipboard row, the charge level and a device
+        /// name on the compact island. Half a point over `body`, which is the
+        /// difference between a status line and a line that is the content.
+        case reading
         /// One step up from reading: rail icons, empty-state status, picker rows.
         case subhead
         /// Track titles and lyric lines.
         case title
+        /// The tall lyric page (spec §2.2): 17 pt, a step over `title` because
+        /// the page is read from an arm's length and the sung line is carried
+        /// by weight and brightness, never by size (decision 6).
+        case lyric
         /// Empty-state glyphs and transport symbols.
         case display
         /// The artwork placeholder and the lock card's play button.
@@ -383,8 +392,10 @@ enum Theme {
             switch self {
             case .caption: return 10
             case .body: return 11
+            case .reading: return 12.5
             case .subhead: return 13
             case .title: return 16
+            case .lyric: return 17
             case .display: return 21
             case .hero: return 28
             }
@@ -435,7 +446,14 @@ enum Theme {
     }
 
     static let collapsedTopRadius: CGFloat = 6
-    static let collapsedBottomRadius: CGFloat = 9
+    /// 12 since 2026-10-15 (spec §2.3; it was 9): the 24 pt cover's 6 pt corner
+    /// sits 8 pt in, and a bottom corner of 12 is what keeps the two
+    /// concentric. Still no rounder than `restingNotchBottomRadius`, so the
+    /// island folding into the notch never gains a corner.
+    static let collapsedBottomRadius: CGFloat = 12
+    /// The peek island's bottom corners (spec §2.3): 16, concentric with the
+    /// 34 pt cover's 8 pt corner inset 8.
+    static let peekBottomRadius: CGFloat = 16
     static let openTopRadius: CGFloat = 12
     static let openBottomRadius: CGFloat = 22
 
@@ -462,9 +480,48 @@ enum Theme {
     /// `side / 5.5` is right for the 42–62 pt thumbnail it was set on and wrong
     /// at this size, so each end keeps the value it actually wants and the
     /// morph interpolates the frame between them.
+    ///
+    /// The compact end is 24 pt at radius 6 since 2026-10-15 (spec §3.1; it was
+    /// 22): the wing is 40 pt wide with the cover 8 pt in from the island's
+    /// edge, and the 6 pt corner is concentric with the island's 12.
     static func artworkMetrics(isOpen: Bool) -> (side: CGFloat, cornerRadius: CGFloat) {
-        isOpen ? (118, 14) : (22, 6)
+        isOpen ? (118, 14) : (24, 6)
     }
+
+    /// The cover while a new track peeks (spec §3.5): 34 pt at radius 8,
+    /// concentric with the peek's 16 pt corner and 8 pt inset. A third size of
+    /// the one cover, not a second cover — the pill's artwork view takes it
+    /// while `isPeeking` and the frame interpolates between the two.
+    static let peekArtworkMetrics: (side: CGFloat, cornerRadius: CGFloat) = (34, 8)
+
+    // MARK: - The compact island's surface (spec §2.1, §3.2, §3.3)
+
+    /// A paused cover darkens to 0.55 of itself rather than turning 0.58
+    /// see-through (spec §3.2). The old opacity let a bright wallpaper
+    /// through the cover — on a pale desktop a paused cover read as a ghost —
+    /// where multiplying the picture by 0.55 darkens it on any background.
+    static let pausedCoverBrightness: Double = 0.55
+
+    /// The well behind a missing cover on the compact island (spec §3.2): white
+    /// at 0.14 under a `music.note`, drawn in place of the picture so the left
+    /// wing never reads as a hole.
+    static let coverWell = Color.white.opacity(0.14)
+
+    /// The island's colour under the pointer: a solid `#1C1C1E` in place of the
+    /// white gradient lift it wore until 2026-10-15. Nothing moves on a playing
+    /// island — the surface alone answers the pointer — and the resting notch's
+    /// nudge (`hoverNudge`) grows into the same fill.
+    static let islandHover = Color(red: 28.0 / 255, green: 28.0 / 255, blue: 30.0 / 255)
+
+    /// The system green, `#30D158`: the charging bolt and its level.
+    static let chargingGreen = Color(red: 48.0 / 255, green: 209.0 / 255, blue: 88.0 / 255)
+
+    /// The key line's strengths (spec §3.1 board, §3.3): the cover's tint at
+    /// half strength round a music island or panel, white at 0.26 round every
+    /// other. To be confirmed on hardware, owed check R1-H2.
+    static let keyLineMusicOpacity: Double = 0.50
+    static let keyLineNeutralOpacity: Double = 0.26
+    static let keyLineWidth: CGFloat = 1
 
     // MARK: - Contrast ramp
     //

@@ -16,6 +16,15 @@ struct NotchShape: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
+        var path = openPath(in: rect)
+        path.closeSubpath()
+        return path
+    }
+
+    /// The outline from the left shoulder round to the right one, left open
+    /// along the top edge. The fill closes it; the key line strokes it as it is
+    /// (`KeyLineShape`), which is how it never touches the bezel.
+    func openPath(in rect: CGRect) -> Path {
         let tr = max(0, min(topRadius, rect.width / 2))
         let br = max(0, min(bottomRadius, rect.width / 2 - tr, rect.height))
         let left = rect.minX + tr
@@ -42,7 +51,6 @@ struct NotchShape: Shape {
             to: CGPoint(x: rect.maxX, y: rect.minY),
             control: CGPoint(x: right, y: rect.minY)
         )
-        path.closeSubpath()
         return path
     }
 }

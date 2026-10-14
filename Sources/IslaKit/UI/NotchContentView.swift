@@ -99,7 +99,46 @@ struct NotchContentView: View {
     private var shapeBottomRadius: CGFloat {
         if isOpen { return Theme.openBottomRadius }
         if restsInNotch && !isAwake { return Theme.restingNotchBottomRadius }
+        // The peek is a taller island, and its corners grow with it (spec
+        // §2.3): 16 against the compact island's 12.
+        if vm.isPeeking && compactActivity.isVisible { return Theme.peekBottomRadius }
         return Theme.collapsedBottomRadius
+    }
+
+    /// The island's surface: black, or `#1C1C1E` while the pointer is on it
+    /// or a press is under way (spec §3.2). One solid fill rather than a lift
+    /// painted over the black — nothing about a playing island moves, only its
+    /// colour answers the pointer, and the resting notch growing out of the
+    /// cutout takes the same colour. Open, the panel is always black.
+    ///
+    /// Not an overlay on the wings that stops at the cutout, as the old lift
+    /// was: that existed to keep a pale rectangle out of the camera housing,
+    /// and the housing is not a display — there is no pixel inside the cutout
+    /// for the fill to light, so the whole shape can be one colour.
+    private var shapeFill: Color {
+        !isOpen && isAwake ? Theme.islandHover : Color.black
+    }
+
+    // MARK: - Key line (spec §3.3)
+
+    /// Whether the island has a key line to draw: it must be showing
+    /// something — the pill out of the notch, or the panel open; a resting
+    /// notch is the notch — and the wallpaper dark, or Increase Contrast on.
+    private var keyLineShown: Bool {
+        guard isOpen || pillShown else { return false }
+        return KeyLine.isShown(tone: vm.wallpaper.reading, increaseContrast: appearance.increaseContrast)
+    }
+
+    /// Music while the island or panel shows a song, neutral for anything else.
+    private var keyLineColor: Color {
+        let style = KeyLine.style(
+            isOpen: isOpen,
+            onMusicTab: vm.tab == .media && !vm.isShowingWelcome,
+            hasTrack: vm.media.track != nil,
+            pillShowsMusic: compactActivity.isVisible,
+            momentShowing: vm.ambient != nil
+        )
+        return KeyLine.color(for: style, tint: vm.coverTint)
     }
 
     private var shapeSize: CGSize {
@@ -183,7 +222,7 @@ struct NotchContentView: View {
                 topRadius: shown ? Theme.collapsedTopRadius : 0,
                 bottomRadius: shown ? Theme.collapsedBottomRadius : Theme.restingNotchBottomRadius
             )
-            .fill(Color.black)
+            .fill(shown && vm.isHovering ? Theme.islandHover : Color.black)
             .frame(width: shape.width, height: shape.height)
             // A display with no cutout has nowhere to fold into, so there the
             // shape itself goes; over a real notch it ends inside the hole,
@@ -213,9 +252,8 @@ struct NotchContentView: View {
         // the pointer could deliver lands anywhere different.
         .contentShape(Rectangle())
         .frame(maxWidth: .infinity, alignment: .top)
-        // The same lift as unlocked, and the same exclusion: the cutout is a
-        // hole and nothing may be drawn in it. Only on a pill that is there.
-        .overlay { if shown { hoverLift } }
+        // The same `#1C1C1E` under the pointer as unlocked, on the pill's own
+        // fill above — only on a pill that is there.
         .animation(Theme.contentAnimation, value: vm.isHovering)
         // The edge says the island is there; the shake says it is not opening
         // here. Two different answers to two different gestures, rather than
@@ -251,8 +289,20 @@ struct NotchContentView: View {
         // The shape is wider than the body by `topRadius` on each side: that
         // slack is where the concave shoulders live, so it must not be clipped.
         ZStack(alignment: .top) {
+            // Under the black, where only the outer half of a stroke twice the
+            // width wanted shows: that is what makes it "just outside" the
+            // island. Always mounted and faded, never inserted, so it folds
+            // and unfolds with the shape instead of arriving after it. Open,
+            // the same line follows the body's height as it springs, because
+            // it is built from the same radii and the same frame.
+            KeyLineShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
+                .stroke(keyLineColor, lineWidth: 2 * Theme.keyLineWidth)
+                .frame(width: shapeSize.width, height: shapeSize.height)
+                .opacity(keyLineShown ? 1 : 0)
+                .allowsHitTesting(false)
+
             NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
-            .fill(Color.black)
+            .fill(shapeFill)
             .frame(width: shapeSize.width, height: shapeSize.height)
             .shadow(
                 color: .black.opacity(
@@ -269,15 +319,6 @@ struct NotchContentView: View {
             // screen, dimming, over a shape already moving in. A fold that
             // begins as a fade is not a fold. Both layers were plain black by
             // then, so the one that could not move is the one that went.
-
-            // Above the shape, never beneath it. Under the old opaque wing
-            // layer the only place it showed was the one place it must never
-            // show — that layer left the cutout clear, so the lift appeared as
-            // a lighter square inside the physical notch and nowhere else.
-            // Not while resting in the notch: there the island growing out of
-            // the cutout *is* the answer to the pointer, and a lift painted in
-            // the old pill's outline would sit on the wrong shape.
-            if !isOpen, !restsInNotch { hoverLift }
 
             VStack(spacing: 0) {
                 header
@@ -397,6 +438,9 @@ struct NotchContentView: View {
         // geometry to overshoot, so the bump only ever shows where it means
         // something.
         .animation(Theme.hoverNudge(reduceMotion: reduceMotion), value: vm.isHovering)
+        // A press deepens nothing now — it is the same `#1C1C1E` as the hover —
+        // but it still arrives on a quick ease rather than a cut.
+        .animation(Theme.contentAnimation, value: isPressed)
         // Out of the notch and back into it, by direction — see `Theme.pill`.
         // The peek is the same gesture made wider, so it rides the same pair.
         .animation(Theme.pill(appearing: compactActivity.isVisible, reduceMotion: reduceMotion),
@@ -408,6 +452,11 @@ struct NotchContentView: View {
         // from a `Button` — which animates nothing by itself, so without this
         // the crossfade above would be a cut.
         .animation(Theme.paneAnimation, value: vm.isShowingWelcome)
+        // The island asking the wallpaper again as it unfolds, from the notch
+        // or open (spec §3.3): a Space change or a wake would have said so, and
+        // this catches whatever did not. A cache hit costs nothing.
+        .onChange(of: pillShown) { _, shown in if shown { vm.wallpaper.refresh() } }
+        .onChange(of: isOpen) { _, open in if open { vm.wallpaper.refresh() } }
     }
 
     // MARK: - Header
@@ -521,47 +570,58 @@ struct NotchContentView: View {
         return "\(vm.tab.title), \(detail)"
     }
 
-    /// The charger or headphones, in the pill's two wings.
+    /// The charger or headphones, in the pill's two wings (spec §3.6).
     ///
     /// One grammar for both: a glyph in the left wing where the cover sits,
-    /// and what it is about in the right wing where the equalizer sits. The
-    /// charge's level; the headphones' name. White on black like every other
-    /// wing, because the chrome does not take colour. "Connected" is left to
-    /// the accessibility label: the glyph arriving already says it.
+    /// and what it is about in the right wing where the equalizer sits. Laid on
+    /// the same margins as the music island — 8 from either edge — so a moment
+    /// arriving over a song moves nothing but what it says.
+    ///
+    /// Charging is green, as the system draws a charging battery: the bolt and
+    /// its level, at 13 pt and 12 pt. A Mac with no battery reports no level and
+    /// gets a white bolt alone; the plug that says a battery is holding is white
+    /// too, because green is "charging" and a held charge is not. Headphones are
+    /// white, the device's own symbol at left and its name at right, truncating
+    /// at the tail — never into the camera. "Connected" is left to the
+    /// accessibility label: the glyph arriving already says it.
     private func ambientHeader(_ ambient: AmbientActivity) -> some View {
-        let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2)
+        let wing = max(0, (size.width - vm.geometry.notchSize.width) / 2)
         let symbol: String
         let value: String?
+        let boxWidth: CGFloat
         switch ambient {
         case .charging(let level, _):
             symbol = ambient.chargeSymbol
             value = level.map { localized("%d%%", $0) }
+            boxWidth = CompactIslandLayout.chargeLevelWidth
         case .headphones(let name, let deviceSymbol):
             symbol = deviceSymbol
             value = name
+            boxWidth = CompactIslandLayout.deviceNameWidth(wing: wing)
         }
+        let tone: Color = ambient.usesChargingGreen ? Theme.chargingGreen : .white
         return HStack(spacing: 0) {
             Image(systemName: symbol)
                 .islandFont(.subhead, weight: .semibold)
-                .foregroundStyle(.white)
-                .frame(width: wingWidth, alignment: .center)
+                .foregroundStyle(tone)
+                // Centred on the cover's own column — 20 from the edge — so the
+                // glyph takes the cover's place rather than sitting beside it.
+                .frame(width: CompactIslandLayout.coverSide, height: CompactIslandLayout.coverSide)
+                .padding(.leading, NotchMetrics.compactEdgeInset)
 
-            Color.clear
-                .frame(width: vm.geometry.notchSize.width, height: 1)
+            Spacer(minLength: 0)
 
-            Group {
-                if let value {
-                    Text(value)
-                        .font(Theme.TypeRole.caption.font().monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .padding(.horizontal, 10)
-                }
+            if let value {
+                Text(value)
+                    .font(Theme.TypeRole.reading.font(weight: .semibold).monospacedDigit())
+                    .foregroundStyle(tone)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(width: boxWidth, alignment: .trailing)
+                    .padding(.trailing, NotchMetrics.compactEdgeInset)
             }
-            .frame(width: wingWidth, alignment: .center)
         }
-        .frame(width: size.width, height: vm.geometry.notchSize.height)
+        .frame(width: size.width, height: size.height)
         // No element of its own: the moment is the island's value, set on the
         // stack above it — see `islandAccessibility(open:)`.
     }
@@ -616,58 +676,62 @@ struct NotchContentView: View {
     ///   or `nil` where there is nowhere for them to travel to — over the lock
     ///   screen, where this pill is the only thing on screen.
     ///
-    /// Both wing objects stay laid out while the pill is folded, each centred
-    /// in a wing whose width follows the shape. That is what makes a fold read
-    /// as the island taking them in: as the wings contract the cover and the
-    /// bars travel inward with their edges, and `pillPresence` dissolves them
-    /// — blur, scale and fade together — on a curve that finishes before the
-    /// edge arrives.
+    /// The cover is 8 pt from the island's left edge and the equalizer's last
+    /// bar 8 pt from its right (spec §3.1), both centred in the island's height
+    /// — on the 38 pt notch that is the "7 from the bottom" the board draws, and
+    /// on the peek's 50 pt it is the 8 the peek's cover is inset. Pinned to the
+    /// island's own edges rather than centred in a wing, so the margins are the
+    /// same on a notch of any width.
+    ///
+    /// Both wing objects stay laid out while the pill is folded, still against
+    /// the edges of a shape that contracts to the notch. That is what makes a
+    /// fold read as the island taking them in: as the wings contract the cover
+    /// and the bars travel inward with their edges, and `pillPresence` dissolves
+    /// them — blur, scale and fade together — on a curve that finishes before
+    /// the edge arrives.
     private func compactMediaHeader(morph: Namespace.ID?) -> some View {
-        let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2)
         let shown = compactActivity.isVisible
+        let notchWidth = vm.geometry.notchSize.width
         return HStack(spacing: 0) {
-            // Resting, each wing centres its content the way it always did —
-            // pinning to the edges put the artwork and equalizer flush against
-            // the pill's rounded ends with no inset at all. Only the peek
-            // leads-aligns, because a title reads from the left, and it takes
-            // an inset with it so nothing touches the curve.
-            HStack(spacing: 7) {
-                compactArtwork(morph: morph)
-                    .pillPresence(shown, reduceMotion: reduceMotion)
-                // Only while peeking, and only on the left wing: the title is
-                // what the peek exists to show, and the right wing keeps the
-                // equalizer so the pill still says whether audio is moving.
-                if vm.isPeeking, let track = vm.media.track {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(track.title)
-                            .islandFont(.caption, weight: .semibold)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        Text(track.artist)
-                            .islandFont(.caption, weight: .regular)
-                            .foregroundStyle(Theme.secondary)
-                            .lineLimit(1)
-                    }
-                    // The title materializes rather than fading flat: the
-                    // same blur-and-settle the cover makes arriving. And it
-                    // dissolves with the cover when the pill folds — a pause
-                    // settling mid-peek used to fold the wing in over a title
-                    // still at full strength, slicing it.
-                    .pillPresence(shown, reduceMotion: reduceMotion)
-                    .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
-                    Spacer(minLength: 0)
+            compactArtwork(morph: morph)
+                .pillPresence(shown, reduceMotion: reduceMotion)
+                .padding(.leading, NotchMetrics.compactEdgeInset)
+            // Only while peeking, and only in the left wing on a real notch
+            // (see `CompactIslandLayout.peekTextWidth`): the title is what the
+            // peek exists to show, and the right wing keeps the equalizer so
+            // the island still says whether audio is moving.
+            if vm.isPeeking, let track = vm.media.track {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(track.title)
+                        .islandFont(.subhead, weight: .semibold)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(track.artist)
+                        .islandFont(.body, weight: .regular)
+                        .foregroundStyle(Theme.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
+                .frame(
+                    width: CompactIslandLayout.peekTextWidth(
+                        islandWidth: size.width, notchWidth: notchWidth, isPhysical: vm.geometry.isPhysical
+                    ),
+                    alignment: .leading
+                )
+                // The title materializes rather than fading flat: the same
+                // blur-and-settle the cover makes arriving. And it dissolves
+                // with the cover when the pill folds — a pause settling
+                // mid-peek used to fold the island in over a title still at
+                // full strength, slicing it.
+                .pillPresence(shown, reduceMotion: reduceMotion)
+                .padding(.leading, 10)
+                .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
             }
-            .padding(.leading, vm.isPeeking ? 10 : 0)
-            .frame(width: wingWidth, alignment: vm.isPeeking ? .leading : .center)
-
-            Color.clear
-                .frame(width: vm.geometry.notchSize.width, height: 1)
-
+            Spacer(minLength: 0)
             compactPlaybackState(morph: morph)
                 .pillPresence(shown, reduceMotion: reduceMotion)
-                .padding(.trailing, vm.isPeeking ? 12 : 0)
-                .frame(width: wingWidth, alignment: vm.isPeeking ? .trailing : .center)
+                .padding(.trailing, NotchMetrics.compactEdgeInset)
                 // No gesture here, deliberately.
                 //
                 // The equalizer wing used to toggle playback, from when a hover
@@ -681,7 +745,7 @@ struct NotchContentView: View {
                 // playing, and clicking anywhere on it opens the panel, where
                 // the controls actually are.
         }
-        .frame(width: size.width, height: vm.geometry.notchSize.height)
+        .frame(width: size.width, height: size.height)
         // No element of its own. It was one, hidden while folded, and so with
         // nothing playing the island did not exist to VoiceOver at all; the
         // island's one element now sits on whatever holds this header — see
@@ -690,89 +754,9 @@ struct NotchContentView: View {
         // have, reachable only by people who cannot see that it has none.
     }
 
-    /// The island brightening under the pointer.
-    ///
-    /// Built the same way as the wing surface, and for the same reason: on a
-    /// Mac with a real notch the middle of this shape is a hole in the display.
-    /// Nothing may be drawn there. Lightening it does not lighten the island —
-    /// it puts a pale rectangle inside the camera housing, which is the one
-    /// place the whole design is trying to make disappear.
-    ///
-    /// So the lift lands on the wings, which are pixels, and stops at the
-    /// cutout, which is not. On a display with no notch there is no hole and
-    /// the middle lifts with everything else.
-    @ViewBuilder
-    private var hoverLift: some View {
-        if vm.isHovering || isPressed {
-            ZStack {
-                liftWings
-                // Pressing deepens the same light rather than introducing a
-                // second idea: the wings are lit a second time, so the surface
-                // catches more of it the harder you are asking. This used to be
-                // `.opacity(2.2)` on the one layer, which the compositor clamps
-                // to 1 — the press looked exactly like the hover, and the whole
-                // press-down path drew nothing.
-                if isPressed {
-                    liftWings.transition(.opacity)
-                }
-            }
-            .allowsHitTesting(false)
-            .animation(Theme.contentAnimation, value: isPressed)
-            .transition(.opacity)
-        }
-    }
-
-    /// The lift itself: both wings, faded toward the cutout, clipped to the
-    /// collapsed island.
-    private var liftWings: some View {
-        let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2 + topRadius)
-        return HStack(spacing: 0) {
-            // Each wing fades out toward the cutout, the way the wing
-            // surface underneath already fades into the hardware edge.
-            // Without it the two wings lit as hard-edged blocks either side
-            // of the notch — two rectangles switching on, rather than light
-            // falling across the island.
-            Self.liftFill
-                .frame(width: wingWidth)
-                .mask(Self.falloff(towards: .trailing))
-            if vm.geometry.isPhysical {
-                Color.clear.frame(width: vm.geometry.notchSize.width)
-            } else {
-                Self.liftFill.frame(width: vm.geometry.notchSize.width)
-            }
-            Self.liftFill
-                .frame(width: wingWidth)
-                .mask(Self.falloff(towards: .leading))
-        }
-        .frame(width: size.width + 2 * topRadius, height: size.height)
-        .clipShape(
-            NotchShape(
-                topRadius: Theme.collapsedTopRadius,
-                bottomRadius: Theme.collapsedBottomRadius
-            )
-        )
-    }
-
-    /// What macOS does when the pointer finds something pressable: lighten the
-    /// surface. Weighted to the bottom, furthest from the hardware.
-    /// Full strength at the outer edge, gone by the cutout.
-    static func falloff(towards edge: UnitPoint) -> LinearGradient {
-        LinearGradient(
-            colors: [.white, .white.opacity(0.35), .clear],
-            startPoint: edge == .trailing ? .leading : .trailing,
-            endPoint: edge
-        )
-    }
-
-    static let liftFill = LinearGradient(
-        colors: [.white.opacity(0.015), .white.opacity(0.075)],
-        startPoint: .top,
-        endPoint: .bottom
-    )
-
     /// The near end of the cover's travel.
     ///
-    /// It used to be a second cover: 22 pt here, 118 pt in `MediaPane`, each
+    /// It used to be a second cover: 22 pt here (24 since the redesign), 118 pt in `MediaPane`, each
     /// fading on its own schedule, so opening the panel crossfaded one album
     /// past itself. The two are one object now, and the pieces that make it one
     /// are worth naming, because none of them announces itself when it breaks:
@@ -789,14 +773,19 @@ struct NotchContentView: View {
     ///   over the notch. `.frame(maxWidth: .infinity)` is not a substitute — it
     ///   grows to whatever the child reports, taking the clip with it.
     /// - `.morph` sits **inside** the outer frame, so the frame keeps reserving
-    ///   22 pt in the wing while the cover itself is somewhere between here and
+    ///   the cover's side in the wing while the cover itself is somewhere between here and
     ///   the panel.
     /// - The image carries no `.transition(.opacity)` of its own any more. A
     ///   travelling object that fades while it travels is a crossfade wearing a
     ///   morph's clothes, and the default transition already crossfades one
     ///   album into the next when the track changes.
     private func compactArtwork(morph: Namespace.ID?) -> some View {
-        let metrics = Theme.artworkMetrics(isOpen: false)
+        // 24 pt at radius 6 resting, 34 at 8 while a track peeks: one cover in
+        // two sizes, and the frame interpolates between them on the same curve
+        // the island grows on.
+        let metrics = vm.isPeeking && compactActivity.isVisible
+            ? Theme.peekArtworkMetrics
+            : Theme.artworkMetrics(isOpen: false)
         return Color.clear
             .overlay {
                 Group {
@@ -806,31 +795,35 @@ struct NotchContentView: View {
                             .scaledToFill()
                             .id(vm.media.track?.key)
                     } else {
-                        Image(systemName: "music.note")
-                            .islandFont(.caption, weight: .semibold)
-                            .foregroundStyle(Color.white.opacity(0.75))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Theme.surface)
+                        // A well and a note (spec §3.2): the left wing is never
+                        // a hole, and never a second, different kind of cover.
+                        Theme.coverWell
+                            .overlay {
+                                Image(systemName: "music.note")
+                                    .islandFont(.body, weight: .regular)
+                                    .foregroundStyle(Theme.secondary)
+                            }
                     }
                 }
-                .opacity(showsPausedCover ? 0.58 : 1)
+                // Paused darkens the cover to 0.55 of itself. It was 0.58
+                // opacity, which let a bright wallpaper through the picture —
+                // a paused cover on a pale desktop read as a ghost — where a
+                // multiply darkens it over anything.
+                .colorMultiply(showsPausedCover ? Color(white: Theme.pausedCoverBrightness) : .white)
             }
             .overlay {
                 if showsPausedCover {
-                    Circle()
-                        .fill(Color.black.opacity(0.72))
-                        .frame(width: 15, height: 15)
-                        .overlay(
-                            Image(systemName: "play.fill")
-                                // A glyph fitted inside a 15pt badge, not type:
-                                // the caption floor would burst the circle.
-                                .font(.system(size: 7, weight: .bold))
-                                .foregroundStyle(Color.white.opacity(0.92))
-                                .offset(x: 0.5)
-                        )
-                        .overlay(
-                            Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.5)
-                        )
+                    // A bare glyph on the dimmed cover, 9 pt, white, with a
+                    // faint shadow for the one cover that is nearly white. The
+                    // 15 pt black badge this replaces was a second object on a
+                    // 22 pt cover; the glyph is fitted to the cover, not type,
+                    // so no role applies and the caption floor would be too
+                    // large for it.
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color.white)
+                        .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
+                        .offset(x: 0.5)
                         .transition(Theme.scaleIn(0.82, reduceMotion: reduceMotion))
                 }
             }
@@ -858,15 +851,21 @@ struct NotchContentView: View {
         activity.showsArtworkPlayBadge || (!activity.isVisible && !isPlaying)
     }
 
-    /// The equalizer travels too, and it is the easier half: both ends are the
-    /// same 10 pt box, so the effect only has to carry it from the pill's right
-    /// wing to the open header's right end. Without it the bars vanished on one
-    /// side of the notch and reappeared on the other, which reads as two
+    /// The equalizer travels too, and it is the easier half: the pill's bars
+    /// are carried to the open header's right end, so the bars never vanish on
+    /// one side of the notch and reappear on the other — which reads as two
     /// equalizers for one piece of music.
+    ///
+    /// Four bars in the cover's tint while music plays; at rest, 3 pt tall in
+    /// tertiary, when it is paused (spec §3.2).
     private func compactPlaybackState(morph: Namespace.ID?) -> some View {
-        EqualizerBars(
+        CompactEqualizer(
             isAnimating: compactActivity.animatesEqualizer,
-            opacity: compactActivity == .playing ? 0.82 : 0.58
+            color: CompactEqualizerMotion.color(
+                isPlaying: compactActivity.tintsEqualizer,
+                tint: vm.coverTint,
+                increaseContrast: appearance.increaseContrast
+            )
         )
         .morph(MorphID.compact(MorphID.equalizer, folded: !compactActivity.isVisible), in: morph)
     }

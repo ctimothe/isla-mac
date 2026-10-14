@@ -35,25 +35,40 @@ final class PillFoldTests: XCTestCase {
     private let wing = NotchMetrics.compactMediaExtension / 2
     private let cover = Theme.artworkMetrics(isOpen: false).side
 
-    /// Folding: by the time the contracting wing is narrower than the cover —
-    /// the moment its edge would start cutting through it — the cover is all
-    /// but gone. Content still visible there is content being sliced.
-    func testTheContentIsGoneBeforeTheEdgeReachesIt() {
-        let edgeArrives = time(untilRemaining: cover / wing, response: Theme.pillFoldResponse)
-        let stillVisible = remaining(after: edgeArrives, response: Theme.pillContentOutResponse)
-        XCTAssertLessThan(stillVisible, 0.1,
-                          "at \(edgeArrives)s the edge meets the cover while it is still \(stillVisible) opaque")
+    /// Redesign 2026-10-15, spec §3.1: the cover and the bars are pinned 8 pt
+    /// inside the island's own edges, where they used to sit centred in a 52 pt
+    /// wing.
+    ///
+    /// That is why the two timing tests that stood here — the content fading
+    /// before the contracting edge reached the cover, and the cover not showing
+    /// until its wing was as wide as the cover — are gone. Both were arithmetic
+    /// about an edge sweeping across content that stayed still while the wing
+    /// shrank around it; the content now travels *with* the edge, so no edge
+    /// ever crosses it, and with a 40 pt wing under a 24 pt cover the old "wing at
+    /// least as wide as the cover" held only after 60 % of the unfold, well
+    /// past the point the content could reasonably appear. What stays true, and
+    /// is held here, is the thing those tests were protecting: at every width the
+    /// island passes through while it folds, the content is inside the shape.
+    func testTheContentRidesTheEdgesSoNothingIsSlicedOrDrawnBesideTheShape() {
+        for notch in [CGFloat(180), 200, 220] {
+            for open in stride(from: CGFloat(0), through: wing, by: 4) {
+                let islandWidth = notch + 2 * open
+                let coverFrame = CompactIslandLayout.coverFrame(height: 38)
+                let bars = CompactIslandLayout.equalizerFrame(islandWidth: islandWidth, height: 38)
+                XCTAssertEqual(coverFrame.minX, 8, "the cover keeps its distance from the left edge as it moves")
+                XCTAssertEqual(islandWidth - bars.maxX, 8, "and the bars from the right")
+                XCTAssertGreaterThanOrEqual(coverFrame.minX, 0)
+                XCTAssertLessThanOrEqual(bars.maxX, islandWidth)
+                XCTAssertLessThan(coverFrame.maxX, bars.minX, "the two never meet, however narrow the island is")
+            }
+        }
+        XCTAssertEqual(cover, 24)
     }
 
-    /// Unfolding: the cover does not materialize until its wing is as wide as
-    /// the cover. Content drawn before its surface exists is drawn on the
-    /// wallpaper beside the notch.
-    func testTheContentArrivesOnlyOnceItsWingIsThere() {
-        let tenPercentIn = Theme.pillContentInDelay
-            + time(untilRemaining: 0.9, response: Theme.pillContentInResponse)
-        let wingThen = wing * (1 - remaining(after: tenPercentIn, response: Theme.pillUnfoldResponse))
-        XCTAssertGreaterThanOrEqual(wingThen, cover,
-                                    "the cover shows at \(tenPercentIn)s on a \(wingThen)pt wing")
+    /// The content still waits for the shape: it is delayed past the spring's
+    /// start, so a wing is opening before anything is drawn in it.
+    func testTheContentArrivesAfterTheShapeHasStarted() {
+        XCTAssertGreaterThan(Theme.pillContentInDelay, 0)
     }
 
     /// A fold is not something anybody threw, so it does not bounce, and it is

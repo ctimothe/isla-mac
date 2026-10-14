@@ -1054,6 +1054,12 @@ final class NotchController {
         guard let geometry = NotchGeometry.current() else { return }
         buildGeneration += 1
         let vm = NotchViewModel(geometry: geometry, stores: stores)
+        // The key line's wallpaper answer, ready before the island first shows
+        // and kept current on a new Space, a display change and a wake. Here
+        // rather than in the view model's `init`, so a model made in a test
+        // neither reads the desktop picture nor listens to the system.
+        vm.wallpaper.startObserving()
+        vm.wallpaper.refresh()
         // Before any rect is cut. The tab decides how far down the panel
         // reaches, and restoring it afterwards left every rect cut for the
         // default media body — so a restored teleprompter opened to its full
@@ -1894,13 +1900,22 @@ final class NotchController {
             // The full drawn depth, and the full width of the visible compact
             // activity — the pill widens with what is playing, and every point
             // of what is drawn has to open the panel.
-            size = CGSize(width: vm.bodySize.width, height: vm.geometry.collapsedDepth)
-            pointer.openRect = vm.geometry.collapsedHoverRect(for: vm.bodySize.width)
+            //
+            // And the full drawn height: the island is 50 pt tall while a new
+            // track peeks (spec §3.5), and `collapsedDepth` alone is the
+            // notch's 38. The rects are re-cut on `isPeeking` in both
+            // directions, so they cover the 12 pt that grew for the hold and
+            // shrink back with the fold.
+            let drawnDepth = max(vm.geometry.collapsedDepth, vm.bodySize.height)
+            size = CGSize(width: vm.bodySize.width, height: drawnDepth)
+            pointer.openRect = vm.geometry.collapsedHoverRect(for: vm.bodySize.width, height: drawnDepth)
         }
         // Follows the pill, which changes width with what is playing and widens
         // again for a peek. Left at the width it was built with, the lift would
         // stop short of the artwork the moment a track started.
-        pointer.hoverRect = vm.geometry.collapsedIslandHoverRect(for: vm.bodySize.width)
+        pointer.hoverRect = vm.geometry.collapsedIslandHoverRect(
+            for: vm.bodySize.width, height: open ? nil : vm.bodySize.height
+        )
         // The shape is drawn `topRadius` wider than the body on each side —
         // that slack is where the concave shoulders live — so the clickable
         // rect is grown to match it. Every point of the compact island opens

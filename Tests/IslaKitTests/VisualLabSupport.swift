@@ -477,8 +477,9 @@ enum LabGeometry {
     /// rect the views read is relative to the window, which is centred on the
     /// notch, so the screen only has to exist.
     static let physicalNotch = CGSize(width: 185, height: 32)
-    /// What `NotchGeometry.current()` draws on a display with no cutout.
-    static let syntheticNotch = CGSize(width: 180, height: 24)
+    /// What `NotchGeometry.current()` draws on a display with no cutout: 200
+    /// wide since the redesign (spec §3.8), it was 180.
+    static let syntheticNotch = CGSize(width: NotchGeometry.syntheticNotchWidth, height: 24)
 
     static func make(physical: Bool = true) throws -> NotchGeometry {
         // A process with no window-server session (a sandbox, a CI runner)

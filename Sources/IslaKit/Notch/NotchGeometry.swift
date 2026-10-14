@@ -180,10 +180,25 @@ struct NotchGeometry {
         let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
         return NotchGeometry(
             screen: screen,
-            notchSize: CGSize(width: 180, height: max(menuBarHeight, NSStatusBar.system.thickness, 24)),
+            notchSize: Self.syntheticNotchSize(
+                menuBarHeight: menuBarHeight, statusBarThickness: NSStatusBar.system.thickness
+            ),
             notchCenterX: screen.frame.midX,
             isPhysical: false
         )
+    }
+
+    /// How wide the island drawn on a display with no cutout rests (spec §3.8).
+    /// 180 until 2026-10-15; 200 sits the compact island's two 40 pt wings on a
+    /// pill that reads as a deliberate shape on a menu bar rather than a tab, and
+    /// is still narrower than the 14-inch notch it stands in for.
+    static let syntheticNotchWidth: CGFloat = 200
+
+    /// The size of the island on a display with no notch: 200 wide, and the
+    /// menu bar's own height — never under 24 — so the black reads as a cutout
+    /// of the bar. Pure, so the width and the height rule are tests.
+    static func syntheticNotchSize(menuBarHeight: CGFloat, statusBarThickness: CGFloat) -> CGSize {
+        CGSize(width: syntheticNotchWidth, height: max(menuBarHeight, statusBarThickness, 24))
     }
 
     /// True when nothing that affects the panel has moved. Screen-parameter
@@ -313,12 +328,18 @@ struct NotchGeometry {
     /// look interactive while only the camera cutout actually responded.
     /// The island exactly as it is drawn, for anything about appearance rather
     /// than about opening. No padding: see `PointerWatcher.hoverRect`.
-    func collapsedIslandRect(for width: CGFloat) -> CGRect {
-        CGRect(
+    ///
+    /// `height` is the island's drawn height where it is not the notch's: a
+    /// new track's peek is 50 pt tall (spec §3.5), and a rect cut for 38 would
+    /// leave the 12 pt that grew below the menu bar visible and deaf. Never less
+    /// than `collapsedDepth`.
+    func collapsedIslandRect(for width: CGFloat, height: CGFloat? = nil) -> CGRect {
+        let depth = max(collapsedDepth, height ?? collapsedDepth)
+        return CGRect(
             x: notchCenterX - width / 2,
-            y: screen.frame.maxY - collapsedDepth,
+            y: screen.frame.maxY - depth,
             width: width,
-            height: collapsedDepth
+            height: depth
         )
     }
 
@@ -328,16 +349,17 @@ struct NotchGeometry {
     /// the notch and the island never noticed it; the nudge came only a few
     /// points lower. The owner, 2026-09-21: "it's not noticing when the
     /// cursor is in the edges".
-    func collapsedIslandHoverRect(for width: CGFloat) -> CGRect {
-        includingTopEdge(collapsedIslandRect(for: width))
+    func collapsedIslandHoverRect(for width: CGFloat, height: CGFloat? = nil) -> CGRect {
+        includingTopEdge(collapsedIslandRect(for: width, height: height))
     }
 
-    func collapsedHoverRect(for width: CGFloat) -> CGRect {
-        includingTopEdge(CGRect(
+    func collapsedHoverRect(for width: CGFloat, height: CGFloat? = nil) -> CGRect {
+        let depth = max(collapsedDepth, height ?? collapsedDepth)
+        return includingTopEdge(CGRect(
             x: notchCenterX - width / 2 - 6,
-            y: screen.frame.maxY - collapsedDepth - (isPhysical ? 4 : 0),
+            y: screen.frame.maxY - depth - (isPhysical ? 4 : 0),
             width: width + 12,
-            height: collapsedDepth + (isPhysical ? 4 : 0)
+            height: depth + (isPhysical ? 4 : 0)
         ))
     }
 

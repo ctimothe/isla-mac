@@ -1,4 +1,6 @@
+import AppKit
 import CoreGraphics
+import SwiftUI
 import XCTest
 @testable import IslaKit
 
@@ -23,7 +25,9 @@ final class CompactMediaActivityTests: XCTestCase {
         XCTAssertFalse(activity.animatesEqualizer)
         XCTAssertEqual(
             activity.bodySize(notchSize: CGSize(width: 180, height: 32)),
-            CGSize(width: 284, height: 32)
+            // 180 + 80: redesign 2026-10-15, spec §3.1 — two 40 pt wings, it was
+            // 180 + 104 = 284.
+            CGSize(width: 260, height: 32)
         )
     }
 
@@ -34,7 +38,8 @@ final class CompactMediaActivityTests: XCTestCase {
 
         XCTAssertEqual(playing, .playing)
         XCTAssertTrue(playing.isVisible)
-        XCTAssertEqual(playing.bodySize(notchSize: notch), CGSize(width: 314, height: 38))
+        // 210 + 80: redesign 2026-10-15, spec §3.1; it was 210 + 104 = 314.
+        XCTAssertEqual(playing.bodySize(notchSize: notch), CGSize(width: 290, height: 38))
         XCTAssertEqual(playing.bodySize(notchSize: notch), paused.bodySize(notchSize: notch))
     }
 
@@ -48,6 +53,33 @@ final class CompactMediaActivityTests: XCTestCase {
         XCTAssertTrue(CompactMediaActivity.paused.showsArtworkPlayBadge)
         XCTAssertFalse(CompactMediaActivity.playing.showsArtworkPlayBadge)
         XCTAssertFalse(CompactMediaActivity.hidden.showsArtworkPlayBadge)
+    }
+
+    /// Redesign 2026-10-15, spec §3.2: only a playing island draws the equalizer
+    /// in the cover's tint; a paused one draws it at rest in tertiary.
+    func testOnlyPlayingTintsTheEqualizer() {
+        XCTAssertTrue(CompactMediaActivity.playing.tintsEqualizer)
+        XCTAssertFalse(CompactMediaActivity.paused.tintsEqualizer)
+        XCTAssertFalse(CompactMediaActivity.hidden.tintsEqualizer)
+    }
+
+    /// The paused cover darkens to 0.55 of itself and is not made see-through
+    /// (redesign 2026-10-15, spec §3.2: it was 0.58 opacity), and the badge is a
+    /// 9 pt glyph rather than a circle.
+    func testThePausedCoverIsDimmedNotTranslucent() {
+        XCTAssertEqual(Theme.pausedCoverBrightness, 0.55)
+    }
+
+    func testTheHoverFillIsASolidOneCEOneCEOneEE() throws {
+        let hover = try XCTUnwrap(NSColor(Theme.islandHover).usingColorSpace(.sRGB))
+        XCTAssertEqual(hover.redComponent, 28.0 / 255, accuracy: 0.002)
+        XCTAssertEqual(hover.greenComponent, 28.0 / 255, accuracy: 0.002)
+        XCTAssertEqual(hover.blueComponent, 30.0 / 255, accuracy: 0.002)
+        XCTAssertEqual(hover.alphaComponent, 1, "solid, not a gradient lift")
+        let green = try XCTUnwrap(NSColor(Theme.chargingGreen).usingColorSpace(.sRGB))
+        XCTAssertEqual(green.redComponent, 48.0 / 255, accuracy: 0.002)
+        XCTAssertEqual(green.greenComponent, 209.0 / 255, accuracy: 0.002)
+        XCTAssertEqual(green.blueComponent, 88.0 / 255, accuracy: 0.002)
     }
 
     func testInvalidPlayingFlagCannotExposeAnActivityWithoutATrack() {
@@ -64,14 +96,17 @@ final class CompactMediaActivityTests: XCTestCase {
         XCTAssertEqual(EqualizerPresentation(isPlaying: true, reduceMotion: true), .resting)
     }
 
-    /// The peek widens the pill so a title has somewhere to go, and only then.
+    /// The peek widens the pill and grows it so a title and an artist have somewhere to go, and only then.
     func testPeekingWidensTheCompactPill() {
         let notch = CGSize(width: 200, height: 32)
         let resting = CompactMediaActivity.playing.bodySize(notchSize: notch)
         let peeking = CompactMediaActivity.playing.bodySize(notchSize: notch, peeking: true)
 
         XCTAssertGreaterThan(peeking.width, resting.width)
-        XCTAssertEqual(peeking.height, resting.height, "a peek widens, it never grows taller")
+        // Redesign 2026-10-15, spec §3.5: a peek now grows to 50 pt for its two
+        // lines; it used to widen and never grow taller.
+        XCTAssertEqual(resting.height, 32)
+        XCTAssertEqual(peeking.height, NotchMetrics.sneakPeekHeight, "a peek widens and grows to 50 pt")
         XCTAssertLessThanOrEqual(
             peeking.width,
             NotchMetrics.standardBody.width,

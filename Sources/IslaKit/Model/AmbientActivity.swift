@@ -18,9 +18,10 @@ enum AmbientActivity: Equatable {
     case headphones(name: String, symbol: String)
 
     /// How much wider than the notch the pill grows for it. The charge fits
-    /// the resting pill. A device name needs a wider right wing, but not the
-    /// peek's whole title-and-artist width, which drawn with one short name
-    /// left half the pill empty.
+    /// the resting pill — the same 300 pt as the music island since the
+    /// redesign (spec §3.6). A device name needs a wider right wing: two 104 pt
+    /// wings, 208 in all, but not the peek's whole title-and-artist width, which
+    /// drawn with one short name left half the pill empty.
     var extensionWidth: CGFloat {
         switch self {
         case .charging: return NotchMetrics.compactMediaExtension
@@ -33,6 +34,15 @@ enum AmbientActivity: Equatable {
     var chargeSymbol: String {
         if case .charging(_, false) = self { return "powerplug.fill" }
         return "bolt.fill"
+    }
+
+    /// Whether the moment is drawn in the system green (spec §3.6): a battery
+    /// that is charging and says how full it is. A Mac with no battery reports no
+    /// level and gets a white bolt alone, a charge that is only being held gets
+    /// a white plug, and headphones are white.
+    var usesChargingGreen: Bool {
+        guard case .charging(let level, let isCharging) = self else { return false }
+        return isCharging && level != nil
     }
 
     var accessibilityLabel: String {

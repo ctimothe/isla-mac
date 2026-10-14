@@ -30,7 +30,20 @@ enum NotchMetrics {
     static let maximumWindow = CGSize(width: 700, height: 444)
     /// Extra room split equally between the two sides of a collapsed notch:
     /// artwork on the left, playback state on the right.
-    static let compactMediaExtension: CGFloat = 104
+    ///
+    /// 104 until 2026-10-15, 52 pt a wing, with a 22 pt cover floating in the
+    /// middle of each. The redesign (spec §3.1, owner decision 2) makes the
+    /// island 300 pt on a 14-inch MacBook Pro — the notch plus two 40 pt wings —
+    /// because a 24 pt cover with 8 pt either side is what a wing needs and the
+    /// HIG asks compact content to sit snug against the camera. On a notch of
+    /// another width the wings stay 40; the island is `notch.width + 80`.
+    static let compactMediaExtension: CGFloat = 80
+    /// One wing of the compact island: half of `compactMediaExtension`.
+    static let compactWing: CGFloat = compactMediaExtension / 2
+    /// How far the cover sits from the island's left edge and the equalizer's
+    /// last bar from its right edge (spec §3.1): even margins, so the cover's
+    /// 6 pt corner is concentric with the island's 12.
+    static let compactEdgeInset: CGFloat = 8
     static let openDelay: TimeInterval = 0.05
     static let closeDelay: TimeInterval = 0.32
     static let fastPointerInterval: TimeInterval = 1.0 / 60.0
@@ -98,8 +111,18 @@ enum NotchMetrics {
     /// How much wider the pill goes while peeking, over the compact width.
     /// Enough for a title beside the artwork without reaching the full body.
     static let sneakPeekExtension: CGFloat = 300
+    /// How tall the island grows for a new track's peek (spec §3.5, owner
+    /// decision 3). Two lines — a title and an artist — do not fit the notch's
+    /// own 38 pt without being squeezed against the camera, so the island grows
+    /// 12 pt down into the wallpaper, the way a Live Activity's alert does,
+    /// rather than the text being made smaller. The window is never resized
+    /// (it is cut for 444 pt), so this is only a drawn height and an active
+    /// rect.
+    static let sneakPeekHeight: CGFloat = 50
     /// The headphones moment: a glyph in the left wing and a device name in
-    /// the right, 110 pt each, enough for "AirPods Pro Max" before it
-    /// truncates.
-    static let ambientNameExtension: CGFloat = 220
+    /// the right, 104 pt each (spec §3.6) — the same wings the volume pop-up
+    /// takes in R5, so every "something happened" moment is one width. Enough
+    /// for "AirPods Pro Max" before the name truncates at its tail. 220 until
+    /// 2026-10-15, with 110 pt wings.
+    static let ambientNameExtension: CGFloat = 208
 }
