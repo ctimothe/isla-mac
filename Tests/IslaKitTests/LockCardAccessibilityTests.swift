@@ -56,22 +56,30 @@ final class LockCardAccessibilityTests: XCTestCase {
 
         let root = await AXProbe.tree(of: await card(.output, isolated), size: LockScreenCard.size(for: .standard))
 
-        for hidden in ["Playback Position", "Previous Track", "Next Track", "Pause", "Volume", "Lyrics"] {
+        for hidden in ["Playback Position", "Previous Track", "Next Track", "Pause", "Lyrics"] {
             XCTAssertNil(root.first(label: hidden), "\"\(hidden)\" is still reachable under the open picker\n\(root.dump)")
         }
+        // The Sound pane carries a volume slider of its own (redesign
+        // 2026-10-15, spec §7.3) and it is the only one: the foot rail's, which
+        // the pane replaces, is not still in reading order beside it.
+        XCTAssertEqual(root.all { $0.label == "Volume" }.count, 1, root.dump)
 
         let picker = try XCTUnwrap(
             root.all { $0.label == "Sound Output" && !$0.children.isEmpty }.first,
             "no group named Sound Output\n\(root.dump)"
         )
-        let devices = picker.all(role: "AXButton").map(\.label)
+        // The pane's own way back is a button beside the devices (redesign
+        // 2026-10-15, spec §7.3); everything else is a device.
+        let buttons = picker.all(role: "AXButton").filter { $0.label != localized("Back to Player") }
+        let devices = buttons.map(\.label)
         XCTAssertEqual(Set(devices), Set(Self.outputs.map(\.name)), root.dump)
+        XCTAssertNotNil(picker.first(label: localized("Back to Player")), root.dump)
         // The playing device leads the list and says so.
         XCTAssertEqual(devices.first, "AirPods Pro", root.dump)
-        XCTAssertTrue(picker.all(role: "AXButton").first?.selected ?? false, root.dump)
-        // Every button on the card is one of the devices: nothing outside the
-        // group is left to land on.
-        XCTAssertEqual(root.all(role: "AXButton").count, Self.outputs.count, root.dump)
+        XCTAssertTrue(buttons.first?.selected ?? false, root.dump)
+        // Every button on the card is one of the devices or the way back:
+        // nothing outside the group is left to land on.
+        XCTAssertEqual(root.all(role: "AXButton").count, Self.outputs.count + 1, root.dump)
 
         XCTAssertTrue(picker.cancel(), "the picker offers no Escape\n\(root.dump)")
         let after = await root.reread(settle: 0.4)

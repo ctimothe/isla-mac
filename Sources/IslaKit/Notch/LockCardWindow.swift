@@ -40,7 +40,8 @@ final class LockCardWindow {
     /// prevents is invisible in a screenshot and obvious on a real screen.
     static let shadowMargin: CGFloat = 12
 
-    /// The window is the card plus that margin. The margin is transparent and
+    /// The window is the card's area plus that margin — the largest card the
+    /// setting asks for, in which the banner is drawn. The margin is transparent and
     /// takes no clicks — see `LockCardRootView`.
     static var windowSize: CGSize {
         CGSize(
@@ -70,6 +71,13 @@ final class LockCardWindow {
     /// Cancelled at dismiss, before the watch is stopped, so nothing can
     /// restart a watch whose card is already gone.
     private var watchFollowing: AnyCancellable?
+
+    /// Which form is showing and which pane, for the length of one lock. The
+    /// hit-test reads it; the translation service is told by it.
+    private var presentation: LockCardPresentation?
+
+    /// The wallpaper's brightness behind the card, kept for the window's life.
+    private let tone = LockCardToneModel()
 
     /// Whether the card's CoreAudio listeners should be installed.
     ///
@@ -121,6 +129,7 @@ final class LockCardWindow {
         media: MediaController,
         lyrics: LyricsStore,
         localLookup: @escaping () -> LocalLyricsLookup? = { nil },
+        translation: LyricTranslation? = nil,
         on screen: NSScreen,
         presence: LockScreenPresence
     ) {
@@ -130,6 +139,7 @@ final class LockCardWindow {
             // changed shape underneath us. The audio watch is still running;
             // one re-read in case the machine moved with the display.
             audioWatch?.systemAudioChanged()
+            tone.refresh(on: screen, cardSize: LockScreenCard.size)
             panel.setFrame(frame, display: true)
             // Straight to full, no fade: this path is a correction to a card
             // that is already being looked at, and re-fading it would read as a
@@ -156,11 +166,27 @@ final class LockCardWindow {
         // but the app must never activate for them, which the panel's
         // non-activating style already guarantees.
         panel.ignoresMouseEvents = false
+        // Banner or card, from the setting as it stands now: read at present, like
+        // the card's size, so a switch flipped mid-lock applies at the next lock.
+        let translation = translation ?? .idle
+        let presentation = LockCardPresentation(restsAsBanner: NotchViewModel.restAsBannerEnabled)
+        // The card's own demand for translations, raised now if it opens as the
+        // card and on the click that grows the banner otherwise; lowered at
+        // dismiss under the epoch it was raised in.
+        presentation.attach(translation: translation)
+        self.presentation = presentation
+        // The wallpaper behind the card, for Automatic's opacity. Until it
+        // answers — and for good if it is behind a privacy gate — the card is at
+        // its 0.84 floor.
+        tone.refresh(on: screen, cardSize: LockScreenCard.size)
         let hosting = NSHostingView(rootView: LockScreenCard(
             media: media,
             lyrics: lyrics,
             localLookup: localLookup,
-            audio: watch
+            audio: watch,
+            translation: translation,
+            tone: tone,
+            presentation: presentation
         ))
         // The card sits inset inside the window, so its shadow has somewhere to
         // go. Not autoresizing: the card is one fixed size and the window is
@@ -176,6 +202,11 @@ final class LockCardWindow {
         }
         let root = LockCardRootView(frame: CGRect(origin: .zero, size: frame.size))
         root.cardRect = cardRect
+        // What takes clicks is the banner or the card, whichever is showing.
+        let cardSize = NotchViewModel.lockCardSize
+        root.hitArea = { [weak presentation] in
+            LockCardLayout.visibleRect(presentation?.form ?? .card, cardSize, canvas: cardRect)
+        }
         root.isInteractive = Self.interactive(following: media)
         root.autoresizingMask = [.width, .height]
         root.addSubview(hosting)
@@ -231,6 +262,10 @@ final class LockCardWindow {
         guard let panel else { return }
         watchFollowing?.cancel()
         watchFollowing = nil
+        // The demand for translations goes now, not at an `onDisappear` AppKit
+        // hosting does not promise when a content view is discarded.
+        presentation?.end()
+        presentation = nil
         audioWatch?.stop()
         audioWatch = nil
         presence.apply(to: panel, locked: false)
@@ -259,15 +294,27 @@ final class LockCardWindow {
 /// draws nothing — yet the whole 460x300 rect at the centre of the display
 /// still took clicks, so a click on the login UI there went into a window
 /// nobody could see (F-026).
+///
+/// **The visible shape, not the card's area** (redesign 2026-10-15, spec §7.1).
+/// The window is cut once to the largest card and the banner is drawn inside the
+/// top of it, so while the song rests as a banner most of the card's area is
+/// transparent and belongs to the password field as much as the margin does.
+/// `hitArea` is asked at the moment of each click — the banner's 360 x 64 or
+/// the card's rect, from the presentation's current form — and falls back to the
+/// whole `cardRect` for a root built without one.
 final class LockCardRootView: NSView {
     var cardRect: CGRect = .zero
+    /// What takes clicks right now, in this view's coordinates. Nil is the whole
+    /// card area, as it always was.
+    var hitArea: (() -> CGRect)?
     /// Whether the card has anything on it to click. Defaults to true so a
     /// root built without a media controller behaves as the card always did;
     /// `LockCardWindow.present` wires it to the track.
     var isInteractive: () -> Bool = { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard cardRect.contains(point), isInteractive() else { return nil }
+        let area = hitArea?() ?? cardRect
+        guard area.contains(point), isInteractive() else { return nil }
         return super.hitTest(point)
     }
 }

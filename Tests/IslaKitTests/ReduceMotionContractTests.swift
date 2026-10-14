@@ -26,24 +26,13 @@ final class ReduceMotionContractTests: XCTestCase {
     private static let allowed: [Allowed] = [
         Allowed(
             file: "LockScreenCard.swift",
-            line: ".animation(reduceMotion ? nil : Theme.contentAnimation, value: pane)",
-            count: 2,
-            reason: "the header and the cover beside it: the cover changes size with the pane "
-                + "(76 to 44 pt), and the title slides with it. Geometry."
-        ),
-        Allowed(
-            file: "LockScreenCard.swift",
-            line: ".animation(reduceMotion ? nil : Theme.paneAnimation, value: pane)",
-            count: 1,
-            reason: "the card's middle: its frame follows the header's cover, which cuts, so an "
-                + "animation here slides the seek bar. Its panes fade on a transition of their own."
-        ),
-        Allowed(
-            file: "LockScreenCard.swift",
             line: ".animation(jump || reduceMotion ? nil : Theme.lyricScroll, value: centre)",
             count: 1,
             reason: "the lock card's lyric window: with the travel refused the leaving line only "
-                + "faded while the rest still slid a row, so two lines shared one slot."
+                + "faded while the rest still slid a row, so two lines shared one slot. (Redesign "
+                + "2026-10-15, spec §7: the header's travel and the pane swap no longer cut under "
+                + "Reduce Motion — the banner/card morph gives each form an identity and crossfades, "
+                + "`LockScreenCard.stage` — so only the window's glide is left here.)"
         ),
         Allowed(
             file: "MediaPane.swift",

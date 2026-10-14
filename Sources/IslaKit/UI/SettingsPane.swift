@@ -209,6 +209,7 @@ struct SettingsPane: View {
     @State private var sneakPeek = NotchViewModel.sneakPeekEnabled
     @State private var showOnLockScreen = NotchViewModel.showOnLockScreenEnabled
     @State private var lockCardStyle = NotchViewModel.lockCardStyle
+    @State private var restAsBanner = NotchViewModel.restAsBannerEnabled
     @State private var lockCardSize = NotchViewModel.lockCardSize
     @State private var showLyrics = NotchViewModel.showLyricsEnabled
     @State private var onlineLyrics = NotchViewModel.onlineLyricsEnabled
@@ -746,9 +747,26 @@ struct SettingsPane: View {
                     )
                     // Only worth offering while there is a card to finish.
                     if showOnLockScreen {
+                        // Banner or card, resting (redesign 2026-10-15, spec §7.1):
+                        // on, the song waits as a slim banner under the clock and a
+                        // click opens the card; off, the card shows directly. Read
+                        // when the lock window is made, like the card's size, so a
+                        // switch flipped during a lock applies at the next one.
+                        toggleRow(
+                            symbol: SettingsIcon.restAsBanner,
+                            title: localized("Rest as Banner"),
+                            isOn: Binding(
+                                get: { restAsBanner },
+                                set: { wants in
+                                    restAsBanner = wants
+                                    UserDefaults.standard.set(wants, forKey: NotchViewModel.restAsBannerKey)
+                                }
+                            )
+                        )
+                        noteRow(localized("The card waits as a slim banner under the clock; click it to open."))
                         choiceRow(
                             symbol: SettingsIcon.cardStyle,
-                            title: localized("Glass"),
+                            title: localized("Card Style"),
                             options: NotchViewModel.LockCardStyle.allCases,
                             selection: Binding(
                                 get: { lockCardStyle },
@@ -759,6 +777,7 @@ struct SettingsPane: View {
                             ),
                             title: { $0.title }
                         )
+                        noteRow(localized("Automatic tints the card with the cover and reads the wallpaper behind it. With Reduce Transparency it is Solid."))
                         choiceRow(
                             symbol: SettingsIcon.cardSize,
                             title: localized("Card Size"),

@@ -1334,17 +1334,20 @@ final class NotchViewModel: ObservableObject {
 
     /// How the lock card is finished.
     ///
-    /// Glass is what the system's own surfaces do on this OS: the wallpaper
-    /// carries through, dimmed only as far as the type needs. Solid is for the
-    /// wallpapers glass cannot win against — a bright, busy photograph behind
-    /// small white text — and for anybody who simply wants the panel to be a
-    /// panel.
-    /// How much glass the lock card is, in the three steps macOS itself offers
-    /// for its own glass — the most see-through, a tinted pane, and the opaque
-    /// panel Reduce Transparency draws — so the card answers to the same idea
-    /// the rest of the system does. Stored values are kept from when there
-    /// were two: "glass" is Tinted, the card's look since the cover lit it.
+    /// Nothing above the login shield can sample the wallpaper, so every style
+    /// is a recipe the card draws for itself (`LockScreenCard.glassRouting`).
+    /// **Automatic** (redesign 2026-10-15, spec §7.2) is the default when
+    /// nothing is stored: the cover's light, today's Tinted recipe, at an
+    /// opacity chosen from how bright the wallpaper behind the card is
+    /// (`LockCardMaterial.automaticAlpha`) and never under 0.84 (owner
+    /// decision 5), because a lighter tint let Aerial's bright lines run
+    /// straight through the sung lyric. The other three are what they were:
+    /// the most see-through, a tinted pane, and the opaque panel Reduce
+    /// Transparency draws — the three steps macOS itself offers for its own
+    /// glass. Stored values are kept: "glass" is Tinted, the card's look since
+    /// the cover lit it, and a person who chose one keeps it.
     enum LockCardStyle: String, CaseIterable, Identifiable {
+        case automatic
         case clear
         case glass
         case solid
@@ -1352,6 +1355,7 @@ final class NotchViewModel: ObservableObject {
 
         var title: String {
             switch self {
+            case .automatic: return localized("Automatic")
             case .clear: return localized("Transparent")
             case .glass: return localized("Tinted")
             case .solid: return localized("Solid")
@@ -1382,9 +1386,29 @@ final class NotchViewModel: ObservableObject {
 
     static let lockCardStyleKey = "lockCardStyle"
 
-    static var lockCardStyle: LockCardStyle {
-        LockCardStyle(rawValue: UserDefaults.standard.string(forKey: lockCardStyleKey) ?? "") ?? .glass
+    /// The stored choice, or **Automatic** when nothing (or nothing this build
+    /// knows) is stored — only the default changed in the redesign (spec §7.2,
+    /// §14), so a person who picked Transparent, Tinted or Solid keeps it.
+    static func lockCardStyle(in defaults: UserDefaults) -> LockCardStyle {
+        LockCardStyle(rawValue: defaults.string(forKey: lockCardStyleKey) ?? "") ?? .automatic
     }
+
+    static var lockCardStyle: LockCardStyle { lockCardStyle(in: .standard) }
+
+    static let restAsBannerKey = "lock.restAsBanner"
+
+    /// Rest as Banner (spec §7.1, §14): on, the song rests on the lock screen as
+    /// a slim banner under the clock and a click grows it into the card in place;
+    /// off, the card shows directly with no chevron, as it did before the
+    /// redesign. **On** when never touched. Read when the lock window is made, so
+    /// a switch flipped during a lock applies at the next one, as the card's size
+    /// does.
+    static func restAsBannerEnabled(in defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: restAsBannerKey) != nil else { return true }
+        return defaults.bool(forKey: restAsBannerKey)
+    }
+
+    static var restAsBannerEnabled: Bool { restAsBannerEnabled(in: .standard) }
 
     static let showOnLockScreenKey = "showOnLockScreen"
 

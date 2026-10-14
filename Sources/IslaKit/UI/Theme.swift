@@ -142,7 +142,7 @@ enum Theme {
     /// a fourth spring at 0.7 would have passed it without anyone noticing.
     static let criticallyDampedSprings: [Animation] = [
         openAnimation, closeAnimation, compactAnimation, pillUnfold, pillFold, pillContentOut, pillContentIn,
-        captionTurnOut, captionTurnIn, expandAnimation,
+        captionTurnOut, captionTurnIn, expandAnimation, lockCardMorph,
     ]
 
     /// The body growing from 208 to 400 and back (spec §2.4, §6): spring 0.40 /
@@ -165,6 +165,25 @@ enum Theme {
     /// Reduce Motion: no travel, the 0.24 crossfade the rest of the panel uses.
     static func expand(reduceMotion: Bool) -> Animation {
         reduceMotion ? reducedMotion : expandAnimation
+    }
+
+    /// The lock banner growing into the card, and the card shrinking back
+    /// (spec §2.4, §7.1): spring 0.36 / 1.0, **in place** — the banner's top edge
+    /// is the card's top edge and both are centred on the same x, so the cover,
+    /// the title and the artist travel down and out rather than being replaced.
+    /// (`Lock-Frames` is the board: banner, halfway, card.) A touch slower than
+    /// the panel's 0.34 open because the card is three times the banner's
+    /// height and the eye follows the cover the whole way; critically damped,
+    /// because the card's window is never resized and a rebound would show the
+    /// tail of its own clip (see `LockCardWindow`).
+    static let lockCardMorphResponse: Double = 0.36
+    static let lockCardMorph = Animation.spring(response: lockCardMorphResponse, dampingFraction: 1.0)
+
+    /// Reduce Motion: nothing travels, the 0.24 crossfade the rest of the app
+    /// uses (`LockScreenCard` gives each form an identity of its own so the two
+    /// shapes dissolve into one another).
+    static func lockCardMorph(reduceMotion: Bool) -> Animation {
+        reduceMotion ? reducedMotion : lockCardMorph
     }
 
     /// The Music pane's caption giving one lyric line up to the next

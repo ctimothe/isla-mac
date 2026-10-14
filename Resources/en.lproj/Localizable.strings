@@ -156,7 +156,6 @@
 "Sync" = "Sync";
 "Back to the current line" = "Back to the current line";
 "Sound Output" = "Sound Output";
-"Glass" = "Glass";
 "Solid" = "Solid";
 "Lock Screen" = "Lock Screen";
 "Transparent" = "Transparent";
@@ -442,3 +441,11 @@
 
 /* Translate To: the stored-nothing choice (review 2026-10-15). */
 "Automatic" = "Automatic";
+
+/* The lock screen: the banner, the card and its panes (redesign 2026-10-15, spec 7, 15) */
+"Back to Player" = "Back to Player";
+"Sound" = "Sound";
+"Rest as Banner" = "Rest as Banner";
+"The card waits as a slim banner under the clock; click it to open." = "The card waits as a slim banner under the clock; click it to open.";
+"Card Style" = "Card Style";
+"Automatic tints the card with the cover and reads the wallpaper behind it. With Reduce Transparency it is Solid." = "Automatic tints the card with the cover and reads the wallpaper behind it. With Reduce Transparency it is Solid.";

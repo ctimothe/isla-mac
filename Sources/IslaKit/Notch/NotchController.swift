@@ -363,6 +363,7 @@ final class NotchController {
                 media: vm.media,
                 lyrics: vm.lyrics,
                 localLookup: { vm.lyricsCoordinator.localLookup },
+                translation: vm.translation,
                 on: screen,
                 presence: lockPresence
             )
@@ -388,7 +389,7 @@ final class NotchController {
         // It takes clicks now, where before it took only hovers. The area is
         // the notch itself, at the top centre of the screen; the password field
         // is in the middle, and nothing else up there belongs to loginwindow.
-        let pill = CGSize(width: vm.bodySize.width, height: vm.geometry.notchSize.height)
+        let pill = vm.lockedIslandSize
         let rect = CGRect(
             x: (panel.frame.width - pill.width) / 2,
             y: panel.frame.height - pill.height,

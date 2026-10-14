@@ -214,17 +214,28 @@ struct NotchContentView: View {
     /// the controller flips it with animations disabled, which an `.animation`
     /// in here cannot re-enable.
     private var lockedPill: some View {
-        let shown = compactActivity.isVisible
+        // The wings are the island's own and the banner or the card is the
+        // song's: while it is up the island rests in the notch, wherever the
+        // song is playing (spec §3.7, owner decision 1; `LockedIsland`).
+        let shown = vm.lockedIslandShowsWings
         let notch = vm.geometry.notchSize
+        // The notch the banner or the card leaves alone still answers: a hover
+        // wakes it as it wakes any resting notch, and a click shakes it. Only over
+        // a real cutout — a display without one draws no resting island to wake.
+        let answers = vm.lockSurfacePresentsSong && vm.geometry.isPhysical
+        let awake = !shown && answers && vm.isHovering
+        let out = shown || awake
         let shape = shown
             ? CGSize(width: size.width + 2 * Theme.collapsedTopRadius, height: notch.height)
-            : Self.restingShape(notch: notch)
+            : (awake
+                ? Self.awakeShape(notch: notch, shoulder: Theme.collapsedTopRadius)
+                : Self.restingShape(notch: notch))
         return ZStack(alignment: .top) {
             NotchShape(
-                topRadius: shown ? Theme.collapsedTopRadius : 0,
-                bottomRadius: shown ? Theme.collapsedBottomRadius : Theme.restingNotchBottomRadius
+                topRadius: out ? Theme.collapsedTopRadius : 0,
+                bottomRadius: out ? Theme.collapsedBottomRadius : Theme.restingNotchBottomRadius
             )
-            .fill(shown && vm.isHovering ? Theme.islandHover : Color.black)
+            .fill(out && vm.isHovering ? Theme.islandHover : Color.black)
             .frame(width: shape.width, height: shape.height)
             // A display with no cutout has nowhere to fold into, so there the
             // shape itself goes; over a real notch it ends inside the hole,
@@ -234,15 +245,24 @@ struct NotchContentView: View {
             // unlocked one are two branches of `body` that swap in a single
             // transaction, so sharing an identity would hand the lock a
             // travelling cover to interpolate — and the lock is a cut.
-            compactMediaHeader(morph: nil)
-                // Held inside the wings the way the unlocked shell holds it,
-                // so the last blurred trace of the cover can never be drawn on
-                // the wallpaper beside a shape that has already moved in.
-                .frame(width: size.width, alignment: .center)
-                .clipped()
-                // The refusal under Reduce Motion: the content dips, the black
-                // shape above stays put (see `RefusalShake`).
-                .refusalContentDim()
+            if shown {
+                compactMediaHeader(morph: nil)
+                    // Held inside the wings the way the unlocked shell holds it,
+                    // so the last blurred trace of the cover can never be drawn on
+                    // the wallpaper beside a shape that has already moved in.
+                    .frame(width: size.width, alignment: .center)
+                    .clipped()
+                    // The refusal under Reduce Motion: the content dips, the black
+                    // shape above stays put (see `RefusalShake`).
+                    .refusalContentDim()
+            } else {
+                // The wings are not drawn but the island still has the notch's
+                // height and the width the pointer is answered over: the row the
+                // click target and VoiceOver's frame are cut from, as the header
+                // was when nothing played.
+                Color.clear
+                    .frame(width: answers ? vm.lockedIslandSize.width : size.width, height: notch.height)
+            }
         }
         // Isla over the shield too, folded or not: pressed, it gives the
         // refusal a click gets. With nothing playing this island used to be
@@ -257,16 +277,24 @@ struct NotchContentView: View {
         // The same `#1C1C1E` under the pointer as unlocked, on the pill's own
         // fill above — only on a pill that is there.
         .animation(Theme.contentAnimation, value: vm.isHovering)
+        // The resting notch waking under the pointer, and going back, on the
+        // same bump it has anywhere: a hover over the lock screen is the same
+        // question the island answers on the desktop.
+        .animation(Theme.hoverNudge(reduceMotion: reduceMotion), value: awake)
         // The edge says the island is there; the shake says it is not opening
         // here. Two different answers to two different gestures, rather than
         // one shake for both.
         .onTapGesture { vm.onIslandClick?() }
         // Folded, the shape sits one point inside the cutout, and an 11 pt
         // swing would carry ten of them out onto the wallpaper beside it. There
-        // is no pill to shake, so nothing shakes.
-        .refusalShake(trigger: vm.lockedHoverNudges, amplitude: shown ? RefusalShake.standardAmplitude : 0)
-        // Folded, there is nothing here to answer: the notch is only a notch.
-        .allowsHitTesting(shown)
+        // is no pill to shake, so nothing shakes. Hovered — and a click needs
+        // a pointer on it — the notch has grown past the cutout and shakes with
+        // it (`Lock-Refusal`).
+        .refusalShake(trigger: vm.lockedHoverNudges, amplitude: out ? RefusalShake.standardAmplitude : 0)
+        // Folded, there is nothing here to answer: the notch is only a notch —
+        // unless the banner or the card holds the song, when the pointer's
+        // hover and click are the two answers the board asks for.
+        .allowsHitTesting(shown || answers)
         .animation(Theme.pill(appearing: shown, reduceMotion: reduceMotion), value: compactActivity)
     }
 

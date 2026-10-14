@@ -77,6 +77,8 @@ enum SettingsIcon {
     static let translateTarget = "arrow.right"
     static let lockScreen = "lock.display"
     static let cardSize = "rectangle.compress.vertical"
+    /// A slim bar across the top of a screen: the banner the card rests as.
+    static let restAsBanner = "menubar.rectangle"
     /// Glass or solid is an appearance choice, and this is the system's
     /// appearance glyph.
     static let cardStyle = "circle.lefthalf.filled"
@@ -116,7 +118,7 @@ enum SettingsIcon {
         shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, readAhead, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
-        online, lyricTiming, resetTiming, peek, volumeAndOutput, lyricBand, translateLyrics, translateTarget, lockScreen, cardStyle, automationAccess, openSystemSettings,
+        online, lyricTiming, resetTiming, peek, volumeAndOutput, lyricBand, translateLyrics, translateTarget, lockScreen, restAsBanner, cardStyle, automationAccess, openSystemSettings,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, clipboardHistory, translate, hideFromRecording,
         about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,

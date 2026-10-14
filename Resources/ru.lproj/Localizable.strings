@@ -162,7 +162,6 @@
 "Sync" = "К строке";
 "Back to the current line" = "Вернуться к текущей строке";
 "Sound Output" = "Выход звука";
-"Glass" = "Стекло";
 "Solid" = "Сплошное";
 "Lock Screen" = "Экран блокировки";
 "Transparent" = "Прозрачное";
@@ -448,3 +447,11 @@
 
 /* Translate To: the stored-nothing choice (review 2026-10-15). */
 "Automatic" = "Автоматически";
+
+/* The lock screen: the banner, the card and its panes (redesign 2026-10-15, spec 7, 15) */
+"Back to Player" = "Назад к плееру";
+"Sound" = "Звук";
+"Rest as Banner" = "Показывать полоской";
+"The card waits as a slim banner under the clock; click it to open." = "Карточка ждёт тонкой полоской под часами; нажмите, чтобы открыть.";
+"Card Style" = "Стиль карточки";
+"Automatic tints the card with the cover and reads the wallpaper behind it. With Reduce Transparency it is Solid." = "«Автоматически» окрашивает карточку в цвет обложки и учитывает обои за ней. При уменьшении прозрачности она сплошная.";

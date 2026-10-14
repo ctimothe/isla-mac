@@ -178,6 +178,47 @@ final class IslandAccessibilityTests: XCTestCase {
     }
 }
 
+extension IslandAccessibilityTests {
+    /// While the banner or the card holds the song the island has no wings
+    /// (redesign 2026-10-15, spec §3.7): it is the resting notch — an element
+    /// the notch's own height, no wider than the notch grown for a hover — and
+    /// still Isla, still refusing a click with the shake.
+    func testTheLockedIslandWhileTheBannerHoldsTheSongHasNoWingsAndStillRefuses() async throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        await LabFixtures.play(LabFixtures.Track(), on: isolated.stores.media)
+        let vm = NotchViewModel(geometry: try LabGeometry.make(physical: true), stores: isolated.stores)
+        vm.isLockedPresentation = true
+        var clicks = 0
+        vm.onIslandClick = { clicks += 1 }
+
+        XCTAssertTrue(vm.compactMediaActivity.isVisible, "the song is playing: unlocked, this island would have wings")
+        XCTAssertTrue(vm.lockSurfacePresentsSong)
+        XCTAssertFalse(vm.lockedIslandShowsWings, "one surface per activity")
+
+        let root = await AXProbe.tree(of: NotchContentView(vm: vm), size: Self.pillProbe)
+        let found = root.all { $0.role == "AXButton" && $0.label == ProductIdentity.displayName }
+        XCTAssertEqual(found.count, 1, root.dump)
+        let island = try XCTUnwrap(found.first, root.dump)
+        let frame = try XCTUnwrap(island.frame, root.dump)
+        XCTAssertEqual(frame.height, LabGeometry.physicalNotch.height, accuracy: 0.5, root.dump)
+        // The notch and its hover growth (shoulders and 8 pt each side), never
+        // the wings: those are `vm.bodySize.width`, a third as wide again.
+        XCTAssertEqual(frame.width, vm.lockedIslandSize.width, accuracy: 1, root.dump)
+        XCTAssertLessThanOrEqual(
+            frame.width,
+            LabGeometry.physicalNotch.width + 2 * (Theme.collapsedTopRadius + NotchMetrics.hoverNudgeWidth) + 0.5,
+            root.dump
+        )
+        XCTAssertLessThan(frame.width, vm.bodySize.width, "the wings' width is not what answers")
+        XCTAssertEqual(frame.midX, Self.pillProbe.width / 2, accuracy: 1, root.dump)
+
+        XCTAssertTrue(island.press(), root.dump)
+        XCTAssertEqual(vm.lockedHoverNudges, 1, "the locked island did not refuse")
+        XCTAssertEqual(clicks, 0, "the locked island opened")
+    }
+}
+
 extension AXNode {
     /// Performs the element's standard cancel, as VoiceOver's VO-Escape and
     /// Switch Control's Escape do.

@@ -145,6 +145,22 @@ enum WallpaperTone {
         return strip.intersection(CGRect(origin: .zero, size: screenSize))
     }
 
+    /// The part of the screen behind the lock card, in screen points with the
+    /// origin at the screen's top-left (redesign 2026-10-15, spec §7.2). The card
+    /// is centred on the display both ways (`LockCardWindow.frame`), and the
+    /// largest thing that stands there is the card, so the banner — which hangs
+    /// from the card's top edge — is judged against the same region: a banner
+    /// that read one wallpaper and a card another would change material in the
+    /// middle of a click.
+    static func cardRegion(screenSize: CGSize, cardSize: CGSize) -> CGRect {
+        let card = CGRect(
+            x: ((screenSize.width - cardSize.width) / 2).rounded(),
+            y: ((screenSize.height - cardSize.height) / 2).rounded(),
+            width: cardSize.width, height: cardSize.height
+        )
+        return card.intersection(CGRect(origin: .zero, size: screenSize))
+    }
+
     /// A screen region in the picture's own pixels, for a picture laid on the
     /// screen aspect-fill: scaled until it covers the screen, centred, and the
     /// overflow cropped.
@@ -251,8 +267,24 @@ enum WallpaperTone {
         mayRead: (URL) -> Bool = { isReadableWithoutPrompt($0) },
         thumbnail read: (URL) -> CGImage? = { thumbnail(at: $0) }
     ) -> Double? {
+        meanLuminance(
+            ofWallpaperAt: url, screenSize: screenSize,
+            region: islandRegion(screenSize: screenSize, notchCenterX: notchCenterX),
+            mayRead: mayRead, thumbnail: read
+        )
+    }
+
+    /// The same measurement over any region of the screen — the lock card's
+    /// (`cardRegion`) as well as the island's strip. **The privacy gate is the
+    /// first thing asked, whatever the region**: a wallpaper in Downloads, in
+    /// iCloud Drive or on a removable volume answers nil without a file system
+    /// call, however many surfaces have a reason to want its brightness.
+    static func meanLuminance(
+        ofWallpaperAt url: URL, screenSize: CGSize, region screenRegion: CGRect,
+        mayRead: (URL) -> Bool = { isReadableWithoutPrompt($0) },
+        thumbnail read: (URL) -> CGImage? = { thumbnail(at: $0) }
+    ) -> Double? {
         guard mayRead(url) else { return nil }
-        let screenRegion = islandRegion(screenSize: screenSize, notchCenterX: notchCenterX)
         // Asked of the file system, not of `url.resourceValues`: a `URL` caches
         // the values it has been asked for, so a long-lived URL answered with
         // the date it first saw and a replaced wallpaper kept its old tone.

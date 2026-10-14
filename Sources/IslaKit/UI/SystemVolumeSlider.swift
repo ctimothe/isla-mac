@@ -204,6 +204,11 @@ struct SystemVolumeSlider: View {
         /// The Output menu's slider row (below 540): the player's bar with the
         /// loud speaker at the far end too, as the system's own sound menu has.
         case menu
+        /// The lock card's Output pane (spec §7.3), the macOS Sound module's
+        /// slider: an 8 pt track with a knob, a quiet speaker and a loud one at
+        /// the ends in slots of their own, so the bar between them is the 380
+        /// the board draws.
+        case sound
     }
 
     @ObservedObject var model: VolumeSliderModel
@@ -212,6 +217,15 @@ struct SystemVolumeSlider: View {
     /// 4 pt track, 12 pt knob (spec §4.5); the card keeps its bare 4 pt bar.
     static let trackHeight: CGFloat = 4
     static let knobDiameter: CGFloat = 12
+    /// The Sound pane's own: a thicker track wants a bigger knob.
+    static let soundTrackHeight: CGFloat = 8
+    static let soundKnobDiameter: CGFloat = 14
+    /// The slot each end glyph sits in on the Sound pane, and the gap to the bar.
+    static let soundGlyphSlot: CGFloat = 12
+    static let soundSpacing: CGFloat = 8
+
+    private var trackHeight: CGFloat { look == .sound ? Self.soundTrackHeight : Self.trackHeight }
+    private var knobDiameter: CGFloat { look == .sound ? Self.soundKnobDiameter : Self.knobDiameter }
     /// The strip a pointer has to land on: 22 pt, as the scrubber's, so a near
     /// miss still lands (F-014). The row it sits in is 12 pt (player) or 22 pt
     /// (card), and the strip's extra height is given back with negative padding
@@ -220,19 +234,20 @@ struct SystemVolumeSlider: View {
 
     var body: some View {
         let palette = Self.palette(for: look)
-        HStack(spacing: look == .card ? 8 : 6) {
+        HStack(spacing: look == .card ? 8 : (look == .sound ? Self.soundSpacing : 6)) {
             // A muted Mac drew a live-looking bar (G-023). The slashed speaker
             // says so where the system's own slider does, and the fill drops
             // to the track's tone: still the level the sound comes back at,
             // no longer a level anyone is hearing. The glyph sits in the
             // slashed one's width, so the bar does not shift when it swaps.
             Image(systemName: "speaker.slash.fill")
-                .islandFont(.caption, weight: .regular)
+                .islandFont(look == .sound ? .body : .caption, weight: .regular)
                 .hidden()
                 .overlay(alignment: .leading) {
                     Image(systemName: model.muted ? "speaker.slash.fill" : "speaker.fill")
-                        .islandFont(.caption, weight: .regular)
+                        .islandFont(look == .sound ? .body : .caption, weight: .regular)
                 }
+                .frame(width: look == .sound ? Self.soundGlyphSlot : nil, alignment: .leading)
             bar(palette)
                 // The same slider as the seek bar, heard as a percentage and
                 // moved in five-percent steps. This is the system's output
@@ -243,9 +258,11 @@ struct SystemVolumeSlider: View {
                 // 12 pt row the strip is laid out in.
                 .volumeAccessibility(level: model.level, muted: model.muted) { model.step(to: $0) }
                 // The player's row is 12 pt tall; the card's is the strip's own 22.
-                .padding(.vertical, look == .card ? 0 : -5)
+                .padding(.vertical, look == .card || look == .sound ? 0 : -5)
             if look != .player {
-                Image(systemName: "speaker.wave.3.fill").islandFont(.caption, weight: .regular)
+                Image(systemName: "speaker.wave.3.fill")
+                    .islandFont(look == .sound ? .body : .caption, weight: .regular)
+                    .frame(width: look == .sound ? Self.soundGlyphSlot : nil, alignment: .trailing)
             }
         }
         .foregroundStyle(palette.glyph)
@@ -262,6 +279,8 @@ struct SystemVolumeSlider: View {
         switch look {
         case .card:
             return Palette(track: Theme.cardTrack, fill: .white.opacity(0.8), glyph: Theme.cardSecondary)
+        case .sound:
+            return Palette(track: Theme.cardTrack, fill: .white, glyph: Theme.cardSecondary)
         case .player, .menu:
             return Palette(track: Theme.surface, fill: .white.opacity(0.9), glyph: Theme.secondary)
         }
@@ -273,16 +292,16 @@ struct SystemVolumeSlider: View {
             let level = model.level
             let filled = width * level
             ZStack(alignment: .leading) {
-                Capsule().fill(palette.track).frame(height: Self.trackHeight)
+                Capsule().fill(palette.track).frame(height: trackHeight)
                 Capsule()
                     .fill(model.muted ? palette.track : palette.fill)
-                    .frame(width: filled, height: Self.trackHeight)
+                    .frame(width: filled, height: trackHeight)
                 if look != .card {
                     Circle()
                         .fill(.white)
-                        .frame(width: Self.knobDiameter, height: Self.knobDiameter)
+                        .frame(width: knobDiameter, height: knobDiameter)
                         .shadow(color: .black.opacity(0.5), radius: 3, y: 0.5)
-                        .offset(x: min(max(filled - Self.knobDiameter / 2, 0), max(width - Self.knobDiameter, 0)))
+                        .offset(x: min(max(filled - knobDiameter / 2, 0), max(width - knobDiameter, 0)))
                         .opacity(model.muted ? 0.6 : 1)
                 }
             }
