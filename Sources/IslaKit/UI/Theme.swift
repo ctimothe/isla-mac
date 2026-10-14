@@ -484,8 +484,13 @@ enum Theme {
     /// The compact end is 24 pt at radius 6 since 2026-10-15 (spec §3.1; it was
     /// 22): the wing is 40 pt wide with the cover 8 pt in from the island's
     /// edge, and the 6 pt corner is concentric with the island's 12.
+    ///
+    /// The open end is 132 pt since 2026-10-15 (spec §4.1; it was 118): the
+    /// board's player is a 132 pt cover at (58, 54) with the text column to its
+    /// right. The radius stays 14, which is still a picture and not a chip
+    /// (`ArtworkMorphTests`).
     static func artworkMetrics(isOpen: Bool) -> (side: CGFloat, cornerRadius: CGFloat) {
-        isOpen ? (118, 14) : (24, 6)
+        isOpen ? (132, 14) : (24, 6)
     }
 
     /// The cover while a new track peeks (spec §3.5): 34 pt at radius 8,
@@ -506,6 +511,73 @@ enum Theme {
     /// at 0.14 under a `music.note`, drawn in place of the picture so the left
     /// wing never reads as a hole.
     static let coverWell = Color.white.opacity(0.14)
+
+    // MARK: - The player (spec §4)
+
+    /// The owner's red, `#FF453A` (spec §2.1): the LIVE mark and the circle under
+    /// the output that is playing. Fixed rather than the system accent — it is
+    /// a mark of Isla's own — and white on it holds the 3:1 non-text floor
+    /// (3.4:1), which is all a glyph in a circle is asked for.
+    static let accent = Color(red: 255.0 / 255, green: 69.0 / 255, blue: 58.0 / 255)
+    static let accentNSColor = NSColor(srgbRed: 255.0 / 255, green: 69.0 / 255, blue: 58.0 / 255, alpha: 1)
+
+    /// A paused cover in the player dims to 0.8 of itself (spec §4.2) — the
+    /// island's 0.55 is for a 24 pt thumbnail that has to read as asleep; a 132
+    /// pt picture only needs to say so. Applied with `colorMultiply`, never
+    /// SwiftUI's `.brightness`, which is additive and would lift the black.
+    static let playerPausedCoverBrightness: Double = 0.8
+
+    /// The sung line while paused (spec §4.2): 0.7 of itself.
+    static let playerPausedLyricOpacity: Double = 0.7
+
+    /// The lyric band's *next* line (spec §4.3): the board's white 0.36 is the
+    /// panel's own lyric floor (`LyricRow.Ramp.panel(...).floor`, held at 3:1 over
+    /// black by `ContrastRampTests`), so the band follows the ramp instead of
+    /// stating a second 0.36 that could drift from it — and Increase Contrast
+    /// lifts it with the rest of the ramp.
+    static func lyricBandNextOpacity(increaseContrast: Bool) -> Double {
+        LyricRow.Ramp.panel(increaseContrast: increaseContrast).floor
+    }
+
+    @MainActor static var lyricBandNext: Color {
+        Color.white.opacity(lyricBandNextOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// White 0.30 (0.50 with Increase Contrast): placeholders and glyphs nobody
+    /// has to read (spec §2.1 `quaternary`) — the note in a missing cover's well.
+    static func quaternaryOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.50 : 0.30
+    }
+
+    @MainActor static var quaternary: Color {
+        Color.white.opacity(quaternaryOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// The well that stands in for a missing cover (spec §4.7): white 0.08, the
+    /// board's `fill` token.
+    static let coverMissingWell = Color.white.opacity(0.08)
+
+    /// The empty player's well, edge and note (spec §4.8): a step under the
+    /// missing cover's, so a player with nothing in it reads as emptier than one
+    /// whose song has no picture.
+    static let emptyWell = Color.white.opacity(0.07)
+    static let emptyWellEdge = Color.white.opacity(0.10)
+    static let emptyWellNote = Color.white.opacity(0.26)
+
+    /// The note in a missing cover's well, and in the empty player's: 35 and 40
+    /// points (spec §4.7, §4.8). Glyphs fitted to a 132 pt well, not type, so
+    /// they are sizes of their own and not roles.
+    static let playerCoverNoteSize: CGFloat = 35
+    static let emptyNoteSize: CGFloat = 40
+
+    /// The glyphs of the player's transport (spec §4.1): previous and next 16 pt,
+    /// play and pause 20 pt, each in a 28 pt target.
+    static let playerSkipGlyphSize: CGFloat = 16
+    static let playerPlayGlyphSize: CGFloat = 20
+    static let playerTransportTarget: CGFloat = 28
+
+    /// The mark on a hairline round the player's cover (spec §4.1): white 0.14.
+    static let coverEdge = Color.white.opacity(0.14)
 
     /// The island's colour under the pointer: a solid `#1C1C1E` in place of the
     /// white gradient lift it wore until 2026-10-15. Nothing moves on a playing
@@ -873,6 +945,9 @@ struct OfferButtonStyle: ButtonStyle {
     var fill: Color = Theme.surface
     var horizontalPadding: CGFloat = 12
     var verticalPadding: CGFloat = 5
+    /// A height of its own, for a row of them the board measures — the empty
+    /// player's buttons are 22 tall (spec §4.8). Nil takes the padding's.
+    var fixedHeight: CGFloat? = nil
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -884,6 +959,7 @@ struct OfferButtonStyle: ButtonStyle {
             // role and these paddings every label is already larger, so this
             // changes no existing button; it is the floor for a short one.
             .frame(minWidth: Theme.minimumHitSize.width, minHeight: Theme.minimumHitSize.height)
+            .frame(height: fixedHeight)
             .background(fill, in: Capsule())
             .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
             .opacity(configuration.isPressed ? 0.55 : 1)

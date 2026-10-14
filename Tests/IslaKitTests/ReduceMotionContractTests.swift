@@ -46,6 +46,15 @@ final class ReduceMotionContractTests: XCTestCase {
                 + "faded while the rest still slid a row, so two lines shared one slot."
         ),
         Allowed(
+            file: "MediaPane.swift",
+            line: ".animation(reduceMotion ? nil : Theme.contentAnimation, value: layout.hasLyricBand)",
+            count: 1,
+            reason: "the player's block moving 20 pt when the lyric band folds away or arrives "
+                + "(redesign 2026-10-15, spec §4.1): the progress row and the transport travel, "
+                + "and spec §13 says nothing travels under Reduce Motion. The band itself still "
+                + "fades in and out on its own transition."
+        ),
+        Allowed(
             file: "Theme.swift",
             line: ".animation(reduceMotion ? nil : Theme.contentAnimation, value: configuration.isOn)",
             count: 1,

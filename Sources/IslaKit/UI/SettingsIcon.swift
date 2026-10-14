@@ -67,6 +67,10 @@ enum SettingsIcon {
     static let resetTiming = "arrow.counterclockwise"
     /// A brief look at the track that just started.
     static let peek = "eye"
+    /// The player's system volume and output menu: the speaker.
+    static let volumeAndOutput = "speaker.wave.2"
+    /// The sung line and the next one under the title: lines of text, left-set.
+    static let lyricBand = "text.alignleft"
     static let lockScreen = "lock.display"
     static let cardSize = "rectangle.compress.vertical"
     /// Glass or solid is an appearance choice, and this is the system's
@@ -108,7 +112,7 @@ enum SettingsIcon {
         shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, readAhead, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
-        online, lyricTiming, resetTiming, peek, lockScreen, cardStyle, automationAccess, openSystemSettings,
+        online, lyricTiming, resetTiming, peek, volumeAndOutput, lyricBand, lockScreen, cardStyle, automationAccess, openSystemSettings,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, clipboardHistory, translate, hideFromRecording,
         about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,

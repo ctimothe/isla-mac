@@ -877,7 +877,12 @@ struct NotchContentView: View {
     private var trailing: some View {
         switch vm.tab {
         case .media:
-            HStack(spacing: 6) {
+            // The source tag (spec §4.1): the equalizer, then the player's own
+            // icon — Music's, Spotify's — in place of a second "Music" in words
+            // beside the tab's title. The bars end 8 pt before the icon, which
+            // is 18 pt and ends 17 from the body's edge; the strip's own 16 pt
+            // padding plus the 1 pt below is that 17.
+            HStack(spacing: 8) {
                 if vm.media.track != nil {
                     // The far end of the equalizer's travel — the same bars that
                     // were in the pill's right wing a moment ago, not a second
@@ -891,12 +896,28 @@ struct NotchContentView: View {
                     // both ends are sources, so a lone member plays its own
                     // transition instead of collapsing onto a frame that is not
                     // there.
-                    EqualizerBars(isAnimating: vm.media.isPlaying)
-                        .morph(MorphID.equalizer, in: travellingMorph)
+                    //
+                    // The same four-bar view as the island's, in the cover's tint
+                    // while the music plays and at rest, tertiary, when it does
+                    // not (spec §3.2): one equalizer, drawn in both places.
+                    CompactEqualizer(
+                        isAnimating: vm.media.isPlaying,
+                        color: CompactEqualizerMotion.color(
+                            isPlaying: vm.media.isPlaying,
+                            tint: vm.coverTint,
+                            increaseContrast: appearance.increaseContrast
+                        )
+                    )
+                    .morph(MorphID.equalizer, in: travellingMorph)
+                    if let icon = vm.media.sourceIcon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: Self.sourceIconSide, height: Self.sourceIconSide)
+                            .padding(.trailing, 1)
+                            .accessibilityLabel(vm.media.sourceName ?? "")
+                    }
                 }
-                Text(vm.media.sourceName ?? "")
-                    .islandFont(.caption)
-                    .foregroundStyle(Theme.tertiary)
             }
         case .shelf:
             counter(vm.shelf.items.count)
@@ -912,6 +933,10 @@ struct NotchContentView: View {
             EmptyView()
         }
     }
+
+    /// The player's app icon in the header's source tag: 18 pt square
+    /// (spec §4.1).
+    static let sourceIconSide: CGFloat = 18
 
     /// The number the clipboard header shows, or nil for none. With the cover
     /// on, the header read "6" over rows of dots, and a screen-share audience
@@ -932,11 +957,13 @@ struct NotchContentView: View {
     // MARK: - Body
 
     private var content: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: PlayerLayout.railGap) {
             Rail(vm: vm, tabs: NotchViewModel.Tab.contentTabs, footer: NotchViewModel.Tab.utilityTabs)
             panes
         }
-        .padding(.horizontal, 14)
+        // The pane starts at `PlayerLayout.paneLeading` = this padding + the
+        // rail + the gap; the player's board is measured from there.
+        .padding(.horizontal, PlayerLayout.bodyInset)
         // The body's height is measured from this same number, so the two
         // cannot drift apart into a rail that does not fit.
         .padding(.bottom, NotchGeometry.bodyBottomPadding)
@@ -1012,7 +1039,9 @@ struct NotchContentView: View {
                 currentLocalTrackIdentity: { vm.lyricsCoordinator.currentLocalTrackIdentity },
                 openMusicOnlySetting: vm.openMusicOnlySetting,
                 morph: travellingMorph,
-                showingLyrics: $vm.isShowingLyrics
+                showingLyrics: $vm.isShowingLyrics,
+                headerHeight: vm.geometry.notchSize.height,
+                audio: vm.playerAudio
             )
         case .shelf:
             ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)
@@ -1109,7 +1138,7 @@ struct Rail: View {
                 ForEach(footer) { icon(for: $0) }
             }
         }
-        .frame(width: 30)
+        .frame(width: PlayerLayout.railWidth)
         // The rail owns the body's full content height: the run of tabs at the
         // top, settings held to the bottom by the gap between them.
         .frame(height: vm.geometry.standardContentHeight, alignment: .center)

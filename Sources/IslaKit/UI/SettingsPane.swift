@@ -214,6 +214,10 @@ struct SettingsPane: View {
     @State private var onlineLyrics = NotchViewModel.onlineLyricsEnabled
     @State private var onlineTranslation = NotchViewModel.onlineTranslationEnabled
     @State private var musicOnly = NotchViewModel.musicOnlyEnabled
+    /// The player's two switches (spec §4, §14). Volume and Output is on by
+    /// default — the owner-waived exception, see `NotchViewModel.volumeAndOutputKey`.
+    @State private var volumeAndOutput = NotchViewModel.volumeAndOutputEnabled
+    @State private var lyricBand = NotchViewModel.lyricBandEnabled
     @State private var showCharging = NotchViewModel.showChargingEnabled
     @State private var showHeadphones = NotchViewModel.showHeadphonesEnabled
     /// Observed, not snapshotted: the connect flow completes in the browser
@@ -647,6 +651,36 @@ struct SettingsPane: View {
                             }
                         )
                     )
+                    // What the player itself shows (spec §4, §14). Volume and
+                    // Output is on out of the box: it only reads until a person
+                    // drags the slider or picks an output, and the owner waived
+                    // the default-off rule for it (decision 8, checklist.md
+                    // §"Scope divergence").
+                    noteRow(localized("In the player"))
+                    toggleRow(
+                        symbol: SettingsIcon.volumeAndOutput,
+                        title: localized("Volume and Output"),
+                        isOn: Binding(
+                            get: { volumeAndOutput },
+                            set: { wants in
+                                volumeAndOutput = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.volumeAndOutputKey)
+                            }
+                        )
+                    )
+                    toggleRow(
+                        symbol: SettingsIcon.lyricBand,
+                        title: localized("Lyric Band"),
+                        isOn: Binding(
+                            get: { lyricBand },
+                            set: { wants in
+                                lyricBand = wants
+                                UserDefaults.standard.set(wants, forKey: NotchViewModel.lyricBandKey)
+                            }
+                        ),
+                        disabledReason: lyricsOffReason
+                    )
+                    noteRow(localized("Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title."))
                 }
                 .id(Self.musicSectionID)
 

@@ -747,10 +747,24 @@ final class MediaController: ObservableObject {
 
     // MARK: - Shuffle & repeat
 
+    /// What the player answered, supplied by a test so the shuffle and repeat
+    /// buttons can be drawn without a player to ask. Setting it publishes the
+    /// modes; `refreshPlaybackModes` then leaves them alone.
+    var playbackModesForTests: (shuffle: Bool?, repeatMode: PlayerBridge.RepeatMode?)? {
+        didSet {
+            guard let modes = playbackModesForTests else { return }
+            shuffleEnabled = modes.shuffle
+            repeatMode = modes.repeatMode
+        }
+    }
+
     /// Asks the displayed player where its switches stand. Cheap enough to
     /// call on pane appearance and after every toggle; a no-op for sessions
     /// that cannot answer.
     func refreshPlaybackModes() {
+        // A test's stand-in for the player's answer stands until it is cleared;
+        // the real question would script a running player (`PlayerBridge`).
+        if playbackModesForTests != nil { return }
         guard let app = displayedPlayerApp else {
             shuffleEnabled = nil
             repeatMode = nil

@@ -418,3 +418,15 @@
 "The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change." = "Однострочный текст на острове переключается на следующую строку чуть раньше, чем её запоют; в режиме «Авто» длинным строкам даётся больше времени. Подсветка слов не меняется.";
 "Sync Here" = "Синхронизировать здесь";
 "These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here." = "Текст рассчитан на более длинную версию песни и может отставать. Нажмите правой кнопкой на строке, которая сейчас поётся, и выберите «Синхронизировать здесь».";
+
+/* The redesigned player (spec 4, 15) */
+"Repeat: %@" = "Повтор: %@";
+"LIVE" = "ЭФИР";
+"Sound Settings…" = "Настройки звука…";
+"Start a song in Music or Spotify, or open one here." = "Включите песню в Музыке или Spotify либо откройте одно из приложений здесь.";
+"Videos and films stay off the island." = "Видео и фильмы на острове не показываются.";
+"Settings › Music says why, with Try Again." = "Причина — в Настройках › Музыка, там же кнопка «Повторить».";
+"In the player" = "В плеере";
+"Volume and Output" = "Громкость и выход";
+"Lyric Band" = "Строка текста";
+"Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title." = "«Громкость и выход» добавляют в плеер системную громкость и меню AirPlay. «Строка текста» — исполняемая и следующая строки под названием.";

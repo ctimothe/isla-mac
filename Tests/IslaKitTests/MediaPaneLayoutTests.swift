@@ -94,8 +94,31 @@ final class MediaPaneLayoutTests: XCTestCase {
             MediaPane.EmptyStateMessage.readerDown.caption,
             localized("Only Music and Spotify can be seen right now.")
         )
-        XCTAssertNil(MediaPane.EmptyStateMessage.hiddenByMusicOnly.caption)
-        XCTAssertNil(MediaPane.EmptyStateMessage.nothingPlaying.caption)
+    }
+
+    /// Redesign 2026-10-15, spec §4.8: every empty state has its body line now —
+    /// it used to be only the reader-down one — and the reader-down state alone
+    /// carries the pointer to Settings › Music, which is where the reason and Try
+    /// Again live (one failure surface).
+    func testEveryEmptyStateHasItsOwnBodyLine() {
+        XCTAssertEqual(
+            MediaPane.EmptyStateMessage.nothingPlaying.caption,
+            localized("Start a song in Music or Spotify, or open one here.")
+        )
+        XCTAssertEqual(
+            MediaPane.EmptyStateMessage.hiddenByMusicOnly.caption,
+            localized("Videos and films stay off the island.")
+        )
+        XCTAssertEqual(
+            MediaPane.EmptyStateMessage.readerDown.footnote,
+            localized("Settings › Music says why, with Try Again.")
+        )
+        XCTAssertNil(MediaPane.EmptyStateMessage.nothingPlaying.footnote)
+        XCTAssertNil(MediaPane.EmptyStateMessage.hiddenByMusicOnly.footnote)
+        // The remedy: a player to open, or — when the filter hides it — Settings.
+        XCTAssertTrue(MediaPane.EmptyStateMessage.hiddenByMusicOnly.offersSettings)
+        XCTAssertFalse(MediaPane.EmptyStateMessage.nothingPlaying.offersSettings)
+        XCTAssertFalse(MediaPane.EmptyStateMessage.readerDown.offersSettings)
     }
 
     /// Open Settings has to land on the switch, not on the top of a pane that
@@ -124,97 +147,16 @@ final class MediaPaneLayoutTests: XCTestCase {
 
     // MARK: - Where the transport sits
 
-    /// The transport must not move because a song has no words. A control that
-    /// sits somewhere else depending on the track is a control you have to look
-    /// for, and looking for a pause button is the whole cost of getting it wrong.
-    ///
-    /// Measured off the render rather than the view tree: SwiftUI has no public
-    /// hierarchy to walk, but the pane is white-on-black, so the row where the
-    /// lower half of the pane first has ink is the top of the scrubber, and that
-    /// is exactly the thing that used to slide.
-    func testTheTransportSitsAtTheSameHeightWithAndWithoutLyrics() async throws {
-        let withWords = try await inkProfile(withLyrics: true)
-        let without = try await inkProfile(withLyrics: false)
-
-        let topOfTransport = { (rows: [Int]) -> Int in
-            let half = rows.count / 2
-            return (half..<rows.count).first { rows[$0] > 0 } ?? -1
-        }
-
-        let a = topOfTransport(withWords)
-        let b = topOfTransport(without)
-        XCTAssertGreaterThan(a, 0, "the scrubber must render for this test to mean anything")
-        XCTAssertEqual(
-            a, b,
-            "the transport moved by \(abs(a - b)) px when the lyrics went away"
-        )
-    }
-
-    // MARK: - Harness
-
-    /// Rows of the rendered pane, each holding the number of lit pixels in it.
-    private func inkProfile(withLyrics: Bool) async throws -> [Int] {
-        // Rendering the pane reads the local-only Show Lyrics preference.
-        let defaults = UserDefaults.standard
-        let hadLyrics = defaults.object(forKey: NotchViewModel.showLyricsKey)
-        defaults.set(true, forKey: NotchViewModel.showLyricsKey)
-        defer {
-            if let hadLyrics {
-                defaults.set(hadLyrics, forKey: NotchViewModel.showLyricsKey)
-            } else {
-                defaults.removeObject(forKey: NotchViewModel.showLyricsKey)
-            }
-        }
-
-        let lyrics = LyricsStore()
-        if withLyrics {
-            lyrics.present(.ready(LyricTimeline(
-                lines: [
-                    .init(at: 1, text: "First line"), .init(at: 4, text: "Second line"),
-                    .init(at: 8, text: "Third line"), .init(at: 12, text: "Fourth line"),
-                ],
-                granularity: .line
-            )))
-        }
-        // Left `.idle` otherwise, which is the same gate a track with no words at
-        // all fails: the caption produces no view.
-
-        let media = MediaController()
-        var snapshot = NowPlayingFeed.Snapshot()
-        snapshot.title = "Test Song"
-        snapshot.artist = "Test Artist"
-        snapshot.album = ""
-        snapshot.duration = 180
-        snapshot.elapsed = 9.2
-        snapshot.rate = 1
-        snapshot.isPlaying = true
-        snapshot.takenAt = Date()
-        snapshot.playerPID = 999
-        media.apply(snapshot)
-
-        let pane = MediaPane(media: media, lyrics: lyrics, morph: nil)
-            .frame(width: NotchMetrics.standardBody.width, height: 162)
-            .background(Color.black)
-        let renderer = ImageRenderer(content: pane)
-        renderer.scale = 1
-        let image = try XCTUnwrap(renderer.nsImage, "the pane must render")
-        let tiff = try XCTUnwrap(image.tiffRepresentation)
-        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiff))
-
-        var rows: [Int] = []
-        for y in 0..<bitmap.pixelsHigh {
-            var lit = 0
-            // The text column only. The artwork is a 122 pt square of bright
-            // pixels down the left edge, and it inks every row it spans — scan
-            // across it and every row looks occupied, which is how the first
-            // version of this test passed with the bug still in place.
-            for x in stride(from: bitmap.pixelsWide / 3, to: bitmap.pixelsWide, by: 2) {
-                guard let colour = bitmap.colorAt(x: x, y: y) else { continue }
-                // Anything meaningfully brighter than the black ground counts as ink.
-                if colour.brightnessComponent > 0.25 { lit += 1 }
-            }
-            rows.append(lit)
-        }
-        return rows
+    /// The transport used to sit at the same height with and without words, by a
+    /// slot held empty for the caption. The redesign trades that for the board's
+    /// rule (spec §4.1): with no lyric the band folds away and the progress row
+    /// and the transport rise by exactly 20. Held in `PlayerLayoutTests` as
+    /// arithmetic and in `PlayerPaneTests` against the drawn controls; here, that
+    /// the band is what decides it.
+    func testTheBandIsWhatMovesTheTransport() {
+        let with = PlayerLayout(bodyWidth: 560, hasLyricBand: true)
+        let without = PlayerLayout(bodyWidth: 560, hasLyricBand: false)
+        XCTAssertEqual(with.transport.minY - without.transport.minY, 20)
+        XCTAssertEqual(with.cover, without.cover, "the cover does not move for words")
     }
 }

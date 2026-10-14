@@ -196,6 +196,36 @@ final class ContrastRampTests: XCTestCase {
         }
     }
 
+    /// The player's lyric band, next line (redesign 2026-10-15, spec §4.3): the
+    /// board draws it at white 0.36, and that is the panel's own lyric floor, so
+    /// it clears the same 3:1 the context lines are held to. It follows the ramp
+    /// rather than stating a second 0.36, rises with Increase Contrast, and stays
+    /// under the sung line's unswept words so the sung line is never the dimmer.
+    func testTheBandsNextLineClearsTheLyricFloor() {
+        XCTAssertEqual(Theme.lyricBandNextOpacity(increaseContrast: false), 0.36,
+                       "the board's value holds: 0.36 passes, so it is not lowered")
+        for contrast in [false, true] {
+            let opacity = Theme.lyricBandNextOpacity(increaseContrast: contrast)
+            XCTAssertGreaterThanOrEqual(ratioOverBlack(whiteOpacity: opacity), 3.0, "contrast \(contrast)")
+            XCTAssertEqual(opacity, LyricRow.Ramp.panel(increaseContrast: contrast).floor)
+            XCTAssertLessThan(opacity, LyricRow.Ramp.panel(increaseContrast: contrast).unswept)
+        }
+        XCTAssertGreaterThan(
+            Theme.lyricBandNextOpacity(increaseContrast: true), Theme.lyricBandNextOpacity(increaseContrast: false)
+        )
+    }
+
+    /// The quaternary step (spec §2.1) is for glyphs nobody has to read, and it
+    /// rises with the setting like every other.
+    func testQuaternaryIsForGlyphsAndRisesWithContrast() {
+        XCTAssertEqual(Theme.quaternaryOpacity(increaseContrast: false), 0.30)
+        XCTAssertEqual(Theme.quaternaryOpacity(increaseContrast: true), 0.50)
+        XCTAssertLessThan(
+            Theme.quaternaryOpacity(increaseContrast: false), Theme.tertiaryOpacity(increaseContrast: false),
+            "never text a person must read: tertiary is the floor for that"
+        )
+    }
+
     /// The lock card's lyrics read over the palest cover the card can carry.
     ///
     /// The card drew the panel's falloff — greys tuned against black — over

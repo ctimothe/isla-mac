@@ -412,3 +412,15 @@
 "The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change." = "The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change.";
 "Sync Here" = "Sync Here";
 "These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here." = "These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here.";
+
+/* The redesigned player (spec 4, 15) */
+"Repeat: %@" = "Repeat: %@";
+"LIVE" = "LIVE";
+"Sound Settings…" = "Sound Settings…";
+"Start a song in Music or Spotify, or open one here." = "Start a song in Music or Spotify, or open one here.";
+"Videos and films stay off the island." = "Videos and films stay off the island.";
+"Settings › Music says why, with Try Again." = "Settings › Music says why, with Try Again.";
+"In the player" = "In the player";
+"Volume and Output" = "Volume and Output";
+"Lyric Band" = "Lyric Band";
+"Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title." = "Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title.";

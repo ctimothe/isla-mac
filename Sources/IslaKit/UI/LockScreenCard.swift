@@ -53,7 +53,9 @@ struct LockScreenCard: View {
         self.media = media
         self.lyrics = lyrics
         self.localLookup = localLookup
-        _audio = ObservedObject(wrappedValue: audio ?? AudioWatch())
+        let watch = audio ?? AudioWatch()
+        _audio = ObservedObject(wrappedValue: watch)
+        _volumeSlider = StateObject(wrappedValue: VolumeSliderModel(audio: watch))
         _pane = State(initialValue: initialPane)
     }
 
@@ -68,17 +70,12 @@ struct LockScreenCard: View {
     @State private var lastWindow: Int?
     @State private var outputs: [AudioOutputs.Output] = []
     @State private var currentOutput: AudioDeviceID?
-    @State private var volume: Float?
-    @State private var draggingVolume: Float?
-    /// Paces the drag's CoreAudio writes; the bar itself draws from
-    /// `draggingVolume` at full rate (F-045).
-    @State private var volumeGate = VolumeWriteGate()
-    /// The device the volume drag writes to: the default it began on, never
-    /// whatever is default at the moment of each write (K-008).
-    @State private var volumeLatch = VolumeDragLatch()
-    /// The default output is muted: the bar draws the level it will come back
-    /// to, dimmed, beside a slashed speaker (G-023).
-    @State private var muted = false
+    /// The volume bar's whole behaviour — the drag, the paced writes, the latch
+    /// on the device a drag began on, mute — is `VolumeSliderModel`'s, shared
+    /// with the player's slider since the redesign (spec §4.5). The card keeps
+    /// only what is about the card: where the model is told a song changed, and
+    /// whether there is a bar to draw.
+    @StateObject private var volumeSlider: VolumeSliderModel
 
     /// Read through `@AppStorage` so changing it in Settings redraws the card
     /// while it is on screen, rather than at the next lock.
@@ -345,18 +342,9 @@ struct LockScreenCard: View {
                 // drag. A finger still down simply writes its place again on
                 // the next move, so nothing live is lost by clearing these.
                 scrubbing = nil
-                // A level the gate was still holding when the drag was cut
-                // short lands now, rather than never (F-045).
-                if let held = volumeGate.finish(), let device = volumeLatch.device {
-                    commitVolume(held, device: device)
-                }
-                // The finger, if it is still down, latches afresh on its next
-                // move: the drag it was part of is over (K-008).
-                volumeLatch.end()
-                if draggingVolume != nil {
-                    draggingVolume = nil
-                    volume = audio.volume
-                }
+                // The volume drag's end — the held level, the latch, the
+                // mirror — is the model's (`endForTrackChange`).
+                volumeSlider.endForTrackChange()
                 guard let now = media.track else { return }
                 Announcer.shared.announce(now.artist.isEmpty ? now.title : "\(now.title), \(now.artist)")
             }
@@ -367,23 +355,10 @@ struct LockScreenCard: View {
             // level until release, so its mirror stands down while one drags.
             .onReceive(audio.$outputs) { outputs = $0 }
             .onReceive(audio.$current) { now in
+                // The default moving under a volume drag is the model's to
+                // handle (K-008); the card only follows it for its own list.
                 currentOutput = now
-                // AirPods taking over mid-drag used to be sent the finger's
-                // level for the speakers (K-008). The default moving under a
-                // drag ends it instead: the level the gate still held lands on
-                // the device it was meant for, the bar goes back to mirroring
-                // the machine, and the rest of the gesture writes nothing.
-                let dragged = volumeLatch.device
-                guard volumeLatch.defaultMoved(to: now) else { return }
-                if let held = volumeGate.finish(), let dragged { commitVolume(held, device: dragged) }
-                draggingVolume = nil
-                volume = audio.volume
             }
-            .onReceive(audio.$volume) { newValue in
-                guard draggingVolume == nil else { return }
-                volume = newValue
-            }
-            .onReceive(audio.$muted) { muted = $0 }
             .transition(.opacity)
         }
     }
@@ -1015,8 +990,6 @@ struct LockScreenCard: View {
         audio.systemAudioChanged()
         outputs = audio.outputs
         currentOutput = audio.current
-        volume = audio.volume
-        muted = audio.muted
     }
 
     // MARK: - Rails
@@ -1088,111 +1061,6 @@ struct LockScreenCard: View {
         }
     }
 
-    /// Where the volume bar stands, 0...1: the finger while dragging, else the
-    /// device.
-    private var volumeLevel: Double { Double(draggingVolume ?? volume ?? 0) }
-
-    /// One paced write from the volume drag, onto the device the drag latched
-    /// (K-008). Nothing is written once the default has moved under the drag.
-    private func writeVolume(_ level: Float) {
-        guard let device = volumeLatch.device else { return }
-        commitVolume(level, device: device)
-    }
-
-    /// The one write path for the bar — the drag's paced writes and its flush,
-    /// and VoiceOver's steps — noted on the media trail so a live session can
-    /// count the writes a drag makes. A level raised above zero on a muted
-    /// output unmutes it, as the volume keys do (G-023): the level goes first,
-    /// so the sound comes back at the new level rather than a blip of the old.
-    private func commitVolume(_ level: Float, device: AudioDeviceID) {
-        DebugTrail.note("lock card: volume write \(level)")
-        SystemVolume.set(level, device: device)
-        if SystemVolume.unmutes(muted: muted, newLevel: level), SystemVolume.setMuted(false, device: device) {
-            // Straight into the card, so the next paced write does not unmute
-            // again before the watch's listener reports it.
-            muted = false
-        }
-    }
-
-    /// The system's output volume. Absent entirely for a device that has none
-    /// to give, rather than a slider that moves and changes nothing.
-    private var volumeBar: some View {
-        HStack(spacing: 8) {
-            // A muted Mac drew a live-looking bar (G-023). The slashed speaker
-            // says so where the system's own slider does, and the fill drops
-            // to the track's tone: still the level the sound comes back at,
-            // no longer a level anyone is hearing. The glyph sits in the
-            // slashed one's width, so the bar does not shift when it swaps.
-            Image(systemName: "speaker.slash.fill")
-                .islandFont(.caption, weight: .regular)
-                .hidden()
-                .overlay(alignment: .leading) {
-                    Image(systemName: muted ? "speaker.slash.fill" : "speaker.fill")
-                        .islandFont(.caption, weight: .regular)
-                }
-            GeometryReader { geo in
-                let width = geo.size.width
-                let level = Double(draggingVolume ?? volume ?? 0)
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.cardTrack).frame(height: 4)
-                    Capsule()
-                        .fill(muted ? Theme.cardTrack : .white.opacity(0.8))
-                        .frame(width: width * level, height: 4)
-                }
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            guard width > 0 else { return }
-                            // The first event latches the default output; a
-                            // drag the default moved under writes nothing
-                            // more and leaves the bar to the machine (K-008).
-                            guard volumeLatch.target(current: currentOutput) != nil else { return }
-                            let next = Float(min(max(value.location.x / width, 0), 1))
-                            draggingVolume = next
-                            // Every event wrote CoreAudio, 60 to 120 times a
-                            // second (F-045). The bar follows the finger from
-                            // `draggingVolume`; the write goes through the gate,
-                            // and a held level is handed over once its interval
-                            // has passed, so a finger at rest is heard at rest.
-                            if let write = volumeGate.offer(next, at: ProcessInfo.processInfo.systemUptime) {
-                                writeVolume(write)
-                            } else {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + VolumeWriteGate.interval) {
-                                    if let due = volumeGate.due(at: ProcessInfo.processInfo.systemUptime) {
-                                        writeVolume(due)
-                                    }
-                                }
-                            }
-                        }
-                        .onEnded { _ in
-                            // The level the gate still holds is where the
-                            // finger let go, and it always lands.
-                            if let held = volumeGate.finish() { writeVolume(held) }
-                            volumeLatch.end()
-                            volume = SystemVolume.current() ?? draggingVolume
-                            draggingVolume = nil
-                        }
-                )
-            }
-            // The whole height of the rail to grab: the rail is 22 pt, so the
-            // strip grows into it without moving anything beside it (F-014).
-            .frame(height: 22)
-            // The same slider as the seek bar above, heard as a percentage and
-            // moved in five-percent steps. This is the system's output volume,
-            // and the dump found it as an AXUnknown with no value (H-023).
-            .volumeAccessibility(level: volumeLevel, muted: muted) { level in
-                let next = Float(level)
-                guard let device = currentOutput else { return }
-                commitVolume(next, device: device)
-                volume = SystemVolume.level(device: device) ?? next
-            }
-            Image(systemName: "speaker.wave.3.fill").islandFont(.caption, weight: .regular)
-        }
-        .foregroundStyle(Theme.cardSecondary)
-    }
-
     /// Previous, play and next, centred — and nothing else.
     ///
     /// A lock screen's player carries the three and leaves shuffle and repeat
@@ -1240,8 +1108,11 @@ struct LockScreenCard: View {
     private var rail: some View {
         HStack(spacing: 14) {
             paneButton(.lyrics, symbol: "quote.bubble", label: localized("Lyrics"))
-            if volume != nil {
-                volumeBar
+            if volumeSlider.volume != nil {
+                // The system's output volume. Absent entirely for a device that
+                // has none to give, rather than a slider that moves and changes
+                // nothing.
+                SystemVolumeSlider(model: volumeSlider, look: .card)
             } else {
                 Spacer(minLength: 0)
             }

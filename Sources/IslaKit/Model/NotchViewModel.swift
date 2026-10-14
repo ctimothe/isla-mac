@@ -449,6 +449,14 @@ final class NotchViewModel: ObservableObject {
     /// while music shows (spec §3.4). The fallback until a cover has been read,
     /// and for none.
     @Published private(set) var coverTint = CoverTint.fallback
+    /// The machine's audio state for the player's volume slider and Output
+    /// menu. Started and stopped by the Music pane while it is on screen — a
+    /// listener on CoreAudio costs nothing while nobody looks — and *quiet*
+    /// under test: a pane built in a test must never reach the owner's output
+    /// devices, even to read them.
+    let playerAudio: AudioWatch = PlayerBridge.isRunningTests
+        ? AudioWatch(read: { ([], nil, nil) }, readMuted: { false }, installListeners: {}, removeListeners: {})
+        : AudioWatch()
     /// The session's stores, borrowed rather than owned — see `NotchStores`.
     private let stores: NotchStores
 
@@ -1013,6 +1021,36 @@ final class NotchViewModel: ObservableObject {
         let defaults = UserDefaults.standard
         guard defaults.object(forKey: musicOnlyKey) != nil else { return true }
         return defaults.bool(forKey: musicOnlyKey)
+    }
+
+    static let volumeAndOutputKey = "player.volumeAndOutput"
+
+    /// Defaults to **on**, which is an owner-waived exception to the rule that
+    /// anything touching a system-wide setting starts off (decision 8, 15 Oct
+    /// 2026; checklist.md §"Scope divergence" records it). What
+    /// makes it safe: the controls only *read* until a person drags the slider or
+    /// picks an output — the volume is not written, and the default output is
+    /// not changed, by drawing them. Off hides the slider and the Output button
+    /// and the lyric band keeps its place (spec §4.5).
+    static var volumeAndOutputEnabled: Bool { volumeAndOutputEnabled(in: .standard) }
+
+    /// The same, read from a given suite: the rule a test holds without touching
+    /// the standard domain.
+    static func volumeAndOutputEnabled(in defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: volumeAndOutputKey) != nil else { return true }
+        return defaults.bool(forKey: volumeAndOutputKey)
+    }
+
+    static let lyricBandKey = "player.lyricBand"
+
+    /// Defaults to **on**. The sung line and the next one under the title
+    /// (spec §4.3); it reaches nothing but the lyrics Show Lyrics already
+    /// allows. Off hides the band and the layout takes the no-lyric positions.
+    static var lyricBandEnabled: Bool { lyricBandEnabled(in: .standard) }
+
+    static func lyricBandEnabled(in defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: lyricBandKey) != nil else { return true }
+        return defaults.bool(forKey: lyricBandKey)
     }
 
     static let onlineLyricsKey = "lyrics.onlineEnabled"
