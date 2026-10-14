@@ -208,6 +208,28 @@ transitions.
 > the same division the island itself made on 2026-08-26 — a click is a
 > decision, a hover is traffic.
 
+> **Amended 2026-10-15 — the tall body returns, by a button.** The redesign
+> (`docs/plans/2026-10-15-redesign-spec.md`, binding) gives the body two
+> heights again: the standard `208 pt` and an expanded `400 pt`, the height the
+> window was always cut for and never stopped being cut for. Nothing resizes
+> the window; the body's height becomes a per-tab value and the active rect
+> follows it. The lyric column, Shelf, Clipboard and Translate grow by an
+> **Expand / Collapse** button at the header's trailing edge, on a critically
+> damped `0.40` spring; there is no bottom-edge drag and no grabber, because
+> macOS has no such control. Settings always opens at `400 pt`, as a sidebar
+> of sections beside a grouped form. Expansion is remembered per tab for the
+> session and forgotten at relaunch. The 2026-08-22 amendment above ("every
+> tab now uses the standard body") is superseded for these tabs only; Music's
+> player stays at `208 pt` and reaches the tall page through its lyric column.
+>
+> The compact island narrows from `notch + 104` to `notch + 80` — two 40 pt
+> wings with even 8 pt margins (owner decision, 2026-10-15) — and the new-track
+> peek grows the island to `50 pt` tall rather than squeezing two lines into
+> the notch's height. On a dark wallpaper the island and the panel draw a
+> 1 pt *key line* tinted to their content, decided from the wallpaper file
+> (no screen capture, no permission); under Increase Contrast it is always
+> drawn. While the lock banner or card shows, the island has no wings.
+
 ## Feature parity contract
 
 > **Amended 2026-08-20.** The Snippets and Calendar sections below are
@@ -589,6 +611,21 @@ may prompt through normal macOS filesystem access only when the Shelf needs them
 No accessibility, screen-recording, network account, or background data-upload
 permission is introduced for parity.
 
+> **Amended 2026-10-15 — one opt-in Accessibility use, and one pinned file.**
+> The volume and brightness pop-up (redesign spec §12, release R5) replaces
+> the Mac's own pop-up in the island. It needs Accessibility, because seeing
+> the volume and brightness keys before the system does requires a session
+> event tap. It is **off by default**, asks for the permission only when the
+> person turns it on, consumes no key until the permission is granted, and
+> gives the keys back the moment it is turned off. Brightness goes through
+> private DisplayServices and CoreBrightness entry points resolved with
+> `dlsym`; when a symbol is missing those keys are left to the system. No
+> entitlement is added. Separately, Clipboard's **Keep Pinned Items** (off by
+> default) writes pinned text and file entries — never images — to
+> `~/Library/Application Support/Isla/pinned-clipboard.plist` (mode 0600) and
+> deletes the file when turned off; the rest of the history stays transient
+> and empties at quit, as above.
+
 ## Failure handling
 
 Failures stay scoped to the affected feature:
@@ -679,6 +716,10 @@ in the repository:
 ## Explicit non-goals for the parity phase
 
 - Adding cloud sync, accounts, analytics, network services, or new permissions.
+
+  > **Amended 2026-10-15.** One permission is now requested, and only on
+  > request: Accessibility, for the opt-in volume and brightness pop-up (see
+  > *Data and permission boundaries*). Nothing asks for it unprompted.
 - Importing the user's Cyclop data without a separately approved migration design.
 - Reusing Cyclop's icon, website, screenshots, or marketing copy.
 - Large architectural rewrites before parity and performance are demonstrated.

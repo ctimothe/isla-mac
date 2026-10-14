@@ -181,6 +181,28 @@ are the exception the design did not anticipate:
   are corrected and the README's privacy table lists it. Gating it behind a
   switch is left to the owner. Like every request Isla makes, it goes through
   `PrivateNetwork.session`, which keeps no cache, cookies or credentials.
+- **Volume and Output in the player** (Settings › Music, **default on**,
+  added 2026-10-15, redesign R1) puts the existing output-volume slider and
+  sound-output menu from the lock card into the Music player. Both change
+  system-wide settings, so by the rule above they would default to off; the
+  owner waived the rule for this one feature on 2026-10-15 (redesign decision
+  8), because the controls only read until the person moves the slider or
+  picks a device — nothing is written on its own. Recorded here as the one
+  deliberate exception. Held by the redesign's `PlayerVolumeTests`.
+- **Volume and brightness pop-up** (Settings › General, default off, redesign
+  R5) replaces the Mac's own pop-up in the island: volume, mute, display and
+  keyboard brightness. It needs Accessibility, asked for only when the switch
+  is turned on, and consumes the keys through a session event tap only while
+  the permission is granted. It sets system volume and brightness — the
+  latter through private DisplayServices and CoreBrightness entry points
+  resolved with `dlsym`, which degrade to the system's own handling when
+  absent. No entitlement is added. The battle plan's "no full HUD
+  replacement" line carries the dated reversal.
+- **Keep Pinned Items** (Settings › Privacy, default off, redesign R3) writes
+  pinned clipboard text and file entries — never images — to one file in
+  `~/Library/Application Support/Isla/`, mode 0600, so pins survive a quit.
+  Turning it off deletes the file. Nothing leaves the Mac; recorded because
+  the clipboard was otherwise memory-only.
 
 The status-item menu, and then the whole status item, were removed on
 2026-08-25 by owner decision. A window was built first and withdrawn the
@@ -1378,3 +1400,88 @@ arrives, but a person singing along reads the next line before they sing it.
   notice goes, and Reset (hold the readout) brings it back. The compact caption
   and the lock card show no notice and are not hidden for a mismatched lyric
   (the owner decides later); they read the same lead, so they follow a sync.
+
+## Redesign — 2026-10-15
+
+Binding spec: `docs/plans/2026-10-15-redesign-spec.md` (from the design
+canvas, version 33, and the owner's thirteen decisions of 2026-10-15). Five
+releases, each on its own branch cut from the previous one; none is merged
+to `main` without the owner.
+
+New settings and their defaults (spec §14):
+
+| Setting | Default | Why that default |
+|---|---|---|
+| Music › Volume and Output | **on** | owner-waived exception (decision 8), recorded under Scope divergence |
+| Music › Lyric Band | on | display only |
+| Lyrics › Translate Lyrics | off | decision 11; online only through Translate Online's existing consent |
+| Lock Screen › style Automatic | default when unset | display only; a stored choice is kept |
+| Lock Screen › Rest as Banner | on | display only |
+| Privacy › Include Images | on | memory only, empties at quit |
+| Privacy › Keep Pinned Items | off | decision 10; writes a file |
+| Translate › Keep History | off | memory only, but it is content |
+| Translate › Speak Button | on | sends nothing, changes nothing system-wide |
+| General › Volume and Brightness | off | decision 13; needs Accessibility, sets system values |
+
+### R1 — Island, Music, Lyrics (`feat/redesign-r1-island-music-lyrics`)
+
+- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed.
+- [ ] **R1-H1** On the 14-inch MacBook Pro, the 300 pt island's cover and
+  equalizer sit 8 pt from its ends and the wings read as even.
+- [ ] **R1-H2** Key line: visible on Aerial and Pro Black, absent on Sonoma;
+  1 pt at 0.50 (music) / 0.26 (other) neither glows nor vanishes. Tune here.
+- [ ] **R1-H3** The new-track peek's 50 pt growth reads as the island
+  growing, not as a window appearing.
+- [ ] **R1-H4** Player → lyric column → tall page and back: everything
+  travels, nothing pops or disappears.
+- [ ] **R1-H5** The player's volume slider follows the volume keys and an
+  AirPods switch; the Output menu lists and switches devices.
+- [ ] **R1-H6** Translate Lyrics on a Russian or English song: the
+  translations arrive together and sit under each line.
+
+### R2 — Lock screen (`feat/redesign-r2-lock`)
+
+- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed.
+- [ ] **R2-H1** The banner under the clock on Aerial, Pro Black, Sonoma and
+  Sky Blue.
+- [ ] **R2-H2** Banner → card by a click, card → banner by the chevron; the
+  card grows in place.
+- [ ] **R2-H3** At Automatic, the lyric reads over Aerial's bright lines.
+- [ ] **R2-H4** The output pane switches to AirPods, with the haptic.
+- [ ] **R2-H5** No wings at the notch while the banner or card shows; a
+  click on the notch still shakes.
+
+### R3 — Shelf and Clipboard (`feat/redesign-r3-shelf-clipboard`)
+
+- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed.
+- [ ] **R3-H1** Three Finder files dragged in land as icons; the same drag
+  over AirDrop sends without keeping.
+- [ ] **R3-H2** Delete with the pointer on the Shelf removes the selection
+  and never the files.
+- [ ] **R3-H3** An image copied in Safari appears under Images and pastes
+  back.
+- [ ] **R3-H4** Pins survive a relaunch with Keep Pinned Items on, and the
+  file is gone when it is turned off.
+
+### R4 — Translate and Settings (`feat/redesign-r4-translate-settings`)
+
+- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed.
+- [ ] **R4-H1** Settings at 480 pt in Russian: nothing clipped, the sidebar
+  truncates.
+- [ ] **R4-H2** Speak in a Russian and an English voice; Stop Speaking stops.
+- [ ] **R4-H3** The lock-style previews match the lock screen.
+
+### R5 — Volume and brightness pop-up (`feat/redesign-r5-hud`)
+
+- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed.
+- [ ] **R5-H1** Turn it on, grant Accessibility: the volume keys show Isla's
+  pop-up and never the Mac's.
+- [ ] **R5-H2** Mute keeps the level, dimmed; unmute restores it.
+- [ ] **R5-H3** Display and keyboard brightness keys on the MacBook Pro.
+- [ ] **R5-H4** Turning it off gives the keys back at once.
+- [ ] **R5-H5** An external keyboard's volume keys.
