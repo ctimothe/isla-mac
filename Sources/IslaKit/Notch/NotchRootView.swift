@@ -67,7 +67,17 @@ final class NotchRootView: NSView {
 
     var onDragEntered: (() -> Void)?
     var onDragExited: (() -> Void)?
+    /// Where a drag in flight is, in this view's coordinates (AppKit's, origin
+    /// at the bottom-left). The Shelf has two wells, Keep and AirDrop, and the
+    /// one under the pointer is the one the drop takes (spec §8.3), so the
+    /// controller needs every move, and the position of the release itself —
+    /// raised just before `onDrop` and `onPromisedDrop`.
+    var onDragMoved: ((CGPoint) -> Void)?
     var onDrop: (([URL]) -> Bool)?
+    /// A drop that only promised its files (Mail, Photos, a browser) is about
+    /// to be received. The files arrive later, through the inbox, so the target
+    /// that was under the pointer has to be handed to it now.
+    var onPromisedDrop: (() -> Void)?
     /// Receives the files a drag only promised; owned by the session's stores,
     /// so it outlives this view. See `PromisedDropInbox`.
     var promises: PromisedDropInbox?
@@ -236,6 +246,7 @@ final class NotchRootView: NSView {
         guard carriesFiles(sender), aimedAtPanel(sender) else { return [] }
         isReceivingDrag = true
         onDragEntered?()
+        onDragMoved?(convert(sender.draggingLocation, from: nil))
         return .copy
     }
 
@@ -250,6 +261,7 @@ final class NotchRootView: NSView {
             isReceivingDrag = true
             onDragEntered?()
         }
+        onDragMoved?(convert(sender.draggingLocation, from: nil))
         return .copy
     }
 
@@ -297,6 +309,9 @@ final class NotchRootView: NSView {
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         isReceivingDrag = false
+        // The release is a position too: the last move may have been a frame
+        // ago, and a drop is decided by where the pointer *is*.
+        onDragMoved?(convert(sender.draggingLocation, from: nil))
         let files = urls(from: sender)
         if !files.isEmpty { return onDrop?(files) ?? false }
 
@@ -307,6 +322,7 @@ final class NotchRootView: NSView {
         guard !receivers.isEmpty else { return false }
         let destination = AppPaths.dropInbox()
         guard let destination else { return false }
+        onPromisedDrop?()
         // Not counted — coalesced.
         //
         // There is no reliable count to wait for: the reader is called once per

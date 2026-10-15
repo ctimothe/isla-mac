@@ -971,12 +971,14 @@ enum Theme {
     /// the three headers used to carry 0.8, 0.8 and 0.6 for the same role.
     static let capsTracking: CGFloat = 0.8
 
-    /// A Shelf card whose disk is not plugged in draws its preview at this
-    /// opacity: present enough to be recognised as the same card, faded
-    /// enough to read as out of reach before its caption is read. The
-    /// caption itself stays at the tertiary ramp, which is what carries the
-    /// words.
-    static let offlineThumbnailOpacity: Double = 0.45
+    /// A Shelf tile whose disk is not plugged in draws its icon at this
+    /// opacity, in greyscale (spec §8.4, `Shelf-Disk-Missing`): present enough
+    /// to be recognised as the same tile, faded enough to read as out of reach
+    /// before its caption is read. The caption itself stays at the tertiary
+    /// ramp, which is what carries the words. 0.45 until 2026-10-15; the board
+    /// draws 0.4 and takes the colour out as well, since a coloured icon at
+    /// 0.45 still read as "available, a little shy".
+    static let offlineThumbnailOpacity: Double = 0.4
 
     /// The smallest target a caption-sized control in the panel may offer.
     /// A word set at the caption role is 13 pt tall, and a button that is
@@ -994,6 +996,29 @@ enum Theme {
     /// The same press under Reduce Motion, which asks for no change of size:
     /// the card dims to this opacity instead.
     static let pressDimOpacity: Double = 0.85
+
+    // MARK: - The Shelf (spec §8)
+
+    /// The well behind a selected tile's icon, and behind a hovered one
+    /// (`ShelfLayout.well`: 60 × 60, radius 8): white at these. Finder's icon
+    /// view lays a soft rounded square behind a picked icon, and the board
+    /// draws the pick at 0.14 and the pointer at half that.
+    static let shelfSelectedWell = Color.white.opacity(0.14)
+    static let shelfHoverWell = Color.white.opacity(0.07)
+
+    /// The ⓧ that takes a tile off the Shelf, `#505054` at 0.96 (spec §8.2): a
+    /// grey the black island makes a disc of, with a white `xmark` on it. It
+    /// overhangs the tile's corner on purpose — it is the pointer's, not part
+    /// of the picture.
+    static let shelfBadgeFill = Color(red: 80.0 / 255, green: 80.0 / 255, blue: 84.0 / 255).opacity(0.96)
+
+    /// A drop well under the pointer (spec §8.3): the accent at 0.18 inside a
+    /// 2 pt accent ring. Resting wells are a dashed hairline on 3 % white.
+    static let shelfDropWellLit = accent.opacity(0.18)
+    static let shelfDropRingWidth: CGFloat = 2
+    static let shelfDropWellResting = Color.white.opacity(0.03)
+    static let shelfDropWellEdge = Color.white.opacity(0.22)
+    static let shelfDropWellRadius: CGFloat = 14
 
     /// How far a list fades into an edge that cuts it (`scrollEdgeFade`,
     /// H-017). Ten points: enough to read as "continues" at a 26 pt row, and
@@ -1016,6 +1041,62 @@ struct PanelButtonStyle: ButtonStyle {
         configuration.label
             .opacity(configuration.isPressed ? 0.55 : 1)
             .animation(Theme.contentAnimation, value: configuration.isPressed)
+    }
+}
+
+/// The toolbar push button (spec §2.2): a word on a 0.14 white plate, 22 tall,
+/// radius 6, 10 pt either side — the Shelf's bar, and Translate's in R4.
+///
+/// Text only, as the push buttons in a Finder window's bottom bar are: with a
+/// glyph beside each word the Shelf's five verbs ran 40 points into the count
+/// (the board's own note). `danger` is for the one confirmation that destroys
+/// something — Remove All — and is `Theme.danger` on the same plate; a
+/// button that merely removes a selection (decision 9) is the normal kind.
+/// Pressed it dims as every panel button does, and disabled it steps back to
+/// 0.4 so a verb with nothing to act on reads as such.
+struct ToolbarPushButtonStyle: ButtonStyle {
+    enum Kind { case normal, danger }
+    var kind: Kind = .normal
+    /// A square plate (the Shelf's "…" is 22 × 22) instead of one that follows
+    /// its word.
+    var width: CGFloat? = nil
+
+    static let height: CGFloat = 22
+    static let radius: CGFloat = 6
+    static let horizontalPadding: CGFloat = 10
+
+    func makeBody(configuration: Configuration) -> some View {
+        PlateLabel(configuration: configuration, kind: kind, width: width)
+    }
+
+    private struct PlateLabel: View {
+        let configuration: ButtonStyleConfiguration
+        let kind: Kind
+        let width: CGFloat?
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .islandFont(.body, weight: .regular)
+                .foregroundStyle(kind == .danger ? Theme.danger : Color.white)
+                .lineLimit(1)
+                .padding(.horizontal, width == nil ? ToolbarPushButtonStyle.horizontalPadding : 0)
+                .frame(width: width, height: ToolbarPushButtonStyle.height)
+                .background(
+                    RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous)
+                        .fill(Color.white.opacity(0.14))
+                        // The plate's lit top edge: the board draws a half-point
+                        // inset highlight, which is what makes a flat grey read
+                        // as a button rather than a well.
+                        .overlay(alignment: .top) {
+                            Rectangle().fill(Color.white.opacity(0.12)).frame(height: 0.5)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous))
+                .opacity(isEnabled ? (configuration.isPressed ? 0.55 : 1) : 0.4)
+                .animation(Theme.contentAnimation, value: configuration.isPressed)
+        }
     }
 }
 

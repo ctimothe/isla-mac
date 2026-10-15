@@ -339,8 +339,9 @@ final class VisualLabPanelTests: VisualLabCase {
                        variant, height: size.height)
         }
         // F-037: with cards picked, the footer is the action bar. Russian at
-        // 480 pt is the narrowest it is ever drawn, and the reason the verbs
-        // are glyphs with their words in help rather than words.
+        // 480 pt is the narrowest it is ever drawn, and the reason the bar
+        // folds below 540 (redesign 2026-10-15, spec §8.2): Quick Look and
+        // Remove stay, the rest go under "…".
         let russianNarrow = LabVariant(name: "ru-w480", width: 480, language: "ru")
         try await shoot.shoot("two-selected", variants: [.base, .contrast, .russian, russianNarrow], size: size, settle: 0.8,
                               notes: note + " Two cards picked: the footer is the action bar.") { variant in
@@ -352,8 +353,8 @@ final class VisualLabPanelTests: VisualLabCase {
             }), variant, height: size.height)
         }
         for (variant, labels) in [
-            ("dark", ["Quick Look", "AirDrop", "Copy", "Show in Finder", "Remove 2", "Deselect"]),
-            ("ru-w480", ["Быстрый просмотр", "AirDrop", "Копировать", "Показать в Finder", "Убрать 2", "Снять выбор"]),
+            ("dark", ["Quick Look", "AirDrop", "Copy", "Show in Finder", "Remove", "Deselect All"]),
+            ("ru-w480", ["Быстрый просмотр", "Убрать", "Ещё", "Снять выбор"]),
         ] {
             let url = session.root.appendingPathComponent("a11y/panel-shelf/two-selected__\(variant).txt")
             let tree = try String(contentsOf: url, encoding: .utf8)
@@ -364,7 +365,7 @@ final class VisualLabPanelTests: VisualLabCase {
             }
         }
         try await shoot.shoot("at-the-60-cap", variants: [.base, .w480, .w620], size: size, settle: 1.5,
-                              notes: note + " Sixty cards, the shelf's limit; the row scrolls sideways.") { variant in
+                              notes: note + " Sixty cards, the shelf's limit; the grid scrolls down.") { variant in
             Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { self.stock($0.shelf, session: session, urls: full) }),
                        variant, height: size.height)
         }
@@ -388,7 +389,7 @@ final class VisualLabPanelTests: VisualLabCase {
             }), variant, height: size.height)
         }
         try await shoot.shoot("clear-armed", variants: [.base, .russian], size: size, settle: 0.8,
-                              notes: "Clear pressed once (through its accessibility action): armed, asking again.",
+                              notes: "Clear pressed once (through its accessibility action): the bar asks, with Cancel and Remove All.",
                               interact: { LabAccessibility.press(localized("Clear"), in: $0) }) { variant in
             Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { self.stock($0.shelf, session: session, urls: few) }),
                        variant, height: size.height)

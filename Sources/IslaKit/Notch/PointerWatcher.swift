@@ -62,6 +62,32 @@ final class PointerWatcher {
     private let fastInterval = NotchMetrics.fastPointerInterval
     private let idleInterval = NotchMetrics.idlePointerInterval
 
+    /// The Shelf pane, in screen coordinates; empty whenever the Shelf is not
+    /// what the open panel shows. Cutting it empty reports "off the Shelf" at
+    /// once, without waiting for a tick: the Delete key that hangs off this
+    /// signal must go the moment the Shelf does (`ShelfDeleteKeyHolder`).
+    var shelfRect: CGRect = .zero {
+        didSet {
+            guard shelfRect != oldValue else { return }
+            // Re-read with the pointer where it stands, so a rect cut under a
+            // pointer already on it counts without a tick's delay.
+            sampleShelf(at: shelfRect.isEmpty ? nil : NSEvent.mouseLocation)
+        }
+    }
+    /// The pointer entered or left `shelfRect`.
+    var onShelfChange: ((Bool) -> Void)?
+    private var wasOnShelf = false
+
+    /// Reports the Shelf transition for a pointer at `point`; nil is "nowhere",
+    /// which is what an empty rect and a stopped sampler both mean. Internal so
+    /// a test can drive the transition without a mouse.
+    func sampleShelf(at point: CGPoint?) {
+        let onShelf = point.map { shelfRect.contains($0) } ?? false
+        guard onShelf != wasOnShelf else { return }
+        wasOnShelf = onShelf
+        onShelfChange?(onShelf)
+    }
+
     var onChange: ((Bool) -> Void)?
     var onInteractiveChange: ((Bool) -> Void)?
     /// The pointer entered or left `hoverRect`.
@@ -105,6 +131,10 @@ final class PointerWatcher {
         // left lit for the whole of a lock or a sleep.
         if wasHovering == true { onHoverChange?(false) }
         wasHovering = nil
+        // And nothing is on the Shelf once nobody is watching the pointer: the
+        // sampler stopping — a lock, a sleep, a rebuild — is a reason to give
+        // Delete back.
+        sampleShelf(at: nil)
         // The rects are re-cut by whatever starts the watcher again, so a
         // departure owed against the old ones is not owed against the new.
         awaitsDeparture = false
@@ -223,6 +253,8 @@ final class PointerWatcher {
         // no entered event is sent at all. The sampler has the pointer either
         // way, and this is the only reading that does not depend on the window
         // already having agreed to listen.
+        sampleShelf(at: point)
+
         let hovering = hoverRect.contains(point)
         if wasHovering != hovering {
             wasHovering = hovering

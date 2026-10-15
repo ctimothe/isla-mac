@@ -110,6 +110,15 @@ final class NotchPanel: NSPanel {
     /// stays open.
     var escapeHandled: (() -> Bool)?
 
+    /// Asked on Delete and ⌘⌫ while the panel is key (`isRemoveKey`). True means
+    /// the Shelf took the key and removed its selection; false lets it through
+    /// to whatever has the caret. The panel is key only on Translate, so this
+    /// is the half of "Delete removes the selection while the pointer is on the
+    /// Shelf or the panel is key" that a registered hot key does not cover —
+    /// kept because it costs a closure and the day a second tab takes the
+    /// keyboard it is already right (spec §8.2).
+    var removeKeyHandled: (() -> Bool)?
+
     /// Raised on ⇧⌘C, before the source field hears of it. Returns true when
     /// a translation was there to copy (or was there, but answers text since
     /// edited, which nothing should copy). False — not on Translate, or no
@@ -177,6 +186,10 @@ final class NotchPanel: NSPanel {
             }
             if escapeHandled?() == true { return }
             onEscape?()
+            return
+        }
+        if event.type == .keyDown, Self.isRemoveKey(keyCode: event.keyCode, flags: event.modifierFlags),
+           removeKeyHandled?() == true {
             return
         }
         if let command = Self.editingCommand(for: event) {

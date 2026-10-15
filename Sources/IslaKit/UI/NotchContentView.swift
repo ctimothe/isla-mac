@@ -673,6 +673,20 @@ struct NotchContentView: View {
             // inside, the three buttons would be unreachable to VoiceOver. Each
             // is placed by its own offset, so the rest of the strip keeps its
             // click-to-close.
+            // Expand on the Shelf (spec §6, §8.1). The same button, in the same
+            // place, laid over the strip for the same reason as the lyric tools.
+            .modifier(ExpandHeaderTool(
+                isShown: showsShelfExpand,
+                bodyWidth: size.width,
+                isExpanded: Binding(
+                    get: { vm.expandedTabs.contains(.shelf) },
+                    set: { wants in
+                        withAnimation(Theme.expand(reduceMotion: reduceMotion)) {
+                            vm.setExpanded(wants, for: .shelf)
+                        }
+                    }
+                )
+            ))
             .modifier(LyricHeaderTools(
                 isShown: showsLyricTools,
                 bodyWidth: size.width,
@@ -690,6 +704,14 @@ struct NotchContentView: View {
                     }
                 )
             ))
+    }
+
+    /// Whether the header carries the Shelf's Expand button: the Shelf, with
+    /// something on it or already tall (`ShelfHeader.showsExpand`), and not under
+    /// the welcome.
+    private var showsShelfExpand: Bool {
+        !vm.isShowingWelcome && vm.tab == .shelf
+            && ShelfHeader.showsExpand(itemCount: vm.shelf.items.count, isExpanded: vm.expandedTabs.contains(.shelf))
     }
 
     /// Whether the header carries the lyric tools: the Music tab on the column
@@ -993,7 +1015,17 @@ struct NotchContentView: View {
             .opacity(vm.musicPage == .player ? 1 : 0)
             .accessibilityHidden(vm.musicPage != .player)
         case .shelf:
-            counter(vm.shelf.items.count)
+            // "12 items", 8 pt before the Expand button (spec §8.1): the board
+            // right-aligns it to `bw − 47`, and the button's own 17 from the
+            // edge is placed by `ExpandHeaderTool`, so this keeps 31 pt clear
+            // of the header's 16 pt padding for the 22 pt button and the gap.
+            if ShelfHeader.showsCount(itemCount: vm.shelf.items.count) {
+                Text(ShelfHeader.countText(vm.shelf.items.count))
+                    .islandFont(.body, weight: .medium)
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(1)
+                    .padding(.trailing, ShelfHeader.countClearance)
+            }
         case .clipboard:
             counter(Self.clipboardCounter(
                 count: vm.clipboard.items.count, covered: vm.privacy.covers(.clipboard)
@@ -1122,7 +1154,10 @@ struct NotchContentView: View {
                 translation: vm.translation
             )
         case .shelf:
-            ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)
+            ShelfPane(
+                shelf: vm.shelf, isTargeted: vm.isDropTargeted, dropTarget: vm.shelfDropTarget,
+                headerHeight: vm.geometry.notchSize.height
+            )
         case .clipboard:
             ClipboardPane(
                 clipboard: vm.clipboard, privacy: vm.privacy,

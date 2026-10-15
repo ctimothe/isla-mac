@@ -337,8 +337,6 @@
 "Not asked yet" = "Not asked yet";
 "Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation." = "Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation.";
 "Open Automation Settings…" = "Open Automation Settings…";
-"Remove %d" = "Remove %d";
-"Remove %d from Shelf" = "Remove %d from Shelf";
 "Already on the Shelf" = "Already on the Shelf";
 "The Shelf holds %d, so the oldest card left it. Its file is untouched." = "The Shelf holds %d, so the oldest card left it. Its file is untouched.";
 "The Shelf holds %d, so the %d oldest left it. Their files are untouched." = "The Shelf holds %d, so the %d oldest left it. Their files are untouched.";
@@ -449,3 +447,17 @@
 "The card waits as a slim banner under the clock; click it to open." = "The card waits as a slim banner under the clock; click it to open.";
 "Card Style" = "Card Style";
 "Automatic tints the card with the cover and reads the wallpaper behind it. With Reduce Transparency it is Solid." = "Automatic tints the card with the cover and reads the wallpaper behind it. With Reduce Transparency it is Solid.";
+
+/* The Shelf as Finder's icon view (redesign 2026-10-15, spec 8, 15) */
+"%d items" = "%d items";
+"1 item" = "1 item";
+"Deselect All" = "Deselect All";
+"Remove" = "Remove";
+"Drag an item out to use it anywhere." = "Drag an item out to use it anywhere.";
+"Keep on Shelf" = "Keep on Shelf";
+"Send to a nearby device" = "Send to a nearby device";
+"Release to send with AirDrop" = "Release to send with AirDrop";
+"Remove all %d items? Files are untouched." = "Remove all %d items? Files are untouched.";
+"Remove All" = "Remove All";
+"Open With" = "Open With";
+"More" = "More";

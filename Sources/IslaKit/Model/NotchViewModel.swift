@@ -86,6 +86,17 @@ final class NotchViewModel: ObservableObject {
         }
     }
     @Published var isDropTargeted = false
+    /// Which of the Shelf's two wells a drag in flight is over (spec §8.3): the
+    /// one the drop will use, and the one that lights. Meaningful only while
+    /// `isDropTargeted`; put back to `.keep` whenever a drag ends, so the next
+    /// drag starts on the action a drop has always had.
+    @Published var shelfDropTarget: ShelfDropTarget = .keep
+    /// Whether the pointer is on the Shelf pane — reported by the pointer
+    /// sampler (`PointerWatcher.onShelfChange`), not by SwiftUI hover, for the
+    /// reason `onHoverChange` gives: the panel hears no hover for the frame
+    /// that matters. One of the two things the transient Delete key waits for
+    /// (`claimsDelete`).
+    @Published var isPointerOnShelf = false
     /// Briefly true when a new track has just arrived and is showing itself.
     @Published var isPeeking = false
     /// The charger or headphones, shown for a moment. See `AmbientActivity`.
@@ -465,6 +476,45 @@ final class NotchViewModel: ObservableObject {
         locked: Bool
     ) -> Bool {
         pinned && !panelHasKeyboard && !appIsActive && !locked
+    }
+
+    /// Whether the Shelf holds Delete and ⌘⌫, through hot keys registered only
+    /// for as long as this answers true (spec §8.2, owner decision 9).
+    ///
+    /// The panel is never key outside Translate, so a Delete pressed with the
+    /// pointer on the Shelf goes to whatever app is in front, and the key
+    /// the spec promises would do nothing. The pinned panel's Escape set the
+    /// precedent (`claimsEscape`): a Carbon hot key, which needs no permission
+    /// and sees nothing else that is typed, held for exactly as long as the
+    /// claim stands.
+    ///
+    /// **A global Delete is the most expensive key to leave behind** — a
+    /// registration that outlives its reason eats the person's Delete in every
+    /// app until Isla quits — so the claim is as narrow as it can be made, and
+    /// every term is one that must hold *now*:
+    /// - the panel is open, on the Shelf, and the welcome is not over it;
+    /// - the pointer is on the Shelf pane — leaving it, even to the rail, gives
+    ///   Delete back, because that is the person saying their hands are
+    ///   elsewhere;
+    /// - there is a selection to remove — no selection, no key, so a Delete
+    ///   pressed with nothing picked is never swallowed;
+    /// - **not while this app is active**: Quick Look and AirDrop activate it,
+    ///   and their windows have their own use for the key;
+    /// - **never over the shield**.
+    ///
+    /// A panel that happens to be key needs none of this (`NotchPanel` reads the
+    /// key itself), but the claim does not ask: while key, a registration and
+    /// `sendEvent` do the same thing, and one fewer term is one fewer way for
+    /// the two to disagree.
+    nonisolated static func claimsDelete(
+        panelOpen: Bool,
+        onShelf: Bool,
+        pointerOnShelf: Bool,
+        hasSelection: Bool,
+        appIsActive: Bool,
+        locked: Bool
+    ) -> Bool {
+        panelOpen && onShelf && pointerOnShelf && hasSelection && !appIsActive && !locked
     }
 
     /// Whether another app coming to the front ends the pin.

@@ -536,6 +536,30 @@ struct TranslationToolButton: View {
     }
 }
 
+// MARK: - Expand alone (spec §6)
+
+/// The header's Expand / Collapse button for a tab that has no other header
+/// tool — the Shelf now, Clipboard and Translate in the releases after — laid
+/// over the strip after its accessibility element, as `LyricHeaderTools` lays
+/// its three (an inline button would be swallowed by the element's `.ignore`
+/// and unreachable to VoiceOver), and placed by its own offset so the rest of
+/// the strip keeps its click-to-close.
+struct ExpandHeaderTool: ViewModifier {
+    let isShown: Bool
+    let bodyWidth: CGFloat
+    @Binding var isExpanded: Bool
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .topLeading) {
+            if isShown {
+                ExpandCollapseButton(isExpanded: $isExpanded)
+                    .offset(x: HeaderToolFrames.expand(bodyWidth: bodyWidth).minX, y: HeaderToolFrames.top)
+                    .transition(.opacity)
+            }
+        }
+    }
+}
+
 // MARK: - The tools together
 
 /// The lyric column's and the tall page's header tools, in the header's own

@@ -343,8 +343,6 @@
 "Not asked yet" = "Ещё не запрашивалось";
 "Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation." = "Isla не может читать плеер, которым ей не разрешено управлять. Разрешите Isla в разделе «Конфиденциальность и безопасность» › «Автоматизация».";
 "Open Automation Settings…" = "Открыть настройки автоматизации…";
-"Remove %d" = "Убрать %d";
-"Remove %d from Shelf" = "Убрать с полки: %d";
 "Already on the Shelf" = "Уже на полке";
 "The Shelf holds %d, so the oldest card left it. Its file is untouched." = "На полке помещается %d, поэтому самая старая карточка убрана. Сам файл не тронут.";
 "The Shelf holds %d, so the %d oldest left it. Their files are untouched." = "На полке помещается %d, поэтому самые старые убраны: %d. Сами файлы не тронуты.";
@@ -455,3 +453,17 @@
 "The card waits as a slim banner under the clock; click it to open." = "Карточка ждёт тонкой полоской под часами; нажмите, чтобы открыть.";
 "Card Style" = "Стиль карточки";
 "Automatic tints the card with the cover and reads the wallpaper behind it. With Reduce Transparency it is Solid." = "«Автоматически» окрашивает карточку в цвет обложки и учитывает обои за ней. При уменьшении прозрачности она сплошная.";
+
+/* The Shelf as Finder's icon view (redesign 2026-10-15, spec 8, 15) */
+"%d items" = "Объектов: %d";
+"1 item" = "Объектов: 1";
+"Deselect All" = "Снять выбор";
+"Remove" = "Убрать";
+"Drag an item out to use it anywhere." = "Перетащите объект, чтобы использовать его где угодно.";
+"Keep on Shelf" = "Оставить на полке";
+"Send to a nearby device" = "Отправить на устройство поблизости";
+"Release to send with AirDrop" = "Отпустите, чтобы отправить через AirDrop";
+"Remove all %d items? Files are untouched." = "Убрать все объекты (%d)? Сами файлы не затрагиваются.";
+"Remove All" = "Убрать все";
+"Open With" = "Открыть в приложении";
+"More" = "Ещё";

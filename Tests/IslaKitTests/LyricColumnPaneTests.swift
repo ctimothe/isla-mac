@@ -222,14 +222,25 @@ final class LyricColumnPaneTests: XCTestCase {
         XCTAssertNil(s.root.first(label: "More Lyrics Options"))
     }
 
-    /// Shelf, Clipboard and Translate get the button in later releases; in R1 it
-    /// is on the lyric column and the tall page alone.
+    /// Clipboard and Translate get the button in the releases after R3 (the Shelf
+    /// has it since R3, redesign 2026-10-15, spec §8.1); Settings never does
+    /// before R4.
     func testOtherTabsHaveNoExpandButtonYet() async throws {
-        for tab in [NotchViewModel.Tab.shelf, .clipboard, .translate, .settings] {
+        for tab in [NotchViewModel.Tab.clipboard, .translate, .settings] {
             let s = try await shell(.player, tab: tab)
             XCTAssertNil(s.root.first(label: "Expand"), "\(tab)")
             XCTAssertNil(s.root.first(label: "Collapse"), "\(tab)")
         }
+    }
+
+    /// The Shelf's button is the same one in the same place: here the shelf is
+    /// empty and grown, which is when it says Collapse — Clear on the tall
+    /// Shelf must leave a way back to 208.
+    func testTheShelfHasTheButtonWhileItIsTall() async throws {
+        let s = try await shell(.player, tab: .shelf)
+        let collapse = try body(try XCTUnwrap(s.root.first(label: "Collapse"), s.root.dump), in: s)
+        XCTAssertEqual(collapse, CGRect(x: s.bodyWidth - 39, y: 8, width: 22, height: 22), accuracy: 1)
+        XCTAssertNil(s.root.first(label: "Expand"))
     }
 
     /// The rail's Settings rides the foot: on the tall body its icon is as far

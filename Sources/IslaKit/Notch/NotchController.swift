@@ -55,6 +55,20 @@ final class NotchController {
     /// permission and sees nothing else that is typed. Registered and given up
     /// by `updateEscapeHotKey` alone.
     private var escapeHotKey: HotKeyRegistration?
+    /// Delete and ⌘⌫, held while the pointer is on the Shelf and something is
+    /// selected there (spec §8.2) — see `NotchViewModel.claimsDelete` and
+    /// `ShelfDeleteKeyHolder`, which is the only thing that registers them.
+    /// Driven by `updateDeleteKey`, from every input of the claim at once.
+    private lazy var deleteKey = ShelfDeleteKeyHolder(registrar: deleteKeyRegistrar) { [weak self] in
+        self?.deleteKeyPressed()
+    }
+    /// Test seams: a registrar that records instead of reserving a key for the
+    /// login session, set before the first claim, and the app's activation,
+    /// which a test process does not control. Production leaves both alone.
+    var deleteKeyRegistrar: ShelfDeleteKeyHolder.Registrar?
+    var appIsActive: () -> Bool = { NSApp.isActive }
+    /// Whether the Shelf's Delete and ⌘⌫ are held right now.
+    var holdsDeleteKey: Bool { deleteKey.isRegistered }
     /// Monotonic stamp for the deferred half of closing: any newer open or
     /// close outdates the one still in flight.
     private var openGeneration = 0
@@ -71,6 +85,9 @@ final class NotchController {
         }
         stores.promises.onBatch = { [weak self] urls in
             self?.promisedFilesArrived(urls)
+        }
+        stores.promises.onAirDropBatch = { [weak self] urls in
+            self?.promisedFilesArrivedForAirDrop(urls)
         }
         stores.start()
         build()
@@ -258,6 +275,23 @@ final class NotchController {
             setOpen(true)
             scheduleCollapseIfPointerAway()
         }
+    }
+
+    /// Promised files that were dropped on the Shelf's AirDrop well have been
+    /// written: send them, and keep nothing (spec §8.3). Nothing opens and no
+    /// card appears — the sheet is the answer — and over the shield or on a dark
+    /// display they go to the Shelf instead, quietly: a share sheet nobody can
+    /// see, or raised over the password field, is worse than a card found later.
+    private func promisedFilesArrivedForAirDrop(_ urls: [URL]) {
+        let plan = Self.promiseArrivalPlan(
+            locked: lockPresence.isLocked || viewModel?.isLockedPresentation == true,
+            asleep: screensAreAsleep
+        )
+        guard plan == .addAndOpen else {
+            stores.shelf.add(urls)
+            return
+        }
+        ShelfSharing.airDrop(urls, refusingOn: stores.shelf)
     }
 
     static func lockKeepsMediaRunning(screensAsleep: Bool) -> Bool {
@@ -628,6 +662,9 @@ final class NotchController {
         // keep Escape from every app for the rest of the session.
         escapeHotKey?.unregister()
         escapeHotKey = nil
+        // The same, and for the same reason: a Delete left registered is the
+        // person's Delete taken in every app.
+        deleteKey.teardown()
         stores.stop()
         for token in observerTokens {
             NotificationCenter.default.removeObserver(token)
@@ -1027,6 +1064,59 @@ final class NotchController {
         panel.onEscape?()
     }
 
+    /// Holds Delete and ⌘⌫ or lets them go. Takes every input as it arrives —
+    /// see the sink in `build` for why not from the model — and reads only
+    /// whether the app is active live, since that is not the model's and
+    /// changes through the two notifications that call `refreshDeleteKey`.
+    private func updateDeleteKey(open: Bool, onShelf: Bool, pointerOnShelf: Bool, hasSelection: Bool, locked: Bool) {
+        deleteKey.update(wanted: NotchViewModel.claimsDelete(
+            panelOpen: open, onShelf: onShelf, pointerOnShelf: pointerOnShelf,
+            hasSelection: hasSelection, appIsActive: appIsActive(), locked: locked
+        ))
+    }
+
+    /// The same, from the model's stored values — for a caller that fires after
+    /// they are written (a notification), never from a `@Published` sink.
+    func refreshDeleteKey() {
+        guard let vm = viewModel else { return deleteKey.teardown() }
+        updateDeleteKey(
+            open: vm.isOpen, onShelf: vm.tab == .shelf && !vm.isShowingWelcome,
+            pointerOnShelf: vm.isPointerOnShelf, hasSelection: !vm.shelf.selection.isEmpty,
+            locked: vm.isLockedPresentation
+        )
+    }
+
+    /// Delete, caught by the transient hot key: removes the Shelf's selection
+    /// — the cards, never the files — and nothing else. The claim is asked
+    /// again first, as the Escape key's is: a press can be queued behind the
+    /// very event that ended it, and a press that arrives with no claim gives
+    /// the keys back instead of acting.
+    func deleteKeyPressed() {
+        guard let vm = viewModel else { return deleteKey.teardown() }
+        guard NotchViewModel.claimsDelete(
+            panelOpen: vm.isOpen, onShelf: vm.tab == .shelf && !vm.isShowingWelcome,
+            pointerOnShelf: vm.isPointerOnShelf, hasSelection: !vm.shelf.selection.isEmpty,
+            appIsActive: appIsActive(), locked: vm.isLockedPresentation
+        ) else { return deleteKey.teardown() }
+        vm.shelf.removeSelected()
+    }
+
+    /// Cuts the sampler's Shelf rect for the body on screen, or empties it.
+    /// `tab` is passed by a caller that runs inside a `$tab` sink, where the
+    /// model still holds the old one.
+    private func updateShelfZone(open: Bool, size: CGSize, tab: NotchViewModel.Tab? = nil) {
+        guard let vm = viewModel, open, (tab ?? vm.tab) == .shelf, !vm.isShowingWelcome,
+              !vm.isLockedPresentation else {
+            pointer.shelfRect = .zero
+            return
+        }
+        let body = vm.geometry.contentRect(for: size)
+            .offsetBy(dx: vm.geometry.windowFrame.minX, dy: vm.geometry.windowFrame.minY)
+        pointer.shelfRect = ShelfLayout.pointerZone(
+            bodyScreenRect: body, headerHeight: vm.geometry.notchSize.height
+        )
+    }
+
     // MARK: - Construction
 
     private func rebuild() {
@@ -1041,6 +1131,11 @@ final class NotchController {
         // for its exit has to go with it, or it outlives every rebuild.
         viewModel?.isPinnedOpen = false
         updatePinnedClickMonitor()
+        // Before the sinks that drive it are dropped with `cancellables`
+        // below: the old panel's claim is over whatever it said, and the new
+        // one makes its own when it has a pointer and a selection.
+        deleteKey.teardown()
+        pointer.shelfRect = .zero
         peekWork?.cancel()
         collapseCheckWork?.cancel()
         pointer.stop()
@@ -1136,9 +1231,28 @@ final class NotchController {
             vm.isDropTargeted = true
             self.setOpen(true)
         }
+        // Which well the drag is over (spec §8.3). The pointer's place in the
+        // window becomes a place in the body, and the body's own rule says
+        // which action a release there takes. Published only when it changes:
+        // the system reports every move, and each publish redraws the pane.
+        root.onDragMoved = { [weak self] point in
+            guard let self, let vm = self.viewModel else { return }
+            let body = vm.geometry.contentRect(for: vm.openBodySize)
+            let target = ShelfDropTarget.target(
+                atBodyPoint: ShelfDropTarget.bodyPoint(windowPoint: point, contentRect: body),
+                bodySize: vm.openBodySize
+            )
+            if vm.shelfDropTarget != target { vm.shelfDropTarget = target }
+        }
+        root.onPromisedDrop = { [weak self] in
+            guard let self, let vm = self.viewModel else { return }
+            self.stores.promises.sendNextBatchWithAirDrop(vm.shelfDropTarget == .airDrop)
+            vm.shelfDropTarget = .keep
+        }
         root.onDragExited = { [weak self] in
             guard let self, let vm = self.viewModel else { return }
             vm.isDropTargeted = false
+            vm.shelfDropTarget = .keep
             // The pointer usually is not over the panel after a drag leaves.
             self.scheduleCollapseIfPointerAway()
         }
@@ -1146,6 +1260,16 @@ final class NotchController {
         root.onDrop = { [weak self] urls in
             guard let self, let vm = self.viewModel else { return false }
             vm.isDropTargeted = false
+            // AirDrop's well sends and keeps nothing; anywhere else keeps.
+            let target = vm.shelfDropTarget
+            vm.shelfDropTarget = .keep
+            if target == .airDrop {
+                ShelfSharing.airDrop(urls, refusingOn: self.stores.shelf)
+                self.pointer.setInside(true)
+                self.setOpen(true)
+                self.scheduleCollapseIfPointerAway()
+                return true
+            }
             let accepted = vm.accept(urls: urls)
             self.pointer.setInside(true)
             self.setOpen(true)
@@ -1165,6 +1289,16 @@ final class NotchController {
         // panel now also reaches here through a transient hot key; see
         // `updateEscapeHotKey`. An unpinned one has the pointer on it, and the
         // pointer leaving is what closes it.
+        // Delete and ⌘⌫ on a panel that is key: the Shelf's selection, and
+        // nothing else's. The registered hot key covers the common case of a
+        // panel that is not key; see `NotchPanel.removeKeyHandled`.
+        panel.removeKeyHandled = { [weak self] in
+            guard let vm = self?.viewModel, vm.tab == .shelf, !vm.isShowingWelcome,
+                  !vm.isLockedPresentation, !vm.shelf.selection.isEmpty else { return false }
+            vm.shelf.removeSelected()
+            return true
+        }
+
         panel.onEscape = { [weak self] in
             guard let self else { return }
             self.setOpen(false)
@@ -1300,6 +1434,13 @@ final class NotchController {
             // Only while it is shut. An open panel has already answered the
             // pointer, and lifting its whole surface would be answering twice.
             vm.isHovering = hovering && !vm.isOpen
+        }
+        // The pointer on the Shelf pane, from the sampler (see
+        // `NotchViewModel.isPointerOnShelf`). The rect is cut with the open
+        // body (`updateShelfZone`) and empty whenever the Shelf is not showing,
+        // which reports "off" at once.
+        pointer.onShelfChange = { [weak self] onShelf in
+            self?.viewModel?.isPointerOnShelf = onShelf
         }
         // Not in the dark. A rebuild can land while the display sleeps — an
         // external display that drops off the bus with it moves the notch
@@ -1462,6 +1603,44 @@ final class NotchController {
                 }
             }
             .store(in: &cancellables)
+        // Delete and ⌘⌫ for the Shelf, from every input of the claim at once
+        // (`NotchViewModel.claimsDelete`). The values are the ones the
+        // publishers hand over, never `vm`'s: `@Published` announces before it
+        // stores, so the model still holds the old value inside the sink — the
+        // mistake that would leave a registration standing for one change too
+        // long. Any one input going false gives the keys back in this same
+        // turn; there is no timer and no "later".
+        vm.$isOpen.combineLatest(vm.$tab, vm.$isShowingWelcome)
+            .combineLatest(vm.$isPointerOnShelf, vm.shelf.$selection, vm.$isLockedPresentation)
+            .sink { [weak self] base, pointerOnShelf, selection, locked in
+                MainActor.assumeIsolated {
+                    self?.updateDeleteKey(
+                        open: base.0, onShelf: base.1 == .shelf && !base.2,
+                        pointerOnShelf: pointerOnShelf, hasSelection: !selection.isEmpty, locked: locked
+                    )
+                }
+            }
+            .store(in: &cancellables)
+        // The Shelf's pointer zone follows the tab: cut for the Shelf's body
+        // while it shows, empty on every other tab, and at once (not a pass
+        // later like the rects) because it is what ends the Delete claim.
+        vm.$tab
+            .removeDuplicates()
+            .sink { [weak self] tab in
+                MainActor.assumeIsolated {
+                    guard let self, let vm = self.viewModel else { return }
+                    // The body the *new* tab asks for: `vm.openBodySize` still
+                    // reads the old one inside this sink.
+                    let size = CGSize(
+                        width: vm.geometry.expandedSize.width,
+                        height: NotchViewModel.openBodyHeight(
+                            tab: tab, showingLyrics: vm.showsLyricPage, expandedTabs: vm.expandedTabs
+                        )
+                    )
+                    self.updateShelfZone(open: vm.isOpen && tab == .shelf, size: size, tab: tab)
+                }
+            }
+            .store(in: &cancellables)
         // And let go of it while this app is active: Quick Look and AirDrop
         // activate it from a Shelf card, and their windows answer Escape.
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
@@ -1474,6 +1653,8 @@ final class NotchController {
                         panelHasKeyboard: vm.wantsKeyboard,
                         locked: vm.isLockedPresentation
                     )
+                    // Active, the app's own windows answer Delete.
+                    self.refreshDeleteKey()
                 }
             }
             .store(in: &cancellables)
@@ -1642,6 +1823,10 @@ final class NotchController {
             withTransaction(instant) { vm.isOpen = false }
         }
         vm.media.setActive(false)
+        // Off the Shelf the moment the panel folds, not when the rect shrinks
+        // 0.45 s later: the zone would otherwise outlive the panel by that long
+        // and a reopen elsewhere would find the pointer "still on it".
+        pointer.shelfRect = .zero
         // The caller is reconfiguring the panel immediately after this — the
         // lock screen resizing it to the whole display and cutting its own
         // rect. A delayed shrink would land on top of that.
@@ -2042,6 +2227,7 @@ final class NotchController {
         // to stay flush with the body to protect exactly that — but a compact
         // island with dead ends is the worse trade, because the dead ends are
         // invisible and the menu bar's are not.
+        updateShelfZone(open: open, size: size)
         let slack = open ? Theme.openTopRadius : Theme.collapsedTopRadius
         let rect = vm.geometry.contentRect(for: size).insetBy(dx: -slack, dy: 0)
         rootView.activeRect = NotchRootView.reachingTopEdge(rect, windowHeight: vm.geometry.windowSize.height)

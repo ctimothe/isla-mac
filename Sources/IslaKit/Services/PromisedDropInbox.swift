@@ -18,6 +18,21 @@ final class PromisedDropInbox {
 
     /// A coalesced batch of files that landed. Wired once by the controller.
     var onBatch: (([URL]) -> Void)?
+    /// A batch whose drop was aimed at the Shelf's AirDrop well (spec §8.3):
+    /// sent, not kept. A promise cannot be sent until its source has written
+    /// the file, which is when it reaches the inbox, so the aim is latched at
+    /// the release (`sendNextBatchWithAirDrop`) and honoured here.
+    var onAirDropBatch: (([URL]) -> Void)?
+
+    /// Set by the controller at the release of a drop over AirDrop's well; read
+    /// and cleared when the batch it names is delivered. One batch, never the
+    /// next drop's: a later drop to the Shelf's other well must not be sent to
+    /// a stranger's phone because an earlier one was.
+    private var airDropNext = false
+
+    func sendNextBatchWithAirDrop(_ send: Bool) {
+        airDropNext = send
+    }
 
     init(shelf: ShelfStore) {
         self.shelf = shelf
@@ -88,7 +103,13 @@ final class PromisedDropInbox {
         pending.removeAll()
         delivery = nil
         firstPendingAt = nil
+        let toAirDrop = airDropNext
+        airDropNext = false
         guard !batch.isEmpty else { return }
-        onBatch?(batch)
+        if toAirDrop, let onAirDropBatch {
+            onAirDropBatch(batch)
+        } else {
+            onBatch?(batch)
+        }
     }
 }

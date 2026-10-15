@@ -1,438 +1,445 @@
+import AppKit
 import SwiftUI
 
+/// The Shelf as Finder's icon view (spec §8): a grid of tiles, Finder's
+/// selection, labelled actions at the foot, and two wells to drag files onto.
+///
+/// Every frame comes from `ShelfLayout` in the board's body coordinates and is
+/// converted once, by `PlayerLayout.inPane`, so what a test holds is what is
+/// drawn. This replaces a horizontal strip of 86 × 92 card plates; the store
+/// under it (selection, the cap of sixty, offline files, duplicates, drag-out
+/// and ⌘-moves, Quick Look and AirDrop) is untouched.
 struct ShelfPane: View {
     @ObservedObject var shelf: ShelfStore
     var isTargeted: Bool
+    /// The well a drag in flight is over. Only read while `isTargeted`.
+    var dropTarget: ShelfDropTarget = .keep
+    /// The header's height on this Mac, for the body-to-pane conversion.
+    var headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight
 
-    /// Which card the pointer is over — decided by the pane, not by the cards.
+    /// Where the pointer is in the grid's viewport, and how far the grid is
+    /// scrolled: together they say which tile it is over, *decided* by
+    /// `ShelfLayout.tileIndex` on every redraw rather than reported by each
+    /// tile's own `onHover`.
     ///
-    /// Per-card `onHover` breaks on the shelf's most repetitive gesture:
-    /// deleting cards one after another. Hover events are made of mouse
-    /// movement, and when a deleted card's neighbour slides under a pointer
-    /// that has not moved, there are no events — the neighbour never learns it
-    /// is hovered, its ✕ never appears, and the click meant to delete it
-    /// selects it instead, until a stray wiggle of the mouse fixes everything.
-    /// So the pane tracks the pointer and every card's frame itself, and
-    /// re-decides on either change: the pointer moving, or the cards moving
-    /// under it. Scrolling the strip is the same case and heals the same way.
-    @State private var hoveredID: UUID?
+    /// Per-tile hover breaks on the shelf's most repetitive gesture: removing
+    /// tiles one after another. Hover events are made of mouse movement, and
+    /// when a removed tile's neighbour slides under a pointer that has not
+    /// moved, there are no events — the neighbour never learns it is hovered,
+    /// its ✕ never appears, and the click meant to remove it selects it
+    /// instead, until a stray wiggle of the mouse fixes everything. The pane
+    /// keeps the pointer and the scroll offset, and the answer follows from the
+    /// layout whenever the shelf, the pointer or the scroll moves.
     @State private var hoverPoint: CGPoint?
-    @State private var frames: [UUID: CGRect] = [:]
+    @State private var scrollOffset: CGFloat = 0
+    @StateObject private var clear = ShelfClearConfirmation()
+    @StateObject private var more = ShelfMoreMenuPresenter()
 
     var body: some View {
-        VStack(spacing: 0) {
-            if shelf.items.isEmpty {
-                dropHint
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(shelf.items) { item in
-                            ShelfCard(item: item, shelf: shelf, isHovered: hoveredID == item.id)
-                                .background(
-                                    GeometryReader { geo in
-                                        Color.clear.preference(
-                                            key: CardFramesKey.self,
-                                            value: [item.id: geo.frame(in: .named("shelf"))]
-                                        )
-                                    }
-                                )
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                    .frame(maxHeight: .infinity)
+        GeometryReader { geo in
+            let size = ShelfLayout.bodySize(paneSize: geo.size, headerHeight: headerHeight)
+            ZStack(alignment: .topLeading) {
+                if isTargeted {
+                    dropWells(size)
+                        .transition(.opacity)
+                } else if shelf.items.isEmpty {
+                    emptyState
+                        .transition(.opacity)
+                } else {
+                    grid(size)
+                    bar(size)
                 }
-                // A full strip ended on a card cut through the middle with no
-                // cue that more lay past it (H-017). The end with cards
-                // beyond it fades; a strip that fits fades nowhere.
-                .scrollEdgeFade(.horizontal)
-                .coordinateSpace(name: "shelf")
-                .onContinuousHover(coordinateSpace: .named("shelf")) { phase in
-                    switch phase {
-                    case .active(let point):
-                        hoverPoint = point
-                        rehit()
-                    case .ended:
-                        hoverPoint = nil
-                        hoveredID = nil
-                    }
-                }
-                .onPreferenceChange(CardFramesKey.self) { new in
-                    frames = new
-                    rehit()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // With cards on it the Shelf had no drop target at all: the
-                // dashed well is the empty state's, the window is click-
-                // through everywhere but the panel, and a file dragged over
-                // the strip got no word that letting go would keep it (M-22).
-                // The pill says so over the strip, not over the footer, and
-                // only fades: nothing grows or slides, so Reduce Motion has
-                // nothing to take away. The cards step back under it: at
-                // full strength their names and glyphs showed through the
-                // pill's glass and the sentence had to compete with them.
-                .opacity(isTargeted ? 0.4 : 1)
-                .overlay {
-                    if isTargeted {
-                        dropPill.transition(.opacity)
-                    }
-                }
-                .animation(Theme.contentAnimation, value: isTargeted)
-                footer
             }
-        }
-        .padding(.top, 2)
-    }
-
-    /// The one decision both signals feed: which frame holds the last known
-    /// pointer position.
-    private func rehit() {
-        guard let hoverPoint else { return }
-        hoveredID = frames.first(where: { $0.value.contains(hoverPoint) })?.key
-    }
-
-    /// The lit edge of a drop target, the empty well's and the pill's alike,
-    /// so the two states of one gesture are drawn by one line.
-    private static let dropEdge = Color.white.opacity(0.6)
-    private static let dropDash = StrokeStyle(lineWidth: 1.5, dash: [6, 5])
-
-    /// What a drag over a strip of cards is told. Drawing, not a control: the
-    /// drop itself is taken by the window's own drag handling, so the pill
-    /// must never catch the pointer on its way there.
-    private var dropPill: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "square.and.arrow.down.on.square")
-                .islandFont(.caption, weight: .semibold)
-                .accessibilityHidden(true)
-            Text(localized("Drop to keep on the Shelf"))
-                .islandFont(.caption, weight: .semibold)
-                .lineLimit(1)
-        }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        // The sync pill's glass: it floats inside an opaque panel, so there
-        // is nothing behind it to sample.
-        .glassSurface(cornerRadius: 999, elevation: .pill, samplesBackdrop: false)
-        .overlay(Capsule().strokeBorder(Self.dropEdge, style: Self.dropDash))
-        // One element, the sentence: the glass underneath is an image too,
-        // and on its own it reached VoiceOver as a nameless "image".
-        .accessibilityElement(children: .combine)
-        .allowsHitTesting(false)
-    }
-
-    private var dropHint: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .strokeBorder(
-                isTargeted ? Self.dropEdge : Theme.hairline,
-                style: Self.dropDash
-            )
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isTargeted ? Theme.surface : .clear)
-            )
-            .overlay(
-                // The glyph alone used to be the whole empty state, and
-                // VoiceOver read it by its symbol's name, "Download
-                // Multiple" (F-036). The words say what the Shelf is for, where
-                // files come from and how many it keeps; the glyph is drawing.
-                VStack(spacing: 6) {
-                    // Something arriving on the stack the tab is drawn as.
-                    Image(systemName: "square.and.arrow.down.on.square")
-                        .islandFont(.display, weight: .light)
-                        .foregroundStyle(isTargeted ? .white : Theme.tertiary)
-                        .accessibilityHidden(true)
-                    // Under a drag the headline turns from what the Shelf is
-                    // for into what letting go will do (M-22); the line
-                    // below, where files come from and how many fit, stays.
-                    Text(isTargeted ? localized("Release to add to the Shelf") : localized("Drop files here to keep them"))
-                        .islandFont(.body)
-                        .foregroundStyle(isTargeted ? .white : Theme.secondary)
-                    Text(localized("From Finder, Mail, Photos or a browser. Holds %d.", ShelfStore.limit))
-                        .islandFont(.caption, weight: .regular)
-                        .foregroundStyle(Theme.tertiary)
-                }
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+            // Only fades: nothing grows or slides between the states, so Reduce
+            // Motion has nothing to take away.
             .animation(Theme.contentAnimation, value: isTargeted)
+            .animation(Theme.contentAnimation, value: shelf.items.isEmpty)
+        }
+        // A question left standing would be waiting inside the next visit to
+        // the Shelf, one click from emptying it.
+        .onDisappear { clear.cancel() }
+        .onChange(of: shelf.items.isEmpty) { _, empty in if empty { clear.cancel() } }
     }
 
-    /// Two footers, one per state, and never both verbs at once.
-    ///
-    /// With cards picked, the destructive verb is "Remove 2" and acts on
-    /// those two. It used to be Clear, beside "2 selected": a person reads
-    /// Clear as acting on what they picked, and it emptied the whole shelf,
-    /// with only the armed "Clear Everything" — in the very spot of the
-    /// second press — to warn them (H-015). Clear comes back once nothing is
-    /// picked, so emptying the shelf is still one deliberate step away.
-    ///
-    /// The leading slot holds one line: the count while there is a
-    /// selection, otherwise the shelf's last notice, if it has one — except
-    /// that an AirDrop refusal is shown over the count (F-049).
-    ///
-    /// With cards picked the footer is the Shelf's action bar. Quick Look and
-    /// AirDrop — the two things a shelf is most often kept for besides a drag
-    /// — with Copy and Show in Finder lived only in the right-click menu, and
-    /// a trackpad user who never right-clicks never found them (F-037). The
-    /// deselect ✕ sits with the count it clears, as a token's close does,
-    /// and away from Remove, so a near miss on one never lands on the other.
-    private var footer: some View {
-        HStack(spacing: 10) {
-            // An AirDrop refusal takes the count's place for its four
-            // seconds (`Notice.showsOverSelection`): it answers the press of
-            // a verb in this very bar, which only shows with a selection. The
-            // count and its ✕ come back when it lapses.
-            if let notice = shelf.notice, shelf.selection.isEmpty || notice.showsOverSelection {
-                noticeLine(notice)
-            } else if !shelf.selection.isEmpty {
-                HStack(spacing: 2) {
-                    Text(localized("%d selected", shelf.selection.count))
-                        .islandFont(.caption, weight: .regular)
-                        .foregroundStyle(Theme.tertiary)
-                    ShelfBarButton(symbol: "xmark", title: localized("Deselect")) { shelf.clearSelection() }
-                }
-            }
-            Spacer(minLength: 0)
-            if !shelf.selection.isEmpty {
-                actionBar
-                ConfirmTextButton(
-                    title: localized("Remove %d", shelf.selection.count),
-                    armedTitle: localized("Remove %d from Shelf", shelf.selection.count)
-                ) { shelf.removeSelected() }
-                // A fresh button for every selection, so an arming always
-                // names the cards the second press removes: armed on two,
-                // then ⌘-clicking a third, it starts over rather than
-                // removing three on the strength of a confirmation for two.
-                .id(shelf.selection)
-            } else {
-                ConfirmTextButton(
-                    title: localized("Clear"),
-                    armedTitle: localized("Clear Everything")
-                ) { shelf.clear() }
+    /// A frame in the board's body coordinates, in this pane's.
+    private func pane(_ rect: CGRect) -> CGRect {
+        PlayerLayout.inPane(rect, headerHeight: headerHeight)
+    }
+
+    // MARK: - Empty (§8.4)
+
+    /// What the Shelf is for, where files come from and how many it keeps. The
+    /// glyph is drawing; VoiceOver read it by its symbol's name once, "Download
+    /// Multiple" (F-036), and reads the words now.
+    private var emptyState: some View {
+        VStack(spacing: 6) {
+            // 26 pt is the board's (spec §8.4) and no role: the roles stop at
+            // 21 and jump to 28, and the empty player's note and the Clipboard's
+            // glyph are each their own size for the same reason.
+            Image(systemName: "tray")
+                .font(.system(size: 26, weight: .regular))
+                .foregroundStyle(Theme.tertiary)
+                .accessibilityHidden(true)
+                .padding(.bottom, 6)
+            Text(localized("Drop files here to keep them"))
+                .islandFont(.subhead, weight: .semibold)
+                .foregroundStyle(.white)
+            Text(localized("From Finder, Mail, Photos or a browser. Holds %d.", ShelfStore.limit))
+                .islandFont(.body, weight: .regular)
+                .foregroundStyle(Theme.secondary)
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Dragging in (§8.3)
+
+    /// Two wells that name what letting go does. Drawing, not controls: the
+    /// drop itself is taken by the window's own drag handling
+    /// (`NotchRootView`), so nothing here may catch the pointer on its way.
+    private func dropWells(_ size: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach([ShelfDropTarget.keep, .airDrop], id: \.self) { target in
+                let frame = pane(ShelfDropTarget.well(target, bodySize: size))
+                ShelfDropWell(target: target, isLit: dropTarget == target)
+                    .frame(width: frame.width, height: frame.height)
+                    .offset(x: frame.minX, y: frame.minY)
             }
         }
-        .padding(.top, 2)
+    }
+
+    // MARK: - The grid (§8.1)
+
+    private func grid(_ size: CGSize) -> some View {
+        let columns = ShelfLayout.columns(bodyWidth: size.width)
+        let viewport = pane(ShelfLayout.viewport(bodySize: size))
+        let items = shelf.items
+        let hovered = hoverPoint.flatMap {
+            ShelfLayout.tileIndex(
+                at: CGPoint(x: $0.x, y: $0.y + scrollOffset), count: items.count, columns: columns
+            )
+        }
+        return ScrollView(.vertical, showsIndicators: false) {
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    let frame = ShelfLayout.tileFrame(index: index, columns: columns)
+                    ShelfTile(
+                        item: item, shelf: shelf,
+                        isHovered: hovered == index,
+                        isAlreadyKept: shelf.alreadyKept.contains(item.id)
+                    )
+                    .offset(x: frame.minX, y: frame.minY)
+                }
+            }
+            .frame(
+                width: viewport.width,
+                height: ShelfLayout.contentHeight(count: items.count, columns: columns),
+                alignment: .topLeading
+            )
+        }
+        // The row the viewport cuts fades under the bar instead of ending on a
+        // hard edge (H-017's lesson), 26 pt of it (spec §8.1).
+        .scrollEdgeFade(.vertical, length: ShelfLayout.overflowFade)
+        .onScrollGeometryChange(for: CGFloat.self) { $0.visibleRect.minY } action: { _, offset in
+            scrollOffset = offset
+        }
+        .frame(width: viewport.width, height: viewport.height)
+        .onContinuousHover(coordinateSpace: .local) { phase in
+            switch phase {
+            case .active(let point): hoverPoint = point
+            case .ended: hoverPoint = nil
+            }
+        }
+        .offset(x: viewport.minX, y: viewport.minY)
+    }
+
+    // MARK: - The bar (§8.2, §8.4)
+
+    private func bar(_ size: CGSize) -> some View {
+        let model = ShelfBar.make(
+            itemCount: shelf.items.count, selectionCount: shelf.selection.count, notice: shelf.notice,
+            isConfirmingClear: clear.isAsking, bodyWidth: size.width
+        )
+        let frame = pane(ShelfLayout.bar(bodySize: size))
+        return Group {
+            // Folded by the spec's rule below 540, and by measure above it: the
+            // five verbs in Russian are wider than the 488 pt a 560 body has,
+            // so the full row is offered first and the folded one is what is
+            // left when it does not fit.
+            if case .verbs(_, let overflow) = model.trailing, overflow.isEmpty {
+                ViewThatFits(in: .horizontal) {
+                    barRow(model)
+                    barRow(model.folded)
+                }
+            } else {
+                barRow(model)
+            }
+        }
+        .frame(width: frame.width, height: frame.height, alignment: .leading)
+        .offset(x: frame.minX, y: frame.minY)
         .animation(Theme.contentAnimation, value: shelf.notice)
+        .animation(Theme.contentAnimation, value: shelf.selection.isEmpty)
         // The line is drawn where the pane is, so it is heard only when the
-        // Shelf is on screen: a screenshot saved with the panel shut has
-        // nobody to tell, and VoiceOver should not speak up over another tab.
+        // Shelf is on screen: a screenshot saved with the panel shut has nobody
+        // to tell, and VoiceOver should not speak up over another tab.
         .onChange(of: shelf.notice) { _, notice in
             if let notice { Announcer.shared.announce(notice.text) }
         }
     }
 
-    private func noticeLine(_ notice: ShelfStore.Notice) -> some View {
-        // Two lines at most: the eviction sentence ends on what matters
-        // most — the files themselves are untouched — and at the narrowest
-        // panel, in Russian, one line cut it off.
-        Text(notice.text)
-            .islandFont(.caption, weight: .regular)
-            .foregroundStyle(Theme.secondary)
-            .lineLimit(2)
-            .fixedSize(horizontal: false, vertical: true)
-            .transition(.opacity)
-    }
-
-    /// The selection's verbs, in the card menu's order. Each acts on the
-    /// picked cards a drag would carry — in shelf order, without a card
-    /// whose disk is away — and the bar goes quiet when that leaves nothing.
-    /// Copy takes the first of them: the pasteboard path writes one file with
-    /// its image data, and several at once is a change of its own.
-    private var actionBar: some View {
-        let cards = shelf.selectedCards
-        return HStack(spacing: 2) {
-            ShelfBarButton(symbol: "eye", title: localized("Quick Look")) {
-                ShelfSharing.quickLook(cards.map(\.url))
-            }
-            ShelfBarButton(symbol: "dot.radiowaves.up.forward", title: localized("AirDrop")) {
-                ShelfSharing.airDrop(cards.map(\.url), refusingOn: shelf)
-            }
-            ShelfBarButton(symbol: "doc.on.doc", title: localized("Copy")) {
-                if let first = cards.first { shelf.copy(first) }
-            }
-            ShelfBarButton(symbol: "folder", title: localized("Show in Finder")) {
-                shelf.reveal(cards)
-            }
+    private func barRow(_ model: ShelfBar) -> some View {
+        HStack(spacing: 6) {
+            leading(model.leading)
+            Spacer(minLength: 8)
+            trailing(model.trailing)
         }
-        .disabled(cards.isEmpty)
+        .frame(height: ShelfLayout.barHeight)
+    }
+
+    @ViewBuilder
+    private func leading(_ leading: ShelfBar.Leading) -> some View {
+        switch leading {
+        case .selection(let count):
+            HStack(spacing: 6) {
+                Text(localized("%d selected", count))
+                    .islandFont(.body, weight: .medium)
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+                DeselectAllButton { shelf.clearSelection() }
+            }
+        case .notice(let notice):
+            // Two lines at most: the eviction sentence ends on what matters
+            // most — the files themselves are untouched — and at the narrowest
+            // panel, in Russian, one line cut it off.
+            Text(notice.text)
+                .islandFont(.body, weight: .regular)
+                .foregroundStyle(Theme.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .transition(.opacity)
+        case .hint:
+            Text(localized("Drag an item out to use it anywhere."))
+                .islandFont(.body, weight: .regular)
+                .foregroundStyle(Theme.tertiary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        case .clearQuestion(let count):
+            Text(localized("Remove all %d items? Files are untouched.", count))
+                .islandFont(.body, weight: .regular)
+                .foregroundStyle(Theme.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private func trailing(_ trailing: ShelfBar.Trailing) -> some View {
+        switch trailing {
+        case .verbs(let inline, let overflow):
+            let cards = shelf.selectedCards
+            HStack(spacing: 6) {
+                ForEach(inline, id: \.self) { verb in
+                    Button(verb.title) { perform(verb, on: cards) }
+                        .buttonStyle(ToolbarPushButtonStyle())
+                        // The verbs act on what a drag would carry — in shelf
+                        // order, without a tile whose disk is away — and go
+                        // quiet when that leaves nothing. Remove acts on the
+                        // selection itself, files or not.
+                        .disabled(verb != .remove && cards.isEmpty)
+                }
+                if !overflow.isEmpty {
+                    Button { more.present(verbs: overflow) { perform($0, on: cards) } } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .buttonStyle(ToolbarPushButtonStyle(width: ToolbarPushButtonStyle.height))
+                    .background(MenuAnchor { more.anchor = $0 })
+                    .help(localized("More"))
+                    .accessibilityLabel(localized("More"))
+                    .disabled(cards.isEmpty)
+                }
+            }
+            .fixedSize()
+        case .clear:
+            Button(localized("Clear")) {
+                clear.ask(count: shelf.items.count)
+            }
+            .buttonStyle(ToolbarPushButtonStyle())
+            .accessibilityHint(localized("Asks for confirmation before acting."))
+        case .confirmClear:
+            HStack(spacing: 6) {
+                Button(localized("Cancel")) { clear.cancel() }
+                    .buttonStyle(ToolbarPushButtonStyle())
+                Button {
+                    clear.confirm { shelf.clear() }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "trash").font(.system(size: 11, weight: .regular))
+                        Text(localized("Remove All"))
+                    }
+                }
+                .buttonStyle(ToolbarPushButtonStyle(kind: .danger))
+            }
+            .fixedSize()
+        case .nothing:
+            EmptyView()
+        }
+    }
+
+    private func perform(_ verb: ShelfVerb, on cards: [ShelfItem]) {
+        switch verb {
+        case .quickLook: ShelfSharing.quickLook(cards.map(\.url))
+        case .airDrop: ShelfSharing.airDrop(cards.map(\.url), refusingOn: shelf)
+        // The pasteboard path writes one file with its image data, and several
+        // at once is a change of its own.
+        case .copy: if let first = cards.first { shelf.copy(first) }
+        case .showInFinder: shelf.reveal(cards)
+        case .remove: shelf.removeSelected()
+        }
     }
 }
 
-private struct CardFramesKey: PreferenceKey {
-    static let defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue()) { _, new in new }
+// MARK: - Clear asks once (§8.4)
+
+/// "Remove all %d items? Files are untouched." — the question, in place, with
+/// Cancel and Remove All. It replaces the arm-and-press-again "Clear Everything"
+/// the bar had: a sentence with two named answers says what will happen to a
+/// person who does not know the first press arms, and to one who cannot see the
+/// word turn red.
+///
+/// It keeps what the arming was right about. It joins `ArmedConfirmations`, so
+/// Escape answers it ("no") before Escape folds the panel — the first Escape
+/// cancels, and only the second, with nothing left asked, folds — and it is said
+/// to VoiceOver, which cannot see the bar change. It no longer lapses by itself:
+/// the arming did, because pressing the same button twice is an accident
+/// waiting; Remove All is a different button, pressed on purpose after a
+/// sentence.
+@MainActor
+final class ShelfClearConfirmation: ObservableObject {
+    @Published private(set) var isAsking = false
+    private var token: UUID?
+
+    func ask(count: Int) {
+        guard !isAsking, count > 0 else { return }
+        isAsking = true
+        token = ArmedConfirmations.shared.register { [weak self] in self?.cancel() }
+        Announcer.shared.announce(localized("Remove all %d items? Files are untouched.", count))
+    }
+
+    func cancel() {
+        if let token { ArmedConfirmations.shared.withdraw(token) }
+        token = nil
+        isAsking = false
+    }
+
+    /// Answers yes: puts the question away first, then acts.
+    func confirm(_ action: () -> Void) {
+        guard isAsking else { return }
+        cancel()
+        action()
     }
 }
 
-private struct ShelfCard: View {
+// MARK: - A tile (§8.1, §8.2)
+
+private struct ShelfTile: View {
     let item: ShelfItem
     @ObservedObject var shelf: ShelfStore
     /// Handed down from the pane, which is the one place that can know it
-    /// correctly when cards move under a stationary pointer.
+    /// correctly when tiles move under a stationary pointer.
     let isHovered: Bool
+    let isAlreadyKept: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The mouse is down on the card, or a drag that started on it is still
-    /// in flight. Reported by the drag overlay, which owns the mouse.
+    /// The mouse is down on the tile, or a drag that started on it is still in
+    /// flight. Reported by the drag overlay, which owns the mouse.
     @State private var isPressed = false
-    /// The thumbnail's box in the card, measured, so a drag lifts the picture
-    /// from where it is drawn rather than from a copy of the layout's sums.
-    @State private var thumbnailBox: CGRect = .zero
 
     private var isSelected: Bool { shelf.isSelected(item) }
 
-    /// The card's coordinate space, for `thumbnailBox`. The drag overlay
-    /// covers the card exactly, so the box is in the overlay's terms too.
-    private static let space = "shelfCard"
+    private var well: ShelfWell? {
+        ShelfWell.state(isSelected: isSelected, isHovered: isHovered, isAlreadyKept: isAlreadyKept)
+    }
+
+    /// The picture's box: a thumbnail at its own shape, long side 52, centred in
+    /// the 52 pt square; a type's icon fills the square.
+    private var iconSize: CGSize {
+        item.isPreview ? ShelfLayout.fittedSize(of: item.icon.size) : ShelfLayout.icon.size
+    }
+
+    private var iconFrame: CGRect {
+        let box = ShelfLayout.icon
+        let size = iconSize
+        return CGRect(
+            x: box.minX + (box.width - size.width) / 2, y: box.minY + (box.height - size.height) / 2,
+            width: size.width, height: size.height
+        )
+    }
 
     var body: some View {
-        VStack(spacing: 6) {
-            // Fit, not fill: a screenshot is landscape and a file icon is
-            // square, and forcing either into the other's box is what squashed
-            // the wide ones. The box is wide enough for a 16:10 frame, so a
-            // square icon simply centres in it.
-            Image(nsImage: item.icon)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 68, height: 40)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { thumbnailBox = $0 }
-                // A disk that is not plugged in: the card is still the card,
-                // only out of reach until the disk comes back.
-                .opacity(item.isOffline ? Theme.offlineThumbnailOpacity : 1)
-            // The name, then how long ago. A capture's name already carries
-            // its date, but "Screenshot 2026-09-21 at 15.43.23" has to be read
-            // and worked out; "5 min. ago" is known at a glance, and it is what
-            // tells two captures of the same minute's session apart.
-            VStack(spacing: 1) {
-                // Cut by `ShelfItem.compactName`, which keeps the last word —
-                // the "15.04.44" that tells one capture from the next — where
-                // a middle cut kept "Scree" and ".44.png" (H-025). The middle
-                // truncation stays only as a backstop for a pixel of
-                // difference between the measure and the drawing. The whole
-                // name is the card's tool tip, on the drag view below.
-                Text(Self.fittedName(item.name))
-                    .islandFont(.caption, weight: .regular)
-                    .foregroundStyle(Theme.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if item.isOffline {
-                    // In place of the age, which is the less useful line once
-                    // the file cannot be opened: what a person needs to know
-                    // is why, and what brings it back.
-                    Text(localized("Disk not connected"))
-                        .islandFont(.caption, weight: .regular)
-                        .foregroundStyle(Theme.tertiary)
-                        .lineLimit(1)
-                } else if let date = item.date {
-                    // Re-read twice a minute, so "Just now" does not linger
-                    // into the afternoon on a shelf left open.
-                    TimelineView(.periodic(from: .now, by: 30)) { context in
-                        Text(ShelfItem.age(of: date, now: context.date))
-                            .islandFont(.caption, weight: .regular)
-                            // The age sits on the card's own fill, which is
-                            // brighter than the pane: tertiary was 3.52:1 on a
-                            // hovered card (F-052).
-                            .foregroundStyle(Theme.tertiary(over: [isSelected ? .selectedChip : (isHovered ? .surfaceHover : .surface)]))
-                            .lineLimit(1)
-                    }
-                    .help(date.formatted(date: .abbreviated, time: .shortened))
-                }
-            }
-            .frame(height: 24, alignment: .top)
-        }
-        .padding(.horizontal, ShelfItem.cardInset)
-        .padding(.vertical, 8)
-        .frame(width: ShelfItem.cardWidth, height: 92)
-        .coordinateSpace(.named(Self.space))
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Theme.selectedChip : (isHovered ? Theme.surfaceHover : Theme.surface))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Theme.selectedChipBorder.opacity(isSelected ? 1 : 0), lineWidth: 1.5)
-                .allowsHitTesting(false)
-        )
-        // Drawn under the drag overlay, which draws nothing, so the mark
-        // presses with the card it belongs to.
-        .overlay(alignment: .topLeading) {
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .islandFont(.subhead, weight: .regular)
-                    .foregroundStyle(.white)
-                    .padding(4)
-                    .allowsHitTesting(false)
-            }
-        }
-        // The press answers on the way down (F-038). Only what is drawn
-        // dips: the drag overlay below sits outside the scale, so the region
-        // that owns the mouse stays exactly where the press began, and the
-        // thumbnail box it lifts the drag image from is the unscaled one.
-        // Reduce Motion asks for no change of size, so the card dims instead.
-        .scaleEffect(isPressed && !reduceMotion ? Theme.pressScale : 1)
-        .opacity(isPressed && reduceMotion ? Theme.pressDimOpacity : 1)
-        .animation(Theme.contentAnimation, value: isPressed)
-        // Owns clicks and drags: a group drag needs one dragging item per file,
-        // which SwiftUI's onDrag cannot express. It must stay *below* the close
-        // button, otherwise it swallows every click aimed at it.
-        .overlay(
+        ZStack(alignment: .topLeading) {
+            visual
+                // The press answers on the way down (F-038). Only what is drawn
+                // dips: the drag overlay below sits outside the scale, so the
+                // region that owns the mouse stays exactly where the press
+                // began. Reduce Motion asks for no change of size, so the tile
+                // dims instead.
+                .scaleEffect(isPressed && !reduceMotion ? Theme.pressScale : 1)
+                .opacity(isPressed && reduceMotion ? Theme.pressDimOpacity : 1)
+                .animation(Theme.contentAnimation, value: isPressed)
+            // Owns clicks and drags: a group drag needs one dragging item per
+            // file, which SwiftUI's onDrag cannot express. It must stay *below*
+            // the ⓧ, otherwise it swallows every click aimed at it.
             ShelfDragSource(
                 items: { shelf.dragCards(startingAt: item).map { ($0.url, $0.icon) } },
-                thumbnail: thumbnailBox,
+                thumbnail: iconFrame,
                 onClick: { modifiers in shelf.select(item, modifiers: modifiers) },
                 onDoubleClick: { shelf.open(item) },
                 onPress: { pressed in isPressed = pressed },
-                // A ⌘-drag moved the file, or the Trash took it: the card
+                // A ⌘-drag moved the file, or the Trash took it: the tile
                 // follows it, or leaves with it (F-020).
                 onMoved: { urls in shelf.followMove(urls) },
                 toolTip: item.name
             )
-        )
-        .overlay(alignment: .topTrailing) {
+            .frame(width: ShelfLayout.tile.width, height: ShelfLayout.tile.height)
             if isHovered {
-                Button { shelf.remove(item) } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .islandFont(.subhead, weight: .regular)
-                        .foregroundStyle(Color.white.opacity(0.75))
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(PanelButtonStyle())
-                .help(localized("Remove from Shelf"))
-                .accessibilityLabel(localized("Remove from Shelf"))
-                .padding(2)
+                removeBadge
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        // Grouped as Finder groups a file's menu: what it is, looking at it,
+        .frame(width: ShelfLayout.tile.width, height: ShelfLayout.tile.height, alignment: .topLeading)
+        .contentShape(Rectangle())
+        // Grouped as Finder groups a file's menu: looking at it, opening it,
         // sending it on, where it lives, and the destructive verb last and
-        // apart (M-14). The header says which file this is before anything
-        // is done to it (M-23).
+        // apart (M-14). The header says which file this is before anything is
+        // done to it (M-23).
         .contextMenu {
             CardMenuHeader(item: item)
             Divider()
             Button("Quick Look") { ShelfSharing.quickLook(shelf.dragURLs(startingAt: item)) }
+                .keyboardShortcut("y", modifiers: .command)
             Button("Open") { shelf.open(item) }
+            OpenWithMenu(item: item)
             Divider()
             Button("AirDrop") { ShelfSharing.airDrop(shelf.dragURLs(startingAt: item), refusingOn: shelf) }
             Button("Copy") { shelf.copy(item) }
+                .keyboardShortcut("c", modifiers: .command)
             Divider()
             Button("Show in Finder") { shelf.reveal(item) }
+                .keyboardShortcut("r", modifiers: .command)
             Divider()
             Button("Remove from Shelf", role: .destructive) { shelf.remove(item) }
+                .keyboardShortcut(.delete, modifiers: [])
         }
-        // One element per card, for VoiceOver and every other assistive
-        // client. Without it a card was not an element at all: its name and
-        // its age floated loose in the pane and interleaved across cards
-        // ("Just now" read beside the wrong file), the selection mark was an
-        // image of its own, and select, open and drag lived in the AppKit
-        // overlay, which has no accessibility, so nothing on the Shelf could
-        // be used (F-006). `.ignore` swallows that overlay, the check mark and
-        // the hover ✕ too; what they do is offered here instead. Making
-        // `DragView` accessible was the other way, and it still left two
-        // elements per card with the texts loose beside them.
+        // One element per tile, for VoiceOver and every other assistive
+        // client. Without it a tile was not an element at all: its name and its
+        // age floated loose in the pane and interleaved across tiles ("Just
+        // now" read beside the wrong file), and select, open and drag lived in
+        // the AppKit overlay, which has no accessibility, so nothing on the
+        // Shelf could be used (F-006). `.ignore` swallows that overlay and the
+        // hover ⓧ too; what they do is offered here instead.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(item.name)
         .accessibilityValue(accessibilityValue)
@@ -440,12 +447,12 @@ private struct ShelfCard: View {
         // VO-Space opens the file, as a double-click and Finder's Return do.
         .accessibilityAction { shelf.open(item) }
         // The context menu's verbs, in the Actions rotor. Written bottom-up:
-        // SwiftUI vends named actions outermost first, so the last declared
-        // is the first offered, and the rotor should read Select, Quick Look,
+        // SwiftUI vends named actions outermost first, so the last declared is
+        // the first offered, and the rotor should read Select, Quick Look,
         // AirDrop, Copy, Show in Finder, then the destructive Remove last, as
-        // the menu does. Select is the ⌘-click toggle, because a VoiceOver
-        // user picks cards one at a time and a plain click's "this one
-        // instead" would drop the rest.
+        // the menu does. Select is the ⌘-click toggle, because a VoiceOver user
+        // picks tiles one at a time and a plain click's "this one instead"
+        // would drop the rest.
         .accessibilityAction(named: Text("Remove from Shelf")) { shelf.remove(item) }
         .accessibilityAction(named: Text("Show in Finder")) { shelf.reveal(item) }
         .accessibilityAction(named: Text("Copy")) { shelf.copy(item) }
@@ -456,34 +463,150 @@ private struct ShelfCard: View {
         .accessibilityAction(named: Text(isSelected ? localized("Deselect") : localized("Select"))) {
             shelf.select(item, modifiers: .command)
         }
-        .animation(Theme.contentAnimation, value: isHovered)
-        .animation(Theme.contentAnimation, value: isSelected)
+        .animation(Theme.contentAnimation, value: well)
     }
 
-    /// Names already fitted, by name. A pick re-draws every card on the shelf
-    /// and fitting one measures it once per character it gives up — sixty
-    /// captures were some fifteen hundred measurements on a click. A shelf
-    /// holds sixty names, so the cache is emptied rather than ordered when it
-    /// outgrows a few shelves' worth.
-    private static var fittedNames: [String: String] = [:]
-
-    private static func fittedName(_ name: String) -> String {
-        if let fitted = fittedNames[name] { return fitted }
-        if fittedNames.count >= 4 * ShelfStore.limit { fittedNames.removeAll() }
-        let fitted = ShelfItem.compactName(name, fitting: ShelfItem.cardNameWidth, measure: ShelfItem.measureCardName)
-        fittedNames[name] = fitted
-        return fitted
+    /// The well, the picture and the name — everything a tile draws.
+    private var visual: some View {
+        ZStack(alignment: .topLeading) {
+            if let well {
+                wellView(well)
+                    .frame(width: ShelfLayout.well.width, height: ShelfLayout.well.height)
+                    .offset(x: ShelfLayout.well.minX, y: ShelfLayout.well.minY)
+                    .transition(.opacity)
+            }
+            picture
+                .frame(width: iconFrame.width, height: iconFrame.height)
+                .offset(x: iconFrame.minX, y: iconFrame.minY)
+            nameBlock
+                .frame(width: ShelfLayout.tile.width + 2 * ShelfLayout.nameBleed, alignment: .top)
+                .offset(x: -ShelfLayout.nameBleed, y: ShelfLayout.nameTop)
+        }
     }
 
-    /// What the card's second line says, then whether it is picked.
+    @ViewBuilder
+    private func wellView(_ well: ShelfWell) -> some View {
+        let shape = RoundedRectangle(cornerRadius: ShelfLayout.wellRadius, style: .continuous)
+        switch well {
+        case .hover:
+            shape.fill(Theme.shelfHoverWell)
+        case .selected:
+            shape.fill(Theme.shelfSelectedWell)
+        case .alreadyKept:
+            shape.fill(Theme.shelfDropWellLit)
+                .overlay(shape.strokeBorder(Theme.accent, lineWidth: Theme.shelfDropRingWidth))
+        }
+    }
+
+    /// Finder's picture: a thumbnail wears a white 1.5 pt border and a soft
+    /// shadow, hugging the picture itself; a file's own icon is drawn bare. A
+    /// disk that is not plugged in takes the colour and most of the strength
+    /// out of either (spec §8.4): the tile is still the tile, only out of reach.
+    private var picture: some View {
+        Image(nsImage: item.icon)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .overlay {
+                if item.isPreview {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .strokeBorder(Color.white, lineWidth: 1.5)
+                }
+            }
+            .shadow(color: item.isPreview ? Color.black.opacity(0.5) : .clear, radius: 3, x: 0, y: 2)
+            .saturation(item.isOffline ? 0 : 1)
+            .opacity(item.isOffline ? Theme.offlineThumbnailOpacity : 1)
+            .accessibilityHidden(true)
+    }
+
+    /// The name, then how long ago. A capture's name already carries its date,
+    /// but "Screenshot 2026-09-21 at 15.43.23" has to be read and worked out;
+    /// "5 min. ago" is known at a glance, and it is what tells two captures of
+    /// the same session apart.
+    ///
+    /// Two lines at most, the second cut in the middle so the extension
+    /// survives (`ShelfTileName`); picked, each line is highlighted on its own
+    /// in the accent, as Finder highlights a selected name. The age follows the
+    /// name however many lines it took.
+    private var nameBlock: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(ShelfTileName.drawnLines(item.name, selected: isSelected).enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .islandFont(.body, weight: isSelected ? .medium : .regular)
+                    .foregroundStyle(item.isOffline ? Theme.tertiary : Color.white)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.horizontal, isSelected ? 3 : 0)
+                    .frame(height: ShelfLayout.nameLineHeight)
+                    .background {
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Theme.accent)
+                        }
+                    }
+            }
+            ageLine
+                .padding(.top, 2)
+        }
+    }
+
+    @ViewBuilder
+    private var ageLine: some View {
+        if item.isOffline {
+            // In place of the age, which is the less useful line once the file
+            // cannot be opened: what a person needs to know is why, and what
+            // brings it back.
+            Text(localized("Disk not connected"))
+                .islandFont(.caption, weight: .regular)
+                .foregroundStyle(Theme.tertiary)
+                .lineLimit(1)
+                .frame(height: ShelfLayout.ageLineHeight)
+        } else if let date = item.date {
+            // Re-read twice a minute, so "Just now" does not linger into the
+            // afternoon on a shelf left open.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                Text(ShelfItem.age(of: date, now: context.date))
+                    .islandFont(.caption, weight: .regular)
+                    .foregroundStyle(Theme.tertiary)
+                    .lineLimit(1)
+            }
+            .frame(height: ShelfLayout.ageLineHeight)
+            .help(date.formatted(date: .abbreviated, time: .shortened))
+        }
+    }
+
+    /// The ⓧ: 18 pt at the tile's (4, −3), `xmark` 8 pt semibold on #505054.
+    /// Its target is the 24 pt floor, centred on the disc, so a near miss on
+    /// the corner of a tile does not select it instead.
+    private var removeBadge: some View {
+        let badge = ShelfLayout.badge
+        let target: CGFloat = 24
+        return Button { shelf.remove(item) } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .frame(width: badge.width, height: badge.height)
+                .background(Circle().fill(Theme.shelfBadgeFill))
+                .shadow(color: Color.black.opacity(0.5), radius: 1.5, x: 0, y: 1)
+                .frame(width: target, height: target)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PanelButtonStyle())
+        .help(localized("Remove from Shelf"))
+        .accessibilityLabel(localized("Remove from Shelf"))
+        .offset(
+            x: badge.minX - (target - badge.width) / 2,
+            y: badge.minY - (target - badge.height) / 2
+        )
+    }
+
+    /// What the tile's second line says, then whether it is picked.
     ///
     /// The age is worked out here rather than read from the drawn line, which
     /// lives inside its own `TimelineView`: an ignored subtree is not read, so
-    /// the value is as fresh as the card's last pass, and the shelf redraws
-    /// every card on any change to it. "Selected" goes into the value as well
-    /// as the trait, so it is heard wherever the card is read and not only by
-    /// a client that looks for the trait; it used to be a check-mark image of
-    /// its own, read as a stray "Selected" beside whichever text came next.
+    /// the value is as fresh as the tile's last pass, and the shelf redraws
+    /// every tile on any change to it. "Selected" goes into the value as well as
+    /// the trait, so it is heard wherever the tile is read and not only by a
+    /// client that looks for the trait.
     private var accessibilityValue: String {
         var parts: [String] = []
         if item.isOffline {
@@ -496,13 +619,37 @@ private struct ShelfCard: View {
     }
 }
 
-/// The card menu's first line: kind, size and folder, or the disk an offline
-/// card waits for. Disabled — it is a label, not a verb.
+/// Open With ▸ in a tile's menu: the file's applications, the default first.
 ///
-/// A view of its own so the file is read when the menu is built, not with
-/// the card: a context menu's items are written inside the card's body, and
-/// anything computed there runs on every pass of every card (the reason
-/// AirDrop's availability is asked on the click, see `ShelfSharing.airDrop`).
+/// A view of its own so the list is asked for when the menu is built and not
+/// with the tile — a SwiftUI context menu's items are written inside the tile's
+/// body, and anything computed there runs on every pass of every tile (the
+/// reason AirDrop's availability is asked on the click, see
+/// `ShelfSharing.airDrop`). Disabled for a file whose disk is away, which has
+/// no application to be asked about.
+private struct OpenWithMenu: View {
+    let item: ShelfItem
+
+    var body: some View {
+        let apps = item.isOffline ? [] : ShelfOpenWith.apps(for: item.url)
+        Menu(localized("Open With")) {
+            ForEach(apps) { app in
+                Button {
+                    ShelfOpenWith.open(item.url, with: app)
+                } label: {
+                    Label { Text(app.name) } icon: { Image(nsImage: ShelfOpenWith.icon(for: app)) }
+                }
+            }
+        }
+        .disabled(apps.isEmpty)
+    }
+}
+
+/// The tile menu's first line: kind, size and folder, or the disk an offline
+/// tile waits for. Disabled — it is a label, not a verb.
+///
+/// A view of its own so the file is read when the menu is built, not with the
+/// tile (see `OpenWithMenu`).
 private struct CardMenuHeader: View {
     let item: ShelfItem
 
@@ -512,33 +659,116 @@ private struct CardMenuHeader: View {
     }
 }
 
-/// One verb of the Shelf's action bar: a glyph in a 24 pt square, its word
-/// in the tool tip and for VoiceOver.
-///
-/// Glyphs, not words: "Быстрый просмотр", "Показать в Finder" and their
-/// neighbours do not fit beside the count and "Убрать 2" in a 480 pt panel,
-/// and a cut verb is worse than none. They are the glyphs the system uses for
-/// the same verbs, so they are read the way they are read in Finder.
-private struct ShelfBarButton: View {
-    let symbol: String
-    let title: String
-    let action: () -> Void
-    @Environment(\.isEnabled) private var isEnabled
+// MARK: - The two wells (§8.3)
 
-    /// The bar's square: the caption-sized floor (`Theme.minimumHitSize`) is
-    /// for a word; a lone glyph needs the square to be found by the pointer.
-    static let side: CGFloat = 24
+/// One drop well: a glyph, its name, and a caption that says what letting go
+/// will do — "Drop to keep on the Shelf" resting, "Release to add to the Shelf"
+/// lit — so a person aiming at AirDrop is told, in words, that it sends and
+/// keeps nothing.
+private struct ShelfDropWell: View {
+    let target: ShelfDropTarget
+    let isLit: Bool
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
+        let shape = RoundedRectangle(cornerRadius: Theme.shelfDropWellRadius, style: .continuous)
+        VStack(spacing: 6) {
+            Image(systemName: target.symbol)
+                .font(.system(size: 26, weight: .regular))
+                .foregroundStyle(isLit ? Color.white : Theme.secondary)
+                .accessibilityHidden(true)
+                .padding(.bottom, 4)
+            Text(target.title)
+                .islandFont(.subhead, weight: .semibold)
+                .foregroundStyle(isLit ? Color.white : Theme.secondary)
+            Text(isLit ? target.litCaption : target.restingCaption)
                 .islandFont(.body, weight: .regular)
-                .foregroundStyle(isEnabled ? Theme.secondary : Theme.tertiary)
-                .frame(width: Self.side, height: Self.side)
+                .foregroundStyle(isLit ? Theme.secondary : Theme.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(shape.fill(isLit ? Theme.shelfDropWellLit : Theme.shelfDropWellResting))
+        .overlay {
+            if isLit {
+                shape.strokeBorder(Theme.accent, lineWidth: Theme.shelfDropRingWidth)
+            } else {
+                shape.strokeBorder(Theme.shelfDropWellEdge, style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
+            }
+        }
+        .animation(Theme.contentAnimation, value: isLit)
+        .allowsHitTesting(false)
+    }
+}
+
+// MARK: - The bar's small controls
+
+/// Deselect All: a 16 pt round ⓧ beside the count it clears, as a token's close
+/// does, and away from Remove so a near miss on one never lands on the other.
+/// Its target is the panel's 24 × 20 floor (F-014), not the 16 pt disc.
+private struct DeselectAllButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        let title = localized("Deselect All")
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(Theme.secondary)
+                .frame(width: 16, height: 16)
+                .background(Circle().fill(Color.white.opacity(0.14)))
+                .frame(minWidth: Theme.minimumHitSize.width, minHeight: ShelfLayout.barHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(PanelButtonStyle())
         .help(title)
         .accessibilityLabel(title)
+        // The disc is 16 pt, so the target's slack on either side would push the
+        // count's neighbour away: pulled back by what the floor added.
+        .padding(.horizontal, -4)
+    }
+}
+
+/// The "…" menu that carries the bar's verbs below 540 (§8.2). An `NSMenu`
+/// popped up from the button, for the reasons the lyric More menu is one: the
+/// panel is a non-activating `NSPanel` that a menu pops up from like any
+/// window, `MenuTracking` holds it open while the menu is up, and the board
+/// draws plain rows with their glyphs and key hints.
+@MainActor
+final class ShelfMoreMenuPresenter: NSObject, ObservableObject {
+    var anchor: NSView?
+    private var perform: ((ShelfVerb) -> Void)?
+
+    /// The key hint a verb shows in the menu: the ones the context menu names.
+    static func keyEquivalent(for verb: ShelfVerb) -> String? {
+        switch verb {
+        case .copy: return "c"
+        case .showInFinder: return "r"
+        case .quickLook, .airDrop, .remove: return nil
+        }
+    }
+
+    func present(verbs: [ShelfVerb], perform: @escaping (ShelfVerb) -> Void) {
+        guard let anchor else { return }
+        self.perform = perform
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for verb in verbs {
+            let item = NSMenuItem(title: verb.title, action: #selector(picked(_:)), keyEquivalent: Self.keyEquivalent(for: verb) ?? "")
+            if Self.keyEquivalent(for: verb) != nil { item.keyEquivalentModifierMask = .command }
+            item.target = self
+            item.tag = ShelfVerb.allCases.firstIndex(of: verb) ?? 0
+            item.image = NSImage(systemSymbolName: verb.symbol, accessibilityDescription: nil)
+            menu.addItem(item)
+        }
+        _ = menu.popUp(
+            positioning: nil,
+            at: OutputMenuPresenter.popUpPoint(anchorSize: anchor.bounds.size, menuWidth: max(menu.size.width, 0)),
+            in: anchor
+        )
+    }
+
+    @objc private func picked(_ sender: NSMenuItem) {
+        guard ShelfVerb.allCases.indices.contains(sender.tag) else { return }
+        perform?(ShelfVerb.allCases[sender.tag])
     }
 }

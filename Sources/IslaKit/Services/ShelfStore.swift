@@ -26,6 +26,11 @@ struct ShelfItem: Identifiable, Equatable {
     /// The card stays, dimmed, and comes back to life when the disk does.
     /// Not saved: whether a disk is mounted is asked again on every open.
     var isOffline = false
+    /// `icon` is a Quick Look thumbnail of the file's contents and not its
+    /// type's icon. Drawn with Finder's white border and shadow (spec §8.1);
+    /// a type icon is drawn bare. Only images ever get one — see
+    /// `ShelfStore.wantsPreview`.
+    var isPreview = false
     var name: String { url.lastPathComponent }
 
     static func == (lhs: ShelfItem, rhs: ShelfItem) -> Bool { lhs.url == rhs.url }
@@ -49,82 +54,6 @@ struct ShelfItem: Identifiable, Equatable {
         formatter.dateTimeStyle = .named
         return formatter
     }()
-
-    // MARK: The name a card draws
-
-    /// A card's width and the inset its text keeps from either edge. Kept
-    /// here, beside the name that has to fit between them, so the column the
-    /// name is fitted to and the card that draws it cannot drift apart.
-    static let cardWidth: CGFloat = 86
-    static let cardInset: CGFloat = 6
-    /// The column the name line has: 74 pt.
-    static let cardNameWidth: CGFloat = cardWidth - 2 * cardInset
-
-    /// The name cut to `budget` characters, keeping what tells it apart.
-    ///
-    /// SwiftUI's middle truncation split an 86 pt card's name in half, which
-    /// kept about five characters each side: "Screenshot 2026-10-11 at
-    /// 15.04.44.png" read "Scree….44.png", and so did every other capture on
-    /// the shelf (H-025). Names in a shelf's families — captures, recordings,
-    /// "Meeting notes", "Invoice 0042" — share their start and differ at their
-    /// last word, so the last word and the extension are kept whole and the
-    /// start gets whatever room is left, none if need be: "…15.04.44.png".
-    /// The thumbnail and the help tag say the rest. A name with no last word
-    /// short enough to keep is cut with its tail weighted two to one, since a
-    /// camera's IMG_… and a download's hash also differ at the end.
-    static func compactName(_ name: String, budget: Int) -> String {
-        guard name.count > budget else { return name }
-        guard budget > 1 else { return String(name.prefix(budget)) }
-        let ellipsis = "…"
-        var stem = name
-        var ext = ""
-        let pathExtension = (name as NSString).pathExtension
-        // An extension the budget can carry with room to spare, and a real
-        // one: "Version 1.5 final" has a dot, not an extension.
-        if !pathExtension.isEmpty, !pathExtension.contains(where: \.isWhitespace),
-           pathExtension.count + 1 <= budget - 3 {
-            ext = "." + pathExtension
-            stem = String(name.dropLast(ext.count))
-        }
-        func head(_ count: Int) -> String {
-            String(stem.prefix(max(0, count))).replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
-        }
-        if let space = stem.lastIndex(where: \.isWhitespace) {
-            let tail = String(stem[stem.index(after: space)...]) + ext
-            if !tail.isEmpty, tail.count + 1 <= budget {
-                return head(budget - tail.count - 1) + ellipsis + tail
-            }
-        }
-        let room = budget - ext.count - 1
-        let kept = room / 3
-        return head(kept) + ellipsis + String(stem.suffix(room - kept)) + ext
-    }
-
-    /// The longest `compactName` that `measure` says fits in `width`.
-    static func compactName(_ name: String, fitting width: CGFloat, measure: (String) -> CGFloat) -> String {
-        guard measure(name) > width else { return name }
-        var budget = name.count - 1
-        var candidate = compactName(name, budget: budget)
-        while budget > 2, measure(candidate) > width {
-            budget -= 1
-            candidate = compactName(name, budget: budget)
-        }
-        return candidate
-    }
-
-    /// The card's name line as it is drawn: the caption role, regular, with
-    /// the role's tracking. A count of characters is no measure of a 10 pt
-    /// line — "Scr…15.04.44.png" is 16 of them and 86 pt, where "Invoice
-    /// 0042.pdf" is 16 and 82 pt — and a name cut to a guess was cut again by
-    /// SwiftUI, in the middle, which is the bug this exists to fix.
-    static func measureCardName(_ text: String) -> CGFloat {
-        let size = Theme.TypeRole.caption.size
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: size, weight: .regular),
-            .kern: Theme.tracking(forSize: size),
-        ]
-        return ceil(NSAttributedString(string: text, attributes: attributes).size().width)
-    }
 
     // MARK: The card menu's header
 
@@ -190,6 +119,24 @@ final class ShelfStore: ObservableObject {
 
     /// How long a notice stays. A seam so tests do not wait four seconds.
     var noticeLifetime: Duration = .seconds(4)
+
+    /// How long "Already on the Shelf" and the tile it lights stay (spec §2.4:
+    /// the Shelf's "Copied" beat, 1.2 s). The other notices are sentences a
+    /// person has to read, and keep `noticeLifetime`; this one is a nod, and
+    /// four seconds of it made a second drop of the same file look like a
+    /// second notice. Never longer than `noticeLifetime`, so the one seam still
+    /// shortens every notice in a test.
+    static let alreadyKeptLifetime: Duration = .milliseconds(1200)
+
+    /// The tiles a drop matched without adding (spec §8.4, `Shelf-Already`): a
+    /// drop of a file the shelf already holds used to change nothing on screen
+    /// but a line in the bar, which is easy to read as "nothing happened". The
+    /// tile it matched lights its selection well for `alreadyKeptLifetime`, so
+    /// the eye is sent to the card that already holds the file. Drawing only —
+    /// it never touches `selection`, so it cannot be dragged, removed or
+    /// counted by accident.
+    @Published private(set) var alreadyKept: Set<UUID> = []
+    private var alreadyKeptLapse: Task<Void, Never>?
     /// The pending lapse of the current notice. A newer notice cancels it, or
     /// the older one's timer would cut the newer short.
     private var noticeLapse: Task<Void, Never>?
@@ -674,6 +621,7 @@ final class ShelfStore: ObservableObject {
     @discardableResult
     func add(_ urls: [URL], dates: [URL: Date] = [:]) -> AddResult {
         var cards = items
+        let known = cards
         let arrived = merge(urls, dates: dates, into: &cards)
         cards = Self.newestFirst(cards)
         let evicted = trimToLimit(&cards)
@@ -688,6 +636,12 @@ final class ShelfStore: ObservableObject {
         } else if result.duplicates > 0 {
             show(.alreadyOnShelf)
         }
+        // The tiles the drop matched, lit whether or not an eviction took the
+        // bar's line: the nod is for the file, the sentence is for the cap.
+        if result.duplicates > 0 {
+            let matched = Set(urls.filter { url in !arrived.contains(url) })
+            flashAlreadyKept(known.filter { matched.contains($0.url) }.map(\.id))
+        }
         return result
     }
 
@@ -696,11 +650,25 @@ final class ShelfStore: ObservableObject {
     func show(_ notice: Notice) {
         noticeLapse?.cancel()
         self.notice = notice
-        let lifetime = noticeLifetime
+        let lifetime = notice == .alreadyOnShelf ? min(noticeLifetime, Self.alreadyKeptLifetime) : noticeLifetime
         noticeLapse = Task { [weak self] in
             try? await Task.sleep(for: lifetime)
             guard !Task.isCancelled else { return }
             self?.notice = nil
+        }
+    }
+
+    /// Lights `ids` for `alreadyKeptLifetime`, replacing a flash still going —
+    /// a second drop restarts the beat for its own tiles instead of cutting
+    /// them short on the first one's clock.
+    private func flashAlreadyKept(_ ids: [UUID]) {
+        alreadyKeptLapse?.cancel()
+        alreadyKept = Set(ids)
+        let lifetime = min(noticeLifetime, Self.alreadyKeptLifetime)
+        alreadyKeptLapse = Task { [weak self] in
+            try? await Task.sleep(for: lifetime)
+            guard !Task.isCancelled else { return }
+            self?.alreadyKept = []
         }
     }
 
@@ -764,12 +732,24 @@ final class ShelfStore: ObservableObject {
     /// Asks for one card's preview, unless it has been asked for already
     /// since the shelf was loaded.
     private func loadThumbnail(_ url: URL) {
+        guard Self.wantsPreview(url) else { return }
         guard thumbnailed.insert(url).inserted else { return }
         requestThumbnail(url) { [weak self] image in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.thumbnailArrived(image, for: url) }
             }
         }
+    }
+
+    /// Whether a file earns a Quick Look thumbnail in place of its type's icon
+    /// (spec §8.1): images, which is what a shelf of screenshots needs to tell
+    /// apart. A PDF's first page or a video's frame is not what Finder's icon
+    /// view draws, and the boards draw the real file icon for them; asking
+    /// Quick Look for sixty of those on every open was cost with no tile to
+    /// show for it.
+    nonisolated static func wantsPreview(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+        return type.conforms(to: .image)
     }
 
     private var flushScheduled = false
@@ -802,6 +782,7 @@ final class ShelfStore: ObservableObject {
         for index in cards.indices {
             guard let icon = pendingIcons[cards[index].url] else { continue }
             cards[index].icon = icon
+            cards[index].isPreview = true
             drawn = true
         }
         pendingIcons.removeAll()
@@ -811,12 +792,14 @@ final class ShelfStore: ObservableObject {
     func remove(_ item: ShelfItem) {
         items.removeAll { $0.id == item.id }
         selection.remove(item.id)
+        alreadyKept.remove(item.id)
         persist()
     }
 
     func clear() {
         items.removeAll()
         selection.removeAll()
+        alreadyKept = []
         persist()
     }
 
