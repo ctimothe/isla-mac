@@ -1,0 +1,14 @@
+diff --git a/Sources/IslaKit/Services/OnlineLyrics.swift b/Sources/IslaKit/Services/OnlineLyrics.swift
+index db82f6f..fda5199 100644
+--- a/Sources/IslaKit/Services/OnlineLyrics.swift
++++ b/Sources/IslaKit/Services/OnlineLyrics.swift
+@@ -401,7 +401,8 @@ enum OnlineLyrics {
+         ]
+         if let dash = text.range(of: " - ") {
+             let tail = text[dash.upperBound...].lowercased()
+-            if editions.contains(where: { tail.contains($0) }) {
++            // " - From \"Frozen\"": a soundtrack credit, not the title.
++            if editions.contains(where: { tail.contains($0) }) || tail.hasPrefix("from ") {
+                 text = String(text[..<dash.lowerBound])
+             }
+         }

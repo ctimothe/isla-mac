@@ -573,3 +573,41 @@ M3 estimation, M9 and M10 are computed here from the cached records.
 > leaves it out.
 >
 > M4 (F15): see the Swift harness amendment.
+
+## Counterfactual scoring (amended 2026-10-15)
+
+A proposed fix is scored, not argued. Each candidate is a patch to
+`Sources/IslaKit` kept under `candidates/` beside this file; the lab branch
+itself never applies one (see "The gate").
+
+- `Scripts/lyric-match-lab/score-candidate.sh <root> <worktree> <name> [patch]`
+  applies the patch in a scratch worktree (never the checkout a `--record`
+  run builds from), runs the Swift harness in replay mode with
+  `ISLA_MATCH_OUT=cf-<name>`, classifies it into `cf-<name>-reports`, and
+  reverts the patch. With no patch it scores the worktree as it is: the
+  control, which must reproduce the baseline exactly.
+- `Scripts/lyric-match-lab/compare.py` joins the candidate's lookups with the
+  baseline's on (track, variant) and ranks each change by what a listener
+  sees: the right song, then the right song with a caveat (timed for a longer
+  cut, another script), then nothing, then a wrong or doubtful song. A wrong
+  song ranks below nothing. A lookup unscorable on either side (uncached,
+  failed, unrecovered, unjudged, or a track-level exclusion) is never a gain
+  or a loss.
+- A candidate that asks LRCLIB a question no earlier run asked gets
+  `uncached` for that lookup; `compare.json` lists those under
+  `needs_recording`, and the figures stay incomplete until a `--record` run
+  of the patched worktree fills them, under the same politeness rules.
+
+The candidates, each tied to a hypothesis:
+
+| Candidate | Change | Hypothesis |
+|---|---|---|
+| C1 | `OnlineLyricsCache` keeps each hit's granularity | H1: a word-timed answer is line-timed from its second play |
+| C3 | a search row's listed length may be 5 s off (was 3); the fit test is unchanged | H6: records listed 3–5 s off are the right recording |
+| C4 | an instrumental `/api/get` answer no longer ends the lookup; the search runs and skips rows flagged instrumental | H7: `/api/get` returns the oldest matching record, and an old instrumental flag hides a synced upload |
+| C5 | a trailing ` - From …` is an edition in `baseTitle` | H5: soundtrack credits keep the bare query from matching |
+| C6 | `primaryArtist` drops ` - Topic`, splits on `;` and ` / `, and drops a leading `The ` | H5: web players' artist forms |
+| C7 | the artist must match on whole words, not as a substring | the matcher's own false positives ("Sia" in "Asia") |
+
+H2 (`lyricsfile` is never decoded) and the album on `/api/get` are measured
+from the records and the `no-album` variant directly, without a patch.

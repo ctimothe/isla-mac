@@ -1,0 +1,25 @@
+diff --git a/Sources/IslaKit/Services/OnlineLyrics.swift b/Sources/IslaKit/Services/OnlineLyrics.swift
+index db82f6f..4c0378b 100644
+--- a/Sources/IslaKit/Services/OnlineLyrics.swift
++++ b/Sources/IslaKit/Services/OnlineLyrics.swift
+@@ -411,12 +411,18 @@ enum OnlineLyrics {
+     /// The first-named artist: before a comma, an ampersand, or a "feat.".
+     static func primaryArtist(_ artist: String) -> String {
+         var text = artist
+-        for separator in [",", " & ", " feat. ", " feat ", " ft. ", " featuring ", " x ", " and "] {
++        // A web player's channel name: "Artist - Topic".
++        if text.lowercased().hasSuffix(" - topic") { text = String(text.dropLast(" - topic".count)) }
++        for separator in [",", ";", " / ", " & ", " feat. ", " feat ", " ft. ", " featuring ", " x ", " and "] {
+             if let range = text.range(of: separator, options: .caseInsensitive) {
+                 text = String(text[..<range.lowerBound])
+             }
+         }
+-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
++        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
++        // "The Beatles" and "Beatles" are one band; the shorter form is
++        // contained in both.
++        if text.lowercased().hasPrefix("the "), text.count > 4 { text = String(text.dropFirst(4)) }
++        return text
+     }
+ 
+     /// Case, accents and punctuation set aside, so "Don’t" and "Dont" agree.

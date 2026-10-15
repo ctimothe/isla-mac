@@ -1,0 +1,25 @@
+diff --git a/Sources/IslaKit/Services/OnlineLyrics.swift b/Sources/IslaKit/Services/OnlineLyrics.swift
+index db82f6f..630ffba 100644
+--- a/Sources/IslaKit/Services/OnlineLyrics.swift
++++ b/Sources/IslaKit/Services/OnlineLyrics.swift
+@@ -278,6 +278,11 @@ enum OnlineLyrics {
+     /// enough to refuse an edit or a live take.
+     static let durationTolerance: TimeInterval = 3
+ 
++    /// How far a search row's listed length may be from the track's. Wider
++    /// than `durationTolerance`, which still judges whether the words fit:
++    /// the listed length is a label on the upload, and the stamps decide.
++    static let lengthTolerance: TimeInterval = 5
++
+     static func searchRequest(title: String, artist: String) -> URLRequest? {
+         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+@@ -336,7 +341,7 @@ enum OnlineLyrics {
+             var difference: TimeInterval = 0
+             if identity.duration > 0 {
+                 guard let length = row.duration,
+-                      abs(length - identity.duration) <= durationTolerance else { continue }
++                      abs(length - identity.duration) <= lengthTolerance else { continue }
+                 difference = abs(length - identity.duration)
+             }
+             // Every matching row is read now, not only one that would win on

@@ -1,0 +1,14 @@
+diff --git a/Sources/IslaKit/Services/OnlineLyrics.swift b/Sources/IslaKit/Services/OnlineLyrics.swift
+index db82f6f..4496015 100644
+--- a/Sources/IslaKit/Services/OnlineLyrics.swift
++++ b/Sources/IslaKit/Services/OnlineLyrics.swift
+@@ -331,7 +331,8 @@ enum OnlineLyrics {
+             guard let synced = row.syncedLyrics,
+                   !synced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let name = row.trackName, comparable(baseTitle(name)) == wantTitle,
+-                  let artist = row.artistName, comparable(artist).contains(wantArtist)
++                  // Whole words: "Sia" is not the artist of a row by "Asia".
++                  let artist = row.artistName, " \(comparable(artist)) ".contains(" \(wantArtist) ")
+             else { continue }
+             var difference: TimeInterval = 0
+             if identity.duration > 0 {

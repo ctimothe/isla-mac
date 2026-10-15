@@ -1,0 +1,21 @@
+diff --git a/Sources/IslaKit/Services/OnlineLyrics.swift b/Sources/IslaKit/Services/OnlineLyrics.swift
+index db82f6f..648917c 100644
+--- a/Sources/IslaKit/Services/OnlineLyrics.swift
++++ b/Sources/IslaKit/Services/OnlineLyrics.swift
+@@ -205,12 +205,10 @@ enum OnlineLyrics {
+         do {
+             let (data, response) = try await transport(request)
+             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+-            // An instrumental is an answer, and the search would only find the
+-            // same record again.
+-            if (200..<300).contains(status),
+-               (try? JSONDecoder().decode(Response.self, from: data))?.instrumental == true {
+-                return .none
+-            }
++            // An instrumental answer is not final: /api/get returns the oldest
++            // record that matches, and an old upload flagged instrumental can
++            // stand in front of a synced one. The search skips rows flagged
++            // instrumental, so it finds only a record with words.
+             let exact = read(data, status: status, duration: identity.duration)
+             switch exact.outcome {
+             case .found(let timeline):

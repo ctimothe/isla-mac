@@ -2100,5 +2100,50 @@ esac
             self.assertEqual(calls, [])
 
 
+class CompareTests(unittest.TestCase):
+    """compare.py ranks a changed verdict by what a listener sees."""
+
+    def test_a_wrong_song_ranks_below_nothing_and_unscorable_is_never_a_gain(self):
+        import compare
+        self.assertEqual(compare.judge("miss-unqueried", "correct"), "gain")
+        self.assertEqual(compare.judge("correct", "wrong-song"), "loss")
+        self.assertEqual(compare.judge("wrong-song", "miss-rejected"), "gain")
+        self.assertEqual(compare.judge("miss-catalogue", "miss-unqueried"), "same")
+        self.assertEqual(compare.judge("correct", "uncached"), "unscorable")
+        self.assertEqual(compare.judge("uncached", "correct"), "unscorable")
+        self.assertEqual(compare.judge("truth-uncertain", "truth-uncertain"), "same")
+
+    def test_lookups_are_joined_and_counted(self):
+        import compare
+        columns = ["track_id", "variant", "slice", "pick", "title", "artist", "duration",
+                   "verdict", "chosen_id", "chosen_via", "flags"]
+
+        def write(directory, rows, lookups):
+            os.makedirs(directory)
+            with open(os.path.join(directory, "rows.csv"), "w", encoding="utf-8") as handle:
+                handle.write(",".join(columns) + "\n")
+                for r in rows:
+                    handle.write(",".join(str(r.get(c, "")) for c in columns) + "\n")
+            dump(os.path.join(directory, "match-lab-report.json"),
+                 {"M1": {"canonical": {"accuracy": 0.5}, "overall": {"accuracy": 0.5}}})
+            with open(os.path.join(directory, "isla-lookups.jsonl"), "w", encoding="utf-8") as handle:
+                for row in lookups:
+                    handle.write(json.dumps(row) + "\n")
+
+        with tempfile.TemporaryDirectory() as root:
+            base = [{"track_id": "s/001", "variant": "canonical", "slice": "s", "verdict": "miss-unqueried"},
+                    {"track_id": "s/002", "variant": "canonical", "slice": "s", "verdict": "correct", "chosen_id": 7}]
+            cand = [{"track_id": "s/001", "variant": "canonical", "slice": "s", "verdict": "correct", "chosen_id": 9},
+                    {"track_id": "s/002", "variant": "canonical", "slice": "s", "verdict": "uncached"}]
+            write(os.path.join(root, "base"), base, [{"track_id": "s/001", "variant": "canonical", "requests": [1, 2]}])
+            write(os.path.join(root, "cand"), cand, [{"track_id": "s/001", "variant": "canonical", "requests": [1, 2, 3]}])
+            result = compare.compare(root, "base", "cand", "base", "cand")
+        self.assertEqual(result["totals"]["gain"], 1)
+        self.assertEqual(result["totals"]["unscorable"], 1)
+        self.assertEqual(result["transitions"], {"correct -> uncached": 1, "miss-unqueried -> correct": 1})
+        self.assertEqual([r["track_id"] for r in result["needs_recording"]], ["s/002"])
+        self.assertEqual(result["requests"]["candidate"]["requests"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()

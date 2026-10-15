@@ -1,0 +1,35 @@
+diff --git a/Sources/IslaKit/Services/OnlineLyrics.swift b/Sources/IslaKit/Services/OnlineLyrics.swift
+index db82f6f..16baf50 100644
+--- a/Sources/IslaKit/Services/OnlineLyrics.swift
++++ b/Sources/IslaKit/Services/OnlineLyrics.swift
+@@ -460,6 +460,9 @@ final class OnlineLyricsCache {
+         /// so it cannot be recomputed from them. Nil for a hit cached before
+         /// it was kept, which format 3 asks about once more.
+         var overrun: Double?
++        /// For a hit, whether its lines carry word timing. Nil for a hit
++        /// cached before it was kept, which reads as line timing.
++        var granularity: LyricTimeline.Granularity?
+     }
+ 
+     /// What a hit written now carries. Format 2 hits keep their line ends
+@@ -521,7 +524,9 @@ final class OnlineLyricsCache {
+     func cached(_ identity: LocalTrackIdentity) -> LyricTimeline?? {
+         guard let entry = entries[Self.key(identity)] else { return nil }
+         if let lines = entry.lines {
+-            return .some(LyricTimeline(lines: lines, granularity: .line, documentID: nil, overrun: entry.overrun))
++            return .some(LyricTimeline(
++                lines: lines, granularity: entry.granularity ?? .line, documentID: nil, overrun: entry.overrun
++            ))
+         }
+         guard isBelieved(entry, now: Date()) else { return nil }
+         return .some(nil)
+@@ -547,7 +552,8 @@ final class OnlineLyricsCache {
+         switch outcome {
+         case .found(let timeline):
+             entries[key] = Entry(
+-                lines: timeline.lines, checkedAt: Date(), format: Self.format, overrun: timeline.overrun
++                lines: timeline.lines, checkedAt: Date(), format: Self.format, overrun: timeline.overrun,
++                granularity: timeline.granularity
+             )
+         case .none, .unreadable:
+             // Only the background refresh of an old hit asks about a song
