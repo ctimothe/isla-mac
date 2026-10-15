@@ -17,6 +17,7 @@ import io
 import json
 import os
 import random
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,6 +25,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import calibrate  # noqa: E402
 import common  # noqa: E402
 import oracle  # noqa: E402
 import resolve  # noqa: E402
@@ -313,14 +315,103 @@ class OracleTests(unittest.TestCase):
         self.assertEqual(len(oracle.fingerprint("solo")), 1)
         self.assertEqual(two, frozenset(["la la la"]))
 
-    def test_fingerprint_uses_bigrams_for_spaceless_scripts(self):
-        rng = random.Random(7)
-        han = "".join(rng.choice("天地玄黄宇宙洪荒日月盈昃辰宿列张寒来暑往秋收冬藏") for _ in range(80))
-        fp = oracle.fingerprint(han[:40] + "\n" + han[40:])
-        self.assertTrue(all(len(s) == 2 for s in fp))
-        self.assertEqual(oracle.containment(oracle.fingerprint(han[:50]), fp), 1.0)
-        kana = oracle.fingerprint("あいうえお かきくけこ")
-        self.assertTrue(all(len(s) == 2 for s in kana))
+    @staticmethod
+    def thai_like(seed: int, chars: int = 1000) -> str:
+        """Made-up text in the Thai script: random consonants and vowels, in lines of 25."""
+        rng = random.Random(seed)
+        alphabet = [chr(c) for c in range(0x0E01, 0x0E2F)] + [chr(c) for c in (0x0E30, 0x0E32, 0x0E34, 0x0E35, 0x0E40)]
+        text = "".join(rng.choice(alphabet) for _ in range(chars))
+        return "\n".join(text[i:i + 25] for i in range(0, chars, 25))
+
+    @staticmethod
+    def han_like(seed: int, chars: int = 1000) -> str:
+        rng = random.Random(seed)
+        text = "".join(chr(0x4E00 + rng.randint(0, 400)) for _ in range(chars))
+        return "\n".join(text[i:i + 25] for i in range(0, chars, 25))
+
+    def test_ngram_size_is_a_per_family_table(self):
+        self.assertEqual(oracle.NGRAM_TABLE["THAI"], ("char", 7))
+        self.assertEqual(oracle.NGRAM_TABLE["CJK"], ("char", 5))
+        thai, han = self.thai_like(1, 60), self.han_like(1, 60)
+        self.assertTrue(all(len(x) == 7 for x in oracle.fingerprint(thai)))
+        self.assertTrue(all(len(x) == 5 for x in oracle.fingerprint(han)))
+        self.assertTrue(all(len(x) == 5 for x in oracle.fingerprint("あいうえお かきくけこさしすせそ")))     # kana: the CJK family
+        hangul = oracle.fingerprint("가나 다라 마바 사아 자차 카타")
+        self.assertTrue(all(x.count(" ") == 2 for x in hangul), hangul)        # word 3-shingles, not characters
+        self.assertEqual(oracle.shingle_for("HANGUL"), ("word", 3))
+        self.assertEqual(oracle.shingle_for("LATIN"), ("word", 3))
+        # an explicit n overrides the table for one call
+        self.assertTrue(all(len(x) == 2 for x in oracle.fingerprint(thai, ngram=2)))
+        # a text shorter than n is one shingle, itself
+        self.assertEqual(oracle.fingerprint("สวัสดี"), frozenset(["สวัสดี"]))
+
+    def test_unrelated_spaceless_texts_stay_below_wrong(self):
+        """F1: unrelated Thai texts of 1,000 characters shared about half of their bigrams, so
+        other songs joined the cluster. At the table's n they share almost nothing."""
+        for make, family in ((self.thai_like, "THAI"), (self.han_like, "CJK")):
+            bigram, table = [], []
+            for seed in range(40):
+                a, b = make(2 * seed), make(2 * seed + 1)
+                bigram.append(oracle.containment(oracle.fingerprint(a, ngram=2), oracle.fingerprint(b, ngram=2)))
+                table.append(oracle.containment(oracle.fingerprint(a), oracle.fingerprint(b)))
+            self.assertLess(max(table), oracle.thresholds(family)[1], family)
+            if family == "THAI":
+                self.assertGreater(sorted(bigram)[20], 0.3, "the failure the bigram table had")
+        # the same text, with a tenth of its lines missing, is still the same song
+        thai = self.thai_like(9)
+        part = "\n".join(thai.split("\n")[:36])
+        self.assertEqual(oracle.containment(oracle.fingerprint(part), oracle.fingerprint(thai)), 1.0)
+
+    def test_thresholds_default_and_per_family(self):
+        self.assertEqual(oracle.thresholds("LATIN"), (0.6, 0.2))
+        self.assertEqual(oracle.thresholds("THAI"), (0.6, 0.2))
+        self.assertEqual(oracle.thresholds("NOT-A-FAMILY"), oracle.DEFAULT_THRESHOLDS)
+        with mock.patch.dict(oracle.THRESHOLD_TABLE, {"THAI": (0.5, 0.25)}):
+            self.assertEqual(oracle.thresholds("THAI"), (0.5, 0.25))
+            self.assertEqual(oracle.thresholds("LATIN"), (0.6, 0.2))
+
+    def test_cluster_reads_the_threshold_of_the_winning_family(self):
+        a = synthetic_lines(60, 40)
+        near = a[:22] + synthetic_lines(61, 18)      # shares a bit over half of its shingles with `a`
+        c = [self._cand(1, a), self._cand(2, near)]
+        score = oracle.containment(c[1]["fp"], c[0]["fp"])
+        self.assertTrue(0.4 < score < 0.6, score)
+        self.assertIn("anchor-conflict", oracle.cluster(c, [1, 2])["notes"])           # 0.6 for LATIN
+        with mock.patch.dict(oracle.THRESHOLD_TABLE, {"LATIN": (0.4, 0.1)}):
+            r = oracle.cluster(c, [1, 2])
+        self.assertEqual((r["notes"], sorted(r["cluster_ids"])), ([], [1, 2]))
+        # an explicit threshold still wins
+        self.assertIn("anchor-conflict", oracle.cluster(c, [1, 2], threshold=0.9)["notes"])
+
+    def test_calibration_file_precedence(self):
+        with tempfile.TemporaryDirectory() as root:
+            oracle.reset_calibration()
+            self.addCleanup(oracle.reset_calibration)
+            self.assertFalse(oracle.load_calibration(root))                       # no file: the table
+            thai = self.thai_like(3, 200)
+            self.assertTrue(all(len(x) == 7 for x in oracle.fingerprint(thai)))
+            path = os.path.join(root, oracle.CALIBRATION_FILE)
+            os.makedirs(os.path.dirname(path))
+            dump(path, {"families": {
+                "THAI": {"recommended": {"ngram": 3, "same": 0.5, "wrong": 0.25}},
+                "CJK": {"recommended": {"ngram": 99, "same": 0.2, "wrong": 0.9}},      # malformed: ignored
+                "LATIN": {"null": {}},                                                  # no recommendation
+            }})
+            self.assertTrue(oracle.load_calibration(root))
+            # the file beats the table, for the family it names ...
+            self.assertTrue(all(len(x) == 3 for x in oracle.fingerprint(thai)))
+            self.assertEqual(oracle.thresholds("THAI"), (0.5, 0.25))
+            self.assertEqual(oracle.active_params()["source"], "calibration")
+            # ... and an explicit n beats the file; anything it does not name keeps the table
+            self.assertTrue(all(len(x) == 2 for x in oracle.fingerprint(thai, ngram=2)))
+            self.assertEqual(oracle.shingle_for("CJK"), ("char", 5))
+            self.assertEqual(oracle.thresholds("CJK"), (0.6, 0.2))
+            self.assertEqual(oracle.thresholds("LATIN"), (0.6, 0.2))
+            # a broken file falls back to the table
+            with open(path, "w") as handle:
+                handle.write("{not json")
+            self.assertFalse(oracle.load_calibration(root))
+            self.assertEqual(oracle.shingle_for("THAI"), ("char", 7))
 
     def test_dominant_script(self):
         d = oracle.dominant_script
@@ -334,6 +425,21 @@ class OracleTests(unittest.TestCase):
         self.assertEqual(d("123 !!!"), "")
         self.assertEqual(d("hello мир мир"), "CYRILLIC")
         self.assertEqual(oracle.script_family("HIRAGANA"), oracle.script_family("CJK"))
+
+    def test_han_kana_and_hangul_weigh_two_and_a_half_letters(self):
+        """F2: one Hangul or Han character used to weigh the same as one Latin letter, so a
+        Korean lyric that was half English read as Latin."""
+        korean_half_english = "사랑해 너를 " * 4 + "love you baby " * 3      # 20 Hangul characters, 33 Latin letters
+        self.assertEqual(oracle.dominant_script(korean_half_english), "HANGUL")
+        weights = oracle.script_weights(korean_half_english)
+        self.assertEqual(weights["HANGUL"], 20 * oracle.CHARACTER_SCRIPT_WEIGHT)
+        self.assertEqual(weights["LATIN"], 33)
+        self.assertEqual(oracle.dominant_script("あい abcd"), "HIRAGANA")           # 5 against 4 (2 against 4 before)
+        self.assertEqual(oracle.dominant_script("東京大学 ok"), "CJK")
+        self.assertEqual(oracle.dominant_script("abcd efgh ij"), "LATIN")
+        self.assertAlmostEqual(oracle.family_share("한 abcd", "HANGUL"), 2.5 / 6.5)
+        by_family = oracle.script_weights("あい ア 日本", by_family=True)
+        self.assertEqual(by_family, {"CJK": 5 * 2.5})
 
     def _cand(self, rid, lines, script=None, **extra):
         text = "\n".join(lines)
@@ -396,6 +502,42 @@ class OracleTests(unittest.TestCase):
         self.assertEqual(sorted(r["cluster_ids"]), [3, 4])
         self.assertEqual(oracle.expected_script("ja", "Idol"), "CJK")
         self.assertEqual(oracle.expected_script("", "привет"), "CYRILLIC")
+
+    @staticmethod
+    def mixed_korean(seed: int, hangul_words: int, latin_words: int = 8, lines: int = 20) -> list:
+        """Made-up lines of Hangul words (two syllables each) among made-up Latin ones."""
+        rng = random.Random(seed)
+        latin = synthetic_words(seed, lines * latin_words)
+        out = []
+        for i in range(lines):
+            words = ["".join(chr(0xAC00 + rng.randint(0, 2000)) for _ in range(2)) for _ in range(hangul_words)]
+            out.append(" ".join(words + latin[i * latin_words:(i + 1) * latin_words]))
+        return out
+
+    def _analyzed(self, rid, lines):
+        info = oracle.analyze_record({"plainLyrics": "\n".join(lines)})
+        return {"id": rid, "fp": info["fp"], "script": info["script"], "script_weights": info["script_weights"],
+                "instrumental": False}
+
+    def test_cluster_expected_script_wins_at_a_fifth_of_the_weighted_letters(self):
+        """F2: a Korean lyric that is mostly English read as Latin, and with two romanised
+        copies the romanised group became the truth."""
+        korean = self._analyzed(1, self.mixed_korean(70, hangul_words=3))
+        self.assertEqual(korean["script"], "LATIN")
+        self.assertGreaterEqual(oracle.family_share(korean["script_weights"], "HANGUL"), 0.2)
+        romanised = synthetic_lines(71, 20)
+        copies = [self._analyzed(2, romanised), self._analyzed(3, romanised[:16])]
+        r = oracle.cluster([korean] + copies, [1, 2, 3], prefer_script="HANGUL")
+        self.assertEqual((r["cluster_ids"], sorted(r["alt_script_ids"]), r["notes"]), ([1], [2, 3], []))
+        # below a fifth the song is not written in the expected script: the romanised group wins
+        thin = self._analyzed(1, self.mixed_korean(70, hangul_words=1))
+        self.assertLess(oracle.family_share(thin["script_weights"], "HANGUL"), 0.2)
+        r = oracle.cluster([thin] + copies, [1, 2, 3], prefer_script="HANGUL")
+        self.assertEqual(sorted(r["cluster_ids"]), [2, 3])
+        self.assertIn("anchor-conflict", r["notes"])
+        # with no expected script nothing changes
+        r = oracle.cluster([korean] + copies, [1, 2, 3])
+        self.assertEqual(sorted(r["cluster_ids"]), [2, 3])
 
     def test_cluster_instrumental_anchor_has_no_text(self):
         c = [{"id": 1, "fp": frozenset(), "script": "", "instrumental": True}]
@@ -805,11 +947,18 @@ class AnalysisTests(unittest.TestCase):
                   "- text: next line\n  start_ms: 6500\n  end_ms: 9000\n  words:\n"
                   "  - text: next\n    start_ms: 6500\n  - text: line\n    start_ms: 7500\n")
 
-    def test_lyricsfile_word_lines_span_ends_at_the_earlier_of_next_and_own_end(self):
+    def test_lyricsfile_word_line_span_ends_at_the_next_line_never_at_its_own_end(self):
+        """F9: a line-only lyric has no word-timed true end, so the span an estimator is given
+        ends where the next line starts. The record's own end_ms used to cut it short."""
         lines = analysis.lyricsfile_lines(self.LYRICSFILE)
         self.assertEqual([[w for w, _ in l.words] for l in lines], [["one", "two", "three"], ["next", "line"]])
         self.assertEqual((lines[0].start, lines[0].next_start, lines[0].own_end, lines[0].end), (1.0, 6.5, 9.0, 6.5))
-        self.assertEqual(lines[1].end, 9.0)       # the last line: its own end only
+        self.assertIsNone(lines[1].end)           # the last line has no next stamp: no span, nothing scored
+        early = analysis.lyricsfile_lines(
+            "lines:\n- text: a b\n  start_ms: 1000\n  end_ms: 3000\n  words:\n"
+            "  - text: a\n    start_ms: 1000\n  - text: b\n    start_ms: 2000\n"
+            "- text: c d\n  start_ms: 8000\n  words:\n  - text: c\n    start_ms: 8000\n  - text: d\n    start_ms: 9000\n")
+        self.assertEqual((early[0].own_end, early[0].end), (3.0, 8.0))   # min(next, own) would have said 3.0
 
     def test_enhanced_lines_glue_fragments_and_read_gap_ends(self):
         text = ("[00:00.00]<00:00.000>he<00:00.400>llo <00:01.000>wor<00:01.500>ld <00:02.000>x<00:03.000>\n"
@@ -817,9 +966,9 @@ class AnalysisTests(unittest.TestCase):
         lines = analysis.enhanced_lines(text)
         self.assertEqual([[w for w, _ in l.words] for l in lines], [["hello", "world", "x"], ["next", "one"], ["last"]])
         self.assertEqual(lines[0].words[1], ("world", 1.0))      # the word keeps its first fragment's time
-        self.assertEqual((lines[0].next_start, lines[0].own_end, lines[0].end), (4.0, 3.0, 3.0))
+        self.assertEqual((lines[0].next_start, lines[0].own_end, lines[0].end), (4.0, 3.0, 4.0))
         self.assertEqual(lines[1].next_start, 7.0)                # the empty gap stamp ends the line
-        self.assertEqual(lines[2].end, 9.5)
+        self.assertIsNone(lines[2].end)            # no stamp after it, and the tag's 9.5 is the true last-word end
         cjk = analysis.enhanced_lines("[00:00.00]<00:00.000>天<00:00.500>地<00:01.000>玄<00:01.500>")
         self.assertEqual(len(cjk[0].words), 3)                    # spaceless: every segment is a word
 
@@ -829,7 +978,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(source, "lyricsfile-words")
         self.assertEqual(analysis.word_lines({"syncedLyrics": "[00:01.00]plain"})[1], None)
 
-    def _timed_record(self, rid, estimator=None, seed=1):
+    def _timed_record(self, rid, estimator=None, seed=1, track=None):
         """Eight lines of four words with real (jittered) onsets, or onsets an estimator made."""
         rng = random.Random(seed)
         words = synthetic_words(seed, 32)
@@ -841,27 +990,89 @@ class AnalysisTests(unittest.TestCase):
             else:
                 offsets = [0.0, 0.6 + rng.random() * 0.4, 1.6 + rng.random() * 0.4, 2.6 + rng.random() * 0.4]
             entries.append(list(zip(ws, offsets)))
-        return {"id": rid, "syncedLyrics": enhanced(entries)}
+        out = {"id": rid, "syncedLyrics": enhanced(entries)}
+        if track:
+            out["track_id"] = track
+        return out
 
     def test_estimation_study_scores_and_flags_estimator_made_records(self):
         study = analysis.EstimationStudy()
-        self.assertTrue(study.add_record("pop-anglo", self._timed_record(1)))
-        self.assertTrue(study.add_record("pop-anglo", self._timed_record(2, "E1", seed=2)))
+        # odd-indexed tracks are scored, even-indexed tune E4's cap
+        self.assertTrue(study.add_record("pop-anglo", self._timed_record(1, track="pop-anglo/001")))
+        self.assertTrue(study.add_record("pop-anglo", self._timed_record(2, "E1", seed=2, track="pop-anglo/003")))
+        self.assertTrue(study.add_record("pop-anglo", self._timed_record(3, seed=3, track="pop-anglo/002")))
         self.assertFalse(study.add_record("pop-anglo", self._timed_record(1)))       # duplicate id
         result = study.result()
-        self.assertEqual(result["records"], 2)
+        self.assertEqual(result["records"], 3)
         self.assertEqual(result["estimator_made_records"]["E1"], 1)
         self.assertEqual(result["estimator_made_ids"], [2])
-        self.assertEqual(result["lines"], 16)
-        self.assertEqual(result["words_scored"], 16 * 3)
+        # each record's last line has no following stamp, so no span: 7 of its 8 lines are scored
+        self.assertEqual(result["lines"], 21)
+        self.assertEqual(result["words_scored"], 21 * 3)
         everything, real = result["overall_all_records"], result["overall_excluding_estimator_made"]
         self.assertGreater(real["E1"]["p50"], everything["E1"]["p50"])      # the self-made record flatters E1
-        self.assertEqual(real["E0"]["n"], 8 * 3)
+        self.assertEqual(real["E0"]["n"], 7 * 3)                              # record 1 alone is real and odd
+        self.assertEqual(everything["E0"]["n"], 14 * 3)                       # records 1 and 2
         self.assertIn("pop-anglo", result["by_slice"])
         self.assertIn("LATIN", result["by_script_family"])
         self.assertTrue(result["by_tempo_syllables_per_second"])
         self.assertEqual([row["cap"] for row in result["e4_curve"]], analysis.CAPS)
         self.assertIn(result["e4_best_cap"], analysis.CAPS)
+
+    def test_e4_cap_is_tuned_on_even_tracks_and_scored_on_odd_ones(self):
+        """F9: the cap was picked on the same errors it was then scored on."""
+        study = analysis.EstimationStudy()
+        study.add_record("pop-anglo", self._timed_record(1, seed=1, track="pop-anglo/000"))     # tunes
+        study.add_record("pop-anglo", self._timed_record(2, seed=2, track="pop-anglo/002"))     # tunes
+        study.add_record("pop-anglo", self._timed_record(3, seed=3, track="pop-anglo/001"))     # scored
+        result = study.result()
+        split = result["split"]
+        self.assertEqual(split["e4_cap_tuned_on"], "even-indexed tracks")
+        self.assertEqual(split["all_figures_scored_on"], "odd-indexed tracks")
+        self.assertEqual(split["records_and_words_by_half"], {"even": {"records": 2, "words": 42},
+                                                              "odd": {"records": 1, "words": 21}})
+        self.assertEqual(result["e4_curve"][0]["n"], 42)                    # the curve is the tuning half's
+        self.assertEqual(result["overall_all_records"]["E3"]["n"], 21)      # the figures are the scored half's
+        self.assertEqual(result["overall_all_records"]["E4"]["n"], 21)
+        self.assertEqual(result["overall_all_records"]["E4"]["cap"], result["e4_best_cap"])
+        # a corpus with only odd tracks has nothing to tune on: E4 is withheld, not tuned on its own data
+        odd_only = analysis.EstimationStudy()
+        odd_only.add_record("pop-anglo", self._timed_record(3, seed=3, track="pop-anglo/001"))
+        self.assertIsNone(odd_only.result()["e4_best_cap"])
+        self.assertNotIn("E4", odd_only.result()["overall_all_records"])
+        # with no track_id the record id's parity stands in
+        by_id = analysis.EstimationStudy()
+        by_id.add_record("pop-anglo", self._timed_record(4, seed=4))
+        self.assertEqual(by_id.records[4]["half"], "even")
+        self.assertEqual(by_id.records[4]["half_basis"], "record-id")
+
+    def test_interpolated_word_starts_are_never_scored(self):
+        """F9: only a word whose start is a tag in the record is scored; a second word inside one
+        tagged segment starts at a share of the segment the lab made up."""
+        text = ("[00:00.00]<00:00.000>alpha <00:01.000>beta gamma <00:02.000>delta\n"
+                "[00:04.00]<00:04.000>eps <00:05.000>zeta\n[00:08.00]")
+        lines = analysis.enhanced_lines(text)
+        self.assertEqual([w for w, _ in lines[0].words], ["alpha", "beta", "gamma", "delta"])
+        self.assertEqual(lines[0].exact, [True, True, False, True])
+        self.assertEqual(lines[1].exact, [True, True])
+        study = analysis.EstimationStudy()
+        study.add_record("x", {"id": 1, "track_id": "x/001", "syncedLyrics": text})
+        result = study.result()
+        self.assertEqual(result["words_scored"], 2 + 1)                    # beta and delta; zeta
+        self.assertEqual(result["interpolated_words_not_scored"], 1)       # gamma
+        # a lyricsfile word always has a stated start
+        self.assertEqual(analysis.lyricsfile_lines(self.LYRICSFILE)[0].exact, [True, True, True])
+
+    def test_span_end_is_the_next_stamp_so_the_true_last_word_end_is_not_leaked(self):
+        """F9: with the old end, an estimator was handed the record's own last-word end."""
+        words = [(w, k * 0.5) for k, w in enumerate(["aa", "bb", "cc"])]
+        text = enhanced([words, words], step=4.0, tail=True)         # each line's last tag closes at 4.0: own_end
+        line = analysis.enhanced_lines(text)[0]
+        self.assertEqual((line.own_end, line.next_start), (4.0, 4.0))
+        text = ("[00:00.00]<00:00.000>aa <00:00.500>bb <00:01.000>cc<00:01.500>\n"
+                "[00:04.00]<00:04.000>dd <00:04.500>ee <00:05.000>ff<00:05.500>\n[00:09.00]")
+        first = analysis.enhanced_lines(text)[0]
+        self.assertEqual((first.own_end, first.end), (1.5, 4.0))    # the span runs to the next line, not to 1.5
 
     def test_pair_noise_separates_offset_from_jitter(self):
         base = [(float(i * 4), f"line {i}") for i in range(20)]
@@ -893,6 +1104,46 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(max(dev, key=dev.get), 4)
         self.assertLess(dev[1], 0.1)
         self.assertEqual(analysis.consensus_deviation({1: base, 2: base}), {1: None, 2: None})
+
+    def test_identical_timelines_collapse_to_one_record(self):
+        """F10: LRCLIB mirrors one upload onto many releases. Copies agree to the millisecond; two
+        of them are one vote, not two."""
+        base = [(float(i * 4), f"line {i}") for i in range(12)]
+        copy = [(t + 0.004, x) for t, x in base]            # the same stamps to 10 ms
+        different = [(t + 0.5, x) for t, x in base]
+        kept, groups = analysis.collapse_identical({7: base, 3: copy, 9: different, 5: base})
+        self.assertEqual(sorted(kept), [3, 9])               # the lowest id keeps its group
+        self.assertEqual({k: sorted(v) for k, v in groups.items()}, {3: [3, 5, 7], 9: [9]})
+        kept, _ = analysis.collapse_identical({7: base, 3: copy, 9: different}, prefer=7)
+        self.assertEqual(sorted(kept), [7, 9])               # the record being scored stays
+        tally = analysis.DuplicateTally()
+        tally.add(groups)
+        self.assertEqual(tally.result(), {"records_before": 4, "unique_timelines": 2,
+                                          "group_sizes": {"1": 1, "3": 1}})
+
+    def test_consensus_leaves_the_scored_record_out_of_its_own_median(self):
+        a = [(float(i * 4), f"line {i}") for i in range(12)]
+        b = [(t + 1.0, x) for t, x in a]
+        c = [(t + 2.0, x) for t, x in a]
+        dev = analysis.consensus_deviation({1: a, 2: b, 3: c})
+        # a against the median of b and c (1.5 s late) is 1.5 s; with itself in the median it was 1.0 s
+        self.assertEqual((dev[1], dev[2], dev[3]), (1.5, 0.0, 1.5))
+
+    def test_noise_study_counts_copies_once(self):
+        base = [(float(i * 4), f"line {i}") for i in range(12)]
+        records = {1: base, 2: [(t + 0.002, x) for t, x in base], 3: [(t + 1.0, x) for t, x in base],
+                   4: [(t - 1.0, x) for t, x in base], 5: base}
+        study = analysis.NoiseStudy()
+        study.add_track("jazz", records, chosen_id=5)
+        cell = study.result()["all"]
+        self.assertEqual(cell["pairs"], 3)                   # 3 unique timelines: 3 pairs, not 10
+        self.assertEqual(study.duplicate_report(), {"records_before": 5, "unique_timelines": 3,
+                                                    "group_sizes": {"1": 2, "3": 1}})
+        self.assertEqual(cell["consensus"]["tracks"], 1)     # the chosen copy stands for its group
+        # copies alone give no pair at all: perfect agreement is not evidence
+        mirrored = analysis.NoiseStudy()
+        mirrored.add_track("jazz", {1: base, 2: base, 3: [(t + 0.001, x) for t, x in base]})
+        self.assertEqual(mirrored.result(), {})
 
     def test_noise_study_rank_of_chosen(self):
         base = [(float(i * 4), f"line {i}") for i in range(12)]
@@ -926,6 +1177,27 @@ def statistics_median(values):
     return statistics.median(values)
 
 
+def seed_track(root, index, h, get_row, ta_rows, q_rows, apple_ms=200000, answer_q=True, slice_id="pop-anglo"):
+    """Put the cached answers resolve.run needs for one harvested track.
+    `answer_q=False` leaves the `q` search unanswered (an LRCLIB query that
+    failed, which the resolver notes as lrclib-unanswered)."""
+    def put(url, body, status=200):
+        common.write_cache(root, url, status, json.dumps(body).encode())
+    t = resolve.normalize_harvest(h, slice_id, index)
+    hit = {"trackName": h["title"], "artistName": h["artists"][0], "collectionName": "Alb",
+           "trackTimeMillis": apple_ms, "trackId": index, "primaryGenreName": "Pop"}
+    put(resolve.itunes_url(f"{h['title']} Alb", "us"), {"resultCount": 1, "results": [hit]})
+    urls = resolve.lrclib_search_urls(t)
+    put(urls["search:track_artist"], ta_rows)
+    if answer_q:
+        put(urls["search:q"], q_rows)
+    get = resolve.lrclib_get_url(t, apple_ms / 1000.0, "Alb")
+    if get_row is None:
+        put(get, {"message": "not found"}, 404)
+    else:
+        put(get, get_row)
+
+
 class LabFixture(unittest.TestCase):
     """A synthetic corpus root: eight tracks resolved offline, fabricated
     Isla lookups against them, then classify.run over the lot. Each track is
@@ -956,19 +1228,8 @@ class LabFixture(unittest.TestCase):
         common.write_cache(cls.root, url, status, json.dumps(body).encode())
 
     @classmethod
-    def seed(cls, index, h, get_row, ta_rows, q_rows, apple_ms=200000):
-        t = resolve.normalize_harvest(h, "pop-anglo", index)
-        hit = {"trackName": h["title"], "artistName": h["artists"][0], "collectionName": "Alb",
-               "trackTimeMillis": apple_ms, "trackId": index, "primaryGenreName": "Pop"}
-        cls.put_py(resolve.itunes_url(f"{h['title']} Alb", "us"), {"resultCount": 1, "results": [hit]})
-        urls = resolve.lrclib_search_urls(t)
-        cls.put_py(urls["search:track_artist"], ta_rows)
-        cls.put_py(urls["search:q"], q_rows)
-        get = resolve.lrclib_get_url(t, apple_ms / 1000.0, "Alb")
-        if get_row is None:
-            cls.put_py(get, {"message": "not found"}, 404)
-        else:
-            cls.put_py(get, get_row)
+    def seed(cls, index, h, get_row, ta_rows, q_rows, apple_ms=200000, answer_q=True):
+        seed_track(cls.root, index, h, get_row, ta_rows, q_rows, apple_ms, answer_q=answer_q)
 
     @classmethod
     def build(cls):
@@ -985,6 +1246,13 @@ class LabFixture(unittest.TestCase):
             harvest(title="Fox Song", artists=["Artist F"], album="Alb", language="ja"),
             harvest(title="Golf Song", artists=["Artist Q"], album="Alb"),
             harvest(title="Hotel Song", artists=["Artist H"], album="Alb"),
+            harvest(title="India Song", artists=["Artist I"], album="Alb"),
+            harvest(title="Juliet Song", artists=["Artist J"], album="Alb"),
+            harvest(title="Kilo Song", artists=["Artist K"], album="Alb"),
+            harvest(title="Lima Song", artists=["Artist L"], album="Alb", vocal="none", language="zxx"),
+            harvest(title="Mike Song", artists=["Artist M"], album="Alb"),
+            harvest(title="November Song", artists=["Artist N"], album="Alb"),
+            harvest(title="Oscar Song", artists=["Artist O"], album="Alb"),
         ]
         dump(os.path.join(cls.root, "slices", "pop-anglo.json"), {"slice": "pop-anglo", "tracks": tracks})
         word_row = record(4, "Alpha Song", "Artist A", cls.alpha[:20], 201.0,
@@ -1020,6 +1288,33 @@ class LabFixture(unittest.TestCase):
         cls.rows[61] = record(61, "Hotel Song", "Artist H", cls.alpha, 200.0)
         cls.rows[62] = record(62, "Hotel Song", "Artist H", half, 200.0)
         cls.seed(7, tracks[7], None, [cls.rows[61]], [])
+        # 8: nothing in the resolver's pool, and the only record Isla saw has another title.
+        cls.rows[801] = record(801, "Elsewhere Song", "Artist I", synthetic_lines(270), 200.0)
+        cls.seed(8, tracks[8], None, [], [])
+        # 9: the only right-length record is a karaoke upload under another artist.
+        juliet = synthetic_lines(280)
+        cls.rows[91] = record(91, "Juliet Song", "Artist J", juliet, 230.0)
+        cls.rows[92] = record(92, "Juliet Song (Karaoke)", "Karaoke Band", juliet, 200.0)
+        cls.seed(9, tracks[9], None, [cls.rows[91], cls.rows[92]], [])
+        # 10: two uploads under the right title and artist that are different songs.
+        cls.rows[101] = record(101, "Kilo Song", "Artist K", synthetic_lines(290), 200.0)
+        cls.rows[102] = record(102, "Kilo Song", "Artist K", synthetic_lines(291), 200.0)
+        cls.seed(10, tracks[10], None, [cls.rows[101], cls.rows[102]], [])
+        # 11: an instrumental by LRCLIB's own flag; the lyrics Isla showed are not in the pool.
+        cls.rows[111] = record(111, "Lima Song", "Artist L", [], 180.0, instrumental=True, plainLyrics="", syncedLyrics="")
+        cls.rows[112] = record(112, "Some Other Title", "Artist Z", synthetic_lines(300), 180.0)
+        cls.rows[113] = record(113, "Lima Song", "Artist L", synthetic_lines(301), 180.0)
+        cls.seed(11, tracks[11], None, [cls.rows[111]], [], 180000)
+        # 12: no anchor, and one LRCLIB search went unanswered.
+        cls.rows[121] = record(121, "Unrelated Title", "Artist Y", synthetic_lines(310), 200.0)
+        cls.seed(12, tracks[12], None, [], [], answer_q=False)
+        # 13: a right-length record exists; Isla's requests were refused or failed.
+        cls.rows[131] = record(131, "November Song", "Artist N", synthetic_lines(320), 200.0)
+        cls.seed(13, tracks[13], None, [cls.rows[131]], [])
+        # 14: the right-length record is stamped 30 s past its own end (a longer cut's timing).
+        cls.rows[141] = record(141, "Oscar Song", "Artist O", synthetic_lines(330), 200.0,
+                               syncedLyrics=synced(synthetic_lines(330), step=10.0))
+        cls.seed(14, tracks[14], None, [cls.rows[141]], [])
 
     @classmethod
     def isla_response(cls, name, body, status=200):
@@ -1042,6 +1337,9 @@ class LabFixture(unittest.TestCase):
                     "overrun": False, "timed_for_longer": longer, "requests": list(requests), "ms": 5}
 
         r = cls.isla_response
+
+        def refused(status):
+            return {"key": None, "path": "/api/get", "status": status, "cached": True}
         rows = cls.rows
         rows_out = [
             lookup(0, "canonical", "found", 1, [r("get?alpha", rows[1])]),
@@ -1061,6 +1359,23 @@ class LabFixture(unittest.TestCase):
             lookup(5, "apple", "found", 41, [r("search?fox-han", [rows[41]])], gran="word"),
             lookup(6, "canonical", "none", None, [r("get?golf", {"message": "x"}, 404)]),
             lookup(7, "canonical", "found", 62, [r("search?hotel", [rows[62]])]),
+            lookup(8, "canonical", "found", 801, [r("search?india", [rows[801]])]),
+            lookup(9, "canonical", "none", None, [r("get?juliet", {"message": "x"}, 404)]),
+            lookup(10, "canonical", "found", 101, [r("search?kilo", [rows[101]])]),
+            lookup(10, "apple", "none", None, [r("get?kilo", {"message": "x"}, 404)]),
+            lookup(11, "canonical", "found", 112, [r("search?lima", [rows[112]])]),
+            lookup(11, "apple", "none", None, [r("search?lima-none", [])]),
+            lookup(11, "deezer", "found", 113, [r("search?lima-mislabel", [rows[113]])]),
+            lookup(12, "canonical", "none", None, [r("get?mike", {"message": "x"}, 404)]),
+            lookup(12, "apple", "found", 121, [r("search?mike", [rows[121]])]),
+            lookup(13, "canonical", "failed", None, [refused(400)]),
+            lookup(13, "apple", "failed", None, [refused(500)]),
+            lookup(13, "deezer", "failed", None, [refused(404)]),
+            lookup(13, "spotify-style", "failed", None, [refused(429)]),
+            lookup(13, "latin-alt", "failed", None),
+            lookup(14, "canonical", "none", None, [r("search?oscar", [rows[141]])]),
+            lookup(14, "apple", "none", None, [r("get?oscar", {"message": "x"}, 404)]),
+            lookup(14, "deezer", "found", 141, [r("search?oscar-longer", [rows[141]])], longer=True),
         ]
         os.makedirs(os.path.join(cls.root, "results"), exist_ok=True)
         with open(os.path.join(cls.root, "results", "isla-lookups.jsonl"), "w", encoding="utf-8") as handle:
@@ -1074,6 +1389,14 @@ class LabFixture(unittest.TestCase):
             {"track_id": "pop-anglo/000", "perturbation": "c-upper", "applicable": True, "base_id": 3, "picked_id": 1},
             {"track_id": "pop-anglo/000", "perturbation": "c-upper", "applicable": False, "base_id": 1, "picked_id": 1},
             {"track_id": "pop-anglo/000", "perturbation": "d-plus-3.5", "applicable": True, "base_id": 1, "picked_id": None},
+            # F4: both null is not applicable; a new pick from nothing is found-new or switched-wrong;
+            # losing a wrong base is a good outcome; leaving the cluster for the other script is switched-alt.
+            {"track_id": "pop-anglo/000", "perturbation": "s-latin", "applicable": True, "base_id": None, "picked_id": None},
+            {"track_id": "pop-anglo/000", "perturbation": "s-latin", "applicable": True, "base_id": None, "picked_id": 1},
+            {"track_id": "pop-anglo/000", "perturbation": "s-latin", "applicable": True, "base_id": None, "picked_id": 3},
+            {"track_id": "pop-anglo/000", "perturbation": "s-latin", "applicable": True, "base_id": 3, "picked_id": None},
+            {"track_id": "pop-anglo/005", "perturbation": "s-latin", "applicable": True, "base_id": 41, "picked_id": 43},
+            {"track_id": "pop-anglo/005", "perturbation": "s-latin", "applicable": True, "base_id": 41, "picked_id": None},
         ]
         with open(os.path.join(cls.root, "results", "perturbations.jsonl"), "w", encoding="utf-8") as handle:
             for row in pert:
@@ -1106,6 +1429,11 @@ class ClassifyTests(LabFixture):
         self.assertTrue(by["pop-anglo/002"]["plain_only"])
         self.assertEqual(by["pop-anglo/005"]["alt_script_ids"], [43])
         self.assertEqual(by["pop-anglo/006"]["per_variant"]["canonical"]["synced_near"], [51])
+        self.assertEqual(by["pop-anglo/010"]["truth_status"], "truth-uncertain")     # F2: anchors contradict
+        self.assertIn("anchor-conflict", by["pop-anglo/010"]["notes"])
+        self.assertEqual(by["pop-anglo/012"]["truth_status"], "no-anchor")           # F7: and a search went unanswered
+        self.assertTrue(any(n.startswith("lrclib-unanswered") for n in by["pop-anglo/012"]["notes"]))
+        self.assertEqual(by["pop-anglo/001"]["instrumental_disagreement"], "harvest-none-lrclib-lyrics")   # F8
 
     def test_verdicts(self):
         expected = {
@@ -1113,21 +1441,41 @@ class ClassifyTests(LabFixture):
             (0, "no-album"): "miss-unqueried", (0, "spotify-style"): "miss-rejected",
             (0, "apple-us"): "failed", (0, "latin-alt"): "unreadable", (0, "x-uncached"): "uncached",
             (0, "x-unrecovered"): "unrecovered",
-            (1, "canonical"): "wrong-song", (1, "apple"): "correct-none",
+            # F8: the harvest says instrumental and LRCLIB holds lyrics: neither is the truth.
+            (1, "canonical"): "disputed", (1, "apple"): "disputed",
             (2, "canonical"): "miss-plain-only",
-            (3, "canonical"): "miss-catalogue", (3, "apple"): "unjudged",
+            # F7: the resolver's pool had no anchor; the record Isla's own answers held anchors it.
+            (3, "canonical"): "miss-unqueried", (3, "apple"): "correct",
             (4, "canonical"): "miss-unqueried",
             (5, "canonical"): "alt-script", (5, "apple"): "correct",
             (6, "canonical"): "miss-tolerance",
             (7, "canonical"): "uncertain",
+            (8, "canonical"): "unjudged",
+            (9, "canonical"): "miss-text-only",                                   # F3
+            (10, "canonical"): "truth-uncertain", (10, "apple"): "truth-uncertain",  # F2
+            (11, "canonical"): "wrong-song", (11, "apple"): "correct-none",
+            (11, "deezer"): "wrong-song",
+            (12, "canonical"): "truth-incomplete", (12, "apple"): "truth-incomplete",  # F7
+            (13, "canonical"): "failed-request", (13, "apple"): "failed",       # F5
+            (13, "deezer"): "failed", (13, "spotify-style"): "failed", (13, "latin-alt"): "failed",
+            (14, "canonical"): "miss-rejected", (14, "apple"): "miss-unqueried",  # F13
+            (14, "deezer"): "correct-longer-cut",
         }
         actual = {k: self.v(*k)["verdict"] for k in expected}
         self.assertEqual(actual, expected)
 
     def test_flags_and_evidence_columns(self):
         beta = self.v(1, "canonical")
-        self.assertEqual(beta["flags"], "instrumental-fp;catalogue-mislabel")
+        self.assertEqual(beta["flags"], "instrumental-fp;catalogue-mislabel;was-wrong-song")
         self.assertEqual(beta["truth_status"], "instrumental")
+        self.assertEqual(self.v(11, "canonical")["flags"], "instrumental-fp")
+        self.assertEqual(self.v(11, "deezer")["flags"], "instrumental-fp;catalogue-mislabel")
+        self.assertEqual(self.v(3, "apple")["flags"], "anchor-promoted")
+        self.assertEqual(self.v(13, "canonical")["flags"], "http-400")
+        self.assertEqual(self.v(14, "canonical")["flags"], "overrun-only")
+        self.assertEqual((self.v(14, "canonical")["isla_saw_fit"], self.v(14, "apple")["isla_saw_fit"]),
+                         ("true", "false"))
+        self.assertEqual((self.v(9, "canonical")["fit_n"], self.v(9, "canonical")["fit_identity_n"]), ("1", "0"))
         wrong = self.v(0, "apple")
         self.assertEqual(float(wrong["containment"]), 0.0)
         self.assertEqual((self.v(0, "no-album")["isla_saw_fit"], self.v(0, "spotify-style")["isla_saw_fit"]),
@@ -1151,14 +1499,23 @@ class ClassifyTests(LabFixture):
     def test_headline_counts(self):
         m1 = self.report["M1"]
         canonical = m1["canonical"]
-        # canonical lookups: 0 correct, 1 wrong, 2 plain, 3 catalogue, 4 unqueried, 5 alt, 6 tolerance, 7 uncertain
-        self.assertEqual(canonical["lookups"], 8)
+        # canonical lookups: 0 correct, 1 disputed, 2 plain, 3 unqueried (anchored from Isla's answers),
+        # 4 unqueried, 5 alt, 6 tolerance, 7 uncertain, 8 unjudged, 9 text-only, 10 truth-uncertain,
+        # 11 wrong (an instrumental), 12 truth-incomplete, 13 failed-request, 14 rejected (overrun-only)
+        self.assertEqual(canonical["lookups"], 15)
         self.assertEqual(canonical["verdicts"]["correct"], 1)
-        self.assertEqual(canonical["usable"], 4)        # tracks 0, 4, 5(alt has fit via 41/42), 7
-        self.assertEqual(canonical["shown"], 4)          # correct, wrong, alt-script, uncertain
+        # tracks 0, 3, 4, 5 (alt has fit via 41/42), 7, 13 (failed-request counts as a miss), 14
+        self.assertEqual(canonical["usable"], 7)
+        self.assertEqual(canonical["accuracy"], round(1 / 7, 4))
+        self.assertEqual(canonical["shown"], 4)          # correct, alt-script, uncertain, and track 11's lyrics
         self.assertEqual(canonical["wrong"], 2)          # wrong-song + uncertain
         self.assertEqual(canonical["wrong_rate"], 0.5)
-        self.assertEqual(canonical["recoverable_misses"], 1)
+        self.assertEqual(canonical["recoverable_misses"], 3)   # tracks 3, 4 and 14
+        self.assertEqual(canonical["text_only_misses"], 1)
+        self.assertEqual(canonical["excluded_from_scoring"],
+                         {"truth-uncertain": 1, "truth-incomplete": 1, "disputed": 1})
+        self.assertEqual(m1["overall"]["excluded_from_scoring"],
+                         {"truth-uncertain": 2, "truth-incomplete": 2, "disputed": 2})
         self.assertEqual(m1["verdict"], "fail")
         for cut_name in ("by_slice", "by_variant", "by_slice_variant", "by_pick", "by_tag", "by_script_family"):
             self.assertTrue(m1[cut_name], cut_name)
@@ -1166,7 +1523,8 @@ class ClassifyTests(LabFixture):
         self.assertEqual(sorted(m1["by_pick"]), ["popular", "stress"])
         self.assertIn("instrumental", m1["by_tag"])
         self.assertIn("CJK", m1["by_script_family"])
-        self.assertEqual([u["variant"] for u in m1["unjudged"]], ["apple"])
+        self.assertEqual([(u["track_id"], u["variant"]) for u in m1["unjudged"]], [("pop-anglo/008", "canonical")])
+        self.assertEqual(m1["anchor_promoted_tracks"], 1)
 
     def test_diagnose_input(self):
         rows = [json.loads(l) for l in slurp(os.path.join(self.root, "reports", "diagnose-input.jsonl")).splitlines()]
@@ -1182,6 +1540,9 @@ class ClassifyTests(LabFixture):
         self.assertEqual(sorted(unqueried["identity"]), ["album", "artist", "duration", "player_id", "title"])
         wrong = by[("pop-anglo/000", "apple")]
         self.assertEqual((wrong["chosen_id"], wrong["cluster_ids"]), (3, [1, 2, 4]))
+        self.assertEqual(by[("pop-anglo/014", "canonical")]["fit_ids"], [141])             # the overrun-fit
+        self.assertEqual(by[("pop-anglo/014", "apple")]["found_by"], {"141": ["search:track_artist"]})
+        self.assertNotIn(("pop-anglo/009", "canonical"), by)                            # text-only is reported, not diagnosed
         self.assertIn(("pop-anglo/000", "x-unrecovered"), by)
         self.assertNotIn(("pop-anglo/001", "apple"), by)                # correct-none is not diagnosed
 
@@ -1204,7 +1565,7 @@ class ClassifyTests(LabFixture):
         self.assertEqual(m2["a-comma"]["examples"]["switched-wrong"], ["pop-anglo/000"])
         self.assertEqual(m2["c-upper"]["switched-ok"], 1)
         self.assertEqual(m2["c-upper"]["applicable"], 1)                                  # the inapplicable row is out
-        self.assertEqual(self.report["M2"]["verdict"], "fail")                            # 1 switched-wrong of 5
+        self.assertEqual(self.report["M2"]["verdict"], "fail")                            # 2 switched-wrong of 10
 
     def test_variant_transition_matrix(self):
         m6 = self.report["M6"]
@@ -1213,11 +1574,15 @@ class ClassifyTests(LabFixture):
         self.assertEqual((lost["tracks"], lost["examples"]), (1, ["pop-anglo/000"]))
         self.assertEqual(lost["by_verdict"], {"wrong-song": 1})
         self.assertNotIn("apple-us", m6["lost_by_variant"])                               # failed lookups are not losses
+        # F5: nor are they in the denominator: apple-us, x-uncached and x-unrecovered gave no answer
+        for name in ("apple-us", "x-uncached", "x-unrecovered"):
+            self.assertNotIn(name, m6["comparable_by_variant"])
+        self.assertEqual(m6["comparable_by_variant"]["apple"], 1)
 
     def test_sections_and_verbatim_merges(self):
         for name in ("M1", "M2", "M3", "M3a", "M4", "M5", "M6", "M9", "M10"):
             section = self.report[name]
-            self.assertIn(section["verdict"], ("pass", "concern", "fail", "info"), name)
+            self.assertIn(section["verdict"], ("pass", "concern", "fail", "info", "incomplete"), name)
             self.assertTrue(section["summary"], name)
         self.assertEqual(self.report["M3a"]["parsed"], 3)
         self.assertEqual(self.report["M4"]["lines"], 10)
@@ -1227,7 +1592,7 @@ class ClassifyTests(LabFixture):
 
     def test_coverage_counts_word_timed_tracks_and_granularity(self):
         cov = self.report["M3"]["coverage_by_slice"]["pop-anglo"]
-        self.assertEqual(cov["tracks"], 8)
+        self.assertEqual(cov["tracks"], 15)
         self.assertEqual(cov["tracks_with_word_timed_record_in_cluster"], 1)
         self.assertEqual(cov["found_lookups_by_granularity"].get("word"), 1)
         self.assertEqual(self.report["M3"]["estimation"]["records"], 1)
@@ -1249,6 +1614,432 @@ class ClassifyTests(LabFixture):
             again = classify.run(self.root)
         self.assertFalse(os.path.exists(stale))
         self.assertEqual(again["M1"]["summary"], self.report["M1"]["summary"])
+
+    # -- the adversarial review's fixes, one test each ------------------------------
+
+    def test_usable_excludes_unrecovered_and_environment_failures_but_not_failed_requests(self):
+        usable = {k: self.v(*k)["usable"] for k in
+                  [(0, "x-unrecovered"), (0, "x-uncached"), (0, "apple-us"), (13, "apple"), (13, "canonical"),
+                   (9, "canonical"), (14, "canonical"), (0, "canonical")]}
+        self.assertEqual(usable, {
+            (0, "x-unrecovered"): "false",     # F12: like failed, nothing can be said of Isla
+            (0, "x-uncached"): "false", (0, "apple-us"): "false", (13, "apple"): "false",
+            (13, "canonical"): "true",         # F5: a 400 is a refusal of Isla's own request
+            (9, "canonical"): "false",         # F3: a karaoke upload is not recoverable
+            (14, "canonical"): "true",         # F13: an overrun-fit Isla would have shown is
+            (0, "canonical"): "true"})
+
+    def test_text_only_fit_is_reported_apart_from_recoverable_misses(self):
+        self.assertEqual(self.v(9, "canonical")["verdict"], "miss-text-only")
+        canonical = self.report["M1"]["canonical"]
+        self.assertEqual(canonical["text_only_misses"], 1)
+        self.assertNotIn("pop-anglo/009", [d["track_id"] for d in
+                                           map(json.loads, slurp(os.path.join(
+                                               self.root, "reports", "diagnose-input.jsonl")).splitlines())])
+
+    def test_perturbation_denominators_and_new_buckets(self):
+        cell = self.report["M2"]["perturbations"]["s-latin"]
+        self.assertEqual(cell["applicable"], 5)                    # the both-null row is not applicable
+        self.assertEqual((cell["found-new"], cell["switched-wrong"], cell["dropped-wrong"],
+                          cell["switched-alt"], cell["lost"]), (1, 1, 1, 1, 1))
+        self.assertEqual(cell["base_in_cluster"], 2)
+        self.assertEqual(cell["lost_share"], 0.5)                  # of the rows with a base pick in the cluster
+        self.assertEqual(self.report["M2"]["both_null_rows"], 1)
+        self.assertIn("lost <= 0.02 of the rows whose base pick is in the cluster",
+                      self.report["M2"]["thresholds"]["pass"])
+
+    def test_perturbation_verdict_rules_on_synthetic_rows(self):
+        clusters, alts = {"t": {1, 2}}, {"t": {9}}
+
+        def verdict(rows):
+            return classify.perturbation_section(
+                [dict(r, track_id="t", applicable=True, perturbation="c-x") for r in rows], clusters, alts)
+
+        self.assertEqual(verdict([{"base_id": 1, "picked_id": 1}] * 50 + [{"base_id": None, "picked_id": None}] * 50
+                                 )["verdict"], "pass")
+        # base null with a pick in the cluster is good; outside it is switched-wrong
+        self.assertEqual(verdict([{"base_id": None, "picked_id": 2}] * 3)["perturbations"]["c-x"]["found-new"], 3)
+        self.assertEqual(verdict([{"base_id": None, "picked_id": 5}] * 3)["verdict"], "fail")
+        # a wrong base lost is not a loss
+        self.assertEqual(verdict([{"base_id": 5, "picked_id": None}, {"base_id": 1, "picked_id": 1}])["verdict"], "pass")
+        # the lost share is over rows with a base in the cluster, not all applicable rows
+        lost = verdict([{"base_id": 1, "picked_id": None}] + [{"base_id": 5, "picked_id": None}] * 99)
+        self.assertEqual(lost["perturbations"]["c-x"]["lost_share"], 1.0)
+        self.assertEqual(lost["verdict"], "concern")
+
+    def test_alternate_results_and_reports_directories(self):
+        """F18: a candidate run is scored beside the baseline, and never replaces matched/."""
+        results_dir = os.path.join(self.root, "results")
+        exp = os.path.join(self.root, "candidate")
+        os.makedirs(exp, exist_ok=True)
+        rows = [json.loads(l) for l in slurp(os.path.join(results_dir, "isla-lookups.jsonl")).splitlines()]
+        # the candidate shows nothing for track 0's canonical lookup
+        for row in rows:
+            if (row["track_id"], row["variant"]) == ("pop-anglo/000", "canonical"):
+                row.update(outcome="none", chosen_id=None, chosen_via=None)
+        with open(os.path.join(exp, "isla-lookups.jsonl"), "w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row) + "\n")
+        baseline_report = slurp(os.path.join(self.root, "reports", "match-lab-report.json"))
+        baseline_csv = slurp(os.path.join(self.root, "reports", "rows.csv"))
+        sentinel = os.path.join(self.root, "matched", "pop-anglo", "sentinel.json")
+        dump(sentinel, {"id": 0})
+        with contextlib.redirect_stdout(io.StringIO()):
+            report = classify.run(self.root, results_name="candidate", reports_name="candidate-reports")
+        out = os.path.join(self.root, "candidate-reports")
+        self.assertEqual(sorted(os.listdir(out)), ["diagnose-input.jsonl", "match-lab-report.json", "rows.csv"])
+        self.assertEqual(slurp(os.path.join(self.root, "reports", "match-lab-report.json")), baseline_report)
+        self.assertEqual(slurp(os.path.join(self.root, "reports", "rows.csv")), baseline_csv)
+        self.assertTrue(os.path.exists(sentinel), "matched/ was cleared by an experiment")
+        self.assertEqual(report["M1"]["canonical"]["verdicts"].get("correct", 0), 0)    # the candidate lost it
+        self.assertEqual(self.report["M1"]["canonical"]["verdicts"]["correct"], 1)
+        self.assertFalse(report["meta"]["matched_written"])
+        self.assertEqual((report["meta"]["results_dir"], report["meta"]["reports_dir"]), ("candidate", "candidate-reports"))
+        self.assertEqual(report["M5"]["records"], 0)
+        # inputs absent from the alternate results directory degrade, they do not fall back to results/
+        self.assertEqual(report["M3a"]["verdict"], "info")
+        self.assertFalse(report["meta"]["inputs"]["candidate/perturbations.jsonl"])
+        # the command line takes the same names, and refuses a path
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(classify.main(["--root", self.root, "--results", "candidate",
+                                            "--reports", "candidate-reports"]), 0)
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                classify.main(["--root", self.root, "--reports", "../escape"])
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(self.root), "escape")))
+        os.remove(sentinel)
+        # the default reports directory still rewrites matched/
+        with contextlib.redirect_stdout(io.StringIO()):
+            classify.run(self.root)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.root, "matched", "pop-anglo"))), ["1.json", "43.json"])
+
+    def test_same_and_wrong_come_from_the_families_table(self):
+        """F1: SAME and WRONG are per script family. The Hotel Song pick holds about half of the
+        cluster's shingles: uncertain at 0.6/0.2, the same song at 0.4/0.1."""
+        self.assertEqual(self.v(7, "canonical")["verdict"], "uncertain")
+        with mock.patch.dict(oracle.THRESHOLD_TABLE, {"LATIN": (0.4, 0.1)}):
+            with contextlib.redirect_stdout(io.StringIO()):
+                report = classify.run(self.root, reports_name="threshold-reports")
+        rows = {}
+        import csv
+        with open(os.path.join(self.root, "threshold-reports", "rows.csv"), encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                rows[(row["track_id"], row["variant"])] = row
+        self.assertEqual(rows[("pop-anglo/007", "canonical")]["verdict"], "correct")
+        self.assertNotEqual(report["M1"]["canonical"]["verdicts"], self.report["M1"]["canonical"]["verdicts"])
+
+    def test_readability_drops_wrong_song_lookups(self):
+        """F15: the per-lookup rows let M4 leave out the lyrics of a different song."""
+        entry = lambda tid, durations, ratios: {
+            "track_id": tid, "slice": "pop-anglo", "lines": len(durations), "durations": durations,
+            "cps": [10.0] * len(durations), "sps": [3.0] * len(durations), "low_confidence": 0,
+            "surfaces": {"band@560": {"ratios": ratios, "widths": [r * 100 for r in ratios], "rows": [],
+                                       "overflow": sum(1 for r in ratios if r > 1)}}}
+        data = {"summary": "s", "all": {"surfaces": {"band@560": {"available_pt": 100}}},
+                "per_lookup": [entry("a/1", [0.5, 5.0, 4.0], [0.5, 0.6, 0.7]),
+                               entry("a/2", [0.2, 0.3, 0.4], [1.5, 1.6, 1.7])]}
+        path = os.path.join(self.root, "readability-test.json")
+        dump(path, data)
+        everything = classify.readability_section(path, set())["without_wrong_song"]
+        without = classify.readability_section(path, {"a/2"})["without_wrong_song"]
+        self.assertEqual((everything["lookups_excluded"], without["lookups_excluded"]), (0, 1))
+        self.assertEqual(everything["all"]["lines"], 6)
+        self.assertEqual(without["all"]["lines"], 3)
+        self.assertAlmostEqual(without["all"]["share_under_0_6_s"], 1 / 3, places=3)
+        self.assertAlmostEqual(everything["all"]["share_under_0_6_s"], 4 / 6, places=3)
+        self.assertEqual(without["all"]["surfaces"]["band@560"]["overflow_lines"], 0)
+        self.assertEqual(everything["all"]["surfaces"]["band@560"]["overflow_lines"], 3)
+        # an older file without per-lookup rows says so instead of guessing
+        dump(path, {"summary": "s", "all": {"surfaces": {}}})
+        self.assertFalse(classify.readability_section(path, {"a/2"})["without_wrong_song"]["available"])
+        os.remove(path)
+
+
+class MiniLab(unittest.TestCase):
+    """One track, resolved offline, with whatever lookups a test writes."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+        os.makedirs(os.path.join(self.root, "slices"))
+        self.lines = synthetic_lines(400)
+        self.row = record(1, "Mini Song", "Artist Mini", self.lines, 200.0)
+        dump(os.path.join(self.root, "slices", "pop-anglo.json"),
+             {"slice": "pop-anglo", "tracks": [harvest(title="Mini Song", artists=["Artist Mini"], album="Alb")]})
+        seed_track(self.root, 0, harvest(title="Mini Song", artists=["Artist Mini"], album="Alb"),
+                   self.row, [], [])
+        quiet_run(self.root, offline=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def lookup(self, variant, outcome, chosen=None):
+        url = f"https://lrclib.net/api/get?mini-{variant}"
+        common.write_cache(self.root, url, 200, json.dumps(self.row).encode(), sub="isla")
+        return {"track_id": "pop-anglo/000", "variant": variant,
+                "identity": {"player_id": "lab", "title": "Mini Song", "artist": "Artist Mini", "album": "Alb",
+                             "duration": 200.0},
+                "outcome": outcome, "chosen_id": chosen, "chosen_ambiguous": [], "chosen_via": "get" if chosen else None,
+                "granularity": "line" if chosen else None, "lines": 24, "overrun": False, "timed_for_longer": False,
+                "requests": [{"key": common.url_key(url), "path": "/api/get", "status": 200, "cached": True}], "ms": 1}
+
+    def classify(self, rows):
+        os.makedirs(os.path.join(self.root, "results"), exist_ok=True)
+        with open(os.path.join(self.root, "results", "isla-lookups.jsonl"), "w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row) + "\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            return classify.run(self.root)
+
+    def test_m1_is_incomplete_not_pass_when_a_lookup_is_uncached(self):
+        """F6: the lookups the cache could not answer might have been wrong."""
+        complete = self.classify([self.lookup("canonical", "found", 1)])
+        self.assertEqual(complete["M1"]["verdict"], "pass")
+        self.assertEqual(complete["M1"]["canonical"]["accuracy_bounds"], {"as_computed": 1.0, "uncached_as_misses": 1.0})
+        partial = self.classify([self.lookup("canonical", "found", 1), self.lookup("canonical-b", "uncached")])
+        self.assertEqual(partial["M1"]["verdict"], "incomplete")
+        self.assertIn("uncached", partial["M1"]["summary"])
+        self.assertEqual(partial["M1"]["overall"]["uncached"], 1)
+        # on canonical lookups alone the bounds are still computed: 1 correct of 1 usable, or of 2 if the
+        # uncached one had been a usable miss
+        self.assertEqual(partial["M1"]["overall"]["accuracy_bounds"], {"as_computed": 1.0, "uncached_as_misses": 0.5})
+        self.assertEqual(partial["M1"]["accuracy_bounds"]["overall"]["uncached_as_misses"], 0.5)
+        self.assertEqual(partial["meta"]["verdict_values"], "pass | concern | fail | info | incomplete")
+        # a fail stays a fail
+        failing = self.classify([self.lookup("canonical", "none"), self.lookup("canonical-b", "uncached")])
+        self.assertEqual(failing["M1"]["verdict"], "fail")
+
+    def test_unrecovered_and_failed_leave_the_usable_count(self):
+        report = self.classify([self.lookup("canonical", "found", 1), self.lookup("apple", "found", None),
+                                self.lookup("deezer", "failed")])
+        overall = report["M1"]["overall"]
+        self.assertEqual(overall["usable"], 1)               # only the correct canonical lookup
+        self.assertEqual(overall["verdicts"], {"correct": 1, "failed": 1, "unrecovered": 1})
+        # M6 leaves both out of the denominator as well
+        self.assertEqual(report["M6"]["comparable_by_variant"], {})
+        self.assertEqual(report["M6"]["lost_by_variant"], {})
+
+
+class CalibrateTests(unittest.TestCase):
+    """calibrate.py over a synthetic corpus: Thai-script and Latin made-up texts."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+        os.makedirs(os.path.join(self.root, "resolved"))
+        oracle.reset_calibration()
+        self.addCleanup(oracle.reset_calibration)
+        tracks = []
+        for i in range(14):
+            thai = OracleTests.thai_like(100 + i, 900)
+            latin = "\n".join(synthetic_lines(500 + i, 20))
+            for family, text in (("th", thai), ("en", latin)):
+                tid = f"pop-anglo/{family}{i:02d}"
+                title, artist = f"Title {family}{i}", f"Artist {family}{i}"
+                rows = [
+                    {"id": i * 10 + 1, "trackName": title, "artistName": artist, "duration": 200.0, "instrumental": False,
+                     "plainLyrics": text, "syncedLyrics": ""},
+                    # the same song, a little different, 1 s longer: a positive pair
+                    {"id": i * 10 + 2, "trackName": title + " (Remastered)", "artistName": artist, "duration": 201.0,
+                     "instrumental": False, "plainLyrics": "\n".join(text.split("\n")[:30]), "syncedLyrics": ""},
+                    # the same text 20 s longer: not within 3 s of the others, so no positive pair
+                    {"id": i * 10 + 3, "trackName": title, "artistName": artist, "duration": 221.0, "instrumental": False,
+                     "plainLyrics": text, "syncedLyrics": ""},
+                    # an instrumental and a record by someone else: never used
+                    {"id": i * 10 + 4, "trackName": title, "artistName": artist, "duration": 200.0, "instrumental": True,
+                     "plainLyrics": "", "syncedLyrics": ""},
+                    {"id": i * 10 + 5, "trackName": title, "artistName": "Somebody Else", "duration": 200.0,
+                     "instrumental": False, "plainLyrics": text, "syncedLyrics": ""},
+                ]
+                url = f"https://lrclib.net/api/search?q={tid}"
+                common.write_cache(self.root, url, 200, json.dumps(rows).encode())
+                tracks.append({
+                    "track_id": tid, "slice": "pop-anglo",
+                    "harvest": {"title": title, "title_latin": "", "artists": [artist], "artists_latin": [""]},
+                    "apple": None, "apple_us": None, "deezer": None,
+                    "candidates": [{"id": r["id"], "anchor": r["id"] in (i * 10 + 1, i * 10 + 2, i * 10 + 3)}
+                                   for r in rows],
+                    "lrclib_urls": {"search:q": url}, "truth": {}})
+        with open(os.path.join(self.root, "resolved", "tracks.jsonl"), "w", encoding="utf-8") as handle:
+            for t in tracks:
+                handle.write(json.dumps(t) + "\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_calibrate(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(calibrate.main(["--root", self.root, "--max-pairs", "300"]), 0)
+        return out.getvalue(), json.loads(slurp(os.path.join(self.root, "reports", "oracle-calibration.json")))
+
+    def test_distributions_per_family_and_n(self):
+        printed, result = self.run_calibrate()
+        self.assertEqual(sorted(result["families"]), ["LATIN", "THAI"])
+        thai = result["families"]["THAI"]
+        self.assertEqual(sorted(thai["null"]), ["2", "3", "4", "5", "6"])             # character candidates
+        self.assertEqual(sorted(result["families"]["LATIN"]["null"]), ["2", "3", "4"])   # word candidates
+        for cell in list(thai["null"].values()) + list(thai["positive"].values()):
+            self.assertEqual(sorted(k for k in cell if k.startswith("p")), ["p1", "p5", "p50", "p95", "p99"])
+        # null: anchors of different tracks, capped by --max-pairs
+        self.assertEqual(thai["null"]["2"]["n"], 300)
+        # positive: per track the identity records within 3 s of each other: ids 1 and 2 only
+        self.assertEqual(thai["positive"]["2"]["n"], 14)
+        self.assertGreater(thai["null"]["2"]["p50"], oracle.DEFAULT_THRESHOLDS[1])   # the bigram failure, reproduced
+        self.assertLess(thai["null"]["5"]["p99"], 0.05)
+        self.assertGreater(thai["positive"]["5"]["p5"], 0.9)                  # the shorter copy sits inside the longer
+        # the table in force when the numbers were taken
+        self.assertEqual(thai["table"]["ngram"], 7)
+        # it prints numbers only
+        for line in printed.splitlines():
+            self.assertNotIn("Title", line)
+            self.assertNotIn("Artist", line)
+
+    def test_recommendation_and_file(self):
+        _, result = self.run_calibrate()
+        rec = result["families"]["THAI"]["recommended"]
+        # the smallest n whose null p99 is under 0.2 with the positive p5 at least 0.5: 3 over a 49-symbol alphabet
+        self.assertEqual(rec["ngram"], 3)
+        self.assertTrue(rec["meets_target"])
+        self.assertEqual((rec["same"], rec["wrong"]), (0.6, 0.2))
+        self.assertEqual(result["families"]["LATIN"]["recommended"]["ngram"], 2)
+        self.assertEqual(result["precedence"].split(",")[0], "families[F].recommended")
+        # the oracle loads it: the file replaces the table for those families
+        self.assertTrue(oracle.load_calibration(self.root))
+        self.assertEqual(oracle.shingle_for("THAI"), ("char", 3))
+        self.assertEqual(oracle.shingle_for("LATIN"), ("word", 2))
+        self.assertEqual(oracle.shingle_for("CJK"), ("char", 5))
+
+    def test_a_family_with_too_few_pairs_gets_no_recommendation(self):
+        lines = [json.loads(l) for l in slurp(os.path.join(self.root, "resolved", "tracks.jsonl")).splitlines()]
+        keep = [t for t in lines if t["track_id"].startswith("pop-anglo/th") and int(t["track_id"][-2:]) < 2]
+        with open(os.path.join(self.root, "resolved", "tracks.jsonl"), "w", encoding="utf-8") as handle:
+            for t in keep:
+                handle.write(json.dumps(t) + "\n")
+        _, result = self.run_calibrate()
+        thai = result["families"]["THAI"]
+        self.assertEqual(thai["null"]["3"]["n"], 9)                            # 2 tracks of 3 anchors: 9 pairs
+        self.assertIsNone(thai["recommended"])
+        self.assertFalse(oracle.load_calibration(self.root))                   # nothing to load; the table stays
+
+    def test_a_noisy_family_is_not_recommended_an_n_it_cannot_support(self):
+        """When no candidate keeps the null under 0.2, the least bad is named and flagged."""
+        # two symbols only: every n-gram collides across unrelated songs
+        for line in slurp(os.path.join(self.root, "resolved", "tracks.jsonl")).splitlines():
+            t = json.loads(line)
+            if not t["track_id"].startswith("pop-anglo/th"):
+                continue
+            index = int(t["track_id"][-2:])
+            rng = random.Random(index)
+            text = "".join(rng.choice("กข") for _ in range(300))
+            rows = [{"id": index * 10 + 1, "trackName": t["harvest"]["title"], "artistName": t["harvest"]["artists"][0],
+                     "duration": 200.0, "instrumental": False, "plainLyrics": text, "syncedLyrics": ""}]
+            common.write_cache(self.root, t["lrclib_urls"]["search:q"], 200, json.dumps(rows).encode())
+        _, result = self.run_calibrate()
+        rec = result["families"]["THAI"]["recommended"]
+        self.assertFalse(rec["meets_target"])
+        self.assertEqual(rec["ngram"], 6)                                      # the largest n has the lowest p99
+        self.assertEqual((rec["wrong"], rec["same"]), (0.9, 1.0))              # WRONG moves up to the measured p99
+        self.assertTrue(oracle.load_calibration(self.root))                    # and the pair is one the oracle accepts
+
+
+class RunnerScriptTests(unittest.TestCase):
+    """Scripts/lyric-match-lab.sh with a stand-in `swift` that records its calls and writes the
+    files the real cases would. Nothing is built and nothing runs against the network."""
+
+    SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lyric-match-lab.sh")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = self.tmp.name
+        self.root = os.path.join(base, "root")
+        self.bin = os.path.join(base, "bin")
+        self.log = os.path.join(base, "swift.log")
+        for directory in (os.path.join(self.root, "resolved"), os.path.join(self.root, "reports"),
+                          os.path.join(self.root, "results"), self.bin, os.path.join(base, "tmp")):
+            os.makedirs(directory)
+        with open(os.path.join(self.root, "resolved", "variants.jsonl"), "w") as handle:
+            handle.write("{}\n")
+        with open(os.path.join(self.root, "reports", "diagnose-input.jsonl"), "w") as handle:
+            handle.write("{}\n")      # left by an earlier run: stale against the lookups about to be rewritten
+        with open(os.path.join(self.bin, "swift"), "w") as handle:
+            handle.write('''#!/bin/bash
+echo "out=$ISLA_MATCH_OUT reports=$ISLA_MATCH_REPORTS record=${ISLA_MATCH_RECORD:-} $*" >> "$FAKE_LOG"
+out="$ISLA_MATCH_LAB/$ISLA_MATCH_OUT"
+mkdir -p "$out"
+case "$*" in
+  *LyricMatchLabLookupTests*) echo fresh > "$out/isla-lookups.jsonl" ;;
+  *LyricMatchLabPerturbationTests*) echo fresh > "$out/perturbations.jsonl"; echo fresh > "$out/word-fidelity.json"; echo fresh > "$out/readability.json" ;;
+  *LyricMatchLabDiagnosisTests*) echo fresh > "$out/diagnosis.jsonl" ;;
+esac
+''')
+        os.chmod(os.path.join(self.bin, "swift"), 0o755)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_script(self, *args, **env):
+        environment = {"PATH": f"{self.bin}:/usr/bin:/bin", "FAKE_LOG": self.log,
+                       "TMPDIR": os.path.join(self.tmp.name, "tmp"), "HOME": self.tmp.name}
+        environment.update(env)
+        done = subprocess.run(["/bin/bash", self.SCRIPT, self.root, *args], env=environment,
+                              capture_output=True, text=True)
+        calls = slurp(self.log).splitlines() if os.path.exists(self.log) else []
+        return done, calls
+
+    def test_plain_and_record_runs_do_not_run_the_diagnosis(self):
+        """F17: the diagnose-input on disk describes the lookups this run replaces."""
+        for args in ((), ("--record",)):
+            if os.path.exists(self.log):
+                os.remove(self.log)
+            done, calls = self.run_script(*args)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(len(calls), 2, calls)
+            self.assertFalse(any("LyricMatchLabDiagnosisTests" in c for c in calls), calls)
+            self.assertIn("diagnosis not run", done.stdout)
+            self.assertFalse(os.path.exists(os.path.join(self.root, "results", "diagnosis.jsonl")))
+        self.assertIn("record=1", calls[0])
+
+    def test_diagnose_only_runs_it_without_the_record_switch(self):
+        done, calls = self.run_script("--diagnose-only", ISLA_MATCH_RECORD="1")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("LyricMatchLabDiagnosisTests", calls[0])
+        self.assertIn("record= ", calls[0])
+        self.assertTrue(os.path.exists(os.path.join(self.root, "results", "diagnosis.jsonl")))
+
+    def test_output_directory_is_passed_through_and_only_its_stale_files_are_removed(self):
+        """F18: a candidate run writes beside the baseline, and clears only its own directory."""
+        for directory in ("results", "candidate"):
+            os.makedirs(os.path.join(self.root, directory), exist_ok=True)
+            for name in ("isla-lookups.jsonl", "perturbations.jsonl", "word-fidelity.json", "readability.json"):
+                with open(os.path.join(self.root, directory, name), "w") as handle:
+                    handle.write("stale\n")
+        done, calls = self.run_script(ISLA_MATCH_OUT="candidate")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(all(c.startswith("out=candidate ") for c in calls), calls)
+        for name in ("isla-lookups.jsonl", "perturbations.jsonl", "word-fidelity.json", "readability.json"):
+            self.assertEqual(slurp(os.path.join(self.root, "results", name)), "stale\n", name)
+            self.assertEqual(slurp(os.path.join(self.root, "candidate", name)), "fresh\n", name)
+        self.assertIn("classify.py", done.stdout)
+        self.assertIn("--results candidate", done.stdout)
+
+    def test_diagnose_only_reads_the_named_reports_directory(self):
+        os.remove(os.path.join(self.root, "reports", "diagnose-input.jsonl"))
+        done, calls = self.run_script("--diagnose-only", ISLA_MATCH_OUT="candidate")
+        self.assertEqual(done.returncode, 2)                      # reports/ has nothing for it
+        os.makedirs(os.path.join(self.root, "candidate-reports"))
+        with open(os.path.join(self.root, "candidate-reports", "diagnose-input.jsonl"), "w") as handle:
+            handle.write("{}\n")
+        done, calls = self.run_script("--diagnose-only", ISLA_MATCH_OUT="candidate", ISLA_MATCH_REPORTS="candidate-reports")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("out=candidate reports=candidate-reports", calls[0])
+        self.assertTrue(os.path.exists(os.path.join(self.root, "candidate", "diagnosis.jsonl")))
+
+    def test_a_path_is_not_a_directory_name(self):
+        for bad in ("../elsewhere", "a/b", "..", "."):
+            done, calls = self.run_script(ISLA_MATCH_OUT=bad)
+            self.assertEqual(done.returncode, 2, bad)
+            self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":

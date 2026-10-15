@@ -9,7 +9,8 @@ SPEC ("Resolution", step 5) alone.
 
 Imported by resolve.py (truth for each harvested track) and, in phase 2, by
 classify.py (to fingerprint the record Isla chose and compare it with the
-cluster). Stdlib only, pure functions, no network, no file access.
+cluster). Stdlib only, no network. Pure functions, with one exception:
+`load_calibration` reads reports/oracle-calibration.json when a caller asks.
 
     import oracle
     oracle.normalize_title("Song (Remastered 2011)")            # "song"
@@ -20,6 +21,8 @@ cluster). Stdlib only, pure functions, no network, no file access.
 """
 from __future__ import annotations
 
+import json
+import os
 import re
 import unicodedata
 from typing import Dict, FrozenSet, Iterable, List, Optional
@@ -37,7 +40,7 @@ _KNOWN_SCRIPTS = {
 }
 
 # Scripts written without spaces between words: their fingerprints are
-# character bigrams, because word shingles of one giant "word" match nothing.
+# character n-grams (NGRAM_TABLE), because word shingles of one giant "word" match nothing.
 NO_SPACE_SCRIPTS = {"CJK", "HIRAGANA", "KATAKANA", "THAI", "LAO", "KHMER", "MYANMAR", "TIBETAN"}
 
 # Han, hiragana and katakana mix freely inside one Japanese line, so for "is
@@ -90,22 +93,50 @@ def script_family(script: str) -> str:
     return _FAMILIES.get(script, script)
 
 
-def dominant_script(text: str) -> str:
-    """The script with the most letters in `text`; "" when it has no letters.
+# Han, kana and Hangul carry about a word in every character, a Latin letter
+# a fraction of one, so counting letters one for one made a Korean lyric that
+# is half English read as LATIN (adversarial review F2, 2026-10-15). Each such
+# character weighs this many letters.
+CHARACTER_SCRIPT_WEIGHT = 2.5
+_HEAVY_SCRIPTS = {"CJK", "HIRAGANA", "KATAKANA", "HANGUL"}
 
-    Built from character names so it needs no tables per code point. Digits,
-    punctuation and marks are ignored: they carry no script.
+
+def script_weights(text: str, by_family: bool = False) -> Dict[str, float]:
+    """Weighted letters per script in `text` (family names with `by_family`).
+
+    A Han, kana or Hangul character counts CHARACTER_SCRIPT_WEIGHT letters,
+    every other letter one. Digits, punctuation and marks carry no script.
     """
-    counts: Dict[str, int] = {}
+    counts: Dict[str, float] = {}
     for ch in unicodedata.normalize("NFKC", text or ""):
         if not unicodedata.category(ch).startswith("L"):
             continue
         script = char_script(ch)
-        if script:
-            counts[script] = counts.get(script, 0) + 1
+        if not script:
+            continue
+        key = script_family(script) if by_family else script
+        counts[key] = counts.get(key, 0.0) + (CHARACTER_SCRIPT_WEIGHT if script in _HEAVY_SCRIPTS else 1.0)
+    return counts
+
+
+def dominant_script(text: str) -> str:
+    """The script with the most weighted letters in `text`; "" when it has none.
+
+    Built from character names so it needs no tables per code point. Digits,
+    punctuation and marks are ignored: they carry no script. See
+    `script_weights` for the weighting.
+    """
+    counts = script_weights(text)
     if not counts:
         return ""
     return max(counts.items(), key=lambda item: (item[1], item[0]))[0]
+
+
+def family_share(text_or_weights, family: str) -> float:
+    """The fraction of weighted letters that belong to script family `family`."""
+    weights = text_or_weights if isinstance(text_or_weights, dict) else script_weights(text_or_weights, True)
+    total = sum(weights.values())
+    return (weights.get(family, 0.0) / total) if total else 0.0
 
 
 def expected_script(language: str, native_title: str = "") -> str:
@@ -595,28 +626,139 @@ def word_timing_kind(record: dict) -> Optional[str]:
 # Fingerprint
 # --------------------------------------------------------------------------
 
-def fingerprint(text: str) -> FrozenSet[str]:
+# The shingle each script family is fingerprinted with: ("char", n) is a
+# character n-gram over the text with its spaces removed, ("word", n) a run of
+# n words. A family not listed here is space-separated and gets DEFAULT_SHINGLE,
+# which includes Hangul.
+#
+# Why not bigrams everywhere that has no spaces: two unrelated Thai texts share
+# so many bigrams that their median containment reached 0.61, above SAME, so
+# other songs joined the cluster; and unrelated Japanese or Chinese texts landed
+# in `uncertain`. The sizes below are the smallest n whose containment between
+# unrelated texts of about 1,000 characters stays under 0.2 at the 99th
+# percentile on `standin_probe.py`'s stand-in text (macOS UI strings, never
+# lyrics), on both of its pools. Thai needs 7 and Han/kana 5; the numbers are in
+# SPEC.md, "Amended 2026-10-15 (after the adversarial review)". Larger n makes a
+# same-song pair with spelling variants score lower, so `calibrate.py` re-picks
+# n per family from the real corpus, and `reports/oracle-calibration.json`
+# replaces these entries when it exists and `load_calibration` was called.
+NGRAM_TABLE: Dict[str, tuple] = {
+    "THAI": ("char", 7),
+    "CJK": ("char", 5),      # Han, hiragana, katakana and Japanese mixes (script_family folds them)
+    # Spaceless abugidas, not probed: sized like Thai, whose behaviour they share.
+    "LAO": ("char", 7), "KHMER": ("char", 7), "MYANMAR": ("char", 7), "TIBETAN": ("char", 7),
+}
+DEFAULT_SHINGLE = ("word", 3)
+
+# (SAME, WRONG) containment per family: at or above SAME the same song, at or
+# below WRONG a different one, between them uncertain. `calibrate.py` may move
+# a family's pair; every other family keeps the default.
+DEFAULT_THRESHOLDS = (0.6, 0.2)
+THRESHOLD_TABLE: Dict[str, tuple] = {}
+
+CALIBRATION_FILE = os.path.join("reports", "oracle-calibration.json")
+# Precedence, highest first: an explicit `ngram=` argument, the family's entry
+# in the loaded calibration file, then NGRAM_TABLE / THRESHOLD_TABLE.
+_calibration: Dict[str, dict] = {}
+_calibration_source: Optional[str] = None
+
+
+def shingle_for(family: str) -> tuple:
+    """("char"|"word", n) used for script family `family`."""
+    override = _calibration.get(family, {}).get("ngram")
+    if override:
+        kind = NGRAM_TABLE.get(family, DEFAULT_SHINGLE)[0]
+        return (kind, int(override))
+    return NGRAM_TABLE.get(family, DEFAULT_SHINGLE)
+
+
+def thresholds(family: str) -> tuple:
+    """(SAME, WRONG) for script family `family`; the default pair when unlisted."""
+    entry = _calibration.get(family, {})
+    if "same" in entry and "wrong" in entry:
+        return (float(entry["same"]), float(entry["wrong"]))
+    return THRESHOLD_TABLE.get(family, DEFAULT_THRESHOLDS)
+
+
+def reset_calibration() -> None:
+    global _calibration_source
+    _calibration.clear()
+    _calibration_source = None
+
+
+def load_calibration(root: str) -> bool:
+    """Read `<root>/reports/oracle-calibration.json` into the overrides.
+
+    The file is `calibrate.py`'s output; only each family's `recommended`
+    object is read (`ngram`, `same`, `wrong`). A missing or malformed file, or
+    a malformed entry, leaves the table in force. Returns whether any family
+    was loaded. Callers must call this before fingerprinting and must call it
+    for the resolver and the classifier alike, or their fingerprints disagree.
+    """
+    reset_calibration()
+    path = os.path.join(os.path.expanduser(root), CALIBRATION_FILE)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        families = data["families"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    if not isinstance(families, dict):
+        return False
+    global _calibration_source
+    for family, entry in families.items():
+        rec = entry.get("recommended") if isinstance(entry, dict) else None
+        if not isinstance(rec, dict):
+            continue
+        clean: dict = {}
+        n = rec.get("ngram")
+        if isinstance(n, int) and not isinstance(n, bool) and 2 <= n <= 8:
+            clean["ngram"] = n
+        same, wrong = rec.get("same"), rec.get("wrong")
+        if all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (same, wrong)) \
+                and 0 < wrong < same <= 1:
+            clean["same"], clean["wrong"] = float(same), float(wrong)
+        if clean:
+            _calibration[str(family)] = clean
+    if _calibration:
+        _calibration_source = path
+    return bool(_calibration)
+
+
+def active_params() -> dict:
+    """What a fingerprint made now depends on, to record beside the truth."""
+    families = sorted(set(NGRAM_TABLE) | set(THRESHOLD_TABLE) | set(_calibration))
+    return {"source": "calibration" if _calibration else "table",
+            "families": {f: {"shingle": list(shingle_for(f)), "thresholds": list(thresholds(f))}
+                         for f in families}}
+
+
+def fingerprint(text: str, ngram: Optional[int] = None) -> FrozenSet[str]:
     """Shingle set of a lyric text.
 
-    Spaceless scripts (Han, kana, Thai, …): character bigrams over the text with
-    spaces removed. Everything else: word 3-shingles; word bigrams for two
-    words, the word itself for one. A shingle set is order-insensitive, so a
-    chorus repeated three times or a reordered verse costs nothing.
+    The shingle comes from the text's script family (`shingle_for`): character
+    n-grams over the text with spaces removed for the spaceless scripts, word
+    n-grams for the rest (3 by default). A text shorter than n is one shingle,
+    its whole self. `ngram` overrides n for this call (calibrate.py probes
+    with it). A shingle set is order-insensitive, so a chorus repeated three
+    times or a reordered verse costs nothing.
     """
     normalized = normalize_text(text)
     if not normalized:
         return frozenset()
-    if dominant_script(normalized) in NO_SPACE_SCRIPTS:
+    family = script_family(dominant_script(normalized))
+    kind, n = shingle_for(family)
+    if ngram is not None:
+        n = ngram
+    if kind == "char":
         chars = normalized.replace(" ", "")
-        if len(chars) < 2:
+        if len(chars) < n:
             return frozenset([chars])
-        return frozenset(chars[i:i + 2] for i in range(len(chars) - 1))
+        return frozenset(chars[i:i + n] for i in range(len(chars) - n + 1))
     words = normalized.split()
-    if len(words) >= 3:
-        return frozenset(" ".join(words[i:i + 3]) for i in range(len(words) - 2))
-    if len(words) == 2:
-        return frozenset([" ".join(words)])
-    return frozenset(words)
+    if len(words) >= n:
+        return frozenset(" ".join(words[i:i + n]) for i in range(len(words) - n + 1))
+    return frozenset([" ".join(words)])
 
 
 # Below this many shingles a "match" is an accident (a three-word chorus
@@ -647,6 +789,7 @@ def analyze_record(record: dict) -> dict:
     return {
         "fp": fingerprint(text),
         "script": dominant_script(text),
+        "script_weights": script_weights(text, by_family=True),
         "instrumental": bool(record.get("instrumental")),
         "has_synced": bool(stamps),
         "has_plain": bool((record.get("plainLyrics") or "").strip()),
@@ -664,13 +807,21 @@ def _greedy_group(seed: str, members: List[str], fps: Dict[str, FrozenSet[str]],
     return group
 
 
+# A candidate whose weighted letters hold at least this share in the song's
+# expected script is written in it, even when another script has more letters.
+EXPECTED_SCRIPT_SHARE = 0.2
+
+
 def cluster(candidates: List[dict], anchors: List, prefer_script: Optional[str] = None,
-            threshold: float = 0.6) -> dict:
+            threshold: Optional[float] = None) -> dict:
     """Same-song cluster of LRCLIB candidates.
 
     `candidates`: dicts with `id`, `fp` (frozenset, may be empty), `script`
-    (dominant_script of the lyrics) and `instrumental`. `anchors`: ids whose
-    title and artist matched (the caller's identity test).
+    (dominant_script of the lyrics), `instrumental` and, when known,
+    `script_weights` (family -> weighted letters, see `analyze_record`).
+    `anchors`: ids whose title and artist matched (the caller's identity
+    test). `threshold` is the SAME containment; None takes the winning script
+    family's entry in the threshold table.
 
     Returns:
       truth_status   "ok" or "no-anchor" (the caller upgrades to "instrumental")
@@ -684,8 +835,10 @@ def cluster(candidates: List[dict], anchors: List, prefer_script: Optional[str] 
                      when there is nothing to compare)
       notes          "anchor-conflict" when anchors disagreed with each other
 
-    Anchors in different scripts are not a conflict; they are split first (the
-    majority script wins, `prefer_script` breaks a tie). Anchors in the same
+    Anchors in different scripts are not a conflict; they are split first. The
+    expected script (`prefer_script`) wins whenever any anchor holds at least
+    EXPECTED_SCRIPT_SHARE of its weighted letters in it (a Korean lyric that
+    is half English counts as Korean); with none, the majority script wins. Anchors in the same
     script that contradict each other (containment < threshold) are: the
     largest mutually similar group is kept and the rest are left out.
     """
@@ -704,9 +857,13 @@ def cluster(candidates: List[dict], anchors: List, prefer_script: Optional[str] 
     group: List = []
     if texted:
         families: Dict[str, List] = {}
-        for a in texted:
-            families.setdefault(script_family(by_id[a].get("script") or ""), []).append(a)
         wanted = script_family(prefer_script or "")
+        for a in texted:
+            family = script_family(by_id[a].get("script") or "")
+            weights = by_id[a].get("script_weights")
+            if wanted and weights and family_share(weights, wanted) >= EXPECTED_SCRIPT_SHARE:
+                family = wanted
+            families.setdefault(family, []).append(a)
         # The song's own script wins whenever any anchor is written in it, even
         # when romanised uploads outnumber it: a J-pop song with 30 romaji
         # copies and 28 in Japanese is still a Japanese song, and showing the
@@ -718,6 +875,8 @@ def cluster(candidates: List[dict], anchors: List, prefer_script: Optional[str] 
             primary = sorted(families, key=lambda f: (-len(families[f]), f))[0]
         pool = families[primary]
         alt_script = [a for a in texted if a not in pool]
+        if threshold is None:
+            threshold = thresholds(primary)[0]
         agree = all(containment(fps[x], fps[y]) >= threshold for x in pool for y in pool)
         if agree:
             group = list(pool)
@@ -728,6 +887,8 @@ def cluster(candidates: List[dict], anchors: List, prefer_script: Optional[str] 
             # lowest id: the same input always picks the same song.
             group = sorted(groups, key=lambda g: (-len(g), -sum(len(fps[m]) for m in g),
                                                   min(str(m) for m in g)))[0]
+    if threshold is None:
+        threshold = DEFAULT_THRESHOLDS[0]
     members = list(group) + [a for a in instrumental_only]
     anchor_set = set(valid)
     for c in candidates:
