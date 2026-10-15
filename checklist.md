@@ -1505,8 +1505,12 @@ New settings and their defaults (spec §14):
 
 ### R4 — Translate and Settings (`feat/redesign-r4-translate-settings`)
 
-- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
-  installed.
+- [x] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed — 2026-10-15 at `1c5cf4e`: 11 of 11 steps, 1823 tests with 30
+  skipped and 0 failures. Opus reviews of both halves and a re-review, and
+  five Codex passes; findings fixed in `5887b0e`, `0307eb8`, `7eacad8` and
+  `1c5cf4e`, the chief one a Use Online press that used to cover the next
+  language pair too. The hardware checks below are owed.
 - [ ] **R4-H1** Settings at 480 pt in Russian: nothing clipped, the sidebar
   truncates.
 - [ ] **R4-H2** Speak in a Russian and an English voice; Stop Speaking stops.
