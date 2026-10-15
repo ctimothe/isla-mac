@@ -859,6 +859,7 @@ def truth_for(track: dict, variants: List[dict], candidates: List[dict], result:
         and any(c["has_plain"] for c in members)
     return {
         "truth_status": status,
+        "group_family": result.get("group_family", ""),
         "cluster_ids": result["cluster_ids"],
         "alt_script_ids": result["alt_script_ids"],
         "instrumental_expected": expected,
@@ -890,7 +891,7 @@ def analyze_track(track: dict, apple: Optional[dict], deezer: Optional[dict], ro
         analyzed[rid] = info
     # The instrumental flag trumps any placeholder text a record carries.
     pool = [{"id": rid, "fp": frozenset() if i["instrumental"] else i["fp"], "script": i["script"],
-             "script_weights": i["script_weights"], "instrumental": i["instrumental"]}
+             "script_weights": i["script_weights"], "instrumental": i["instrumental"], "text": i["text"]}
             for rid, i in analyzed.items()]
     anchors = [rid for rid, i in analyzed.items() if i["identity"]]
     prefer = oracle.expected_script(track["language"], track["title"])

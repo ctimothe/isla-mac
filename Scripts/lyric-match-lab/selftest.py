@@ -551,7 +551,55 @@ class OracleTests(unittest.TestCase):
     def _analyzed(self, rid, lines):
         info = oracle.analyze_record({"plainLyrics": "\n".join(lines)})
         return {"id": rid, "fp": info["fp"], "script": info["script"], "script_weights": info["script_weights"],
-                "instrumental": False}
+                "instrumental": False, "text": info["text"]}
+
+    @staticmethod
+    def japanese_with_latin(seed: int, lines: int = 24, latin_per_line: int = 35) -> tuple:
+        """(pure Japanese lines, the same lines each followed by made-up Latin words).
+
+        The second is Latin-dominant by weighted letters and still holds about a
+        quarter of them in Japanese, which is the reviewer's repro."""
+        rng = random.Random(seed)
+        kana = [chr(c) for c in range(0x3042, 0x3093)]
+        pure = ["".join(rng.choice(kana) for _ in range(30)) for _ in range(lines)]
+        latin = synthetic_words(seed + 1, lines * latin_per_line)
+        mixed = [pure[i] + " " + " ".join(latin[i * latin_per_line:(i + 1) * latin_per_line]) for i in range(lines)]
+        return pure, mixed
+
+    def test_an_anchor_moved_into_the_expected_script_is_compared_in_that_script(self):
+        """Second review, finding 1: a Latin-dominant anchor with a quarter of its weighted letters
+        in Japanese keeps the word 3-shingles of its own dominant family, so it shared nothing with
+        a pure-Japanese anchor's character 5-grams and the track became anchor-conflict."""
+        pure, mixed = self.japanese_with_latin(500)
+        japanese = self._analyzed(1, pure)
+        latin_heavy = self._analyzed(2, mixed)
+        self.assertEqual(latin_heavy["script"], "LATIN")
+        share = oracle.family_share(latin_heavy["script_weights"], "CJK")
+        self.assertTrue(0.2 <= share < 0.5, share)
+        # a non-anchor row of the same song, also Latin-dominant, and an unrelated Latin row
+        _, mixed_more = self.japanese_with_latin(500, latin_per_line=40)
+        candidate = self._analyzed(3, mixed_more[:18])
+        rng = random.Random(501)
+        unrelated = self._analyzed(4, [" ".join("".join(rng.choice("abcdefghijklmnopqrstuvwxyz")
+                                                          for _ in range(rng.randint(3, 8))) for _ in range(12))
+                                       for _ in range(20)])
+        result = oracle.cluster([japanese, latin_heavy, candidate, unrelated], [1, 2], prefer_script="CJK")
+        self.assertEqual(result["notes"], [])
+        self.assertEqual(sorted(result["anchor_ids"]), [1, 2])
+        self.assertEqual(result["alt_script_ids"], [])
+        self.assertEqual(sorted(result["cluster_ids"]), [1, 2, 3])
+        self.assertEqual(result["group_family"], "CJK")
+        self.assertGreaterEqual(result["containment"][2], oracle.thresholds("CJK")[0])
+        # the record keeps the fingerprint it came with outside a group that names no text
+        bare = [{k: v for k, v in c.items() if k != "text"} for c in (japanese, latin_heavy)]
+        self.assertIn("anchor-conflict", oracle.cluster(bare, [1, 2], prefer_script="CJK")["notes"])
+        # without the expected script, or without weights to move it by, the pair splits cleanly
+        # (a tie between families goes to the alphabetically first)
+        split = oracle.cluster([japanese, latin_heavy], [1, 2])
+        self.assertEqual((split["notes"], split["alt_script_ids"], split["group_family"]), ([], [2], "CJK"))
+        unweighted = oracle.cluster([japanese, dict(latin_heavy, script_weights=None)], [1, 2], prefer_script="CJK")
+        self.assertEqual((unweighted["notes"], unweighted["alt_script_ids"]), ([], [2]))
+        self.assertEqual(oracle.cluster([self._analyzed(9, synthetic_lines(1))], [9])["group_family"], "LATIN")
 
     def test_cluster_expected_script_wins_at_a_fifth_of_the_weighted_letters(self):
         """F2: a Korean lyric that is mostly English read as Latin, and with two romanised
@@ -1809,6 +1857,69 @@ class ClassifyTests(LabFixture):
         dump(path, {"summary": "s", "all": {"surfaces": {}}})
         self.assertFalse(classify.readability_section(path, {"a/2"})["without_wrong_song"]["available"])
         os.remove(path)
+
+
+class TruthFamilyTests(unittest.TestCase):
+    """classify.Truth reads the group's script family from the oracle's cluster, and
+    fingerprints every record it compares in that family (second review, findings 1 and 8)."""
+
+    URL = "https://lrclib.net/api/search?q=family"
+
+    def build(self, rows, anchor_ids, group_family=None, language="ja"):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        common.write_cache(tmp.name, self.URL, 200, json.dumps(rows).encode())
+        track = {"track_id": "pop-anglo/000", "slice": "pop-anglo",
+                 "harvest": {k: v for k, v in resolve.normalize_harvest(
+                     harvest(title="Family Song", artists=["Family Artist"], album="Alb", language=language),
+                     "pop-anglo", 0).items() if k not in ("track_id", "slice", "index")},
+                 "apple": None, "deezer": None, "apple_us": None,
+                 "candidates": [{"id": r["id"], "anchor": r["id"] in anchor_ids} for r in rows],
+                 "truth": {"truth_status": "ok", "cluster_ids": list(anchor_ids), "alt_script_ids": [], "notes": []},
+                 "lrclib_urls": {"search:q": self.URL}}
+        if group_family is not None:
+            track["truth"]["group_family"] = group_family
+        return tmp.name, track
+
+    def rows(self):
+        pure, mixed = OracleTests.japanese_with_latin(510)
+        _, more = OracleTests.japanese_with_latin(510, latin_per_line=40)
+        # the Latin-dominant anchor comes first, as a first anchor in id order can
+        return [record(1, "Family Song", "Family Artist", mixed, 200.0),
+                record(2, "Family Song", "Family Artist", pure, 200.0),
+                record(3, "Family Song", "Family Artist", more[:18], 200.0)]
+
+    def test_group_family_is_the_clusters_choice_not_the_first_anchors_script(self):
+        rows = self.rows()
+        with mock.patch.dict(oracle.THRESHOLD_TABLE, {"CJK": (0.5, 0.15), "LATIN": (0.7, 0.3)}):
+            # an old tracks.jsonl: no group_family stored, so the anchors are clustered again
+            root, track = self.build(rows, [1, 2])
+            truth = classify.Truth(root, track)
+            self.assertEqual(oracle.dominant_script(oracle.lyric_text(rows[0])), "LATIN")
+            self.assertEqual((truth.group_family, truth.same, truth.wrong), ("CJK", 0.5, 0.15))
+            # a new one: the resolver's own answer is read as it is
+            root, track = self.build(rows, [1, 2], group_family="CJK")
+            self.assertEqual(classify.Truth(root, track).group_family, "CJK")
+            # and the anchors, whatever their own script, are shingled as the group is
+            self.assertTrue(all(" " not in shingle for fp in truth.anchor_fps.values() for shingle in fp))
+            info = truth.info(3, rows[2])
+            self.assertGreaterEqual(truth.containment(3, info), 0.5)
+            self.assertEqual(info["script"], "LATIN")
+
+    def test_resolver_writes_the_group_family_into_the_truth(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "slices"))
+            h = harvest(title="Family Song", artists=["Family Artist"], album="Alb", language="ja")
+            dump(os.path.join(root, "slices", "pop-anglo.json"), {"slice": "pop-anglo", "tracks": [h]})
+            pure, mixed = OracleTests.japanese_with_latin(511)
+            seed_track(root, 0, h, record(1, "Family Song", "Family Artist", mixed, 200.0),
+                       [record(2, "Family Song", "Family Artist", pure, 200.0)], [])
+            quiet_run(root, offline=True)
+            line = json.loads(slurp(os.path.join(root, "resolved", "tracks.jsonl")).splitlines()[0])
+            self.assertEqual(line["truth"]["group_family"], "CJK")
+            self.assertNotIn("anchor-conflict", line["truth"]["notes"])
+            self.assertEqual(line["truth"]["truth_status"], "ok")
+            self.assertEqual(sorted(line["truth"]["cluster_ids"]), [1, 2])
 
 
 class MiniLab(unittest.TestCase):

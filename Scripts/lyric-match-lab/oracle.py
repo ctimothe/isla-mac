@@ -733,10 +733,14 @@ def active_params() -> dict:
                          for f in families}}
 
 
-def fingerprint(text: str, ngram: Optional[int] = None) -> FrozenSet[str]:
+def fingerprint(text: str, ngram: Optional[int] = None, family: Optional[str] = None) -> FrozenSet[str]:
     """Shingle set of a lyric text.
 
-    The shingle comes from the text's script family (`shingle_for`): character
+    The shingle comes from the text's script family (`shingle_for`), or from
+    `family` when the caller names one: two records are only comparable when
+    both were shingled the same way, so a same-song group fingerprints every
+    member with the group's family, whatever the member's own dominant script
+    (adversarial review, second pass, finding 1). Character
     n-grams over the text with spaces removed for the spaceless scripts, word
     n-grams for the rest (3 by default). A text shorter than n is one shingle,
     its whole self. `ngram` overrides n for this call (calibrate.py probes
@@ -746,7 +750,8 @@ def fingerprint(text: str, ngram: Optional[int] = None) -> FrozenSet[str]:
     normalized = normalize_text(text)
     if not normalized:
         return frozenset()
-    family = script_family(dominant_script(normalized))
+    if family is None:
+        family = script_family(dominant_script(normalized))
     kind, n = shingle_for(family)
     if ngram is not None:
         n = ngram
@@ -783,10 +788,16 @@ def containment(a: Optional[FrozenSet[str]], b: Optional[FrozenSet[str]]) -> flo
 # --------------------------------------------------------------------------
 
 def analyze_record(record: dict) -> dict:
-    """Everything the oracle derives from one LRCLIB row, minus the text itself."""
+    """Everything the oracle derives from one LRCLIB row.
+
+    `text` is the lyric itself, kept so a group can fingerprint the record
+    again in its own family (see `cluster`). It lives in memory only: no caller
+    writes an analysis to disk, and reports carry numbers.
+    """
     text = lyric_text(record)
     stamps = sung_stamps(record)
     return {
+        "text": text,
         "fp": fingerprint(text),
         "script": dominant_script(text),
         "script_weights": script_weights(text, by_family=True),
@@ -821,7 +832,13 @@ def cluster(candidates: List[dict], anchors: List, prefer_script: Optional[str] 
     `script_weights` (family -> weighted letters, see `analyze_record`).
     `anchors`: ids whose title and artist matched (the caller's identity
     test). `threshold` is the SAME containment; None takes the winning script
-    family's entry in the threshold table.
+    family's entry in the threshold table. A candidate may also carry `text`
+    (the lyric): every record compared inside the winning group is then
+    fingerprinted with that group's family, so an anchor moved into the
+    expected script by `EXPECTED_SCRIPT_SHARE` is not compared in its own
+    dominant family's shingle (a Latin-dominant anchor with a Japanese verse
+    shared no word 3-shingle with a Japanese anchor's character 5-grams and
+    the pair read as `anchor-conflict`). Without `text` the given `fp` stands.
 
     Returns:
       truth_status   "ok" or "no-anchor" (the caller upgrades to "instrumental")
@@ -834,6 +851,9 @@ def cluster(candidates: List[dict], anchors: List, prefer_script: Optional[str] 
       containment    id -> best containment against the group anchors (None
                      when there is nothing to compare)
       notes          "anchor-conflict" when anchors disagreed with each other
+      group_family   the script family the winning group is written in (""
+                     when only instrumental anchors exist); the classifier
+                     reads its thresholds and its alt-script test from it
 
     Anchors in different scripts are not a conflict; they are split first. The
     expected script (`prefer_script`) wins whenever any anchor holds at least
@@ -847,7 +867,7 @@ def cluster(candidates: List[dict], anchors: List, prefer_script: Optional[str] 
     notes: List[str] = []
     valid = [a for a in anchors if a in by_id and (fps[a] or by_id[a].get("instrumental"))]
     result = {"truth_status": "no-anchor", "cluster_ids": [], "alt_script_ids": [],
-              "anchor_ids": [], "containment": {}, "notes": notes}
+              "anchor_ids": [], "containment": {}, "notes": notes, "group_family": ""}
     if not valid:
         return result
 
@@ -855,6 +875,7 @@ def cluster(candidates: List[dict], anchors: List, prefer_script: Optional[str] 
     instrumental_only = [a for a in valid if not fps[a]]
     alt_script: List = []
     group: List = []
+    primary = ""
     if texted:
         families: Dict[str, List] = {}
         wanted = script_family(prefer_script or "")
@@ -877,6 +898,13 @@ def cluster(candidates: List[dict], anchors: List, prefer_script: Optional[str] 
         alt_script = [a for a in texted if a not in pool]
         if threshold is None:
             threshold = thresholds(primary)[0]
+        # From here on every record compared with the group is shingled the
+        # group's way. Alt-script anchors keep their own and are not compared.
+        for cid in list(fps):
+            text = by_id[cid].get("text")
+            own = script_family(by_id[cid].get("script") or "")
+            if text and fps[cid] and cid not in alt_script and shingle_for(own) != shingle_for(primary):
+                fps[cid] = fingerprint(text, family=primary)
         agree = all(containment(fps[x], fps[y]) >= threshold for x in pool for y in pool)
         if agree:
             group = list(pool)
@@ -909,5 +937,6 @@ def cluster(candidates: List[dict], anchors: List, prefer_script: Optional[str] 
         "alt_script_ids": alt_script,
         "anchor_ids": list(group) + list(instrumental_only),
         "containment": scores,
+        "group_family": primary,
     })
     return result

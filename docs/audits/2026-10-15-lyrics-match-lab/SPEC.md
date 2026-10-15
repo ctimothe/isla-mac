@@ -423,6 +423,26 @@ For each harvested track:
 >   whose truth notes carry `lrclib-unanswered` has status `truth-incomplete`:
 >   an unanswered query means the catalogue cannot be called empty.
 
+> **Amended 2026-10-15 (after the second review), the oracle.**
+>
+> - **One shingle inside a group.** An anchor moved into the expected script
+>   family (at least 0.2 of its weighted letters there) used to keep the
+>   fingerprint of its own dominant family, so a Latin-dominant anchor with a
+>   Japanese verse (word 3-shingles) shared nothing with a pure-Japanese
+>   anchor (character 5-grams) and the track became `anchor-conflict`, which
+>   made it `truth-uncertain` and dropped the pure-Japanese anchor. Every
+>   record compared inside the winning group, the anchors that were moved and
+>   the candidates tested against them, is now fingerprinted again with the
+>   group family's `NGRAM_TABLE` entry (`oracle.fingerprint(text, family=)`;
+>   `analyze_record` carries `text` in memory for it, and nothing writes it
+>   out). Alt-script anchors keep their own fingerprint and are not compared.
+> - **The group family is the cluster's answer.** `oracle.cluster` returns
+>   `group_family`, and `tracks.jsonl` records it as `truth.group_family`. The
+>   classifier takes its SAME and WRONG thresholds, its alt-script test and
+>   the shingle of every comparison from it, where it took the first anchor's
+>   own dominant script. A `tracks.jsonl` without the key is clustered again
+>   over its anchors to get it.
+
 ## The Swift harness (`Tests/IslaKitTests/LyricMatchLab*.swift`, `Scripts/lyric-match-lab.sh`)
 
 It runs only with `ISLA_MATCH_LAB=<root>`. Live requests on a cache miss are

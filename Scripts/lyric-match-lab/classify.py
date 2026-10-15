@@ -253,18 +253,45 @@ class Truth:
         self.artists = resolve.identity_artists(self.harvest, track.get("apple"), track.get("deezer"),
                                                 track.get("apple_us"))
         self.anchor_fps: Dict[int, frozenset] = {}
-        group_scripts: List[str] = []
+        self.group_family = ""
+        self.same, self.wrong = oracle.thresholds("")
+        anchor_infos: Dict[int, dict] = {}
         for cid, cand in self.candidates.items():
             if cand.get("anchor") and cid in self.pool:
                 info = self.info(cid, self.pool[cid])
                 if info["fp"] and not info["instrumental"]:
-                    self.anchor_fps[cid] = info["fp"]
-                    group_scripts.append(info["script"])
-        self._set_family(group_scripts[0] if group_scripts else "")
+                    anchor_infos[cid] = info
+        # The family the oracle's cluster chose, not the first anchor's own
+        # dominant script: an anchor moved into the expected script keeps a
+        # different dominant one, and the thresholds and the alt-script test
+        # belong to the group (second review, finding 8). A tracks.jsonl from
+        # before the resolver wrote it is clustered again over its anchors.
+        family = self.truth.get("group_family") or ""
+        if not family and anchor_infos:
+            family = self._cluster_family(anchor_infos)
+        self._set_family(family)
+        self.anchor_fps = {cid: self.group_fp(info) for cid, info in anchor_infos.items()}
 
-    def _set_family(self, script: str) -> None:
-        self.group_family = oracle.script_family(script) if script else ""
+    def _cluster_family(self, anchor_infos: Dict[int, dict]) -> str:
+        pool = [{"id": rid, "fp": i["fp"], "text": i["text"], "script": i["script"],
+                 "script_weights": i["script_weights"], "instrumental": False}
+                for rid, i in anchor_infos.items()]
+        prefer = oracle.expected_script(self.harvest.get("language") or "", self.harvest.get("title") or "")
+        return oracle.cluster(pool, list(anchor_infos), prefer_script=prefer)["group_family"]
+
+    def _set_family(self, family: str) -> None:
+        self.group_family = family or ""
         self.same, self.wrong = oracle.thresholds(self.group_family)
+
+    def group_fp(self, info: dict) -> frozenset:
+        """The record's fingerprint in the group's family, so that it and the
+        anchors are shingled alike however each one's own script reads."""
+        if not info["fp"] or not self.group_family:
+            return info["fp"]
+        cache = info.setdefault("_fp_by_family", {})
+        if self.group_family not in cache:
+            cache[self.group_family] = oracle.fingerprint(info["text"], family=self.group_family)
+        return cache[self.group_family]
 
     def info(self, rid: int, row: dict) -> dict:
         cached = self.infos.get(rid)
@@ -280,7 +307,8 @@ class Truth:
         others = [fp for aid, fp in self.anchor_fps.items() if aid != rid]
         if not info["fp"] or not others:
             return None
-        return round(max(oracle.containment(info["fp"], fp) for fp in others), 3)
+        mine = self.group_fp(info)
+        return round(max(oracle.containment(mine, fp) for fp in others), 3)
 
     def promote(self, isla_rows_of_track: Dict[int, dict]) -> bool:
         """Anchor a track the resolver found no anchor for, from Isla's answers.
@@ -295,6 +323,11 @@ class Truth:
         """
         if self.status != "no-anchor" or not isla_rows_of_track:
             return False
+        # An unanswered query means the catalogue cannot be called empty or
+        # known: the track stays truth-incomplete however a record in Isla's
+        # answers looks (second review, finding 2a).
+        if any(str(n).startswith("lrclib-unanswered") for n in self.notes):
+            return False
         everything = dict(self.pool)
         for rid, row in isla_rows_of_track.items():
             everything.setdefault(rid, row)
@@ -304,7 +337,7 @@ class Truth:
         if not anchors:
             return False
         pool = [{"id": rid, "fp": frozenset() if i["instrumental"] else i["fp"], "script": i["script"],
-                 "script_weights": i["script_weights"], "instrumental": i["instrumental"]}
+                 "script_weights": i["script_weights"], "instrumental": i["instrumental"], "text": i["text"]}
                 for rid, i in infos.items()]
         prefer = oracle.expected_script(self.harvest.get("language") or "", self.harvest.get("title") or "")
         result = oracle.cluster(pool, anchors, prefer_script=prefer)
@@ -313,10 +346,9 @@ class Truth:
         self.pool = everything
         self.cluster = set(result["cluster_ids"])
         self.alt = set(result["alt_script_ids"])
-        self.anchor_fps = {aid: infos[aid]["fp"] for aid in result["anchor_ids"]
+        self._set_family(result["group_family"])
+        self.anchor_fps = {aid: self.group_fp(infos[aid]) for aid in result["anchor_ids"]
                            if aid in infos and infos[aid]["fp"]}
-        scripts = [infos[aid]["script"] for aid in result["anchor_ids"] if aid in infos and infos[aid]["fp"]]
-        self._set_family(scripts[0] if scripts else "")
         self.status = "truth-uncertain" if "anchor-conflict" in result["notes"] else "ok"
         self.promoted = True
         return True
