@@ -188,6 +188,10 @@ final class ClipboardStore: ObservableObject {
     /// Support, and the session wires the real file and the real switch.
     var pinnedFile: PinnedClipboardFile?
     var keepsPinned: () -> Bool = { false }
+    /// Whether a saved file pin still exists, asked at load for paths that could
+    /// be local (`PinnedClipboardFile.load`). Nil asks `FileManager`; a test
+    /// injects its own so no path outside a temporary folder is ever touched.
+    var pinnedFileExists: ((String) -> Bool)?
     /// What the file held when it was last written or read, so a copy that
     /// changes no pin writes nothing.
     private var persistedPins: [PinnedClipboardFile.Record]?
@@ -412,7 +416,7 @@ final class ClipboardStore: ObservableObject {
         bubble(item)
     }
 
-    /// Paste as Plain Text (spec §9.2): the entry's string alone, with the
+    /// Copy as Plain Text (spec §9.2, renamed from Paste as Plain Text in review 2026-10-15): the entry's string alone, with the
     /// whitespace a selection drags along trimmed off. Isla has no Accessibility
     /// permission and so cannot press ⌘V in the front app; what it can do is
     /// leave exactly the plain string on the pasteboard, which is what a
@@ -434,6 +438,25 @@ final class ClipboardStore: ObservableObject {
             let moved = items.remove(at: index)
             items.insert(moved, at: 0)
         }
+    }
+
+    /// The still-picture flavours a copy may carry, in the order one is read:
+    /// the declared formats first, TIFF last. The pasteboard lists a converted
+    /// TIFF beside a declared PNG, JPEG or HEIC — uncompressed, tens of
+    /// megabytes — so a TIFF is read only when it is all there is. A copy that
+    /// lists a PNG beside a JPEG keeps the PNG.
+    /// A JPEG alone is what Preview's "Copy" of a photo, a browser's image
+    /// copy of a JPEG and several camera apps put on the pasteboard, and the
+    /// plan used to see only PNG and TIFF — those copies were silently
+    /// `.nothing` (review 2026-10-15). HEIC is the same story from a phone.
+    /// `ClipImage` hands the bytes to ImageIO, which decodes all four.
+    static let jpegType = NSPasteboard.PasteboardType("public.jpeg")
+    static let heicType = NSPasteboard.PasteboardType("public.heic")
+    static let imageFlavours: [NSPasteboard.PasteboardType] = [.png, jpegType, heicType, .tiff]
+
+    /// The flavour to read for a copy that lists `types`, or nil for no picture.
+    static func imageFlavour(in types: [NSPasteboard.PasteboardType]) -> NSPasteboard.PasteboardType? {
+        imageFlavours.first(where: types.contains)
     }
 
     /// What one copy is read for, decided from its type list alone.
@@ -467,7 +490,7 @@ final class ClipboardStore: ObservableObject {
         if types.contains(.fileURL), history || images { return .files }
         if images, types.contains(where: isMovieType) { return .movieData }
         if images || (history && keepImages) {
-            if types.contains(.png) || types.contains(.tiff), !(history && hasText) { return .image }
+            if imageFlavour(in: types) != nil, !(history && hasText) { return .image }
         }
         if history, hasText { return .text }
         return .nothing
@@ -637,14 +660,9 @@ final class ClipboardStore: ObservableObject {
         // asking for the second after the first came back empty was a second
         // read of nothing — and a second alert under Ask.
         let types = pasteboard.types ?? []
-        let hasPNG = types.contains(.png)
-        if hasPNG {
-            if let png = readData(.png) {
-                process(original: png, type: .png, at: changeCount)
-                return
-            }
-        } else if types.contains(.tiff), let tiff = readData(.tiff) {
-            process(original: tiff, type: .tiff, at: changeCount)
+        let flavour = Self.imageFlavour(in: types)
+        if let flavour, let data = readData(flavour) {
+            process(original: data, type: flavour, at: changeCount)
             return
         }
 
@@ -666,7 +684,7 @@ final class ClipboardStore: ObservableObject {
 
         // Give up after a few seconds, or once the copy no longer offers a
         // picture at all, and fall back to whatever else it carried.
-        guard attempt < 12, hasPNG || types.contains(.tiff) else {
+        guard attempt < 12, flavour != nil else {
             recordTextFallback(at: changeCount)
             return
         }
@@ -817,7 +835,7 @@ final class ClipboardStore: ObservableObject {
             persistedPins = nil
             return
         }
-        let records = pinnedFile.load()
+        let records = pinnedFile.load(exists: pinnedFileExists)
         persistedPins = records
         // Under whatever the history already holds, oldest last, in the order
         // the file kept them.

@@ -87,7 +87,19 @@ final class NotchViewModel: ObservableObject {
             // The panel closing ends a Clipboard search and gives its keyboard
             // back (spec §9.3): a field left open would be waiting, with its
             // query, inside the next visit.
-            if !isOpen, oldValue { closeClipboardSearch() }
+            if !isOpen, oldValue {
+                closeClipboardSearch()
+                // And the Shelf's selection (review 2026-10-15): a tile picked
+                // on Monday was still picked on Tuesday, and with the pointer
+                // resting on the grid while typing in Mail, the transient
+                // Delete key ate ⌫ and removed it. A selection belongs to one
+                // opening of the panel.
+                shelf.clearSelection()
+            }
+            if isOpen, !oldValue {
+                openingGeneration &+= 1
+                if shelfSelectionIsCurrent { shelfSelectionIsCurrent = false }
+            }
             guard isOpen, !oldValue else { return }
             ambient = nil
             isPeeking = false
@@ -105,6 +117,26 @@ final class NotchViewModel: ObservableObject {
     /// that matters. One of the two things the transient Delete key waits for
     /// (`claimsDelete`).
     @Published var isPointerOnShelf = false
+    /// Counts the panel's openings: the stamp a Shelf selection carries, so the
+    /// Delete key is held only for a selection made during the *current* opening
+    /// (review 2026-10-15). Clearing the selection when the panel closes already
+    /// does that job; the stamp is the second wall, for any path that leaves a
+    /// selection standing without passing through a close.
+    private(set) var openingGeneration = 0
+    private var shelfSelectionOpening: Int?
+    /// Whether the Shelf has a selection that was made during this opening — the
+    /// `hasSelection` of `claimsDelete`, published so the controller's sink
+    /// reads it with the rest of the claim's inputs.
+    @Published private(set) var shelfSelectionIsCurrent = false
+
+    private func shelfSelectionChanged(to selection: Set<UUID>) {
+        // Stamped from the value the publisher hands over (it announces before
+        // it stores), and only while the panel is open: a selection made while
+        // shut is not "this opening's".
+        shelfSelectionOpening = selection.isEmpty || !isOpen ? nil : openingGeneration
+        let current = shelfSelectionOpening == openingGeneration
+        if shelfSelectionIsCurrent != current { shelfSelectionIsCurrent = current }
+    }
     /// Briefly true when a new track has just arrived and is showing itself.
     @Published var isPeeking = false
     /// The charger or headphones, shown for a moment. See `AmbientActivity`.
@@ -169,6 +201,10 @@ final class NotchViewModel: ObservableObject {
             // The Clipboard search belongs to the Clipboard tab: leaving it
             // closes the field, and with it the claim on the keyboard.
             if tab != .clipboard { clipboardBrowser.endSearch() }
+            // A Shelf selection is for the visit it was made in: left standing
+            // it would be waiting, with Delete behind it, the next time the
+            // Shelf is shown (review 2026-10-15).
+            if tab != .shelf { shelf.clearSelection() }
             // Leaving the tab that types gives the keyboard straight back.
             if !Self.tabWantsKeyboard(tab: tab, clipboardSearching: clipboardBrowser.isSearching) {
                 wantsKeyboard = false
@@ -773,6 +809,11 @@ final class NotchViewModel: ObservableObject {
         )
         .sink { [weak self] _ in self?.objectWillChange.send() }
         .store(in: &cancellables)
+
+        // The stamp on the Shelf's selection (`shelfSelectionIsCurrent`).
+        stores.shelf.$selection
+            .sink { [weak self] selection in self?.shelfSelectionChanged(to: selection) }
+            .store(in: &cancellables)
 
         // The key line's wallpaper answer arrives off the main actor and the
         // island redraws when it lands.

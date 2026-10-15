@@ -292,4 +292,61 @@ final class ClipboardImageTests: XCTestCase {
         XCTAssertEqual(Store.readPlan(types: film, history: true, images: false, keepImages: true), .nothing, "Include Images keeps pictures, not films")
         XCTAssertEqual(Store.readPlan(types: film, history: true, images: true, keepImages: true), .movieData)
     }
+
+    // MARK: JPEG and HEIC (review 2026-10-15)
+
+    private func jpeg(_ width: Int = 120, _ height: Int = 80) throws -> Data {
+        try XCTUnwrap(NSBitmapImageRep(data: png(width, height))?.representation(using: .jpeg, properties: [:]))
+    }
+
+    /// A copy that lists `public.jpeg` and nothing else (Preview's Copy of a
+    /// photo, a browser's image copy of a JPEG) used to plan `.nothing`: the plan
+    /// knew only PNG and TIFF. One read, kept as the JPEG it was.
+    func testAJPEGOnlyCopyBecomesAnEntryInOneRead() throws {
+        let original = try jpeg()
+        board.clearContents()
+        board.setData(original, forType: ClipboardStore.jpegType)
+        store.pollNow()
+        settle { !self.store.items.isEmpty }
+        let item = try XCTUnwrap(store.items.first)
+        XCTAssertEqual(item.kind, .image)
+        guard case .image(let image) = item.payload else { return XCTFail("not a picture entry") }
+        XCTAssertEqual(image.type, ClipboardStore.jpegType, "kept as the JPEG it was copied as")
+        XCTAssertEqual(image.data, original)
+        XCTAssertEqual(image.pixelSize, CGSize(width: 120, height: 80))
+        XCTAssertEqual(store.contentReadCount, 1, "one read")
+
+        board.clearContents()
+        store.copy(item)
+        XCTAssertEqual(board.data(forType: ClipboardStore.jpegType), original, "and it goes back as a JPEG")
+    }
+
+    func testTheReadPlanSeesJPEGAndHEICAndPrefersTheLosslessFlavour() {
+        typealias Store = ClipboardStore
+        for only in [Store.jpegType, Store.heicType] {
+            XCTAssertEqual(Store.readPlan(types: [only], history: true, images: false, keepImages: true), .image, only.rawValue)
+            XCTAssertEqual(Store.readPlan(types: [only], history: true, images: true, keepImages: false), .image, only.rawValue)
+            XCTAssertEqual(Store.readPlan(types: [only], history: true, images: false, keepImages: false), .nothing, "no switch wants it")
+            XCTAssertEqual(Store.readPlan(types: [only, .string], history: true, images: false, keepImages: true), .text, "text beside it wins, as for PNG")
+        }
+        XCTAssertEqual(Store.imageFlavour(in: [Store.jpegType, .png]), .png)
+        XCTAssertEqual(Store.imageFlavour(in: [Store.heicType, Store.jpegType]), Store.jpegType)
+        XCTAssertEqual(Store.imageFlavour(in: [.tiff, Store.jpegType]), Store.jpegType, "the pasteboard's converted TIFF is not read when the JPEG is there")
+        XCTAssertEqual(Store.imageFlavour(in: [.tiff, .png]), .png)
+        XCTAssertEqual(Store.imageFlavour(in: [.tiff]), .tiff)
+        XCTAssertEqual(Store.imageFlavour(in: [Store.heicType]), Store.heicType)
+        XCTAssertNil(Store.imageFlavour(in: [.string, .pdf]))
+    }
+
+    /// The Ask-mode rule holds for the new flavours: an empty read is a refusal,
+    /// read once and never retried.
+    func testAskModeNeverRetriesAJPEGRead() {
+        store.accessBehavior = { .ask }
+        store.wantsImages = { false }
+        board.declareTypes([ClipboardStore.jpegType], owner: nil)
+        store.pollNow()
+        settle(until: { false }, timeout: 1.5)
+        XCTAssertEqual(store.contentReadCount, 1)
+        XCTAssertTrue(store.items.isEmpty)
+    }
 }

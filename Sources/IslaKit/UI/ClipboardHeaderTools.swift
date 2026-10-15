@@ -1,38 +1,26 @@
 import SwiftUI
 
-/// The Clipboard header's tools (spec §9.3): the segmented "Kind" filter, Search
-/// and Expand — and, while Search is open, the field that replaces them.
+/// The Clipboard header's tools (spec §9.3): Search and Expand, in the header's
+/// trailing corner right of the notch.
 ///
 /// Laid over the header strip after its accessibility element, as the lyric
 /// tools and the Shelf's Expand are (`ExpandHeaderTool`): an inline control
 /// would be swallowed by the strip's `.ignore` and unreachable to VoiceOver,
 /// and each piece is placed by its own offset so the rest of the strip keeps its
-/// click-to-close.
+/// click-to-close. The Kind filter and the search field are not here any more:
+/// they sit on a filter row under the header, drawn by `ClipboardPane` (review
+/// 2026-10-15 — the notch covered them where the spec had them, and a control
+/// drawn below the strip's own bounds belongs to the pane that is there).
 struct ClipboardHeaderTools: ViewModifier {
     let isShown: Bool
     let bodyWidth: CGFloat
     let itemCount: Int
     @ObservedObject var browser: ClipboardBrowser
     @Binding var isExpanded: Bool
-    /// Whether the panel holds the keyboard, the way Translate's field reads it:
-    /// the field follows the claim, so the caret stops blinking here when the
-    /// keyboard has genuinely gone elsewhere.
-    @Binding var wantsKeyboard: Bool
     let openSearch: () -> Void
-    let closeSearch: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .overlay(alignment: .topLeading) {
-                if isShown, !browser.isSearching, itemCount > 0 {
-                    ClipboardKindControl(selection: $browser.filter, bodyWidth: bodyWidth)
-                        .offset(
-                            x: ClipboardHeader.filter(bodyWidth: bodyWidth).minX,
-                            y: ClipboardHeader.filter(bodyWidth: bodyWidth).minY
-                        )
-                        .transition(.opacity)
-                }
-            }
             .overlay(alignment: .topLeading) {
                 if isShown, !browser.isSearching, ClipboardHeader.showsSearch(itemCount: itemCount) {
                     HeaderIconButton(
@@ -46,26 +34,10 @@ struct ClipboardHeaderTools: ViewModifier {
                 }
             }
             .overlay(alignment: .topLeading) {
-                if isShown, browser.isSearching {
-                    ClipboardSearchField(
-                        browser: browser, wantsKeyboard: $wantsKeyboard, close: closeSearch
-                    )
-                    .frame(
-                        width: ClipboardHeader.searchField(bodyWidth: bodyWidth).width,
-                        height: ClipboardHeader.searchField(bodyWidth: bodyWidth).height
-                    )
-                    .offset(
-                        x: ClipboardHeader.searchField(bodyWidth: bodyWidth).minX,
-                        y: ClipboardHeader.searchField(bodyWidth: bodyWidth).minY
-                    )
-                    .transition(.opacity)
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                // Not while the field is open: it takes the corner (the board
-                // draws its ⓧ where Expand sits), and Escape closes it.
-                if isShown, !browser.isSearching,
-                   ClipboardHeader.showsTools(itemCount: itemCount, isExpanded: isExpanded, isSearching: false) {
+                // Stays while the field is open: the ⓧ that closes it lives
+                // inside the field now, not on Expand's spot.
+                if isShown,
+                   ClipboardHeader.showsTools(itemCount: itemCount, isExpanded: isExpanded, isSearching: browser.isSearching) {
                     ExpandCollapseButton(isExpanded: $isExpanded)
                         .offset(x: HeaderToolFrames.expand(bodyWidth: bodyWidth).minX, y: HeaderToolFrames.top)
                         .transition(.opacity)
@@ -76,8 +48,9 @@ struct ClipboardHeaderTools: ViewModifier {
 
 // MARK: - The Kind filter
 
-/// All · Text · Links · Images · Files, 270 × 20 (or five symbols, 150 × 20,
-/// below 540) on a 0.08 track, the chosen segment on a lighter plate (spec §9.3).
+/// All · Text · Links · Images · Files, 270 × 20 in English (wider where a longer
+/// language needs it, or five symbols, 150 × 20, below 540 and where the words
+/// do not fit the row) on a 0.08 track, the chosen segment on a lighter plate (spec §9.3).
 ///
 /// Drawn by hand like the Settings choice rows, for the same reason — a native
 /// segmented control looks like AppKit on the dark pane — and vended to an
@@ -139,8 +112,8 @@ struct ClipboardKindControl: View {
 
 // MARK: - The search field
 
-/// The field that replaces the filter while Search is open (spec §9.3): 294 × 22,
-/// radius 7, fill 0.10, a magnifier, the caret in the accent, and Clear Search ⓧ.
+/// The field that replaces the filter while Search is open (spec §9.3): the filter
+/// row's whole width (`bw − 72`) × 22, radius 7, fill 0.10, a magnifier, the caret in the accent, and Clear Search ⓧ.
 ///
 /// Typing needs the keyboard, which the panel only has while somebody asks —
 /// `NotchPanel.canBecomeKey` is false except for Translate. The field asks

@@ -10,11 +10,20 @@ import SwiftUI
 enum ClipboardLayout {
     // MARK: - Rows (§9.2)
 
-    /// Rows 28 tall, 2 apart, from (58, 44): the pane's own leading edge and the
-    /// first row below the header.
+    /// Rows 28 tall, 2 apart, from (58, 74): the pane's own leading edge and the
+    /// first row below the filter row.
+    ///
+    /// 74, not the spec's 44 (driver correction, review 2026-10-15): the Kind
+    /// filter and the search field used to ride the header beside Search, and the
+    /// notch — 185 to 220 pt wide, centred on the body, with a synthetic one drawn
+    /// on a Mac that has none — sat on their middle. They moved to a row of their
+    /// own under the header (`filterRow`), and the list gave that row's 30 pt up.
     static let rowHeight: CGFloat = 28
     static let rowGap: CGFloat = 2
-    static let listOrigin = CGPoint(x: PlayerLayout.paneLeading, y: 44)
+    static let listOrigin = CGPoint(x: PlayerLayout.paneLeading, y: 74)
+    /// The list's top while there is no filter row to clear (no history yet):
+    /// the first row below the header, where the spec had it.
+    static let listOriginWithoutFilterRow = CGPoint(x: PlayerLayout.paneLeading, y: 44)
     static let rowRadius: CGFloat = 7
 
     /// `bw − 72`: 488 at 560.
@@ -52,13 +61,16 @@ enum ClipboardLayout {
     /// The window the list scrolls in: the first row's top to the foot. With a
     /// denied-access alert above it the list starts below the alert, and while
     /// Clear History is being asked the question's bar takes the foot.
-    static func viewport(bodySize: CGSize, showsAlert: Bool = false, confirming: Bool = false) -> CGRect {
-        let top = listOrigin.y + (showsAlert ? alertHeight + alertGap : 0)
+    static func viewport(
+        bodySize: CGSize, showsAlert: Bool = false, confirming: Bool = false, hasFilterRow: Bool = true
+    ) -> CGRect {
+        let origin = hasFilterRow ? listOrigin : listOriginWithoutFilterRow
+        let top = origin.y + (showsAlert ? alertHeight + alertGap : 0)
         let bottom = confirming
             ? confirmBar(bodySize: bodySize).minY
             : bodySize.height - bottomInset
         return CGRect(
-            x: listOrigin.x, y: top,
+            x: origin.x, y: top,
             width: rowWidth(bodyWidth: bodySize.width), height: max(0, bottom - top)
         )
     }
@@ -84,7 +96,7 @@ enum ClipboardLayout {
 
     // MARK: - Denied (§9.4)
 
-    /// The inline alert: 488 × 44 at (58, 44), radius 9, the list 8 below it.
+    /// The inline alert: 488 × 44 at the list's origin, radius 9, the list 8 below it.
     static let alertHeight: CGFloat = 44
     static let alertGap: CGFloat = 8
     static let alertRadius: CGFloat = 9
@@ -130,8 +142,17 @@ enum ClipboardLayout {
 
 // MARK: - The header (§9.3)
 
-/// The Clipboard header's tools, in header coordinates (the body's own, 8 below
-/// the top for a 22 pt tool): the segmented filter, Search and Expand.
+/// The Clipboard's tools. Search and Expand ride the header's trailing corner at
+/// (`bw − 67`, 8) and (`bw − 39`, 8); the Kind filter, and the search field that
+/// replaces it, sit on a **filter row** under the header.
+///
+/// Why a row of its own (driver correction, review 2026-10-15): body coordinates
+/// start at the top of the screen, the first `notchSize.height` points are the
+/// header, and the notch occupies the header's middle (about 170 to 390 at 560).
+/// The spec put the filter at (212, 9) and the field at (250, 8), both largely
+/// hidden behind it on hardware — and Isla draws a synthetic notch on a Mac that
+/// has none, so the middle of the header is never free. `ClipboardNotchBandTests`
+/// holds that no control but the trailing tools reaches the band.
 enum ClipboardHeader {
     /// Below this body width the segments become symbols and ages shorten
     /// (spec §9.3, §13, `Stress-Clip-RU-480`).
@@ -139,67 +160,109 @@ enum ClipboardHeader {
 
     static func usesSymbols(bodyWidth: CGFloat) -> Bool { bodyWidth < symbolWidth }
 
-    /// Whether the five names fit their 53 pt segments at the size they are
-    /// drawn. "Изображения" is 76 pt wide, so the Russian control cannot be
-    /// words at any width the panel has; the spec's rule is "below 540" and
-    /// says nothing of a language, but a control that truncated its own labels
-    /// would break the one rule §13 gives every layout — controls are never
-    /// truncated — so the words fall back to symbols (with the names as their
-    /// tooltips and labels) exactly where they would not fit. Measured, as the
-    /// Shelf bar's fold is, rather than listed by language.
-    static func wordsFit(measure: (String) -> CGFloat = { ShelfTileName.measure($0, selected: true) }) -> Bool {
-        let segment = (wordsWidth - 4) / CGFloat(ClipFilter.allCases.count)
-        return ClipFilter.allCases.allSatisfy { measure($0.title) + 8 <= segment }
-    }
+    // MARK: The filter row
 
-    /// The control as drawn: symbols below 540, and wherever the words do not fit.
-    static func usesSymbolSegments(bodyWidth: CGFloat, wordsFit: Bool = ClipboardHeader.wordsFit()) -> Bool {
-        usesSymbols(bodyWidth: bodyWidth) || !wordsFit
-    }
+    /// The row under the header: (58, 44), `bw − 72` wide, 22 tall. The segmented
+    /// control is left-aligned in it and the search field fills it.
+    static let filterRowTop: CGFloat = 44
+    static let filterRowHeight: CGFloat = 22
 
-    static let wordsWidth: CGFloat = 270
-    static let symbolsWidth: CGFloat = 150
-
-    /// The control's size: 270 × 20 with words, 150 × 20 with symbols.
-    static func filterSize(bodyWidth: CGFloat, wordsFit: Bool = ClipboardHeader.wordsFit()) -> CGSize {
-        CGSize(
-            width: usesSymbolSegments(bodyWidth: bodyWidth, wordsFit: wordsFit) ? symbolsWidth : wordsWidth,
-            height: 20
+    static func filterRow(bodyWidth: CGFloat) -> CGRect {
+        CGRect(
+            x: PlayerLayout.paneLeading, y: filterRowTop,
+            width: ClipboardLayout.rowWidth(bodyWidth: bodyWidth), height: filterRowHeight
         )
     }
 
-    static let filterTop: CGFloat = 9
+    // MARK: The segmented control
+
+    /// A segment is never narrower than this: the 270 pt control's 53.2.
+    static let minimumSegment: CGFloat = 53.2
+    static let filterHeight: CGFloat = 20
+
+    /// The widest the five names are at the size they are drawn, plus 8 of air.
+    static func segmentWidth(measure: (String) -> CGFloat = { ShelfTileName.measure($0, selected: true) }) -> CGFloat {
+        max(minimumSegment, ClipFilter.allCases.map { measure($0.title) + 8 }.max() ?? minimumSegment)
+    }
+
+    /// The control at its natural width: five equal segments and the track's
+    /// 2 pt padding each side. English is 270 (the spec's); a longer language
+    /// grows the control to fit its longest name instead of clipping it.
+    static func wordsWidth(measure: (String) -> CGFloat = { ShelfTileName.measure($0, selected: true) }) -> CGFloat {
+        CGFloat(ClipFilter.allCases.count) * segmentWidth(measure: measure) + 4
+    }
+
+    /// Whether the words fit the **row**. They used to be measured against a
+    /// fixed 53 pt segment, which "Изображения" (76 pt) could never meet, so
+    /// Russian was symbols at every width; the row is 408 to 548 wide, and the
+    /// words fit it wherever the natural width does. A control that truncated its
+    /// own labels would break the one rule §13 gives every layout — controls are
+    /// never truncated — so where they do not fit, the segments are symbols.
+    static func wordsFit(
+        bodyWidth: CGFloat, measure: (String) -> CGFloat = { ShelfTileName.measure($0, selected: true) }
+    ) -> Bool {
+        wordsWidth(measure: measure) <= ClipboardLayout.rowWidth(bodyWidth: bodyWidth)
+    }
+
+    /// The control as drawn: symbols below 540, and wherever the words do not fit.
+    static func usesSymbolSegments(bodyWidth: CGFloat, wordsFit: Bool) -> Bool {
+        usesSymbols(bodyWidth: bodyWidth) || !wordsFit
+    }
+
+    static func usesSymbolSegments(bodyWidth: CGFloat) -> Bool {
+        usesSymbolSegments(bodyWidth: bodyWidth, wordsFit: wordsFit(bodyWidth: bodyWidth))
+    }
+
+    static let symbolsWidth: CGFloat = 150
+
+    /// The control's size: 270 × 20 with words in English, 150 × 20 with symbols.
+    static func filterSize(bodyWidth: CGFloat, wordsFit: Bool) -> CGSize {
+        CGSize(
+            width: usesSymbolSegments(bodyWidth: bodyWidth, wordsFit: wordsFit) ? symbolsWidth : wordsWidth(),
+            height: filterHeight
+        )
+    }
+
+    static func filterSize(bodyWidth: CGFloat) -> CGSize {
+        filterSize(bodyWidth: bodyWidth, wordsFit: wordsFit(bodyWidth: bodyWidth))
+    }
+
+    /// Left-aligned on the row, centred in its 22 pt.
+    static func filter(bodyWidth: CGFloat, wordsFit: Bool) -> CGRect {
+        let size = filterSize(bodyWidth: bodyWidth, wordsFit: wordsFit)
+        let row = filterRow(bodyWidth: bodyWidth)
+        return CGRect(x: row.minX, y: row.minY + (row.height - size.height) / 2, width: size.width, height: size.height)
+    }
+
+    static func filter(bodyWidth: CGFloat) -> CGRect {
+        filter(bodyWidth: bodyWidth, wordsFit: wordsFit(bodyWidth: bodyWidth))
+    }
+
+    // MARK: Search and Expand
 
     /// Search sits at `bw − 67` and Expand at `bw − 39`: 22 pt each, 6 apart.
+    /// Both are right of the notch at every width the panel has.
     static func search(bodyWidth: CGFloat) -> CGRect {
         CGRect(x: bodyWidth - 67, y: HeaderToolFrames.top, width: HeaderToolFrames.side, height: HeaderToolFrames.side)
     }
 
-    /// The filter rides the trailing edge with the two buttons: 11 clear of
-    /// Search with words — where the spec's `212` comes from at 560, and why it
-    /// is `bw − 348` here, so a wider body keeps the cluster together instead
-    /// of leaving a gap — and 3 with symbols (`Stress-Clip-RU-480`'s 260 at
-    /// 480).
-    static func filter(bodyWidth: CGFloat, wordsFit: Bool = ClipboardHeader.wordsFit()) -> CGRect {
-        let size = filterSize(bodyWidth: bodyWidth, wordsFit: wordsFit)
-        let gap: CGFloat = usesSymbolSegments(bodyWidth: bodyWidth, wordsFit: wordsFit) ? 3 : 11
-        return CGRect(
-            x: search(bodyWidth: bodyWidth).minX - gap - size.width, y: filterTop,
-            width: size.width, height: size.height
-        )
-    }
-
-    /// The open search field: 294 × 22 at (250, 8) on 560, riding the same edge
-    /// (its right edge is 544, inside Expand's) — it *replaces* the filter and
-    /// Search, and Expand stays.
+    /// The open search field: the whole row, `bw − 72` × 22 at (58, 44), radius
+    /// 7. It *replaces* the filter; Search leaves and Expand stays, since the ⓧ
+    /// that closes the field lives inside it.
     static func searchField(bodyWidth: CGFloat) -> CGRect {
-        CGRect(x: bodyWidth - 310, y: HeaderToolFrames.top, width: 294, height: 22)
+        filterRow(bodyWidth: bodyWidth)
     }
 
     static let searchFieldRadius: CGFloat = 7
     static let searchFieldFillOpacity: Double = 0.10
     /// The ⓧ inside the field's trailing end: 16 pt at 6 from the edge.
     static let clearSide: CGFloat = 16
+
+    /// Whether the filter row is there: while there is a history to filter, or
+    /// a search left open over one that just emptied.
+    static func showsFilterRow(itemCount: Int, isSearching: Bool) -> Bool {
+        itemCount > 0 || isSearching
+    }
 
     /// Search stays reachable while there is a history to look through, and
     /// only then. Expand follows the Shelf's rule: there while there is
@@ -209,6 +272,21 @@ enum ClipboardHeader {
     }
 
     static func showsSearch(itemCount: Int) -> Bool { itemCount > 0 }
+
+    /// Every control the header and the filter row draw, in body coordinates,
+    /// for the notch-band test and anyone else who needs to ask what is where.
+    static func controlFrames(bodyWidth: CGFloat, isSearching: Bool) -> [(name: String, frame: CGRect, isTrailingTool: Bool)] {
+        var frames: [(String, CGRect, Bool)] = [
+            ("Expand", HeaderToolFrames.expand(bodyWidth: bodyWidth), true),
+        ]
+        if isSearching {
+            frames.append(("Search field", searchField(bodyWidth: bodyWidth), false))
+        } else {
+            frames.append(("Search", search(bodyWidth: bodyWidth), true))
+            frames.append(("Kind filter", filter(bodyWidth: bodyWidth), false))
+        }
+        return frames
+    }
 }
 
 // MARK: - A row's mark and content

@@ -687,8 +687,8 @@ struct NotchContentView: View {
                     }
                 )
             ))
-            // The Clipboard's kind filter, Search (or the field that replaces
-            // them) and Expand (spec §9.3), the same way.
+            // The Clipboard's Search and Expand (spec §9.3), the same way. Its kind
+            // filter and search field are on the pane's own filter row.
             .modifier(ClipboardHeaderTools(
                 isShown: showsClipboardTools,
                 bodyWidth: size.width,
@@ -702,9 +702,7 @@ struct NotchContentView: View {
                         }
                     }
                 ),
-                wantsKeyboard: $vm.wantsKeyboard,
-                openSearch: { vm.openClipboardSearch() },
-                closeSearch: { vm.closeClipboardSearch() }
+                openSearch: { vm.openClipboardSearch() }
             ))
             .modifier(LyricHeaderTools(
                 isShown: showsLyricTools,
@@ -1173,6 +1171,8 @@ struct NotchContentView: View {
             ClipboardPane(
                 clipboard: vm.clipboard, privacy: vm.privacy, browser: vm.clipboardBrowser,
                 headerHeight: vm.geometry.notchSize.height,
+                wantsKeyboard: $vm.wantsKeyboard,
+                closeSearch: { vm.closeClipboardSearch() },
                 translate: { vm.translateClipboardText($0) },
                 turnOnHistory: { vm.setClipboardHistory(true) }
             )

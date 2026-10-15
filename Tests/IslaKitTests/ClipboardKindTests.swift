@@ -213,6 +213,38 @@ final class ClipboardKindTests: XCTestCase {
         }
     }
 
+    // MARK: Long single-line text (review 2026-10-15)
+
+    /// Detection runs on the main thread from `ClipItem.init`. The call pattern
+    /// restarted at every character of a long identifier run and scanned to its
+    /// end each time — quadratic in the run. A generous bound, measured with the
+    /// clock rather than XCTest metrics; the linear version takes microseconds.
+    func testALongIdentifierRunClassifiesQuickly() {
+        let run = String(repeating: "a", count: 20_000)
+        let clock = ContinuousClock()
+        let whole = clock.measure { XCTAssertEqual(ClipboardDetection.kind(ofText: run), .text) }
+        XCTAssertLessThan(whole, .milliseconds(250), "the whole path, 20,000 characters")
+        // The regex alone over the whole run, with the 2 KB sample out of the way.
+        let signals = clock.measure { XCTAssertEqual(ClipboardDetection.signalCount(of: run), 0) }
+        XCTAssertLessThan(signals, .milliseconds(250), "the call pattern is linear in an identifier run")
+        let dotted = String(repeating: "ab.", count: 7_000)
+        let chain = clock.measure { _ = ClipboardDetection.signalCount(of: dotted) }
+        XCTAssertLessThan(chain, .milliseconds(250), "and in a dotted chain")
+    }
+
+    func testOnlyTheFirst2KBDecidesAndLongCodeIsStillCode() {
+        XCTAssertEqual(ClipboardDetection.codeSampleLimit, 2048)
+        let longCode = String(repeating: "let x = 1;\n", count: 3_000)
+        XCTAssertGreaterThan(longCode.count, 20_000, "past the old 20,000 cut-off, which called it text")
+        XCTAssertTrue(ClipboardDetection.isCode(longCode))
+        // Prose in the head decides, whatever follows it.
+        let proseThenCode = "Meet at the north entrance. " + longCode
+        XCTAssertFalse(ClipboardDetection.isCode(proseThenCode))
+        // The call pattern still finds a call after a dot, and ignores the middle of a word.
+        XCTAssertGreaterThanOrEqual(ClipboardDetection.signalCount(of: "x = translator.translate()"), 1)
+        XCTAssertEqual(ClipboardDetection.signalCount(of: "9lives(x)"), 0)
+    }
+
     // MARK: Search
 
     func testSearchIsCaseAndAccentBlindAndFindsEveryMatch() {
@@ -240,6 +272,23 @@ final class ClipboardKindTests: XCTestCase {
         XCTAssertFalse(ClipboardSearch.matches(file, query: "/tmp"), "the folder is not what a row shows")
         XCTAssertTrue(ClipboardSearch.matches(files, query: "beta"))
         XCTAssertTrue(ClipboardSearch.matches(text, query: "  "), "nothing typed matches everything")
+    }
+
+    /// A row under the privacy cover is searched by its kind's name and never by
+    /// its content (review 2026-10-15): the match list would otherwise show a
+    /// screen-share which dots hide the word.
+    @MainActor
+    func testACoveredRowIsMatchedOnItsKindAndNeverOnItsContent() {
+        let secret = ClipItem(payload: .text("hunter2 is my password"), date: .distantPast)
+        let link = ClipItem(payload: .text("https://secret.example.com/path"), date: .distantPast)
+        XCTAssertTrue(ClipboardSearch.matches(secret, query: "hunter2"))
+        XCTAssertFalse(ClipboardSearch.matches(secret, query: "hunter2", hidden: true), "content is not compared")
+        XCTAssertFalse(ClipboardSearch.matches(link, query: "secret", hidden: true))
+        XCTAssertTrue(ClipboardSearch.matches(link, query: "link", hidden: true), "its kind's name is what the mark already says")
+        XCTAssertTrue(ClipboardSearch.matches(secret, query: "TEXT", hidden: true))
+        XCTAssertTrue(ClipboardSearch.matches(secret, query: "  ", hidden: true))
+        // A revealed row (hidden: false) matches on content as before.
+        XCTAssertTrue(ClipboardSearch.matches(link, query: "secret", hidden: false))
     }
 
     /// The text *past* what a row can show still finds the entry.

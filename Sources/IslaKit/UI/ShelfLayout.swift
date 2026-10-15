@@ -207,7 +207,7 @@ enum ShelfHeader {
     /// "%d items", or "1 item" — the spec's one string is plural-only, and a
     /// shelf of one is common enough (a screenshot just taken) that "1 items"
     /// would be read on most days. Russian takes the same shape for every
-    /// number ("Объектов: %d").
+    /// number ("Всего: %d", which replaced "Объектов: %d" in review 2026-10-15 for the width).
     static func countText(_ count: Int) -> String {
         count == 1 ? localized("1 item") : localized("%d items", count)
     }
@@ -217,6 +217,18 @@ enum ShelfHeader {
     /// source tag's padding adds — 31 puts the count's right edge at `bw − 47`,
     /// where the board has it.
     static let countClearance: CGFloat = 31
+
+    /// Where the count sits in the header, in body coordinates, for a text
+    /// `textWidth` wide: right-aligned to `bw − 47` (see `countClearance`),
+    /// 22 tall at the tools' own 8 from the top. Stated so the notch-band test
+    /// can hold that the notch (centred on the body, 185 to 220 pt wide) never
+    /// covers it — a longer Russian count reaches furthest toward it.
+    static func countFrame(bodyWidth: CGFloat, textWidth: CGFloat) -> CGRect {
+        CGRect(
+            x: bodyWidth - 47 - textWidth, y: HeaderToolFrames.top,
+            width: textWidth, height: HeaderToolFrames.side
+        )
+    }
 
     /// The count is drawn with items on the Shelf, and never over the empty
     /// well (`Shelf-Empty` has none).

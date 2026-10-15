@@ -91,13 +91,52 @@ struct PinnedClipboardFile {
     /// missing, unreadable, from a newer Isla, damaged by a half-finished
     /// write elsewhere or edited by hand into nonsense is simply not pins, and
     /// the next save replaces it.
-    func load(using fm: FileManager = .default) -> [Record] {
+    ///
+    /// **Files come back only if they are local and still there** (review
+    /// 2026-10-15). A pinned file is a path, and `ClipItem.init` reads the file's
+    /// size on the main thread at launch: a path on a network mount that has
+    /// gone away can hang that read for as long as the mount's timeout, with
+    /// the whole island frozen behind it. Anything under `/Volumes/` or
+    /// `/Network/` is dropped without the filesystem being asked about it, and
+    /// anything else is kept only if `exists` says so. A stack of files keeps
+    /// the ones that qualify; none left, the pin is gone.
+    ///
+    /// - Parameter exists: injectable so a test can prove a mount path is never
+    ///   asked about; the app asks `FileManager`.
+    func load(using fm: FileManager = .default, exists: ((String) -> Bool)? = nil) -> [Record] {
         guard let data = fm.contents(atPath: url.path),
               let object = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
               let root = object as? [String: Any],
               root["version"] as? Int == Self.version,
               let entries = root["items"] as? [[String: Any]] else { return [] }
-        return entries.prefix(Self.maximumEntries).compactMap(Self.record(from:))
+        let present = exists ?? { fm.fileExists(atPath: $0) }
+        return entries.prefix(Self.maximumEntries)
+            .compactMap(Self.record(from:))
+            .compactMap { Self.keepingLocalFiles($0, exists: present) }
+    }
+
+    /// Paths under these are volumes that may not be local, or not there.
+    static let nonLocalPrefixes = ["/Volumes/", "/Network/"]
+
+    static func isLocalAndPresent(_ path: String, exists: (String) -> Bool) -> Bool {
+        if nonLocalPrefixes.contains(where: { path.hasPrefix($0) }) { return false }
+        return exists(path)
+    }
+
+    static func keepingLocalFiles(_ record: Record, exists: (String) -> Bool) -> Record? {
+        switch record.payload {
+        case .text, .image:
+            return record
+        case .file(let url):
+            return isLocalAndPresent(url.path, exists: exists) ? record : nil
+        case .files(let urls):
+            let kept = urls.filter { isLocalAndPresent($0.path, exists: exists) }
+            switch kept.count {
+            case 0: return nil
+            case 1: return Record(payload: .file(kept[0]), date: record.date)
+            default: return Record(payload: .files(kept), date: record.date)
+            }
+        }
     }
 
     // MARK: The format

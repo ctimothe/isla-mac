@@ -153,6 +153,7 @@ final class ClipboardPinsTests: XCTestCase {
         let fresh = ClipboardStore(pasteboard: NSPasteboard(name: .init("ClipboardPinsTests.fresh.\(UUID())")))
         fresh.pinnedFile = pinFile
         fresh.keepsPinned = { true }
+        fresh.pinnedFileExists = { _ in true }  // the fixtures' /tmp files are not real
         fresh.loadPinned()
         XCTAssertEqual(fresh.items.count, 4, "only the pins came back")
         XCTAssertTrue(fresh.items.allSatisfy(\.isPinned))
@@ -308,7 +309,71 @@ final class ClipboardPinsTests: XCTestCase {
         let root = try XCTUnwrap(object as? [String: Any])
         XCTAssertEqual(Set(root.keys), ["version", "items"])
         XCTAssertEqual(root["version"] as? Int, 1)
-        XCTAssertEqual(pinFile.load(), records)
+        XCTAssertEqual(pinFile.load(exists: { _ in true }), records)
+    }
+
+    // MARK: Pinned files come back only if local and present (review 2026-10-15)
+
+    /// `ClipItem.init` reads a file's size on the main thread at launch, and a
+    /// stale network mount can hang that read. Load keeps a file pin only if its
+    /// path is local and there; a path under /Volumes or /Network is dropped
+    /// without the filesystem being asked about it.
+    func testLoadDropsFilePinsThatAreMissingOrOnAMountWithoutTouchingThem() throws {
+        let present = folder.appendingPathComponent("here.txt")
+        try Data("x".utf8).write(to: present)
+        let missing = folder.appendingPathComponent("gone.txt")
+        let mounted = URL(fileURLWithPath: "/Volumes/Backup/report.pdf")
+        let network = URL(fileURLWithPath: "/Network/Servers/share/a.txt")
+        let date = Date(timeIntervalSince1970: 100)
+        try pinFile.save([
+            .init(payload: .text("a note"), date: date),
+            .init(payload: .file(present), date: date),
+            .init(payload: .file(missing), date: date),
+            .init(payload: .file(mounted), date: date),
+            .init(payload: .file(network), date: date),
+        ])
+
+        var asked: [String] = []
+        let loaded = pinFile.load(exists: { path in
+            asked.append(path)
+            return FileManager.default.fileExists(atPath: path)
+        })
+        XCTAssertEqual(loaded.map(\.payload), [.text("a note"), .file(present)], "text, and the one file that is there")
+        XCTAssertEqual(Set(asked), [present.path, missing.path], "a mount's path is never asked about")
+        XCTAssertFalse(asked.contains { $0.hasPrefix("/Volumes/") || $0.hasPrefix("/Network/") })
+    }
+
+    func testAStackKeepsTheFilesThatQualifyAndCollapsesToOneOrNone() throws {
+        let one = folder.appendingPathComponent("one.key")
+        let two = folder.appendingPathComponent("two.key")
+        let three = folder.appendingPathComponent("three.key")
+        for url in [one, two, three] { try Data("x".utf8).write(to: url) }
+        let mounted = URL(fileURLWithPath: "/Volumes/Backup/a.key")
+        let date = Date(timeIntervalSince1970: 100)
+        try pinFile.save([
+            .init(payload: .files([one, two, mounted]), date: date),
+            .init(payload: .files([three, mounted]), date: date),
+            .init(payload: .files([mounted, URL(fileURLWithPath: "/Volumes/Backup/b.key")]), date: date),
+        ])
+        let loaded = pinFile.load(exists: { FileManager.default.fileExists(atPath: $0) })
+        XCTAssertEqual(loaded.map(\.payload), [.files([one, two]), .file(three)], "a stack with nothing local left is gone")
+    }
+
+    /// Through the store: a missing pin does not come back as a row.
+    func testTheStoreDoesNotRestoreAMissingFilePin() throws {
+        let present = folder.appendingPathComponent("here.txt")
+        try Data("x".utf8).write(to: present)
+        try pinFile.save([
+            .init(payload: .file(present), date: Date(timeIntervalSince1970: 100)),
+            .init(payload: .file(folder.appendingPathComponent("gone.txt")), date: Date(timeIntervalSince1970: 90)),
+        ])
+        let freshBoard = NSPasteboard(name: .init("ClipboardPinsTests.drop.\(UUID())"))
+        defer { freshBoard.releaseGlobally() }
+        let fresh = ClipboardStore(pasteboard: freshBoard)
+        fresh.pinnedFile = pinFile
+        fresh.keepsPinned = { true }
+        fresh.loadPinned()
+        XCTAssertEqual(fresh.items.map(\.preview), ["here.txt"])
     }
 
     // MARK: Fixtures

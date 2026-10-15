@@ -11,10 +11,11 @@ final class ClipboardLayoutTests: XCTestCase {
 
     // MARK: Rows
 
-    func testRowsAre28TallTwoApartFromFiftyEightFortyFour() {
+    func testRowsAre28TallTwoApartFromFiftyEightSeventyFour() {
         XCTAssertEqual(ClipboardLayout.rowHeight, 28)
         XCTAssertEqual(ClipboardLayout.rowGap, 2)
-        XCTAssertEqual(ClipboardLayout.listOrigin, CGPoint(x: 58, y: 44))
+        XCTAssertEqual(ClipboardLayout.listOrigin, CGPoint(x: 58, y: 74), "30 pt lower than the spec: the filter row is above")
+        XCTAssertEqual(ClipboardLayout.listOriginWithoutFilterRow, CGPoint(x: 58, y: 44))
         XCTAssertEqual(ClipboardLayout.rowRadius, 7)
     }
 
@@ -37,15 +38,18 @@ final class ClipboardLayoutTests: XCTestCase {
 
     func testTheListEndsTenAboveTheFootAndYieldsToTheAlertAndTheQuestion() {
         let standard = ClipboardLayout.viewport(bodySize: body(560))
-        XCTAssertEqual(standard, CGRect(x: 58, y: 44, width: 488, height: 154), "the board's 198 foot")
+        XCTAssertEqual(standard, CGRect(x: 58, y: 74, width: 488, height: 124), "the board's 198 foot, from the filter row's foot")
         let tall = ClipboardLayout.viewport(bodySize: body(560, 400))
         XCTAssertEqual(tall.maxY, 390)
-        XCTAssertEqual(tall.minY, 44)
+        XCTAssertEqual(tall.minY, 74)
         let alert = ClipboardLayout.viewport(bodySize: body(560), showsAlert: true)
-        XCTAssertEqual(alert.minY, 96, "the list sits 8 below the 44 pt alert")
+        XCTAssertEqual(alert.minY, 126, "the list sits 8 below the 44 pt alert")
         let asking = ClipboardLayout.viewport(bodySize: body(560), confirming: true)
         XCTAssertEqual(asking.maxY, ClipboardLayout.confirmBar(bodySize: body(560)).minY)
         XCTAssertEqual(ClipboardLayout.overflowFade, 26)
+        // No history, no filter row: the empty state and the alert start where the spec had them.
+        XCTAssertEqual(ClipboardLayout.viewport(bodySize: body(560), hasFilterRow: false).minY, 44)
+        XCTAssertEqual(ClipboardLayout.viewport(bodySize: body(560), showsAlert: true, hasFilterRow: false).minY, 96)
     }
 
     func testTheQuestionBarIsTheBoards() {
@@ -88,19 +92,26 @@ final class ClipboardLayoutTests: XCTestCase {
     // MARK: The header
 
     func testTheHeaderToolsAtTheDefaultWidth() {
-        let filter = ClipboardHeader.filter(bodyWidth: 560)
-        XCTAssertEqual(filter, CGRect(x: 212, y: 9, width: 270, height: 20), "the spec's (212, 9), 270 × 20")
+        // Driver correction, review 2026-10-15: the filter and the field left the
+        // header (the notch sat on them) for a row at (58, 44), 22 tall.
+        XCTAssertEqual(ClipboardHeader.filterRow(bodyWidth: 560), CGRect(x: 58, y: 44, width: 488, height: 22))
+        XCTAssertEqual(ClipboardHeader.filter(bodyWidth: 560), CGRect(x: 58, y: 45, width: 270, height: 20), "left-aligned, centred in the row")
         XCTAssertEqual(ClipboardHeader.search(bodyWidth: 560), CGRect(x: 493, y: 8, width: 22, height: 22))
         XCTAssertEqual(HeaderToolFrames.expand(bodyWidth: 560), CGRect(x: 521, y: 8, width: 22, height: 22))
-        XCTAssertEqual(ClipboardHeader.searchField(bodyWidth: 560), CGRect(x: 250, y: 8, width: 294, height: 22))
+        XCTAssertEqual(ClipboardHeader.searchField(bodyWidth: 560), CGRect(x: 58, y: 44, width: 488, height: 22), "the whole row")
     }
 
-    func testTheClusterRidesTheTrailingEdgeAtEveryWidth() {
-        for width in [CGFloat(540), 560, 620] {
+    func testTheRowSpansTheListAndTheTrailingToolsRideTheEdgeAtEveryWidth() {
+        for width in [CGFloat(480), 540, 560, 620] {
             XCTAssertEqual(ClipboardHeader.search(bodyWidth: width).minX, width - 67)
-            XCTAssertEqual(ClipboardHeader.filter(bodyWidth: width).maxX, width - 78, "11 clear of Search")
-            XCTAssertEqual(ClipboardHeader.searchField(bodyWidth: width).maxX, width - 16)
+            XCTAssertEqual(ClipboardHeader.filterRow(bodyWidth: width).width, width - 72)
+            XCTAssertEqual(ClipboardHeader.filterRow(bodyWidth: width).minX, ClipboardLayout.listOrigin.x)
+            XCTAssertEqual(ClipboardHeader.searchField(bodyWidth: width).maxX, ClipboardLayout.listOrigin.x + ClipboardLayout.rowWidth(bodyWidth: width))
+            XCTAssertLessThan(ClipboardHeader.filterRow(bodyWidth: width).maxY, ClipboardLayout.listOrigin.y, "the row ends above the list")
         }
+        XCTAssertTrue(ClipboardHeader.showsFilterRow(itemCount: 1, isSearching: false))
+        XCTAssertFalse(ClipboardHeader.showsFilterRow(itemCount: 0, isSearching: false))
+        XCTAssertTrue(ClipboardHeader.showsFilterRow(itemCount: 0, isSearching: true), "an open field is never stranded")
     }
 
     func testBelow540TheSegmentsAreSymbolsAndAgesNarrow() {
@@ -110,10 +121,9 @@ final class ClipboardLayoutTests: XCTestCase {
         XCTAssertTrue(ClipboardHeader.usesSymbols(bodyWidth: 480))
         XCTAssertEqual(ClipboardHeader.filterSize(bodyWidth: 480), CGSize(width: 150, height: 20))
         XCTAssertEqual(ClipboardHeader.filterSize(bodyWidth: 560), CGSize(width: 270, height: 20))
-        // Stress-Clip-RU-480: the symbols end 3 before Search, at x 260.
         let narrow = ClipboardHeader.filter(bodyWidth: 480)
-        XCTAssertEqual(narrow.minX, 260)
-        XCTAssertEqual(narrow.maxX, ClipboardHeader.search(bodyWidth: 480).minX - 3)
+        XCTAssertEqual(narrow.minX, 58, "left-aligned on the row, as at every width")
+        XCTAssertEqual(narrow.size, CGSize(width: 150, height: 20))
     }
 
     func testTheKindControlIsFiveNamedChoicesInBothModes() async {

@@ -243,8 +243,8 @@ final class ShelfPaneTests: XCTestCase {
     // MARK: - A drop aimed at AirDrop
 
     /// A promise cannot be sent until its source has written the file, so the
-    /// aim is latched at the release and honoured when that batch lands — and
-    /// only that one.
+    /// aim travels with the drop's own receiver callbacks and is honoured when
+    /// that file lands — and only for that drop's files.
     func testAPromisedDropAimedAtAirDropIsSentNotKept() {
         let fixture = try! Fixture(names: [])
         defer { fixture.release() }
@@ -258,17 +258,45 @@ final class ShelfPaneTests: XCTestCase {
 
         let first = URL(fileURLWithPath: "/tmp/isla-airdrop-promise-1.txt")
         let second = URL(fileURLWithPath: "/tmp/isla-airdrop-promise-2.txt")
-        inbox.sendNextBatchWithAirDrop(true)
         let queue = OperationQueue()
-        queue.addOperation { inbox.arrived(url: first, error: nil) }
-        // The first batch is delivered before the second drop is aimed.
+        queue.addOperation { inbox.arrived(url: first, error: nil, toAirDrop: true) }
+        // The first batch is delivered before the second drop is made.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            inbox.sendNextBatchWithAirDrop(false)
-            queue.addOperation { inbox.arrived(url: second, error: nil) }
+            queue.addOperation { inbox.arrived(url: second, error: nil, toAirDrop: false) }
         }
         wait(for: [delivered], timeout: 4)
         XCTAssertEqual(sent, [[first]], "the AirDrop-aimed drop is sent")
-        XCTAssertEqual(kept, [[second]], "the next one is kept: the aim was for one batch")
+        XCTAssertEqual(kept, [[second]], "the next one is kept: the aim was for that drop")
+    }
+
+    /// Review 2026-10-15: one shared flag meant a second promised drop made
+    /// before the first batch landed overwrote the first's destination, and a
+    /// Keep drop still downloading could be sent with AirDrop. Both orders, two
+    /// drops whose files arrive inside the same coalescing window.
+    func testOverlappingPromisedDropsEachKeepTheirOwnDestination() {
+        for firstToAirDrop in [false, true] {
+            let fixture = try! Fixture(names: [])
+            defer { fixture.release() }
+            let inbox = PromisedDropInbox(shelf: fixture.shelf)
+            var kept: [[URL]] = []
+            var sent: [[URL]] = []
+            let delivered = expectation(description: "both destinations, first to AirDrop \(firstToAirDrop)")
+            delivered.expectedFulfillmentCount = 2
+            inbox.onBatch = { kept.append($0); delivered.fulfill() }
+            inbox.onAirDropBatch = { sent.append($0); delivered.fulfill() }
+
+            let first = URL(fileURLWithPath: "/tmp/isla-overlap-first.txt")
+            let second = URL(fileURLWithPath: "/tmp/isla-overlap-second.txt")
+            let queue = OperationQueue()
+            queue.maxConcurrentOperationCount = 1
+            // Drop one is released, drop two is released, and only then do
+            // either's files land.
+            queue.addOperation { inbox.arrived(url: first, error: nil, toAirDrop: firstToAirDrop) }
+            queue.addOperation { inbox.arrived(url: second, error: nil, toAirDrop: !firstToAirDrop) }
+            wait(for: [delivered], timeout: 4)
+            XCTAssertEqual(sent, [[firstToAirDrop ? first : second]], "first to AirDrop: \(firstToAirDrop)")
+            XCTAssertEqual(kept, [[firstToAirDrop ? second : first]], "first to AirDrop: \(firstToAirDrop)")
+        }
     }
 
     // MARK: - The controller's Delete key
@@ -284,68 +312,107 @@ final class ShelfPaneTests: XCTestCase {
         return (controller, vm, isolated, fake)
     }
 
-    /// The whole claim at the controller: open on the Shelf, pointer on it, a
-    /// tile picked — and each of the ways it ends gives the keys back at once.
+    /// The whole claim at the controller, through the real wiring — `isOpen`,
+    /// the tab, the pointer, the lock and the selection are only ever assigned
+    /// (review 2026-10-15: the test used to call `refreshDeleteKey()` after each
+    /// step, so the sink `build` installs was never what it exercised). Open on
+    /// the Shelf, pointer on it, a tile picked: held. Each way it ends gives
+    /// the keys back at once, and a selection that did not survive the way out
+    /// is not brought back by the way in.
     func testTheControllerHoldsTheKeyOnlyWhileTheClaimHolds() throws {
         let (controller, vm, isolated, fake) = try rig()
         defer { isolated.release(); controller.teardown() }
         let urls = ["a.txt", "b.txt"].map { URL(fileURLWithPath: "/tmp/isla-delete-\($0)") }
         vm.shelf.add(urls)
-        vm.shelf.select(vm.shelf.items[0], modifiers: [])
 
         vm.isOpen = true
         vm.tab = .shelf
+        vm.shelf.select(vm.shelf.items[0], modifiers: [])
+        XCTAssertFalse(controller.holdsDeleteKey, "the pointer is not on the Shelf yet")
         vm.isPointerOnShelf = true
-        controller.refreshDeleteKey()
-        XCTAssertTrue(controller.holdsDeleteKey, "pointer on the Shelf, a selection: held")
+        XCTAssertTrue(controller.holdsDeleteKey, "pointer on the Shelf, a selection made this opening: held")
         XCTAssertEqual(fake.live.count, 2)
 
         vm.isPointerOnShelf = false
-        controller.refreshDeleteKey()
         XCTAssertFalse(controller.holdsDeleteKey, "the pointer left")
         vm.isPointerOnShelf = true
-        controller.refreshDeleteKey()
         XCTAssertTrue(controller.holdsDeleteKey)
 
         vm.tab = .clipboard
-        controller.refreshDeleteKey()
         XCTAssertFalse(controller.holdsDeleteKey, "the tab changed")
+        XCTAssertTrue(vm.shelf.selection.isEmpty, "and the selection did not wait for the Shelf's return")
         vm.tab = .shelf
-        controller.refreshDeleteKey()
+        XCTAssertFalse(controller.holdsDeleteKey, "coming back finds nothing picked, so nothing held")
+        vm.shelf.select(vm.shelf.items[0], modifiers: [])
         XCTAssertTrue(controller.holdsDeleteKey)
 
         vm.isLockedPresentation = true
-        controller.refreshDeleteKey()
         XCTAssertFalse(controller.holdsDeleteKey, "the screen locked")
         vm.isLockedPresentation = false
-        controller.refreshDeleteKey()
         XCTAssertTrue(controller.holdsDeleteKey)
 
         vm.isOpen = false
-        controller.refreshDeleteKey()
         XCTAssertFalse(controller.holdsDeleteKey, "the panel closed")
+        XCTAssertTrue(vm.shelf.selection.isEmpty, "a selection belongs to one opening")
         vm.isOpen = true
-        controller.refreshDeleteKey()
+        XCTAssertFalse(controller.holdsDeleteKey, "reopened: the old selection is gone, not revived")
+        vm.shelf.select(vm.shelf.items[1], modifiers: [])
         XCTAssertTrue(controller.holdsDeleteKey)
 
         vm.shelf.clearSelection()
-        controller.refreshDeleteKey()
         XCTAssertFalse(controller.holdsDeleteKey, "the selection emptied")
 
         XCTAssertTrue(fake.live.isEmpty, "nothing left registered")
         XCTAssertLessThanOrEqual(fake.peak, 2, "never registered twice")
     }
 
+    /// Review 2026-10-15, the scenario: a tile picked on Monday, the panel
+    /// closed, and on Tuesday the pointer rests on the grid while the person
+    /// types in Mail. The Delete key must still be Mail's.
+    func testAStaleSelectionNeverHoldsTheKeyAcrossAnOpening() throws {
+        let (controller, vm, isolated, fake) = try rig()
+        defer { isolated.release(); controller.teardown() }
+        vm.shelf.add(["a", "b"].map { URL(fileURLWithPath: "/tmp/isla-delete-stale-\($0).txt") })
+
+        vm.isOpen = true
+        vm.tab = .shelf
+        vm.isPointerOnShelf = true
+        vm.shelf.select(vm.shelf.items[0], modifiers: [])
+        XCTAssertTrue(controller.holdsDeleteKey, "Monday")
+        let generation = vm.openingGeneration
+        vm.isOpen = false
+        XCTAssertFalse(controller.holdsDeleteKey)
+
+        // Tuesday: the panel opens on the Shelf with the pointer already resting on it.
+        vm.isOpen = true
+        XCTAssertGreaterThan(vm.openingGeneration, generation, "a new opening has its own stamp")
+        XCTAssertTrue(vm.isPointerOnShelf)
+        XCTAssertFalse(controller.holdsDeleteKey, "nothing was picked on this opening")
+        controller.deleteKeyPressed()
+        XCTAssertEqual(vm.shelf.items.count, 2, "a Delete pressed now removes nothing")
+
+        // Even a selection that reached the store without passing through a
+        // close (made while the panel was shut) carries Monday's stamp, not Tuesday's.
+        vm.isOpen = false
+        vm.shelf.select(vm.shelf.items[0], modifiers: [])
+        XCTAssertFalse(vm.shelfSelectionIsCurrent, "made while shut")
+        vm.isOpen = true
+        XCTAssertFalse(vm.shelfSelectionIsCurrent, "and not made during the opening that follows")
+        XCTAssertFalse(controller.holdsDeleteKey)
+        XCTAssertTrue(fake.live.isEmpty)
+    }
+
     func testAppActivationGivesTheKeyBack() throws {
         let (controller, vm, isolated, fake) = try rig()
         defer { isolated.release(); controller.teardown() }
         vm.shelf.add([URL(fileURLWithPath: "/tmp/isla-delete-active.txt")])
-        vm.shelf.select(vm.shelf.items[0], modifiers: [])
         vm.isOpen = true
         vm.tab = .shelf
         vm.isPointerOnShelf = true
-        controller.refreshDeleteKey()
+        vm.shelf.select(vm.shelf.items[0], modifiers: [])
         XCTAssertTrue(controller.holdsDeleteKey)
+        // Activation is the one input that is not the model's: the controller
+        // hears it from the two notifications and calls this.
         controller.appIsActive = { true }  // Quick Look activated Isla
         controller.refreshDeleteKey()
         XCTAssertFalse(controller.holdsDeleteKey)
@@ -359,26 +426,28 @@ final class ShelfPaneTests: XCTestCase {
         let (controller, vm, isolated, fake) = try rig()
         defer { isolated.release(); controller.teardown() }
         vm.shelf.add(["a", "b", "c"].map { URL(fileURLWithPath: "/tmp/isla-delete-press-\($0).txt") })
-        vm.shelf.select(vm.shelf.items[0], modifiers: [])
-        vm.shelf.select(vm.shelf.items[1], modifiers: .command)
         vm.isOpen = true
         vm.tab = .shelf
+        vm.shelf.select(vm.shelf.items[0], modifiers: [])
+        vm.shelf.select(vm.shelf.items[1], modifiers: .command)
         vm.isPointerOnShelf = true
-        controller.refreshDeleteKey()
         XCTAssertEqual(fake.live.count, 2)
 
-        // The pointer left, but the registration has not been told yet.
+        // The pointer left, but a press was already queued behind the event.
+        // The registration follows the model at once, so put one back to stand
+        // in for the queued press.
         vm.isPointerOnShelf = false
+        XCTAssertTrue(fake.live.isEmpty)
         controller.deleteKeyPressed()
         XCTAssertEqual(vm.shelf.items.count, 3, "no claim, no removal")
-        XCTAssertFalse(controller.holdsDeleteKey, "and the keys are handed back")
-        XCTAssertTrue(fake.live.isEmpty)
+        XCTAssertFalse(controller.holdsDeleteKey, "and the keys stay handed back")
 
         vm.isPointerOnShelf = true
-        controller.refreshDeleteKey()
+        XCTAssertTrue(controller.holdsDeleteKey)
         controller.deleteKeyPressed()
         XCTAssertEqual(vm.shelf.items.count, 1, "the two picked tiles went")
         XCTAssertTrue(vm.shelf.selection.isEmpty)
+        XCTAssertFalse(controller.holdsDeleteKey, "nothing left to remove: the keys go back")
     }
 
     /// Teardown, a rebuild's first act, gives the keys back whatever the claim.
@@ -386,11 +455,10 @@ final class ShelfPaneTests: XCTestCase {
         let (controller, vm, isolated, fake) = try rig()
         defer { isolated.release() }
         vm.shelf.add([URL(fileURLWithPath: "/tmp/isla-delete-teardown.txt")])
-        vm.shelf.select(vm.shelf.items[0], modifiers: [])
         vm.isOpen = true
         vm.tab = .shelf
         vm.isPointerOnShelf = true
-        controller.refreshDeleteKey()
+        vm.shelf.select(vm.shelf.items[0], modifiers: [])
         XCTAssertTrue(controller.holdsDeleteKey)
         controller.teardown()
         XCTAssertFalse(controller.holdsDeleteKey)

@@ -476,7 +476,7 @@
 "%@, %@ and %d more" = "%@, %@ and %d more";
 "Pin" = "Pin";
 "Unpin" = "Unpin";
-"Paste as Plain Text" = "Paste as Plain Text";
+"Copy as Plain Text" = "Copy as Plain Text";
 "Clear Everything…" = "Clear Everything…";
 "Clear %d entries? Pinned items stay." = "Clear %d entries? Pinned items stay.";
 "Clear History" = "Clear History";
@@ -484,6 +484,11 @@
 "Clear Search" = "Clear Search";
 "No Results for “%@”" = "No Results for “%@”";
 "Check the spelling or try a new search." = "Check the spelling or try a new search.";
+"No Text" = "No Text";
+"No Links" = "No Links";
+"No Images" = "No Images";
+"No Files" = "No Files";
+"Copies of this kind appear here." = "Copies of this kind appear here.";
 "Text, links, images and files you copy appear here. Copies from password managers are skipped." = "Text, links, images and files you copy appear here. Copies from password managers are skipped.";
 "Images are kept in memory, like the rest of the history." = "Images are kept in memory, like the rest of the history.";
 "Include Images" = "Include Images";

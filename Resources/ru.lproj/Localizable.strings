@@ -453,8 +453,8 @@
 "Automatic tints the card with the cover and reads the wallpaper behind it. With Reduce Transparency it is Solid." = "«Автоматически» окрашивает карточку в цвет обложки и учитывает обои за ней. При уменьшении прозрачности она сплошная.";
 
 /* The Shelf as Finder's icon view (redesign 2026-10-15, spec 8, 15) */
-"%d items" = "Объектов: %d";
-"1 item" = "Объектов: 1";
+"%d items" = "Всего: %d";
+"1 item" = "Всего: 1";
 "Deselect All" = "Снять выбор";
 "Remove" = "Убрать";
 "Drag an item out to use it anywhere." = "Перетащите объект, чтобы использовать его где угодно.";
@@ -482,7 +482,7 @@
 "%@, %@ and %d more" = "%@, %@ и ещё %d";
 "Pin" = "Закрепить";
 "Unpin" = "Открепить";
-"Paste as Plain Text" = "Вставить как простой текст";
+"Copy as Plain Text" = "Скопировать как простой текст";
 "Clear Everything…" = "Очистить всё…";
 "Clear %d entries? Pinned items stay." = "Очистить записи (%d)? Закреплённые останутся.";
 "Clear History" = "Очистить историю";
@@ -490,6 +490,11 @@
 "Clear Search" = "Очистить поиск";
 "No Results for “%@”" = "Нет результатов для «%@»";
 "Check the spelling or try a new search." = "Проверьте написание или попробуйте другой запрос.";
+"No Text" = "Нет текста";
+"No Links" = "Нет ссылок";
+"No Images" = "Нет изображений";
+"No Files" = "Нет файлов";
+"Copies of this kind appear here." = "Здесь появятся копии этого типа.";
 "Text, links, images and files you copy appear here. Copies from password managers are skipped." = "Здесь появляются скопированные тексты, ссылки, изображения и файлы. Копии из менеджеров паролей пропускаются.";
 "Images are kept in memory, like the rest of the history." = "Изображения хранятся в памяти, как и вся история.";
 "Include Images" = "Сохранять изображения";

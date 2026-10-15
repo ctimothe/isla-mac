@@ -51,15 +51,21 @@ final class ClipboardBrowser: ObservableObject {
         let isSearch: Bool
     }
 
+    /// - A row the privacy cover is hiding is searched by its kind's name and
+    ///   never by its content (review 2026-10-15): the dots over a row are a
+    ///   promise about what a screen-share can see, and a search that kept the
+    ///   rows containing "password" while dropping the others told the audience
+    ///   exactly which dots were hiding one.
     static func listing(
-        of items: [ClipItem], filter: ClipFilter, query: String, searching: Bool
+        of items: [ClipItem], filter: ClipFilter, query: String, searching: Bool,
+        isHidden: (ClipItem) -> Bool = { _ in false }
     ) -> Listing {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let searchActive = searching && !needle.isEmpty
         let ordered = ClipboardStore.listed(items)
         let shown: [ClipItem]
         if searchActive {
-            shown = ordered.filter { ClipboardSearch.matches($0, query: needle) }
+            shown = ordered.filter { ClipboardSearch.matches($0, query: needle, hidden: isHidden($0)) }
         } else if searching {
             // Open with nothing typed: the whole list, whatever the filter was.
             shown = ordered

@@ -24,7 +24,7 @@ enum ClipKind: Equatable {
     }
 
     /// Whether the entry is a string a person can read, search and translate.
-    /// A link is text too: it is what Translate and Paste as Plain Text would
+    /// A link is text too: it is what Translate and Copy as Plain Text would
     /// take, and the spec's "text kinds" is everything that holds a string.
     var isText: Bool {
         switch self {
@@ -62,6 +62,21 @@ enum ClipFilter: CaseIterable, Equatable {
         case .links: return localized("Links")
         case .images: return localized("Images")
         case .files: return localized("Files")
+        }
+    }
+
+    /// What the list says when entries exist but none is of this kind: "No Text",
+    /// "No Links", "No Images", "No Files". Nil for All, which is empty only when
+    /// the history is, and says "Nothing copied yet" (review 2026-10-15: the
+    /// pane said that for a Links filter over a history full of text, which
+    /// reads as lost data).
+    var emptyTitle: String? {
+        switch self {
+        case .all: return nil
+        case .text: return localized("No Text")
+        case .links: return localized("No Links")
+        case .images: return localized("No Images")
+        case .files: return localized("No Files")
         }
     }
 
@@ -234,11 +249,21 @@ enum ClipboardDetection {
     /// and the board draws it as code; the call is the second signal it
     /// carries. It cannot make prose code on its own, because two signals are
     /// still needed.
+    ///
+    /// **Decided on the first 2 KB** (`codeSampleLimit`). This runs on the main
+    /// thread from `ClipItem.init`, and a long single-line copy — a minified
+    /// bundle, a base64 blob, a 20,000-character run with no spaces — made the
+    /// call pattern below quadratic (review 2026-10-15). The head of a text is
+    /// as good a witness to its shape as the whole of it, and a row shows one
+    /// line of it anyway.
+    static let codeSampleLimit = 2048
+
     static func isCode(_ string: String) -> Bool {
-        let text = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard text.count >= 3, text.count <= 20_000 else { return false }
+        let head = String(string.prefix(codeSampleLimit))
+        let text = head.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count >= 3 else { return false }
         guard !hasSentencePunctuation(text) else { return false }
-        return signalCount(of: string) >= 2
+        return signalCount(of: head) >= 2
     }
 
     /// `.`, `?`, `!` or `…` followed by whitespace or the end. Not `a.b` and
@@ -278,7 +303,14 @@ enum ClipboardDetection {
         return keywords.contains(String(trimmed[..<space]))
     }
 
-    private static let call = try! NSRegularExpression(pattern: "[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*\\([^()\\n]*\\)")
+    /// `name(…)` or `object.name(…)`. The lookbehind makes the engine try only
+    /// where an identifier *starts*: without it every position inside a long run
+    /// of identifier characters was a fresh start that scanned to the end of the
+    /// run before failing to find a bracket, which is quadratic in the run
+    /// (review 2026-10-15).
+    private static let call = try! NSRegularExpression(
+        pattern: "(?<![A-Za-z0-9_.])[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*\\([^()\\n]*\\)"
+    )
 }
 
 // MARK: - Search (spec §9.3)
@@ -307,9 +339,13 @@ enum ClipboardSearch {
         return found
     }
 
-    static func matches(_ item: ClipItem, query: String) -> Bool {
+    /// - Parameter hidden: the row is under the privacy cover. Its content is
+    ///   never compared; only the name of its kind is, which the row's mark
+    ///   already says aloud.
+    static func matches(_ item: ClipItem, query: String, hidden: Bool = false) -> Bool {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return true }
+        if hidden { return item.kind.filter.title.range(of: needle, options: options) != nil }
         return item.searchText.range(of: needle, options: options) != nil
     }
 }

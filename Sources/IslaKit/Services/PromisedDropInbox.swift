@@ -20,19 +20,18 @@ final class PromisedDropInbox {
     var onBatch: (([URL]) -> Void)?
     /// A batch whose drop was aimed at the Shelf's AirDrop well (spec §8.3):
     /// sent, not kept. A promise cannot be sent until its source has written
-    /// the file, which is when it reaches the inbox, so the aim is latched at
-    /// the release (`sendNextBatchWithAirDrop`) and honoured here.
+    /// the file, which is when it reaches the inbox, so the aim travels with the
+    /// drop's own receiver callbacks (`arrived(url:error:toAirDrop:)`) and is
+    /// honoured here.
+    ///
+    /// It used to be one shared flag latched at the release and cleared at the
+    /// next delivery (review 2026-10-15). A second drop made before the first
+    /// batch landed overwrote it, so the first drop's files took the second's
+    /// destination, and a Keep drop still downloading an iCloud original could
+    /// be sent to a stranger's phone because an earlier drop was aimed there.
+    /// A destination belongs to the drop that chose it, so every arrival keeps
+    /// its own.
     var onAirDropBatch: (([URL]) -> Void)?
-
-    /// Set by the controller at the release of a drop over AirDrop's well; read
-    /// and cleared when the batch it names is delivered. One batch, never the
-    /// next drop's: a later drop to the Shelf's other well must not be sent to
-    /// a stranger's phone because an earlier one was.
-    private var airDropNext = false
-
-    func sendNextBatchWithAirDrop(_ send: Bool) {
-        airDropNext = send
-    }
 
     init(shelf: ShelfStore) {
         self.shelf = shelf
@@ -49,7 +48,10 @@ final class PromisedDropInbox {
     ///
     /// `nonisolated` on purpose: the inbox is main-actor isolated, and the
     /// compiler has to be told this one entry point is not.
-    nonisolated func arrived(url: URL?, error: Error?) {
+    ///
+    /// `toAirDrop` is the destination the drop that promised this file was
+    /// released on, captured by that drop's receiver closure.
+    nonisolated func arrived(url: URL?, error: Error?, toAirDrop: Bool = false) {
         if let error {
             Log.shelf.error("promised file failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
             // A cancel is the user's own doing (the drag was abandoned or the
@@ -64,12 +66,15 @@ final class PromisedDropInbox {
         }
         guard let url else { return }
         Task { @MainActor [weak self] in
-            self?.enqueue(url)
+            self?.enqueue(url, toAirDrop: toAirDrop)
         }
     }
 
-    /// Files received so far that have not been handed over yet.
-    private var pending: [URL] = []
+    /// Files received so far that have not been handed over yet, by the
+    /// destination their own drop chose. Coalesced together in time, delivered
+    /// apart.
+    private var pendingKeep: [URL] = []
+    private var pendingAirDrop: [URL] = []
     private var delivery: DispatchWorkItem?
     private var firstPendingAt: Date?
 
@@ -80,8 +85,8 @@ final class PromisedDropInbox {
     /// that the shelf does not feel slow.
     private static let coalesceWindow: TimeInterval = 0.4
 
-    private func enqueue(_ url: URL) {
-        pending.append(url)
+    private func enqueue(_ url: URL, toAirDrop: Bool) {
+        if toAirDrop { pendingAirDrop.append(url) } else { pendingKeep.append(url) }
         // A ceiling on the sliding window: files arriving slower than the
         // debounce would otherwise push delivery back indefinitely.
         if firstPendingAt == nil { firstPendingAt = Date() }
@@ -99,17 +104,16 @@ final class PromisedDropInbox {
     }
 
     private func deliver() {
-        let batch = pending
-        pending.removeAll()
+        let keep = pendingKeep
+        let airDrop = pendingAirDrop
+        pendingKeep.removeAll()
+        pendingAirDrop.removeAll()
         delivery = nil
         firstPendingAt = nil
-        let toAirDrop = airDropNext
-        airDropNext = false
-        guard !batch.isEmpty else { return }
-        if toAirDrop, let onAirDropBatch {
-            onAirDropBatch(batch)
-        } else {
-            onBatch?(batch)
-        }
+        if !keep.isEmpty { onBatch?(keep) }
+        guard !airDrop.isEmpty else { return }
+        // Without an AirDrop handler the files are kept rather than dropped on
+        // the floor.
+        if let onAirDropBatch { onAirDropBatch(airDrop) } else { onBatch?(airDrop) }
     }
 }

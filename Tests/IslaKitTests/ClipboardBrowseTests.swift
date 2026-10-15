@@ -92,6 +92,32 @@ final class ClipboardBrowseTests: XCTestCase {
         XCTAssertEqual(closed.items.count, 1)
     }
 
+    /// Review 2026-10-15: while the Clipboard is covered, a search that listed the
+    /// rows containing a word was a way to read the rows. Hidden rows are matched
+    /// on their kind's name alone; a row the person has revealed is matched on
+    /// what it says.
+    func testASearchNeverMatchesTheContentOfARowThePrivacyCoverHides() {
+        let secret = text("hunter2 is my password")
+        let other = text("south gate")
+        let link = text("https://secret.example.com/path")
+        let items = [secret, other, link]
+        let hideAll: (ClipItem) -> Bool = { _ in true }
+        let byContent = ClipboardBrowser.listing(of: items, filter: .all, query: "hunter2", searching: true, isHidden: hideAll)
+        XCTAssertTrue(byContent.items.isEmpty, "no match on content, and so no tell")
+        XCTAssertTrue(byContent.isSearch)
+        let secretWord = ClipboardBrowser.listing(of: items, filter: .all, query: "secret", searching: true, isHidden: hideAll)
+        XCTAssertTrue(secretWord.items.isEmpty)
+        let byKind = ClipboardBrowser.listing(of: items, filter: .all, query: "links", searching: true, isHidden: hideAll)
+        XCTAssertEqual(byKind.items.map(\.id), [link.id], "a kind's name is what the mark says anyway")
+
+        let revealedOnly = ClipboardBrowser.listing(
+            of: items, filter: .all, query: "hunter2", searching: true, isHidden: { $0.id != secret.id }
+        )
+        XCTAssertEqual(revealedOnly.items.map(\.id), [secret.id], "a revealed row matches on its content")
+        let uncovered = ClipboardBrowser.listing(of: items, filter: .all, query: "hunter2", searching: true)
+        XCTAssertEqual(uncovered.items.map(\.id), [secret.id], "with no cover, as before")
+    }
+
     func testResultsKeepThePinsFirst() {
         let items = [text("north gate"), text("north star", pinned: true), text("south")]
         let found = ClipboardBrowser.listing(of: items, filter: .all, query: "north", searching: true)

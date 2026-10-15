@@ -77,7 +77,7 @@ final class NotchRootView: NSView {
     /// A drop that only promised its files (Mail, Photos, a browser) is about
     /// to be received. The files arrive later, through the inbox, so the target
     /// that was under the pointer has to be handed to it now.
-    var onPromisedDrop: (() -> Void)?
+    var onPromisedDrop: (() -> Bool)?
     /// Receives the files a drag only promised; owned by the session's stores,
     /// so it outlives this view. See `PromisedDropInbox`.
     var promises: PromisedDropInbox?
@@ -322,7 +322,10 @@ final class NotchRootView: NSView {
         guard !receivers.isEmpty else { return false }
         let destination = AppPaths.dropInbox()
         guard let destination else { return false }
-        onPromisedDrop?()
+        // The destination is read now, at the release, and travels with this
+        // drop's own receiver callbacks: a second drop made before this one's
+        // files land must not change where they go (review 2026-10-15).
+        let toAirDrop = onPromisedDrop?() ?? false
         // Not counted — coalesced.
         //
         // There is no reliable count to wait for: the reader is called once per
@@ -347,7 +350,7 @@ final class NotchRootView: NSView {
         guard let inbox = promises else { return false }
         for receiver in receivers {
             receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: queue) { url, error in
-                inbox.arrived(url: url, error: error)
+                inbox.arrived(url: url, error: error, toAirDrop: toAirDrop)
             }
         }
         return true

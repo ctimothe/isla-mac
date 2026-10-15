@@ -66,7 +66,7 @@ final class NotchController {
     /// login session, set before the first claim, and the app's activation,
     /// which a test process does not control. Production leaves both alone.
     var deleteKeyRegistrar: ShelfDeleteKeyHolder.Registrar?
-    var appIsActive: () -> Bool = { NSApp.isActive }
+    var appIsActive: () -> Bool = { NSApp?.isActive ?? false }
     /// Whether the Shelf's Delete and ⌘⌫ are held right now.
     var holdsDeleteKey: Bool { deleteKey.isRegistered }
     /// Monotonic stamp for the deferred half of closing: any newer open or
@@ -1081,7 +1081,7 @@ final class NotchController {
         guard let vm = viewModel else { return deleteKey.teardown() }
         updateDeleteKey(
             open: vm.isOpen, onShelf: vm.tab == .shelf && !vm.isShowingWelcome,
-            pointerOnShelf: vm.isPointerOnShelf, hasSelection: !vm.shelf.selection.isEmpty,
+            pointerOnShelf: vm.isPointerOnShelf, hasSelection: vm.shelfSelectionIsCurrent,
             locked: vm.isLockedPresentation
         )
     }
@@ -1095,7 +1095,7 @@ final class NotchController {
         guard let vm = viewModel else { return deleteKey.teardown() }
         guard NotchViewModel.claimsDelete(
             panelOpen: vm.isOpen, onShelf: vm.tab == .shelf && !vm.isShowingWelcome,
-            pointerOnShelf: vm.isPointerOnShelf, hasSelection: !vm.shelf.selection.isEmpty,
+            pointerOnShelf: vm.isPointerOnShelf, hasSelection: vm.shelfSelectionIsCurrent,
             appIsActive: appIsActive(), locked: vm.isLockedPresentation
         ) else { return deleteKey.teardown() }
         vm.shelf.removeSelected()
@@ -1245,9 +1245,10 @@ final class NotchController {
             if vm.shelfDropTarget != target { vm.shelfDropTarget = target }
         }
         root.onPromisedDrop = { [weak self] in
-            guard let self, let vm = self.viewModel else { return }
-            self.stores.promises.sendNextBatchWithAirDrop(vm.shelfDropTarget == .airDrop)
+            guard let vm = self?.viewModel else { return false }
+            let toAirDrop = vm.shelfDropTarget == .airDrop
             vm.shelfDropTarget = .keep
+            return toAirDrop
         }
         root.onDragExited = { [weak self] in
             guard let self, let vm = self.viewModel else { return }
@@ -1605,44 +1606,7 @@ final class NotchController {
                 }
             }
             .store(in: &cancellables)
-        // Delete and ⌘⌫ for the Shelf, from every input of the claim at once
-        // (`NotchViewModel.claimsDelete`). The values are the ones the
-        // publishers hand over, never `vm`'s: `@Published` announces before it
-        // stores, so the model still holds the old value inside the sink — the
-        // mistake that would leave a registration standing for one change too
-        // long. Any one input going false gives the keys back in this same
-        // turn; there is no timer and no "later".
-        vm.$isOpen.combineLatest(vm.$tab, vm.$isShowingWelcome)
-            .combineLatest(vm.$isPointerOnShelf, vm.shelf.$selection, vm.$isLockedPresentation)
-            .sink { [weak self] base, pointerOnShelf, selection, locked in
-                MainActor.assumeIsolated {
-                    self?.updateDeleteKey(
-                        open: base.0, onShelf: base.1 == .shelf && !base.2,
-                        pointerOnShelf: pointerOnShelf, hasSelection: !selection.isEmpty, locked: locked
-                    )
-                }
-            }
-            .store(in: &cancellables)
-        // The Shelf's pointer zone follows the tab: cut for the Shelf's body
-        // while it shows, empty on every other tab, and at once (not a pass
-        // later like the rects) because it is what ends the Delete claim.
-        vm.$tab
-            .removeDuplicates()
-            .sink { [weak self] tab in
-                MainActor.assumeIsolated {
-                    guard let self, let vm = self.viewModel else { return }
-                    // The body the *new* tab asks for: `vm.openBodySize` still
-                    // reads the old one inside this sink.
-                    let size = CGSize(
-                        width: vm.geometry.expandedSize.width,
-                        height: NotchViewModel.openBodyHeight(
-                            tab: tab, showingLyrics: vm.showsLyricPage, expandedTabs: vm.expandedTabs
-                        )
-                    )
-                    self.updateShelfZone(open: vm.isOpen && tab == .shelf, size: size, tab: tab)
-                }
-            }
-            .store(in: &cancellables)
+        wireShelfClaims(vm)
         // And let go of it while this app is active: Quick Look and AirDrop
         // activate it from a Shelf card, and their windows answer Escape.
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
@@ -1892,12 +1856,60 @@ final class NotchController {
         return reduceMotion ? Theme.reducedMotionDuration : Theme.expandSettle
     }
 
+    /// The two sinks that keep the Shelf's Delete key and pointer zone true to the
+    /// model, in one place so `attachForTesting` installs exactly what `build`
+    /// does (review 2026-10-15: the tests called `refreshDeleteKey()` by hand and
+    /// so never ran the wiring they were named for).
+    private func wireShelfClaims(_ vm: NotchViewModel) {
+        // Delete and ⌘⌫ for the Shelf, from every input of the claim at once
+        // (`NotchViewModel.claimsDelete`). The values are the ones the
+        // publishers hand over, never `vm`'s: `@Published` announces before it
+        // stores, so the model still holds the old value inside the sink — the
+        // mistake that would leave a registration standing for one change too
+        // long. Any one input going false gives the keys back in this same
+        // turn; there is no timer and no "later".
+        vm.$isOpen.combineLatest(vm.$tab, vm.$isShowingWelcome)
+            .combineLatest(vm.$isPointerOnShelf, vm.$shelfSelectionIsCurrent, vm.$isLockedPresentation)
+            .sink { [weak self] base, pointerOnShelf, selection, locked in
+                MainActor.assumeIsolated {
+                    self?.updateDeleteKey(
+                        open: base.0, onShelf: base.1 == .shelf && !base.2,
+                        pointerOnShelf: pointerOnShelf, hasSelection: selection, locked: locked
+                    )
+                }
+            }
+            .store(in: &cancellables)
+        // The Shelf's pointer zone follows the tab: cut for the Shelf's body
+        // while it shows, empty on every other tab, and at once (not a pass
+        // later like the rects) because it is what ends the Delete claim.
+        vm.$tab
+            .removeDuplicates()
+            .sink { [weak self] tab in
+                MainActor.assumeIsolated {
+                    guard let self, let vm = self.viewModel else { return }
+                    // The body the *new* tab asks for: `vm.openBodySize` still
+                    // reads the old one inside this sink.
+                    let size = CGSize(
+                        width: vm.geometry.expandedSize.width,
+                        height: NotchViewModel.openBodyHeight(
+                            tab: tab, showingLyrics: vm.showsLyricPage, expandedTabs: vm.expandedTabs
+                        )
+                    )
+                    self.updateShelfZone(open: vm.isOpen && tab == .shelf, size: size, tab: tab)
+                }
+            }
+            .store(in: &cancellables)
+    }
+
     /// Test seam: gives the controller a model and a root view without building
     /// a panel, starting the stores or reading a screen, so the rect logic can be
     /// held at the controller rather than by its pure helpers alone.
     func attachForTesting(viewModel: NotchViewModel, rootView: NotchRootView) {
         self.viewModel = viewModel
         self.rootView = rootView
+        // The same sinks `build` installs, so a test that flips `isOpen`, the tab
+        // or the pointer sees the registration follow without a manual refresh.
+        wireShelfClaims(viewModel)
     }
 
     /// Re-cuts both rects for the body currently on screen.

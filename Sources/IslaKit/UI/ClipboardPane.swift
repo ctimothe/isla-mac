@@ -33,6 +33,11 @@ struct ClipboardPane: View {
     private let translate: (String) -> Void
     /// The header's height on this Mac, for the body-to-pane conversion.
     private let headerHeight: CGFloat
+    /// The keyboard claim the search field follows (`NotchViewModel.wantsKeyboard`),
+    /// and the way it ends a search. The field lives on this pane's filter row,
+    /// not in the header strip (review 2026-10-15: the notch covered it there).
+    @Binding private var wantsKeyboard: Bool
+    private let closeSearch: () -> Void
 
     @StateObject private var clear: ClipboardClearConfirmation
 
@@ -42,6 +47,8 @@ struct ClipboardPane: View {
         browser: ClipboardBrowser? = nil,
         historyDefaults: UserDefaults = .standard,
         headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight,
+        wantsKeyboard: Binding<Bool> = .constant(false),
+        closeSearch: @escaping () -> Void = {},
         translate: @escaping (String) -> Void = { _ in },
         clearConfirmation: ClipboardClearConfirmation? = nil,
         turnOnHistory: @escaping () -> Void = {}
@@ -52,6 +59,8 @@ struct ClipboardPane: View {
         _browser = ObservedObject(wrappedValue: browser ?? ClipboardBrowser())
         _historyEnabled = AppStorage(wrappedValue: true, NotchViewModel.clipboardHistoryKey, store: historyDefaults)
         self.headerHeight = headerHeight
+        _wantsKeyboard = wantsKeyboard
+        self.closeSearch = closeSearch
         self.translate = translate
         self.turnOnHistory = turnOnHistory
     }
@@ -108,17 +117,25 @@ struct ClipboardPane: View {
     private func content(_ size: CGSize) -> some View {
         let alert = showsAlert
         let confirming = clear.isAsking && !clipboard.items.isEmpty
-        let viewport = pane(ClipboardLayout.viewport(bodySize: size, showsAlert: alert, confirming: confirming))
+        let hasFilterRow = ClipboardHeader.showsFilterRow(itemCount: clipboard.items.count, isSearching: browser.isSearching)
+        let viewport = pane(ClipboardLayout.viewport(
+            bodySize: size, showsAlert: alert, confirming: confirming, hasFilterRow: hasFilterRow
+        ))
         let listing = ClipboardBrowser.listing(
-            of: clipboard.items, filter: browser.filter, query: browser.query, searching: browser.isSearching
+            of: clipboard.items, filter: browser.filter, query: browser.query, searching: browser.isSearching,
+            isHidden: { privacy.hides(.clipboard, $0.id.uuidString) }
         )
         ZStack(alignment: .topLeading) {
-            if alert { deniedAlert(size) }
+            if alert { deniedAlert(size, hasFilterRow: hasFilterRow) }
+            if hasFilterRow { filterRow(size) }
             if clipboard.items.isEmpty {
-                emptyState(in: pane(ClipboardLayout.viewport(bodySize: size, showsAlert: alert)))
+                emptyState(in: pane(ClipboardLayout.viewport(bodySize: size, showsAlert: alert, hasFilterRow: hasFilterRow)))
             } else if listing.items.isEmpty {
                 if listing.isSearch {
                     noResults(in: viewport)
+                } else if let title = browser.filter.emptyTitle, !browser.isSearching {
+                    // Entries exist, but none of the chosen kind.
+                    kindEmpty(title: title, symbol: browser.filter.symbol, in: viewport)
                 } else {
                     emptyState(in: viewport)
                 }
@@ -130,6 +147,28 @@ struct ClipboardPane: View {
             if confirming { confirmBar(size) }
         }
         .animation(Theme.contentAnimation, value: confirming)
+    }
+
+    // MARK: - The filter row (§9.3)
+
+    /// The Kind filter, or while Search is open the field that replaces it, on
+    /// the row under the header: (58, 44), `bw − 72` × 22. Drawn by the pane
+    /// rather than the header strip because it is below the strip, and a
+    /// control placed outside its parent's bounds is a hit-testing gamble.
+    @ViewBuilder
+    private func filterRow(_ size: CGSize) -> some View {
+        if browser.isSearching {
+            let frame = pane(ClipboardHeader.searchField(bodyWidth: size.width))
+            ClipboardSearchField(browser: browser, wantsKeyboard: $wantsKeyboard, close: closeSearch)
+                .frame(width: frame.width, height: frame.height)
+                .offset(x: frame.minX, y: frame.minY)
+                .transition(.opacity)
+        } else {
+            let frame = pane(ClipboardHeader.filter(bodyWidth: size.width))
+            ClipboardKindControl(selection: $browser.filter, bodyWidth: size.width)
+                .offset(x: frame.minX, y: frame.minY)
+                .transition(.opacity)
+        }
     }
 
     // MARK: - The list (§9.2)
@@ -288,6 +327,28 @@ struct ClipboardPane: View {
         .offset(x: frame.minX, y: frame.minY)
     }
 
+    /// A filter with nothing of its kind (`ClipFilter.emptyTitle`): the kind's own
+    /// symbol, "No Links", and a line saying copies of that kind will land here.
+    private func kindEmpty(title: String, symbol: String, in frame: CGRect) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.system(size: 26, weight: .regular))
+                .foregroundStyle(Theme.tertiary)
+                .accessibilityHidden(true)
+                .padding(.bottom, 4)
+            Text(title)
+                .islandFont(.subhead, weight: .semibold)
+                .foregroundStyle(.white)
+            Text(localized("Copies of this kind appear here."))
+                .islandFont(.body, weight: .regular)
+                .foregroundStyle(Theme.secondary)
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 16)
+        .frame(width: frame.width, height: frame.height)
+        .offset(x: frame.minX, y: frame.minY)
+    }
+
     /// `magnifyingglass` 26 pt, the query in the title, and the way out. The
     /// words are the system's own for a search that found nothing.
     private func noResults(in frame: CGRect) -> some View {
@@ -319,9 +380,10 @@ struct ClipboardPane: View {
     /// the failure belongs to this section and to nothing else; Settings
     /// carries no second banner for the same event. What was kept before the
     /// refusal stays below it, still usable.
-    private func deniedAlert(_ size: CGSize) -> some View {
+    private func deniedAlert(_ size: CGSize, hasFilterRow: Bool) -> some View {
+        let origin = hasFilterRow ? ClipboardLayout.listOrigin : ClipboardLayout.listOriginWithoutFilterRow
         let frame = pane(CGRect(
-            x: ClipboardLayout.listOrigin.x, y: ClipboardLayout.listOrigin.y,
+            x: origin.x, y: origin.y,
             width: ClipboardLayout.rowWidth(bodyWidth: size.width), height: ClipboardLayout.alertHeight
         ))
         return HStack(spacing: 10) {
@@ -839,9 +901,15 @@ struct ClipImageTile: View {
 
 // MARK: - The right-click menu (§9.2)
 
-/// Copy ⌘C · Paste as Plain Text ⌥⇧⌘V (text kinds) · — · Pin / Unpin · Translate
+/// Copy ⌘C · Copy as Plain Text (text kinds) · — · Pin / Unpin · Translate
 /// (text kinds) · — · Remove Entry · Clear Everything… (destructive). A covered
 /// pane adds Show or Hide after Copy, as it did.
+///
+/// "Copy as Plain Text", not the spec's "Paste as Plain Text ⌥⇧⌘V" (review
+/// 2026-10-15): Isla has no Accessibility permission and the panel is not key, so
+/// the verb only ever wrote the string to the pasteboard and pressed nothing — a
+/// "Paste" that did not paste, with a shortcut glyph promising a key that was
+/// never bound. It is named for what it does and carries no shortcut.
 struct ClipEntryMenu: View {
     let item: ClipItem
     let clipboard: ClipboardStore
@@ -851,25 +919,68 @@ struct ClipEntryMenu: View {
     let translate: (String) -> Void
     let askClear: () -> Void
 
+    /// The menu as values, in order, so its verbs are a test and the body below
+    /// cannot drift from them.
+    enum Entry: Equatable {
+        case copy, copyAsPlainText, showOrHide(hidden: Bool), divider
+        case pin(isPinned: Bool), translate, removeEntry, clearEverything
+
+        /// The title; nil for a divider.
+        var title: String? {
+            switch self {
+            case .copy: return localized("Copy")
+            case .copyAsPlainText: return localized("Copy as Plain Text")
+            case .showOrHide(let hidden): return hidden ? localized("Show") : localized("Hide")
+            case .divider: return nil
+            case .pin(let isPinned): return isPinned ? localized("Unpin") : localized("Pin")
+            case .translate: return localized("Translate")
+            case .removeEntry: return localized("Remove Entry")
+            case .clearEverything: return localized("Clear Everything…")
+            }
+        }
+    }
+
+    static func entries(isText: Bool, hasText: Bool, isPinned: Bool, covered: Bool, hidden: Bool) -> [Entry] {
+        var entries: [Entry] = [.copy]
+        if isText { entries.append(.copyAsPlainText) }
+        if covered { entries.append(.showOrHide(hidden: hidden)) }
+        entries.append(.divider)
+        entries.append(.pin(isPinned: isPinned))
+        if isText, hasText { entries.append(.translate) }
+        entries.append(.divider)
+        entries.append(.removeEntry)
+        entries.append(.clearEverything)
+        return entries
+    }
+
+    private var entries: [Entry] {
+        Self.entries(
+            isText: item.kind.isText, hasText: item.text != nil, isPinned: item.isPinned,
+            covered: privacy.covers(.clipboard), hidden: privacy.hides(.clipboard, item.id.uuidString)
+        )
+    }
+
     var body: some View {
-        Button(localized("Copy"), action: copy)
-            .keyboardShortcut("c", modifiers: .command)
-        if item.kind.isText {
-            Button(localized("Paste as Plain Text"), action: copyPlain)
-                .keyboardShortcut("v", modifiers: [.option, .shift, .command])
+        ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+            switch entry {
+            case .copy:
+                Button(entry.title ?? "", action: copy).keyboardShortcut("c", modifiers: .command)
+            case .copyAsPlainText:
+                Button(entry.title ?? "", action: copyPlain)
+            case .showOrHide:
+                Button(entry.title ?? "") { privacy.toggle(item.id.uuidString) }
+            case .divider:
+                Divider()
+            case .pin:
+                Button(entry.title ?? "") { clipboard.togglePin(item) }
+            case .translate:
+                Button(entry.title ?? "") { if let text = item.text { translate(text) } }
+            case .removeEntry:
+                Button(entry.title ?? "") { clipboard.remove(item) }
+            case .clearEverything:
+                Button(entry.title ?? "", role: .destructive, action: askClear)
+            }
         }
-        if privacy.covers(.clipboard) {
-            let hidden = privacy.hides(.clipboard, item.id.uuidString)
-            Button(hidden ? localized("Show") : localized("Hide")) { privacy.toggle(item.id.uuidString) }
-        }
-        Divider()
-        Button(item.isPinned ? localized("Unpin") : localized("Pin")) { clipboard.togglePin(item) }
-        if item.kind.isText, let text = item.text {
-            Button(localized("Translate")) { translate(text) }
-        }
-        Divider()
-        Button(localized("Remove Entry")) { clipboard.remove(item) }
-        Button(localized("Clear Everything…"), role: .destructive, action: askClear)
     }
 }
 
