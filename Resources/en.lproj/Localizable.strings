@@ -79,7 +79,6 @@
 "Translate Online" = "Translate Online";
 "Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet." = "Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet.";
 "Translations stay on this Mac." = "Translations stay on this Mac.";
-"Clear Everything" = "Clear Everything";
 "Delete These Files" = "Delete These Files";
 "Quit Isla" = "Quit Isla";
 "Asks for confirmation before acting." = "Asks for confirmation before acting.";
@@ -315,7 +314,6 @@
 "macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS is not letting Isla read what you copy, so nothing new is kept.";
 "Open Privacy Settings" = "Open Privacy Settings";
 "Nothing copied yet" = "Nothing copied yet";
-"Text and files you copy appear here. Copies from password managers are skipped." = "Text and files you copy appear here. Copies from password managers are skipped.";
 "Turn On" = "Turn On";
 "Something is playing that Music Only keeps off the island." = "Something is playing that Music Only keeps off the island.";
 "Open Settings" = "Open Settings";
@@ -461,3 +459,33 @@
 "Remove All" = "Remove All";
 "Open With" = "Open With";
 "More" = "More";
+
+/* The Clipboard: kinds, pins, search, images (redesign 2026-10-15, spec 9, 15) */
+"Now" = "Now";
+"%d min" = "%d min";
+"%d hr" = "%d hr";
+"Yesterday" = "Yesterday";
+"Kind" = "Kind";
+"All" = "All";
+"Text" = "Text";
+"Links" = "Links";
+"Images" = "Images";
+"Files" = "Files";
+"Image" = "Image";
+"%d files" = "%d files";
+"%@, %@ and %d more" = "%@, %@ and %d more";
+"Pin" = "Pin";
+"Unpin" = "Unpin";
+"Paste as Plain Text" = "Paste as Plain Text";
+"Clear Everything…" = "Clear Everything…";
+"Clear %d entries? Pinned items stay." = "Clear %d entries? Pinned items stay.";
+"Clear History" = "Clear History";
+"Search" = "Search";
+"Clear Search" = "Clear Search";
+"No Results for “%@”" = "No Results for “%@”";
+"Check the spelling or try a new search." = "Check the spelling or try a new search.";
+"Text, links, images and files you copy appear here. Copies from password managers are skipped." = "Text, links, images and files you copy appear here. Copies from password managers are skipped.";
+"Images are kept in memory, like the rest of the history." = "Images are kept in memory, like the rest of the history.";
+"Include Images" = "Include Images";
+"Keep Pinned Items" = "Keep Pinned Items";
+"History is kept in memory and empties when Isla quits. Keep Pinned Items saves only your pins, on this Mac." = "History is kept in memory and empties when Isla quits. Keep Pinned Items saves only your pins, on this Mac.";

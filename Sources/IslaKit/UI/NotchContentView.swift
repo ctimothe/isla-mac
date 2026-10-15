@@ -687,6 +687,25 @@ struct NotchContentView: View {
                     }
                 )
             ))
+            // The Clipboard's kind filter, Search (or the field that replaces
+            // them) and Expand (spec §9.3), the same way.
+            .modifier(ClipboardHeaderTools(
+                isShown: showsClipboardTools,
+                bodyWidth: size.width,
+                itemCount: vm.clipboard.items.count,
+                browser: vm.clipboardBrowser,
+                isExpanded: Binding(
+                    get: { vm.expandedTabs.contains(.clipboard) },
+                    set: { wants in
+                        withAnimation(Theme.expand(reduceMotion: reduceMotion)) {
+                            vm.setExpanded(wants, for: .clipboard)
+                        }
+                    }
+                ),
+                wantsKeyboard: $vm.wantsKeyboard,
+                openSearch: { vm.openClipboardSearch() },
+                closeSearch: { vm.closeClipboardSearch() }
+            ))
             .modifier(LyricHeaderTools(
                 isShown: showsLyricTools,
                 bodyWidth: size.width,
@@ -712,6 +731,12 @@ struct NotchContentView: View {
     private var showsShelfExpand: Bool {
         !vm.isShowingWelcome && vm.tab == .shelf
             && ShelfHeader.showsExpand(itemCount: vm.shelf.items.count, isExpanded: vm.expandedTabs.contains(.shelf))
+    }
+
+    /// Whether the header carries the Clipboard's tools: the Clipboard tab, and
+    /// not under the welcome.
+    private var showsClipboardTools: Bool {
+        !vm.isShowingWelcome && vm.tab == .clipboard
     }
 
     /// Whether the header carries the lyric tools: the Music tab on the column
@@ -1027,9 +1052,11 @@ struct NotchContentView: View {
                     .padding(.trailing, ShelfHeader.countClearance)
             }
         case .clipboard:
-            counter(Self.clipboardCounter(
-                count: vm.clipboard.items.count, covered: vm.privacy.covers(.clipboard)
-            ) ?? 0)
+            // The filter, Search and Expand live in `ClipboardHeaderTools`
+            // (spec §9.3). The count that used to sit here is gone with the
+            // room it took, and with it what it told a screen-share audience
+            // while the cover was on (H-026).
+            EmptyView()
         case .translate:
             // Nothing: the columns name both languages already, and the strip
             // is the one part of the panel worth not spending on a repeat.
@@ -1042,22 +1069,6 @@ struct NotchContentView: View {
     /// The player's app icon in the header's source tag: 18 pt square
     /// (spec §4.1).
     static let sourceIconSide: CGFloat = 18
-
-    /// The number the clipboard header shows, or nil for none. With the cover
-    /// on, the header read "6" over rows of dots, and a screen-share audience
-    /// learned how many things had been copied (H-026). Pure, so it is a test.
-    static func clipboardCounter(count: Int, covered: Bool) -> Int? {
-        covered || count <= 0 ? nil : count
-    }
-
-    @ViewBuilder
-    private func counter(_ value: Int) -> some View {
-        if value > 0 {
-            Text("\(value)")
-                .font(Theme.TypeRole.caption.font().monospacedDigit())
-                .foregroundStyle(Theme.tertiary)
-        }
-    }
 
     // MARK: - Body
 
@@ -1160,7 +1171,9 @@ struct NotchContentView: View {
             )
         case .clipboard:
             ClipboardPane(
-                clipboard: vm.clipboard, privacy: vm.privacy,
+                clipboard: vm.clipboard, privacy: vm.privacy, browser: vm.clipboardBrowser,
+                headerHeight: vm.geometry.notchSize.height,
+                translate: { vm.translateClipboardText($0) },
                 turnOnHistory: { vm.setClipboardHistory(true) }
             )
         case .translate:
@@ -1186,6 +1199,8 @@ struct NotchContentView: View {
                 privacy: vm.privacy,
                 wantsKeyboard: $vm.wantsKeyboard,
                 setClipboardHistory: vm.setClipboardHistory,
+                setClipboardIncludeImages: vm.setClipboardIncludeImages,
+                setClipboardKeepPinned: vm.setClipboardKeepPinned,
                 refreshClipboardPolling: vm.refreshClipboardPolling,
                 scrollTarget: $vm.settingsScrollTarget
             )

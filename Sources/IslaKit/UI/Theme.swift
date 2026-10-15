@@ -1025,6 +1025,42 @@ enum Theme {
     /// short enough that a covered clipboard row under the drifting dots
     /// still reads as covered rather than as a third state.
     static let scrollFadeLength: CGFloat = 10
+
+    // MARK: - The Clipboard (spec §9)
+
+    /// The well behind a hovered row and a row that has just been copied, white
+    /// at 0.08 (spec §9.2) — Increase Contrast steps it to 0.18, the same rule
+    /// every translucent fill follows (§2.1), so a hovered row can still be told
+    /// from the rest.
+    static func clipboardWellOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.18 : 0.08
+    }
+
+    @MainActor static var clipboardWell: Color {
+        Color.white.opacity(clipboardWellOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// The open search field's fill, white at 0.10 (spec §9.3), with the same
+    /// step under Increase Contrast.
+    static func searchFieldOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.20 : 0.10
+    }
+
+    @MainActor static var searchFieldFill: Color {
+        Color.white.opacity(searchFieldOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// A search match: `#FFD60A` behind `#1D1D1F` text (spec §2.1, §9.3) — the
+    /// find-in-page yellow Safari, Notes and Mail mark a match with, so nobody
+    /// has to be told what it means. Dark text on it, whatever the row's own
+    /// colour: white on this yellow would be 1.4:1.
+    static let findHighlight = Color(red: 255.0 / 255, green: 214.0 / 255, blue: 10.0 / 255)
+    static let findHighlightText = Color(red: 29.0 / 255, green: 29.0 / 255, blue: 31.0 / 255)
+
+    /// The warning orange `#FF9F0A` (spec §2.1): an alert that is a warning and
+    /// not a failure. The denied-access alert's glyph, ring and fill are this
+    /// at full, 0.35 and 0.12.
+    static let warning = Color(red: 255.0 / 255, green: 159.0 / 255, blue: 10.0 / 255)
 }
 
 /// The pressed state `.plain` does not give.

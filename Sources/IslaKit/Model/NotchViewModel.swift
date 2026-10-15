@@ -55,7 +55,11 @@ final class NotchViewModel: ObservableObject {
         }
 
         /// Tabs with a field in them. Landing on one hands it the keyboard, so
-        /// that arriving and typing is a single move.
+        /// that arriving and typing is a single move. The Clipboard tab's search
+        /// field is not one of them: it asks only while it is open
+        /// (`NotchViewModel.tabWantsKeyboard`), because a tab that took the
+        /// keyboard on arrival would dim the caret of the window underneath
+        /// every time somebody glanced at their history.
         var needsKeyboard: Bool { self == .translate }
 
         /// One rail, in two groups. Four tabs is few enough that a second
@@ -80,6 +84,10 @@ final class NotchViewModel: ObservableObject {
             // pending fold then finds nothing to fold. Only on false to true:
             // `@Published` runs this on every write, and a moment presented
             // while shut must survive a redundant `isOpen = false`.
+            // The panel closing ends a Clipboard search and gives its keyboard
+            // back (spec §9.3): a field left open would be waiting, with its
+            // query, inside the next visit.
+            if !isOpen, oldValue { closeClipboardSearch() }
             guard isOpen, !oldValue else { return }
             ambient = nil
             isPeeking = false
@@ -113,6 +121,37 @@ final class NotchViewModel: ObservableObject {
     /// Shelf until it comes into view.
     @Published private(set) var shelfHasNew = false
 
+    /// The Clipboard tab's kind filter and search field (spec §9.3). Owned here
+    /// rather than by the pane because opening the field is a claim on the
+    /// keyboard, and every way it ends — a tab change, the panel folding,
+    /// Escape — has to reach it from outside the pane.
+    let clipboardBrowser = ClipboardBrowser()
+
+    /// Whether `tab` wants the panel to hold the keyboard right now: the tabs
+    /// with a field in them, and the Clipboard tab for as long as its search
+    /// field is open. The one rule the tab change, a press inside the panel and
+    /// the search field's own opening all ask, so they cannot disagree.
+    nonisolated static func tabWantsKeyboard(tab: Tab, clipboardSearching: Bool) -> Bool {
+        tab.needsKeyboard || (tab == .clipboard && clipboardSearching)
+    }
+
+    /// The magnifier in the Clipboard header: the field replaces the filter and
+    /// the panel becomes key, the way it does for Translate.
+    func openClipboardSearch() {
+        guard tab == .clipboard, !isLockedPresentation else { return }
+        clipboardBrowser.beginSearch()
+        wantsKeyboard = true
+    }
+
+    /// Escape, the ⓧ, a tab change and the panel folding: the field goes, what
+    /// was typed goes with it, and the keyboard goes back. Only the claim the
+    /// search made — Translate's is its own.
+    func closeClipboardSearch() {
+        guard clipboardBrowser.isSearching else { return }
+        clipboardBrowser.endSearch()
+        if tab == .clipboard { wantsKeyboard = false }
+    }
+
     /// The Translate editor's frame in the window (top-left origin), for the
     /// panel's I-beam. Zero on every other tab; the pane that reports it is
     /// gone by then and a vanished view sends no last word.
@@ -127,8 +166,13 @@ final class NotchViewModel: ObservableObject {
             // with the shelf on screen, rather than at launch with nothing to
             // explain it.
             if tab == .shelf { shelf.refreshFromDisk() }
+            // The Clipboard search belongs to the Clipboard tab: leaving it
+            // closes the field, and with it the claim on the keyboard.
+            if tab != .clipboard { clipboardBrowser.endSearch() }
             // Leaving the tab that types gives the keyboard straight back.
-            if !tab.needsKeyboard { wantsKeyboard = false }
+            if !Self.tabWantsKeyboard(tab: tab, clipboardSearching: clipboardBrowser.isSearching) {
+                wantsKeyboard = false
+            }
             // And leaving Music folds the stage, so coming back to the tab
             // lands on the player rather than on a page of words left open
             // three songs ago.
@@ -608,6 +652,13 @@ final class NotchViewModel: ObservableObject {
         chooseTab(.translate)
     }
 
+    /// Translate, from a Clipboard row's menu (spec §9.2): the entry's text goes
+    /// where ⌃⌥⌘T and the service put theirs — through the same preparation
+    /// (trimmed, capped, noticed) and the same landing on the Translate tab.
+    func translateClipboardText(_ text: String) {
+        receiveCommandedTranslation(Translator.prepareCommandInput(text))
+    }
+
     /// The pointer is on the island. Drawn as an outline, not as an opening.
     ///
     /// Hovering used to open the panel outright, which meant the island
@@ -773,6 +824,7 @@ final class NotchViewModel: ObservableObject {
         for child in [
             shelf.objectWillChange,
             clipboard.objectWillChange,
+            clipboardBrowser.objectWillChange,
         ] {
             child
                 .sink { [weak self] _ in
@@ -1185,13 +1237,48 @@ final class NotchViewModel: ObservableObject {
 
     func setClipboardHistory(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Self.clipboardHistoryKey)
-        if !enabled { clipboard.clear() }
+        // Everything, pins included: off means nothing is kept (and with Keep
+        // Pinned Items on, the file follows the now-empty history).
+        if !enabled { clipboard.clearAll() }
         stores.refreshClipboardPolling(settingChanged: true)
     }
 
     /// The screenshot switch decides polling too, once history is off.
     func refreshClipboardPolling() {
         stores.refreshClipboardPolling(settingChanged: true)
+    }
+
+    // MARK: Clipboard: Include Images and Keep Pinned Items (spec §9.4, §14)
+
+    static let clipboardIncludeImagesKey = "clipboard.includeImages"
+
+    /// Defaults to **on** (spec §14): a picture copied while history is on is
+    /// kept in memory, 12 at most, and gone when Isla quits. Nothing is written
+    /// anywhere and nothing leaves the Mac, which is why this one is allowed to
+    /// start on; Save Clipboard Screenshots, which does write, stays off.
+    static var clipboardIncludeImagesEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: clipboardIncludeImagesKey) != nil else { return true }
+        return defaults.bool(forKey: clipboardIncludeImagesKey)
+    }
+
+    func setClipboardIncludeImages(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.clipboardIncludeImagesKey)
+        if !enabled { clipboard.removeImages() }
+    }
+
+    static let clipboardKeepPinnedKey = "clipboard.keepPinned"
+
+    /// Defaults to **off** (spec §14): the history is memory only and empties
+    /// at quit, and saving even the pins is a decision the person makes. On
+    /// writes the pinned text and file entries to one file on this Mac.
+    static var clipboardKeepPinnedEnabled: Bool {
+        UserDefaults.standard.bool(forKey: clipboardKeepPinnedKey)
+    }
+
+    func setClipboardKeepPinned(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.clipboardKeepPinnedKey)
+        clipboard.keepPinnedChanged()
     }
 
     /// Off switch for people who copy images all day and do not want them kept.
@@ -1613,6 +1700,11 @@ final class NotchViewModel: ObservableObject {
         switch tab {
         case .translate where !translator.input.isEmpty:
             translator.reset()
+            return true
+        // The open search field takes the first Escape (spec §9.3), so Escape
+        // in a field means "stop searching" and never "close the panel".
+        case .clipboard where clipboardBrowser.isSearching:
+            closeClipboardSearch()
             return true
         default:
             return false

@@ -20,24 +20,26 @@ final class PrivacyModeTests: XCTestCase {
         XCTAssertTrue(PrivacyMode(defaults: defaults).covers(.clipboard))
     }
 
-    /// With the cover on, the header still read "6" and row 5 still wore a
-    /// link glyph, so a screen-share audience learned how many items there
-    /// are and which is a URL (H-026). Hidden, the count is gone and every
-    /// row wears one neutral glyph; a revealed row shows its real kind.
-    func testTheCoverHidesCountAndKind() {
-        XCTAssertNil(NotchContentView.clipboardCounter(count: 6, covered: true))
-        XCTAssertEqual(NotchContentView.clipboardCounter(count: 6, covered: false), 6)
-        XCTAssertNil(NotchContentView.clipboardCounter(count: 0, covered: false))
-
+    /// With the cover on, the header read "6" and row 5 wore a link glyph, so a
+    /// screen-share audience learned how many things had been copied and which
+    /// was a URL (H-026). The redesign draws no count in the header at all
+    /// (spec §9.3: the room is the filter's), and decides the other half the
+    /// other way on purpose: a covered row keeps the mark of its *kind* readable
+    /// (spec §9.4) — a text glyph, a link, braces — while everything that is the
+    /// content stays under the dots. A colour's swatch, a picture's thumbnail and
+    /// a file's real icon are content, so a covered row draws their kind's glyph
+    /// or a neutral swatch instead.
+    func testTheCoverKeepsTheKindReadableAndHidesTheContent() {
         let link = ClipItem(payload: .text("https://example.com"), date: .distantPast)
         let text = ClipItem(payload: .text("a note"), date: .distantPast)
         let file = ClipItem(payload: .file(URL(fileURLWithPath: "/tmp/a.txt")), date: .distantPast)
-        for item in [link, text, file] {
-            XCTAssertEqual(ClipRow.glyph(for: item, hidden: true), "text.alignleft")
-        }
+        XCTAssertEqual(ClipRow.glyph(for: link, hidden: true), "link")
+        XCTAssertEqual(ClipRow.glyph(for: text, hidden: true), "text.alignleft")
+        XCTAssertEqual(ClipRow.glyph(for: file, hidden: true), "doc")
         XCTAssertEqual(ClipRow.glyph(for: link, hidden: false), "link")
         XCTAssertEqual(ClipRow.glyph(for: text, hidden: false), "text.alignleft")
-        XCTAssertEqual(ClipRow.glyph(for: file, hidden: false), "doc")
+        // Uncovered, a file draws its real icon and not a glyph.
+        XCTAssertNil(ClipRow.glyph(for: file, hidden: false))
     }
 
     /// ⌃⌥⌘T on a pane the user had already uncovered puts a new clipboard

@@ -1325,7 +1325,9 @@ final class NotchController {
         // Clicking away drops the keyboard but leaves the tab where it was, so
         // a click back into the panel has to be able to ask for it again.
         panel.onPress = { [weak self] in
-            guard let vm = self?.viewModel, vm.tab.needsKeyboard else { return }
+            guard let vm = self?.viewModel, NotchViewModel.tabWantsKeyboard(
+                tab: vm.tab, clipboardSearching: vm.clipboardBrowser.isSearching
+            ) else { return }
             // Never while the shield is up. The lock card takes clicks — that
             // is how its transport works — and with the last-used tab on
             // translate or notes, one of those clicks used to raise

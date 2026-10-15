@@ -222,15 +222,26 @@ final class LyricColumnPaneTests: XCTestCase {
         XCTAssertNil(s.root.first(label: "More Lyrics Options"))
     }
 
-    /// Clipboard and Translate get the button in the releases after R3 (the Shelf
-    /// has it since R3, redesign 2026-10-15, spec §8.1); Settings never does
-    /// before R4.
+    /// Translate gets the button in the release after R3 (the Shelf has it
+    /// since R3 task 1 and the Clipboard since task 2, redesign 2026-10-15, spec
+    /// §8.1, §9.3); Settings never does before R4.
     func testOtherTabsHaveNoExpandButtonYet() async throws {
-        for tab in [NotchViewModel.Tab.clipboard, .translate, .settings] {
+        for tab in [NotchViewModel.Tab.translate, .settings] {
             let s = try await shell(.player, tab: tab)
             XCTAssertNil(s.root.first(label: "Expand"), "\(tab)")
             XCTAssertNil(s.root.first(label: "Collapse"), "\(tab)")
         }
+    }
+
+    /// The Clipboard's button is the same one in the same place, beside Search
+    /// (spec §9.3): the history here is empty and grown, which is when it says
+    /// Collapse — Clear History on the tall Clipboard must leave a way back.
+    func testTheClipboardHasTheButtonWhileItIsTall() async throws {
+        let s = try await shell(.player, tab: .clipboard)
+        let collapse = try body(try XCTUnwrap(s.root.first(label: "Collapse"), s.root.dump), in: s)
+        XCTAssertEqual(collapse, CGRect(x: s.bodyWidth - 39, y: 8, width: 22, height: 22), accuracy: 1)
+        XCTAssertNil(s.root.first(label: "Expand"))
+        XCTAssertNil(s.root.first(label: "Search"), "nothing to search in an empty history")
     }
 
     /// The Shelf's button is the same one in the same place: here the shelf is

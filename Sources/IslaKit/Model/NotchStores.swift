@@ -130,6 +130,16 @@ final class NotchStores {
         // exactly the machines whose owners turned the feature off.
         clipboard.wantsImages = { NotchViewModel.saveClipboardImagesEnabled }
         clipboard.recordsHistory = { NotchViewModel.clipboardHistoryEnabled }
+        clipboard.keepsImages = { NotchViewModel.clipboardIncludeImagesEnabled }
+        // Keep Pinned Items (spec §9.4): the file and the switch, wired only
+        // here, and never under test — a test that reached this would be
+        // reading, and with the switch on writing, the owner's Application
+        // Support. The tests inject a temporary file of their own.
+        if !PlayerBridge.isRunningTests {
+            clipboard.pinnedFile = PinnedClipboardFile.live
+            clipboard.keepsPinned = { NotchViewModel.clipboardKeepPinnedEnabled }
+            clipboard.loadPinned()
+        }
         clipboard.onImage = { [weak self] png in
             guard let self else { return }
             self.screenshotVault.save(png) { [weak self] url in

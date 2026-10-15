@@ -42,12 +42,16 @@ struct SettingsPane: View {
     /// draws depends on what the runner's Mac has granted.
     @ObservedObject var automation: AutomationAccess = .shared
     var setClipboardHistory: (Bool) -> Void = { _ in }
+    var setClipboardIncludeImages: (Bool) -> Void = { _ in }
+    var setClipboardKeepPinned: (Bool) -> Void = { _ in }
     var refreshClipboardPolling: () -> Void = {}
     /// A section to scroll to on appearing, cleared once spent. A binding to
     /// `NotchViewModel.settingsScrollTarget`; constant in the tests and the
     /// lab, where nothing sends the pane anywhere.
     var scrollTarget: Binding<String?> = .constant(nil)
     @State private var clipboardHistory = NotchViewModel.clipboardHistoryEnabled
+    @State private var clipboardIncludeImages = NotchViewModel.clipboardIncludeImagesEnabled
+    @State private var clipboardKeepPinned = NotchViewModel.clipboardKeepPinnedEnabled
     @State private var checkUpdatesAutomatically = UpdateCheck.automaticEnabled
 
     static let localLyricsPrivacyCopyKey = "Lyrics stay on this Mac."
@@ -74,6 +78,12 @@ struct SettingsPane: View {
     /// the capture path is.
     static var hideFromCaptureNote: String {
         localized("Asks macOS to leave Isla out of screenshots, recordings and screen sharing. Some sharing apps may still show it, so cover Clipboard and Translate before you share.")
+    }
+
+    /// Under Include Images and Keep Pinned Items: where the history lives and
+    /// what the one switch that saves anything saves (spec §9.4).
+    static var clipboardMemoryNote: String {
+        localized("History is kept in memory and empties when Isla quits. Keep Pinned Items saves only your pins, on this Mac.")
     }
 
     /// The note under Clipboard History while it is off. "Copies are not
@@ -416,6 +426,32 @@ struct SettingsPane: View {
                     if !clipboardHistory {
                         noteRow(Self.clipboardOffNote(imagesOn: saveClipboardImages))
                     }
+                    // Next to Clipboard History, which they qualify (spec §9.4,
+                    // §10): pictures kept in memory, and the one file that saves
+                    // the pins.
+                    toggleRow(
+                        symbol: SettingsIcon.includeImages,
+                        title: localized("Include Images"),
+                        isOn: Binding(
+                            get: { clipboardIncludeImages },
+                            set: { wants in
+                                clipboardIncludeImages = wants
+                                setClipboardIncludeImages(wants)
+                            }
+                        )
+                    )
+                    toggleRow(
+                        symbol: SettingsIcon.keepPinned,
+                        title: localized("Keep Pinned Items"),
+                        isOn: Binding(
+                            get: { clipboardKeepPinned },
+                            set: { wants in
+                                clipboardKeepPinned = wants
+                                setClipboardKeepPinned(wants)
+                            }
+                        )
+                    )
+                    noteRow(Self.clipboardMemoryNote)
                     ForEach(PrivacyMode.Section.allCases) { privacySection in
                         toggleRow(
                             symbol: privacySymbol(for: privacySection),

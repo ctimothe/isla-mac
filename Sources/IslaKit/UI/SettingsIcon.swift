@@ -100,6 +100,10 @@ enum SettingsIcon {
     /// Keeping a list of copies, as opposed to covering it.
     static let clipboardHistory = "list.bullet.clipboard"
     static let translate = "character.bubble"
+    /// Pictures in the history: the photo glyph the Images filter wears.
+    static let includeImages = "photo"
+    /// Keeping the pins: the pin the rows wear.
+    static let keepPinned = "pin"
     /// About recording, not about whether a person can see the panel.
     static let hideFromRecording = "video.slash"
 
@@ -120,7 +124,7 @@ enum SettingsIcon {
         musicOnly, lyrics, wordKaraoke, readAhead, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
         online, lyricTiming, resetTiming, peek, volumeAndOutput, lyricBand, translateLyrics, translateTarget, lockScreen, restAsBanner, cardStyle, automationAccess, openSystemSettings,
         connectAccount, disconnectAccount, importFromKeychain,
-        clipboard, clipboardHistory, translate, hideFromRecording,
+        clipboard, clipboardHistory, includeImages, keepPinned, translate, hideFromRecording,
         about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,
     ]
 }

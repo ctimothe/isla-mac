@@ -85,7 +85,6 @@
 "Translate Online" = "Переводить онлайн";
 "Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet." = "Языки, которые этот Mac не переводит сам, например узбекский, отправляются в MyMemory через интернет.";
 "Translations stay on this Mac." = "Переводы остаются на этом Mac.";
-"Clear Everything" = "Очистить всё";
 "Delete These Files" = "Удалить эти файлы";
 "Quit Isla" = "Выйти из Isla";
 "Asks for confirmation before acting." = "Запрашивает подтверждение перед действием.";
@@ -321,7 +320,6 @@
 "macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS не разрешает Isla читать скопированное, поэтому новое не сохраняется.";
 "Open Privacy Settings" = "Открыть настройки конфиденциальности";
 "Nothing copied yet" = "Пока ничего не скопировано";
-"Text and files you copy appear here. Copies from password managers are skipped." = "Здесь появится то, что вы копируете. Копии из менеджеров паролей не сохраняются.";
 "Turn On" = "Включить";
 "Something is playing that Music Only keeps off the island." = "Сейчас играет то, что «Только музыка» не показывает на острове.";
 "Open Settings" = "Открыть настройки";
@@ -467,3 +465,33 @@
 "Remove All" = "Убрать все";
 "Open With" = "Открыть в приложении";
 "More" = "Ещё";
+
+/* The Clipboard: kinds, pins, search, images (redesign 2026-10-15, spec 9, 15) */
+"Now" = "Сейчас";
+"%d min" = "%d мин";
+"%d hr" = "%d ч";
+"Yesterday" = "Вчера";
+"Kind" = "Тип";
+"All" = "Все";
+"Text" = "Текст";
+"Links" = "Ссылки";
+"Images" = "Изображения";
+"Files" = "Файлы";
+"Image" = "Изображение";
+"%d files" = "Файлов: %d";
+"%@, %@ and %d more" = "%@, %@ и ещё %d";
+"Pin" = "Закрепить";
+"Unpin" = "Открепить";
+"Paste as Plain Text" = "Вставить как простой текст";
+"Clear Everything…" = "Очистить всё…";
+"Clear %d entries? Pinned items stay." = "Очистить записи (%d)? Закреплённые останутся.";
+"Clear History" = "Очистить историю";
+"Search" = "Поиск";
+"Clear Search" = "Очистить поиск";
+"No Results for “%@”" = "Нет результатов для «%@»";
+"Check the spelling or try a new search." = "Проверьте написание или попробуйте другой запрос.";
+"Text, links, images and files you copy appear here. Copies from password managers are skipped." = "Здесь появляются скопированные тексты, ссылки, изображения и файлы. Копии из менеджеров паролей пропускаются.";
+"Images are kept in memory, like the rest of the history." = "Изображения хранятся в памяти, как и вся история.";
+"Include Images" = "Сохранять изображения";
+"Keep Pinned Items" = "Хранить закреплённые";
+"History is kept in memory and empties when Isla quits. Keep Pinned Items saves only your pins, on this Mac." = "История хранится в памяти и очищается при выходе из Isla. «Хранить закреплённые» сохраняет только закреплённое и только на этом Mac.";
