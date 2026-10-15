@@ -21,11 +21,35 @@ import XCTest
 /// start is placed where CoreText puts the caret at that word's first
 /// character (`CTLineGetOffsetForStringIndex`, visual coordinates, so a
 /// right-to-left word's reading start is its right edge), in the font,
-/// weight and tracking of each one-line surface (read from the shipped code
-/// through `LyricMatchLabReadabilityTests.surfaces()`). The edge reaches the
-/// word when `wordFraction × width` first covers that caret; the error is that
-/// moment minus the word's stamp. Positive is late. The lead moves every edge
-/// and every stamp alike, so it is left out.
+/// weight and tracking of each surface (read from the shipped code through
+/// `LyricMatchLabReadabilityTests.surfaces()`). The edge reaches the word when
+/// `wordFraction × width` first covers that caret; the error is that moment
+/// minus the word's stamp. Positive is late. The lead moves every edge and
+/// every stamp alike, so it is left out.
+///
+/// The three surfaces measured, `band`, `column` and `tall`, each draw the sung
+/// line on one row and cut it at the tail: the band is a `KaraokeText` with the
+/// default `lineLimit` of 1 (`MediaPane.swift`), and the column and the tall
+/// page share one row builder that passes `lineLimit: 1` to `LyricRow`
+/// (`LyricsStage.swift:613`), which hands it to `KaraokeText`. The lock card,
+/// whose current line may take more rows (`LockScreenCard.swift:909`), is not
+/// among them. A word whose reading start lies past the surface's visible
+/// width (`Surface.available`) is therefore never drawn, so it cannot be "on
+/// the word": it is left out of the error statistics and counted per surface
+/// as `beyond_visible`.
+///
+/// `width` is CoreText's typographic width of the whole line, trailing
+/// whitespace included, and that is what `KaraokeRenderer` multiplies the
+/// fraction by: `fullWidth`, the line measured on one unconstrained row, and
+/// the sum of the laid-out runs' `typographicBounds.width` (it takes the larger
+/// and caps the lit width at what is drawn, `KaraokeRenderer.litWidth`). Both
+/// were checked against CoreText on 2026-10-15: SwiftUI's run bounds equal
+/// `CTLineGetTypographicBounds` to the last digit for a string with trailing
+/// spaces, and its fitted width is that value rounded up to a whole point. So
+/// nothing is subtracted for trailing whitespace: the renderer counts it too.
+/// (The parser trims a line's ends anyway, `LocalLyricsDocument`.) The
+/// whole-point rounding, under one point on a line of a hundred or more, is
+/// the model's only approximation of the width.
 ///
 /// The model of the renderer is one lit span growing from the line's left
 /// edge. That is exact for a line of one direction: the renderer lights runs
@@ -98,6 +122,10 @@ final class LyricMatchLabSweepTests: XCTestCase {
     private struct Tally {
         var signed: [Double] = []
         var lines = 0
+        /// Words whose reading start lies beyond the surface's visible width:
+        /// the line is cut at its tail there, the word is never drawn, so it
+        /// cannot be "on the word" and is left out of the statistics.
+        var beyondVisible = 0
     }
 
     func testSweepEdgeMeetsEachWord() throws {
@@ -146,6 +174,14 @@ final class LyricMatchLabSweepTests: XCTestCase {
                         // A word whose reading start is the line's left edge is
                         // lit from its first frame by construction: no measurement.
                         guard caret >= 0.5 else { continue }
+                        // Every surface measured here is one row cut at its tail
+                        // (see the class comment). A word that starts past the
+                        // visible width is never drawn, and counting it would put
+                        // an edge that cannot be seen into the error statistics.
+                        if surface.available > 0, caret >= surface.available {
+                            tally.beyondVisible += 1
+                            continue
+                        }
                         let reached = Self.edgeTime(words: line.words, lineStart: line.at, lineEnd: lineEnd,
                                                     width: width, caret: caret)
                         let error = reached - word.at
@@ -168,6 +204,7 @@ final class LyricMatchLabSweepTests: XCTestCase {
                 out[script] = [
                     "lines": tally.lines,
                     "words_measured": tally.signed.count,
+                    "beyond_visible": tally.beyondVisible,
                     "signed_s": MatchLab.stats(tally.signed),
                     "abs_s": MatchLab.stats(absolute),
                     "late_over_100ms": MatchLab.share(tally.signed.filter { $0 > 0.1 }.count, of: tally.signed.count),
@@ -177,6 +214,8 @@ final class LyricMatchLabSweepTests: XCTestCase {
             }
             perSurface[surface] = out
         }
+        var beyondVisible: [String: Int] = [:]
+        for (surface, scripts) in tallies { beyondVisible[surface] = scripts.values.reduce(0) { $0 + $1.beyondVisible } }
         worst.sort { abs(($0["error_ms"] as? Int) ?? 0) > abs(($1["error_ms"] as? Int) ?? 0) }
 
         let result: [String: Any] = [
@@ -191,6 +230,8 @@ final class LyricMatchLabSweepTests: XCTestCase {
             "rtl": ["lines": rtlLines, "records": rtlRecords.count,
                     "note": "KaraokeRenderer lights [origin.x, origin.x + lit] of each run, from the left, whatever the run's direction"],
             "surfaces": perSurface,
+            "beyond_visible": beyondVisible,
+            "surface_available_pt": Dictionary(uniqueKeysWithValues: surfaces.map { ($0.name, Double($0.available)) }),
             "worst_band": Array(worst.prefix(25)),
             "method": "error = first t with wordFraction(t) x width >= caret(word start) - 0.5 pt, minus the word's stamp; "
                 + "caret from CTLineGetOffsetForStringIndex in the surface's system font, weight and tracking",
@@ -201,7 +242,8 @@ final class LyricMatchLabSweepTests: XCTestCase {
         MatchLab.report(
             section: "sweep-edge",
             summary: "\(wordTimedRecords) word-timed records, \(lines) lines, \(words) words; band: "
-                + "\(off)/\(band.count) words lit more than 100 ms off their stamp; RTL lines \(rtlLines)"
+                + "\(off)/\(band.count) words lit more than 100 ms off their stamp, "
+                + "\(beyondVisible["band", default: 0]) more beyond the visible width; RTL lines \(rtlLines)"
         )
     }
 }

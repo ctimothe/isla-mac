@@ -526,6 +526,22 @@ allowed only when `ISLA_MATCH_RECORD=1`; otherwise a miss is recorded as
 > - Lab self-tests: `LyricMatchLabSelfTests` pins the repairs above; like every
 >   lab case it skips unless `ISLA_MATCH_LAB` is set.
 
+> **Amended 2026-10-15 (after the second review), M3b.** The sweep-edge case
+> (`LyricMatchLabSweepTests`) measures whether the karaoke highlight is on a
+> word when it is sung, on the surfaces `LyricMatchLabReadabilityTests.surfaces()`
+> reads from the shipped code. All three (`band`, `column`, `tall`) draw the sung
+> line on one row cut at its tail (`lineLimit(1)`), so a word whose reading
+> start lies past the surface's visible width (`available`) is never drawn and
+> cannot be on the word. Such words are left out of the error statistics and
+> counted as `beyond_visible`, per script group and per surface. The width the
+> model multiplies the fraction by is CoreText's typographic width with
+> trailing whitespace: `KaraokeRenderer` takes SwiftUI's run bounds and the
+> line's one-row width, and a probe on 2026-10-15 showed both equal that
+> value (the second rounded up to a whole point), so no trailing-whitespace
+> width is subtracted. The lock card, whose current line may wrap, is not
+> measured.
+
+
 ## Classification (`Scripts/lyric-match-lab/classify.py`)
 
 The classifier joins `isla-lookups.jsonl` with the truth. Each lookup gets one
