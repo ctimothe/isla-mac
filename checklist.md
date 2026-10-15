@@ -1451,8 +1451,14 @@ New settings and their defaults (spec §14):
 - [ ] **R1-H8** Translations arriving re-space the column and the tall page
   without a jump that loses the sung line; the tall page's 400 pt growth and
   Collapse leave no click-through gap at the foot.
-- [ ] **R1-H9** A wallpaper set from Downloads raises no privacy prompt (the
-  key line is simply absent there).
+- [x] **R1-H9** A wallpaper set from Downloads raises no privacy prompt (the
+  key line is simply absent there). *Verified off hardware 2026-10-15:* both
+  readers of the wallpaper refuse a protected path before opening it —
+  `WallpaperToneTests.testAWallpaperBehindAPrivacyGateIsNeverOpened` (Downloads,
+  Desktop, Documents, iCloud Drive, other apps' containers, and
+  `~/Pictures/../Downloads` folded) and
+  `LockCardMaterialTests.testAGatedWallpaperIsNeverOpenedForTheCard`.
+  `NSWorkspace.desktopImageURL` only names the file. A live repeat is optional.
 
 ### R2 — Lock screen (`feat/redesign-r2-lock`)
 
@@ -1491,13 +1497,22 @@ New settings and their defaults (spec §14):
   and never the files.
 - [ ] **R3-H3** An image copied in Safari appears under Images and pastes
   back.
-- [ ] **R3-H4** Pins survive a relaunch with Keep Pinned Items on, and the
-  file is gone when it is turned off.
+- [x] **R3-H4** Pins survive a relaunch with Keep Pinned Items on, and the
+  file is gone when it is turned off. *Verified off hardware 2026-10-15:*
+  `ClipboardPinsTests.testPinsRoundTripThroughTheFile` (a new store over the
+  same file is the relaunch), `testTurningTheSwitchOffDeletesTheFileAndOnWritesWhatIsPinned`
+  and `testALeftoverFileIsRemovedAtLaunchWhenTheSwitchIsOff`.
 - [ ] **R3-H5** With Mail frontmost and the pointer resting on the Shelf,
   ⌫ deletes text in Mail unless a tile was selected during this opening;
   reopening the panel shows no selection.
-- [ ] **R3-H6** The Clipboard's Kind filter and search field sit below the
+- [x] **R3-H6** The Clipboard's Kind filter and search field sit below the
   header, clear of the notch, at 480, 560 and 620 and in Russian.
+  *Verified off hardware 2026-10-15:* `HeaderNotchBandTests.testNoClipboardControlReachesTheNotch`
+  (every width, searching or not, every notch width),
+  `testTheClipboardFilterRowIsBelowTheHeaderWithWordsInEnglishAndRussian` and
+  `ClipboardPaneTests.testEveryKindHoldsAt480And620InRussian`; the lab's
+  renders show the Russian filter in words at 560 and the English symbols at 480,
+  both on their own row under the header.
 - [ ] **R3-H7** With "Paste from Other Apps" set to Ask, copying a picture
   with history on asks once and never twice. This amends sp/CB-02 (above):
   Include Images, on by default, is a third reason Isla reads a copy's
@@ -1511,8 +1526,13 @@ New settings and their defaults (spec §14):
   five Codex passes; findings fixed in `5887b0e`, `0307eb8`, `7eacad8` and
   `1c5cf4e`, the chief one a Use Online press that used to cover the next
   language pair too. The hardware checks below are owed.
-- [ ] **R4-H1** Settings at 480 pt in Russian: nothing clipped, the sidebar
-  truncates.
+- [x] **R4-H1** Settings at 480 pt in Russian: nothing clipped, the sidebar
+  truncates. *Verified off hardware 2026-10-15:*
+  `SettingsFormTests.testEverySectionHoldsAtFourEightyAndSixTwentyInEnglishAndRussian`
+  (every control of all ten sections inside the form, sliders wide enough
+  for a knob, push buttons uncut, at 480 and 620 in both languages); the
+  lab's Russian render at 480 shows «Конфиденц…», «Сочетания к…» and «Экран
+  блок…» truncated in the sidebar with the form whole.
 - [ ] **R4-H2** Speak in a Russian and an English voice; Stop Speaking stops.
 - [ ] **R4-H3** The lock-style previews match the lock screen.
 - [ ] **R4-H4** Translate's pop-ups open from the panel with the chosen
@@ -1526,8 +1546,14 @@ New settings and their defaults (spec §14):
   (watch with `nettop -p Isla` or a firewall prompt).
 - [ ] **R4-H7** Russian at 480: Translate's alert cards fit the card and
   the pop-up labels truncate at the tail.
-- [ ] **R4-H8** "Lyrics Settings…" opens Settings on Lyrics; reopening
+- [x] **R4-H8** "Lyrics Settings…" opens Settings on Lyrics; reopening
   Settings returns to the last section; Acknowledgements… opens the notices.
+  *Verified off hardware 2026-10-15:* `SettingsTableTests.testDeepLinksSelectTheirSection`
+  ("Lyrics Settings… opens Lyrics"), `testTheModelRemembersAndRestoresTheSectionShown`
+  (a new model over the same defaults opens on the last section), and
+  `SettingsReviewFixTests.testAcknowledgementsFallsBackToAboutWhenNothingOpens`;
+  the installed bundle carries `Contents/Resources/Licenses/THIRD_PARTY_NOTICES.md`,
+  the file `SettingsPane.acknowledgementsURL` opens.
 - [ ] **R4-H9** Type into a Translate source holding 20,000 characters: the
   letter is refused and the field does not show it (SwiftUI's `TextEditor`
   may keep a refused letter on screen; untested off hardware). Repeat with a
@@ -1565,5 +1591,147 @@ New settings and their defaults (spec §14):
 - [ ] **R5-H10** Real icons: the Settings sidebar and the Spotify head show
   Spotify's own icon; About's Isla icon matches the tiles; Players on This
   Mac lists Яндекс Музыка and both Telegrams with their icons.
-- [ ] **R5-H11** The empty player in Russian at 480 shows both Открыть Apple
+- [x] **R5-H11** The empty player in Russian at 480 shows both Открыть Apple
   Music and Открыть Spotify; in English at 560 Yandex Music joins them.
+  *Corrected and verified off hardware 2026-10-15:* the second half was
+  wrong, and the build is right. The spec (§4.8, amended for real icons) lets
+  a third app join only while the row still fits, and
+  `PlayerLayout.openButtonRow` takes the longest prefix that fits. Measured
+  with the button's own font (11 pt medium, 0.07 tracking): Apple Music
+  142 pt, Spotify 115, Yandex Music 150, so three need 423 against a row of
+  260, 340 and 400 pt at 480, 560 and 620. **With Apple Music and Spotify
+  installed, Yandex Music never joins at any width**; it is offered on a Mac
+  without Spotify (142 + 8 + 150 = 300 fits at 560). A short third name such
+  as Deezer joins at 620. The lab's English render at 560, drawn from this
+  Mac's installed apps, shows exactly Open Apple Music and Open Spotify with
+  their real icons; `RealAppIconPaneTests.testRussianAt480KeepsBothLeadersUntruncated`
+  holds the Russian half. Whether Yandex Music should get a way in beside
+  the two leaders (a narrower form for the third button, say) is a product
+  call for the owner, not a defect.
+
+### Off-hardware pass over the 44 checks — 2026-10-15
+
+Every check above was tried here first, on a 14-inch MacBook Pro (Mac16,8,
+M4 Pro) with macOS 27.0.1, without the screen being taken over, without
+launching Isla and without a DI_* hook. Three kinds of evidence:
+
+- **Tests** — the named unit tests, all run in the closing `./scripts/check`.
+- **Probe** — a read-only Swift probe of this Mac that sets nothing: which
+  players are installed and the icons macOS gives them, the displays, whether
+  DisplayServices and CoreBrightness answer, the speech voices, the audio
+  outputs and the wallpaper's folder.
+- **Lab** — `bash Scripts/visual-lab.sh` renders, inspected by eye.
+
+What the probe found on this Mac: Spotify, Music, Podcasts, Яндекс Музыка
+(`ru.yandex.desktop.music`), Telegram and Telegram Desktop are installed, each
+with an icon up to 2048 px; Tidal, Deezer, YouTube Music, Qobuz and Cider are
+not. One display, built-in, main, with a notch. DisplayServices reads the
+display at 1.0; CoreBrightness answers with one keyboard backlight. Speech has
+1 Russian voice (Milena) and 41 English. Outputs are the built-in speakers and
+a Teams virtual device, so no AirPods were connected. The wallpaper is
+Radial Sky Blue from `/System/Library/Desktop Pictures`.
+
+| Check | Result here | What is left for the owner |
+|---|---|---|
+| R1-H1 | measurements held: `CompactIslandLayoutTests.testTheCoverAndTheEqualizerSitOnEightPointMarginsAtEveryNotchWidth` | a glance: the wings read as even |
+| R1-H2 | opacities held: `KeyLineTests` (0.50 / 0.26, never at the top edge) | judging it on Aerial, Pro Black, Sonoma |
+| R1-H3 | size held: `CompactIslandLayoutTests.testThePeekIsFiveHundredTwentyWideAndFiftyTall` | whether the growth reads as the island |
+| R1-H4 | height held: `LyricColumnPaneTests.testTheTallPageSaysCollapseInThePlaceOfExpand` | watching the morphs |
+| R1-H5 | no AirPods connected; logic in `PlayerPaneTests`, `OutputMenuTests` | all of it, with AirPods |
+| R1-H6 | language rule held: `LyricTranslationTests` | a real song with the network |
+| R1-H7 | menu anchor held: `OutputMenuTests.testThePopUpPointIsRightAlignedUnderTheAnchor` | menus from the live panel |
+| R1-H8 | spacing held: `LyricTranslationLayoutTests` | the live re-space and the click-through foot |
+| R1-H9 | **verified** (ticked above) | nothing |
+| R2-H1…H8 | logic held: `LockCardLayoutTests`, `LockedIslandTests`, `LockCardMaterialTests` (no cover stays mostly solid, Transparent at 0.30), `LockCardPaneTests` | all eight need the real lock screen |
+| R3-H1 | drop-target words held: `ShelfAccessibilityTests` | a Finder drag and AirDrop |
+| R3-H2 | `ShelfDeleteKeyTests.testRemovingTheSelectionNeverTouchesTheFiles`; the app's only `trashItem` calls are its own drop inbox and saved screenshots | the Delete key itself |
+| R3-H3 | `ClipboardImageTests.testACopiedPictureBecomesAnEntryAndCopiesBackAsThePicture` | a copy from Safari |
+| R3-H4 | **verified** (ticked above) | nothing |
+| R3-H5 | `ShelfDeleteKeyTests.testNoSelectionNeverClaims`, `ShelfPaneTests.testAStaleSelectionNeverHoldsTheKeyAcrossAnOpening` | ⌫ in Mail |
+| R3-H6 | **verified** (ticked above) | nothing |
+| R3-H7 | `ClipboardImageTests` (Include Images gates the read) | macOS's own paste prompt |
+| R4-H1 | **verified** (ticked above) | nothing |
+| R4-H2 | voices present (probe); `TranslateSpeechTests` | hearing both voices and Stop |
+| R4-H3 | `SettingsFormTests.testThePreviewsAskTheCardsOwnMaterialDecision` | comparing with the lock screen |
+| R4-H4 | `TranslateMenuTests` (Recent, headers, chosen row over the button) | the pop-ups from the live panel |
+| R4-H5 | `TranslatePasteTests`, `TranslateReviewFixTests.testPasteIsDisabledUnderDontAllowWithAReason` | macOS's own paste prompt |
+| R4-H6 | `TranslateReviewFixTests.testAPressDoesNotCoverAnotherTarget`, `testAPressDoesNotSurviveASwap` | watching the network |
+| R4-H7 | no test lays the alert cards out in Russian at 480; the lab stopped before Translate | all of it (sitting 8) |
+| R4-H8 | **verified** (ticked above) | nothing |
+| R4-H9 | `TranslateReviewFixTests.testAnInsertionPastTheLimitIsRefused` | `TextEditor` on screen, and a Japanese input method |
+| R5-H1 | `MediaKeyHUDTests` (no tap while off, a key consumed only when applied) | the keys and the Accessibility grant |
+| R5-H2 | `SystemLevelsTests.testMuteKeepsTheLevelAndUnmuteRestoresIt` | the mute key |
+| R5-H3 | both private interfaces answer on this Mac (probe); `SystemLevelsTests` | the four brightness keys |
+| R5-H4 | `MediaKeyHUDTests.testTurningTheSettingOffEndsTheTapAtOnce` | the switch, then a key |
+| R5-H5 | decoding held: `MediaKeyDecoderTests` | an external keyboard (none attached) |
+| R5-H6 | `SystemLevelsTests.testVolumeUpWhileMutedUnmutesAsMacOSDoes` | comparing with the Mac's own pop-up |
+| R5-H7 | `MediaKeyHUDTests.testOnlyAPlainPressAndOptionShiftAreConsumed`, `MediaKeyDecoderTests.testOptionShiftTogetherAreTheFineStep` | the three modifier presses |
+| R5-H8 | `SystemLevelsTests.testTheApplierPassesBrightnessThroughWhenAnExternalMonitorIsMain` | an external display (none attached) |
+| R5-H9 | `SystemLevelsTests.testADefaultOutputThatChangesBetweenReadAndWriteIsNeverWrittenTo` | AirPods mid-hold |
+| R5-H10 | every icon resolves from the installed app (probe); `AppIconsTests` | a glance at Settings and About |
+| R5-H11 | **verified, expectation corrected** (ticked above): Yandex Music cannot join beside Apple Music and Spotify at any width | a product call, if Yandex Music should be offered there |
+
+Two things the pass turned up besides the checks:
+
+- [ ] **The lab's Shelf case is stale since R3.** `VisualLabPanelTests.testShelf`
+  (line 334) still expects the old single pill, "Drop to keep on the Shelf"
+  and «Отпустите, чтобы оставить на полке», under a drag over a populated
+  Shelf. R3 (`22f2cdf`) replaced it with spec §8's two drop targets, which
+  the build draws ("Keep on Shelf" / "Release to add to the Shelf",
+  "AirDrop" / "Send to a nearby device") and `ShelfAccessibilityTests` holds
+  in the gate. The lab case skips itself in `./scripts/check`, which is why
+  it went unseen; its expectations are owed an update, not the app.
+- [ ] **`./scripts/check` is owed for this pass.** It changes only this
+  file, and the code has not changed since the green gate at `d58d235`. It
+  was not run because the Lyrics Accuracy Lab was running in the same
+  worktree; it runs with the 16:14 Codex review.
+
+#### The owner's run sheet
+
+The checks still open, grouped by what each sitting needs, so each setup is
+done once. The expected result of every check is its line above.
+
+1. **No setup, Music playing, about 10 minutes** — R1-H1, R1-H3, R1-H4,
+   R1-H7, R1-H8, R5-H10. Play a song in Spotify; watch the island's ends and
+   the new-track peek; click it open, step Player → lyric column → Expand →
+   Collapse; open the Output, More and translation menus at 480 and 620
+   (Settings › General › Panel Width); open Settings › Music and About.
+2. **Wallpapers, about 5 minutes** — R1-H2, then R2-H1, R2-H3 and R2-H7 in
+   sitting 3. Switch the wallpaper between Aerial, Pro Black, Sonoma, Sky Blue
+   and a white picture; look at the island's key line on each.
+3. **The lock screen, about 10 minutes** — R2-H1…R2-H8. With a song playing,
+   lock with ⌃⌘Q on each wallpaper above; click the banner, fold it with the
+   chevron, open the Output pane, pick a device; click the notch (it shakes);
+   then play a podcast with no cover at Automatic. Turn Lock Screen › Rest as
+   Banner off and lock once more.
+4. **AirPods, about 5 minutes** — R1-H5, R2-H4, R5-H9. Connect them while the
+   player is open and the slider moves with them; switch output from the
+   Output menu; hold a volume key while they connect (with Volume and
+   Brightness on).
+5. **The keys, about 10 minutes** — R5-H1…R5-H4, R5-H6, R5-H7. Settings ›
+   General › Volume and Brightness on; grant Accessibility when asked. Press
+   volume up/down, mute, mute then volume down (compare with the switch off),
+   ⌥+volume, ⇧+volume, ⌥⇧+volume, both display brightness keys and both
+   keyboard brightness keys; turn the switch off and press a volume key.
+6. **An external display and keyboard** — R5-H5, R5-H8. Volume keys on the
+   external keyboard; brightness keys with the external display as main, and
+   again with the lid closed.
+7. **Shelf and Clipboard, about 10 minutes** — R3-H1, R3-H2, R3-H3, R3-H5,
+   R3-H7. Drag three files from Finder onto the island, and one onto the
+   AirDrop target; select a tile and press ⌫ with the pointer on the Shelf
+   (the files stay in Finder); copy an image in Safari and paste it back;
+   with Mail frontmost and the pointer on the Shelf, ⌫ edits Mail's text;
+   set System Settings › Privacy & Security › Paste from Other Apps to Ask
+   for Isla and copy a picture.
+8. **Translate, about 15 minutes** — R4-H2…R4-H7, R4-H9. For R4-H7, set
+   Isla to Russian (System Settings › General › Language & Region ›
+   Applications) and the panel to 480, then translate into a language that
+   is not downloaded so the alert card shows, and open both pop-ups. Speak a Russian and
+   an English result and stop one midway; compare Settings › Lock Screen's
+   previews with sitting 3; open both language pop-ups at 480, 560 and 620;
+   repeat the paste prompt with Ask and then Don't Allow; with
+   `nettop -p Isla` running, press Use Online on a language that is not
+   downloaded, then change the target; paste 20,000 characters and type one
+   more letter, also with a Japanese input method.
+9. **Lyrics translation, about 5 minutes** — R1-H6. Settings › Lyrics ›
+   Translate Lyrics on; play a Russian song and an English one.
