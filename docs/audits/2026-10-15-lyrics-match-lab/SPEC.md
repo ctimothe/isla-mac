@@ -881,3 +881,42 @@ LRCLIB, so a cluster is the best-ranked uploads, not a random sample. And the
 collector answered slices in file order before LRCLIB refused it, so the pages
 cover three slices; `by_slice` in `reports/noise-from-pages.json` says which.
 The script reads only the cache and writes no lyric text.
+
+## M4 over the held corpus (amended 2026-10-15)
+
+M4 measures the timelines Isla chose, and LRCLIB refused this address when 3
+of the 88 canonical lookups had found one: 211 lines from one slice, too few
+to say anything about a genre. `testReadabilityByGenre`
+(`LyricMatchLabReadabilityTests.swift`) runs the same measurement over every
+record of an `ISLA_LYRIC_CORPUS` corpus that Isla's own read of an answer
+accepts (`LyricLab.acceptedTracks`), grouped by the corpus's category
+directories, and writes the `M4` section of `ISLA_LYRIC_REPORT`:
+
+```bash
+ISLA_LYRIC_CORPUS=<corpus> ISLA_LYRIC_REPORT=<root>/reports/m4-<corpus>.json \
+  swift test --filter 'LyricMatchLabReadabilityTests/testReadabilityByGenre$'
+```
+
+- **The same measurement.** Both tests call one function
+  (`LyricMatchLabReadabilityTests.measure`) with the surfaces, fonts and
+  widths read from the code. Moving the measurement into it left
+  `testReadability`'s output byte-identical on the lab root.
+- **A line's track end is the record's own length.** Nobody chose these
+  records for a player's track, so a figure says what the catalogue holds for
+  a genre, not what a listener was shown.
+- **Three figures beside the per-line shares:**
+  - `songs_with_a_truncated_line`: per surface, the records with at least one
+    line cut there;
+  - `lines_within_2_percent_of_the_edge`: per surface, the lines whose width is
+    within 2 % of the space either side, the ones a different layout engine
+    could decide the other way;
+  - `column_lines_cut_only_while_sung`: the column sets the sung line bold and
+    the others semibold, so these lines fit while they wait and are cut the
+    moment they are sung.
+- **The calibration sample** takes up to four lines from each category, so
+  every script the corpus holds is in it.
+
+Limits: the 2026-10-11 corpus picked about 25 records per category, and the
+pool holds every synced upload on the cached pages of three slices, several
+per song. A share is a share of records, not of distinct songs. The figures
+describe the layout of the branch the lab runs on (the redesign, R1–R5).

@@ -48,6 +48,9 @@ import XCTest
 /// Widths come from `NSAttributedString.size()` in the system font with the
 /// tracking as `.kern`. The same lines are also laid out by SwiftUI itself for
 /// a sample, and the ratio is in `calibration`.
+///
+/// `testReadabilityByGenre` measures the held corpus the same way, by the
+/// corpus's categories, for when too few lookups found a timeline.
 @MainActor
 final class LyricMatchLabReadabilityTests: XCTestCase {
     // MARK: - Surfaces
@@ -235,66 +238,10 @@ final class LyricMatchLabReadabilityTests: XCTestCase {
                   !timeline.lines.isEmpty
             else { missingCache += 1; continue }
             rebuilt += 1
-            slices[lookup.slice, default: SliceTally()].tracks += 1
-            all.tracks += 1
-
-            let lines = timeline.lines
-            let trackEnd = lookup.identity.duration
-            var mine = SliceTally()
-            mine.tracks = 1
-            for (index, line) in lines.enumerated() {
-                if line.isCredit {
-                    slices[lookup.slice, default: SliceTally()].creditLines += 1
-                    all.creditLines += 1
-                    mine.creditLines += 1
-                    continue
-                }
-                let duration = Self.duration(of: index, in: lines, trackEnd: trackEnd)
-                // What the surfaces draw is the first row of a bilingual line.
-                let text = LyricTranslation.rows(of: line.text).primary
-                let graphemes = text.filter { !$0.isWhitespace }.count
-                let syllables = MatchLab.syllables(in: text)
-
-                func add(to tally: inout SliceTally) {
-                    tally.lines += 1
-                    tally.durations.append(duration)
-                    if duration < 0.6 { tally.under06 += 1 }
-                    if duration < 1.0 { tally.under10 += 1 }
-                    if duration > 0 {
-                        tally.cps.append(Double(graphemes) / duration)
-                        tally.sps.append(syllables.count / duration)
-                    }
-                    if syllables.lowConfidence { tally.lowConfidence += 1 }
-                }
-                add(to: &slices[lookup.slice, default: SliceTally()])
-                add(to: &all)
-                add(to: &mine)
-
-                // One layout per distinct font, however many surfaces share it.
-                for (_, group) in attributedFonts {
-                    guard let first = group.first else { continue }
-                    let attributed = Self.attributed(text, size: first.size, weight: first.weight, tracking: first.tracking)
-                    let width = attributed.size().width
-                    for surface in group where surface.available > 0 {
-                        let overflows = width > surface.available
-                        let rows = overflows
-                            ? Double(Self.rowsIfWrapped(attributed, width: surface.available, size: surface.size, weight: surface.weight))
-                            : nil
-                        func record(into tally: inout SliceTally) {
-                            var entry = tally.surfaces[surface.key] ?? SurfaceTally()
-                            entry.widths.append(Double(width))
-                            entry.ratios.append(Double(width / surface.available))
-                            if overflows { entry.overflow += 1 }
-                            if let rows { entry.rows.append(rows) }
-                            tally.surfaces[surface.key] = entry
-                        }
-                        record(into: &slices[lookup.slice, default: SliceTally()])
-                        record(into: &all)
-                        record(into: &mine)
-                    }
-                }
-                if calibrationSample.count < 40, index % 11 == 0, !text.isEmpty { calibrationSample.append(text) }
-            }
+            let mine = Self.measure(
+                timeline.lines, trackEnd: lookup.identity.duration, slice: lookup.slice, fonts: attributedFonts,
+                slices: &slices, all: &all, calibration: &calibrationSample
+            )
             perLookup.append(mine.raw(trackID: lookup.trackID, slice: lookup.slice))
         }
 
@@ -323,6 +270,207 @@ final class LyricMatchLabReadabilityTests: XCTestCase {
         ]
         try MatchLab.writeJSON(report, to: MatchLab.resultsURL(root, "readability.json"))
         MatchLab.report(section: "readability", summary: summary)
+    }
+
+    // MARK: - The held corpus
+
+    /// M4 on the held corpus, by its categories (SPEC, amended 2026-10-15).
+    ///
+    /// `testReadability` measures the timelines Isla chose for the sampled
+    /// lookups, and LRCLIB stopped answering this address when 3 of the 88
+    /// canonical lookups had found one: 211 lines from one slice, too few to
+    /// say anything about a genre. This run measures every record in
+    /// `ISLA_LYRIC_CORPUS` that Isla's own read of an answer accepts
+    /// (`LyricLab.acceptedTracks`: `OnlineLyrics.timeline(from:status:duration:)`
+    /// with the record's own length), grouped by the corpus's category
+    /// directories — the genre slices of the 2026-10-11 corpus, or the pool's
+    /// harvest slices.
+    ///
+    /// What differs from `testReadability`: nobody chose these records for a
+    /// player's track, so a figure here says what the catalogue holds for a
+    /// genre, not what a listener was shown, and a line's track end is the
+    /// record's own length. The measurement is the same function. A record
+    /// counts once per surface in `songs_with_a_truncated_line` when any of its
+    /// lines overflows there. The calibration sample takes up to four lines from
+    /// each category, so every script the corpus holds is in it, where
+    /// `testReadability`'s first forty lines would all come from the first
+    /// category.
+    ///
+    /// Writes the `M4` section of `ISLA_LYRIC_REPORT`: counts and widths only,
+    /// never a line of text. Skipped unless `ISLA_LYRIC_CORPUS` is set.
+    func testReadabilityByGenre() throws {
+        let records = try LyricLab.tracks()
+        let accepted = try LyricLab.acceptedTracks()
+        let surfaces = Self.surfaces()
+        let fonts = Dictionary(grouping: surfaces, by: \.fontKey)
+
+        var categories: [String: SliceTally] = [:]
+        var all = SliceTally()
+        var samples: [String: [String]] = [:]
+        var truncated: [String: [String: Int]] = [:]
+        var truncatedAll: [String: Int] = [:]
+        for (track, lines) in accepted {
+            var sample: [String] = []
+            let mine = Self.measure(
+                lines, trackEnd: track.duration, slice: track.category, fonts: fonts,
+                slices: &categories, all: &all, calibration: &sample
+            )
+            let room = 4 - samples[track.category, default: []].count
+            if room > 0 { samples[track.category, default: []].append(contentsOf: sample.prefix(room)) }
+            for surface in surfaces where (mine.surfaces[surface.key]?.overflow ?? 0) > 0 {
+                truncated[track.category, default: [:]][surface.key, default: 0] += 1
+                truncatedAll[surface.key, default: 0] += 1
+            }
+        }
+
+        let summary = "\(accepted.count) of \(records.count) records accepted, \(all.lines) lines in "
+            + "\(categories.count) categories; line duration p50 " + Self.fixed(all.durations, 0.5, "s")
+            + ", under 0.6 s " + Self.percent(all.under06, all.lines)
+            + ", under 1.0 s " + Self.percent(all.under10, all.lines)
+            + "; overflow " + surfaces.map { surface in
+                "\(surface.key) " + Self.percent(all.surfaces[surface.key]?.overflow ?? 0, all.lines)
+            }.joined(separator: ", ")
+
+        var categoryJSON: [String: Any] = [:]
+        for (name, tally) in categories.sorted(by: { $0.key < $1.key }) {
+            var json = tally.json(surfaces)
+            json["songs_with_a_truncated_line"] = Self.songShares(truncated[name] ?? [:], of: tally.tracks, surfaces)
+            json["lines_within_2_percent_of_the_edge"] = Self.nearTheEdge(tally, surfaces)
+            categoryJSON[name] = json
+        }
+        var allJSON = all.json(surfaces)
+        allJSON["songs_with_a_truncated_line"] = Self.songShares(truncatedAll, of: all.tracks, surfaces)
+        allJSON["lines_within_2_percent_of_the_edge"] = Self.nearTheEdge(all, surfaces)
+
+        // The column sets the sung line bold and every other line semibold
+        // (`LyricsStage.Metrics.column`), so a line whose width falls between
+        // the two fits while it waits and gains its ellipsis at the moment it
+        // is sung. The tall page sets every line bold and cannot do this.
+        let column = LyricsStage.Metrics.column
+        var cutWhenSung: [String: Int] = [:]
+        for (_, lines) in accepted {
+            for line in lines where !line.isCredit {
+                let text = LyricTranslation.rows(of: line.text).primary
+                let tracking = Theme.tracking(forSize: column.fontSize)
+                let sung = Self.attributed(text, size: column.fontSize, weight: column.weight, tracking: tracking).size().width
+                let waiting = Self.attributed(text, size: column.fontSize, weight: column.contextWeight, tracking: tracking).size().width
+                for surface in surfaces where surface.name == "column" && waiting <= surface.available && sung > surface.available {
+                    cutWhenSung[surface.key, default: 0] += 1
+                }
+            }
+        }
+        var cutWhenSungJSON: [String: Any] = [:]
+        for surface in surfaces where surface.name == "column" {
+            let count = cutWhenSung[surface.key] ?? 0
+            cutWhenSungJSON[surface.key] = ["lines": count, "share": MatchLab.share(count, of: all.lines)] as [String: Any]
+        }
+        allJSON["column_lines_cut_only_while_sung"] = cutWhenSungJSON
+
+        LyricLab.write(section: "M4", [
+            "summary": summary,
+            "verdict": "measured",
+            "records": records.count,
+            "accepted": accepted.count,
+            "assumptions": Self.assumptions(surfaces),
+            "calibration": Self.calibrate(
+                sample: samples.keys.sorted().flatMap { samples[$0] ?? [] }, surfaces: surfaces
+            ),
+            "all": allJSON,
+            "categories": categoryJSON,
+        ])
+    }
+
+    // MARK: - One timeline
+
+    /// Measures one timeline into its slice's tally and the run's, and returns
+    /// the timeline's own. Both runs go through here — the lookups Isla made
+    /// and the held corpus — so a line is measured the same way in either.
+    private static func measure(
+        _ lines: [LyricsStore.Line], trackEnd: TimeInterval, slice: String, fonts: [String: [Surface]],
+        slices: inout [String: SliceTally], all: inout SliceTally, calibration: inout [String]
+    ) -> SliceTally {
+        slices[slice, default: SliceTally()].tracks += 1
+        all.tracks += 1
+        var mine = SliceTally()
+        mine.tracks = 1
+        for (index, line) in lines.enumerated() {
+            if line.isCredit {
+                slices[slice, default: SliceTally()].creditLines += 1
+                all.creditLines += 1
+                mine.creditLines += 1
+                continue
+            }
+            let duration = Self.duration(of: index, in: lines, trackEnd: trackEnd)
+            // What the surfaces draw is the first row of a bilingual line.
+            let text = LyricTranslation.rows(of: line.text).primary
+            let graphemes = text.filter { !$0.isWhitespace }.count
+            let syllables = MatchLab.syllables(in: text)
+
+            func add(to tally: inout SliceTally) {
+                tally.lines += 1
+                tally.durations.append(duration)
+                if duration < 0.6 { tally.under06 += 1 }
+                if duration < 1.0 { tally.under10 += 1 }
+                if duration > 0 {
+                    tally.cps.append(Double(graphemes) / duration)
+                    tally.sps.append(syllables.count / duration)
+                }
+                if syllables.lowConfidence { tally.lowConfidence += 1 }
+            }
+            add(to: &slices[slice, default: SliceTally()])
+            add(to: &all)
+            add(to: &mine)
+
+            // One layout per distinct font, however many surfaces share it.
+            for (_, group) in fonts {
+                guard let first = group.first else { continue }
+                let attributed = Self.attributed(text, size: first.size, weight: first.weight, tracking: first.tracking)
+                let width = attributed.size().width
+                for surface in group where surface.available > 0 {
+                    let overflows = width > surface.available
+                    let rows = overflows
+                        ? Double(Self.rowsIfWrapped(attributed, width: surface.available, size: surface.size, weight: surface.weight))
+                        : nil
+                    func record(into tally: inout SliceTally) {
+                        var entry = tally.surfaces[surface.key] ?? SurfaceTally()
+                        entry.widths.append(Double(width))
+                        entry.ratios.append(Double(width / surface.available))
+                        if overflows { entry.overflow += 1 }
+                        if let rows { entry.rows.append(rows) }
+                        tally.surfaces[surface.key] = entry
+                    }
+                    record(into: &slices[slice, default: SliceTally()])
+                    record(into: &all)
+                    record(into: &mine)
+                }
+            }
+            if calibration.count < 40, index % 11 == 0, !text.isEmpty { calibration.append(text) }
+        }
+        return mine
+    }
+
+    /// For each surface, how many songs have at least one line that overflows
+    /// there, and their share of the songs measured.
+    private static func songShares(_ counts: [String: Int], of songs: Int, _ surfaces: [Surface]) -> [String: Any] {
+        var out: [String: Any] = [:]
+        for surface in surfaces {
+            let count = counts[surface.key] ?? 0
+            out[surface.key] = ["songs": count, "share": MatchLab.share(count, of: songs)] as [String: Any]
+        }
+        return out
+    }
+
+    /// For each surface, the lines whose width is within 2 % of the space
+    /// available, either side: the ones a different layout engine could
+    /// decide the other way. `calibration` puts AppKit within about 1.5 % of
+    /// SwiftUI, so this bounds how far an overflow share could move.
+    private static func nearTheEdge(_ tally: SliceTally, _ surfaces: [Surface]) -> [String: Any] {
+        var out: [String: Any] = [:]
+        for surface in surfaces {
+            let count = (tally.surfaces[surface.key]?.ratios ?? []).filter { abs($0 - 1) <= 0.02 }.count
+            out[surface.key] = ["lines": count, "share": MatchLab.share(count, of: tally.lines)] as [String: Any]
+        }
+        return out
     }
 
     // MARK: - Helpers
