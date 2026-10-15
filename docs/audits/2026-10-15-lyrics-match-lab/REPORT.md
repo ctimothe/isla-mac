@@ -484,8 +484,8 @@ harness" and "Counterfactual scoring".
 ## Lab defects found and fixed in this run
 
 The lab itself went through adversarial review before any of its verdicts
-were trusted. Three reviews found defects in the lab, not in Isla, and each
-fix is pinned by a test in `selftest.py` or `LyricMatchLabSelfTests`:
+were trusted. Four reviews found defects in the lab, not in Isla, and each
+fix is pinned by a test in `selftest.py` or the lab's Swift suites:
 
 - **Truth.** A karaoke upload under another artist counted as a recoverable
   miss. A romaji or translated copy counted as the song. Accuracy depended on
@@ -496,8 +496,12 @@ fix is pinned by a test in `selftest.py` or `LyricMatchLabSelfTests`:
 - **Inputs.** The canonical lookups sent the harvest's research notes as the
   album name. They now send a real album name or none.
 - **Scoring.** A candidate is now compared with a replay of the unpatched
-  code over the same cache, never with a fresh run. A lookup unscorable on
-  either side is neither a gain nor a loss.
+  code over the same cache, never with a fresh run, and never with a base it
+  could overwrite. A lookup unscorable on either side, or missing from either
+  run, is neither a gain nor a loss and keeps the comparison incomplete.
+- **Empty runs.** A measurement that found nothing to measure, such as the
+  word sweep on a corpus without word-timed records, skips instead of
+  passing.
 
-The third review's fixes are on `feat/lyrics-match-lab-fixes-2`, pending
-their own review and merge.
+The third and fourth reviews' fixes were reviewed and merged into this
+branch (`0452c6f`). The fourth review found no blocker and no major.
