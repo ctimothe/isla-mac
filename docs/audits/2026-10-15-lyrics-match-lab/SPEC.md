@@ -121,6 +121,7 @@ reports/rows.csv               Python classifier: one row per lookup with its ve
   |---|---|
   | `lrclib.net` | 1.0 s (raised from 0.6 s on 2026-10-15: both dev runs drew 429s at 0.6 s) |
   | `lrclib.net/api/search` | 7.5 s, on top of the host's 1.0 s (added 2026-10-15: the search endpoint answered 429 whenever requests came closer than about 6 s apart, which reads as about ten a minute) |
+  | `lrclib.net`, every endpoint | 7.5 s (amended 2026-10-15, superseding the 1.0 s above: after a cooldown, `/api/get` at 1.0 s drew a 429 after five requests, so one limiter of about ten a minute covers the host) |
   | `itunes.apple.com` | 3.2 s |
   | `api.deezer.com` | 0.25 s |
 

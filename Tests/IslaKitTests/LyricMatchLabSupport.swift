@@ -643,10 +643,13 @@ final class ReplayTransport: @unchecked Sendable {
     /// Minimum seconds between two live requests to one pacing slot (SPEC,
     /// Politeness): a host, or an endpoint with a budget of its own. LRCLIB's
     /// search is one. On 2026-10-15 it answered 429 whenever requests came
-    /// closer than about six seconds apart — about ten a minute — so searches
-    /// get their own slot, and every request still keeps its host's gap.
+    /// closer than about six seconds apart — about ten a minute — and a
+    /// cooled-down run of /api/get at one second drew a 429 after five
+    /// requests, so one limiter covers the whole host: every LRCLIB request
+    /// keeps 7.5 s. The search slot stays, so a later change to the host's gap
+    /// cannot speed searches up with it.
     static let minimumGap: [String: TimeInterval] = [
-        "lrclib.net": 1.0, "lrclib.net/api/search": 7.5,
+        "lrclib.net": 7.5, "lrclib.net/api/search": 7.5,
         "itunes.apple.com": 3.2, "api.deezer.com": 0.25,
     ]
     /// Seconds to wait before retry 1, 2 and 3 of a 5xx, and of a 429. A 429

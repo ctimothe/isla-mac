@@ -27,7 +27,7 @@
 # unless ISLA_MATCH_LAB is set, so ./scripts/check never runs them.
 #
 # Politeness (SPEC): --record talks to lrclib.net, one request at a time, at
-# least 1.0 s apart and searches at least 7.5 s apart, retrying a 5xx after 2,
+# least 7.5 s apart (LRCLIB allows about ten a minute), retrying a 5xx after 2,
 # 8 and 30 s and a 429 after 30, 60 and 120 s; a 429 that outlives that is a
 # miss (`uncached`), never an answer. Never run it while the Python resolver
 # is talking to LRCLIB: one process per host.

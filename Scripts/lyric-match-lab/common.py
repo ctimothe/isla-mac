@@ -59,7 +59,10 @@ socket.getaddrinfo = _ipv4_first
 # Minimum seconds between two requests to one host. A host not listed here
 # gets DEFAULT_GAP rather than none, so a typo in a URL cannot hammer a service.
 HOST_GAPS = {
-    "lrclib.net": 1.0,
+    # 7.5 s for every LRCLIB endpoint, not only search: on 2026-10-15 a
+    # cooled-down run of /api/get at 1.0 s drew a 429 after five requests, so
+    # one limiter of about ten a minute covers the whole host.
+    "lrclib.net": 7.5,
     "itunes.apple.com": 3.2,
     "api.deezer.com": 0.25,
 }

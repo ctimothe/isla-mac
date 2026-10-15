@@ -210,11 +210,11 @@ class CommonTests(unittest.TestCase):
         get = common.gate_for("https://lrclib.net/api/get?track_name=a")
         self.assertIsNot(search, get)
         self.assertEqual(search.gap, 7.5)
-        self.assertEqual(get.gap, 1.0)
+        self.assertEqual(get.gap, 7.5)
         self.assertIs(search._lock, get._lock)
 
     def test_known_host_gaps(self):
-        self.assertEqual(common.HOST_GAPS, {"lrclib.net": 1.0, "itunes.apple.com": 3.2, "api.deezer.com": 0.25})
+        self.assertEqual(common.HOST_GAPS, {"lrclib.net": 7.5, "itunes.apple.com": 3.2, "api.deezer.com": 0.25})
         self.assertEqual(common.ENDPOINT_GAPS, {"lrclib.net/api/search": 7.5})
         self.assertEqual(common.RETRY_DELAYS, (2.0, 8.0, 30.0))
         self.assertEqual(common.USER_AGENT, "isla-lyrics-lab/0.2 (https://github.com/ctimothe/isla-mac)")
