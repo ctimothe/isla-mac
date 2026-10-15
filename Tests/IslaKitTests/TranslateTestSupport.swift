@@ -14,6 +14,7 @@ final class FakeSynthesizer: SpeechSynthesizing {
     var voices: Set<String>?
     private(set) var spoken: [(text: String, language: String)] = []
     private(set) var stopCount = 0
+    private(set) var refreshCount = 0
 
     func canSpeak(languageCode: String) -> Bool { voices?.contains(languageCode) ?? true }
 
@@ -22,6 +23,11 @@ final class FakeSynthesizer: SpeechSynthesizing {
     }
 
     func stop() { stopCount += 1 }
+
+    func refreshVoices(then done: @escaping SpeechFinishHandler) {
+        refreshCount += 1
+        done()
+    }
 
     /// The voice reaches a word: `range` is into the text that was spoken.
     func say(_ range: NSRange) { onSpeakingWord?(range) }

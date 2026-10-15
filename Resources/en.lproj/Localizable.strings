@@ -345,6 +345,8 @@
 "Type or paste text" = "Type or paste text";
 "The clipboard has no text." = "The clipboard has no text.";
 "Only the first %@ characters were kept." = "Only the first %@ characters were kept.";
+"macOS is not letting Isla read what you copy." = "macOS is not letting Isla read what you copy.";
+"The limit is %@ characters." = "The limit is %@ characters.";
 "Muted" = "Muted";
 "AirDrop is not available on this Mac." = "AirDrop is not available on this Mac.";
 "AirDrop cannot send these files." = "AirDrop cannot send these files.";
@@ -501,7 +503,6 @@
 "Headphones Connecting" = "Headphones Connecting";
 "History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice." = "History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice.";
 "Keep History" = "Keep History";
-"Liked Songs" = "Liked Songs";
 "New Tracks" = "New Tracks";
 "Not connected" = "Not connected";
 "Now Playing" = "Now Playing";

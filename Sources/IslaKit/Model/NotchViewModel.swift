@@ -94,6 +94,9 @@ final class NotchViewModel: ObservableObject {
                 // opening starts on the cards, where the field is.
                 translator.speaker.stop()
                 translateShowsHistory = false
+                // A Use Online press is for the visit it was made in: the panel
+                // closing took the screen it was pressed on away.
+                translator.revokeOnlineRequest()
                 // And the Shelf's selection (review 2026-10-15): a tile picked
                 // on Monday was still picked on Tuesday, and with the pointer
                 // resting on the grid while typing in Mail, the transient
@@ -102,6 +105,10 @@ final class NotchViewModel: ObservableObject {
                 shelf.clearSelection()
             }
             if isOpen, !oldValue {
+                // The installed voices are read again on each opening, off the
+                // main actor, while the Translate tab is the one on screen (the
+                // tab's own arrival does it for the other openings).
+                if tab == .translate { translator.speaker.refreshVoices() }
                 openingGeneration &+= 1
                 if shelfSelectionIsCurrent { shelfSelectionIsCurrent = false }
             }
@@ -220,6 +227,7 @@ final class NotchViewModel: ObservableObject {
     @Published var tab: Tab = .media {
         didSet {
             if tab == .shelf { shelfHasNew = false }
+            if tab == .translate, isOpen { translator.speaker.refreshVoices() }
             if tab != .translate {
                 textInputRect = .zero
                 // A tab change ends speech and the list (spec §11); the pane's
@@ -227,6 +235,7 @@ final class NotchViewModel: ObservableObject {
                 // half, so it holds without a view on screen.
                 translator.speaker.stop()
                 translateShowsHistory = false
+                translator.revokeOnlineRequest()
             }
             // The shelf can hold files inside the folders macOS guards, and
             // looking at one raises a permission prompt. It is asked here,
@@ -864,6 +873,18 @@ final class NotchViewModel: ObservableObject {
         )
         .sink { [weak self] _ in self?.objectWillChange.send() }
         .store(in: &cancellables)
+
+        // A Use Online press ends when Translate goes under its cover: the card
+        // must not be left holding a permission to send text the person can no
+        // longer see. The new values are read from the publishers, not from
+        // `privacy`, which has not taken them yet when `@Published` fires.
+        Publishers.CombineLatest(stores.privacy.$sections, stores.privacy.$revealed)
+            .sink { [weak self] sections, revealed in
+                if sections.contains(.translate), !revealed.contains(TranslatePane.revealID) {
+                    self?.translator.revokeOnlineRequest()
+                }
+            }
+            .store(in: &cancellables)
 
         // The stamp on the Shelf's selection (`shelfSelectionIsCurrent`).
         stores.shelf.$selection

@@ -121,7 +121,8 @@ final class Translator: ObservableObject {
             // sentence nobody asked for any more.
             if input != oldValue {
                 speaker.stop()
-                onlineRequest = nil
+                // A Use Online press was for the text it was made on.
+                revokeOnlineRequest()
             }
         }
     }
@@ -342,7 +343,7 @@ final class Translator: ObservableObject {
     /// swaps the two rather than translating a language into itself.
     func choose(source newSource: TranslationLanguage?) {
         guard newSource != source else { return }
-        clearAnswer()
+        clearAnswer()  // which also ends a Use Online press: it was for the old pair
         if let newSource, newSource == target {
             // The old source takes the target's place — a detected one as the
             // language it was detected as.
@@ -355,7 +356,7 @@ final class Translator: ObservableObject {
 
     func choose(target newTarget: TranslationLanguage) {
         guard newTarget != target else { return }
-        clearAnswer()
+        clearAnswer()  // which also ends a Use Online press: it was for the old pair
         if newTarget == source {
             source = target
         }
@@ -367,6 +368,9 @@ final class Translator: ObservableObject {
     /// becomes the question, the way every translator's swap behaves. A
     /// detected source is swapped as the language it was detected as.
     func swap() {
+        // First, while the pair is still the one that was pressed for: a press
+        // is for one route, and the swap is a new one.
+        revokeOnlineRequest()
         let from = source ?? route.source
         source = target
         target = from
@@ -386,6 +390,7 @@ final class Translator: ObservableObject {
     /// under a heading that already names the new. It goes at once rather than
     /// sitting there for the debounce and the engine's time.
     private func clearAnswer() {
+        revokeOnlineRequest()
         output = ""
         outputNote = nil
         outputSource = nil
@@ -439,10 +444,11 @@ final class Translator: ObservableObject {
         /// Why the model cannot answer, or nil when it can.
         var modelObstacle: Obstacle?
         var onlineEnabled = false
-        /// The person pressed "Use Online" on this very text, for a language the
-        /// Mac has but has not downloaded (spec §11). It lets the online engine
-        /// answer for this one request even with Translate Online off, and only
-        /// when no on-device engine can run — see `engines(given:)`.
+        /// The person pressed "Use Online" on this very text and this very pair,
+        /// for a language the Mac has but has not downloaded (spec §11). It lets
+        /// the online engine answer for this one request even with Translate
+        /// Online off, and only when no on-device engine can run and the Mac
+        /// offers the pair — see `engines(given:)`.
         var onlineByRequest = false
         /// Below macOS 26 neither on-device engine can be reached from here:
         /// the framework only translates outside SwiftUI from 26 on, and the
@@ -472,13 +478,18 @@ final class Translator: ObservableObject {
         if capabilities.systemInstalled { engines.append(.system) }
         if capabilities.modelSupportsPair, capabilities.modelObstacle == nil { engines.append(.intelligence) }
         if capabilities.onlineEnabled, !capabilities.offeredOnDevice { engines.append(.online) }
-        // The one exception, and a narrow one: the person asked, for this text,
-        // by name ("Use Online"), the pair is one the Mac has but cannot run
-        // right now (not downloaded), and nothing on the Mac is in the list.
-        // Online is therefore never the next try after a model refusal or a
-        // failed run — the list is empty when it is added — and the switch in
-        // Settings stays exactly as the person left it.
-        if capabilities.onlineByRequest, engines.isEmpty { engines.append(.online) }
+        // The one exception, and a narrow one: the person asked, for this text
+        // and this pair, by name ("Use Online"); the pair is one the Mac has
+        // (Apple's framework offers it) but cannot run right now because it is
+        // not downloaded; and nothing on the Mac is in the list. Online is
+        // therefore never the next try after a model refusal or a failed run —
+        // the list is empty when it is added — and never a way round a pair no
+        // engine here offers at all (that is Turn On Translate Online's
+        // question). The comment used to promise "a pair the Mac has" while the
+        // code let any empty list through, so a press on a pair that was only
+        // unanswerable (an unsupported language, a model that was switched off)
+        // sent text. The switch in Settings stays exactly as the person left it.
+        if capabilities.onlineByRequest, capabilities.systemSupported, engines.isEmpty { engines.append(.online) }
         return engines
     }
 
@@ -567,13 +578,13 @@ final class Translator: ObservableObject {
     private func capabilities(for route: Route) async -> Capabilities {
         if let capabilitiesOverride {
             var capabilities = capabilitiesOverride(route)
-            capabilities.onlineByRequest = onlineRequest == trimmed
+            capabilities.onlineByRequest = onlineRequest?.covers(text: trimmed, route: route) ?? false
             return capabilities
         }
         var capabilities = await Self.deviceCapabilities(
             for: route, onlineEnabled: defaults.bool(forKey: NotchViewModel.onlineTranslationKey)
         )
-        capabilities.onlineByRequest = onlineRequest == trimmed
+        capabilities.onlineByRequest = onlineRequest?.covers(text: trimmed, route: route) ?? false
         guard !capabilities.belowMinimumSystem else { return capabilities }
         if onDeviceLanguages == nil { onDeviceLanguages = await Self.languagesOnThisMac() }
         capabilities.sourceOffDevice = isOnlineOnly(route.source)
@@ -642,16 +653,40 @@ final class Translator: ObservableObject {
         attempt += 1
     }
 
-    /// The text the person pressed "Use Online" for. Compared with the field at
-    /// the next run, so an edit — or any other text — is no longer covered by it.
-    private var onlineRequest: String?
+    /// What one "Use Online" press authorizes: this text, along this route, once.
+    ///
+    /// It used to be the text alone, kept until the field changed. So after a
+    /// press for Ukrainian, choosing French — or swapping, or going French and
+    /// back to Ukrainian — sent the same text to MyMemory again with Translate
+    /// Online off and nobody pressing anything. The press is now spent by the
+    /// request it authorized (`translate()` takes it once the run is committed to
+    /// an engine, success or failure) and ended by anything that makes the
+    /// screen a different question: a pair change, a swap, Clear, Escape, a
+    /// history restore, an edit, the panel closing and the pane going under its
+    /// cover (`revokeOnlineRequest()`).
+    struct OnlineRequest: Equatable {
+        var text: String
+        var route: Route
+
+        func covers(text other: String, route otherRoute: Route) -> Bool {
+            text == other && route == otherRoute
+        }
+    }
+
+    private(set) var onlineRequest: OnlineRequest?
+
+    /// Takes a Use Online press back. Safe to call when there is none.
+    func revokeOnlineRequest() {
+        if onlineRequest != nil { onlineRequest = nil }
+    }
 
     /// "Use Online" under "Ukrainian is not downloaded for translation on this
     /// Mac." (spec §11): send this one text to MyMemory now, and leave
     /// Translate Online as it is. The button's tooltip says where the text
     /// goes before it is pressed.
     func useOnline() {
-        onlineRequest = trimmed
+        guard !trimmed.isEmpty else { return }
+        onlineRequest = OnlineRequest(text: trimmed, route: route)
         retry()
     }
 
@@ -662,6 +697,7 @@ final class Translator: ObservableObject {
     }
 
     func clear() {
+        revokeOnlineRequest()
         output = ""
         outputNote = nil
         outputSource = nil
@@ -709,6 +745,13 @@ final class Translator: ObservableObject {
         let route = route
         let capabilities = await capabilities(for: route)
         guard !Task.isCancelled, self.generation == generation else { return }
+        // Spent here: this run is the request the press authorized (its text
+        // and route were compared above), and from this line on it either goes
+        // to MyMemory or does not. Whatever it finds — an answer, a failure, a
+        // cancellation by the next keystroke — a second send needs a second
+        // press. Taken before the awaits below so that nothing between here and
+        // the reply can leave it standing for another run.
+        revokeOnlineRequest()
         let engines = Self.engines(given: capabilities)
         guard !engines.isEmpty else {
             let obstacle = Self.obstacle(for: route, given: capabilities)
@@ -786,7 +829,10 @@ final class Translator: ObservableObject {
         // Never an answer to text since edited, and never a restore.
         if record, text == trimmed, NotchViewModel.translateKeepHistoryEnabled(in: defaults) {
             let pair = route
-            history.record(source: text, result: translated, from: pair.source, to: pair.target, engine: engine)
+            history.record(
+                source: text, result: translated, from: pair.source, to: pair.target, engine: engine,
+                note: note, detectedSource: source == nil
+            )
         }
     }
 
@@ -800,11 +846,17 @@ final class Translator: ObservableObject {
     /// (`answered == question`).
     func restore(_ entry: TranslationHistory.Entry) {
         clearAnswer()
-        source = entry.from == entry.to ? nil : entry.from
+        // A source that was detected is restored as Detect Language, not as the
+        // language it was detected as: restoring used to turn Detect off for
+        // good, and the next sentence in another language was then translated
+        // as if it were the first one's.
+        source = entry.detectedSource || entry.from == entry.to ? nil : entry.from
         target = entry.to
         remember()
         input = entry.source
-        received(entry.result, for: entry.source, by: entry.engine, record: false)
+        // With its warning: a cut online answer comes back as one, not as a
+        // whole.
+        received(entry.result, for: entry.source, by: entry.engine, note: entry.note, record: false)
     }
 
     /// What a cut online answer says under it. The number is the characters
@@ -954,10 +1006,45 @@ final class Translator: ObservableObject {
         pasteboard.availableType(from: [.string]) != nil
     }
 
+    /// What macOS currently lets Isla read from the pasteboard (Paste from Other
+    /// Apps), asked the way the Clipboard tab asks it (`ClipboardStore.systemAccess`).
+    /// Metadata, not content: reading it raises no alert, so the Paste button can
+    /// ask it every second beside the type list.
+    var pasteboardAccess: ClipboardAccess {
+        pasteboardAccessOverride?() ?? ClipboardStore.systemAccess(of: pasteboard)
+    }
+
+    /// A seam for a test, which has to play Don't Allow on a Mac where the
+    /// runner is always allowed. The app never sets it.
+    var pasteboardAccessOverride: (() -> ClipboardAccess)?
+
+    /// Whether the Paste button can do anything: the pasteboard offers text and
+    /// macOS has not been told never to let Isla read it. Under Don't Allow the
+    /// button used to stay lit and answer "The clipboard has no text." to a
+    /// clipboard that had some.
+    var canPaste: Bool { pasteboardOffersText && pasteboardAccess != .denied }
+
+    /// The sentence for a read macOS refused — the Clipboard tab's own wording
+    /// for the same refusal — and the Paste button's tooltip while it is off.
+    static var pasteRefusedSentence: String {
+        localized("macOS is not letting Isla read what you copy.")
+    }
+
     /// The Paste button's press: now, and only now, the text is read. Made
     /// fit for the field the way the hot key's is (`prepareCommandInput`).
+    ///
+    /// A read that comes back empty when the types promised text, or when macOS
+    /// says Don't Allow, was refused, and says so: "The clipboard has no text."
+    /// told a person under Ask who had just clicked Don't Allow that there was
+    /// nothing to paste. The Clipboard tab reads the same shape the same way
+    /// (`ClipboardStore.pollNow`: types promised content, the read came back nil).
     func textFromPasteboard() -> CommandInput {
-        Self.prepareCommandInput(pasteboard.string(forType: .string))
+        let promised = pasteboardOffersText
+        let raw = pasteboard.string(forType: .string)
+        if raw == nil, promised || pasteboardAccess == .denied {
+            return CommandInput(text: nil, notice: Self.pasteRefusedSentence)
+        }
+        return Self.prepareCommandInput(raw)
     }
 
     /// Counts every answer that reached the pasteboard, however it was asked

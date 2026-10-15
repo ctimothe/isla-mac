@@ -709,7 +709,7 @@ struct NotchContentView: View {
             .modifier(TranslateHeaderTools(
                 isShown: showsTranslateTools,
                 bodyWidth: size.width,
-                keepHistory: NotchViewModel.translateKeepHistoryEnabled(in: vm.translator.defaults),
+                defaults: vm.translator.defaults,
                 isHistoryOpen: $vm.translateShowsHistory,
                 isExpanded: Binding(
                     get: { vm.expandedTabs.contains(.translate) },

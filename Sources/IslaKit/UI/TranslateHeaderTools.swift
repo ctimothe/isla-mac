@@ -14,9 +14,25 @@ import SwiftUI
 struct TranslateHeaderTools: ViewModifier {
     let isShown: Bool
     let bodyWidth: CGFloat
-    let keepHistory: Bool
+    /// Keep History, observed: the Settings row writes this key and the header
+    /// follows it live. It was read from `UserDefaults` inside the parent's
+    /// `body`, which nothing re-evaluates when a switch in another tab flips, so
+    /// History stayed hidden (or stayed offered) until something else redrew the
+    /// panel. Read through the translator's own defaults, like the pane's.
+    @AppStorage private var keepHistory: Bool
     @Binding var isHistoryOpen: Bool
     @Binding var isExpanded: Bool
+
+    init(
+        isShown: Bool, bodyWidth: CGFloat, defaults: UserDefaults,
+        isHistoryOpen: Binding<Bool>, isExpanded: Binding<Bool>
+    ) {
+        self.isShown = isShown
+        self.bodyWidth = bodyWidth
+        _keepHistory = AppStorage(wrappedValue: false, NotchViewModel.translateKeepHistoryKey, store: defaults)
+        _isHistoryOpen = isHistoryOpen
+        _isExpanded = isExpanded
+    }
 
     func body(content: Content) -> some View {
         content

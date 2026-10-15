@@ -27,6 +27,15 @@ final class TranslationHistory: ObservableObject {
         /// the Mac.
         var engine: Translator.Engine
         var date: Date
+        /// The line that went under the answer when it was shown, if any: that
+        /// only the first part went online, or why the rest never came back. A
+        /// cut answer used to be kept as bare text, so restoring it showed a
+        /// partial translation as a complete one.
+        var note: String? = nil
+        /// Whether the source was Detect Language when the text was translated.
+        /// `from` is then the language that was detected; a restore puts Detect
+        /// back instead of turning it off for good.
+        var detectedSource = false
 
         /// "EN → RU": the two base codes, upper case. The board's 10.5 pt
         /// tertiary label. Written out rather than looked up: codes and an arrow
@@ -52,10 +61,16 @@ final class TranslationHistory: ObservableObject {
     /// translation asked twice — a Retry, a swap and back — and takes the old
     /// entry's place rather than listing itself twice, so twenty slots hold
     /// twenty different sentences.
-    func record(source: String, result: String, from: TranslationLanguage, to: TranslationLanguage, engine: Translator.Engine) {
+    func record(
+        source: String, result: String, from: TranslationLanguage, to: TranslationLanguage, engine: Translator.Engine,
+        note: String? = nil, detectedSource: Bool = false
+    ) {
         entries.removeAll { $0.source == source && $0.from == from && $0.to == to }
         entries.insert(
-            Entry(id: UUID(), source: source, result: result, from: from, to: to, engine: engine, date: now()),
+            Entry(
+                id: UUID(), source: source, result: result, from: from, to: to, engine: engine, date: now(),
+                note: note, detectedSource: detectedSource
+            ),
             at: 0
         )
         if entries.count > Self.capacity { entries.removeLast(entries.count - Self.capacity) }

@@ -364,6 +364,22 @@ struct TranslateAlert: Equatable {
     ///   guess, and a guess in a sentence is a promise.
     @MainActor
     static func make(
+        kind: Translator.FailureKind?, message: String, remedies: [Translator.Remedy], allowanceSpent: Bool,
+        covered: Bool = false
+    ) -> TranslateAlert {
+        var alert = unguarded(kind: kind, message: message, remedies: remedies, allowanceSpent: allowanceSpent)
+        // A card under the Privacy cover must never offer to send text the
+        // person cannot see: Use Online and Turn On Translate Online both end
+        // with the field's contents at MyMemory, and the second is a switch
+        // that does the same for every later text. The sentence stays — it names
+        // no text — and so do Translation Languages…, Try Again and the
+        // settings buttons, which send nothing.
+        if covered { alert.actions.removeAll { $0 == .useOnline || $0 == .turnOnOnline } }
+        return alert
+    }
+
+    @MainActor
+    private static func unguarded(
         kind: Translator.FailureKind?, message: String, remedies: [Translator.Remedy], allowanceSpent: Bool
     ) -> TranslateAlert {
         let remedyActions: [Action] = remedies.map {

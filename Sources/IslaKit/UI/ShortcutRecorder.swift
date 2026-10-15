@@ -60,7 +60,9 @@ struct ShortcutRecorderRow: View {
             .buttonStyle(PanelButtonStyle())
             .accessibilityLabel(action.title)
             .accessibilityValue(wellText)
-            .accessibilityHint(localized("Records a new shortcut. Press Delete to clear it, Escape to cancel."))
+            // No hint: the one instruction sits under the three recorders as a
+            // footnote (`SettingsTable`), and the same sentence on each of them
+            // had VoiceOver read it four times down the section.
         }
         .padding(.horizontal, SettingsLayout.rowInset)
         .frame(minHeight: SettingsLayout.rowHeight)

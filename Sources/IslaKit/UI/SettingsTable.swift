@@ -120,7 +120,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
     // Translate
     case translateOnline, keepHistory, speakButton, translationLanguages
     // Spotify
-    case spotifyHead, likedSongs, spotifyAccount, spotifyImport
+    case spotifyHead, spotifyAccount, spotifyImport
     // Screenshots
     case saveClipboardScreenshots, showScreenCaptures, showScreenshotsFolder, clearScreenshotsFolder
     // About
@@ -166,7 +166,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
             return .push
         case .copyDiagnostics, .reportProblem, .acknowledgements:
             return .link
-        case .automationStatus, .likedSongs:
+        case .automationStatus:
             return .value
         case .lyricDelay, .cardStyle, .libraryFolders, .unassignedCorrections, .spotifyHead, .aboutHead:
             return .custom
@@ -228,7 +228,6 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .speakButton: return localized("Speak Button")
         case .translationLanguages: return localized("Translation Languages…")
         case .spotifyHead: return localized("Spotify")
-        case .likedSongs: return localized("Liked Songs")
         case .spotifyAccount: return localized("Account")
         case .spotifyImport: return localized("From another Mac")
         case .saveClipboardScreenshots: return localized("Save Clipboard Screenshots")
@@ -348,6 +347,20 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         guard let key, defaults.object(forKey: key) != nil else { return fallback }
         return defaults.bool(forKey: key)
     }
+
+    /// Writes a switch. Where the row's key replaced an older one
+    /// (`SettingsTable.renamedKeys`) the old key is written too, with the same
+    /// value, for as long as it is listed there. `migrateRenamedKeys` copies an
+    /// old value across once at launch and nothing carried a later choice back,
+    /// so an older build run after this one found Charging on, in the state it
+    /// had been left in before the update, however it had been turned since.
+    func write(_ value: Bool, in defaults: UserDefaults) {
+        guard let key else { return }
+        defaults.set(value, forKey: key)
+        if let legacy = SettingsTable.renamedKeys.first(where: { $0.new == key })?.old {
+            defaults.set(value, forKey: legacy)
+        }
+    }
 }
 
 /// One thing the form lays down, top to bottom (spec §10; the boards' `form()`).
@@ -414,6 +427,9 @@ struct SettingsContext: Equatable {
     // About
     var offersDownload = false
     var updateNotes: [String] = []
+    /// Check for Updates Automatically, as it stands: the line about what the
+    /// check asks of GitHub is only true while it is on.
+    var automaticUpdates = false
     var diagnosticsCopied = false
 }
 
@@ -619,7 +635,7 @@ enum SettingsTable {
     /// never a toast: the person acted on this section, so this section answers.
     private static func spotify(_ c: SettingsContext) -> [SettingsBlock] {
         let connected = c.spotify.contains { if case .confirm = $0 { return true } else { return false } }
-        var account: [SettingsRowID] = connected ? [.likedSongs, .spotifyAccount] : [.spotifyAccount]
+        var account: [SettingsRowID] = [.spotifyAccount]
         if c.spotify.contains(.importAccount) { account.append(.spotifyImport) }
         var blocks: [SettingsBlock] = [
             .header(localized("Spotify")),
@@ -644,7 +660,11 @@ enum SettingsTable {
         update.append(.checkForUpdatesAutomatically)
         var blocks: [SettingsBlock] = [.free(.aboutHead), .group(update)]
         for note in c.updateNotes { blocks.append(.footnote(note)) }
-        blocks.append(.footnote(localized("Asks GitHub once a day for the latest version. It sends nothing about you.")))
+        // Only while the switch is on: with it off nothing is asked of GitHub,
+        // and the line used to say it was asked once a day.
+        if c.automaticUpdates {
+            blocks.append(.footnote(localized("Asks GitHub once a day for the latest version. It sends nothing about you.")))
+        }
         blocks.append(.group([.copyDiagnostics, .reportProblem, .acknowledgements]))
         if c.diagnosticsCopied {
             blocks.append(.footnote(localized("Copied. It lists versions, settings and Isla's own log, and nothing you played, copied or translated.")))

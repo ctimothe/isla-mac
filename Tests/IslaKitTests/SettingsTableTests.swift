@@ -178,8 +178,9 @@ final class SettingsTableTests: XCTestCase {
     }
 
     /// Spotify: not connected, Connect (and Import where there is something to
-    /// bring across); connected, Liked Songs and the one Disconnect — each a row of
-    /// the group, the notes its footnotes.
+    /// bring across); connected, the one Disconnect — each a row of the group, the notes its
+    /// footnotes. (There is no Liked Songs row: it could only show a guess, see
+    /// `SettingsReviewFixTests`.)
     func testSpotifyShowsConnectOrDisconnect() {
         var context = SettingsContext()
         context.spotify = SettingsPane.spotifyRows(connected: false, needsReconnect: false, signIn: nil, apiBlocked: false)
@@ -191,7 +192,7 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertEqual(SettingsTable.rows(for: .spotify, context: context), [.spotifyHead, .spotifyAccount, .spotifyImport])
 
         context.spotify = SettingsPane.spotifyRows(connected: true, needsReconnect: false, signIn: nil, apiBlocked: false)
-        XCTAssertEqual(SettingsTable.rows(for: .spotify, context: context), [.spotifyHead, .likedSongs, .spotifyAccount])
+        XCTAssertEqual(SettingsTable.rows(for: .spotify, context: context), [.spotifyHead, .spotifyAccount])
         let notes = SettingsTable.blocks(for: .spotify, context: context).compactMap { block -> String? in
             if case .footnote(let text) = block { return text } else { return nil }
         }

@@ -351,6 +351,8 @@
 "Type or paste text" = "Введите или вставьте текст";
 "The clipboard has no text." = "В буфере обмена нет текста.";
 "Only the first %@ characters were kept." = "Сохранены только первые %@ символов.";
+"macOS is not letting Isla read what you copy." = "macOS не разрешает Isla читать скопированное.";
+"The limit is %@ characters." = "Больше %@ символов не поместится.";
 "Muted" = "Звук выключен";
 "AirDrop is not available on this Mac." = "AirDrop недоступен на этом Mac.";
 "AirDrop cannot send these files." = "AirDrop не может отправить эти файлы.";
@@ -507,7 +509,6 @@
 "Headphones Connecting" = "Подключение наушников";
 "History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice." = "История хранит последние 20 переводов в памяти. «Произнести» читает перевод вслух системным голосом.";
 "Keep History" = "Хранить историю";
-"Liked Songs" = "Любимые треки";
 "New Tracks" = "Новые треки";
 "Not connected" = "Не подключено";
 "Now Playing" = "Сейчас играет";

@@ -190,7 +190,7 @@ final class TranslateHistoryTests: XCTestCase {
         XCTAssertEqual(rig.translator.input, "Hello")
         XCTAssertEqual(rig.translator.output, "Привет")
         XCTAssertEqual(rig.translator.target, .russian)
-        XCTAssertEqual(rig.translator.source, .english)
+        XCTAssertNil(rig.translator.source, "the source was detected, so Detect Language comes back (see TranslateReviewFixTests)")
         XCTAssertEqual(rig.translator.engine, .system)
         XCTAssertTrue(rig.translator.answersInput)
         XCTAssertEqual(rig.history.entries.count, 1, "a restore is not a new translation")

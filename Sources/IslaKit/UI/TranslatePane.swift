@@ -93,10 +93,53 @@ struct TranslatePane: View {
         // Only while covering: a reveal recorded with the cover off would
         // leave the pane already uncovered the moment it is turned on.
         if privacy.covers(.translate) { privacy.reveal(revealID) }
+        switch edit(text, replacing: translator.input) {
+        case .accepted(let kept, let notice):
+            translator.input = kept
+            // After the text: setting `input` clears the notice.
+            if let notice { translator.notice = notice }
+        case .refused(let notice):
+            // The field keeps what it held. Assigned every time, not only the
+            // first: `@Published` publishes each assignment, and that
+            // publication is what makes the editor, which has already taken the
+            // rejected letter into its own storage, ask the binding for its text
+            // again and put the old one back.
+            translator.notice = notice
+        }
+    }
+
+    /// What the field does with an edit that arrives from the editor.
+    enum Edit: Equatable {
+        case accepted(String, notice: String?)
+        case refused(notice: String)
+    }
+
+    /// Decides an edit against the limit.
+    ///
+    /// An edit that would take text the person is already typing past
+    /// `commandInputLimit` is **refused**: the field keeps what it held, and a
+    /// line says why. It used to keep the first 20,000 characters of whatever
+    /// the editor handed over, so a letter typed into the middle of a full field
+    /// silently threw away the last letter of the person's own text.
+    ///
+    /// The one cut that remains is a block arriving in an **empty** field — a
+    /// paste. There is nothing of the person's own to lose, a pasted block
+    /// cannot be accepted a piece at a time, and the notice says what was kept
+    /// (the same sentence the hot key gives). The Paste button reaches here
+    /// already cut. A paste of a few characters into a field with text in it
+    /// that would go past the limit is refused with the rest: the editor does
+    /// not say which of the two an edit was, and refusing is the answer that
+    /// loses nothing.
+    static func edit(_ text: String, replacing previous: String) -> Edit {
         let kept = limited(text)
-        translator.input = kept.text
-        // After the text: setting `input` clears the notice.
-        if let notice = kept.notice { translator.notice = notice }
+        guard let cutNotice = kept.notice else { return .accepted(text, notice: nil) }
+        if previous.isEmpty { return .accepted(kept.text, notice: cutNotice) }
+        // An edit that does not make the text longer is never refused, whatever
+        // the length: a history entry restored past the limit would otherwise
+        // be impossible to shorten one letter at a time.
+        if text.count <= previous.count { return .accepted(text, notice: nil) }
+        let number = Translator.commandInputLimit.formatted(.number.locale(Locale(identifier: appLanguage)))
+        return .refused(notice: localized("The limit is %@ characters.", number))
     }
 
     /// `text` cut to the field's limit, with the line that says so when it was.
@@ -397,8 +440,12 @@ struct TranslatePane: View {
                 }
             }
             .buttonStyle(ToolbarPushButtonStyle())
-            .disabled(!translator.pasteboardOffersText)
-            .help(localized("Paste"))
+            // Off under Don't Allow as well, and the tooltip says why: macOS
+            // would refuse the read, and a button that looked usable and then
+            // reported an empty clipboard blamed the wrong thing.
+            .disabled(!translator.canPaste)
+            .help(translator.pasteboardOffersText && translator.pasteboardAccess == .denied
+                ? Translator.pasteRefusedSentence : localized("Paste"))
         }
     }
 
@@ -666,7 +713,7 @@ struct TranslatePane: View {
     private func alert(card: CGRect, local: (CGRect) -> CGRect) -> some View {
         let alert = TranslateAlert.make(
             kind: translator.failureKind, message: translator.failure ?? "", remedies: translator.remedies,
-            allowanceSpent: translator.allowanceSpent()
+            allowanceSpent: translator.allowanceSpent(), covered: covered
         )
         return VStack(alignment: .leading, spacing: 8) {
             switch alert.glyph {

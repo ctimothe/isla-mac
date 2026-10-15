@@ -77,7 +77,10 @@ struct SettingsPane: View {
     @State private var bodyWidth = NotchViewModel.bodyWidth
     @State private var lockCardStyle = NotchViewModel.lockCardStyle
     @State private var lockCardSize = NotchViewModel.lockCardSize
-    @State private var translateTarget = LyricTranslation.TargetChoice.current(in: .standard)
+    /// Read from `settingsDefaults` when the pane appears: a property initializer
+    /// cannot see it, and reading the standard domain here put a test's pane on
+    /// the owner's choice.
+    @State private var translateTarget = LyricTranslation.TargetChoice.automatic
     /// Observed, not snapshotted: the connect flow completes in the browser
     /// long after this pane rendered, and a one-shot copy of isConnected sat
     /// on "Connect" forever while the tokens were already in the keychain.
@@ -207,7 +210,13 @@ struct SettingsPane: View {
             case .file: rows.append(.note(localized("Stored in a file only you can read.")))
             case .unavailable: rows.append(.note(localized("Cannot be stored on this Mac.")))
             }
-            if apiBlocked { rows.append(.note((refusal ?? .other).explanation)) }
+            // Said only after a real refusal that names a permission. There used
+            // to be a "Liked Songs: Allowed" row beside it that began as
+            // "Allowed" before the API had been asked anything and turned to
+            // "Not allowed" under a note that said the same; and an `.other`
+            // 403 is not known to be about permission at all, so it explains
+            // nothing it cannot back.
+            if apiBlocked, let refusal, refusal != .other { rows.append(.note(refusal.explanation)) }
             rows.append(.note(localized("Isla forgets the account on this Mac. Your Spotify library stays as it is.")))
             rows.append(.note(localized("The heart on the lock screen adds the song to your Liked Songs.")))
         }
@@ -288,6 +297,7 @@ struct SettingsPane: View {
             // Every switch is read afresh: Save Clipboard Screenshots and Show
             // Screen Captures are also written by the Shelf's own prompts.
             flags = [:]
+            translateTarget = LyricTranslation.TargetChoice.current(in: settingsDefaults)
             lockCardStyle = NotchViewModel.lockCardStyle(in: settingsDefaults)
             lockCardSize = NotchViewModel.LockCardSize(
                 rawValue: settingsDefaults.string(forKey: NotchViewModel.lockCardSizeKey) ?? ""
@@ -342,6 +352,7 @@ struct SettingsPane: View {
         c.spotify = spotifyRows
         c.offersDownload = updates.lastAvailable != nil
         c.updateNotes = updateNotes
+        c.automaticUpdates = flag(.checkForUpdatesAutomatically)
         c.diagnosticsCopied = diagnosticsCopied != nil
         return c
     }
@@ -496,7 +507,7 @@ struct SettingsPane: View {
             get: { flag(row) },
             set: { wants in
                 flags[row] = wants
-                if persists, let key = row.key { settingsDefaults.set(wants, forKey: key) }
+                if persists { row.write(wants, in: settingsDefaults) }
                 then(wants)
             }
         )
@@ -626,7 +637,7 @@ struct SettingsPane: View {
                     get: { translateTarget },
                     set: { choice in
                         translateTarget = choice
-                        choice.apply(to: .standard)
+                        choice.apply(to: settingsDefaults)
                     }
                 ),
                 optionTitle: { choice in
@@ -688,13 +699,6 @@ struct SettingsPane: View {
             switchRow(row, isOn: flagBinding(row) { setTranslateSpeakButton($0) })
 
         // Spotify
-        case .likedSongs:
-            SettingsRowChrome(label: row.title) {
-                Text(spotify.apiBlocked ? localized("Not allowed") : localized("Allowed"))
-                    .islandFont(.reading, weight: .regular)
-                    .foregroundStyle(Theme.secondary)
-            }
-            .accessibilityElement(children: .combine)
         case .spotifyAccount, .spotifyImport:
             SettingsRowChrome(label: row.title) { pushButton(row) }
 
@@ -1068,13 +1072,23 @@ struct SettingsPane: View {
     }
 
     private func openAcknowledgements() {
-        if let url = Self.acknowledgementsURL() {
-            NSWorkspace.shared.open(url)
-        } else {
-            // Outside a bundle there is no file to open; the About panel is the
-            // nearest thing that names what Isla is made of.
-            AboutWindow.show()
-        }
+        Self.showAcknowledgements(url: Self.acknowledgementsURL())
+    }
+
+    /// Opens the notices file, or the About panel when that cannot be done. The
+    /// row used to do nothing at all when `NSWorkspace.open` answered false (a
+    /// Mac with no handler for Markdown) or the file was not where the bundle
+    /// said it was; the About panel is the nearest thing that names what Isla is
+    /// made of. The three parts are seams so a test can play each refusal.
+    @MainActor
+    static func showAcknowledgements(
+        url: URL?,
+        exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
+        open: (URL) -> Bool = { NSWorkspace.shared.open($0) },
+        fallback: @MainActor () -> Void = { AboutWindow.show() }
+    ) {
+        if let url, exists(url), open(url) { return }
+        fallback()
     }
 
     private var launchAtLoginBinding: Binding<Bool> {
