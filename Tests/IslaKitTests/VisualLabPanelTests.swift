@@ -54,7 +54,7 @@ class VisualLabCase: XCTestCase {
         labTrace("geometry")
         let geometry = try LabGeometry.make(physical: physical)
         labTrace("vm")
-        let vm = NotchViewModel(geometry: geometry, stores: stores)
+        let vm = NotchViewModel(geometry: geometry, stores: stores, defaults: session.suite)
         labTrace("vm made")
         vm.isOpen = true
         vm.tab = tab
@@ -603,60 +603,36 @@ final class VisualLabPanelTests: VisualLabCase {
 
     // MARK: Settings
 
+    /// Settings is 400 tall with a sidebar (redesign 2026-10-15, spec §10), so the
+    /// crop is the tall body and its shadow, and each section is its own shot.
     func testSettings() async throws {
         let session = try makeSession()
         let shoot = LabPhotographer(session: session, surface: "panel-settings")
-        let size = Self.panelSize
+        let size = CGSize(width: VisualLab.windowSize.width, height: 460)
 
         try await shoot.shoot("viewport-top", variants: LabVariant.panel, size: size, settle: 0.3) { variant in
             Self.scene(try await self.openPanel(session, tab: .settings), variant, height: size.height)
         }
-        try await shoot.shoot("viewport-opened-at-music", variants: [.base, .russian], size: size, settle: 0.4,
-                              notes: "Reached from the Music tab's Open Settings (J-007): scrolled to the Music section, Music Only first.") { variant in
+        // Every section with the defaults, in the panel the way a person sees it.
+        for section in SettingsSection.allCases {
+            try await shoot.shoot("section-\(section.rawValue)", variants: [.base, .contrast, .transparency, .russian],
+                                  size: size, settle: 0.4,
+                                  notes: "Settings on its \(section.rawValue) section, every switch at its default.") { variant in
+                Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+                    vm.settingsSection = section
+                }), variant, height: size.height)
+            }
+        }
+        try await shoot.shoot("section-music-opened-from-the-player", variants: [.base, .russian], size: size, settle: 0.4,
+                              notes: "Reached from the Music tab's Open Settings (J-007): on the Music section, Music Only first.") { variant in
             Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
-                vm.settingsScrollTarget = SettingsPane.musicSectionID
+                vm.settingsSection = .music
             }), variant, height: size.height)
         }
-        try await shoot.shoot("viewport-open-on-hover", variants: [.base, .russian], size: size, settle: 0.3,
+        try await shoot.shoot("section-general-open-on-hover", variants: [.base, .russian], size: size, settle: 0.3,
                               defaults: [NotchViewModel.opensOnHoverKey: true],
-                              notes: "Open on Hover on: the Hover Delay slider joins the General section.") { variant in
+                              notes: "Open on Hover on: the Hover Delay slider joins the General group.") { variant in
             Self.scene(try await self.openPanel(session, tab: .settings), variant, height: size.height)
-        }
-
-        // Every section at once: the pane on its own, at the width the panel
-        // gives it, tall enough that the scroll view never has to scroll.
-        func fullLength(_ variant: LabVariant, prepare: (NotchStores) async -> Void = { _ in }) async throws -> AnyView {
-            let stores = session.makeStores()
-            await prepare(stores)
-            let paneWidth = variant.width - 14 * 2 - 30 - 14
-            return AnyView(
-                SettingsPane(
-                    shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: stores.lyrics,
-                    media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
-                    hotKeys: HotKeyCenter(defaults: session.suite, registrar: { _, _ in nil }),
-                    updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) })
-                )
-                .frame(width: paneWidth, height: 1500, alignment: .top)
-                .frame(width: paneWidth + 24, height: 1524)
-                .background(Color.black)
-            )
-        }
-        let tall = CGSize(width: NotchMetrics.defaultBodyWidth - 14 * 2 - 30 - 14 + 24, height: 1524)
-        try await shoot.shoot("all-sections-defaults", variants: [.base, .contrast, .transparency, .russian], size: tall, settle: 0.4,
-                              notes: "The whole scroll content at once, outside the panel: every section with the defaults.") { variant in
-            try await fullLength(variant)
-        }
-        try await shoot.shoot("all-sections-everything-on", variants: [.base, .russian], size: tall, settle: 0.4,
-                              defaults: [
-                                  NotchViewModel.onlineLyricsKey: true, NotchViewModel.onlineTranslationKey: true,
-                                  NotchViewModel.opensOnHoverKey: true, NotchViewModel.saveClipboardImagesKey: true,
-                                  NotchViewModel.importRecordingsKey: true,
-                              ],
-                              notes: "Online lyrics and translation on, hover on, captures kept, privacy covering both sections.") { variant in
-            try await fullLength(variant) { stores in
-                stores.privacy.setCovering(.clipboard, true)
-                stores.privacy.setCovering(.translate, true)
-            }
         }
         // LY-16: with a song and its lyrics playing, the Lyric Delay row
         // previews the caption's line between Earlier and Later, and says how
@@ -665,21 +641,27 @@ final class VisualLabPanelTests: VisualLabCase {
             await LabFixtures.play(LabFixtures.Track(elapsed: 25), on: stores.media)
             stores.lyrics.present(LabFixtures.timeline())
         }
-        let previewNote = "A track playing 25 s in, with lyrics: the Lyric Delay row previews the line the caption shows."
-        try await shoot.shoot("all-sections-lyric-delay-preview", variants: [.base], size: tall, settle: 0.4,
-                              notes: previewNote) { variant in
-            try await fullLength(variant, prepare: playingWithLyrics)
+        try await shoot.shoot("section-lyrics-delay-preview", variants: [.base], size: size, settle: 0.4,
+                              defaults: [NotchViewModel.showLyricsKey: true],
+                              notes: "A track playing 25 s in, with lyrics: the Lyric Delay row previews the line the caption shows.") { variant in
+            Self.scene(try await self.openPanel(session, tab: .settings, prepare: playingWithLyrics, configure: { vm in
+                vm.settingsSection = .lyrics
+            }), variant, height: size.height)
         }
-        let tallNarrow = CGSize(width: 480 - 14 * 2 - 30 - 14 + 24, height: 1524)
-        try await shoot.shoot("all-sections-lyric-delay-preview",
+        try await shoot.shoot("section-lyrics-delay-preview",
                               variants: [LabVariant(name: "ru-w480", width: 480, language: "ru")],
-                              size: tallNarrow, settle: 0.4, notes: previewNote) { variant in
-            try await fullLength(variant, prepare: playingWithLyrics)
+                              size: size, settle: 0.4, defaults: [NotchViewModel.showLyricsKey: true],
+                              notes: "The same at 480 in Russian, where labels wrap before controls.") { variant in
+            Self.scene(try await self.openPanel(session, tab: .settings, prepare: playingWithLyrics, configure: { vm in
+                vm.settingsSection = .lyrics
+            }), variant, height: size.height)
         }
-        try await shoot.shoot("all-sections-spotify-connected", variants: [.base], size: tall, settle: 0.4,
+        try await shoot.shoot("section-spotify-connected", variants: [.base], size: size, settle: 0.4,
                               notes: "A connected Spotify account, stood in by the lab's isolated account and its temporary credential file.") { variant in
             await session.connectSpotify(liked: false)
-            return try await fullLength(variant)
+            return Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+                vm.settingsSection = .spotify
+            }), variant, height: size.height)
         }
         await session.disconnectSpotify()
     }

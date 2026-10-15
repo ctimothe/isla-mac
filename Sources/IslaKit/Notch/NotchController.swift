@@ -1992,7 +1992,7 @@ final class NotchController {
     /// is doing something, and the peek would either be redundant or would
     /// fold the panel out from under them when it ended.
     private func sneakPeek() {
-        guard NotchViewModel.sneakPeekEnabled else { return }
+        guard NotchViewModel.newTracksEnabled else { return }
         guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted else { return }
         // The charger or headphones hold the pill for their moment. A track
         // peek on top would put two things in one pill.
@@ -2055,8 +2055,8 @@ final class NotchController {
         guard let vm = viewModel else { return }
         let switchOn: Bool
         switch activity {
-        case .charging: switchOn = NotchViewModel.showChargingEnabled
-        case .headphones: switchOn = NotchViewModel.showHeadphonesEnabled
+        case .charging: switchOn = NotchViewModel.chargingEnabled
+        case .headphones: switchOn = NotchViewModel.headphonesEnabled
         }
         let grown = NotchViewModel.ambientBodySize(
             activity, media: vm.bodySize, notchSize: vm.geometry.notchSize,

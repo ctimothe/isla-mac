@@ -15,7 +15,6 @@ import SwiftUI
 /// to the tab change.
 struct ShortcutRecorderRow: View {
     let action: HotKeyAction
-    let symbol: String
     @ObservedObject var center: HotKeyCenter
     @Binding var wantsKeyboard: Bool
 
@@ -23,31 +22,38 @@ struct ShortcutRecorderRow: View {
 
     private var isRecording: Bool { center.recording == action }
 
+    /// The well is 96 pt (spec §10): wide enough for the longest combination
+    /// the three defaults make, ⌃⌥⌘ and a letter, and for "Type Shortcut" in
+    /// Russian, and the same width recording as at rest so the row never moves.
+    static let wellWidth: CGFloat = 96
+
     var body: some View {
         HStack(spacing: 8) {
-            RowIcon(symbol: symbol)
-            // Hidden like the glyph: the well below carries this title as its
-            // own name, so VoiceOver read the row's name twice, once as text
-            // and once on the control it belongs to (H-009).
+            // Hidden: the well below carries this title as its own name, so
+            // VoiceOver read the row's name twice, once as text and once on the
+            // control it belongs to (H-009).
             Text(action.title)
-                .islandFont(.body)
+                .islandFont(.reading, weight: .regular)
                 .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityHidden(true)
             Spacer(minLength: 8)
             Button(action: toggleRecording) {
                 Text(wellText)
                     .font(Theme.TypeRole.body.font())
                     .foregroundStyle(isRecording || center.bindings[action] == nil ? Theme.tertiary : .white)
-                    .frame(minWidth: 64)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
+                    .lineLimit(1)
+                    .frame(width: Self.wellWidth, height: 20)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(isRecording ? Theme.surfaceHover : Theme.surface)
+                            .fill(isRecording ? Theme.recordingFill : Theme.surface)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(isRecording ? Theme.secondary : Theme.hairline, lineWidth: 1)
+                            .strokeBorder(
+                                isRecording ? Theme.accent : Theme.hairline,
+                                lineWidth: isRecording ? Theme.recordingRingWidth : 1
+                            )
                     )
                     .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
@@ -56,8 +62,8 @@ struct ShortcutRecorderRow: View {
             .accessibilityValue(wellText)
             .accessibilityHint(localized("Records a new shortcut. Press Delete to clear it, Escape to cancel."))
         }
-        .padding(.horizontal, 8)
-        .frame(height: 26)
+        .padding(.horizontal, SettingsLayout.rowInset)
+        .frame(minHeight: SettingsLayout.rowHeight)
         .onAppear { leaving = false }
         .onChange(of: center.recording) { old, new in
             // This row's recording ended with the row still here: the keyboard

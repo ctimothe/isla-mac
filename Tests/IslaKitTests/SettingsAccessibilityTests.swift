@@ -12,23 +12,12 @@ import XCTest
 /// as loose buttons rather than one choice of several.
 @MainActor
 final class SettingsAccessibilityTests: XCTestCase {
-    /// The nine section titles, in the order the pane draws them. Privacy
-    /// second since SET-03 (H-003): see `SettingsWayfindingTests`.
-    private static let sectionTitles = [
-        "General", "Privacy", "Keyboard Shortcuts", "Music", "Lock Screen",
-        "Translate", "Spotify", "Screenshots", "Application",
-    ]
-
-    private func probePane(height: CGFloat = 1400) async -> (AXNode, ProbeStores) {
+    /// Which section the pane draws is the test's to say (redesign 2026-10-15, spec
+    /// §10): the form shows one section at a time, over an isolated world
+    /// (`SettingsFixture`).
+    private func probePane(_ section: SettingsSection = .general, height: CGFloat = 1400) async -> (AXNode, ProbeStores) {
         let isolated = ProbeFixtures.isolatedStores()
-        let stores = isolated.stores
-        let pane = SettingsPane(
-            shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: stores.lyrics,
-            media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
-            hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
-            updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) })
-        )
-        let root = await AXProbe.tree(of: pane, size: CGSize(width: 488, height: height))
+        let root = await SettingsFixture.tree(isolated, section: section, height: height)
         return (root, isolated)
     }
 
@@ -36,21 +25,45 @@ final class SettingsAccessibilityTests: XCTestCase {
     /// row is, and the glyph's system name said something else ("Skip Slide"
     /// for Card Size, "Audiobook" for headphones), one extra stop per row.
     func testNoRowSpeaksASymbolName() async {
-        let (root, isolated) = await probePane()
-        defer { isolated.release() }
-        XCTAssertEqual(root.all(role: "AXImage").map(\.label), [], root.dump)
+        for section in SettingsSection.allCases {
+            let (root, isolated) = await probePane(section)
+            defer { isolated.release() }
+            XCTAssertEqual(root.all(role: "AXImage").map(\.label), [], "\(section)\n\(root.dump)")
+        }
     }
 
-    /// Each section title is a heading named in title case, so the rotor can
-    /// jump between the nine of them and VoiceOver does not spell out the
-    /// drawn small caps.
-    func testSectionTitlesAreHeadings() async {
-        let (root, isolated) = await probePane()
-        defer { isolated.release() }
-        let headings = root.all { $0.role == "AXHeading" }
-        XCTAssertEqual(headings.map(\.label), Self.sectionTitles.map { localized($0) }, root.dump)
-        XCTAssertTrue(root.all { $0.value == "GENERAL" || $0.label == "GENERAL" }.isEmpty,
-                      "the drawn uppercase is still what is read\n\(root.dump)")
+    /// Each group header is a heading named in title case, so the rotor can jump
+    /// between them and VoiceOver does not spell out tracked capitals. Redesign
+    /// 2026-10-15 (spec §10): the ten sections are the sidebar, and what carries
+    /// the heading trait is the form's group headers — every one the table lays
+    /// down for the section, in order.
+    func testGroupHeadersAreHeadings() async {
+        for section in SettingsSection.allCases {
+            let (root, isolated) = await probePane(section)
+            defer { isolated.release() }
+            let expected = SettingsTable.blocks(for: section).compactMap { block -> String? in
+                if case .header(let title) = block { return title } else { return nil }
+            }
+            let headings = root.all { $0.role == "AXHeading" }
+            XCTAssertEqual(headings.map(\.label), expected, "\(section)\n\(root.dump)")
+            XCTAssertTrue(root.all { $0.value == "GENERAL" || $0.label == "GENERAL" }.isEmpty,
+                          "the drawn uppercase is still what is read\n\(root.dump)")
+        }
+    }
+
+    /// The sidebar is one group named "Settings sections", with a button per
+    /// section in the table's order, and the selected one says so.
+    func testTheSidebarIsOneNamedGroupOfTenButtons() async {
+        for selected in [SettingsSection.general, .lyrics, .about] {
+            let (root, isolated) = await probePane(selected)
+            defer { isolated.release() }
+            guard let group = root.all(where: { $0.label == localized("Settings sections") }).first else {
+                return XCTFail("no sidebar group\n\(root.dump)")
+            }
+            let buttons = group.all(role: "AXButton")
+            XCTAssertEqual(buttons.map(\.label), SettingsSection.allCases.map(\.title), root.dump)
+            XCTAssertEqual(buttons.filter(\.selected).map(\.label), [selected.title], "\(selected)\n\(root.dump)")
+        }
     }
 
     /// A slider's value says what it counts. "560" alone is a number with no
@@ -67,32 +80,33 @@ final class SettingsAccessibilityTests: XCTestCase {
         // (SET-08), so the value asserted below is only the bare direction
         // with the switch on. The test used to inherit the switch from
         // whatever the runner's defaults held — a test machine that had
-        // ever turned lyrics on passed, a clean one failed — so it pins it.
-        let defaults = UserDefaults.standard
-        let had = defaults.object(forKey: NotchViewModel.showLyricsKey)
-        defer {
-            if let had { defaults.set(had, forKey: NotchViewModel.showLyricsKey) }
-            else { defaults.removeObject(forKey: NotchViewModel.showLyricsKey) }
-        }
-        defaults.set(true, forKey: NotchViewModel.showLyricsKey)
-        let (root, isolated) = await probePane()
+        // ever turned lyrics on passed, a clean one failed — so it pinned the
+        // runner's own domain and put it back. The pane reads its switches from the
+        // suite it is given now (R4), so the pin is the isolated one.
+        let (general, generalIsolated) = await probePane(.general)
+        defer { generalIsolated.release() }
+        let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
+        isolated.suite.set(true, forKey: NotchViewModel.showLyricsKey)
+        let root = await SettingsFixture.tree(isolated, section: .lyrics)
+        // One slider per section (spec §10): Panel Width in General, Lyric Delay in
+        // Lyrics.
+        let width = general.all(role: "AXSlider").first { $0.label == localized("Panel Width") }
         let sliders = root.all(role: "AXSlider")
-        let width = sliders.first { $0.label == localized("Panel Width") }
-        XCTAssertEqual(width.map(Self.spoken), localized("%d points", Int(NotchViewModel.bodyWidth)), root.dump)
+        XCTAssertEqual(width.map(Self.spoken), localized("%d points", Int(NotchViewModel.bodyWidth)), general.dump)
         XCTAssertEqual(width.map(Self.spoken), "\(Int(NotchViewModel.bodyWidth)) points",
                        "the English table reads it in full")
         let delay = sliders.first { $0.label == localized("Lyric Delay") }
         // The delay speaks a direction rather than a sign (LY-16): see
         // `LyricDelayCopyTests`.
-        XCTAssertEqual(delay.map(Self.spoken), LyricDelayCopy.value(isolated.stores.lyrics.userOffset), root.dump)
+        XCTAssertEqual(delay.map(Self.spoken), LyricDelayCopy.value(0), root.dump)
         // The drawn title and the drawn figure are not stops of their own:
         // the slider already speaks both.
-        for drawn in [localized("Panel Width"), localized("Lyric Delay"),
-                      localized("%d pt", Int(NotchViewModel.bodyWidth)),
-                      localized("%+.2fs", isolated.stores.lyrics.userOffset)] {
-            XCTAssertTrue(root.all { $0.role == "AXStaticText" && ($0.value == drawn || $0.label == drawn) }.isEmpty,
-                          "\(drawn) is read twice\n\(root.dump)")
+        for (drawn, tree) in [(localized("Panel Width"), general), (localized("Lyric Delay"), root),
+                              (localized("%d pt", Int(NotchViewModel.bodyWidth)), general),
+                              (localized("%+.2fs", 0.0), root)] {
+            XCTAssertTrue(tree.all { $0.role == "AXStaticText" && ($0.value == drawn || $0.label == drawn) }.isEmpty,
+                          "\(drawn) is read twice\n\(tree.dump)")
         }
     }
 
@@ -113,7 +127,7 @@ final class SettingsAccessibilityTests: XCTestCase {
     /// and Card Size are radio groups named by their rows, Card Style with the four
     /// styles of spec §7.2 in order.
     func testThePanesLockScreenChoicesAreNamedRadioGroups() async {
-        let (root, isolated) = await probePane()
+        let (root, isolated) = await probePane(.lockScreen)
         defer { isolated.release() }
         let groups = root.all(role: "AXRadioGroup")
         let style = groups.first { $0.label == "Card Style" }
@@ -212,17 +226,14 @@ final class SettingsAccessibilityTests: XCTestCase {
     /// a pointer or VoiceOver lands. The runner's own defaults hold the
     /// switch, as the neighbouring tests' do, and are put back.
     func testLyricsDependentsSayWhy() async {
-        let defaults = UserDefaults.standard
-        let had = defaults.object(forKey: NotchViewModel.showLyricsKey)
-        defer {
-            if let had { defaults.set(had, forKey: NotchViewModel.showLyricsKey) }
-            else { defaults.removeObject(forKey: NotchViewModel.showLyricsKey) }
-        }
-        defaults.set(false, forKey: NotchViewModel.showLyricsKey)
-        let (root, isolated) = await probePane()
+        // The switch lives in the isolated suite the pane is built over, so no
+        // test here reaches the runner's own defaults.
+        let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
+        isolated.suite.set(false, forKey: NotchViewModel.showLyricsKey)
+        let root = await SettingsFixture.tree(isolated, section: .lyrics)
         let reason = localized("Needs Show Lyrics")
-        for title in ["Word Karaoke", "Look Up Lyrics Online"] {
+        for title in ["Word Karaoke", "Look Up Lyrics Online", "Translate Lyrics"] {
             guard let row = root.first(label: localized(title)) else { return XCTFail("no \(title) row\n\(root.dump)") }
             XCTAssertFalse(row.enabled, "\(title) still looks live\n\(root.dump)")
             XCTAssertEqual(row.help, reason, "\(title) does not say why\n\(root.dump)")
@@ -233,9 +244,8 @@ final class SettingsAccessibilityTests: XCTestCase {
                       "VoiceOver hears why Lyric Delay is dimmed\n\(root.dump)")
         XCTAssertEqual(root.first(label: localized("Show Lyrics"))?.enabled, true, "the switch itself stays live")
 
-        defaults.set(true, forKey: NotchViewModel.showLyricsKey)
-        let (live, liveIsolated) = await probePane()
-        defer { liveIsolated.release() }
+        isolated.suite.set(true, forKey: NotchViewModel.showLyricsKey)
+        let live = await SettingsFixture.tree(isolated, section: .lyrics)
         XCTAssertEqual(live.first(label: localized("Word Karaoke"))?.enabled, true, live.dump)
         XCTAssertEqual(live.first(label: localized("Word Karaoke"))?.help, "", "no reason when nothing is waiting")
     }

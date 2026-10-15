@@ -23,11 +23,15 @@ final class ExpandedBodyTests: XCTestCase {
 
     // MARK: - openBodySize
 
+    /// Redesign 2026-10-15, spec §10: Settings is the one tab that opens tall
+    /// without being asked — 400, where R1 held it at 208 and left the comment
+    /// that R4 owned its height. Every other tab starts collapsed.
     func testEveryTabOpensStandardUntilItIsExpanded() throws {
         let vm = try model()
         for tab in NotchViewModel.Tab.allCases {
             vm.select(tab)
-            XCTAssertEqual(vm.openBodySize.height, 208, "\(tab) starts collapsed: a relaunch does")
+            XCTAssertEqual(vm.openBodySize.height, tab == .settings ? 400 : 208,
+                           "\(tab) starts collapsed: a relaunch does (Settings is always tall)")
             XCTAssertEqual(vm.openBodySize.width, vm.geometry.expandedSize.width, "the width is the setting's")
         }
         XCTAssertTrue(vm.expandedTabs.isEmpty)
@@ -66,18 +70,51 @@ final class ExpandedBodyTests: XCTestCase {
         XCTAssertEqual(vm.musicPage, .player)
     }
 
-    /// R4 makes Settings always tall; until then it asks for 208 whatever the
-    /// set says, and nothing can put it there.
-    func testSettingsStaysStandardUntilReleaseFour() throws {
+    /// R4 made Settings always tall (spec §10): 400 at every width, whatever
+    /// `expandedTabs` holds, and nothing can put it elsewhere — no Expand button
+    /// reaches it, so a stray insert changes nothing and a stray call is refused.
+    func testSettingsIsAlwaysFourHundredTall() throws {
         let vm = try model()
+        vm.select(.settings)
+        XCTAssertEqual(vm.openBodySize.height, 400)
         vm.setExpanded(true, for: .settings)
         XCTAssertFalse(vm.expandedTabs.contains(.settings), "no Expand button reaches Settings, so nothing remembers it")
+        vm.setExpanded(false, for: .settings)
+        XCTAssertEqual(vm.openBodySize.height, 400, "and Collapse cannot fold it")
         vm.expandedTabs.insert(.settings)
+        XCTAssertEqual(vm.openBodySize.height, 400, "Settings does not read expandedTabs")
+        vm.expandedTabs = []
+        for expanded: Set<NotchViewModel.Tab> in [[], [.settings], [.shelf, .clipboard, .translate, .media]] {
+            XCTAssertEqual(
+                NotchViewModel.openBodyHeight(tab: .settings, showingLyrics: false, expandedTabs: expanded), 400
+            )
+            XCTAssertEqual(
+                NotchViewModel.openBodyHeight(tab: .settings, showingLyrics: true, expandedTabs: expanded), 400
+            )
+        }
+        XCTAssertTrue(vm.isCurrentTabExpanded, "400 is the tall body, with its 26 pt bottom radius")
+        XCTAssertEqual(SettingsLayout.bodyHeight, NotchMetrics.tallestBody.height)
+    }
+
+    /// 400 at every width the body can be (480…620): the height is not a function
+    /// of the width at all (`openBodyHeight` takes none), the drawn body while open
+    /// is that height, and the form's scrolling area fits inside it at each width —
+    /// above the body's 14 pt of bottom padding — so nothing of a section is drawn
+    /// past the shape that is meant to hold it.
+    func testSettingsIsFourHundredAtEveryWidth() throws {
+        let suiteName = "com.ctimothe.isla.settingswidth.\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores(), defaults: suite)
         vm.select(.settings)
-        XCTAssertEqual(vm.openBodySize.height, 208, "R4 owns Settings' height")
-        XCTAssertEqual(
-            NotchViewModel.openBodyHeight(tab: .settings, showingLyrics: false, expandedTabs: [.settings]), 208
-        )
+        vm.isOpen = true
+        XCTAssertEqual(vm.openBodySize.height, 400)
+        XCTAssertEqual(vm.bodySize.height, 400)
+        for width: CGFloat in [480, 500, 539, 540, 560, 620] {
+            let form = SettingsLayout.formFrame(bodyWidth: width)
+            XCTAssertLessThanOrEqual(form.maxY, 400 - NotchGeometry.bodyBottomPadding, "width \(width)")
+            XCTAssertLessThanOrEqual(form.maxX, width - PlayerLayout.bodyInset, "width \(width): inside the body's right padding")
+        }
     }
 
     /// ⌃⌥⌘L on a silent Mac: the page was asked for and there is no song, so the

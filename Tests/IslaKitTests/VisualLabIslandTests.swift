@@ -310,10 +310,10 @@ final class VisualLabConfirmationTests: VisualLabCase {
                               interact: { LabAccessibility.press(localized("Clear"), in: $0) }) { _ in
             plate(ConfirmTextButton(title: localized("Clear"), armedTitle: localized("Clear Everything"), action: {}))
         }
-        try await shoot.shoot("confirm-row-armed", variants: [.base, .contrast, .russian], size: CGSize(width: 360, height: 60),
-                              notes: "The Settings row that quits, armed. The action is a no-op here.",
-                              interact: { LabAccessibility.press(localized("Quit"), in: $0) }) { _ in
-            AnyView(ConfirmRow(symbol: SettingsIcon.quit, title: localized("Quit"), armedTitle: localized("Quit Isla"), action: {})
+        try await shoot.shoot("confirm-push-armed", variants: [.base, .contrast, .russian], size: CGSize(width: 360, height: 60),
+                              notes: "Settings' destructive push button, armed: a normal plate that asks in the destructive style (R4, spec §10). The action is a no-op here.",
+                              interact: { LabAccessibility.press(localized("Disconnect Spotify Account"), in: $0) }) { _ in
+            AnyView(ConfirmPushButton(title: localized("Disconnect Spotify Account"), armedTitle: localized("Disconnect"), action: {})
                 .padding(12).frame(width: 360, height: 60).background(Color.black))
         }
     }

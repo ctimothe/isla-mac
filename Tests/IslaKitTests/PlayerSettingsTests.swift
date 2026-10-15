@@ -56,30 +56,25 @@ final class PlayerSettingsTests: XCTestCase {
         vm.playerAudio.stop()
     }
 
-    /// Settings › Music holds both rows, under "In the player", after the rows
-    /// that were already there, with the spec's footnote.
+    /// Settings › Music holds both rows, under "In the player", after Music Only,
+    /// with the spec's footnote (redesign 2026-10-15, spec §10: Peek at New Tracks
+    /// left this section for General, as New Tracks).
     func testSettingsHoldsBothRowsUnderInThePlayer() async throws {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        let stores = isolated.stores
-        let pane = SettingsPane(
-            shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: stores.lyrics,
-            media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
-            hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
-            updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) })
-        )
-        let root = await AXProbe.tree(of: pane, size: CGSize(width: 488, height: 2400))
+        let root = await SettingsFixture.tree(isolated, section: .music, height: 1000)
 
         let labels = root.flattened.map { $0.label.isEmpty ? $0.value : $0.label }
-        let peek = try XCTUnwrap(labels.firstIndex(of: "Peek at New Tracks"), root.dump)
+        let musicOnly = try XCTUnwrap(labels.firstIndex(of: "Music Only"), root.dump)
         let header = try XCTUnwrap(labels.firstIndex(of: "In the player"), root.dump)
         let volume = try XCTUnwrap(labels.firstIndex(of: "Volume and Output"), root.dump)
         let band = try XCTUnwrap(labels.firstIndex(of: "Lyric Band"), root.dump)
         let note = try XCTUnwrap(labels.firstIndex(where: { $0.hasPrefix("Volume and Output put the system volume") }), root.dump)
-        XCTAssertLessThan(peek, header)
+        XCTAssertLessThan(musicOnly, header)
         XCTAssertLessThan(header, volume)
         XCTAssertLessThan(volume, band)
         XCTAssertLessThan(band, note)
+        XCTAssertNil(labels.firstIndex(of: "Peek at New Tracks"), "the renamed row is not here")
         XCTAssertEqual(
             labels[note],
             "Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title."

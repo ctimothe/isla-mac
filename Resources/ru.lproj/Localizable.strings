@@ -16,7 +16,6 @@
 "Settings" = "Настройки";
 
 /* Меню-бар */
-"Quit" = "Выйти";
 
 /* Вкладка настроек */
 "General" = "Общее";
@@ -28,7 +27,6 @@
 "Clear Screenshots Folder" = "Очистить папку скриншотов";
 "Clear Screenshots Folder (%@)" = "Очистить папку скриншотов (%@)";
 "Privacy" = "Конфиденциальность";
-"Application" = "Приложение";
 "About %@" = "О программе %@";
 
 /* Полка */
@@ -96,7 +94,6 @@
 "%@ of %@" = "%@ из %@";
 "Remove Entry" = "Удалить запись";
 "Copy Entry" = "Копировать запись";
-"Peek at New Tracks" = "Показывать новые треки";
 "Show Lyrics" = "Показывать текст песни";
 "Lyrics" = "Текст песни";
 "Show on Lock Screen" = "Показывать на экране блокировки";
@@ -272,12 +269,10 @@
 "Isla is still starting up. Try again in a moment." = "Isla ещё запускается. Попробуйте через мгновение.";
 
 /* Зарядка и наушники */
-"Charging" = "Заряжается";
+"Charging" = "Зарядку";
 "Charging, %d percent" = "Заряжается: %d %%";
 "%@ connected" = "%@: подключено";
 "%d%%" = "%d %%";
-"Show Charging" = "Показывать зарядку";
-"Show Headphones Connecting" = "Показывать подключение наушников";
 
 /* Отправка с Полки */
 "Quick Look" = "Быстрый просмотр";
@@ -500,3 +495,30 @@
 "Include Images" = "Сохранять изображения";
 "Keep Pinned Items" = "Хранить закреплённые";
 "History is kept in memory and empties when Isla quits. Keep Pinned Items saves only your pins, on this Mac." = "История хранится в памяти и очищается при выходе из Isla. «Хранить закреплённые» сохраняет только закреплённое и только на этом Mac.";
+
+/* Settings: the sidebar and the grouped form (R4) */
+"About" = "О программе";
+"Account" = "Учётная запись";
+"Acknowledgements…" = "Благодарности…";
+"Automation" = "Автоматизация";
+"Click the notch to open the panel. Open on Hover also opens it when the pointer rests there." = "Нажмите на вырез, чтобы открыть панель. «Открывать при наведении» открывает её, когда указатель задерживается на нём.";
+"Connected" = "Подключено";
+"Cover" = "Скрытие";
+"From another Mac" = "С другого Mac";
+"Headphones Connecting" = "Подключение наушников";
+"History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice." = "История хранит последние 20 переводов в памяти. «Произнести» читает перевод вслух системным голосом.";
+"Keep History" = "Хранить историю";
+"Liked Songs" = "Любимые треки";
+"New Tracks" = "Новые треки";
+"Not connected" = "Не подключено";
+"Now Playing" = "Сейчас играет";
+"Now Playing reader" = "Чтение «Сейчас играет»";
+"Online" = "Онлайн";
+"Permission" = "Разрешение";
+"Settings sections" = "Разделы настроек";
+"Shortcuts" = "Сочетания клавиш";
+"Speak Button" = "Кнопка «Произнести»";
+"The island shows" = "Остров показывает";
+"Version %@" = "Версия %@";
+"Volume and Brightness" = "Громкость и яркость";
+"Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission." = "«Громкость и яркость» заменяет системное окно Mac и требует разрешения универсального доступа.";

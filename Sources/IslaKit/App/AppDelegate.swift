@@ -41,6 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `PrivateNetwork.session` now, which writes nothing, but the rows
         // already written stay until they are removed — so they are, once.
         PrivateNetwork.purgeLegacyStorage()
+        // Before anything reads a setting: the three renamed switches (Charging,
+        // Headphones Connecting, New Tracks) have new keys, and a choice made
+        // under the old ones is carried across once (redesign 2026-10-15, spec
+        // §10). A copy that handed over to an older one above never gets here, so
+        // it cannot move a value the running copy has not yet read.
+        NotchViewModel.migrateRenamedKeys()
         controller = NotchController()
         controller?.install()
         // Built here rather than wherever a view first mentions it.

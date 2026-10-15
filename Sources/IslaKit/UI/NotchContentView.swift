@@ -1202,7 +1202,8 @@ struct NotchContentView: View {
                 setClipboardIncludeImages: vm.setClipboardIncludeImages,
                 setClipboardKeepPinned: vm.setClipboardKeepPinned,
                 refreshClipboardPolling: vm.refreshClipboardPolling,
-                scrollTarget: $vm.settingsScrollTarget
+                selection: $vm.settingsSection,
+                headerHeight: vm.geometry.notchSize.height
             )
         }
     }

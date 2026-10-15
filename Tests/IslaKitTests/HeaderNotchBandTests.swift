@@ -149,6 +149,30 @@ final class HeaderNotchBandTests: XCTestCase {
         }
     }
 
+    // MARK: Settings
+
+    /// The Settings header carries no control at any width — no Expand (the body is
+    /// always 400), no tools — so nothing of the redesign's sidebar and form can be
+    /// under the notch, and the one thing in the strip, the tab's title at the
+    /// leading edge, stays left of the band in both languages at every width and
+    /// both notch widths (redesign 2026-10-15, spec §10).
+    func testSettingsHeaderHasNoControlAndItsTitleStaysLeftOfTheNotch() {
+        XCTAssertTrue(SettingsLayout.headerControlFrames.isEmpty, "a control added to the strip has to be listed and held here")
+        for language in ["en", "ru"] {
+            LabLocalization.use(language)
+            // The strip draws the title in capitals at the caption role, semibold,
+            // tracked (`NotchContentView.headerRow`), from 16 pt in.
+            let title = NotchViewModel.Tab.settings.title.uppercased()
+            let font = NSFont.systemFont(ofSize: Theme.TypeRole.caption.size, weight: .semibold)
+            let measured = (title as NSString).size(withAttributes: [.font: font]).width
+                + Theme.capsTracking * CGFloat(title.count)
+            let frame = CGRect(x: 16, y: 0, width: measured, height: notchHeight)
+            for width in widths {
+                assertClear(at: width, [("Settings title (\(language))", frame)])
+            }
+        }
+    }
+
     // MARK: Player
 
     /// The source tag: the equalizer, 8 pt, the 18 pt icon, 1 pt, and the

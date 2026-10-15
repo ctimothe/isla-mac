@@ -4,39 +4,35 @@ import XCTest
 
 /// Finding your way around Settings (H-003, F-048).
 ///
-/// The pane is a 162 pt window onto about a thousand points of rows, and it
+/// The pane was a 162 pt window onto about a thousand points of rows, and it
 /// ended on a clean card edge after five switches: nothing said there was
 /// more. Quit — the only way out of an app that Force Quit does not list —
 /// was the last row, past y = 1000, and Privacy, the section a person about
 /// to share their screen comes looking for, was the eighth of nine. About
 /// was ordered front without activating Isla, so it could open behind the
 /// app in front.
+///
+/// Redesign 2026-10-15 (spec §10): the pane is a sidebar of ten sections in a
+/// 400 pt body. Quit is the last control of the last section, About's, and the
+/// About button is the section's head; Privacy is the second row of the sidebar.
 @MainActor
 final class SettingsWayfindingTests: XCTestCase {
-    /// The pane's own size in the panel at the default width, as the
-    /// 2026-10-11 dump measured it.
-    private static let viewport = CGSize(width: 488, height: 162)
+    /// The pane's own size in the 400 pt body at the default width: 488 × 348.
+    private static let viewport = SettingsFixture.paneSize()
 
-    private func probePane(height: CGFloat) async -> (AXNode, ProbeStores) {
+    private func probePane(_ section: SettingsSection, height: CGFloat) async -> (AXNode, ProbeStores) {
         let isolated = ProbeFixtures.isolatedStores()
-        let stores = isolated.stores
-        let pane = SettingsPane(
-            shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: stores.lyrics,
-            media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
-            hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
-            updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) })
-        )
-        let root = await AXProbe.tree(of: pane, size: CGSize(width: Self.viewport.width, height: height))
+        let root = await SettingsFixture.tree(isolated, section: section, height: height)
         return (root, isolated)
     }
 
-    /// Quit and About are on screen the moment Settings opens, without a
-    /// scroll: pinned in a footer under the scrolling rows rather than at
-    /// the end of them.
+    /// Quit Isla and About are on screen the moment the About section opens,
+    /// without a scroll: the form is 340 pt tall in the 400 body, and the section
+    /// is the one that has to fit in it.
     func testQuitAndAboutAreVisibleWithoutScrolling() async {
-        let (root, isolated) = await probePane(height: Self.viewport.height)
+        let (root, isolated) = await probePane(.about, height: Self.viewport.height)
         defer { isolated.release() }
-        for label in [localized("Quit"), localized("About %@", ProductIdentity.displayName)] {
+        for label in [localized("Quit Isla"), localized("About %@", ProductIdentity.displayName)] {
             let buttons = root.all { $0.role == "AXButton" && $0.label == label }
             XCTAssertEqual(buttons.count, 1, "\(label) should be one button\n\(root.dump)")
             guard let frame = buttons.first?.frame else {
@@ -48,14 +44,15 @@ final class SettingsWayfindingTests: XCTestCase {
         }
     }
 
-    /// Privacy is the second section, straight after General: it is what a
-    /// person about to share their screen opens Settings for, and it sat at
-    /// y ≈ 900, under Spotify.
+    /// Privacy is the second row of the sidebar, straight after General: it is
+    /// what a person about to share their screen opens Settings for, and it sat
+    /// at y ≈ 900, under Spotify.
     func testPrivacyComesRightAfterGeneral() async {
-        let (root, isolated) = await probePane(height: 1400)
+        let (root, isolated) = await probePane(.general, height: Self.viewport.height)
         defer { isolated.release() }
-        let headings = root.all { $0.role == "AXHeading" }.map(\.label)
-        XCTAssertEqual(Array(headings.prefix(2)), [localized("General"), localized("Privacy")], root.dump)
+        XCTAssertEqual(Array(SettingsSection.allCases.prefix(2)), [.general, .privacy])
+        let buttons = root.all(where: { $0.label == localized("Settings sections") }).first?.all(role: "AXButton") ?? []
+        XCTAssertEqual(Array(buttons.map(\.label).prefix(2)), [localized("General"), localized("Privacy")], root.dump)
     }
 
     /// About activates Isla so its window comes to the front, and gives the

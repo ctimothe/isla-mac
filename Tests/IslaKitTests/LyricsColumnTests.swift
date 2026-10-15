@@ -199,15 +199,19 @@ final class LyricsColumnTests: XCTestCase {
         XCTAssertEqual(log.count, 8, "a header, the readout and a separator do nothing")
     }
 
-    /// "Lyrics Settings…" opens Settings at the section the lyric switches are in,
-    /// through the scroll target a visit sets and spends.
+    /// "Lyrics Settings…" opens Settings on the Lyrics section (redesign
+    /// 2026-10-15, spec §10: R4 gave the lyric switches a section of their own,
+    /// where R1 could only point at Music's top), and Settings is 400 tall.
     func testLyricsSettingsOpensSettingsAtTheLyricSwitches() throws {
-        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
+        let suiteName = "com.ctimothe.isla.lyricscolumn.\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores(), defaults: suite)
         vm.select(.media)
         vm.lyricsMoreMenu.perform(.settings)
         XCTAssertEqual(vm.tab, .settings)
-        XCTAssertEqual(vm.settingsScrollTarget, SettingsPane.musicSectionID)
-        XCTAssertEqual(vm.openBodySize.height, 208, "Settings stays standard until R4")
+        XCTAssertEqual(vm.settingsSection, .lyrics)
+        XCTAssertEqual(vm.openBodySize.height, 400, "Settings is always tall (R4)")
     }
 
     /// The menus' controllers can outlive the model when the panel is rebuilt

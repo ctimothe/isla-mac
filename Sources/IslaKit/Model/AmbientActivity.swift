@@ -52,7 +52,11 @@ enum AmbientActivity: Equatable {
                 guard let level else { return localized("Power adapter connected") }
                 return localized("Power adapter connected, %d percent", level)
             }
-            guard let level else { return localized("Charging") }
+            // No level: a Mac with no battery, which can only say the adapter is
+            // in. "Charging" used to say it, but that key is now the Settings row
+            // "Charging" under "The island shows" (spec §10, §15: "Зарядку", an
+            // accusative no status line can use), and one key cannot be both.
+            guard let level else { return localized("Power adapter connected") }
             return localized("Charging, %d percent", level)
         case .headphones(let name, _):
             return localized("%@ connected", name)

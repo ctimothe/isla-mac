@@ -10,7 +10,6 @@
 "Settings" = "Settings";
 
 /* Menu bar */
-"Quit" = "Quit";
 
 /* Settings tab */
 "General" = "General";
@@ -22,7 +21,6 @@
 "Clear Screenshots Folder" = "Clear Screenshots Folder";
 "Clear Screenshots Folder (%@)" = "Clear Screenshots Folder (%@)";
 "Privacy" = "Privacy";
-"Application" = "Application";
 "About %@" = "About %@";
 
 /* Shelf */
@@ -90,7 +88,6 @@
 "%@ of %@" = "%@ of %@";
 "Remove Entry" = "Remove Entry";
 "Copy Entry" = "Copy Entry";
-"Peek at New Tracks" = "Peek at New Tracks";
 "Show Lyrics" = "Show Lyrics";
 "Lyrics" = "Lyrics";
 "Show on Lock Screen" = "Show on Lock Screen";
@@ -270,8 +267,6 @@
 "Charging, %d percent" = "Charging, %d percent";
 "%@ connected" = "%@ connected";
 "%d%%" = "%d%%";
-"Show Charging" = "Show Charging";
-"Show Headphones Connecting" = "Show Headphones Connecting";
 
 /* Shelf sharing */
 "Quick Look" = "Quick Look";
@@ -494,3 +489,30 @@
 "Include Images" = "Include Images";
 "Keep Pinned Items" = "Keep Pinned Items";
 "History is kept in memory and empties when Isla quits. Keep Pinned Items saves only your pins, on this Mac." = "History is kept in memory and empties when Isla quits. Keep Pinned Items saves only your pins, on this Mac.";
+
+/* Settings: the sidebar and the grouped form (R4) */
+"About" = "About";
+"Account" = "Account";
+"Acknowledgements…" = "Acknowledgements…";
+"Automation" = "Automation";
+"Click the notch to open the panel. Open on Hover also opens it when the pointer rests there." = "Click the notch to open the panel. Open on Hover also opens it when the pointer rests there.";
+"Connected" = "Connected";
+"Cover" = "Cover";
+"From another Mac" = "From another Mac";
+"Headphones Connecting" = "Headphones Connecting";
+"History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice." = "History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice.";
+"Keep History" = "Keep History";
+"Liked Songs" = "Liked Songs";
+"New Tracks" = "New Tracks";
+"Not connected" = "Not connected";
+"Now Playing" = "Now Playing";
+"Now Playing reader" = "Now Playing reader";
+"Online" = "Online";
+"Permission" = "Permission";
+"Settings sections" = "Settings sections";
+"Shortcuts" = "Shortcuts";
+"Speak Button" = "Speak Button";
+"The island shows" = "The island shows";
+"Version %@" = "Version %@";
+"Volume and Brightness" = "Volume and Brightness";
+"Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission." = "Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission.";

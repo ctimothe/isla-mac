@@ -725,9 +725,14 @@ enum Theme {
     /// label's backdrop is stated once and measured by `ContrastRampTests`.
     enum Fill {
         case surface, surfaceHover, selectedChip
+        /// The form's group and the sidebar's selected row (spec §10): a
+        /// footnote or a value sits on the first, a sidebar label on the second.
+        case settingsGroup, settingsSidebarSelection
 
         func opacity(increaseContrast: Bool) -> Double {
             switch self {
+            case .settingsGroup: return Theme.settingsGroupOpacity(increaseContrast: increaseContrast)
+            case .settingsSidebarSelection: return Theme.settingsSidebarSelectionOpacity(increaseContrast: increaseContrast)
             case .surface: return Theme.surfaceOpacity(increaseContrast: increaseContrast)
             case .surfaceHover: return Theme.surfaceHoverOpacity(increaseContrast: increaseContrast)
             case .selectedChip: return Theme.selectedChipOpacity(increaseContrast: increaseContrast)
@@ -1061,6 +1066,119 @@ enum Theme {
     /// not a failure. The denied-access alert's glyph, ring and fill are this
     /// at full, 0.35 and 0.12.
     static let warning = Color(red: 255.0 / 255, green: 159.0 / 255, blue: 10.0 / 255)
+
+    // MARK: - Settings: the sidebar and the grouped form (spec §10)
+
+    /// The colour of a section's 18 pt icon in the sidebar, by name so the five
+    /// the boards use are tokens and not hex in a view. The values are the
+    /// system's own: the grey System Settings gives General and Keyboard, the
+    /// blue of Privacy & Security, the pink of Music, the orange of the lyric
+    /// bubble and the indigo of the lock screen.
+    enum SettingsTint: CaseIterable {
+        case grey, blue, rose, orange, indigo
+
+        var hex: UInt32 {
+            switch self {
+            case .grey: return 0x8E8E93
+            case .blue: return 0x0A84FF
+            case .rose: return 0xFF375F
+            case .orange: return 0xFF9F0A
+            case .indigo: return 0x5E5CE6
+            }
+        }
+
+        var color: Color {
+            Color(
+                red: Double((hex >> 16) & 0xFF) / 255,
+                green: Double((hex >> 8) & 0xFF) / 255,
+                blue: Double(hex & 0xFF) / 255
+            )
+        }
+    }
+
+    /// "Connected" under Spotify's name (spec §2.1's `green`): the colour of the
+    /// charging bolt, because green means "on and working" in both places.
+    static let settingsConnected = chargingGreen
+
+    /// A form group's fill, white at 0.055 (spec §10). So faint a step is the
+    /// board's whole point — System Settings groups are a shade off the
+    /// window, not a card — and Increase Contrast raises it to 0.14 so the
+    /// group is still a shape (§2.1: every translucent fill steps up).
+    static func settingsGroupOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.14 : 0.055
+    }
+
+    /// The selected sidebar row, white at 0.12 (spec §10), 0.24 with Increase
+    /// Contrast.
+    static func settingsSidebarSelectionOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.24 : 0.12
+    }
+
+    /// A group header's white, 0.85 (spec §10): a step under the label so the
+    /// header reads as the heading of what is under it. Full white with
+    /// Increase Contrast, where a step down is the thing the setting asks
+    /// against.
+    static func settingsHeaderOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 1.0 : 0.85
+    }
+
+    @MainActor static var settingsGroupFill: Color {
+        Color.white.opacity(settingsGroupOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var settingsSidebarSelection: Color {
+        Color.white.opacity(settingsSidebarSelectionOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var settingsHeader: Color {
+        Color.white.opacity(settingsHeaderOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// The glyph on a sidebar icon's tile and the tile's lit top edge (the
+    /// board's half-point inset highlight), so a flat swatch reads as an icon.
+    static let settingsIconGlyph = Color.white
+    static let settingsIconEdge = Color.white.opacity(0.25)
+    /// The Lock Screen section's style previews: the ring round the chosen one
+    /// (spec §10, accent 2 pt) and the hairline round the others.
+    static let settingsPreviewRingWidth: CGFloat = 2
+    static let settingsPreviewEdge = Color.white.opacity(0.2)
+
+    /// A group's inner edge, white at 0.06 (the board's half-point inset line);
+    /// the contrast variant is the panel's own hairline step.
+    static func settingsGroupEdgeOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? hairlineOpacity(increaseContrast: true) : 0.06
+    }
+    @MainActor static var settingsGroupEdge: Color {
+        Color.white.opacity(settingsGroupEdgeOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// The field that is recording a shortcut: the accent at 0.18 under a 1.5 pt
+    /// accent ring (spec §2.1, "the recording field").
+    static let recordingFill = accent.opacity(0.18)
+    static let recordingRingWidth: CGFloat = 1.5
+
+    /// Spotify's mark in the sidebar and the section's head: its green and the
+    /// near-black of its arcs. Not `settingsConnected`: that green says "on and
+    /// working", this one is a brand's.
+    static let spotifyMark = Color(red: 29.0 / 255, green: 185.0 / 255, blue: 84.0 / 255)
+    static let spotifyMarkInk = Color(red: 25.0 / 255, green: 20.0 / 255, blue: 20.0 / 255)
+
+    // MARK: Lock Screen style previews (spec §10)
+    //
+    // Each preview is the R2 card's material over a stand-in wallpaper, drawn
+    // by `LockCardMaterial.decision` and never a screenshot of it. The wallpaper
+    // is Sonoma's three bands, the board's own sample; the cover's light is the
+    // warm brown the board's sample cover lights its card with.
+
+    static let settingsPreviewWallpaper: [Color] = [
+        Color(red: 242.0 / 255, green: 116.0 / 255, blue: 90.0 / 255),
+        Color(red: 63.0 / 255, green: 143.0 / 255, blue: 91.0 / 255),
+        Color(red: 111.0 / 255, green: 123.0 / 255, blue: 232.0 / 255),
+    ]
+    static let settingsPreviewCoverLight = Color(red: 122.0 / 255, green: 62.0 / 255, blue: 51.0 / 255)
+    /// The marks on the miniature card: the title and scrubber's fill, and the
+    /// quieter artist line, track and transport.
+    static let settingsPreviewInk = Color.white.opacity(0.9)
+    static let settingsPreviewInkSoft = Color.white.opacity(0.45)
+    static let settingsPreviewCover = Color.white.opacity(0.30)
 }
 
 /// The pressed state `.plain` does not give.
@@ -1212,7 +1330,9 @@ struct PanelSwitchStyle: ToggleStyle {
     }
 
     /// The row's own height and inset, so the hit target is the row the card
-    /// draws rather than the label's text.
+    /// draws rather than the label's text. A height is a floor: Settings' grouped
+    /// form wraps a long label (Russian at 480) onto a second line before it
+    /// shrinks the switch, so the row grows with its words.
     var rowHeight: CGFloat = 26
     var horizontalInset: CGFloat = 8
 
@@ -1238,7 +1358,7 @@ private struct PanelSwitch: View {
                 track(look)
             }
             .padding(.horizontal, horizontalInset)
-            .frame(height: rowHeight)
+            .frame(minHeight: rowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(PanelButtonStyle())

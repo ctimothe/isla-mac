@@ -185,15 +185,20 @@ final class AmbientMomentTests: XCTestCase {
         XCTAssertEqual(overMusic.width, 460, "never narrower than the music pill it stands in for")
     }
 
+    /// All three of "The island shows" (Charging, Headphones Connecting, New
+    /// Tracks) are on until turned off. Read from a private suite since the
+    /// redesign gave each a new key (spec §10): the test used to remove the
+    /// owner's own keys from the standard domain and put them back.
     func testBothMomentsAreOnUntilTurnedOff() {
-        let defaults = UserDefaults.standard
-        for key in [NotchViewModel.showChargingKey, NotchViewModel.showHeadphonesKey] {
-            let had = defaults.object(forKey: key)
-            defaults.removeObject(forKey: key)
-            XCTAssertTrue(key == NotchViewModel.showChargingKey
-                ? NotchViewModel.showChargingEnabled : NotchViewModel.showHeadphonesEnabled)
-            if let had { defaults.set(had, forKey: key) }
-        }
+        let name = "com.ctimothe.isla.ambient.\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: name)!
+        defer { suite.removePersistentDomain(forName: name) }
+        XCTAssertTrue(NotchViewModel.chargingEnabled(in: suite))
+        XCTAssertTrue(NotchViewModel.headphonesEnabled(in: suite))
+        XCTAssertTrue(NotchViewModel.newTracksEnabled(in: suite))
+        suite.set(false, forKey: NotchViewModel.chargingKey)
+        XCTAssertFalse(NotchViewModel.chargingEnabled(in: suite))
+        XCTAssertTrue(NotchViewModel.headphonesEnabled(in: suite), "one switch does not move the other")
     }
 
     /// Renders both moments over a grey backdrop. With SHOT_OUT set it writes

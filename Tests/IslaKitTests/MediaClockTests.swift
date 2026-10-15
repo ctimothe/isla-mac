@@ -60,13 +60,7 @@ final class MediaClockTests: XCTestCase {
         let stores = isolated.stores
         stores.media.switchToScriptingFallback(.keptStopping)
         defer { stores.media.stop() }
-        let pane = SettingsPane(
-            shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: stores.lyrics,
-            media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
-            hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
-            updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) })
-        )
-        let root = await AXProbe.tree(of: pane, size: CGSize(width: 488, height: 2400))
+        let root = await SettingsFixture.tree(isolated, section: .music, height: 1200)
         let note = NowPlayingRouteFailure.keptStopping.explanation
         XCTAssertFalse(root.all { $0.label == note || $0.value == note || $0.title == note }.isEmpty,
                        "no fallback note\n\(root.dump)")

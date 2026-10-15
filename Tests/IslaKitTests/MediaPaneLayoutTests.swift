@@ -176,28 +176,35 @@ final class MediaPaneLayoutTests: XCTestCase {
         XCTAssertFalse(MediaPane.EmptyStateMessage.readerDown.offersSettings)
     }
 
-    /// Open Settings has to land on the switch, not on the top of a pane that
-    /// scrolls: the Music section sits below General, Keyboard Shortcuts and
-    /// Screenshots. The target is a one-shot — leaving Settings drops an
-    /// unspent one so a later visit does not jump.
+    /// Open Settings has to land on the Music section, where Music Only is. With
+    /// the single scrolling list that was a scroll target a visit set and
+    /// spent; with the sidebar (redesign 2026-10-15, spec §10) it is simply the
+    /// section selected, and — unlike the target — it stays selected, because it
+    /// is also what the next open restores.
     func testOpenSettingsLandsOnTheMusicSection() throws {
         // The lab's stand-in: nothing here reads the screen, and a sandboxed
         // run has none to give.
         let geometry = try LabGeometry.make()
         // Stores rooted in a temporary directory, so building a view model
-        // never reads or migrates the lyric files in Application Support.
+        // never reads or migrates the lyric files in Application Support, and a
+        // suite of its own, so the section it remembers is not the owner's.
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("MediaPaneLayoutTests-\(UUID().uuidString)", isDirectory: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
-        let vm = NotchViewModel(geometry: geometry, stores: NotchStores(localLyricsDirectory: root))
+        let suiteName = "com.ctimothe.isla.mediapane.\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+            suite.removePersistentDomain(forName: suiteName)
+        }
+        let vm = NotchViewModel(geometry: geometry, stores: NotchStores(localLyricsDirectory: root), defaults: suite)
         vm.tab = .media
 
         vm.openMusicOnlySetting()
         XCTAssertEqual(vm.tab, .settings)
-        XCTAssertEqual(vm.settingsScrollTarget, SettingsPane.musicSectionID)
+        XCTAssertEqual(vm.settingsSection, .music)
 
         vm.select(.media)
-        XCTAssertNil(vm.settingsScrollTarget, "an unspent target must not outlive the visit it was for")
+        XCTAssertEqual(vm.settingsSection, .music, "the section is remembered, not spent: it is what the next open restores")
     }
 
     // MARK: - Where the transport sits

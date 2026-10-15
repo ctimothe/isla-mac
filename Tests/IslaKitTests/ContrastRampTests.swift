@@ -146,6 +146,48 @@ final class ContrastRampTests: XCTestCase {
         XCTAssertEqual(ratio(0.46, on: [.surface, .surface], contrast: false), 3.26, accuracy: 0.02)
     }
 
+    /// Settings' grouped form (redesign 2026-10-15, spec §10): the footnote and the
+    /// value sit on the group's white 0.055, the sidebar's label on the selected
+    /// row's 0.12, and each clears 4.5:1 with the tertiary ramp as it is — the
+    /// groups are fainter than the old section card (0.16), so the ramp has the
+    /// room — at both Increase Contrast settings. The fills are shapes too: the
+    /// group is a 1.04:1 step off black by the board's own choice, which is why
+    /// it is edged with the half-point inset line, and Increase Contrast lifts it.
+    func testSettingsFormTextClearsAAOnItsFills() {
+        for contrast in [false, true] {
+            let tertiary = Theme.tertiaryOpacity(increaseContrast: contrast)
+            for fill: Theme.Fill in [.settingsGroup, .settingsSidebarSelection] {
+                let grey = Theme.composite([fill.opacity(increaseContrast: contrast)])
+                XCTAssertGreaterThanOrEqual(
+                    Theme.contrast(textOpacity: tertiary, overGrey: grey), 4.5, "tertiary on \(fill), contrast \(contrast)"
+                )
+                XCTAssertGreaterThanOrEqual(
+                    Theme.contrast(textOpacity: Theme.secondaryOpacity(increaseContrast: contrast), overGrey: grey), 4.5,
+                    "secondary (a value) on \(fill), contrast \(contrast)"
+                )
+                // Raised only where it must be: nothing here needs the ramp lifted.
+                XCTAssertEqual(Theme.tertiaryOpacity(over: [fill], increaseContrast: contrast), tertiary, "\(fill)")
+            }
+            // The group header's 0.85 is text too.
+            XCTAssertGreaterThanOrEqual(
+                Theme.contrast(
+                    textOpacity: Theme.settingsHeaderOpacity(increaseContrast: contrast),
+                    overGrey: Theme.composite([Theme.settingsGroupOpacity(increaseContrast: contrast)])
+                ), 4.5, "header, contrast \(contrast)"
+            )
+        }
+        XCTAssertGreaterThan(
+            Theme.settingsGroupOpacity(increaseContrast: true), Theme.settingsGroupOpacity(increaseContrast: false)
+        )
+        XCTAssertGreaterThan(
+            Theme.settingsSidebarSelectionOpacity(increaseContrast: true), Theme.settingsSidebarSelectionOpacity(increaseContrast: false)
+        )
+        // "Connected", in green over the black the Spotify head sits on, is text.
+        let green = luminance(48, 209, 88)
+        XCTAssertGreaterThanOrEqual((green + 0.05) / 0.05, 4.5, "Connected in green over black")
+        XCTAssertEqual(Theme.settingsConnected, Theme.chargingGreen)
+    }
+
     /// The dimmest lyric context line. At white 0.18 it was 1.54:1.
     func testTheLyricFalloffHasAFloor() {
         XCTAssertGreaterThanOrEqual(

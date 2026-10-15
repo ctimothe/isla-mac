@@ -213,20 +213,31 @@ final class NotchViewModel: ObservableObject {
             // lands on the player rather than on a page of words left open
             // three songs ago.
             if tab != .media { isShowingLyrics = false }
-            // A scroll target is for the visit it was set for. One left
-            // unspent would jump a later, unrelated visit to Settings.
-            if tab != .settings { settingsScrollTarget = nil }
         }
     }
 
-    /// Where Settings should scroll on its next appearance, by section id.
+    /// The Settings section on screen (redesign 2026-10-15, spec §10): the one
+    /// the sidebar has selected, and the one `settings.lastSection` remembers for
+    /// the next open.
     ///
-    /// Settings scrolls, and the Music section sits below General, Keyboard
-    /// Shortcuts and Screenshots, so a pointer from elsewhere that only
-    /// selected the tab landed three sections above the switch it promised
-    /// (J-007's Open Settings). `SettingsPane` scrolls to it and clears it:
-    /// a one-shot, not a remembered position.
-    @Published var settingsScrollTarget: String?
+    /// It replaces the scroll target the single list needed. A pointer from
+    /// elsewhere that only selected the tab used to land three sections above
+    /// the switch it promised (J-007's Open Settings), so each of those routes
+    /// set a target for the pane to scroll to and spend; with a sidebar the route
+    /// simply *selects the section*, and what the person chose in the sidebar is
+    /// what is written down — a visit sent here by "Lyrics Settings…" is
+    /// remembered like any other. Written through `defaults`, so a test's private
+    /// suite never touches the owner's.
+    @Published var settingsSection: SettingsSection {
+        didSet {
+            guard settingsSection != oldValue else { return }
+            settingsSection.store(in: defaults)
+        }
+    }
+
+    /// Where `settingsSection` is remembered. The standard domain in the app; a
+    /// test's own suite otherwise.
+    let defaults: UserDefaults
 
     /// Whether the Music tab is showing the full lyrics page instead of the
     /// player.
@@ -274,9 +285,11 @@ final class NotchViewModel: ObservableObject {
     /// The height a tab's body asks for when open (spec §6): 400 when it is
     /// expanded, else 208.
     ///
-    /// Settings stays 208 for now. **Release R4 owns it**: Settings becomes
-    /// always tall there (spec §10), with its own sidebar; until then it is the
-    /// one tab no Expand button reaches, so it must not read `expandedTabs`.
+    /// **Settings is always tall** (release R4, spec §10): 400 whatever the set
+    /// holds, because its sidebar of ten sections is what the height is for and
+    /// no Expand button reaches it. It is the one tab that must not read
+    /// `expandedTabs` — a stray insert (a stored session, a test) leaves it
+    /// exactly as tall as it already is.
     nonisolated static func openBodyHeight(
         tab: Tab, showingLyrics: Bool, expandedTabs: Set<Tab>
     ) -> CGFloat {
@@ -287,7 +300,7 @@ final class NotchViewModel: ObservableObject {
             return expandedTabs.contains(tab)
                 ? NotchMetrics.tallestBody.height : NotchMetrics.standardBodyHeight
         case .settings:
-            return NotchMetrics.standardBodyHeight
+            return SettingsLayout.bodyHeight
         }
     }
 
@@ -295,8 +308,9 @@ final class NotchViewModel: ObservableObject {
     /// is state only, so the rects the controller cuts from `openBodySize` and
     /// the drawn body change on the same turn.
     func setExpanded(_ expanded: Bool, for tab: Tab) {
-        // Settings has no Expand button until R4; refusing here keeps a stray
-        // call from leaving a remembered 400 that R4 would inherit by accident.
+        // Settings is always 400 (R4, spec §10) and has no Expand button;
+        // refusing here keeps a stray call from leaving a remembered "expanded"
+        // that would read as a choice nobody made.
         guard tab != .settings else { return }
         if expanded { expandedTabs.insert(tab) } else { expandedTabs.remove(tab) }
     }
@@ -751,9 +765,12 @@ final class NotchViewModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
 
-    init(geometry: NotchGeometry, stores: NotchStores) {
+    init(geometry: NotchGeometry, stores: NotchStores, defaults: UserDefaults = .standard) {
         self.geometry = geometry
         self.stores = stores
+        self.defaults = defaults
+        // The last section shown, or General: Settings opens where it was left.
+        self.settingsSection = SettingsSection.stored(in: defaults)
         self.media = stores.media
         self.shelf = stores.shelf
         self.clipboard = stores.clipboard
@@ -1270,11 +1287,7 @@ final class NotchViewModel: ObservableObject {
     /// Before 2026-09-23 the only choices were keeping it or quitting the app.
     /// Off, the poll records nothing, the list is emptied, and the pasteboard
     /// is not read at all unless Save Clipboard Screenshots still needs it.
-    static var clipboardHistoryEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: clipboardHistoryKey) != nil else { return true }
-        return defaults.bool(forKey: clipboardHistoryKey)
-    }
+    static var clipboardHistoryEnabled: Bool { SettingsRowID.clipboardHistory.isOn(in: .standard) }
 
     func setClipboardHistory(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Self.clipboardHistoryKey)
@@ -1297,11 +1310,7 @@ final class NotchViewModel: ObservableObject {
     /// kept in memory, 12 at most, and gone when Isla quits. Nothing is written
     /// anywhere and nothing leaves the Mac, which is why this one is allowed to
     /// start on; Save Clipboard Screenshots, which does write, stays off.
-    static var clipboardIncludeImagesEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: clipboardIncludeImagesKey) != nil else { return true }
-        return defaults.bool(forKey: clipboardIncludeImagesKey)
-    }
+    static var clipboardIncludeImagesEnabled: Bool { SettingsRowID.includeImages.isOn(in: .standard) }
 
     func setClipboardIncludeImages(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Self.clipboardIncludeImagesKey)
@@ -1313,9 +1322,7 @@ final class NotchViewModel: ObservableObject {
     /// Defaults to **off** (spec §14): the history is memory only and empties
     /// at quit, and saving even the pins is a decision the person makes. On
     /// writes the pinned text and file entries to one file on this Mac.
-    static var clipboardKeepPinnedEnabled: Bool {
-        UserDefaults.standard.bool(forKey: clipboardKeepPinnedKey)
-    }
+    static var clipboardKeepPinnedEnabled: Bool { SettingsRowID.keepPinned.isOn(in: .standard) }
 
     func setClipboardKeepPinned(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Self.clipboardKeepPinnedKey)
@@ -1331,9 +1338,7 @@ final class NotchViewModel: ObservableObject {
     /// sheet, a photo synced from a phone. Keeping copies of a user's
     /// clipboard on disk is a decision for the user to make, not a default to
     /// discover afterwards. `ScreenshotVault` caps what it keeps once on.
-    static var saveClipboardImagesEnabled: Bool {
-        UserDefaults.standard.bool(forKey: saveClipboardImagesKey)
-    }
+    static var saveClipboardImagesEnabled: Bool { SettingsRowID.saveClipboardScreenshots.isOn(in: .standard) }
 
     static let importRecordingsKey = "importRecordings"
 
@@ -1344,19 +1349,13 @@ final class NotchViewModel: ObservableObject {
     /// shelf on screen to explain it, and then never again. Off restores the
     /// copy-flow only: drops and clipboard copies still land, disk is never
     /// scanned.
-    static var importRecordingsEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: importRecordingsKey) != nil else { return true }
-        return defaults.bool(forKey: importRecordingsKey)
-    }
+    static var importRecordingsEnabled: Bool { SettingsRowID.showScreenCaptures.isOn(in: .standard) }
 
     static let showLyricsKey = "showLyrics"
 
     /// Defaults to **off**. On its own it reaches nothing but this Mac: lyrics
     /// come from files imported here and folders chosen here.
-    static var showLyricsEnabled: Bool {
-        UserDefaults.standard.bool(forKey: showLyricsKey)
-    }
+    static var showLyricsEnabled: Bool { SettingsRowID.showLyrics.isOn(in: .standard) }
 
     static let musicOnlyKey = "media.musicOnly"
 
@@ -1365,11 +1364,7 @@ final class NotchViewModel: ObservableObject {
     /// were a song is noise. With it on, only music and podcast apps, and
     /// anything a player itself labels as audio, reach the island; see
     /// `MediaSourcePolicy`. Off restores every Now Playing session.
-    static var musicOnlyEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: musicOnlyKey) != nil else { return true }
-        return defaults.bool(forKey: musicOnlyKey)
-    }
+    static var musicOnlyEnabled: Bool { SettingsRowID.musicOnly.isOn(in: .standard) }
 
     static let volumeAndOutputKey = "player.volumeAndOutput"
 
@@ -1385,8 +1380,7 @@ final class NotchViewModel: ObservableObject {
     /// The same, read from a given suite: the rule a test holds without touching
     /// the standard domain.
     static func volumeAndOutputEnabled(in defaults: UserDefaults) -> Bool {
-        guard defaults.object(forKey: volumeAndOutputKey) != nil else { return true }
-        return defaults.bool(forKey: volumeAndOutputKey)
+        SettingsRowID.volumeAndOutput.isOn(in: defaults)
     }
 
     static let lyricBandKey = "player.lyricBand"
@@ -1397,8 +1391,7 @@ final class NotchViewModel: ObservableObject {
     static var lyricBandEnabled: Bool { lyricBandEnabled(in: .standard) }
 
     static func lyricBandEnabled(in defaults: UserDefaults) -> Bool {
-        guard defaults.object(forKey: lyricBandKey) != nil else { return true }
-        return defaults.bool(forKey: lyricBandKey)
+        SettingsRowID.lyricBand.isOn(in: defaults)
     }
 
     // MARK: Lyric translation (spec §5.3, §14; owner decision 11)
@@ -1414,7 +1407,7 @@ final class NotchViewModel: ObservableObject {
     /// The same, read from a given suite: the rule a test holds without touching
     /// the standard domain.
     static func translateLyricsEnabled(in defaults: UserDefaults) -> Bool {
-        defaults.bool(forKey: translateLyricsKey)
+        SettingsRowID.translateLyrics.isOn(in: defaults)
     }
 
     static let translateTargetKey = "lyrics.translateTarget"
@@ -1472,9 +1465,7 @@ final class NotchViewModel: ObservableObject {
     /// key, for the words of a track the local library did not match. What
     /// leaves is the title, artist, album and duration; nothing about the
     /// listener, and nothing is uploaded. See `OnlineLyrics`.
-    static var onlineLyricsEnabled: Bool {
-        UserDefaults.standard.bool(forKey: onlineLyricsKey)
-    }
+    static var onlineLyricsEnabled: Bool { SettingsRowID.lookUpLyricsOnline.isOn(in: .standard) }
 
     static let onlineTranslationKey = "translate.onlineEnabled"
 
@@ -1483,36 +1474,77 @@ final class NotchViewModel: ObservableObject {
     /// On, a pair no engine on this Mac can translate — Uzbek and Kazakh,
     /// always — is sent to `OnlineTranslation`'s one service. Every pair the
     /// Mac can do itself still stays on it, switch or no switch.
-    static var onlineTranslationEnabled: Bool {
-        UserDefaults.standard.bool(forKey: onlineTranslationKey)
+    static var onlineTranslationEnabled: Bool { SettingsRowID.translateOnline.isOn(in: .standard) }
+
+    // MARK: The island's three moments (spec §10: "The island shows")
+
+    /// Charging, Headphones Connecting and New Tracks (redesign 2026-10-15,
+    /// spec §10). The rows were called Show Charging, Show Headphones Connecting
+    /// and Peek at New Tracks; the spec renames them under the header "The island
+    /// shows" and gives each a **new key**, so the value a person already chose
+    /// has to cross over once, at launch (`migrateRenamedKeys`) — a switch turned
+    /// off on Monday must not come back on after the update.
+    static let chargingKey = "island.charging"
+    static let headphonesKey = "island.headphones"
+    static let newTracksKey = "island.newTracks"
+
+    /// The keys before the rename. Read by `migrateRenamedKeys` and nothing else;
+    /// they stay until a release that no longer needs to carry a value across.
+    static let legacyShowChargingKey = "island.showCharging"
+    static let legacyShowHeadphonesKey = "island.showHeadphones"
+    static let legacySneakPeekKey = "sneakPeek"
+
+    /// All three default to **on**. None reaches the network or asks for a
+    /// permission: the charge comes from IOKit, the headphones from the CoreAudio
+    /// device list the lock card already reads, and a new track from what the
+    /// island already shows. New Tracks is the one thing a notch panel can do
+    /// that a menu bar item cannot, and it costs nothing when nothing is playing.
+    static var chargingEnabled: Bool { chargingEnabled(in: .standard) }
+    static func chargingEnabled(in defaults: UserDefaults) -> Bool {
+        SettingsRowID.charging.isOn(in: defaults)
     }
 
-    static let showChargingKey = "island.showCharging"
-    static let showHeadphonesKey = "island.showHeadphones"
-
-    /// Both default to **on**. Neither reaches the network or asks for a
-    /// permission: the charge comes from IOKit and the headphones from the
-    /// CoreAudio device list the lock card already reads.
-    static var showChargingEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: showChargingKey) != nil else { return true }
-        return defaults.bool(forKey: showChargingKey)
+    static var headphonesEnabled: Bool { headphonesEnabled(in: .standard) }
+    static func headphonesEnabled(in defaults: UserDefaults) -> Bool {
+        SettingsRowID.headphones.isOn(in: defaults)
     }
 
-    static var showHeadphonesEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: showHeadphonesKey) != nil else { return true }
-        return defaults.bool(forKey: showHeadphonesKey)
+    static var newTracksEnabled: Bool { newTracksEnabled(in: .standard) }
+    static func newTracksEnabled(in defaults: UserDefaults) -> Bool {
+        SettingsRowID.newTracks.isOn(in: defaults)
     }
 
-    static let sneakPeekKey = "sneakPeek"
+    /// Copies each renamed row's old value to its new key — only where the new
+    /// key has never been written, so it runs once in effect (the copy is a
+    /// write to the new key, and the next launch finds it set) and never
+    /// overwrites a choice made after the update. The old key is left where it is:
+    /// an older build run beside this one still reads it.
+    static func migrateRenamedKeys(in defaults: UserDefaults = .standard) {
+        for (old, new) in SettingsTable.renamedKeys {
+            guard defaults.object(forKey: new) == nil, let value = defaults.object(forKey: old) else { continue }
+            defaults.set(value, forKey: new)
+        }
+    }
 
-    /// Defaults to on: it is the one thing a notch panel can do that a menu
-    /// bar item cannot, and it costs nothing when nothing is playing.
-    static var sneakPeekEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: sneakPeekKey) != nil else { return true }
-        return defaults.bool(forKey: sneakPeekKey)
+    // MARK: Translate: Keep History and Speak Button (spec §11, §14)
+
+    static let translateKeepHistoryKey = "translate.keepHistory"
+    static let translateSpeakButtonKey = "translate.speakButton"
+
+    /// Keep History defaults to **off** (spec §14): the last 20 translations in
+    /// memory, gone at quit, never written to disk; turning it on is the person
+    /// choosing to be remembered. Release R4's Settings row; the Translate tab
+    /// reads it.
+    static var translateKeepHistoryEnabled: Bool { translateKeepHistoryEnabled(in: .standard) }
+    static func translateKeepHistoryEnabled(in defaults: UserDefaults) -> Bool {
+        SettingsRowID.keepHistory.isOn(in: defaults)
+    }
+
+    /// Speak Button defaults to **on** (spec §14): it sends nothing anywhere and
+    /// changes nothing until pressed.
+    static var translateSpeakButtonEnabled: Bool { translateSpeakButtonEnabled(in: .standard) }
+    static func translateSpeakButtonEnabled(in defaults: UserDefaults) -> Bool {
+        SettingsRowID.speakButton.isOn(in: defaults)
     }
 
     /// How the lock card is finished.
@@ -1587,8 +1619,7 @@ final class NotchViewModel: ObservableObject {
     /// a switch flipped during a lock applies at the next one, as the card's size
     /// does.
     static func restAsBannerEnabled(in defaults: UserDefaults) -> Bool {
-        guard defaults.object(forKey: restAsBannerKey) != nil else { return true }
-        return defaults.bool(forKey: restAsBannerKey)
+        SettingsRowID.restAsBanner.isOn(in: defaults)
     }
 
     static var restAsBannerEnabled: Bool { restAsBannerEnabled(in: .standard) }
@@ -1600,11 +1631,7 @@ final class NotchViewModel: ObservableObject {
     /// screen does not already show — the same track macOS puts in its own
     /// now-playing widget there. Off restores the old behaviour exactly: the
     /// panel sinks under the shield with every other window.
-    static var showOnLockScreenEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: showOnLockScreenKey) != nil else { return true }
-        return defaults.bool(forKey: showOnLockScreenKey)
-    }
+    static var showOnLockScreenEnabled: Bool { SettingsRowID.showOnLockScreen.isOn(in: .standard) }
 
     /// Whether a hover opens the panel on its own.
     ///
@@ -1691,11 +1718,7 @@ final class NotchViewModel: ObservableObject {
     /// hidden panel costs somebody a screenshot they can retake, while a
     /// visible one costs a password read out to a meeting. Somebody who wants
     /// to photograph their island turns it off and takes the picture.
-    static var hideFromCaptureEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: hideFromCaptureKey) != nil else { return true }
-        return defaults.bool(forKey: hideFromCaptureKey)
-    }
+    static var hideFromCaptureEnabled: Bool { SettingsRowID.hideFromRecording.isOn(in: .standard) }
 
     /// Hover and click both land here. A tab that types takes the keyboard
     /// either way: showing a field one cannot type into is worse than briefly
@@ -1706,21 +1729,26 @@ final class NotchViewModel: ObservableObject {
         if tab.needsKeyboard { wantsKeyboard = true }
     }
 
-    /// The Music tab's remedy when Music Only keeps a playing source off the
-    /// island: Settings, scrolled to the switch. The target goes first so the
-    /// pane that appears for the tab change finds it already set.
-    func openMusicOnlySetting() {
-        settingsScrollTarget = SettingsPane.musicSectionID
+    /// Settings, on `section`. The section goes first so the pane that appears
+    /// for the tab change finds it already selected; every route in — the Music
+    /// tab's remedy, the lyric menu's "Lyrics Settings…", a future one — is this.
+    func openSettings(at section: SettingsSection) {
+        settingsSection = section
         select(.settings)
     }
 
-    /// "Lyrics Settings…" in the More menu (spec §5.2): Settings, scrolled to the
-    /// section the lyric switches are in. Today they live in the Music section
-    /// (Show Lyrics, Look Up Lyrics Online and the library are its rows); when
-    /// R4 gives Lyrics a section of its own this is the one place that learns it.
+    /// The Music tab's remedy when Music Only keeps a playing source off the
+    /// island: Settings, on the Music section, where Music Only is the first
+    /// switch that is not a failure.
+    func openMusicOnlySetting() {
+        openSettings(at: .music)
+    }
+
+    /// "Lyrics Settings…" in the More menu (spec §5.2): Settings, on the Lyrics
+    /// section (R4 gave the lyric switches a section of their own; until then
+    /// they were rows of Music's and this pointed at the Music section's top).
     func openLyricsSettings() {
-        settingsScrollTarget = SettingsPane.musicSectionID
-        select(.settings)
+        openSettings(at: .lyrics)
     }
 
     /// Whether a pane wants this Escape for itself. Consulted before the panel
