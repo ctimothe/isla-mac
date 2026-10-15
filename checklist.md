@@ -1479,8 +1479,11 @@ New settings and their defaults (spec §14):
 
 ### R3 — Shelf and Clipboard (`feat/redesign-r3-shelf-clipboard`)
 
-- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
-  installed.
+- [x] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed — 2026-10-15 at `1d882c3`: 11 of 11 steps, 1668 tests with 30
+  skipped and 0 failures. Codex (three passes) and Opus (review and
+  re-review) findings fixed in `f5c4d23` and `348bfb6`, the Clipboard's
+  filter moved clear of the notch. The hardware checks below are owed.
 - [ ] **R3-H1** Three Finder files dragged in land as icons; the same drag
   over AirDrop sends without keeping.
 - [ ] **R3-H2** Delete with the pointer on the Shelf removes the selection
