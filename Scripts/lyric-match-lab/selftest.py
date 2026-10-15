@@ -2696,6 +2696,51 @@ class AltAnchorTests(unittest.TestCase):
         self.assertIn(3, verdict["members"])
 
 
+class AltOutsidePoolTests(LabFixture):
+    """Fourth review, N1: M2's alt set is the same predicate as M1's `alt-script` verdict, so a romaji copy
+    only Isla's own queries returned is the song in another script in both sections."""
+
+    @classmethod
+    def build(cls):
+        tracks = [harvest(title="Fox Song", artists=["Artist F"], album="Alb", language="ja")]
+        dump(os.path.join(cls.root, "slices", "pop-anglo.json"), {"slice": "pop-anglo", "tracks": tracks})
+        romaji = synthetic_lines(250)
+        cls.rows = {41: record(41, "Fox Song", "Artist F", han_lines(1), 200.0),
+                    43: record(43, "Fox Song", "Artist F", romaji, 200.0),     # the resolver's alt anchor
+                    44: record(44, "Fox Song", "Artist F", romaji, 200.0),     # romaji only Isla's answer held
+                    45: record(45, "Fox Song", "Artist F", synthetic_lines(251), 200.0)}  # romaji, other song's words
+        cls.seed(0, tracks[0], None, [cls.rows[41], cls.rows[43]], [])
+
+    @classmethod
+    def write_results(cls):
+        variants = {(v["track_id"], v["variant"]): v for v in
+                    (json.loads(l) for l in slurp(os.path.join(cls.root, "resolved", "variants.jsonl")).splitlines())}
+        base = variants[("pop-anglo/000", "canonical")]
+        found = {"track_id": "pop-anglo/000", "variant": "canonical",
+                 "identity": {"player_id": base["player_id"], "title": base["title"], "artist": base["artist"],
+                              "album": base["album"], "duration": base["duration"]},
+                 "outcome": "found", "chosen_id": 44, "chosen_ambiguous": [], "chosen_via": "search",
+                 "granularity": "line", "lines": 24, "overrun": False, "timed_for_longer": False, "ms": 5,
+                 "requests": [cls.isla_response("search?fox-romaji", [cls.rows[44]])]}
+        os.makedirs(os.path.join(cls.root, "results"))
+        with open(os.path.join(cls.root, "results", "isla-lookups.jsonl"), "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(found) + "\n")
+        rows = [{"track_id": "pop-anglo/000", "perturbation": "s-latin", "applicable": True,
+                 "base_id": None, "picked_id": 44}] * 2 + \
+               [{"track_id": "pop-anglo/000", "perturbation": "s-latin", "applicable": True,
+                 "base_id": 41, "picked_id": 41}] * 98
+        with open(os.path.join(cls.root, "results", "perturbations.jsonl"), "w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row) + "\n")
+
+    def test_a_romaji_record_outside_the_resolver_pool_is_alt_script_in_m1_and_found_alt_in_m2(self):
+        self.assertEqual(self.verdicts()[("pop-anglo/000", "canonical")]["verdict"], "alt-script")
+        m2 = self.report["M2"]
+        cell = m2["perturbations"]["s-latin"]
+        self.assertEqual((cell["found-alt"], cell["switched-wrong"], cell["kept"]), (2, 0, 98))
+        self.assertEqual(m2["verdict"], "pass")
+
+
 class KnownPoolTests(ReviewLab):
     """Third review, M1 and m1: usable comes from one pool every lookup of a track shares."""
 
@@ -3032,6 +3077,19 @@ class CompareThirdReviewTests(unittest.TestCase):
         paired = result["paired"]["canonical"]
         self.assertEqual((paired["n_paired"], paired["base_accuracy"], paired["candidate_accuracy"]), (2, 0.5, 1.0))
         self.assertEqual(paired["unscorable_transitions"], {"uncached -> correct": 1})
+
+    def test_a_lookup_in_one_run_only_makes_the_comparison_incomplete(self):
+        """N2: the base has 8 correct and 2 miss-unqueried, the candidate has no rows for those 2; the
+        headline went from 80% to 100% and the comparison called itself complete."""
+        base = [self.row(f"s/{i}", "correct") for i in range(8)] + [self.row(f"s/{i}", "miss-unqueried") for i in (8, 9)]
+        cand = [self.row(f"s/{i}", "correct") for i in range(8)]
+        result = self.compared(base, cand, base_headline={"accuracy": 0.8}, cand_headline={"accuracy": 1.0})
+        self.assertEqual(result["lookups_in_one_run_only"], 2)
+        self.assertTrue(result["incomplete"])
+        # and the other way round: a lookup only the candidate has
+        self.assertTrue(self.compared(cand, base)["incomplete"])
+        import compare
+        self.assertIn("INCOMPLETE", compare.summary(result))
 
     def test_promoted_lookups_are_a_tally_of_their_own(self):
         """M4: a promoted track's anchor and cluster come from each run's own answers, so a transition

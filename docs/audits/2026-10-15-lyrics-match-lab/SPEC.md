@@ -859,3 +859,22 @@ from the records and the `no-album` variant directly, without a patch.
 >   surface's own font, weight and tracking, the way the words are. A line that
 >   fits draws no ellipsis and keeps all of `available`. The result file
 >   records `ellipsis_pt` per surface.
+
+> **Amended 2026-10-15 (after the fourth review).** The earlier amendments
+> stand; these add to them. The review's labels (N1 to N8) name the findings;
+> the repro for each is a test in `selftest.py` or the Swift suites.
+>
+> - **M2's alt set is M1's alt-script predicate (N1).** `alts[tid]` holds the
+>   oracle's `alt_script_ids` and every record of the track's known pool that
+>   matches the track's identity and is written in another script than the
+>   group's (`Truth.is_alt_script`, the one function M1's verdict also asks).
+>   A romaji copy that only Isla's own queries returned, picked after a
+>   perturbation moved a null base to it, used to be `switched-wrong` in M2
+>   (and could fail the section) while M1 called the same record `alt-script`.
+>   It is `found-alt` now.
+> - **A lookup in one run only makes a comparison incomplete (N2).**
+>   `compare.json` is `incomplete` also when any (track, variant) key is in the
+>   base and not in the candidate, or the reverse, and the summary says so.
+>   Before, such a lookup was only counted in `lookups_in_one_run_only`, so a
+>   candidate whose rows had lost two misses showed 80% to 100% and called the
+>   comparison complete.

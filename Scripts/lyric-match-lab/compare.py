@@ -29,7 +29,9 @@ headline carries the accuracy bounds on both sides; a paired accuracy is taken
 over the lookups usable on both sides (`paired`, with the lookups unscorable on
 exactly one side and their transitions); and the result is `incomplete` while
 `needs_recording` is non-empty or any lookup moved from a scorable verdict to
-uncached, unrecovered, failed or unjudged. M4: a lookup either run flagged
+uncached, unrecovered, failed or unjudged. Fourth review (N2): it is also
+`incomplete` when a lookup is in one run and not the other, since a lookup that
+vanished from the candidate moves the headline with no verdict changing. M4: a lookup either run flagged
 `anchor-promoted` is judged against a truth each run built from its own
 answers, so it is in no gain, loss or cut here and is tallied under
 `anchor_promoted`.
@@ -218,8 +220,10 @@ def compare(root: str, base: str, candidate: str, base_results: str, candidate_r
         "paired": paired_report,
         # True while the figures above could still move: a candidate lookup the
         # cache could not answer, or one that went from a scored verdict to a
-        # lookup nobody can attribute or judge (M3).
-        "incomplete": bool(needs_recording or hidden),
+        # lookup nobody can attribute or judge (M3), or a lookup that one run has
+        # and the other lacks: its absence moves the headline without any verdict
+        # changing (fourth review, N2).
+        "incomplete": bool(needs_recording or hidden or only),
         "scored_to_unscorable": dict(sorted(hidden.items(), key=lambda kv: (-kv[1], kv[0]))),
         "anchor_promoted": promoted,
         "lookups_joined": len(set(before_rows) & set(after_rows)),
@@ -252,8 +256,8 @@ def summary(result: dict) -> str:
     lines = [
         f"candidate {result['candidate']['reports']} against {result['base']['reports']}: "
         f"{result['lookups_joined']} lookups joined"
-        + ("  INCOMPLETE: the figures below can still move (lookups to record, or scored lookups that "
-           "became unscorable)" if result["incomplete"] else ""),
+        + ("  INCOMPLETE: the figures below can still move (lookups to record, scored lookups that "
+           "became unscorable, or lookups present in one run only)" if result["incomplete"] else ""),
         f"  canonical accuracy {_pct(c['accuracy']['base'])} -> {_pct(c['accuracy']['candidate'])}, "
         f"bounds {_range(c['accuracy_bounds'])}, "
         f"wrong rate {_pct(c['wrong_rate']['base'])} -> {_pct(c['wrong_rate']['candidate'])}, "

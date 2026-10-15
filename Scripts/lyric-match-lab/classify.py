@@ -332,6 +332,14 @@ class Truth:
         return bool(self.group_family and info["fp"]
                     and oracle.family_share(info["script_weights"], self.group_family) < oracle.EXPECTED_SCRIPT_SHARE)
 
+    def is_alt_script(self, rid: int, info: dict) -> bool:
+        """The song in another script than the group's: one of the oracle's alt
+        anchors, or any record matching the track's identity that is written in
+        another script. M1's verdict and M2's alt set both ask this, so they
+        cannot disagree about a romaji copy Isla's own queries returned (fourth
+        review, N1)."""
+        return rid in self.alt or bool(info["identity"] and self.foreign_script(info))
+
     def group_fp(self, info: dict) -> frozenset:
         """The record's fingerprint in the group's family, so that it and the
         anchors are shingled alike however each one's own script reads."""
@@ -528,7 +536,7 @@ def judge(truth: Truth, lookup: dict, rows: Dict[int, dict], known: Optional[Dic
         else:
             if chosen_id in members:
                 same = True
-            elif chosen_id in truth.alt or (chosen["identity"] and truth.foreign_script(chosen)):
+            elif truth.is_alt_script(chosen_id, chosen):
                 same = None
             elif containment is not None and containment >= truth.same:
                 same = True
@@ -1111,8 +1119,10 @@ def run(root: str, results_name: str = DEFAULT_RESULTS, reports_name: str = DEFA
         if any(truth.candidates.get(i, {}).get("word_timing") for i in truth.cluster):
             cov["tracks_with_word_timed_record_in_cluster"] += 1
         canonical_judged = None
+        track_infos: Dict[int, dict] = {}
         for lookup, rows in zip(track_lookups, responses):
             j = judge(truth, lookup, rows, known)
+            track_infos = j["infos"]      # the resolver's pool and the known pool: the same set on every lookup
             identity = lookup.get("identity") or {}
             variant = lookup["variant"]
             result = {
@@ -1202,7 +1212,12 @@ def run(root: str, results_name: str = DEFAULT_RESULTS, reports_name: str = DEFA
 
         # M2 needs the cluster as the canonical lookup saw it.
         clusters[tid] = canonical_judged[1]["members"] if canonical_judged else set(truth.cluster)
-        alts[tid] = set(truth.alt)
+        # Every record that is the song in another script, by the predicate M1's
+        # verdict uses: the oracle's alt anchors and any identity-matching record
+        # in another script that only Isla's queries returned. Resolver anchors
+        # alone made a romaji pick `switched-wrong` in M2 while M1 called it
+        # `alt-script` (fourth review, N1).
+        alts[tid] = set(truth.alt) | {rid for rid, info in track_infos.items() if truth.is_alt_script(rid, info)}
 
         # M9: independent synced records of one song, within 3 s of Apple's length.
         target = (track.get("apple") or {}).get("duration") or \
