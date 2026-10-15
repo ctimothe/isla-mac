@@ -746,14 +746,47 @@ def spotify_title(track: dict, apple: Optional[dict], deezer: Optional[dict]) ->
     return title
 
 
+# Research notes the harvest left in the album field, in a trailing bracket:
+# "(2024; first released as a 2023 single)", "(album unverified)", "(year not
+# on page)", "(1995, from memory)". No player sends a note, and LRCLIB's
+# /api/get matches the album exactly when one is given, so a canonical lookup
+# that carried one drew a 404 no listener would ever see: 6 of the resolver's
+# 12 cached gets on 2026-10-15, every one of them an annotated album. A
+# trailing bracket is a note when it holds a year or a research phrase; one
+# that holds neither ("(To Be Continued...)", "(Deluxe Edition)") is part of
+# the name and stays.
+ALBUM_NOTE = re.compile(r"\s*[(\[]([^()\[\]]*)[)\]]\s*$")
+ALBUM_NOTE_WORDS = re.compile(
+    r"\d{4}|unverified|from memory|not on page|sources conflict|partial|summary|"
+    r"first released|first performed|single|\bEP\b", re.IGNORECASE)
+# What is left is no album at all: the harvest's word for a single or for an
+# album it could not find ("unverified (1978)"), or a note written as prose
+# ("Turandot (Puccini) aria; Pavarotti 1972 recording").
+NOT_AN_ALBUM = re.compile(r"^(?:non-album single|single|film score|unverified)$|;", re.IGNORECASE)
+
+
+def clean_album(album: str) -> str:
+    """The harvest album without its trailing research notes, or "" when what
+    is left is not an album name."""
+    text = (album or "").strip()
+    while True:
+        note = ALBUM_NOTE.search(text)
+        if not note or not ALBUM_NOTE_WORDS.search(note.group(1)):
+            break
+        text = text[:note.start()].rstrip()
+    return "" if NOT_AN_ALBUM.search(text) else text
+
+
 def canonical_album(track: dict, apple: Optional[dict], deezer: Optional[dict]) -> str:
-    """The harvest album, else Apple's collectionName, else Deezer's album.
+    """The harvest album without its research notes (`clean_album`), else
+    Apple's collectionName, else Deezer's album.
 
     149 harvested tracks have no album; leaving the canonical variant without
     one would fold the album-less request into the canonical figures, which the
     `no-album` variant exists to measure separately (SPEC amendment).
     """
-    return track["album"] or (apple or {}).get("collectionName") or (deezer or {}).get("album") or ""
+    return (clean_album(track["album"]) or (apple or {}).get("collectionName")
+            or (deezer or {}).get("album") or "")
 
 
 def build_variants(track: dict, apple: Optional[dict], deezer: Optional[dict],

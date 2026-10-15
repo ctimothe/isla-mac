@@ -719,6 +719,33 @@ class VariantTests(unittest.TestCase):
     def names(self, variants):
         return [v["variant"] for v in variants]
 
+    def test_the_canonical_album_drops_the_harvests_research_notes(self):
+        # LRCLIB's /api/get matches the album exactly, so a note no player
+        # sends turned the canonical get into a 404 (2026-10-15).
+        cases = {
+            "Tyla (2024; first released as a 2023 single)": "Tyla",
+            "Platte (EP, 2019)": "Platte",
+            "No Way Out (album unverified)": "No Way Out",
+            "Spirited Away soundtrack (year not on page)": "Spirited Away soundtrack",
+            "(What's the Story) Morning Glory? (1995 original)": "(What's the Story) Morning Glory?",
+            "Can't Slow Down (1983 album; single 1984)": "Can't Slow Down",
+            "Bangarang (EP)": "Bangarang",
+            "non-album single (Columbia, 1947)": "",
+            "Single": "",
+            "unverified (1978)": "",
+            "film score (year not on page)": "",
+            "Turandot (Puccini) aria; Pavarotti 1972 recording": "",
+            "Official FIFA World Cup 2026 Album": "Official FIFA World Cup 2026 Album",
+            "Frozen (Original Motion Picture Soundtrack)": "Frozen (Original Motion Picture Soundtrack)",
+            "Some Album (Deluxe Edition)": "Some Album (Deluxe Edition)",
+            "": "",
+        }
+        for raw, want in cases.items():
+            self.assertEqual(resolve.clean_album(raw), want, raw)
+        apple = {"collectionName": "Water - Single"}
+        self.assertEqual(resolve.canonical_album({"album": "non-album single"}, apple, None), "Water - Single")
+        self.assertEqual(resolve.canonical_album({"album": "Platte (EP, 2019)"}, apple, None), "Platte")
+
     def test_player_ids(self):
         self.assertEqual(resolve.PLAYER_IDS, {
             "canonical": "lab", "latin-alt": "lab", "no-album": "lab", "apple": "com.apple.Music",

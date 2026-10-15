@@ -399,6 +399,23 @@ For each harvested track:
 > - **Canonical album.** `canonical` takes the harvest album, else Apple's
 >   `collectionName`, else Deezer's album. This keeps the album-less request
 >   out of the canonical figures; the `no-album` variant measures it instead.
+>   - *Amended 2026-10-15, research notes.* 127 of the 465 harvested albums
+>     carried a research note, all of them in a trailing bracket except a few
+>     written as prose. Examples: "(2024; first released as a 2023 single)",
+>     "(album unverified)", "(year not on page)", or just "Single".
+>     - **Why it matters.** No player sends such text. `/api/get` matches the
+>       album exactly when one is given, so a note turned the canonical get
+>       into a 404 that no listener would ever see. That was 6 of the
+>       resolver's 12 cached gets.
+>     - **What changes.** `canonical`, `spotify-style`, `latin-alt` and the
+>       resolver's get now take `clean_album(harvest album)`. A trailing
+>       bracket that holds a year or a research phrase is dropped. If what is
+>       left is no album name (a single, "unverified", a note with a
+>       semicolon), the album is empty and Apple's `collectionName`, then
+>       Deezer's album, stands in.
+>     - **What stays.** A bracket with neither a year nor a research phrase is
+>       part of the name: "(Deluxe Edition)", "(Original Motion Picture
+>       Soundtrack)".
 > - **New variant `no-album`.** This is `canonical` with the album empty, for
 >   every fourth track (index % 4 == 0). Players that report no album do
 >   exist: browsers and radio. Isla then omits `album_name` from `/api/get`.
