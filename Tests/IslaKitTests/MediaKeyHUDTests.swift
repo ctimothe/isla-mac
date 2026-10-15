@@ -310,6 +310,20 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertTrue(hud.isTapped)
     }
 
+    func testPanelOpenMidPressNeverRenewsAndTheHoldStaysConsumedUntilItsKeyUp() {
+        let hud = hud()
+        on(hud)
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
+        moment += 10
+        hud.panelOpened()
+        XCTAssertEqual(taps.created, 1, "a hold is in progress, so no rebuild")
+        XCTAssertTrue(hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none))
+        XCTAssertEqual(applier.applied.count, 2, "the repeat still steps")
+        XCTAssertTrue(hud.handle(up(.volumeUp), modifiers: .none), "the key-up is consumed")
+        hud.panelOpened()
+        XCTAssertEqual(taps.created, 2, "the next opening renews")
+    }
+
     func testPanelOpenLeavesATapYoungerThanFiveSecondsAlone() {
         let hud = hud()
         on(hud)

@@ -168,10 +168,14 @@ final class MediaKeyHUD: ObservableObject {
     /// would stay with macOS until the setting is toggled. Only this caller
     /// does it, and a tap younger than the interval is left alone, so it never
     /// rebuilds more than once per `rebuildInterval`. Holds are cleared, as
-    /// `stopTap` always does.
+    /// `stopTap` always does, so nothing is renewed while a hold is active:
+    /// opening the panel mid-press would otherwise let the repeats and the
+    /// key-up of a key whose key-down Isla consumed slip back to macOS. The
+    /// next opening renews instead.
     func panelOpened() {
         refresh()
         guard isEnabled(), trust.isTrusted(), tap != nil else { return }
+        guard holds.isEmpty else { return }
         let moment = now()
         guard let created = tapCreatedAt, moment - created >= Self.rebuildInterval else { return }
         stopTap()
