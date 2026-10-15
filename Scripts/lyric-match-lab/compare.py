@@ -24,6 +24,16 @@ loss. An `uncached` candidate lookup asked a question the cache holds no answer
 for: the candidate needs a --record run before it can be scored there, and the
 lookups are listed under `needs_recording`.
 
+Third review (M3): a candidate must not win by making lookups unanswerable. The
+headline carries the accuracy bounds on both sides; a paired accuracy is taken
+over the lookups usable on both sides (`paired`, with the lookups unscorable on
+exactly one side and their transitions); and the result is `incomplete` while
+`needs_recording` is non-empty or any lookup moved from a scorable verdict to
+uncached, unrecovered, failed or unjudged. M4: a lookup either run flagged
+`anchor-promoted` is judged against a truth each run built from its own
+answers, so it is in no gain, loss or cut here and is tallied under
+`anchor_promoted`.
+
 Writes <root>/<candidate>/compare.json and prints a summary. Like everything
 in the lab it carries numbers, LRCLIB ids, titles and artist names, never a
 lyric line.
@@ -39,6 +49,7 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import analysis  # noqa: E402
 import classify  # noqa: E402
 
 RANK = {
@@ -49,8 +60,12 @@ RANK = {
     "wrong-song": 0, "uncertain": 0,
 }
 UNSCORABLE = set(classify.NO_JUDGEMENT) | set(classify.EXCLUDED_TRUTH) | {"unjudged"}
-HEADLINE = ("lookups", "usable", "correct", "accuracy", "shown", "wrong", "wrong_rate",
-            "recoverable_misses", "recoverable_of_usable", "uncached", "failed_request")
+HEADLINE = ("lookups", "usable", "correct", "accuracy", "accuracy_bounds", "shown", "wrong", "wrong_rate",
+            "wrong_rate_bounds", "recoverable_misses", "recoverable_of_usable", "uncached", "unrecovered",
+            "unscorable_possibly_usable", "correct_without_fit", "failed_request")
+# Moving from a verdict that was scored to one of these hides a loss behind a
+# figure that rises or holds (M3).
+LOSS_HIDING = ("uncached", "unrecovered", "failed", "unjudged")
 
 Key = Tuple[str, str]
 
@@ -82,7 +97,17 @@ def read_headline(path: str) -> dict:
 def delta(before, after):
     if isinstance(before, (int, float)) and isinstance(after, (int, float)):
         return round(after - before, 6)
+    if isinstance(before, dict) and isinstance(after, dict):
+        return {k: delta(before.get(k), after.get(k)) for k in before if k in after}
     return None
+
+
+def is_promoted(*rows: dict) -> bool:
+    return any(classify.PROMOTED_FLAG in (r.get("flags") or "").split(";") for r in rows)
+
+
+def usable(row: dict) -> bool:
+    return row.get("usable") == "true"
 
 
 def judge(before: str, after: str) -> str:
@@ -116,11 +141,37 @@ def compare(root: str, base: str, candidate: str, base_results: str, candidate_r
     transitions: Dict[str, int] = {}
     totals = {"gain": 0, "loss": 0, "unscorable": 0, "changed_same_rank": 0}
     needs_recording: List[dict] = []
+    promoted = {"lookups": 0, "gain": 0, "loss": 0, "same": 0, "unscorable": 0}
+    hidden: Dict[str, int] = {}
+    paired = {scope: {"n": 0, "base_correct": 0, "candidate_correct": 0, "one_side": 0, "transitions": {}}
+              for scope in ("canonical", "overall")}
     for key in sorted(set(before_rows) & set(after_rows)):
         b, a = before_rows[key], after_rows[key]
         if a["verdict"] == "uncached" and b["verdict"] != "uncached":
             needs_recording.append({"track_id": key[0], "variant": key[1], "before": b["verdict"]})
+        if b["verdict"] not in UNSCORABLE and a["verdict"] in LOSS_HIDING:
+            name = f"{b['verdict']} -> {a['verdict']}"
+            hidden[name] = hidden.get(name, 0) + 1
         moved = b["verdict"] != a["verdict"] or b["chosen_id"] != a["chosen_id"]
+        if is_promoted(b, a):
+            # Judged against a truth each run built from its own answers: a
+            # transition measures whether Isla found an identity match, never
+            # whether it was right (third review, M4). Own tally, no other figure.
+            promoted["lookups"] += 1
+            if moved:
+                verdict = judge(b["verdict"], a["verdict"])
+                promoted[verdict] += 1
+            continue
+        for scope in ("overall", "canonical") if key[1] == "canonical" else ("overall",):
+            cell = paired[scope]
+            if usable(b) and usable(a):
+                cell["n"] += 1
+                cell["base_correct"] += 1 if b["verdict"] == "correct" else 0
+                cell["candidate_correct"] += 1 if a["verdict"] == "correct" else 0
+            elif (b["verdict"] in UNSCORABLE) != (a["verdict"] in UNSCORABLE):
+                cell["one_side"] += 1
+                name = f"{b['verdict']} -> {a['verdict']}"
+                cell["transitions"][name] = cell["transitions"].get(name, 0) + 1
         if not moved:
             continue
         verdict = judge(b["verdict"], a["verdict"])
@@ -150,10 +201,27 @@ def compare(root: str, base: str, candidate: str, base_results: str, candidate_r
         for scope in ("canonical", "overall")
     }
     only = sorted(set(before_rows) ^ set(after_rows))
+    paired_report = {}
+    for scope, cell in paired.items():
+        base_accuracy = analysis.share(cell["base_correct"], cell["n"])
+        candidate_accuracy = analysis.share(cell["candidate_correct"], cell["n"])
+        paired_report[scope] = {
+            "n_paired": cell["n"], "base_accuracy": base_accuracy, "candidate_accuracy": candidate_accuracy,
+            "delta": delta(base_accuracy, candidate_accuracy),
+            "unscorable_on_one_side": cell["one_side"],
+            "unscorable_transitions": dict(sorted(cell["transitions"].items(), key=lambda kv: (-kv[1], kv[0]))),
+        }
     return {
         "base": {"reports": base, "results": base_results},
         "candidate": {"reports": candidate, "results": candidate_results},
         "headline": headline,
+        "paired": paired_report,
+        # True while the figures above could still move: a candidate lookup the
+        # cache could not answer, or one that went from a scored verdict to a
+        # lookup nobody can attribute or judge (M3).
+        "incomplete": bool(needs_recording or hidden),
+        "scored_to_unscorable": dict(sorted(hidden.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "anchor_promoted": promoted,
         "lookups_joined": len(set(before_rows) & set(after_rows)),
         "lookups_in_one_run_only": len(only),
         "totals": totals,
@@ -170,17 +238,32 @@ def _pct(value: Optional[float]) -> str:
     return "-" if value is None else f"{value * 100:.1f}%"
 
 
+def _range(cell: dict) -> str:
+    """`[lower, upper]` of a bounds cell, or '-' when a side has none (an older report)."""
+    def one(bounds) -> str:
+        return "-" if not isinstance(bounds, dict) else f"[{_pct(bounds.get('lower'))}, {_pct(bounds.get('upper'))}]"
+    return f"{one(cell['base'])} -> {one(cell['candidate'])}"
+
+
 def summary(result: dict) -> str:
     c = result["headline"]["canonical"]
     t = result["totals"]
+    p = result["paired"]["canonical"]
     lines = [
         f"candidate {result['candidate']['reports']} against {result['base']['reports']}: "
-        f"{result['lookups_joined']} lookups joined",
+        f"{result['lookups_joined']} lookups joined"
+        + ("  INCOMPLETE: the figures below can still move (lookups to record, or scored lookups that "
+           "became unscorable)" if result["incomplete"] else ""),
         f"  canonical accuracy {_pct(c['accuracy']['base'])} -> {_pct(c['accuracy']['candidate'])}, "
+        f"bounds {_range(c['accuracy_bounds'])}, "
         f"wrong rate {_pct(c['wrong_rate']['base'])} -> {_pct(c['wrong_rate']['candidate'])}, "
+        f"bounds {_range(c['wrong_rate_bounds'])}, "
         f"recoverable misses {c['recoverable_misses']['base']} -> {c['recoverable_misses']['candidate']}",
+        f"  paired canonical accuracy {_pct(p['base_accuracy'])} -> {_pct(p['candidate_accuracy'])} over "
+        f"{p['n_paired']} lookups usable on both sides; {p['unscorable_on_one_side']} unscorable on exactly one",
         f"  every variant: gained {t['gain']}, lost {t['loss']}, unscorable {t['unscorable']}, "
         f"changed at the same rank {t['changed_same_rank']}",
+        f"  anchor-promoted lookups, tallied apart: {result['anchor_promoted']}",
         f"  requests {result['requests']['base']['requests']} -> {result['requests']['candidate']['requests']}; "
         f"needs a --record run for {len(result['needs_recording'])} lookups",
     ]

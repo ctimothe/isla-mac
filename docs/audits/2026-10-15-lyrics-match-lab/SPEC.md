@@ -742,3 +742,120 @@ The candidates, each tied to a hypothesis:
 
 H2 (`lyricsfile` is never decoded) and the album on `/api/get` are measured
 from the records and the `no-album` variant directly, without a patch.
+
+> **Amended 2026-10-15 (after the third review).** The first and second
+> reviews' amendments stand; these replace them where they differ. The review's
+> labels (B1, M1 to M5, m1 to m12) name the findings; the repro for each is a
+> test in `selftest.py`.
+>
+> **Classification**
+>
+> - **The classifier's anchors are the oracle's group (B1).** `Truth` keeps a
+>   candidate as an anchor only when it is in `cluster_ids` and not in
+>   `alt_script_ids` (what `promote()` already did). An alt-script anchor used
+>   to stay in, re-shingled in the group's family, so a second romaji upload
+>   that only Isla's answer held matched it, joined the members and scored
+>   `correct` and usable, against "showing the romaji is the alt-script
+>   outcome, not the correct one". A record whose weighted letters hold less
+>   than `EXPECTED_SCRIPT_SHARE` in the group's script family never joins the
+>   members by containment, and the verdict's alt-script test is the same
+>   predicate (m12), not "another script has more letters". The sole-anchor
+>   flag looks at the group's anchors only (m5).
+> - **`usable` comes from a known pool shared by every lookup of a track
+>   (M1).** The known pool is the resolver's pool, the response rows of every
+>   lookup of the track in the results being classified, and the response rows
+>   of every lookup of the track in each `--pool-results DIR` (new, repeatable;
+>   `DIR/isla-lookups.jsonl` and the cached bodies, read as the run's own are).
+>   `fit_identity_ids`, `truth_usable` and anchor promotion are decided from
+>   it. What Isla saw is still this lookup's own responses, which keeps
+>   `miss-rejected` (the fit was in them) apart from `miss-unqueried` (it was
+>   not, though a sibling lookup found it): before, a record only Isla's
+>   queries returned made a lookup either `correct` or `miss-rejected`, never
+>   `miss-unqueried`. M1 reports `fit_outside_resolver_pool`: the usable
+>   lookups whose only fits (identity-matching, or overrun-fit) are records the
+>   resolver's own queries never returned (flag `fit-outside-resolver-pool`,
+>   not set on promoted tracks, which have no resolver anchor to speak of).
+> - **`mixed-anchor-flags` is no longer disputed (M2).** `DISPUTES` holds
+>   `harvest-none-lrclib-lyrics` and `harvest-vocal-lrclib-instrumental`. One
+>   stray instrumental flag among records with lyrics is a mislabelled record,
+>   not a verdict on the song (`resolve.truth_for` decides `expected` False
+>   there), and Isla's early exit on an instrumental `/api/get`
+>   (`OnlineLyrics.swift:208`) is a recoverable miss the lab must surface. Such
+>   tracks are scored and carry the flag `mixed-anchor-flags`; M1 reports a cut
+>   `by_mixed_anchor_flags` (`yes` and `no`).
+> - **M2, null base to an alt-script pick (M5).** Base null with a pick in the
+>   alt-script records is the new bucket `found-alt`, which no threshold reads
+>   (it used to be `switched-wrong`, and the `s-latin` perturbation produced
+>   exactly that and failed the section). Base null with a pick in neither the
+>   cluster nor the alt-script records is still `switched-wrong`. The
+>   `switched-alt` share is divided by `base_in_cluster_only`, the rows whose
+>   base pick is in the cluster itself, since an alt-script base cannot switch
+>   to alt (m6); `base_in_cluster` stays the `lost` denominator.
+> - **Bounds (m1, m2, m4, m7).** `maybe_usable`, which feeds
+>   `unscorable_possibly_usable` and the bounds, now also holds `failed`
+>   lookups. For `unrecovered` it is `truth_usable` (the responses are on disk,
+>   so the truth says whether the lookup could have been usable); for
+>   `uncached` and `failed` it is False on a track with no anchor that was not
+>   promoted (any answer that made it usable would have promoted the track,
+>   taking it out of M1). M1 is `incomplete` instead of `pass` while any
+>   `maybe_usable` lookup exists, no longer for every uncached or unrecovered
+>   one, and an unanswered resolver query counts only on an anchored track
+>   that is not excluded. `wrong_rate_bounds` runs from `wrong/(shown+u)` to
+>   `(wrong+u)/(shown+u)` with `u` the unrecovered lookups, which showed lyrics
+>   nobody could attribute.
+> - **M6 (m8).** A variant counts against canonical only when both the
+>   canonical and the variant lookup are `usable`. Variant misses that are not
+>   usable are reported apart as `non_usable_variant_misses`, and tracks the
+>   classifier anchored itself are tallied under `anchor_promoted` in the M6
+>   section instead of in the thresholds.
+> - **The refused-status set (m3, m12).** Every status that is not 2xx, 400 or
+>   404 and is not transient (not 429, not 5xx) is refused on both sides: the
+>   resolver's `fetch` returns `None` and counts a failed fetch
+>   (`common.refuses_status`), the Swift `ReplayTransport` logs a miss and
+>   throws (`refusesStatus`). It is never cached and never an answer, so a
+>   record run and its replay agree (a 401 or a 410 used to be an answer in
+>   one and a miss in the other). Each refused answer counts toward
+>   `TRIP_AFTER` like a request that ran out of retries on 429, and any answer
+>   resets the count. `LAB_STOP_AT_429` and `ISLA_MATCH_STOP_AT_429` are
+>   unchanged. A lookup behind a refused status reads `uncached`, so it counts
+>   in `unscorable_possibly_usable` and keeps M1 `incomplete`.
+>
+> **Counterfactual scoring**
+>
+> - **One pool for both sides (M1).** After the candidate's replay,
+>   `score-candidate.sh` classifies the candidate with `--results cf-<name>
+>   --reports cf-<name>-reports --pool-results <base results>`, classifies the
+>   base again with `--results <base results> --reports cf-<name>-base-reports
+>   --pool-results cf-<name>`, and runs `compare.py` over those two report
+>   directories. The control (no patch) is compared with the record run as it
+>   was.
+> - **The base of a candidate is the control (m11).** A candidate uses
+>   `cf-control-reports` and `cf-control` when they exist, or `BASE_REPORTS`
+>   and `BASE_RESULTS`, and is refused (exit 2) when there is neither, so the
+>   record run never stands in for a replay. The patch is reversed with `git
+>   apply -R` (it can touch `Tests/` and add files) and the run fails if `git
+>   status --porcelain` is not empty afterwards.
+> - **`compare.py` cannot be won by making lookups unanswerable (M3).** HEADLINE
+>   now holds `accuracy_bounds`, `wrong_rate_bounds`, `unrecovered`,
+>   `unscorable_possibly_usable` and `correct_without_fit`, and the summary
+>   prints `[lower, upper]` for both sides. `paired` gives the accuracy of base
+>   and candidate over the lookups usable on both sides (`n_paired`), with the
+>   count unscorable on exactly one side and their transitions. `incomplete` is
+>   true in `compare.json`, and printed, while `needs_recording` is non-empty or
+>   any lookup moved from a scorable verdict to `uncached`, `unrecovered`,
+>   `failed` or `unjudged` (`scored_to_unscorable`).
+> - **Promoted lookups (M4).** A lookup either side's `rows.csv` flags
+>   `anchor-promoted` is judged against a truth each run built from its own
+>   answers, so a transition on it measures whether Isla found an identity
+>   match, never whether it was right. It is kept out of `totals`,
+>   `by_variant`, `by_slice`, `transitions`, `changed` and `paired`, and
+>   tallied under `anchor_promoted` (`gain`, `loss`, `same`, `unscorable`).
+>
+> **The Swift harness**
+>
+> - **M4, the sweep's visible width (m9).** A line cut at its tail draws "…"
+>   in place of the end of the row, so `beyond_visible` compares a word's caret
+>   with `available` less the ellipsis, measured with CoreText in the
+>   surface's own font, weight and tracking, the way the words are. A line that
+>   fits draws no ellipsis and keeps all of `available`. The result file
+>   records `ellipsis_pt` per surface.

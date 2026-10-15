@@ -106,11 +106,24 @@ STOP_AT_429 = os.environ.get("LAB_STOP_AT_429") == "1"
 # ReplayTransport.cachesStatus holds the same set, so a record run and its
 # replay agree (second review, finding 6).
 CACHEABLE_STATUSES = (400, 404)
-# A 403 is neither cached nor an answer: it is a gateway or a throttle refusing
-# this client, not LRCLIB's word on the URL. It is a failed fetch here and a
-# miss in the Swift harness, so it never reaches Isla (or the classifier) as a
-# response.
-REFUSED_STATUSES = (403,)
+# Anything else that is not transient is refused (third review, m3). A 403 is
+# a gateway or a throttle refusing this client; a 401 or a 410 is no more
+# LRCLIB's word on the URL. None of them is cached or reaches the caller as an
+# answer: it is a failed fetch here (`refuses_status`) and a miss in the Swift
+# harness (ReplayTransport.refusesStatus, the same predicate), so a record run
+# and its replay agree. It used to be 403 alone, and a 401 or 410 was an
+# answer in the record run that the replay could not give. Each one also counts
+# toward TRIP_AFTER (`_note_outcome`), like a request that ran out of retries on
+# 429: a gateway that blocks every request spent the whole live budget against a
+# host that allows about ten a minute (third review, m12).
+
+
+def refuses_status(url: str, status: Optional[int]) -> bool:
+    """True when `status` is an answer nobody keeps and nobody retries: not 2xx,
+    not 400 or 404, and not transient (no answer, 429, 5xx, iTunes's 403)."""
+    if status is None or 200 <= status < 300 or status in CACHEABLE_STATUSES:
+        return False
+    return not _is_transient(url, status)
 
 
 class Response(NamedTuple):
@@ -281,8 +294,9 @@ def tripped(url: str) -> bool:
 
 
 def _note_outcome(url: str, refused: bool) -> None:
-    """Counts requests that ran out of retries on 429, in a row per host, and
-    trips the host at TRIP_AFTER. Any answer resets the count."""
+    """Counts requests that ran out of retries on 429, or drew a refused status
+    (`refuses_status`), in a row per host, and trips the host at TRIP_AFTER.
+    Any answer resets the count."""
     host = (urllib.parse.urlsplit(url).hostname or "").lower()
     with _gates_lock:
         if not refused:
@@ -292,7 +306,7 @@ def _note_outcome(url: str, refused: bool) -> None:
         if _refused_in_a_row[host] < TRIP_AFTER or host in _tripped:
             return
         _tripped.add(host)
-    print(f"[trip] {host}: {TRIP_AFTER} requests in a row ran out of retries on 429; "
+    print(f"[trip] {host}: {TRIP_AFTER} requests in a row ran out of retries on 429 or were refused; "
           f"no live request goes to it for the rest of this run", flush=True)
 
 
@@ -457,11 +471,10 @@ def fetch(url: str, root: str, *, offline: bool = False,
                 _note_outcome(url, refused=False)
                 write_cache(root, url, status, body)
                 return Response(status, body, False)
-            if status in REFUSED_STATUSES and not _is_transient(url, status):
+            if refuses_status(url, status):
                 stats.failed()
+                _note_outcome(url, refused=True)
                 return None
-            if not _is_transient(url, status):
-                return Response(status, body, False)
             if status == 429:
                 gate.throttled()
                 stats.throttled(url)
