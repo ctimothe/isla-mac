@@ -59,6 +59,22 @@ does not share Isla's matching code.
     row, measured with the real fonts.
 - **M5 Rerun of L1–L8:** the 2026-10-11 harness (`Scripts/lyric-lab.sh`) run
   unchanged on the records Isla actually chose here.
+  - *Amended 2026-10-15, the pool corpus.* LRCLIB stopped answering this
+    address before Isla's record run, so `matched/` would hold almost
+    nothing. M5 therefore also runs, unchanged, on two corpora that need no
+    new request:
+    - **`pool/<slice>/<id>.json`.** Every synced record in an answer the
+      cache already holds, written once by `Scripts/lyric-match-lab/pool.py`
+      (cache reads only), with counts in `pool/_summary.json`. It is broader
+      than what Isla shows: every synced record in the top 20 of every cached
+      search, plus the gets.
+    - **The 2026-10-11 lab's own corpus.** 540 records, 25 per genre over 20
+      genres, cloned under the root as `accuracy-2026-10-11/`.
+  - Neither corpus says which record Isla would choose. They measure what
+    Isla does with a record once it has one: parse, index, the frame grid,
+    the word sweep, gaps, the reading lead, and the longer-version flag.
+    `matched/` stays the corpus of records Isla chose, and the report labels
+    each M5 figure with its corpus.
 - **M6 Variant robustness:** songs that a canonical query finds but at least
   one real player's metadata loses.
 - **M9 Catalogue timing noise:** where LRCLIB holds two or more independent

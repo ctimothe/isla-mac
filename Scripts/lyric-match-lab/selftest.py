@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import calibrate  # noqa: E402
 import common  # noqa: E402
 import oracle  # noqa: E402
+import pool  # noqa: E402
 import resolve  # noqa: E402
 
 
@@ -922,6 +923,23 @@ class ResolveEndToEndTests(unittest.TestCase):
 
     def read(self, name):
         return [json.loads(l) for l in slurp(os.path.join(self.root, "resolved", name)).splitlines()]
+
+    def test_pool_writes_each_cached_synced_record_once(self):
+        # The accuracy lab's corpus from cache alone: every synced record any
+        # cached answer holds, once, under the slice of the track that asked,
+        # byte-for-byte the object LRCLIB sent. Record 4 sits in both search
+        # pages and is written once; its enhanced-LRC word stamp is counted.
+        self.build()
+        with mock.patch.object(common, "_http_get", side_effect=AssertionError("network used")):
+            summary = pool.build(self.root)
+        t = summary["totals"]
+        self.assertEqual((t["written"], t["answered"]), (6, 3))
+        self.assertEqual((t["has_word_sync"], t["enhanced_lrc_word_tags"]), (0, 1))
+        self.assertEqual(summary["per_slice"], {"pop-anglo": 6})
+        written = sorted(os.listdir(os.path.join(self.root, "pool", "pop-anglo")))
+        self.assertEqual(written, [f"{n}.json" for n in range(1, 7)])
+        with open(os.path.join(self.root, "pool", "pop-anglo", "4.json"), encoding="utf-8") as handle:
+            self.assertEqual(json.load(handle)["id"], 4)
 
     def test_offline_resolution(self):
         self.build()
