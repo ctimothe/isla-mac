@@ -165,6 +165,13 @@ The Shelf's Delete key (⌫, ⌘⌫) uses the same mechanism since 2026-10-15
 pointer is over the pane, Isla is not active, and the selection was made
 during this opening — a stuck one would eat Delete system-wide, so every
 other state releases it.
+Since 2026-10-15 **Volume and Brightness** (off by default) reads the media
+keys through a `CGEventTap` once Accessibility is granted (`MediaKeyHUD`,
+`MediaKeyTap`). It takes a key only when it can apply it, decides once per
+hold, and keeps the callback to a decode and a write — a slow or stuck tap
+eats those keys in every app. Third-party app icons (Spotify, the players in
+Settings, the empty player's buttons) come only from the installed app at
+runtime (`AppIcons`); no brand asset ships in the bundle.
 
 **Window sizing.** The window is cut once to the tallest body any tab can ask
 for and then never resized — it is transparent outside the visible panel, and

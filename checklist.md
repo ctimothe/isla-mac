@@ -1543,3 +1543,16 @@ New settings and their defaults (spec §14):
 - [ ] **R5-H3** Display and keyboard brightness keys on the MacBook Pro.
 - [ ] **R5-H4** Turning it off gives the keys back at once.
 - [ ] **R5-H5** An external keyboard's volume keys.
+- [ ] **R5-H6** Volume down while muted: compare with the Mac's own
+  pop-up (Isla keeps the Mac muted).
+- [ ] **R5-H7** With the setting on, ⌥+volume opens Sound settings, ⇧+volume
+  changes silently, and ⌥⇧ steps in quarters.
+- [ ] **R5-H8** With an external display as main, and with the lid closed,
+  the brightness keys go to macOS.
+- [ ] **R5-H9** AirPods connecting while a volume key is held never jump
+  their volume.
+- [ ] **R5-H10** Real icons: the Settings sidebar and the Spotify head show
+  Spotify's own icon; About's Isla icon matches the tiles; Players on This
+  Mac lists Яндекс Музыка and both Telegrams with their icons.
+- [ ] **R5-H11** The empty player in Russian at 480 shows both Открыть Apple
+  Music and Открыть Spotify; in English at 560 Yandex Music joins them.

@@ -393,6 +393,15 @@ transport.
 The reader-down reason and Try Again live in Settings › Music (§10.4) and
 nowhere else — one failure surface.
 
+> **Amended 2026-10-15 (owner: real icons).** Each Open button carries the
+> app's real icon, 16 pt, read from the installed app (never a bundled
+> asset). Nothing playing offers the installed Apple Music and Spotify first,
+> then other installed music apps (Deezer, Yandex Music, …), up to three,
+> only while the first two fit at full size. When they do not (Russian at
+> 480) the buttons tighten their padding, then drop the icons; Apple Music
+> and Spotify always stay. Reader down offers only those two, the players
+> Isla can read without the helper.
+
 ## 5. Lyrics
 
 ### 5.1 Three views of one model
@@ -897,6 +906,18 @@ until nothing uses them, then go.
 >   Automatically is on.
 > - Volume and Brightness has its row and key behind one flag that R5 flips.
 
+> **Amended 2026-10-15 (owner: real icons).** Every app Settings names shows
+> its real icon, read from the installed app at runtime and never shipped in
+> the bundle: Spotify in the sidebar and the section head (the drawn mark only
+> when Spotify is not installed), each player in the Automation group, and
+> Isla's own icon in About. App icons are drawn at 1024/824 of the tile so the
+> margin macOS builds into them does not leave them smaller than the symbol
+> tiles. Music gains **Players on This Mac** after Music Only: each installed
+> music app Isla recognises (`MediaSourcePolicy`), with its icon and its name,
+> Apple Music and Spotify first. Its footnote states the Music Only rule, so
+> Music Only's own footnote shortens to "Videos and films stay off the
+> island." The group is looked up only while Music is showing.
+
 ## 11. Translate (R4)
 
 `Translate-*`.
@@ -1010,6 +1031,29 @@ until nothing uses them, then go.
   tap passes events through while the screen is locked).
 - No new entitlement. Accessibility is a TCC permission the person grants;
   the hardened runtime needs nothing for a session event tap.
+
+> **Amended 2026-10-15 (R5 review).** As built and reviewed:
+> - Only a plain press and ⌥⇧ are taken. With ⌘, ⌃, ⌥ alone or ⇧ alone
+>   held, the key goes to macOS untouched (⌥ opens Sound or Displays
+>   settings; ⇧ changes the volume silently). ⌥⇧ gives quarter steps for
+>   brightness too, as macOS does.
+> - A key is taken only when Isla can apply it: volume when the output has a
+>   settable volume and is still the output that was read when the level is
+>   written; display brightness only when the built-in display is the only
+>   one or the main one; keyboard brightness only with a backlight from
+>   CoreBrightness's own list.
+> - The first press of a hold decides, and its repeats and release follow:
+>   a key Isla took is released by Isla, a key it passed by macOS. A held
+>   mute toggles once.
+> - The tap's callback only decodes, decides and writes. The output's symbol
+>   is looked up after it returns, and the brightness interfaces are resolved
+>   once, when the tap starts.
+> - While the panel is open the key still applies but the pop-up is not
+>   drawn (the player's own slider is there). VoiceOver hears the level, at
+>   most every 0.25 s.
+> - Permission is polled every 2 s only while the setting is on and
+>   permission is missing, and not while the display sleeps. A tap macOS
+>   switched off is rebuilt at the next look, at most every 5 s.
 
 ## 13. Stress rules
 
