@@ -115,6 +115,17 @@ reports/rows.csv               Python classifier: one row per lookup with its ve
   space to the server, so it is never matched to the resolver's `%2B`. An
   answer found this way is copied to `cache/isla` under Isla's own key, so
   every key a results file names is a file that exists.
+- *Amended 2026-10-15 (after the second review).* Both caches keep exactly the
+  same statuses: every 2xx, 400 and 404. The resolver cached 400 and the Swift
+  harness did not (`ReplayTransport.cachesStatus`), so a record run and its
+  replay could disagree. A 403 is never cached and never reaches Isla as an
+  answer on either side: in Python it is a failed fetch (`common.fetch`
+  returns `None`; iTunes' 403 is still retried first, as a throttle), in the
+  Swift `ReplayTransport` it is logged and thrown as a miss like a transport
+  failure, so the lookup reads `uncached` and the next record run asks again.
+  The classifier does not count a 403 as a `failed-request`. Swift holds the
+  rule as a predicate test (`LyricMatchLabReplayTests`), because a live fetch
+  needs a server.
 
 ## Rules for everything in the lab
 
@@ -423,6 +434,26 @@ For each harvested track:
 >   whose truth notes carry `lrclib-unanswered` has status `truth-incomplete`:
 >   an unanswered query means the catalogue cannot be called empty.
 
+> **Amended 2026-10-15 (after the second review), the oracle.**
+>
+> - **One shingle inside a group.** An anchor moved into the expected script
+>   family (at least 0.2 of its weighted letters there) used to keep the
+>   fingerprint of its own dominant family, so a Latin-dominant anchor with a
+>   Japanese verse (word 3-shingles) shared nothing with a pure-Japanese
+>   anchor (character 5-grams) and the track became `anchor-conflict`, which
+>   made it `truth-uncertain` and dropped the pure-Japanese anchor. Every
+>   record compared inside the winning group, the anchors that were moved and
+>   the candidates tested against them, is now fingerprinted again with the
+>   group family's `NGRAM_TABLE` entry (`oracle.fingerprint(text, family=)`;
+>   `analyze_record` carries `text` in memory for it, and nothing writes it
+>   out). Alt-script anchors keep their own fingerprint and are not compared.
+> - **The group family is the cluster's answer.** `oracle.cluster` returns
+>   `group_family`, and `tracks.jsonl` records it as `truth.group_family`. The
+>   classifier takes its SAME and WRONG thresholds, its alt-script test and
+>   the shingle of every comparison from it, where it took the first anchor's
+>   own dominant script. A `tracks.jsonl` without the key is clustered again
+>   over its anchors to get it.
+
 ## The Swift harness (`Tests/IslaKitTests/LyricMatchLab*.swift`, `Scripts/lyric-match-lab.sh`)
 
 It runs only with `ISLA_MATCH_LAB=<root>`. Live requests on a cache miss are
@@ -494,6 +525,22 @@ allowed only when `ISLA_MATCH_RECORD=1`; otherwise a miss is recorded as
 >   corpus, is written only when `--reports` is `reports`.
 > - Lab self-tests: `LyricMatchLabSelfTests` pins the repairs above; like every
 >   lab case it skips unless `ISLA_MATCH_LAB` is set.
+
+> **Amended 2026-10-15 (after the second review), M3b.** The sweep-edge case
+> (`LyricMatchLabSweepTests`) measures whether the karaoke highlight is on a
+> word when it is sung, on the surfaces `LyricMatchLabReadabilityTests.surfaces()`
+> reads from the shipped code. All three (`band`, `column`, `tall`) draw the sung
+> line on one row cut at its tail (`lineLimit(1)`), so a word whose reading
+> start lies past the surface's visible width (`available`) is never drawn and
+> cannot be on the word. Such words are left out of the error statistics and
+> counted as `beyond_visible`, per script group and per surface. The width the
+> model multiplies the fraction by is CoreText's typographic width with
+> trailing whitespace: `KaraokeRenderer` takes SwiftUI's run bounds and the
+> line's one-row width, and a probe on 2026-10-15 showed both equal that
+> value (the second rounded up to a whole point), so no trailing-whitespace
+> width is subtracted. The lock card, whose current line may wrap, is not
+> measured.
+
 
 ## Classification (`Scripts/lyric-match-lab/classify.py`)
 
@@ -573,6 +620,62 @@ M3 estimation, M9 and M10 are computed here from the cached records.
 > leaves it out.
 >
 > M4 (F15): see the Swift harness amendment.
+
+> **Amended 2026-10-15 (after the second review), classification.** The first
+> review's amendment stands; these replace it where they differ.
+>
+> - **`usable` is decided from the truth alone (finding 3).** A lookup is
+>   usable when the truth (the resolver's pool plus the records in Isla's own
+>   responses to that lookup) holds an identity-matching fit record for the
+>   variant's length, or an identity-matching overrun-fit record, on a track
+>   that is not an expected instrumental, has an anchor and is not
+>   `truth-uncertain`; and the lookup reached an answer (`failed`, `uncached`,
+>   `unrecovered` and the track-level verdicts stay out). Isla's verdict is not
+>   looked at. A `correct` verdict without such a record used to be usable
+>   (every other outcome needed one), so the denominator grew with Isla's
+>   successes; it is now unusable and counted as `correct_without_fit`.
+> - **Anchor promotion leaves the headline (finding 2).** A lookup of a track
+>   the classifier anchored from Isla's own responses keeps its verdict and
+>   flag in `rows.csv`, but is in no figure of M1: not `overall`, `canonical`
+>   or any `by_*` cut (not usable, not shown). It is counted under
+>   `excluded_from_scoring` as `anchor-promoted`, and scored on its own under
+>   M1's `anchor_promoted` entry (`counts()` over those rows). Promotion rescued
+>   only tracks where Isla's own responses held the record, so on them Isla
+>   could be right or reject what it saw, never fail to ask, and accuracy over
+>   them was inflated one way. A track whose truth notes carry
+>   `lrclib-unanswered` is never promoted: it stays `truth-incomplete`.
+> - **`disputed` covers every instrumental disagreement (finding 4).**
+>   `harvest-none-lrclib-lyrics`, `harvest-vocal-lrclib-instrumental` and
+>   `mixed-anchor-flags` all take the track out of scoring.
+> - **Accuracy bounds (finding 5).** With `c` correct, `u` usable and `k`
+>   unscorable-but-possibly-usable lookups (`uncached` and `unrecovered` ones on
+>   a track with no track-level exclusion and not an expected instrumental),
+>   `accuracy_bounds` is `{"lower": c/(u+k), "upper": (c+k)/(u+k),
+>   "as_computed": c/u}`, and the summary prints `[lower, upper]`. The old
+>   `uncached_as_misses` is the lower bound and no longer exists as a key. M1
+>   is `incomplete` instead of `pass` when any lookup is uncached or
+>   unrecovered, or any anchored track's truth notes carry `lrclib-unanswered`
+>   (counted in `lrclib_unanswered_tracks`: an unanswered resolver query means
+>   the truth pool may be missing records).
+> - **Sole anchor from `/api/get` (finding 11).** The resolver's `/api/get` is
+>   Isla's own canonical query, so a record only that query returned can be
+>   the track's only anchor and make Isla's canonical pick correct by
+>   construction. Lookups of a track whose every anchor has
+>   `source_queries == ["get"]` carry the flag `sole-anchor-from-get`; M1 has
+>   a cut `by_sole_anchor_from_get` (`yes` and `no`) so the report shows
+>   accuracy with and without them. They are not excluded.
+>
+> - **M2 buckets (finding 7).** The F4 buckets above stand, with these
+>   changes. An alt-script base is treated like an in-cluster base: nothing
+>   picked is `lost`, a pick outside the song is `switched-wrong`, and a pick
+>   anywhere in the song (the cluster or another alt-script record) is `kept`;
+>   the "rows whose base is in the cluster" denominator now counts them too
+>   (the cell key stays `base_in_cluster`). A base outside the song moving to a
+>   different row outside it is the new bucket `wrong-to-wrong`: the matcher
+>   was wrong before and the perturbation changed nothing about that, so it is
+>   reported and is in no threshold (it used to be `switched-wrong` and fed the
+>   0.01 fail threshold). A wrong base replaced by an alt-script record is
+>   `switched-ok`.
 
 ## Counterfactual scoring (amended 2026-10-15)
 

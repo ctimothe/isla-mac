@@ -98,6 +98,24 @@ final class LyricMatchLabReplayTests: XCTestCase {
         } catch is ReplayTransport.Miss {}
     }
 
+    func testTheReplayCacheKeepsTheStatusesThePythonResolverKeeps() {
+        // The Python side is `common.CACHEABLE_STATUSES` (400, 404) and every 2xx. A live fetch
+        // needs a server, which this test does not have, so the rule is held as the predicate
+        // `fetch` calls.
+        for status in [200, 201, 204, 299, 400, 404] {
+            XCTAssertTrue(ReplayTransport.cachesStatus(status), "\(status)")
+        }
+        for status in [301, 401, 403, 410, 429, 500, 503] {
+            XCTAssertFalse(ReplayTransport.cachesStatus(status), "\(status)")
+        }
+        // A 403 is a miss, never an answer, and never one that is also kept.
+        XCTAssertTrue(ReplayTransport.refusesStatus(403))
+        for status in [200, 400, 401, 404, 429, 500] {
+            XCTAssertFalse(ReplayTransport.refusesStatus(status), "\(status)")
+        }
+        XCTAssertFalse(ReplayTransport.cachesStatus(403) && ReplayTransport.refusesStatus(403))
+    }
+
     func testTheLRCLIBGapCanOnlyBeSlowerThanTheTable() {
         XCTAssertEqual(ReplayTransport.gap(for: "lrclib.net"), ReplayTransport.minimumGap["lrclib.net"])
         XCTAssertEqual(ReplayTransport.gap(for: "itunes.apple.com"), 3.2)

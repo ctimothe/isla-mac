@@ -781,6 +781,21 @@ final class ReplayTransport: @unchecked Sendable {
     /// TRIP_AFTER is the same rule for the resolver).
     static let tripAfter = 3
 
+    /// The statuses a live answer is kept for: every 2xx, 400 (deterministic
+    /// for a URL) and 404 (LRCLIB's "no record"). The Python resolver caches
+    /// exactly this set (`common.CACHEABLE_STATUSES` and 2xx); the two sides
+    /// disagreed about 400, so a record run and its replay could differ.
+    static func cachesStatus(_ status: Int) -> Bool {
+        (200..<300).contains(status) || status == 400 || status == 404
+    }
+
+    /// A 403 is a gateway or a throttle refusing this client, not LRCLIB's
+    /// word on the URL. It is never cached and never reaches Isla as an
+    /// answer: it is logged and thrown as a miss, like a transport failure, so
+    /// the lookup reads `uncached` and the next record run asks again. In the
+    /// Python resolver it is a failed fetch.
+    static func refusesStatus(_ status: Int) -> Bool { status == 403 }
+
     private let root: URL
     private let record: Bool
     private let maxLive: Int?
@@ -997,7 +1012,11 @@ final class ReplayTransport: @unchecked Sendable {
                 log(MatchExchange(key: key, path: path, kind: .miss, status: status, cached: false, body: nil))
                 throw Miss()
             }
-            if (200..<300).contains(status) || status == 404 {
+            if Self.refusesStatus(status) {
+                log(MatchExchange(key: key, path: path, kind: .miss, status: status, cached: false, body: nil))
+                throw Miss()
+            }
+            if Self.cachesStatus(status) {
                 succeeded(url)
                 noteOutcome(url, refused: false)
                 try MatchLab.store(root, key: key, url: url.absoluteString, status: status, body: data)

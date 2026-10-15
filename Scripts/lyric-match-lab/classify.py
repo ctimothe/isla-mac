@@ -51,12 +51,13 @@ Verdicts (M1)
   miss-plain-only      nothing shown, the cluster has plain lyrics only
   miss-catalogue       nothing shown, nothing usable exists
   correct-none         an expected instrumental, nothing shown
-  failed-request       Isla's request drew a 4xx other than 404 and 429 (a deterministic
+  failed-request       Isla's request drew a 4xx other than 403, 404 and 429 (a deterministic
                        refusal of Isla's own request): an Isla outcome, a miss in usable
                        when a fit exists
   truth-uncertain      the track's anchors contradict each other (anchor-conflict): excluded
   truth-incomplete     no anchor and an LRCLIB query went unanswered: excluded
-  disputed             the harvest says instrumental, LRCLIB holds lyrics: excluded
+  disputed             the harvest and LRCLIB disagree about instrumental (either way) or
+                       LRCLIB's anchors disagree among themselves: excluded
   unreadable           taken as the harness reported it
   failed / uncached    no answer could be obtained (an environment failure): excluded
 
@@ -104,11 +105,14 @@ WRONG_RATE_VERDICTS = ("wrong-song", "correct-longer-cut", "uncertain")
 RECOVERABLE = ("miss-rejected", "miss-unqueried")
 # Verdicts about the truth, not about Isla: never in a denominator.
 EXCLUDED_TRUTH = ("truth-uncertain", "truth-incomplete", "disputed")
+# `instrumental_disagreement` values (resolve.truth_for) that make a track disputed.
+DISPUTES = ("harvest-none-lrclib-lyrics", "harvest-vocal-lrclib-instrumental", "mixed-anchor-flags")
 # Verdicts for which nothing can be said of Isla at all.
 NO_JUDGEMENT = ("failed", "uncached", "unrecovered")
-# HTTP statuses that are LRCLIB's ordinary answer or a rate limit, not a
-# refusal of Isla's request.
-BENIGN_STATUSES = (404, 429)
+# HTTP statuses that are LRCLIB's ordinary answer, a rate limit, or a gateway
+# refusing the lab's client (403: neither side caches it, and the harness reads
+# it as a miss, so it normally never appears), not a refusal of Isla's request.
+BENIGN_STATUSES = (403, 404, 429)
 DIAGNOSE = ("miss-rejected", "miss-unqueried", "miss-tolerance", "wrong-song", "uncertain",
             "correct-longer-cut", "alt-script", "unrecovered")
 MATCHED_VERDICTS = ("correct", "correct-longer-cut", "alt-script")
@@ -118,12 +122,14 @@ DEFAULT_REPORTS = "reports"
 # Section verdict thresholds, stated here so the report can print them.
 THRESHOLDS = {
     "M1": {"pass": "canonical accuracy >= 0.90, wrong rate <= 0.02, recoverable misses <= 0.02 of usable, "
-                   "and no lookup uncached",
+                   "no lookup uncached or unrecovered, and no unanswered LRCLIB query on an anchored track",
            "fail": "canonical accuracy < 0.75 or wrong rate > 0.05",
-           "incomplete": "the result would be a pass but at least one lookup is uncached: the missing "
-                         "answers could move it, so M1 reports accuracy bounds instead"},
-    "M2": {"pass": "no switched-wrong and lost <= 0.02 of the rows whose base pick is in the cluster, "
-                   "switched-alt <= 0.02 of the same (duration edges excluded)",
+           "incomplete": "the result would be a pass but a lookup is uncached or unrecovered, or an anchored "
+                         "track had an LRCLIB query go unanswered: the missing answers could move it, so M1 "
+                         "reports accuracy bounds [lower, upper] instead"},
+    "M2": {"pass": "no switched-wrong and lost <= 0.02 of the rows whose base pick is in the song (cluster "
+                   "or alt-script), switched-alt <= 0.02 of the same (duration edges excluded); "
+                   "wrong-to-wrong is reported and is in no threshold",
            "fail": "switched-wrong > 0.01 of applicable rows (rows where both base and pick are null "
                    "are not applicable)"},
     "M6": {"pass": "no variant loses more than 0.05 of the tracks canonical gets right "
@@ -252,19 +258,53 @@ class Truth:
                                               track.get("apple_us"))
         self.artists = resolve.identity_artists(self.harvest, track.get("apple"), track.get("deezer"),
                                                 track.get("apple_us"))
+        anchors = [c for c in self.candidates.values() if c.get("anchor")]
+        self.anchored = bool(anchors)
+        self.unanswered = any(str(n).startswith("lrclib-unanswered") for n in self.notes)
+        # The resolver's /api/get is Isla's own canonical query, so a record
+        # only that query returned can be the one anchor and make Isla's
+        # canonical pick correct by construction (second review, finding 11).
+        self.sole_anchor_from_get = bool(anchors) and all(c.get("source_queries") == ["get"] for c in anchors)
         self.anchor_fps: Dict[int, frozenset] = {}
-        group_scripts: List[str] = []
+        self.group_family = ""
+        self.same, self.wrong = oracle.thresholds("")
+        anchor_infos: Dict[int, dict] = {}
         for cid, cand in self.candidates.items():
             if cand.get("anchor") and cid in self.pool:
                 info = self.info(cid, self.pool[cid])
                 if info["fp"] and not info["instrumental"]:
-                    self.anchor_fps[cid] = info["fp"]
-                    group_scripts.append(info["script"])
-        self._set_family(group_scripts[0] if group_scripts else "")
+                    anchor_infos[cid] = info
+        # The family the oracle's cluster chose, not the first anchor's own
+        # dominant script: an anchor moved into the expected script keeps a
+        # different dominant one, and the thresholds and the alt-script test
+        # belong to the group (second review, finding 8). A tracks.jsonl from
+        # before the resolver wrote it is clustered again over its anchors.
+        family = self.truth.get("group_family") or ""
+        if not family and anchor_infos:
+            family = self._cluster_family(anchor_infos)
+        self._set_family(family)
+        self.anchor_fps = {cid: self.group_fp(info) for cid, info in anchor_infos.items()}
 
-    def _set_family(self, script: str) -> None:
-        self.group_family = oracle.script_family(script) if script else ""
+    def _cluster_family(self, anchor_infos: Dict[int, dict]) -> str:
+        pool = [{"id": rid, "fp": i["fp"], "text": i["text"], "script": i["script"],
+                 "script_weights": i["script_weights"], "instrumental": False}
+                for rid, i in anchor_infos.items()]
+        prefer = oracle.expected_script(self.harvest.get("language") or "", self.harvest.get("title") or "")
+        return oracle.cluster(pool, list(anchor_infos), prefer_script=prefer)["group_family"]
+
+    def _set_family(self, family: str) -> None:
+        self.group_family = family or ""
         self.same, self.wrong = oracle.thresholds(self.group_family)
+
+    def group_fp(self, info: dict) -> frozenset:
+        """The record's fingerprint in the group's family, so that it and the
+        anchors are shingled alike however each one's own script reads."""
+        if not info["fp"] or not self.group_family:
+            return info["fp"]
+        cache = info.setdefault("_fp_by_family", {})
+        if self.group_family not in cache:
+            cache[self.group_family] = oracle.fingerprint(info["text"], family=self.group_family)
+        return cache[self.group_family]
 
     def info(self, rid: int, row: dict) -> dict:
         cached = self.infos.get(rid)
@@ -280,7 +320,8 @@ class Truth:
         others = [fp for aid, fp in self.anchor_fps.items() if aid != rid]
         if not info["fp"] or not others:
             return None
-        return round(max(oracle.containment(info["fp"], fp) for fp in others), 3)
+        mine = self.group_fp(info)
+        return round(max(oracle.containment(mine, fp) for fp in others), 3)
 
     def promote(self, isla_rows_of_track: Dict[int, dict]) -> bool:
         """Anchor a track the resolver found no anchor for, from Isla's answers.
@@ -295,6 +336,11 @@ class Truth:
         """
         if self.status != "no-anchor" or not isla_rows_of_track:
             return False
+        # An unanswered query means the catalogue cannot be called empty or
+        # known: the track stays truth-incomplete however a record in Isla's
+        # answers looks (second review, finding 2a).
+        if any(str(n).startswith("lrclib-unanswered") for n in self.notes):
+            return False
         everything = dict(self.pool)
         for rid, row in isla_rows_of_track.items():
             everything.setdefault(rid, row)
@@ -304,7 +350,7 @@ class Truth:
         if not anchors:
             return False
         pool = [{"id": rid, "fp": frozenset() if i["instrumental"] else i["fp"], "script": i["script"],
-                 "script_weights": i["script_weights"], "instrumental": i["instrumental"]}
+                 "script_weights": i["script_weights"], "instrumental": i["instrumental"], "text": i["text"]}
                 for rid, i in infos.items()]
         prefer = oracle.expected_script(self.harvest.get("language") or "", self.harvest.get("title") or "")
         result = oracle.cluster(pool, anchors, prefer_script=prefer)
@@ -313,10 +359,9 @@ class Truth:
         self.pool = everything
         self.cluster = set(result["cluster_ids"])
         self.alt = set(result["alt_script_ids"])
-        self.anchor_fps = {aid: infos[aid]["fp"] for aid in result["anchor_ids"]
+        self._set_family(result["group_family"])
+        self.anchor_fps = {aid: self.group_fp(infos[aid]) for aid in result["anchor_ids"]
                            if aid in infos and infos[aid]["fp"]}
-        scripts = [infos[aid]["script"] for aid in result["anchor_ids"] if aid in infos and infos[aid]["fp"]]
-        self._set_family(scripts[0] if scripts else "")
         self.status = "truth-uncertain" if "anchor-conflict" in result["notes"] else "ok"
         self.promoted = True
         return True
@@ -324,12 +369,16 @@ class Truth:
     def exclusion(self) -> Optional[str]:
         """The track-level verdict that takes the track out of scoring, if any.
 
-        disputed: the harvest calls the song instrumental and LRCLIB holds lyrics
-        for it, so neither can be called the truth. truth-uncertain: the anchors
+        disputed: the harvest and LRCLIB disagree about whether the song has
+        words (the harvest says instrumental and LRCLIB holds lyrics, or the
+        harvest says vocal and LRCLIB's anchors are all instrumental, or the
+        anchors disagree among themselves), so neither side can be called the
+        truth; the resolver decided "instrumental" from one of them
+        (second review, finding 4). truth-uncertain: the anchors
         contradict each other. truth-incomplete: no anchor, and an LRCLIB query
         went unanswered, so the catalogue cannot be called empty.
         """
-        if self.truth.get("instrumental_disagreement") == "harvest-none-lrclib-lyrics":
+        if self.truth.get("instrumental_disagreement") in DISPUTES:
             return "disputed"
         if self.status == "truth-uncertain":
             return "truth-uncertain"
@@ -400,7 +449,9 @@ def judge(truth: Truth, lookup: dict, rows: Dict[int, dict]) -> dict:
     if lookup.get("chosen_ambiguous"):
         flags.append("ambiguous-recovery")
     if truth.promoted:
-        flags.append("anchor-promoted")
+        flags.append(PROMOTED_FLAG)
+    if truth.sole_anchor_from_get:
+        flags.append(SOLE_GET_FLAG)
 
     if outcome in ("unreadable", "uncached"):
         verdict = outcome
@@ -479,6 +530,18 @@ def judge(truth: Truth, lookup: dict, rows: Dict[int, dict]) -> dict:
         verdict = exclusion
 
     judged_usable = verdict not in NO_JUDGEMENT and verdict not in EXCLUDED_TRUTH
+    # Whether a right answer was within Isla's reach is a fact about the
+    # catalogue and the variant's length, decided before Isla's outcome is
+    # looked at (second review, finding 3). It used to let a `correct` verdict
+    # stand without any fit while every other outcome needed one, so the
+    # denominator grew with Isla's own successes.
+    truth_usable = (not expected_instrumental and status not in ("no-anchor", "truth-uncertain")
+                    and (bool(fit_identity_ids) or bool(overrun_ids)))
+    # A lookup that gave no answer, or none the harness could attribute, might
+    # have been usable: it bounds the accuracy (counts()). Tracks the truth
+    # never scores, and expected instrumentals, can not have been.
+    maybe_usable = (verdict in ("uncached", "unrecovered") and not expected_instrumental
+                    and exclusion is None and status != "truth-uncertain")
     return {
         "verdict": verdict, "flags": flags, "containment": containment,
         "fit_ids": fit_ids, "fit_identity_ids": fit_identity_ids, "near_ids": near_ids,
@@ -487,14 +550,13 @@ def judge(truth: Truth, lookup: dict, rows: Dict[int, dict]) -> dict:
         "cluster_ids": sorted(members), "alt_n": len(truth.alt),
         "chosen_info": infos.get(chosen_id) if chosen_id is not None else None,
         "infos": infos, "everything": everything, "members": members,
-        # A lookup is usable when a right answer was within Isla's reach: a
-        # fit record that also matches title and artist, an overrun-fit it
-        # missed, or the correct answer it gave. Environment failures, a
-        # lookup the harness could not attribute, and tracks whose truth is in
-        # doubt are not usable.
-        "usable": (not expected_instrumental and status not in ("no-anchor", "truth-uncertain")
-                   and judged_usable
-                   and (bool(fit_identity_ids) or verdict == "correct" or verdict in RECOVERABLE)),
+        # Usable: the truth holds an identity-matching fit record for the
+        # variant's length (or an identity-matching overrun-fit Isla would have
+        # shown flagged), and the lookup reached an answer on a track whose
+        # truth is not in doubt. A `correct` verdict without such a record is
+        # not usable; counts() reports it as `correct_without_fit`.
+        "usable": truth_usable and judged_usable,
+        "maybe_usable": maybe_usable,
     }
 
 
@@ -502,28 +564,56 @@ def judge(truth: Truth, lookup: dict, rows: Dict[int, dict]) -> dict:
 # Counting
 # --------------------------------------------------------------------------
 
-def counts(rows: List[dict]) -> dict:
-    """Headline figures (SPEC "Classification") for a set of lookup results."""
+PROMOTED_FLAG = "anchor-promoted"
+SOLE_GET_FLAG = "sole-anchor-from-get"
+
+
+def counts(rows: List[dict], keep_promoted: bool = False) -> dict:
+    """Headline figures (SPEC "Classification") for a set of lookup results.
+
+    Lookups of a track the classifier anchored itself from Isla's responses
+    (flag `anchor-promoted`) are counted apart, under `excluded_from_scoring`,
+    and are in no other figure: promotion rescued only tracks where Isla's own
+    responses held the record, so on those Isla could only be right or reject
+    what it saw, never fail to ask, and accuracy over them is inflated one way
+    (second review, finding 2). `keep_promoted` counts them, for the separate
+    `anchor_promoted` entry.
+    """
+    promoted = [r for r in rows if PROMOTED_FLAG in r["flags"]]
+    scored = rows if keep_promoted else [r for r in rows if PROMOTED_FLAG not in r["flags"]]
     verdicts: Dict[str, int] = {}
-    for r in rows:
+    for r in scored:
         verdicts[r["verdict"]] = verdicts.get(r["verdict"], 0) + 1
-    usable = [r for r in rows if r["usable"]]
+    usable = [r for r in scored if r["usable"]]
     correct = sum(1 for r in usable if r["verdict"] == "correct")
     shown = sum(verdicts.get(v, 0) for v in SHOWN)
     wrong = sum(verdicts.get(v, 0) for v in WRONG_RATE_VERDICTS)
     recoverable = sum(verdicts.get(v, 0) for v in RECOVERABLE)
     uncached = verdicts.get("uncached", 0)
+    unrecovered = verdicts.get("unrecovered", 0)
+    # Lookups that gave no answer, or none the harness could attribute, and
+    # might have been usable: the accuracy lies between counting every one as
+    # a usable miss and counting none of them.
+    unscorable = sum(1 for r in scored if r.get("maybe_usable"))
+    excluded = {v: verdicts[v] for v in EXCLUDED_TRUTH if verdicts.get(v)}
+    if promoted and not keep_promoted:
+        excluded["anchor-promoted"] = len(promoted)
     return {
         "lookups": len(rows),
         "usable": len(usable),
         "correct": correct,
         "accuracy": analysis.share(correct, len(usable)),
-        # An uncached lookup is a lookup the cache could not answer. The first
-        # figure ignores them; the second reads every one as a usable miss.
         "uncached": uncached,
+        "unrecovered": unrecovered,
+        "unscorable_possibly_usable": unscorable,
+        # A `correct` verdict on a lookup with no identity-matching fit record
+        # is not usable (the denominator is decided from the truth alone); it
+        # is counted here so it is not lost.
+        "correct_without_fit": sum(1 for r in scored if r["verdict"] == "correct" and not r["usable"]),
         "accuracy_bounds": {
+            "lower": analysis.share(correct, len(usable) + unscorable),
+            "upper": analysis.share(correct + unscorable, len(usable) + unscorable),
             "as_computed": analysis.share(correct, len(usable)),
-            "uncached_as_misses": analysis.share(correct, len(usable) + uncached),
         },
         "shown": shown,
         "wrong": wrong,
@@ -533,7 +623,7 @@ def counts(rows: List[dict]) -> dict:
             sum(1 for r in usable if r["verdict"] in RECOVERABLE), len(usable)),
         "text_only_misses": verdicts.get("miss-text-only", 0),
         "failed_request": verdicts.get("failed-request", 0),
-        "excluded_from_scoring": {v: verdicts[v] for v in EXCLUDED_TRUTH if verdicts.get(v)},
+        "excluded_from_scoring": excluded,
         "verdicts": dict(sorted(verdicts.items())),
     }
 
@@ -558,21 +648,30 @@ def section(verdict: str, summary: str, **data) -> dict:
 
 def perturbation_section(rows: List[dict], clusters: Dict[str, set], alts: Optional[Dict[str, set]] = None) -> dict:
     """M2 buckets. `base` is the pick for the unperturbed identity, `picked`
-    the pick for the perturbed one.
+    the pick for the perturbed one. A pick is "in the song" when it is in the
+    cluster or an alt-script record of it; the cluster alone is "in the cluster".
 
-      kept            same pick, or both in the cluster
-      lost            base in the cluster, nothing picked
-      switched-ok     base outside the cluster, pick inside
+      kept            same pick; or base and pick both in the song (alt-script
+                      counts as the song on the base side: nothing is lost in
+                      moving between its records)
+      lost            base in the song, nothing picked
+      switched-ok     base outside the song, pick in the cluster or alt-script (a wrong
+                      base replaced by the right song)
       switched-alt    base in the cluster, pick an alt-script record
-      switched-wrong  base in the cluster, pick outside it and not alt-script;
-                      or base null and the pick outside the cluster
+      switched-wrong  base in the song, pick outside it; or base null and the
+                      pick not in the cluster
+      wrong-to-wrong  base outside the song, a different pick outside it: the
+                      matcher was wrong before and still is, which the
+                      perturbation did not cause. Not in the verdict thresholds
       found-new       base null, pick in the cluster (a good outcome)
-      dropped-wrong   base outside the cluster, nothing picked (a good outcome)
+      dropped-wrong   base outside the song, nothing picked (a good outcome)
 
     A row with both picks null is not applicable. `lost` is divided by the rows
-    whose base pick is in the cluster, since only those had anything to lose.
+    whose base pick is in the song (the cell key `base_in_cluster` counts them),
+    since only those had anything to lose.
     """
-    buckets = ("kept", "lost", "switched-wrong", "switched-ok", "switched-alt", "found-new", "dropped-wrong")
+    buckets = ("kept", "lost", "switched-wrong", "switched-ok", "switched-alt", "found-new", "dropped-wrong",
+               "wrong-to-wrong")
     alts = alts or {}
     per: Dict[str, dict] = {}
     both_null = 0
@@ -587,22 +686,30 @@ def perturbation_section(rows: List[dict], clusters: Dict[str, set], alts: Optio
         if base is None and picked is None:
             both_null += 1
             continue
+        base_in_song = base is not None and (base in cluster or base in alt)
         if picked == base:
             outcome = "kept"
         elif base is None:
             outcome = "found-new" if picked in cluster else "switched-wrong"
         elif picked is None:
-            outcome = "lost" if base in cluster else "dropped-wrong"
+            outcome = "lost" if base_in_song else "dropped-wrong"
         elif picked in cluster:
-            outcome = "kept" if base in cluster else "switched-ok"
-        elif base in cluster and picked in alt:
-            outcome = "switched-alt"
-        else:
+            outcome = "kept" if base_in_song else "switched-ok"
+        elif picked in alt:
+            if base in cluster:
+                outcome = "switched-alt"
+            elif base in alt:
+                outcome = "kept"
+            else:
+                outcome = "switched-ok"      # a wrong base replaced by the right song in another script
+        elif base_in_song:
             outcome = "switched-wrong"
+        else:
+            outcome = "wrong-to-wrong"
         cell = per.setdefault(r["perturbation"], {"applicable": 0, "base_in_cluster": 0, **{b: 0 for b in buckets},
                                                  "examples": {"lost": [], "switched-wrong": []}})
         cell["applicable"] += 1
-        cell["base_in_cluster"] += 1 if base is not None and base in cluster else 0
+        cell["base_in_cluster"] += 1 if base_in_song else 0
         cell[outcome] += 1
         if outcome in ("lost", "switched-wrong") and len(cell["examples"][outcome]) < 5:
             cell["examples"][outcome].append(r["track_id"])
@@ -839,6 +946,7 @@ def run(root: str, results_name: str = DEFAULT_RESULTS, reports_name: str = DEFA
     selection = analysis.SelectionStudy()
     selection_duplicates = analysis.DuplicateTally()
     promoted_tracks = 0
+    unanswered_anchored = 0
     coverage: Dict[str, dict] = {}
     consensus_cache: Dict[tuple, Dict] = {}
 
@@ -849,6 +957,8 @@ def run(root: str, results_name: str = DEFAULT_RESULTS, reports_name: str = DEFA
             params_mismatch += 1
         harvest = truth.harvest
         track_lookups = by_track.get(tid, [])
+        if track_lookups and truth.anchored and truth.unanswered:
+            unanswered_anchored += 1
         responses = [isla_rows(root, lookup) for lookup in track_lookups]
         if truth.status == "no-anchor":
             merged: Dict[int, dict] = {}
@@ -885,6 +995,7 @@ def run(root: str, results_name: str = DEFAULT_RESULTS, reports_name: str = DEFA
                 "near_n": len(j["near_ids"]), "isla_saw_fit": j["isla_saw_fit"],
                 "cluster_n": len(j["cluster_ids"]), "alt_n": len(truth.alt),
                 "notes": truth.truth.get("notes") or [], "usable": j["usable"],
+                "maybe_usable": j["maybe_usable"],
             }
             results.append(result)
             if variant == "canonical" and j["verdict"] == "wrong-song":
@@ -977,7 +1088,12 @@ def run(root: str, results_name: str = DEFAULT_RESULTS, reports_name: str = DEFA
     canonical = [r for r in results if r["variant"] == "canonical"]
     m1_counts = counts(results)
     canon_counts = counts(canonical)
-    uncached_total = m1_counts["uncached"]
+    promoted_rows = [r for r in results if PROMOTED_FLAG in r["flags"]]
+    # A pass needs every answer. A lookup the cache could not answer, one the
+    # harness could not attribute, or an LRCLIB query of the resolver's that
+    # went unanswered on a track that has an anchor could each move the
+    # figures, so the result is incomplete (second review, finding 5).
+    unscored_total = m1_counts["uncached"] + m1_counts["unrecovered"]
     if not results:
         m1 = section("info", f"no lookups: {results_name}/isla-lookups.jsonl is absent or empty")
     else:
@@ -987,23 +1103,26 @@ def run(root: str, results_name: str = DEFAULT_RESULTS, reports_name: str = DEFA
         elif acc < 0.75 or (wr or 0) > 0.05:
             verdict = "fail"
         elif acc >= 0.90 and (wr or 0) <= 0.02 and (rec or 0) <= 0.02:
-            # A pass needs every answer. Lookups the cache could not answer
-            # could move any of these figures, so the result is incomplete.
-            verdict = "incomplete" if uncached_total else "pass"
+            verdict = "incomplete" if (unscored_total or unanswered_anchored) else "pass"
         else:
             verdict = "concern"
         slice_cut = cut(canonical, lambda r: r["slice"])
         worst = min(((k, v["accuracy"]) for k, v in slice_cut.items() if v["accuracy"] is not None),
                     key=lambda kv: kv[1], default=None)
+        bounds = canon_counts["accuracy_bounds"]
         m1 = section(
             verdict,
             f"{len(results)} lookups ({len(canonical)} canonical). Canonical accuracy "
             f"{_pct(acc)} of {canon_counts['usable']} usable, wrong rate {_pct(wr)} of {canon_counts['shown']} shown, "
             f"recoverable misses {canon_counts['recoverable_misses']} ({_pct(rec)} of usable)"
             + (f"; weakest slice {worst[0]} at {_pct(worst[1])}" if worst else "")
-            + (f"; {uncached_total} lookups uncached, canonical accuracy between "
-               f"{_pct(canon_counts['accuracy_bounds']['uncached_as_misses'])} (uncached as misses) and "
-               f"{_pct(canon_counts['accuracy_bounds']['as_computed'])}" if uncached_total else "")
+            + (f"; {canon_counts['unscorable_possibly_usable']} canonical lookups uncached or unrecovered, "
+               f"canonical accuracy in [{_pct(bounds['lower'])}, {_pct(bounds['upper'])}]"
+               if canon_counts["unscorable_possibly_usable"] else "")
+            + (f"; {unscored_total} lookups uncached or unrecovered, accuracy over every lookup in "
+               f"[{_pct(m1_counts['accuracy_bounds']['lower'])}, {_pct(m1_counts['accuracy_bounds']['upper'])}]"
+               if unscored_total else "")
+            + (f"; {unanswered_anchored} anchored tracks had an LRCLIB query go unanswered" if unanswered_anchored else "")
             + (f"; excluded from scoring: {m1_counts['excluded_from_scoring']}"
                if m1_counts["excluded_from_scoring"] else "")
             + ".",
@@ -1012,12 +1131,19 @@ def run(root: str, results_name: str = DEFAULT_RESULTS, reports_name: str = DEFA
             excluded_from_scoring={"overall": m1_counts["excluded_from_scoring"],
                                    "canonical": canon_counts["excluded_from_scoring"]},
             anchor_promoted_tracks=promoted_tracks,
+            # The promoted tracks' lookups, scored as they would have been:
+            # not in the headline above or any cut below.
+            anchor_promoted=counts(promoted_rows, keep_promoted=True),
+            lrclib_unanswered_tracks=unanswered_anchored,
             by_slice=cut(results, lambda r: r["slice"]),
             by_variant=cut(results, lambda r: r["variant"]),
             by_slice_variant=cut(results, lambda r: f"{r['slice']} | {r['variant']}"),
             by_pick=cut(results, lambda r: r["pick"]),
             by_tag=cut(results, lambda r: r["tags"] or ["(none)"]),
             by_script_family=cut(results, lambda r: r["script_family"]),
+            # Accuracy with and without the tracks whose every anchor only
+            # Isla's own canonical query (/api/get) returned.
+            by_sole_anchor_from_get=cut(results, lambda r: "yes" if SOLE_GET_FLAG in r["flags"] else "no"),
             unjudged=[{"track_id": r["track_id"], "variant": r["variant"], "chosen_id": r["chosen_id"]}
                       for r in results if r["verdict"] == "unjudged"][:200],
             flag_counts=_flag_counts(results),
