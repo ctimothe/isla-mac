@@ -81,6 +81,8 @@ final class MediaKeyHUD: ObservableObject {
     private var lastRebuild: TimeInterval?
 
     private var tap: MediaKeyTapping?
+    /// When the current tap was made, for `panelOpened()`.
+    private var tapCreatedAt: TimeInterval?
     private var cancelPoll: (() -> Void)?
     /// The display is asleep or the Mac is locked: nobody can grant a
     /// permission, so the poll stays down.
@@ -156,6 +158,25 @@ final class MediaKeyHUD: ObservableObject {
             stopTap()
             if missing { startPolling() } else { stopPolling() }
         }
+    }
+
+    /// The panel is opening: looks again as `refresh()` does, then renews a tap
+    /// older than `rebuildInterval`. The case: Accessibility is revoked and
+    /// re-granted between two looks with no disabled notice, so trust reads
+    /// true both times (`regained` is false) and a tap that still reports
+    /// itself enabled but hears nothing would never be replaced; the media keys
+    /// would stay with macOS until the setting is toggled. Only this caller
+    /// does it, and a tap younger than the interval is left alone, so it never
+    /// rebuilds more than once per `rebuildInterval`. Holds are cleared, as
+    /// `stopTap` always does.
+    func panelOpened() {
+        refresh()
+        guard isEnabled(), trust.isTrusted(), tap != nil else { return }
+        let moment = now()
+        guard let created = tapCreatedAt, moment - created >= Self.rebuildInterval else { return }
+        stopTap()
+        lastRebuild = moment
+        startTap()
     }
 
     /// The display went to sleep, or the Mac locked: stop waiting for a
@@ -310,6 +331,7 @@ final class MediaKeyHUD: ObservableObject {
         // changes; the next panel opening tries again.
         guard created.start() else { return }
         tap = created
+        tapCreatedAt = now()
         // Resolved here, once per tap, and never by a press: loading the
         // brightness frameworks is the slowest thing a key could trigger.
         applier.prepare()
@@ -318,6 +340,7 @@ final class MediaKeyHUD: ObservableObject {
     private func stopTap() {
         tap?.stop()
         tap = nil
+        tapCreatedAt = nil
         holds.removeAll()
     }
 

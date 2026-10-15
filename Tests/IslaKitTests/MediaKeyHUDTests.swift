@@ -301,6 +301,54 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(taps.created, 3)
     }
 
+    func testPanelOpenRenewsATapOlderThanFiveSeconds() {
+        let hud = hud()
+        on(hud)
+        moment += 10
+        hud.panelOpened()
+        XCTAssertEqual(taps.created, 2)
+        XCTAssertTrue(hud.isTapped)
+    }
+
+    func testPanelOpenLeavesATapYoungerThanFiveSecondsAlone() {
+        let hud = hud()
+        on(hud)
+        moment += 2
+        hud.panelOpened()
+        XCTAssertEqual(taps.created, 1)
+    }
+
+    func testTwoPanelOpensOneSecondApartRebuildOnce() {
+        let hud = hud()
+        on(hud)
+        moment += 10
+        hud.panelOpened()
+        moment += 1
+        hud.panelOpened()
+        XCTAssertEqual(taps.created, 2)
+    }
+
+    func testPanelOpenMakesNoTapWhileOffOrUntrusted() {
+        let hud = hud()
+        enabled = false
+        trust.trusted = true
+        moment += 10
+        hud.panelOpened()
+        XCTAssertEqual(taps.created, 0)
+        enabled = true
+        trust.trusted = false
+        hud.panelOpened()
+        XCTAssertEqual(taps.created, 0)
+    }
+
+    func testThePollRefreshNeverRenewsAnOldTap() {
+        let hud = hud()
+        on(hud)
+        moment += 10
+        hud.refresh()
+        XCTAssertEqual(taps.created, 1)
+    }
+
     // MARK: Consuming
 
     func testAKeyIsConsumedOnlyWhenIslaAppliedIt() {

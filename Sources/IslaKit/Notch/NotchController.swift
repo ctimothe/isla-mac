@@ -1782,7 +1782,7 @@ final class NotchController {
             // the panel opening is one of the moments trust is re-read.
             hudFoldWork?.cancel()
             hudFoldWork = nil
-            stores.hud.refresh()
+            stores.hud.panelOpened()
             withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = true }
             // Only for the tab that draws the clock. Opening onto Settings or
             // the Shelf leaves it off; the tab sink in `build` starts it the
