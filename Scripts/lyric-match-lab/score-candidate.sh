@@ -17,6 +17,11 @@
 # <root>/cf-<name>-reports/, beside the baseline's results/ and reports/,
 # which are only read.
 #
+# The baseline it is compared with is <root>/reports and <root>/results unless
+# BASE_REPORTS and BASE_RESULTS name others: score the control first and pass
+# BASE_REPORTS=cf-control-reports BASE_RESULTS=cf-control, so every candidate
+# is compared with a replay of the unpatched code over the very same cache.
+#
 # The patch touches Sources/ in the scratch worktree alone. The lab branch
 # itself never changes Sources/ (SPEC "The gate"): the candidates are evidence
 # for later fixes, kept as patches under docs/audits/.../candidates/.
@@ -59,5 +64,6 @@ if [ ! -s "$LAB/$OUT/isla-lookups.jsonl" ]; then
   exit 1
 fi
 python3 "$HERE/classify.py" --root "$LAB" --results "$OUT" --reports "$REPORTS" >/dev/null || exit 1
-python3 "$HERE/compare.py" --root "$LAB" --base reports --candidate "$REPORTS" --candidate-results "$OUT"
+python3 "$HERE/compare.py" --root "$LAB" --base "${BASE_REPORTS:-reports}" --base-results "${BASE_RESULTS:-results}" \
+  --candidate "$REPORTS" --candidate-results "$OUT"
 exit $((STATUS != 0))
