@@ -1098,4 +1098,7 @@ ISLA_LYRIC_CORPUS=<corpus> ISLA_LYRIC_REPORT=<root>/reports/m4-<corpus>.json \
 Limits: the 2026-10-11 corpus picked about 25 records per category, and the
 pool holds every synced upload on the cached pages of three slices, several
 per song. A share is a share of records, not of distinct songs. The figures
-describe the layout of the branch the lab runs on (the redesign, R1–R5).
+describe the layout of the branch the lab runs on (the redesign, R1–R5), which
+cuts every row at one line. `main` (0.3.0) lets a stage row wrap to two
+(`lineLimit: 2`), so the same run there would measure a different thing:
+the lines that need a third row.

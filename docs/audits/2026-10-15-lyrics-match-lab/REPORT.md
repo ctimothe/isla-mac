@@ -20,10 +20,11 @@ owed" says what each open measurement needs.
   two corpora, 2 of 1,441 records do. Isla's word karaoke needs word timing,
   so for online lyrics it almost never runs. A matcher change cannot fix that;
   a source with word timing can.
-- **Long lyric lines lose their ending on screen.** At the default panel
-  width, the lyric column beside the cover cuts 13 to 19 % of lines at the
-  tail, and two songs in three have at least one cut line. Fast rap loses
-  46 % of its line endings there. The full-width lyric page cuts about 2 %.
+- **The redesign cuts long lyric lines short.** At the default panel width,
+  the lyric column beside the cover cuts 13 to 19 % of lines at the tail, and
+  two songs in three have at least one cut line. Fast rap loses 46 % of its
+  line endings there. The full-width lyric page cuts about 2 %. The shipped
+  0.3.0 wraps such a line instead, so this is new in the unmerged redesign.
 - **Isla's own line-timing arithmetic is exact.** M5 tested it on 901 new
   records (46,765 lines) and on the 540-record corpus of 2026-10-11:
   - Isla reads every stamp to the millisecond.
@@ -208,11 +209,21 @@ A fake transport in a unit test covers this without any LRCLIB traffic.
 
 ### 3. Long lines lose their ending on screen (M4)
 
-Every lyric surface draws one line and cuts a longer one at its tail with an
-ellipsis: the stage's rows (`LyricsStage.swift:613`, `LyricRow.swift:372-373`)
-and the player's band (`KaraokeText.swift:121,167-168`). The lab laid out
-every line of the 1,432 records Isla accepts in both corpora, in the fonts and
-widths the code defines on this branch (the redesign, R1–R5):
+On this branch, the panel's lyric surfaces draw one line and cut a longer one
+at its tail with an ellipsis: the stage's rows (`LyricsStage.swift:613`,
+`LyricRow.swift:372-373`) and the player's band
+(`KaraokeText.swift:121,167-168`).
+
+**This is new in the redesign (R1–R5, not merged).** On `main` (0.3.0) the
+stage lets a long line wrap to two rows (`lineLimit: 2`). On 2026-10-11 the
+lock card was changed to wrap its sung line the same way, because a cut sung
+line on the lock screen beside a whole one on the stage was a defect (H-019,
+`LockScreenCard.swift:1593-1625`). The lock card still wraps. The redesign
+spec fixes the line pitch (23 pt in the column, 34 on the tall page; §5.1)
+and says nothing about a line too long for its row.
+
+The lab laid out every line of the 1,432 records Isla accepts in both
+corpora, in the fonts and widths the code defines on this branch:
 
 | Surface, panel width | Lines cut, 2026-10-11 corpus | Songs with a cut line | Lines cut, pool | Songs with a cut line |
 |---|---|---|---|---|
@@ -417,11 +428,13 @@ In order:
 
 1. **Handle 429 apart from failures (F-H).** This protects every listener, not
    just the lab, and needs no LRCLIB traffic to build or test.
-2. **Let a long line show its ending (finding 3).** This reaches every
-   listener who has lyrics on, needs no network, and the measurement reruns
-   in seconds. How is the owner's design call: the sung line could take a
-   second row, the column could widen while lyrics show, or a cut line could
-   slide to show its tail. The redesign spec's decision 6 holds under each
+2. **Before the redesign merges, let a long line show its ending
+   (finding 3).** This reaches every listener who has lyrics on, needs no
+   network, and the measurement reruns in seconds. How is the owner's design
+   call. A long line could take a second row: 0.3.0's stage lets every line
+   wrap to two rows, and the lock card gives its sung line a second row by
+   showing one neighbour fewer on each side (H-019). Or the column could
+   widen while lyrics show, or a cut line could slide to show its tail. The redesign spec's decision 6 holds under each
    (`docs/plans/2026-10-15-redesign-spec.md`, §0: the sung line keeps its
    neighbours' size, set apart by weight and brightness). The spec settles no
    rule for a line too long for its row. The same change should settle the
