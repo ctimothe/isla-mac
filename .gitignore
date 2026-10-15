@@ -4,3 +4,7 @@ build/
 .parity/
 .check-logs/
 .DS_Store
+
+# Python bytecode from the lab scripts under Scripts/
+__pycache__/
+*.pyc

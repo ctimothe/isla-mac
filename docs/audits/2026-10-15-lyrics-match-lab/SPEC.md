@@ -119,11 +119,14 @@ reports/rows.csv               Python classifier: one row per lookup with its ve
 
   | Host | Gap |
   |---|---|
-  | `lrclib.net` | 0.6 s |
+  | `lrclib.net` | 1.0 s (raised from 0.6 s on 2026-10-15: both dev runs drew 429s at 0.6 s) |
+  | `lrclib.net/api/search` | 7.5 s, on top of the host's 1.0 s (added 2026-10-15: the search endpoint answered 429 whenever requests came closer than about 6 s apart, which reads as about ten a minute) |
   | `itunes.apple.com` | 3.2 s |
   | `api.deezer.com` | 0.25 s |
 
-  - Retry 429 and 5xx up to 3 times, backing off 2, 8 and 30 s.
+  - Retry 429 and 5xx up to 3 times, backing off 2, 8 and 30 s. (Amended
+    2026-10-15: a 429 backs off 30, 60 and 120 s instead. LRCLIB's limiter
+    counts the requests it refuses, so quick retries only extended the ban.)
   - The resolver and the Swift harness never run against LRCLIB at the same
     time.
   - The lab's own requests send the User-Agent
@@ -307,6 +310,32 @@ For each harvested track:
 8. **Word timing.** Every candidate whose `lyricsfile` holds word entries, or
    whose `syncedLyrics` holds `<mm:ss.xx>` word tags, is written under
    `wordtimed/<slice>/<id>.json`, whether it is same-song or not.
+
+> **Amended 2026-10-15 (after the harvest).** The harvest delivered 465
+> tracks, which fell short of the plan in four ways:
+> - 149 have no album and 130 no year;
+> - only 16 of the 58 non-Latin titles carry a Latin form;
+> - 2 tracks appear twice;
+> - only 32 are instrumental.
+>
+> The resolution changes as follows:
+> - **Duplicates.** A track whose normalized title and primary artist repeat
+>   an earlier one goes to `dropped.jsonl` as `duplicate`.
+> - **Canonical album.** `canonical` takes the harvest album, else Apple's
+>   `collectionName`, else Deezer's album. This keeps the album-less request
+>   out of the canonical figures; the `no-album` variant measures it instead.
+> - **New variant `no-album`.** This is `canonical` with the album empty, for
+>   every fourth track (index % 4 == 0). Players that report no album do
+>   exist: browsers and radio. Isla then omits `album_name` from `/api/get`.
+> - **New variant `apple-us`.** This is the iTunes result from the `us`
+>   storefront, for tracks resolved in another storefront whose US title or
+>   artist differs. It is what an English-locale account sees, and is often
+>   romanised.
+> - **Oracle aliases.** The Latin forms of a track now include a
+>   deterministic BGN/PCGN transliteration of Cyrillic titles and artists,
+>   and the `apple-us` names. Without them, Latin-only LRCLIB uploads of a
+>   Cyrillic song had no anchor. These aliases feed anchor matching only.
+>   They never become a variant, except where the harvest gave a Latin form.
 
 ## The Swift harness (`Tests/IslaKitTests/LyricMatchLab*.swift`, `Scripts/lyric-match-lab.sh`)
 
