@@ -37,8 +37,22 @@ struct HUDReading: Equatable {
     var level: Float
     var muted: Bool
     /// The output device's own glyph (`AudioOutputs.symbol`), for the volume
-    /// only; nil for the two brightnesses.
+    /// only; nil for the two brightnesses. The applier never fills it: finding
+    /// it walks CoreAudio, which the tap's callback must not do (each press used
+    /// to enumerate every audio device inside the tap just to pick a glyph).
+    /// `MediaKeyHUD` fills it after the callback has returned.
     var deviceSymbol: String?
+    /// The device the volume was applied to, so the glyph can be looked up
+    /// after the callback. Nil for the two brightnesses.
+    var outputDevice: AudioDeviceID?
+
+    init(kind: HUDKind, level: Float, muted: Bool, deviceSymbol: String?, outputDevice: AudioDeviceID? = nil) {
+        self.kind = kind
+        self.level = level
+        self.muted = muted
+        self.deviceSymbol = deviceSymbol
+        self.outputDevice = outputDevice
+    }
 }
 
 /// The arithmetic of a press. Pure: steps, clamping and what mute does to the
@@ -82,6 +96,24 @@ enum HUDStep {
 
 // MARK: - The volume
 
+/// The default output as one reading: which device it was, and its level and
+/// mute. The device id travels with the numbers so the write can go to the
+/// device the numbers came from.
+struct VolumeState: Equatable {
+    var device: AudioDeviceID
+    var level: Float
+    var muted: Bool
+}
+
+/// How a volume write ended.
+enum VolumeWriteResult: Equatable {
+    case written
+    /// The default output is no longer the device the level was read from
+    /// (AirPods connected between the read and the write). Nothing was written.
+    case deviceChanged
+    case failed
+}
+
 /// The default output's volume and mute, read and written. A seam over
 /// `SystemVolume`, so a test never touches a real device.
 @MainActor
@@ -89,9 +121,13 @@ protocol VolumeOutput {
     /// The level and mute of the default output, or nil when it has no volume
     /// Isla can set — an HDMI output, a fixed-level DAC — and the keys are
     /// left to the system, which has a way to move those that Isla does not.
-    func read() -> (level: Float, muted: Bool, deviceSymbol: String?)?
-    /// Whether every write needed landed. Writes only what changed.
-    func write(level: Float, muted: Bool, from old: (level: Float, muted: Bool)) -> Bool
+    func read() -> VolumeState?
+    /// Writes only what changed, and only to `old.device`, and only while that
+    /// is still the default output: a level worked out from one device must
+    /// never land on another. This used to read the device, compute, and then
+    /// write to "whatever is default now", so a press that straddled AirPods
+    /// connecting could set the headphones to the speakers' level.
+    func write(level: Float, muted: Bool, from old: VolumeState) -> VolumeWriteResult
 }
 
 /// `VolumeOutput` over CoreAudio, through the same `SystemVolume` the lock
@@ -99,22 +135,22 @@ protocol VolumeOutput {
 struct SystemVolumeOutput: VolumeOutput {
     nonisolated init() {}
 
-    func read() -> (level: Float, muted: Bool, deviceSymbol: String?)? {
+    func read() -> VolumeState? {
         guard let device = AudioOutputs.current(), let level = SystemVolume.level(device: device) else {
             return nil
         }
-        let symbol = AudioOutputs.available().first { $0.id == device }?.symbol
-        return (level, SystemVolume.isMuted(device: device), symbol)
+        return VolumeState(device: device, level: level, muted: SystemVolume.isMuted(device: device))
     }
 
-    func write(level: Float, muted: Bool, from old: (level: Float, muted: Bool)) -> Bool {
-        guard let device = AudioOutputs.current() else { return false }
+    func write(level: Float, muted: Bool, from old: VolumeState) -> VolumeWriteResult {
+        guard AudioOutputs.current() == old.device else { return .deviceChanged }
+        let device = old.device
         // Mute first, then the level: a level written under a mute is silent
         // until the mute lifts, and a mute with nowhere to land (a device with
         // no mute control) must refuse before the level has moved.
-        if muted != old.muted, !SystemVolume.setMuted(muted, device: device) { return false }
-        if level != old.level, !SystemVolume.set(level, device: device) { return false }
-        return true
+        if muted != old.muted, !SystemVolume.setMuted(muted, device: device) { return .failed }
+        if level != old.level, !SystemVolume.set(level, device: device) { return .failed }
+        return .written
     }
 }
 
@@ -165,15 +201,42 @@ struct DisplayServicesResolver: DisplayBrightnessResolver {
     }
 }
 
-/// The built-in display, if one is active (`CGDisplayIsBuiltin` over the
-/// active list). A Mac in clamshell mode on a monitor has none, and an
-/// external display's brightness is not DisplayServices' to set.
+/// The displays as the brightness key sees them.
+struct DisplayTopology: Equatable {
+    var builtIn: CGDirectDisplayID?
+    var active: [CGDirectDisplayID]
+    var main: CGDirectDisplayID
+}
+
+/// Which display a brightness key may move.
+///
+/// Only the built-in one, and only when that is what the person is looking at:
+/// the built-in display is the only active one, or it is the main display.
+/// With an external monitor as the main display, the key belongs to the system,
+/// which routes it to the right monitor (DDC or the monitor's own control);
+/// Isla used to dim the closed laptop lid's panel from under an external
+/// monitor. No built-in display at all (clamshell on a monitor) is the same
+/// answer. A Mac in clamshell mode, and an external display's brightness, are
+/// not DisplayServices' to set from here.
 enum BuiltInDisplay {
-    static func current() -> CGDirectDisplayID? {
+    /// Pure, so each arrangement is a test.
+    static func target(_ topology: DisplayTopology) -> CGDirectDisplayID? {
+        guard let builtIn = topology.builtIn, topology.active.contains(builtIn) else { return nil }
+        return topology.active == [builtIn] || topology.main == builtIn ? builtIn : nil
+    }
+
+    /// The live arrangement: the active list and the main display, two cheap
+    /// reads that happen only for a brightness key.
+    static func topology() -> DisplayTopology {
         var count: UInt32 = 0
         var ids = [CGDirectDisplayID](repeating: 0, count: 16)
-        guard CGGetActiveDisplayList(UInt32(ids.count), &ids, &count) == .success else { return nil }
-        return ids.prefix(Int(count)).first { CGDisplayIsBuiltin($0) != 0 }
+        let listed = CGGetActiveDisplayList(UInt32(ids.count), &ids, &count) == .success
+        let active = listed ? Array(ids.prefix(Int(count))) : []
+        return DisplayTopology(
+            builtIn: active.first { CGDisplayIsBuiltin($0) != 0 },
+            active: active,
+            main: CGMainDisplayID()
+        )
     }
 }
 
@@ -194,10 +257,12 @@ protocol KeyboardBrightnessResolver {
 /// after loading the private framework. The two selectors it cannot work
 /// without — `brightnessForKeyboard:` and `setBrightness:forKeyboard:` — are
 /// checked with `responds(to:)` before anything is called, and the keyboard
-/// id comes from `copyKeyboardBacklightIDs` where the class has it (a Mac with
-/// no backlight answers an empty list, which is no client at all). Anything
-/// missing resolves to nil, and the two illumination keys are then left to the
-/// system.
+/// id comes from `copyKeyboardBacklightIDs` and from nowhere else: a class
+/// without that selector, an answer that is not a list, an empty list (a Mac
+/// with no backlight) and a list with no number in it are all *no client*, and
+/// the two illumination keys are then left to the system. The resolver used to
+/// guess keyboard id 1 when the list could not be had, which consumed the
+/// illumination keys on a Mac that has no backlight to move.
 struct CoreBrightnessResolver: KeyboardBrightnessResolver {
     static let frameworkPath = "/System/Library/PrivateFrameworks/CoreBrightness.framework"
 
@@ -223,6 +288,14 @@ struct CoreBrightnessResolver: KeyboardBrightnessResolver {
         }
     }
 
+    /// The keyboard to drive, from what `copyKeyboardBacklightIDs` answered.
+    /// Pure, so "no list, no client" is held by a test without the private
+    /// framework.
+    static func keyboardID(responds: Bool, list: Any?) -> UInt64? {
+        guard responds, let list = list as? [Any], let first = list.first as? NSNumber else { return nil }
+        return first.uint64Value
+    }
+
     func resolve() -> KeyboardBrightnessClient? {
         guard Bundle(path: Self.frameworkPath)?.load() == true,
               let cls = NSClassFromString("KeyboardBrightnessClient") as? NSObject.Type else { return nil }
@@ -231,14 +304,10 @@ struct CoreBrightnessResolver: KeyboardBrightnessResolver {
               let getMethod = class_getInstanceMethod(cls, Self.getSelector),
               let setMethod = class_getInstanceMethod(cls, Self.setSelector) else { return nil }
 
-        var keyboard: UInt64 = 1
         let idsSelector = NSSelectorFromString("copyKeyboardBacklightIDs")
-        if object.responds(to: idsSelector),
-           let list = object.perform(idsSelector)?.takeRetainedValue() as? [Any] {
-            // An empty list is a Mac with no keyboard backlight.
-            guard let first = list.first as? NSNumber else { return nil }
-            keyboard = first.uint64Value
-        }
+        let responds = object.responds(to: idsSelector)
+        let list = responds ? object.perform(idsSelector)?.takeRetainedValue() : nil
+        guard let keyboard = Self.keyboardID(responds: responds, list: list) else { return nil }
         return Client(
             object: object, keyboard: keyboard,
             get: unsafeBitCast(method_getImplementation(getMethod), to: GetIMP.self),
@@ -252,41 +321,58 @@ struct CoreBrightnessResolver: KeyboardBrightnessResolver {
 /// Applies a decoded key to the Mac, or declines.
 @MainActor
 protocol MediaKeyApplying {
+    /// Called once each time the tap starts, never from a press: resolves the
+    /// private-framework clients (loading the frameworks, making objects) so the
+    /// tap's callback never does. A client that is missing now stays missing
+    /// until the next `prepare()`, i.e. until the tap is restarted.
+    func prepare()
     /// The level after the key, or nil when Isla cannot apply it — in which
     /// case the event is passed to the system untouched.
     func apply(_ key: MediaKey, fine: Bool) -> HUDReading?
 }
 
 /// The real applier. Each of the three families has its own refusal: no
-/// settable volume, no built-in display or no DisplayServices, no CoreBrightness
+/// settable volume (or the default output changed under the press), no
+/// built-in display the person is using or no DisplayServices, no CoreBrightness
 /// client. A refusal means *the system keeps the key* and shows its own pop-up
 /// (spec §12: a missing private symbol degrades, never breaks).
 @MainActor
 final class SystemLevelApplier: MediaKeyApplying {
     private let volume: VolumeOutput
     private let displays: DisplayBrightnessResolver
-    private let builtInDisplay: () -> CGDirectDisplayID?
+    private let topology: () -> DisplayTopology
     private let keyboards: KeyboardBrightnessResolver
-    /// A client once found is kept: resolving loads a framework and makes an
-    /// object, which is not work to repeat on every press of a held key. A
-    /// missing one is asked for again — a framework that was not loadable a
-    /// minute ago has not changed, but costs nothing to ask.
+    /// Both clients are resolved by `prepare()` and only there, and a miss is
+    /// kept as a miss. They used to be asked for again on every press while
+    /// missing — for the keyboard that is `Bundle.load()`, `init()` and
+    /// `copyKeyboardBacklightIDs` inside the tap's callback, a stall on the
+    /// main run loop in front of every key in every app.
     private var displayClient: DisplayBrightnessClient?
     private var keyboardClient: KeyboardBrightnessClient?
+    private var prepared = false
 
     init(
         volume: VolumeOutput? = nil,
         displays: DisplayBrightnessResolver? = nil,
-        builtInDisplay: (() -> CGDirectDisplayID?)? = nil,
+        topology: (() -> DisplayTopology)? = nil,
         keyboards: KeyboardBrightnessResolver? = nil
     ) {
         self.volume = volume ?? SystemVolumeOutput()
         self.displays = displays ?? DisplayServicesResolver()
-        self.builtInDisplay = builtInDisplay ?? BuiltInDisplay.current
+        self.topology = topology ?? BuiltInDisplay.topology
         self.keyboards = keyboards ?? CoreBrightnessResolver()
     }
 
+    func prepare() {
+        displayClient = displays.resolve()
+        keyboardClient = keyboards.resolve()
+        prepared = true
+    }
+
     func apply(_ key: MediaKey, fine: Bool) -> HUDReading? {
+        // A caller that never prepared (a test, not the app) still resolves
+        // once, and only once.
+        if !prepared { prepare() }
         switch key.kind {
         case .volume: return applyVolume(key, fine: fine)
         case .display: return applyDisplay(key, fine: fine)
@@ -297,23 +383,20 @@ final class SystemLevelApplier: MediaKeyApplying {
     private func applyVolume(_ key: MediaKey, fine: Bool) -> HUDReading? {
         guard let now = volume.read() else { return nil }
         let next = HUDStep.volume(after: key, level: now.level, muted: now.muted, fine: fine)
-        guard volume.write(level: next.level, muted: next.muted, from: (now.level, now.muted)) else { return nil }
-        return HUDReading(kind: .volume, level: next.level, muted: next.muted, deviceSymbol: now.deviceSymbol)
+        guard volume.write(level: next.level, muted: next.muted, from: now) == .written else { return nil }
+        return HUDReading(kind: .volume, level: next.level, muted: next.muted, deviceSymbol: nil, outputDevice: now.device)
     }
 
     private func applyDisplay(_ key: MediaKey, fine: Bool) -> HUDReading? {
-        guard let raises = key.raises, let display = builtInDisplay() else { return nil }
-        if displayClient == nil { displayClient = displays.resolve() }
-        guard let client = displayClient, let now = client.brightness(of: display) else { return nil }
+        guard let raises = key.raises, let display = BuiltInDisplay.target(topology()),
+              let client = displayClient, let now = client.brightness(of: display) else { return nil }
         let next = HUDStep.stepped(now, raising: raises, fine: fine)
         guard client.setBrightness(next, of: display) else { return nil }
         return HUDReading(kind: .display, level: next, muted: false, deviceSymbol: nil)
     }
 
     private func applyKeyboard(_ key: MediaKey, fine: Bool) -> HUDReading? {
-        guard let raises = key.raises else { return nil }
-        if keyboardClient == nil { keyboardClient = keyboards.resolve() }
-        guard let client = keyboardClient, let now = client.brightness() else { return nil }
+        guard let raises = key.raises, let client = keyboardClient, let now = client.brightness() else { return nil }
         let next = HUDStep.stepped(now, raising: raises, fine: fine)
         guard client.setBrightness(next) else { return nil }
         return HUDReading(kind: .keyboard, level: next, muted: false, deviceSymbol: nil)

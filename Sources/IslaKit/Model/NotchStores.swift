@@ -268,9 +268,13 @@ final class NotchStores {
     func suspendForIdleScreen(keepingMediaRunning: Bool = false, forLock: Bool = false) {
         clipboard.stop(rebaseliningOnResume: forLock)
         if !keepingMediaRunning { media.setActive(false) }
+        // The Accessibility poll too: nobody can grant a permission to a dark
+        // or locked screen, and it ran every two seconds through the night.
+        hud.suspend()
     }
 
     func resumeFromIdleScreen() {
+        hud.resume()
         refreshClipboardPolling()
         // A wake is the likeliest moment for a failed route to work again. The
         // helper can lose a race with a waking MediaRemote, and a user who

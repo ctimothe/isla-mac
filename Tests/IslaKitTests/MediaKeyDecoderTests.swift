@@ -92,6 +92,84 @@ final class MediaKeyDecoderTests: XCTestCase {
         XCTAssertEqual(reenabled, 2)
     }
 
+    // MARK: The real tap's receive path, with real events and no tap
+
+    /// A real system-defined event, built the way the keyboard's arrive, as a
+    /// `CGEvent` — which needs no permission and reaches no one's keys.
+    private func systemDefinedEvent(
+        subtype: Int16 = 8, key: Int, state: Int = 0xA, isRepeat: Bool = false, flags: CGEventFlags = []
+    ) throws -> CGEvent {
+        let packed = data1(key: key, state: state, isRepeat: isRepeat)
+        let ns = try XCTUnwrap(NSEvent.otherEvent(
+            with: .systemDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+            context: nil, subtype: subtype, data1: packed, data2: -1
+        ))
+        let event = try XCTUnwrap(ns.cgEvent)
+        event.flags = flags
+        return event
+    }
+
+    private let systemDefined = CGEventType(rawValue: 14)!
+
+    func testAConsumedKeyIsSwallowedByReceive() throws {
+        let event = try systemDefinedEvent(key: 0)
+        var seen: [(MediaKeyPress, MediaKeyModifiers)] = []
+        let tap = EventMediaKeyTap(handler: { press, modifiers in seen.append((press, modifiers)); return true })
+        XCTAssertNil(tap.receive(type: systemDefined, event: event), "nil is how a tap consumes an event")
+        XCTAssertEqual(seen.count, 1)
+        XCTAssertEqual(seen.first?.0, MediaKeyPress(key: .volumeUp, isDown: true, isRepeat: false))
+        XCTAssertEqual(seen.first?.1, MediaKeyModifiers.none)
+    }
+
+    func testAKeyTheHandlerDeclinesIsReturnedToTheSystemUntouched() throws {
+        let event = try systemDefinedEvent(key: 3, state: 0xB)
+        var seen: [MediaKeyPress] = []
+        let tap = EventMediaKeyTap(handler: { press, _ in seen.append(press); return false })
+        let answer = tap.receive(type: systemDefined, event: event)
+        XCTAssertTrue(answer?.takeUnretainedValue() === event, "the very same event goes on")
+        XCTAssertEqual(seen, [MediaKeyPress(key: .brightnessDown, isDown: false, isRepeat: false)])
+    }
+
+    func testReceiveDecodesTheRepeatBitAndForwardsTheFlags() throws {
+        let event = try systemDefinedEvent(key: 1, isRepeat: true, flags: [.maskAlternate, .maskShift, .maskSecondaryFn])
+        var seen: [(MediaKeyPress, MediaKeyModifiers)] = []
+        let tap = EventMediaKeyTap(handler: { press, modifiers in seen.append((press, modifiers)); return false })
+        _ = tap.receive(type: systemDefined, event: event)
+        XCTAssertEqual(seen.first?.0, MediaKeyPress(key: .volumeDown, isDown: true, isRepeat: true))
+        XCTAssertEqual(seen.first?.1.fine, true)
+        XCTAssertEqual(seen.first?.1.leavesToTheSystem, false)
+
+        let chord = try systemDefinedEvent(key: 7, flags: .maskCommand)
+        _ = tap.receive(type: systemDefined, event: chord)
+        XCTAssertEqual(seen.last?.1.leavesToTheSystem, true)
+    }
+
+    func testReceiveNeverAsksTheHandlerAboutKeysThatAreNotOurs() throws {
+        var asked = 0
+        let tap = EventMediaKeyTap(handler: { _, _ in asked += 1; return true })
+        // Play/pause, next track, eject: the right subtype, not our keys.
+        for code in [16, 17, 14] {
+            let event = try systemDefinedEvent(key: code)
+            XCTAssertTrue(tap.receive(type: systemDefined, event: event)?.takeUnretainedValue() === event, "key \(code)")
+        }
+        // Another subtype of a system-defined event.
+        let other = try systemDefinedEvent(subtype: 1, key: 0)
+        XCTAssertTrue(tap.receive(type: systemDefined, event: other)?.takeUnretainedValue() === other)
+        XCTAssertEqual(asked, 0)
+    }
+
+    func testADisabledNoticeNeverReachesTheHandlerEvenOnAMediaKeyEvent() throws {
+        let event = try systemDefinedEvent(key: 0)
+        var asked = 0
+        var told = 0
+        var reenabled = 0
+        let tap = EventMediaKeyTap(handler: { _, _ in asked += 1; return true }, disabled: { told += 1 })
+        tap.reenable = { _ in reenabled += 1 }
+        let answer = tap.receive(type: .tapDisabledByTimeout, event: event)
+        XCTAssertTrue(answer?.takeUnretainedValue() === event, "the notice is passed, not consumed")
+        XCTAssertEqual([asked, told, reenabled], [0, 1, 1])
+    }
+
     func testOptionShiftTogetherAreTheFineStep() {
         XCTAssertTrue(MediaKeyModifiers(flags: [.maskAlternate, .maskShift]).fine)
         XCTAssertFalse(MediaKeyModifiers(flags: [.maskAlternate]).fine)

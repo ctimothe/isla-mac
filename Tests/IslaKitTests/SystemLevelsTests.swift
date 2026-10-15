@@ -1,34 +1,51 @@
+import CoreAudio
 import CoreGraphics
 import XCTest
 @testable import IslaKit
 
 // MARK: - Fakes
 
-/// A volume that is a value: no device, no CoreAudio.
+/// A volume that is a value: no device, no CoreAudio. It models the one thing
+/// that makes the real one dangerous — the default output can change between a
+/// read and a write.
 @MainActor
 final class FakeVolumeOutput: VolumeOutput {
-    var state: (level: Float, muted: Bool, deviceSymbol: String?)?
+    /// nil is an output with no volume Isla can set.
+    var state: (level: Float, muted: Bool)?
+    /// What `AudioOutputs.current()` would answer now.
+    var defaultDevice: AudioDeviceID
+    /// If set, the default output becomes this right after the next `read()`:
+    /// AirPods connecting in the middle of a press.
+    var switchDefaultAfterRead: AudioDeviceID?
     var writeSucceeds = true
-    private(set) var writes: [(level: Float, muted: Bool)] = []
+    private(set) var writes: [(device: AudioDeviceID, level: Float, muted: Bool)] = []
+    private(set) var reads = 0
 
-    init(level: Float = 0.5, muted: Bool = false, symbol: String? = nil) {
-        state = (level, muted, symbol)
+    init(level: Float = 0.5, muted: Bool = false, device: AudioDeviceID = 42) {
+        state = (level, muted)
+        defaultDevice = device
     }
 
-    func read() -> (level: Float, muted: Bool, deviceSymbol: String?)? { state }
+    func read() -> VolumeState? {
+        reads += 1
+        guard let state else { return nil }
+        let reading = VolumeState(device: defaultDevice, level: state.level, muted: state.muted)
+        if let next = switchDefaultAfterRead { defaultDevice = next; switchDefaultAfterRead = nil }
+        return reading
+    }
 
-    func write(level: Float, muted: Bool, from old: (level: Float, muted: Bool)) -> Bool {
-        writes.append((level, muted))
-        guard writeSucceeds else { return false }
-        state?.level = level
-        state?.muted = muted
-        return true
+    func write(level: Float, muted: Bool, from old: VolumeState) -> VolumeWriteResult {
+        guard defaultDevice == old.device else { return .deviceChanged }
+        writes.append((old.device, level, muted))
+        guard writeSucceeds else { return .failed }
+        state = (level, muted)
+        return .written
     }
 }
 
 final class FakeDisplayClient: DisplayBrightnessClient {
     var value: Float
-    private(set) var sets: [(Float, CGDirectDisplayID)] = []
+    var sets: [(Float, CGDirectDisplayID)] = []
     init(_ value: Float) { self.value = value }
     func brightness(of display: CGDirectDisplayID) -> Float? { value }
     func setBrightness(_ new: Float, of display: CGDirectDisplayID) -> Bool {
@@ -38,10 +55,13 @@ final class FakeDisplayClient: DisplayBrightnessClient {
     }
 }
 
-/// "Present" or "missing", the two answers a resolver can give.
-struct FakeDisplayResolver: DisplayBrightnessResolver {
+/// "Present" or "missing", the two answers a resolver can give, and how many
+/// times it was asked: resolving loads a private framework.
+final class FakeDisplayResolver: DisplayBrightnessResolver {
     var client: DisplayBrightnessClient?
-    func resolve() -> DisplayBrightnessClient? { client }
+    private(set) var resolves = 0
+    init(client: DisplayBrightnessClient?) { self.client = client }
+    func resolve() -> DisplayBrightnessClient? { resolves += 1; return client }
 }
 
 final class FakeKeyboardClient: KeyboardBrightnessClient {
@@ -56,9 +76,11 @@ final class FakeKeyboardClient: KeyboardBrightnessClient {
     }
 }
 
-struct FakeKeyboardResolver: KeyboardBrightnessResolver {
+final class FakeKeyboardResolver: KeyboardBrightnessResolver {
     var client: KeyboardBrightnessClient?
-    func resolve() -> KeyboardBrightnessClient? { client }
+    private(set) var resolves = 0
+    init(client: KeyboardBrightnessClient?) { self.client = client }
+    func resolve() -> KeyboardBrightnessClient? { resolves += 1; return client }
 }
 
 /// The step arithmetic and the applier (spec §12). No test here reads or
@@ -121,6 +143,12 @@ final class SystemLevelsTests: XCTestCase {
 
     // MARK: Volume
 
+    /// The built-in display alone (`builtIn` an id), or a lone external one.
+    private func lone(_ builtIn: CGDirectDisplayID?) -> DisplayTopology {
+        guard let builtIn else { return DisplayTopology(builtIn: nil, active: [9], main: 9) }
+        return DisplayTopology(builtIn: builtIn, active: [builtIn], main: builtIn)
+    }
+
     private func applier(
         volume: FakeVolumeOutput = FakeVolumeOutput(),
         display: DisplayBrightnessClient? = nil, builtIn: CGDirectDisplayID? = 1,
@@ -129,20 +157,22 @@ final class SystemLevelsTests: XCTestCase {
         SystemLevelApplier(
             volume: volume,
             displays: FakeDisplayResolver(client: display),
-            builtInDisplay: { builtIn },
+            topology: { [self] in lone(builtIn) },
             keyboards: FakeKeyboardResolver(client: keyboard)
         )
     }
 
     func testVolumeKeysStepTheVolumeAndReportIt() {
-        let volume = FakeVolumeOutput(level: 0.5, symbol: "laptopcomputer")
+        let volume = FakeVolumeOutput(level: 0.5, device: 77)
         let sut = applier(volume: volume)
         XCTAssertEqual(
             sut.apply(.volumeUp, fine: false),
-            HUDReading(kind: .volume, level: 0.5625, muted: false, deviceSymbol: "laptopcomputer")
+            HUDReading(kind: .volume, level: 0.5625, muted: false, deviceSymbol: nil, outputDevice: 77),
+            "the device travels with the reading; its glyph is found after the tap's callback"
         )
         XCTAssertEqual(sut.apply(.volumeDown, fine: true)?.level, 0.546875, "a fine step down")
         XCTAssertEqual(volume.state?.level, 0.546875, "written to the device")
+        XCTAssertEqual(volume.writes.map(\.device), [77, 77])
     }
 
     func testMuteKeepsTheLevelAndUnmuteRestoresIt() {
@@ -237,6 +267,133 @@ final class SystemLevelsTests: XCTestCase {
         XCTAssertNotNil(sut.apply(.mute, fine: false))
         XCTAssertNil(sut.apply(.brightnessUp, fine: false))
         XCTAssertNil(sut.apply(.keyboardBrightnessUp, fine: false))
+    }
+
+    // MARK: The output device is latched across a press
+
+    /// AirPods connecting between the read and the write: the level worked out
+    /// from the speakers must not be written to the headphones.
+    func testADefaultOutputThatChangesBetweenReadAndWriteIsNeverWrittenTo() {
+        let volume = FakeVolumeOutput(level: 0.9, device: 1)
+        volume.switchDefaultAfterRead = 2
+        let sut = applier(volume: volume)
+        XCTAssertNil(sut.apply(.volumeDown, fine: false), "passed through: the system handles the new device")
+        XCTAssertTrue(volume.writes.isEmpty, "neither the old device nor the new one was written")
+        XCTAssertEqual(volume.defaultDevice, 2)
+
+        // The next press starts from the new device and lands on it.
+        let reading = sut.apply(.volumeDown, fine: false)
+        XCTAssertEqual(reading?.outputDevice, 2)
+        XCTAssertEqual(volume.writes.map(\.device), [2])
+    }
+
+    func testAMuteThatStraddlesADeviceChangeIsPassedThroughToo() {
+        let volume = FakeVolumeOutput(level: 0.5, device: 1)
+        volume.switchDefaultAfterRead = 2
+        XCTAssertNil(applier(volume: volume).apply(.mute, fine: false))
+        XCTAssertTrue(volume.writes.isEmpty)
+    }
+
+    // MARK: Display brightness follows the display in use
+
+    func testOnlyABuiltInDisplayThatIsInUseIsDimmedByTheKey() {
+        // Built-in alone.
+        XCTAssertEqual(BuiltInDisplay.target(DisplayTopology(builtIn: 1, active: [1], main: 1)), 1)
+        // Built-in is the main display, with an external beside it.
+        XCTAssertEqual(BuiltInDisplay.target(DisplayTopology(builtIn: 1, active: [1, 2], main: 1)), 1)
+        // An external monitor is the main display: the key is the system's.
+        XCTAssertNil(BuiltInDisplay.target(DisplayTopology(builtIn: 1, active: [1, 2], main: 2)))
+        // Clamshell: no built-in display is active.
+        XCTAssertNil(BuiltInDisplay.target(DisplayTopology(builtIn: nil, active: [2], main: 2)))
+        // A built-in id that is not in the active list is not a target either.
+        XCTAssertNil(BuiltInDisplay.target(DisplayTopology(builtIn: 1, active: [2], main: 2)))
+    }
+
+    func testTheApplierPassesBrightnessThroughWhenAnExternalMonitorIsMain() {
+        let client = FakeDisplayClient(0.5)
+        func sut(_ topology: DisplayTopology) -> SystemLevelApplier {
+            SystemLevelApplier(
+                volume: FakeVolumeOutput(), displays: FakeDisplayResolver(client: client),
+                topology: { topology }, keyboards: FakeKeyboardResolver(client: nil)
+            )
+        }
+        XCTAssertNotNil(sut(DisplayTopology(builtIn: 1, active: [1, 2], main: 1)).apply(.brightnessUp, fine: false))
+        XCTAssertEqual(client.sets.last?.1, 1)
+        client.sets.removeAll()
+        XCTAssertNil(sut(DisplayTopology(builtIn: 1, active: [1, 2], main: 2)).apply(.brightnessUp, fine: false))
+        XCTAssertNil(sut(DisplayTopology(builtIn: nil, active: [2], main: 2)).apply(.brightnessDown, fine: false))
+        XCTAssertTrue(client.sets.isEmpty, "no display was touched")
+    }
+
+    // MARK: The private clients are resolved once, never by a press
+
+    func testTheClientsAreResolvedOncePerPrepareAndNeverByAPress() {
+        let displays = FakeDisplayResolver(client: FakeDisplayClient(0.5))
+        let keyboards = FakeKeyboardResolver(client: FakeKeyboardClient(0.5))
+        let sut = SystemLevelApplier(
+            volume: FakeVolumeOutput(), displays: displays, topology: { [self] in lone(1) }, keyboards: keyboards
+        )
+        sut.prepare()
+        XCTAssertEqual(displays.resolves, 1)
+        XCTAssertEqual(keyboards.resolves, 1)
+        for _ in 0..<20 {
+            _ = sut.apply(.brightnessUp, fine: false)
+            _ = sut.apply(.keyboardBrightnessUp, fine: false)
+            _ = sut.apply(.volumeUp, fine: false)
+        }
+        XCTAssertEqual(displays.resolves, 1, "twenty presses, no second resolve")
+        XCTAssertEqual(keyboards.resolves, 1)
+        sut.prepare()
+        XCTAssertEqual(displays.resolves, 2, "a tap restart resolves again")
+        XCTAssertEqual(keyboards.resolves, 2)
+    }
+
+    func testAMissIsCachedUntilTheTapIsRestarted() {
+        let displays = FakeDisplayResolver(client: nil)
+        let keyboards = FakeKeyboardResolver(client: nil)
+        let sut = SystemLevelApplier(
+            volume: FakeVolumeOutput(), displays: displays, topology: { [self] in lone(1) }, keyboards: keyboards
+        )
+        sut.prepare()
+        for _ in 0..<20 {
+            XCTAssertNil(sut.apply(.brightnessUp, fine: false))
+            XCTAssertNil(sut.apply(.keyboardBrightnessDown, fine: false))
+        }
+        XCTAssertEqual(displays.resolves, 1, "a client that was missing is not asked for on every press")
+        XCTAssertEqual(keyboards.resolves, 1)
+
+        // The framework turns up (a macOS update, a retry): the next tap start finds it.
+        displays.client = FakeDisplayClient(0.5)
+        XCTAssertNil(sut.apply(.brightnessUp, fine: false), "not before the tap restarts")
+        sut.prepare()
+        XCTAssertNotNil(sut.apply(.brightnessUp, fine: false))
+    }
+
+    func testAnApplierNobodyPreparedResolvesLazilyOnceAndNotAgain() {
+        let displays = FakeDisplayResolver(client: nil)
+        let sut = SystemLevelApplier(
+            volume: FakeVolumeOutput(), displays: displays, topology: { [self] in lone(1) },
+            keyboards: FakeKeyboardResolver(client: nil)
+        )
+        _ = sut.apply(.brightnessUp, fine: false)
+        _ = sut.apply(.brightnessUp, fine: false)
+        XCTAssertEqual(displays.resolves, 1)
+    }
+
+    // MARK: The keyboard id comes from the backlight list and nowhere else
+
+    func testNoKeyboardBacklightListMeansNoKeyboardClient() {
+        // The selector is missing: no guessing id 1.
+        XCTAssertNil(CoreBrightnessResolver.keyboardID(responds: false, list: [NSNumber(value: 5)]))
+        // The selector answered nil, or something that is not a list.
+        XCTAssertNil(CoreBrightnessResolver.keyboardID(responds: true, list: nil))
+        XCTAssertNil(CoreBrightnessResolver.keyboardID(responds: true, list: "1"))
+        XCTAssertNil(CoreBrightnessResolver.keyboardID(responds: true, list: NSNumber(value: 1)))
+        // A Mac with no backlight answers an empty list; a list with no number in it is no list.
+        XCTAssertNil(CoreBrightnessResolver.keyboardID(responds: true, list: [Any]()))
+        XCTAssertNil(CoreBrightnessResolver.keyboardID(responds: true, list: ["a"]))
+        // Only an id from the list is used — the first.
+        XCTAssertEqual(CoreBrightnessResolver.keyboardID(responds: true, list: [NSNumber(value: 7), NSNumber(value: 8)]), 7)
     }
 
     /// The real resolvers are only asked in the app. Their paths are the

@@ -1,4 +1,5 @@
 import Combine
+import CoreAudio
 import Foundation
 
 /// Owns the volume and brightness pop-up's input side (redesign 2026-10-15,
@@ -15,9 +16,16 @@ import Foundation
 /// changes, when the panel opens (`refresh()`), and — only while the setting is
 /// on and the permission is *missing* — every `pollInterval` seconds, because
 /// granting it happens in another app and nothing announces it. A trusted or a
-/// switched-off Isla does not poll. A revoked permission is found by the next
-/// key press, by macOS disabling the tap, or by the panel opening, whichever
-/// comes first.
+/// switched-off Isla does not poll, and neither does one whose display is
+/// asleep or whose Mac is locked (`suspend()`/`resume()`). A revoked permission
+/// is found by macOS disabling the tap (the owner is told, and looks) or by the
+/// panel opening, whichever comes first — **never by a key press**: the tap's
+/// callback runs on the main run loop in front of every key in every app, so it
+/// does the decode, the consume decision and the level write and nothing else.
+/// It used to ask `AXIsProcessTrusted()`, enumerate every audio device for a
+/// glyph and resolve missing private-framework clients on each press, and a
+/// stall in any of them lagged the keys everywhere and could get the tap
+/// disabled by timeout.
 @MainActor
 final class MediaKeyHUD: ObservableObject {
     /// The slowest the check may run while waiting for the permission.
@@ -47,17 +55,29 @@ final class MediaKeyHUD: ObservableObject {
     /// A key was applied; the island shows it.
     var onReading: ((HUDReading) -> Void)?
 
+    /// The glyph for an output device. Production asks CoreAudio about that one
+    /// device; a test counts the calls.
+    typealias DeviceSymbol = (AudioDeviceID) -> String?
+
     private let trust: AccessibilityTrust
     private let makeTap: MediaKeyTapFactory
     private let applier: MediaKeyApplying
     private let schedule: Scheduler
+    private let deviceSymbol: DeviceSymbol
 
     private var tap: MediaKeyTapping?
     private var cancelPoll: (() -> Void)?
-    /// Keys whose press Isla applied and whose release it therefore owes the
-    /// same answer: a key-up the system sees without its key-down would be a
-    /// stray release.
-    private var consumedKeys: Set<MediaKey> = []
+    /// The display is asleep or the Mac is locked: nobody can grant a
+    /// permission, so the poll stays down.
+    private var isSuspended = false
+
+    /// What the first key-down of a press-and-hold decided, kept until its
+    /// key-up. See `handle`.
+    private enum Hold { case consume, pass }
+    private var holds: [MediaKey: Hold] = [:]
+
+    /// Output-device glyphs found so far, for the repeats of a held key only.
+    private var glyphs: [AudioDeviceID: String?] = [:]
 
     /// Every collaborator is optional and resolved in the body, where the main
     /// actor is known to be held: the real ones are main-actor values and a
@@ -67,13 +87,15 @@ final class MediaKeyHUD: ObservableObject {
         trust: AccessibilityTrust? = nil,
         makeTap: MediaKeyTapFactory? = nil,
         applier: MediaKeyApplying? = nil,
-        schedule: Scheduler? = nil
+        schedule: Scheduler? = nil,
+        deviceSymbol: DeviceSymbol? = nil
     ) {
         self.isEnabled = isEnabled ?? { NotchViewModel.volumeAndBrightnessEnabled }
         self.trust = trust ?? SystemAccessibilityTrust()
         self.makeTap = makeTap ?? EventMediaKeyTap.live
         self.applier = applier ?? SystemLevelApplier()
         self.schedule = schedule ?? MediaKeyHUD.mainQueueScheduler
+        self.deviceSymbol = deviceSymbol ?? { AudioOutputs.output(id: $0)?.symbol }
     }
 
     /// Whether a tap is up right now.
@@ -87,17 +109,42 @@ final class MediaKeyHUD: ObservableObject {
     func refresh() {
         let on = isEnabled()
         let trusted = trust.isTrusted()
+        // Permission that came back since the last look. A tap made before the
+        // permission was revoked is dead even when macOS never said so.
+        let regained = trusted && !isTrusted
         if isTrusted != trusted { isTrusted = trusted }
         let missing = on && !trusted
         if needsAccessibility != missing { needsAccessibility = missing }
 
         if on && trusted {
             stopPolling()
+            // Revoke and re-grant leaves a tap that exists and hears nothing,
+            // and it need not send a disabled notice on the way. Trust going
+            // from missing to present, or a tap macOS reports as switched off,
+            // means the one we hold is not to be trusted: end it and make a
+            // fresh one.
+            if let tap, regained || !tap.isTapEnabled { stopTap() }
             startTap()
         } else {
             stopTap()
             if missing { startPolling() } else { stopPolling() }
         }
+    }
+
+    /// The display went to sleep, or the Mac locked: stop waiting for a
+    /// permission nobody can grant. The tap, if there is one, stays — a lock
+    /// passes every key through by itself and a sleeping display has no keys.
+    func suspend() {
+        isSuspended = true
+        stopPolling()
+    }
+
+    /// The display woke, or the Mac unlocked. Looks again at once, which
+    /// restarts the poll if the setting is on and the permission still missing.
+    func resume() {
+        guard isSuspended else { return }
+        isSuspended = false
+        refresh()
     }
 
     /// The setting was just changed in Settings. Turning it on asks macOS for
@@ -112,7 +159,6 @@ final class MediaKeyHUD: ObservableObject {
     func stop() {
         stopTap()
         stopPolling()
-        consumedKeys.removeAll()
     }
 
     // MARK: A key
@@ -120,23 +166,95 @@ final class MediaKeyHUD: ObservableObject {
     /// What the tap asks for each press. `true` consumes the event.
     ///
     /// Isla consumes a key **only if it applied it**; every other case — the
-    /// setting off, trust gone, the Mac locked, a family it cannot move, a
-    /// device with no volume to set — answers `false` and the event goes to
-    /// the system untouched, which then shows its own pop-up. The release of a
-    /// key whose press was consumed is swallowed with it.
+    /// setting off, the Mac locked, a modifier chord that is the system's, a
+    /// family it cannot move, a device with no volume to set, an output that
+    /// changed under the press — answers `false` and the event goes to the
+    /// system untouched, which then shows its own pop-up.
+    ///
+    /// **A press-and-hold is decided once, by its first key-down.** The system
+    /// sends a key-down, then repeats of it while the key is held, then a
+    /// key-up, and it must see all of them or none: a key-up (or repeats)
+    /// without their key-down are strays, and an event passed after its
+    /// key-down was swallowed (or the reverse) can stick a key in the system's
+    /// own state. So the first key-down decides consume or pass, its repeats
+    /// follow that decision, and its key-up returns the same answer and ends
+    /// it.
+    ///
+    /// - A hold decided *pass* stays pass through every repeat, whatever
+    ///   changes meanwhile (AirPods connecting, a lock, ⌘ pressed).
+    /// - A hold decided *consume* stays consume. Each repeat applies another
+    ///   step when it can — setting still on, not locked — and is swallowed
+    ///   without a change when it cannot: a Mac that locks mid-hold sees no
+    ///   level move and no pop-up, and the key-up still pairs. A repeat that
+    ///   arrives with the modifiers changed still steps (with the quarter step
+    ///   only while ⌥⇧ stay down); the hold is not re-decided.
+    /// - A repeat or a key-up with no hold behind it (the tap began mid-press,
+    ///   or the hold was cleared) is passed: the system saw that key-down.
+    /// - Mute repeats do nothing, consumed or not: a held mute used to flip the
+    ///   mute back and forth.
     func handle(_ press: MediaKeyPress, modifiers: MediaKeyModifiers) -> Bool {
-        guard press.isDown else { return consumedKeys.remove(press.key) != nil }
-        guard isEnabled(), trust.isTrusted() else {
+        guard press.isDown else { return holds.removeValue(forKey: press.key) == .consume }
+
+        if press.isRepeat {
+            guard holds[press.key] == .consume else { return false }
+            continueHold(press, modifiers: modifiers)
+            return true
+        }
+
+        let consumed = decideFreshPress(press, modifiers: modifiers)
+        holds[press.key] = consumed ? .consume : .pass
+        return consumed
+    }
+
+    /// The first key-down of a hold: apply it and consume, or leave it.
+    private func decideFreshPress(_ press: MediaKeyPress, modifiers: MediaKeyModifiers) -> Bool {
+        guard isEnabled() else {
             // The tap should not exist: end it, but not from inside its own
             // callback.
             DispatchQueue.main.async { [weak self] in self?.refresh() }
             return false
         }
-        guard !isLocked() else { return false }
+        guard !isLocked(), !modifiers.leavesToTheSystem else { return false }
         guard let reading = applier.apply(press.key, fine: modifiers.fine) else { return false }
-        consumedKeys.insert(press.key)
-        onReading?(reading)
+        show(reading, isRepeat: false)
         return true
+    }
+
+    /// A repeat of a consumed hold.
+    private func continueHold(_ press: MediaKeyPress, modifiers: MediaKeyModifiers) {
+        guard press.key != .mute, isEnabled(), !isLocked() else { return }
+        guard let reading = applier.apply(press.key, fine: modifiers.fine) else { return }
+        show(reading, isRepeat: true)
+    }
+
+    /// Hands a reading to the island.
+    ///
+    /// A volume reading carries the device it was applied to and not yet its
+    /// glyph: finding that is CoreAudio work and the tap's callback is the one
+    /// place it must not happen. The reading is delivered a turn later, once
+    /// the glyph is known — the first press of a hold asks CoreAudio about that
+    /// one device (a headphone jack's data source can change with the device id
+    /// unchanged, so it is never trusted across presses), and its repeats reuse
+    /// the answer. Every volume reading goes through the main queue so they
+    /// stay in order; brightness readings, which need no glyph, go straight
+    /// through.
+    private func show(_ reading: HUDReading, isRepeat: Bool) {
+        guard reading.kind == .volume, let device = reading.outputDevice else {
+            onReading?(reading)
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            var shown = reading
+            if isRepeat, let known = self.glyphs[device] {
+                shown.deviceSymbol = known
+            } else {
+                let found = self.deviceSymbol(device)
+                self.glyphs[device] = .some(found)
+                shown.deviceSymbol = found
+            }
+            self.onReading?(shown)
+        }
     }
 
     // MARK: Tap and poll
@@ -153,17 +271,21 @@ final class MediaKeyHUD: ObservableObject {
         )
         // If the system will not make one, nothing is consumed and nothing else
         // changes; the next panel opening tries again.
-        if created.start() { tap = created }
+        guard created.start() else { return }
+        tap = created
+        // Resolved here, once per tap, and never by a press: loading the
+        // brightness frameworks is the slowest thing a key could trigger.
+        applier.prepare()
     }
 
     private func stopTap() {
         tap?.stop()
         tap = nil
-        consumedKeys.removeAll()
+        holds.removeAll()
     }
 
     private func startPolling() {
-        guard cancelPoll == nil else { return }
+        guard cancelPoll == nil, !isSuspended else { return }
         cancelPoll = schedule(Self.pollInterval) { [weak self] in
             self?.cancelPoll = nil
             self?.refresh()

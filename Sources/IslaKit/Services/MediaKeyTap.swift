@@ -25,17 +25,41 @@ struct MediaKeyPress: Equatable {
     var isRepeat: Bool
 }
 
-/// Modifiers that change a step: ⌥⇧ together give quarter steps, as macOS does
-/// for the volume and both brightnesses.
+/// What the held modifiers mean for a media key: a quarter step, or "not mine".
+///
+/// - ⌥⇧ together give quarter steps, as macOS does for the volume and both
+///   brightnesses. Those two are the only modifier states Isla consumes besides
+///   none at all.
+/// - Every other combination of ⌘ ⌃ ⌥ ⇧ belongs to the system, and the event is
+///   passed through untouched: ⇧ with a volume key is the silent change (no
+///   feedback sound), ⌥ with a volume or brightness key opens Sound or Displays
+///   settings, and ⌘/⌃ chords are somebody's shortcut. The tap used to swallow
+///   all of them and apply a plain step, so those shortcuts stopped working the
+///   moment the setting was on.
+/// - fn, caps lock and the numeric-pad bit are ignored on purpose: the built-in
+///   keyboard stamps fn on its media keys, and a rule that counted it would
+///   pass every press through.
 struct MediaKeyModifiers: Equatable {
     var fine: Bool
+    /// The system handles this combination; Isla must neither apply nor
+    /// consume it.
+    var leavesToTheSystem: Bool
 
     static let none = MediaKeyModifiers(fine: false)
 
-    init(fine: Bool) { self.fine = fine }
+    init(fine: Bool, leavesToTheSystem: Bool = false) {
+        self.fine = fine
+        self.leavesToTheSystem = leavesToTheSystem
+    }
 
+    /// Pure, so every one of the sixteen combinations is a test.
     init(flags: CGEventFlags) {
-        fine = flags.contains(.maskAlternate) && flags.contains(.maskShift)
+        let command = flags.contains(.maskCommand)
+        let control = flags.contains(.maskControl)
+        let option = flags.contains(.maskAlternate)
+        let shift = flags.contains(.maskShift)
+        fine = option && shift
+        leavesToTheSystem = command || control || (option != shift)
     }
 }
 
@@ -95,6 +119,11 @@ enum MediaKeyTapDisposition: Equatable {
 @MainActor
 protocol MediaKeyTapping: AnyObject {
     var isRunning: Bool { get }
+    /// Whether macOS still has the tap switched on. A revoked and re-granted
+    /// Accessibility permission can leave a tap that exists and hears nothing
+    /// (and never sends a disabled notice), so the owner asks before it trusts
+    /// one it made earlier.
+    var isTapEnabled: Bool { get }
     /// True when the tap is up. False when macOS refused to make one — no
     /// permission, or a session that does not allow it — in which case nothing
     /// is consumed and nothing else changes.
@@ -149,6 +178,11 @@ final class EventMediaKeyTap: MediaKeyTapping {
     }
 
     var isRunning: Bool { port != nil }
+
+    var isTapEnabled: Bool {
+        guard let port else { return false }
+        return CGEvent.tapIsEnabled(tap: port)
+    }
 
     @discardableResult
     func start() -> Bool {
@@ -211,6 +245,7 @@ final class EventMediaKeyTap: MediaKeyTapping {
 @MainActor
 final class InertMediaKeyTap: MediaKeyTapping {
     var isRunning: Bool { false }
+    var isTapEnabled: Bool { false }
     func start() -> Bool { false }
     func stop() {}
 }

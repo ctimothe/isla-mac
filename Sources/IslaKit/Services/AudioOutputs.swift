@@ -43,15 +43,20 @@ enum AudioOutputs {
             AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids
         ) == noErr else { return [] }
 
-        return ids.compactMap { id in
-            guard hasOutputStreams(id),
-                  isListable(canBeDefault: flag(kAudioDevicePropertyDeviceCanBeDefaultDevice,
-                                                scope: kAudioDevicePropertyScopeOutput, of: id),
-                             isHidden: flag(kAudioDevicePropertyIsHidden,
-                                            scope: kAudioObjectPropertyScopeGlobal, of: id)),
-                  let name = name(of: id) else { return nil }
-            return Output(id: id, name: name, transport: transport(of: id), dataSource: dataSource(of: id))
-        }
+        return ids.compactMap { output(id: $0) }
+    }
+
+    /// One device as the picker lists it, or nil when it is not an output the
+    /// picker would show. The single-device half of `available()`: the volume
+    /// pop-up needs one glyph and used to walk every device on the Mac to get it.
+    static func output(id: AudioDeviceID) -> Output? {
+        guard hasOutputStreams(id),
+              isListable(canBeDefault: flag(kAudioDevicePropertyDeviceCanBeDefaultDevice,
+                                            scope: kAudioDevicePropertyScopeOutput, of: id),
+                         isHidden: flag(kAudioDevicePropertyIsHidden,
+                                        scope: kAudioObjectPropertyScopeGlobal, of: id)),
+              let name = name(of: id) else { return nil }
+        return Output(id: id, name: name, transport: transport(of: id), dataSource: dataSource(of: id))
     }
 
     /// Whether a device belongs in the picker (K-009). A Teams or Loopback
