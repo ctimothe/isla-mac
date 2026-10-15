@@ -398,13 +398,16 @@ struct TranslateAlert: Equatable {
     private static func unguarded(
         kind: Translator.FailureKind?, message: String, remedies: [Translator.Remedy], allowanceSpent: Bool
     ) -> TranslateAlert {
-        let remedyActions: [Action] = remedies.map {
-            switch $0 {
+        // An unreachable failure after a Use Online run sets remedies = [.useOnline];
+        // once the day's allowance was then spent, this still offered a send that
+        // cannot work. Withheld here exactly as `noteActions` does.
+        let remedyActions: [Action] = remedies.compactMap { remedy -> Action? in
+            switch remedy {
             case .appleIntelligenceSettings: return .appleIntelligenceSettings
             case .translationLanguages: return .translationLanguages
             case .turnOnOnline: return .turnOnOnline
             case .retry: return .tryAgain
-            case .useOnline: return .useOnline
+            case .useOnline: return allowanceSpent ? nil : .useOnline
             }
         }
         let quota = Translator.describe(OnlineTranslation.Failure.quotaExhausted).message
@@ -412,7 +415,7 @@ struct TranslateAlert: Equatable {
         case .obstacle(.needsDownload):
             return TranslateAlert(
                 glyph: .symbol("arrow.down.circle", isWarning: false), message: message,
-                actions: allowanceSpent ? remedyActions : remedyActions + [.useOnline]
+                actions: allowanceSpent || remedyActions.contains(.useOnline) ? remedyActions : remedyActions + [.useOnline]
             )
         case .obstacle(.needsOnline), .obstacle(.needsNewerSystem):
             if allowanceSpent, remedyActions.contains(.turnOnOnline) {

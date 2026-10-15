@@ -660,4 +660,25 @@ final class TranslateReviewFixTests: XCTestCase {
         let gone = await on.reread(settle: 0.3)
         XCTAssertNil(gone.first(label: "History"), gone.dump)
     }
+
+    // MARK: - Use Online is withheld once the allowance is spent
+
+    private func useOnlineCount(_ kind: Translator.FailureKind?, remedies: [Translator.Remedy], spent: Bool) -> Int {
+        TranslateAlert.make(kind: kind, message: "m", remedies: remedies, allowanceSpent: spent)
+            .actions.filter { $0 == .useOnline }.count
+    }
+
+    func testUnreachableOffersNoUseOnlineWhenAllowanceSpent() {
+        XCTAssertEqual(useOnlineCount(.unreachable, remedies: [.useOnline], spent: true), 0)
+    }
+
+    func testUnreachableOffersUseOnlineOnceWhenAllowanceLeft() {
+        XCTAssertEqual(useOnlineCount(.unreachable, remedies: [.useOnline], spent: false), 1)
+    }
+
+    func testNeedsDownloadListsUseOnlineOnce() {
+        XCTAssertEqual(useOnlineCount(.obstacle(.needsDownload(.ukrainian)), remedies: [.useOnline], spent: false), 1)
+        XCTAssertEqual(useOnlineCount(.obstacle(.needsDownload(.ukrainian)), remedies: [], spent: false), 1)
+        XCTAssertEqual(useOnlineCount(.obstacle(.needsDownload(.ukrainian)), remedies: [.useOnline], spent: true), 0)
+    }
 }
