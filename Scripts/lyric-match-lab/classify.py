@@ -668,8 +668,12 @@ def counts(rows: List[dict], keep_promoted: bool = False) -> dict:
     unscorable = sum(1 for r in scored if r.get("maybe_usable"))
     # The wrong rate is over lyrics shown, and an unrecovered lookup showed
     # lyrics nobody could attribute: it lies between counting none of them
-    # wrong and every one (third review, m7).
-    unrecovered_n = verdicts.get("unrecovered", 0)
+    # wrong and every one (third review, m7). Only on a scorable track: on a
+    # no-anchor one a recovered pick is `unjudged` and in no `shown`, so an
+    # unrecovered row there cannot be a wrong pick that is missing from it
+    # (fourth review, N7).
+    unrecovered_n = sum(1 for r in scored
+                        if r["verdict"] == "unrecovered" and r.get("truth_status") != "no-anchor")
     excluded = {v: verdicts[v] for v in EXCLUDED_TRUTH if verdicts.get(v)}
     if promoted and not keep_promoted:
         excluded["anchor-promoted"] = len(promoted)

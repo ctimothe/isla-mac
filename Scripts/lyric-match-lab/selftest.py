@@ -2871,6 +2871,30 @@ class BoundsThirdReviewTests(ReviewLab):
         self.assertEqual((canonical["usable"], canonical["unscorable_possibly_usable"]), (1, 1))
         self.assertEqual(canonical["accuracy_bounds"], {"lower": 0.5, "upper": 1.0, "as_computed": 1.0})
 
+    def test_an_unrecovered_lookup_on_a_track_with_no_anchor_does_not_widen_the_wrong_rate(self):
+        """N7: on a no-anchor track a recovered pick is `unjudged` and in no `shown`, so an unrecovered
+        row there is not a wrong pick missing from the wrong rate. On an anchored track it still is."""
+        good = self.add("Alpha Rate", None, [], [])
+        bare = self.add("Bravo Rate", None, [], [])
+        anchored = self.add("Charlie Rate", None, [], [])
+        rows = {1: self.row(1, good, synthetic_lines(750)), 3: self.row(3, anchored, synthetic_lines(752))}
+        elsewhere = record(2, "Some Other Title", "Artist Z", synthetic_lines(751), 200.0)    # never anchors Bravo
+        self.pool(good, ta_rows=[rows[1]])
+        self.pool(anchored, ta_rows=[rows[3]])
+        self.seal()
+        lookups = [self.lookup(good, "canonical", "found", 1, [[rows[1]]]),
+                   self.lookup(bare, "canonical", "found", None, [[elsewhere]])]
+        report = self.classify(lookups)
+        self.assertEqual(self.rows[("pop-anglo/001", "canonical")]["truth_status"], "no-anchor")
+        self.assertEqual(self.verdict(bare), "unrecovered")
+        canonical = report["M1"]["canonical"]
+        self.assertEqual((canonical["shown"], canonical["unrecovered"]), (1, 1))
+        self.assertEqual(canonical["wrong_rate_bounds"], {"lower": 0.0, "upper": 0.0, "as_computed": 0.0})
+        # the same lookup on a track that is scored does widen it
+        report = self.classify(lookups + [self.lookup(anchored, "canonical", "found", None, [[rows[3]]])])
+        self.assertEqual(self.verdict(anchored), "unrecovered")
+        self.assertEqual(report["M1"]["canonical"]["wrong_rate_bounds"]["upper"], 0.5)   # 1 of (1 shown + 1 unrecovered)
+
     def test_a_failed_lookup_is_in_the_bounds_and_blocks_a_pass(self):
         """m2: `failed` was in no denominator, no bound and no incomplete trigger."""
         a = self.add("Alpha Failed", None, [], [])

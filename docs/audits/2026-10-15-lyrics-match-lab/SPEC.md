@@ -901,3 +901,8 @@ from the records and the `no-album` variant directly, without a patch.
 >   used to trip LRCLIB and lose the rest of the live budget. Such a status is
 >   still a failed fetch (resolver) or a miss (harness), never cached, and
 >   neither counts nor ends a count in progress.
+> - **The wrong rate's bounds count `unrecovered` rows on scorable tracks only
+>   (N7).** This narrows the third review's `u` in `wrong_rate_bounds` the way
+>   m1 narrowed the accuracy bounds. On a `no-anchor` track a recovered pick is
+>   `unjudged` and in no `shown`, so an unrecovered row there cannot be a wrong
+>   pick missing from the rate; it used to widen both bounds.
