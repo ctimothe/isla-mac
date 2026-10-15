@@ -772,6 +772,23 @@ The candidates, each tied to a hypothesis:
 | C5 | a trailing ` - From …` is an edition in `baseTitle` | H5: soundtrack credits keep the bare query from matching |
 | C6 | `primaryArtist` drops ` - Topic`, splits on `;` and ` / `, and drops a leading `The ` | H5: web players' artist forms |
 | C7 | the artist must match on whole words, not as a substring | the matcher's own false positives ("Sia" in "Asia") |
+| C8 | `/api/get` is sent without `album_name` (amended 2026-10-15) | H8: players name albums differently from the uploads, so the album turns the exact query into a 404 and costs two searches |
 
 H2 (`lyricsfile` is never decoded) and the album on `/api/get` are measured
 from the records and the `no-album` variant directly, without a patch.
+
+> *Amended 2026-10-15, C8.* The cached search pages already pointed at H8
+> before any record run. LRCLIB's exact query takes the oldest track entry
+> whose normalised name, artist and album (when sent) match within 2 s of the
+> length. Replaying that rule over the 30 vocal tracks whose search page is
+> cached gives:
+>
+> | Album sent | Exact query returns synced lyrics | Exact query misses (404) |
+> |---|---|---|
+> | none | 25 of 30 | 3 of 30 |
+> | Apple's `collectionName` | 4 of 26 | 21 of 26 |
+> | Deezer's album | 7 of 27 | 20 of 27 |
+>
+> The sample is small and mostly one slice, so C8 is scored like every other
+> candidate. Isla's own `no-album` and player variants measure the same thing
+> directly.

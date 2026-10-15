@@ -1,0 +1,19 @@
+diff --git a/Sources/IslaKit/Services/OnlineLyrics.swift b/Sources/IslaKit/Services/OnlineLyrics.swift
+index db82f6f..c4723fe 100644
+--- a/Sources/IslaKit/Services/OnlineLyrics.swift
++++ b/Sources/IslaKit/Services/OnlineLyrics.swift
+@@ -70,9 +70,11 @@ enum OnlineLyrics {
+             URLQueryItem(name: "track_name", value: identity.title),
+             URLQueryItem(name: "artist_name", value: identity.artist),
+         ]
+-        if !identity.album.isEmpty {
+-            items.append(URLQueryItem(name: "album_name", value: identity.album))
+-        }
++        // No album_name: /api/get requires the album to match exactly when
++        // one is sent, and players name albums differently from the uploads
++        // (an edition, "- Single"), so the exact query missed and the lookup
++        // paid for two searches. Title, artist and the duration window still
++        // pin the recording. (Lyrics match lab, candidate C8.)
+         if identity.duration > 0 {
+             items.append(URLQueryItem(
+                 name: "duration", value: String(Int(identity.duration.rounded()))
