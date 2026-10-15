@@ -706,11 +706,15 @@ AirDrop". AirDrop sends without keeping (the existing `ShelfSharing`).
 >   was made during this opening; every other state releases it at once. The
 >   selection is cleared when the panel closes or leaves the Shelf, so a
 >   tile chosen earlier can never take a keystroke meant for another app.
+> - A click outside the panel clears the selection too, so a tile chosen
+>   before a click into another app cannot take that app's Delete.
 > - The context menu keeps its first, disabled line (kind, size, folder).
 >   Only images get Quick Look thumbnails; other files show their icon.
 >   Clear's question does not lapse on its own; Escape or Cancel withdraws
 >   it. A promised drop (Mail, Photos) keeps the target it was dropped on,
->   even when another drop arrives before its file does.
+>   even when another drop arrives before its file does; a file aimed at
+>   AirDrop that arrives more than 10 s after the drop is kept on the Shelf
+>   instead, so the AirDrop sheet never opens unasked.
 
 ## 9. Clipboard (R3)
 
@@ -825,8 +829,10 @@ way it does for Translate, and gives it back when the field closes.
 > - Include Images reads a copied picture's contents once. Under macOS's
 >   Ask setting for pasting from other apps that is one prompt per picture
 >   copy, as text copies already were with history on; nothing is retried.
-> - Keep Pinned Items brings back only pinned files that are still present on
->   a local disk.
+> - Keep Pinned Items brings back every pin; a pinned file on the boot disk
+>   that is gone is dropped, and one on another volume (`/Volumes`,
+>   `/Network`, `/net`) is kept without being touched at launch, so a drive
+>   that is not plugged in loses nothing.
 
 ## 10. Settings (R4): the tall body with a sidebar
 
