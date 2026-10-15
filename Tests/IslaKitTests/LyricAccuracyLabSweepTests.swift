@@ -108,9 +108,14 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
         }
         if invariantFailures > 0 || !equalLengthOK { LyricLab.finding("L5: \(invariantFailures) sweep invariant failures") }
         let verdict = invariantFailures > 0 || !equalLengthOK ? "fail" : "concern"
+        // This field said `false`, quoting OnlineLyrics' doc comment that every
+        // online timeline is `.line`. The code disagrees with that comment: a
+        // fresh lookup keeps an enhanced LRC's `.word` granularity and only the
+        // cache flattens it, so the 2026-10-15 lab report had to correct its own
+        // raw output. The field now says what the code does.
         LyricLab.write(section: "L5_word_sweep", [
-            "reachableForLRCLIB": false,
-            "whyNotReachable": "LyricsPresentation.usesWordTiming needs granularity .word, precision sync and the karaoke switch; an LRCLIB timeline is .line (OnlineLyrics.swift:15-17), so every LRCLIB line is drawn fully lit (fraction 1) for its whole slot",
+            "reachableForLRCLIB": "enhanced LRC only, until the answer is read back from Isla's cache",
+            "whyNotReachable": "LyricsPresentation.usesWordTiming needs granularity .word, precision sync and the Word Karaoke switch, which is off by default. Isla never decodes lyricsfile, so only an enhanced-LRC syncedLyrics brings words: a fresh lookup keeps its .word granularity (OnlineLyrics.swift:171), but the cache rebuilds every hit as .line (OnlineLyrics.swift:524), so each later lookup of the song draws every line fully lit (fraction 1) for its whole slot",
             "real": realResult.merging([
                 "label": "REAL word timing from lyricsfile",
                 "tracksWithHasWordSync": tracks.filter(\.hasWordSync).count,
