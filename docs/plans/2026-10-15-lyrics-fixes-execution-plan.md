@@ -72,13 +72,23 @@ guidance:
   returns `.failed`, and today's per-song ladder takes over.
 - **A 429 on any request (exact query or search):** the lookup stops at once
   and sends no further requests. It returns a new outcome,
-  `.limited(retryAfter: TimeInterval?)`.
+  `.limited(retryAfter: TimeInterval?)`. If an earlier request in the same
+  lookup already found an answer that runs past the track's end, that answer
+  is returned instead, by today's rule that a found lyric is never turned into
+  a miss; the next song's first request meets the 429 and arms the pause.
+- **Any 5xx during the search** (after the 503 rule above) also stops the
+  search loop. The next query would meet the same overloaded server.
 - **Retry-After is read in both RFC forms.** A delay in seconds, or an
   HTTP-date measured against the response's own `Date` header (or the local
   clock when that header is missing). An unparseable value counts as absent.
+  Values over 24 h are held to 24 h, so a nonsense header cannot silence
+  lyrics for longer.
 - **A client-wide pause, owned by `LyricsCoordinator`.** The pause lasts for
   Retry-After when given. Otherwise it is 60 s, doubling with each consecutive
-  429, capped at 30 min, with full jitter. The first 2xx resets the backoff.
+  429, capped at 30 min. The first 2xx resets the backoff. The jitter is
+  "equal jitter": a draw between half the backoff and all of it. Full jitter
+  was planned first, but a draw near zero would re-ask straight into the same
+  429. (Amended 2026-10-15, while briefing phase 1.)
 - **While paused:**
   - no lookup reaches the network;
   - cached hits and believed misses still show;
