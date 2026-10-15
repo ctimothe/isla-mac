@@ -131,7 +131,7 @@ final class LyricMatchLabReplayTests: XCTestCase {
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: scratch) }
 
-        let replies = Replies([403, 401, 410, 200])
+        let replies = Replies([403, 401, 403, 200])
         let transport = ReplayTransport(root: scratch, record: true, stopAtFirst429: false) { _ in
             (Data(), replies.next())
         }
@@ -150,6 +150,40 @@ final class LyricMatchLabReplayTests: XCTestCase {
         XCTAssertEqual(transport.liveRequests, 3)
         XCTAssertTrue(transport.isTripped(URL(string: "https://example.test/api/search")!))
         XCTAssertFalse(transport.isTripped(URL(string: "https://other.test/api/search")!))
+    }
+
+    func testOnlyAGatewaysRefusalsTripAHostAndAUrlSpecificStatusDoesNot() async throws {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("match-lab-replay-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        func run(_ statuses: [Int], host: String) async throws -> ReplayTransport {
+            let replies = Replies(statuses)
+            let transport = ReplayTransport(root: scratch, record: true, stopAtFirst429: false) { _ in
+                (Data(), replies.next())
+            }
+            for n in 0..<statuses.count {
+                transport.beginLookup()
+                do {
+                    _ = try await transport.fetch(URLRequest(url: URL(string: "https://\(host)/api/get?n=\(n)")!))
+                    XCTFail("a refused status is never an answer")
+                } catch is ReplayTransport.Miss {
+                    // refused, whether it counts toward a trip or not
+                }
+            }
+            return transport
+        }
+
+        // Three 414s in a row speak of one URL, not of the host: all three are asked, none is cached,
+        // and the host stays open.
+        let url414 = try await run([414, 414, 414], host: "a414.example.test")
+        XCTAssertEqual(url414.liveRequests, 3)
+        XCTAssertFalse(url414.isTripped(URL(string: "https://a414.example.test/api/search")!))
+        // Three 403s in a row are the gateway refusing this client.
+        let gateway = try await run([403, 403, 403], host: "a403.example.test")
+        XCTAssertEqual(gateway.liveRequests, 3)
+        XCTAssertTrue(gateway.isTripped(URL(string: "https://a403.example.test/api/search")!))
     }
 
     private final class Replies: @unchecked Sendable {

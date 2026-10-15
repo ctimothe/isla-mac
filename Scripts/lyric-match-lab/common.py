@@ -116,6 +116,15 @@ CACHEABLE_STATUSES = (400, 404)
 # toward TRIP_AFTER (`_note_outcome`), like a request that ran out of retries on
 # 429: a gateway that blocks every request spent the whole live budget against a
 # host that allows about ten a minute (third review, m12).
+#
+# Only the gateway's refusals trip the host (fourth review, N6): 401 and 403 say
+# the host is refusing this client, whatever the URL. A 414 or a 422 says
+# something about one URL, and a track with an over-long title can draw three in
+# a row from its search URLs; tripping LRCLIB on that lost the rest of the live
+# budget to a status that says nothing about throttling. Every other refused
+# status is still refused and still a failed fetch; it is neither counted nor
+# does it end a count in progress.
+TRIP_STATUSES = (401, 403)
 
 
 def refuses_status(url: str, status: Optional[int]) -> bool:
@@ -294,8 +303,8 @@ def tripped(url: str) -> bool:
 
 
 def _note_outcome(url: str, refused: bool) -> None:
-    """Counts requests that ran out of retries on 429, or drew a refused status
-    (`refuses_status`), in a row per host, and trips the host at TRIP_AFTER.
+    """Counts requests that ran out of retries on 429, or drew a gateway's
+    refusal (`TRIP_STATUSES`), in a row per host, and trips the host at TRIP_AFTER.
     Any answer resets the count."""
     host = (urllib.parse.urlsplit(url).hostname or "").lower()
     with _gates_lock:
@@ -473,7 +482,8 @@ def fetch(url: str, root: str, *, offline: bool = False,
                 return Response(status, body, False)
             if refuses_status(url, status):
                 stats.failed()
-                _note_outcome(url, refused=True)
+                if status in TRIP_STATUSES:
+                    _note_outcome(url, refused=True)
                 return None
             if status == 429:
                 gate.throttled()

@@ -252,6 +252,39 @@ class CommonTests(unittest.TestCase):
             self.assertIn("[trip] example.test", out.getvalue())
             self.assertFalse(common.tripped("https://other.test/x"))
 
+    def test_only_a_gateways_refusals_trip_a_host_and_a_url_specific_status_does_not(self):
+        """N6: three 414s or 422s in a row, one over-long title's search URLs, tripped LRCLIB for the rest
+        of the run. They stay refused (a failed fetch, never cached), but only 401 and 403 count."""
+        gate = common.HostGate(0.0, sleep=lambda seconds: None)
+        for status in (414, 422, 410):
+            self.assertTrue(common.refuses_status("https://example.test/x", status), status)
+        with mock.patch.dict(common._gates, {"example.test": gate}), \
+                mock.patch.dict(common._refused_in_a_row, {}, clear=True), \
+                mock.patch.object(common, "_tripped", set()), \
+                mock.patch.object(common, "_http_get",
+                                  side_effect=[(414, b"", 0.0)] * 3 + [(422, b"", 0.0), (200, b"[]", 0.0)]) as http, \
+                mock.patch.object(common.time, "sleep"), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            results = [common.fetch(f"https://example.test/u{n}", self.root, stats=common.Stats()) for n in range(5)]
+            self.assertEqual([r.status if r else None for r in results], [None, None, None, None, 200])
+            self.assertEqual(http.call_count, 5)                  # every one of them was asked
+            self.assertNotIn("[trip]", out.getvalue())
+            self.assertFalse(common.tripped("https://example.test/x"))
+        # and three 401s or 403s in a row, with a 414 between them, still do
+        with mock.patch.dict(common._gates, {"example.test": gate}), \
+                mock.patch.dict(common._refused_in_a_row, {}, clear=True), \
+                mock.patch.object(common, "_tripped", set()), \
+                mock.patch.object(common, "_http_get",
+                                  side_effect=[(403, b"", 0.0), (414, b"", 0.0), (401, b"", 0.0), (403, b"", 0.0),
+                                               (200, b"[]", 0.0)]) as http, \
+                mock.patch.object(common.time, "sleep"), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            for n in range(5):
+                common.fetch(f"https://example.test/g{n}", self.root, stats=common.Stats())
+            self.assertEqual(http.call_count, 4)                  # the fifth never left the machine
+            self.assertIn("[trip] example.test", out.getvalue())
+        self.assertEqual(common.TRIP_STATUSES, (401, 403))        # the Swift harness's tripStatuses
+
     def test_an_answer_between_refused_statuses_keeps_the_host_open(self):
         gate = common.HostGate(0.0, sleep=lambda seconds: None)
         replies = [(401, b"", 0.0)] * 2 + [(200, b"[]", 0.0)] + [(410, b"", 0.0)] * 2 + [(200, b"[]", 0.0)]

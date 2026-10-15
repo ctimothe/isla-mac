@@ -812,6 +812,15 @@ final class ReplayTransport: @unchecked Sendable {
         !cachesStatus(status) && status != 429 && !(500...599).contains(status)
     }
 
+    /// Only the gateway's refusals count toward `tripAfter` (fourth review, N6):
+    /// 401 and 403 say the host is refusing this client, whatever the URL. A 414
+    /// or a 422 speaks of one URL, and a track with an over-long title can draw
+    /// three in a row from its search URLs; tripping LRCLIB on that lost the rest
+    /// of the live budget to a status that says nothing about throttling. Every
+    /// other refused status stays refused and is neither counted nor ends a
+    /// count in progress. The Python `common.TRIP_STATUSES` is the same set.
+    static let tripStatuses: Set<Int> = [401, 403]
+
     private let root: URL
     private let record: Bool
     private let maxLive: Int?
@@ -928,8 +937,8 @@ final class ReplayTransport: @unchecked Sendable {
 
     func isTripped(_ url: URL) -> Bool { lock.withLock { tripped.contains(url.host ?? "") } }
 
-    /// Counts requests that ran out of retries on 429, or drew a refused
-    /// status (`refusesStatus`), in a row per host, and trips the host at
+    /// Counts requests that ran out of retries on 429, or drew a gateway's
+    /// refusal (`tripStatuses`), in a row per host, and trips the host at
     /// `tripAfter`; any answer resets the count.
     private func noteOutcome(_ url: URL, refused: Bool) {
         let host = url.host ?? ""
@@ -1063,7 +1072,7 @@ final class ReplayTransport: @unchecked Sendable {
                 throw Miss()
             }
             if Self.refusesStatus(status) {
-                noteOutcome(url, refused: true)
+                if Self.tripStatuses.contains(status) { noteOutcome(url, refused: true) }
                 log(MatchExchange(key: key, path: path, kind: .miss, status: status, cached: false, body: nil))
                 throw Miss()
             }

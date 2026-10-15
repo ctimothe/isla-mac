@@ -892,3 +892,12 @@ from the records and the `no-album` variant directly, without a patch.
 >   whole-tree `git status --porcelain` check that follows the run now also
 >   precedes the patch (exit 2). A leftover outside `Sources/` used to end
 >   every run with "not clean after reversing the patch", blaming the patch.
+> - **Only 401 and 403 trip a host (N6).** This narrows the third review's
+>   rule that each refused answer counts toward `TRIP_AFTER`. The refused-status
+>   set is unchanged on both sides, but only `common.TRIP_STATUSES` and the
+>   Swift `ReplayTransport.tripStatuses` (401, 403: the gateway refusing this
+>   client) count, beside a 429 that ran out of retries. A 414, 422 or 410
+>   speaks of one URL; three in a row from one over-long title's search URLs
+>   used to trip LRCLIB and lose the rest of the live budget. Such a status is
+>   still a failed fetch (resolver) or a miss (harness), never cached, and
+>   neither counts nor ends a count in progress.
