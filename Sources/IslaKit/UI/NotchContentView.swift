@@ -67,9 +67,9 @@ struct NotchContentView: View {
     private var size: CGSize { vm.bodySize }
     @State private var isPressed = false
     private var compactActivity: CompactMediaActivity { vm.compactMediaActivity }
-    /// Whether the collapsed pill is out of the notch: music, or the charger
-    /// or headphones having their moment.
-    private var pillShown: Bool { compactActivity.isVisible || vm.ambient != nil }
+    /// Whether the collapsed pill is out of the notch: music, or one of the
+    /// moments — the pop-up, the charger, the headphones.
+    private var pillShown: Bool { compactActivity.isVisible || vm.ambient != nil || vm.hud != nil }
     private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : Theme.collapsedTopRadius }
 
     // MARK: - Resting in the notch
@@ -103,7 +103,8 @@ struct NotchContentView: View {
         if restsInNotch && !isAwake { return Theme.restingNotchBottomRadius }
         // The peek is a taller island, and its corners grow with it (spec
         // §2.3): 16 against the compact island's 12.
-        if vm.isPeeking && compactActivity.isVisible { return Theme.peekBottomRadius }
+        // Only while the peek is what is drawn: under the pop-up it is not.
+        if vm.moment == .peek && compactActivity.isVisible { return Theme.peekBottomRadius }
         return Theme.collapsedBottomRadius
     }
 
@@ -138,7 +139,8 @@ struct NotchContentView: View {
             onMusicTab: vm.tab == .media && !vm.isShowingWelcome,
             hasTrack: vm.media.track != nil,
             pillShowsMusic: compactActivity.isVisible,
-            momentShowing: vm.ambient != nil
+            // The pop-up is a moment like the charger: neutral (spec §12).
+            momentShowing: vm.ambient != nil || vm.hud != nil
         )
         return KeyLine.color(for: style, tint: vm.coverTint)
     }
@@ -477,6 +479,10 @@ struct NotchContentView: View {
                    value: compactActivity)
         .animation(Theme.pill(appearing: vm.isPeeking, reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.pill(appearing: vm.ambient != nil, reduceMotion: reduceMotion), value: vm.ambient)
+        // The pop-up widens on its own spring and folds on the pill's fold
+        // (spec §2.4). Keyed to whether it is up, not to its level: a press only
+        // moves the bar, which has a curve of its own.
+        .animation(Theme.hud(appearing: vm.hud != nil, reduceMotion: reduceMotion), value: vm.hud != nil)
         .animation(Theme.paneAnimation, value: vm.tab)
         // The body growing or folding (spec §6): its height, its bottom radius
         // and — through the same value — the key line that follows them, on the
@@ -529,10 +535,20 @@ struct NotchContentView: View {
                 // removed, so the cover's morph and the fold described above
                 // are exactly as they were when the moment ends.
                 compactMediaHeader(morph: travellingMorph)
-                    .opacity(vm.ambient == nil ? 1 : 0)
-                if let ambient = vm.ambient {
+                    .opacity(vm.ambient == nil && vm.hud == nil ? 1 : 0)
+                // One moment at a time, the highest first (`IslandMoment`): the
+                // pop-up over the charger or headphones. The one under it stays
+                // in the model with its own timer and is drawn again when this
+                // one folds.
+                switch vm.moment {
+                case .hud(let hud):
+                    hudHeader(hud)
+                        .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
+                case .ambient(let ambient):
                     ambientHeader(ambient)
                         .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
+                case .peek, .none:
+                    EmptyView()
                 }
             }
             // The island to assistive tech, on the stack that holds both the
@@ -586,6 +602,7 @@ struct NotchContentView: View {
     /// that there is none. The locked pill draws no moment, so over the shield
     /// it does not name one.
     private var closedIslandValue: String {
+        if !vm.isLockedPresentation, let hud = vm.hud { return hud.accessibilityLabel }
         if !vm.isLockedPresentation, let ambient = vm.ambient { return ambient.accessibilityLabel }
         return vm.media.track == nil ? localized("Nothing is playing.") : compactAccessibilityLabel
     }
@@ -660,6 +677,39 @@ struct NotchContentView: View {
         .frame(width: size.width, height: size.height)
         // No element of its own: the moment is the island's value, set on the
         // stack above it — see `islandAccessibility(open:)`.
+    }
+
+    /// The volume or brightness pop-up, in the pill's two wings (spec §12;
+    /// the boards' `Island-HUD-*`): the glyph in the left wing where the cover
+    /// sits, the level as a bar in the right wing — a track 80 × 6, radius 3,
+    /// white 0.18, with a white fill (white 0.32 muted, still at the level it
+    /// will return to) and no number. The bar steps on `hudLevel`; under
+    /// Reduce Motion it steps without gliding.
+    private func hudHeader(_ hud: HUDMoment) -> some View {
+        let track = HUDLayout.trackFrame(islandWidth: size.width, height: size.height)
+        return ZStack(alignment: .topLeading) {
+            Image(systemName: hud.symbol)
+                .font(.system(size: hud.symbolPointSize, weight: .semibold))
+                // Secondary while muted, as the board draws the slash.
+                .foregroundStyle(hud.muted ? Theme.secondary : Color.white)
+                .frame(width: CompactIslandLayout.coverSide, height: CompactIslandLayout.coverSide)
+                .position(
+                    x: CompactIslandLayout.momentGlyphCentreX,
+                    y: size.height / 2
+                )
+            RoundedRectangle(cornerRadius: HUDLayout.barRadius, style: .continuous)
+                .fill(Color.white.opacity(HUDLayout.trackOpacity))
+                .frame(width: track.width, height: track.height)
+                .offset(x: track.minX, y: track.minY)
+            RoundedRectangle(cornerRadius: HUDLayout.barRadius, style: .continuous)
+                .fill(Color.white.opacity(hud.fillOpacity))
+                .frame(width: track.width * CGFloat(hud.level), height: track.height)
+                .offset(x: track.minX, y: track.minY)
+                .animation(Theme.hudLevel(reduceMotion: reduceMotion), value: hud.level)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        // No element of its own: like the other moments, the pop-up is the
+        // island's value (`closedIslandValue`), set on the stack above it.
     }
 
     private var openHeader: some View {
@@ -1229,6 +1279,8 @@ struct NotchContentView: View {
                 refreshClipboardPolling: vm.refreshClipboardPolling,
                 setTranslateKeepHistory: vm.setTranslateKeepHistory,
                 setTranslateSpeakButton: vm.setTranslateSpeakButton,
+                setVolumeAndBrightness: vm.setVolumeAndBrightness,
+                accessibilityMissing: vm.accessibilityMissing,
                 selection: $vm.settingsSection,
                 headerHeight: vm.geometry.notchSize.height
             )

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import ServiceManagement
 
@@ -60,6 +61,13 @@ struct SettingsPane: View {
     /// `flagBinding`; these are what turning it off does to a list and a voice.
     var setTranslateKeepHistory: (Bool) -> Void = { _ in }
     var setTranslateSpeakButton: (Bool) -> Void = { _ in }
+    /// Volume and Brightness (spec §12): what turning it on or off does — the
+    /// permission prompt and the key tap. The switch is written by `flagBinding`.
+    var setVolumeAndBrightness: (Bool) -> Void = { _ in }
+    /// True while the setting is on and Accessibility is missing, as the HUD's
+    /// controller sees it. A publisher rather than a snapshot: the permission
+    /// is granted in another app, long after this pane drew.
+    var accessibilityMissing: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
     /// The section on screen: a binding to `NotchViewModel.settingsSection`, which
     /// is also what the next open restores. Constant in the tests and the lab,
     /// where a test names the section it wants to look at.
@@ -98,6 +106,8 @@ struct SettingsPane: View {
     /// `@Published` publisher hands over its current value on subscription,
     /// so a pane that appears with the reader already down says so at once.
     @State private var fallbackReason: NowPlayingRouteFailure?
+    /// `accessibilityMissing`, received on its own, like `fallbackReason`.
+    @State private var needsAccessibility = false
 
     static let localLyricsPrivacyCopyKey = "Lyrics stay on this Mac."
 
@@ -314,6 +324,7 @@ struct SettingsPane: View {
             automation.refresh()
         }
         .onReceive(media.$fallbackReason) { fallbackReason = $0 }
+        .onReceive(accessibilityMissing) { needsAccessibility = $0 }
     }
 
     // MARK: - The form
@@ -323,6 +334,7 @@ struct SettingsPane: View {
     private var context: SettingsContext {
         var c = SettingsContext()
         c.hasBattery = AmbientWatch.hasBattery
+        c.needsAccessibility = needsAccessibility && flag(.volumeAndBrightness)
         c.opensOnHover = flag(.openOnHover)
         c.launchNote = LaunchAtLogin.note(launchAtLogin)
         c.offersLoginItems = launchAtLogin.offersLoginItems
@@ -559,8 +571,15 @@ struct SettingsPane: View {
                 drawnValueWidth: 52,
                 commit: commitBodyWidth
             )
-        case .charging, .headphones, .newTracks, .volumeAndBrightness:
+        case .charging, .headphones, .newTracks:
             switchRow(row, isOn: flagBinding(row))
+        case .volumeAndBrightness:
+            // Off until chosen. Turning it on asks macOS for Accessibility —
+            // the prompt, once, from here and from nowhere else — and the
+            // controller decides about the tap from the setting and the
+            // permission together (spec §12). `flagBinding` has written the
+            // switch by the time this runs, which is what the controller reads.
+            switchRow(row, isOn: flagBinding(row) { setVolumeAndBrightness($0) })
 
         // Privacy
         case .clipboardHistory:
@@ -588,7 +607,7 @@ struct SettingsPane: View {
             ShortcutRecorderRow(action: .translateClipboard, center: hotKeys, wantsKeyboard: wantsKeyboard)
 
         // Music
-        case .nowPlayingReader, .automationPermission:
+        case .nowPlayingReader, .automationPermission, .accessibilityPermission:
             // The failure groups' one button each (spec §10): Try Again and
             // Open Automation Settings… are drawn here and nowhere else.
             SettingsRowChrome(label: row.title) { pushButton(row) }
@@ -902,6 +921,9 @@ struct SettingsPane: View {
             push(row.title) { hotKeys.restoreDefaults() }
         case .nowPlayingReader:
             push(localized("Try Again")) { media.retryNowPlaying(userAsked: true) }
+        case .accessibilityPermission:
+            // The same open, for the same reason: no activation needed.
+            push(localized("Open Privacy & Security…")) { NSWorkspace.shared.open(SystemAccessibilityTrust.settingsURL) }
         case .automationPermission:
             // NSWorkspace needs no activation, so this works from a panel that
             // never becomes key; System Settings comes forward on its own.

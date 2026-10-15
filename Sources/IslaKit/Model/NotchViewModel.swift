@@ -115,6 +115,10 @@ final class NotchViewModel: ObservableObject {
             guard isOpen, !oldValue else { return }
             ambient = nil
             isPeeking = false
+            // The pop-up too: the panel has the player's own slider, and a
+            // pill left standing over a panel that just opened would fold
+            // under it with nobody asking (spec §12).
+            hud = nil
         }
     }
     @Published var isDropTargeted = false
@@ -153,6 +157,14 @@ final class NotchViewModel: ObservableObject {
     @Published var isPeeking = false
     /// The charger or headphones, shown for a moment. See `AmbientActivity`.
     @Published var ambient: AmbientActivity?
+    /// The volume or brightness pop-up, while it is up (spec §12). The highest
+    /// of the island's moments: see `IslandMoment`.
+    @Published var hud: HUDMoment?
+    /// Which moment the island is showing: the pop-up over the charger or
+    /// headphones over a new track's peek (spec §12).
+    var moment: IslandMoment {
+        IslandMoment.current(hud: hud, ambient: ambient, isPeeking: isPeeking)
+    }
     /// True while the shield is up and the panel is presenting the lock-screen
     /// card instead of its normal shell.
     @Published var isLockedPresentation = false
@@ -222,6 +234,20 @@ final class NotchViewModel: ObservableObject {
     /// the control that would stop it is gone (spec §11).
     func setTranslateSpeakButton(_ enabled: Bool) {
         if !enabled { translator.speaker.stop() }
+    }
+
+    /// Volume and Brightness turned on or off in Settings (spec §12). The switch
+    /// is already written; this asks macOS for Accessibility when it went on and
+    /// lets the key tap follow the setting and the permission together.
+    func setVolumeAndBrightness(_ enabled: Bool) {
+        if !enabled { hud = nil }
+        stores.hud.settingChanged(to: enabled)
+    }
+
+    /// Whether Settings should show its "Accessibility" group: the setting is on
+    /// and the permission is missing. Published by the controller of the keys.
+    var accessibilityMissing: AnyPublisher<Bool, Never> {
+        stores.hud.$needsAccessibility.removeDuplicates().eraseToAnyPublisher()
     }
 
     @Published var tab: Tab = .media {
@@ -1300,17 +1326,38 @@ final class NotchViewModel: ObservableObject {
     /// Size of the visible body for the current state.
     var bodySize: CGSize {
         if isOpen || isDropTargeted { return openBodySize }
+        let moment = self.moment
         let media = compactMediaActivity.bodySize(
             notchSize: geometry.notchSize,
-            peeking: isPeeking,
+            // A peek the pop-up is standing over is not drawn, and takes none
+            // of the height.
+            peeking: moment == .peek,
             // The body the panel would open to, so the pill can never be wider
             // than the panel it turns into.
             bodyWidth: geometry.expandedSize.width
         )
-        guard let ambient else { return media }
-        return Self.ambientBodySize(
-            ambient, media: media, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
-        )
+        switch moment {
+        case .hud(let hud):
+            return Self.hudBodySize(
+                hud, media: media, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
+            )
+        case .ambient(let ambient):
+            return Self.ambientBodySize(
+                ambient, media: media, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
+            )
+        case .peek, .none:
+            return media
+        }
+    }
+
+    /// The pop-up: two 104 pt wings on the notch, the notch's own height, and
+    /// never wider than the panel nor narrower than the music pill it stands
+    /// over. Pure, so the arithmetic has tests.
+    nonisolated static func hudBodySize(
+        _ hud: HUDMoment, media: CGSize, notchSize: CGSize, bodyWidth: CGFloat
+    ) -> CGSize {
+        let width = min(notchSize.width + hud.extensionWidth, bodyWidth)
+        return CGSize(width: max(media.width, width), height: notchSize.height)
     }
 
     /// At least as wide as the moment needs, never narrower than the music
@@ -1566,6 +1613,15 @@ final class NotchViewModel: ObservableObject {
     static var headphonesEnabled: Bool { headphonesEnabled(in: .standard) }
     static func headphonesEnabled(in defaults: UserDefaults) -> Bool {
         SettingsRowID.headphones.isOn(in: defaults)
+    }
+
+    /// Volume and Brightness (spec §12, §14): **off** until chosen. The one
+    /// moment that needs a permission, replaces a system pop-up and sets the
+    /// Mac's volume and brightness. Reads the default back from the table.
+    static let showHUDKey = SettingsTable.volumeAndBrightnessKey
+    static var volumeAndBrightnessEnabled: Bool { volumeAndBrightnessEnabled(in: .standard) }
+    static func volumeAndBrightnessEnabled(in defaults: UserDefaults) -> Bool {
+        SettingsRowID.volumeAndBrightness.isOn(in: defaults)
     }
 
     static var newTracksEnabled: Bool { newTracksEnabled(in: .standard) }

@@ -522,6 +522,12 @@
 "Version %@" = "Версия %@";
 "Volume and Brightness" = "Громкость и яркость";
 "Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission." = "«Громкость и яркость» заменяет системное окно Mac и требует разрешения универсального доступа.";
+"Accessibility" = "Универсальный доступ";
+"Open Privacy & Security…" = "Открыть «Конфиденциальность и безопасность»…";
+"Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up." = "Isla пока не видит клавиши громкости. До тех пор Mac показывает своё окно.";
+"Volume %@" = "Громкость: %@";
+"Brightness %@" = "Яркость: %@";
+"Keyboard Brightness %@" = "Яркость клавиатуры: %@";
 
 /* Translate: pair bar, Paste, Speak, History (R4) */
 "On this Mac" = "На этом Mac";

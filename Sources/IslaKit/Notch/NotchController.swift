@@ -85,6 +85,15 @@ final class NotchController {
         stores.ambient.onEvent = { [weak self] activity in
             self?.presentAmbient(activity)
         }
+        // The volume and brightness pop-up (spec §12). Both closures are read at
+        // each key, so the lock and the reading land on whatever is current.
+        stores.hud.isLocked = { [weak self] in
+            guard let self else { return false }
+            return self.lockPresence.isLocked || self.viewModel?.isLockedPresentation == true
+        }
+        stores.hud.onReading = { [weak self] reading in
+            self?.presentHUD(reading)
+        }
         stores.promises.onBatch = { [weak self] urls in
             self?.promisedFilesArrived(urls)
         }
@@ -92,6 +101,10 @@ final class NotchController {
             self?.promisedFilesArrivedForAirDrop(urls)
         }
         stores.start()
+        // After `start()` and never inside it: the tap exists only once the
+        // setting and the permission are both true, and this is where the app
+        // first asks.
+        stores.hud.refresh()
         build()
         observerTokens.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -140,6 +153,7 @@ final class NotchController {
                 // so a lid closed right after plugging in woke to the old
                 // percentage still on the island.
                 self.clearAmbient()
+                self.clearHUD()
                 self.setOpen(false)
                 self.pointer.setInside(false)
                 self.pointer.stop()
@@ -226,6 +240,9 @@ final class NotchController {
             }
             if vm.ambient != nil { clearAmbient() }
         }
+        // The pop-up is an answer to a key press and rides no Space into a new
+        // one: it ends with the Space it was shown on.
+        clearHUD()
         guard viewModel?.isOpen == true else { return }
         // What was typed is kept — only the panel closes.
         setOpen(false)
@@ -326,8 +343,10 @@ final class NotchController {
     /// ordinary window does.
     private func screenLocked() {
         // A charger or headphones moment does not carry over the shield. The
-        // locked pill is cut for music alone.
+        // locked pill is cut for music alone — and so is the volume pop-up,
+        // which the tap does not even hear while the Mac is locked.
         clearAmbient()
+        clearHUD()
         guard NotchViewModel.showOnLockScreenEnabled else {
             // The card is switched off, but the rest of the lock contract still
             // holds: fold, and stop the sampler. Returning outright left it
@@ -1575,6 +1594,15 @@ final class NotchController {
                 DispatchQueue.main.async { self?.refreshCollapsedRects() }
             }
             .store(in: &cancellables)
+        // And so does the volume pop-up — only when it appears or folds, not
+        // with each press, which moves a bar and changes no width.
+        vm.$hud
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshCollapsedRects() }
+            }
+            .store(in: &cancellables)
 
         // Sneak peek: a new track shows itself, then gets out of the way.
         //
@@ -1748,6 +1776,13 @@ final class NotchController {
             peekWork = nil
             ambientWork?.cancel()
             ambientWork = nil
+            // The pop-up's own timer, with the flag the view model has ended. The
+            // key keeps working with the panel open, and the player's slider is
+            // where its volume shows; the permission is looked at again, since
+            // the panel opening is one of the moments trust is re-read.
+            hudFoldWork?.cancel()
+            hudFoldWork = nil
+            stores.hud.refresh()
             withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = true }
             // Only for the tab that draws the clock. Opening onto Settings or
             // the Shelf leaves it off; the tab sink in `build` starts it the
@@ -2043,6 +2078,87 @@ final class NotchController {
     }
 
     private var ambientWork: DispatchWorkItem?
+    private var hudFoldWork: DispatchWorkItem?
+    /// How long the pop-up stays after the last press. `Theme.hudLinger`; a
+    /// test shortens it rather than wait a second and a half.
+    var hudFoldDelay: TimeInterval = Theme.hudLinger
+    private var hudAnnounceWork: DispatchWorkItem?
+
+    // MARK: The volume and brightness pop-up (spec §12)
+
+    /// How long after the last press the level is spoken. A held key repeats
+    /// many times a second, and a high-priority announcement each time would be
+    /// VoiceOver talking over itself about numbers already out of date.
+    static let hudAnnounceDelay: TimeInterval = 0.25
+
+    /// Shows a key's result on the island, and restarts the fold.
+    ///
+    /// The key has already been applied and consumed; this only says so. The
+    /// level is announced even when nothing is drawn — with the panel open the
+    /// volume has its slider but brightness has nothing, and a person on
+    /// VoiceOver has neither.
+    func presentHUD(_ reading: HUDReading) {
+        guard let vm = viewModel else { return }
+        let moment = HUDMoment(reading)
+        hudAnnounceWork?.cancel()
+        let announce = DispatchWorkItem {
+            Announcer.shared.announce(moment.accessibilityLabel)
+        }
+        hudAnnounceWork = announce
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hudAnnounceDelay, execute: announce)
+
+        guard Self.hudAllowed(
+            isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted,
+            isLocked: vm.isLockedPresentation, screensAsleep: screensAreAsleep
+        ) else { return }
+
+        let reduceMotion = SystemAppearance.shared.reduceMotion
+        if vm.hud == nil {
+            // Unfolding: the spring, and every moment under it left standing
+            // with its own timer (`IslandMoment`).
+            withAnimation(Theme.hud(appearing: true, reduceMotion: reduceMotion)) { vm.hud = moment }
+        } else {
+            // Already up: the bar follows on its own curve; the shape has
+            // nothing to do.
+            vm.hud = moment
+        }
+        hudFoldWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let vm = self.viewModel else { return }
+            self.hudFoldWork = nil
+            // The existing pill fold, so what was under it comes back on the
+            // curve it would have used to arrive.
+            withAnimation(Theme.hud(appearing: false, reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                vm.hud = nil
+            }
+        }
+        hudFoldWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + hudFoldDelay, execute: work)
+    }
+
+    /// Whether the pop-up may be drawn now. Pure, so each refusal is a test.
+    ///
+    /// Not over the open panel — the player has its own volume slider, and the
+    /// panel would not have a pill to widen (the spec is silent, so the key is
+    /// applied and nothing is drawn); not while a drag holds the panel open;
+    /// not over the lock screen, where the tap passes every event through and
+    /// the collapsed rects belong to the card; not on a dark display. A key
+    /// press is the person's own act, so unlike the charger it is **not**
+    /// refused for a pointer on the pill or a full-screen app.
+    nonisolated static func hudAllowed(
+        isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool
+    ) -> Bool {
+        !isOpen && !isDropTargeted && !isLocked && !screensAsleep
+    }
+
+    /// Ends the pop-up at once, for a lock, a dark display and a Space change.
+    private func clearHUD() {
+        hudFoldWork?.cancel()
+        hudFoldWork = nil
+        hudAnnounceWork?.cancel()
+        hudAnnounceWork = nil
+        viewModel?.hud = nil
+    }
 
     /// Shows the charger or headphones on the island for a moment.
     ///

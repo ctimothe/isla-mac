@@ -101,7 +101,7 @@ enum SettingsDefault: Equatable {
 enum SettingsRowID: String, CaseIterable, Hashable {
     // General
     case launchAtLogin, openLoginItems, openOnHover, hoverDelay, panelWidth
-    case charging, headphones, newTracks, volumeAndBrightness
+    case charging, headphones, newTracks, volumeAndBrightness, accessibilityPermission
     // Privacy
     case clipboardHistory, includeImages, keepPinned
     case coverClipboard, coverTranslate, hideFromRecording
@@ -159,7 +159,8 @@ enum SettingsRowID: String, CaseIterable, Hashable {
             return .popUp
         case .shortcutOpenPanel, .shortcutLyrics, .shortcutTranslate:
             return .shortcut
-        case .openLoginItems, .restoreShortcuts, .nowPlayingReader, .automationPermission, .resetLyricDelay,
+        case .openLoginItems, .restoreShortcuts, .nowPlayingReader, .automationPermission, .accessibilityPermission,
+             .resetLyricDelay,
              .openLyricsFolder, .addLyricsFolder, .importLRC, .rescanLocalLyrics, .clearImportedLyrics,
              .clearBindings, .translationLanguages, .spotifyAccount, .spotifyImport, .showScreenshotsFolder,
              .clearScreenshotsFolder, .updateStatus, .downloadUpdate, .quit:
@@ -187,6 +188,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .headphones: return localized("Headphones Connecting")
         case .newTracks: return localized("New Tracks")
         case .volumeAndBrightness: return localized("Volume and Brightness")
+        case .accessibilityPermission: return localized("Accessibility")
         case .clipboardHistory: return localized("Clipboard History")
         case .includeImages: return localized("Include Images")
         case .keepPinned: return localized("Keep Pinned Items")
@@ -399,6 +401,11 @@ struct SettingsContext: Equatable {
     // General
     var hasBattery = true
     var offersVolumeAndBrightness = SettingsTable.shipsVolumeAndBrightness
+    /// Volume and Brightness is on and Isla is not yet trusted for
+    /// Accessibility (R5, spec §12): the one condition the "Accessibility" group
+    /// exists for, as the Music section's failure groups exist for theirs. Never
+    /// true while the setting is off or the permission is granted.
+    var needsAccessibility = false
     var opensOnHover = false
     var launchNote: String? = nil
     var offersLoginItems = false
@@ -436,10 +443,10 @@ struct SettingsContext: Equatable {
 @MainActor
 enum SettingsTable {
     /// Volume and Brightness (R5, spec §12) is a row of this table with a key and
-    /// a default — and no place in it until R5 ships. **One flag**: R5 flips it
-    /// to `true` and the General group shows the row, its footnote and the
-    /// Accessibility group; nothing else in Settings changes.
-    static let shipsVolumeAndBrightness = false
+    /// a default. R4 held it behind this one flag; **R5 flips it**, and the
+    /// General group shows the row and its footnote, and the Accessibility group
+    /// while the setting is on and Isla is not trusted.
+    static let shipsVolumeAndBrightness = true
     static let volumeAndBrightnessKey = "island.showHUD"
 
     /// The sections, in the sidebar's order.
@@ -490,6 +497,16 @@ enum SettingsTable {
         blocks.append(.group(shows))
         if c.offersVolumeAndBrightness {
             blocks.append(.footnote(localized("Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission.")))
+        }
+        // Isla cannot see the volume keys until the permission is granted, and
+        // says so here, in the section that asked for it — the same single
+        // failure surface the Music section keeps for its own refusals. The group
+        // is present only while the setting is on and the permission is missing.
+        if c.offersVolumeAndBrightness, c.needsAccessibility {
+            blocks += [
+                .group([.accessibilityPermission]),
+                .footnote(localized("Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up.")),
+            ]
         }
         // Why the island moves or looks the way it does when the Mac asks for
         // less motion, less transparency or more contrast (M-34).

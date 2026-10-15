@@ -34,6 +34,12 @@ final class NotchStores {
     let privacy: PrivacyMode
     /// The charger and headphones, for the island's moments without music.
     let ambient = AmbientWatch()
+    /// The volume and brightness pop-up's keys (spec §12). Session-owned: a
+    /// panel rebuilt for a new display must not end the tap and begin it again
+    /// — a person pressing volume while a monitor is plugged in would hear the
+    /// system's own pop-up for the gap. Built inert: nothing is tapped until
+    /// the setting and the permission are both true and `refresh()` has run.
+    let hud: MediaKeyHUD
 
     /// Raised when a screenshot arrives on its own — copied elsewhere, or
     /// synced from a phone. The panel's view model wires itself to this;
@@ -59,8 +65,13 @@ final class NotchStores {
         screenshotVault: ScreenshotVault? = nil,
         translator: Translator? = nil,
         privacy: PrivacyMode? = nil,
-        lyricTranslation: LyricTranslation? = nil
+        lyricTranslation: LyricTranslation? = nil,
+        hud: MediaKeyHUD? = nil
     ) {
+        // A test process never taps the keys: the suite runs on the owner's Mac,
+        // often with the setting on, and `EventMediaKeyTap.live` and the real
+        // trust check both refuse there too. The tests inject their own.
+        self.hud = hud ?? MediaKeyHUD(isEnabled: { !PlayerBridge.isRunningTests && NotchViewModel.volumeAndBrightnessEnabled })
         let shelfStore = shelf ?? ShelfStore()
         self.shelf = shelfStore
         promises = PromisedDropInbox(shelf: shelfStore)
@@ -234,6 +245,7 @@ final class NotchStores {
         media.stop()
         clipboard.stop()
         ambient.stop()
+        hud.stop()
     }
 
     /// Paused while nobody can see or reach the panel — the display asleep, or

@@ -142,8 +142,44 @@ enum Theme {
     /// a fourth spring at 0.7 would have passed it without anyone noticing.
     static let criticallyDampedSprings: [Animation] = [
         openAnimation, closeAnimation, compactAnimation, pillUnfold, pillFold, pillContentOut, pillContentIn,
-        captionTurnOut, captionTurnIn, expandAnimation, lockCardMorph,
+        captionTurnOut, captionTurnIn, expandAnimation, lockCardMorph, hudAnimation,
     ]
+
+    /// The volume and brightness pop-up (redesign 2026-10-15, spec §2.4, §12).
+    ///
+    /// Opens on a spring of 0.28 / 1.0 — the same beat as the new-track peek,
+    /// since both are the island saying "something just happened" and both
+    /// widen the pill; critically damped, because a key press is not a throw.
+    /// The wings widening 52 pt each side on this spring is the pop-up's whole
+    /// entrance.
+    static let hudResponse: Double = 0.28
+    static let hudAnimation = Animation.spring(response: hudResponse, dampingFraction: 1.0)
+
+    /// The level bar following each press: an ease-out of 0.12 s (spec §2.4).
+    /// Short, because a held key presses again every few tens of milliseconds
+    /// and a bar still travelling when the next step lands would trail the
+    /// keys; an ease-out because it leaves at its fastest, in the frame the
+    /// press landed.
+    static let hudLevel = Animation.easeOut(duration: 0.12)
+
+    /// How long the pop-up stays after the *last* press (spec §2.4: 1.5 s idle)
+    /// before it folds on the existing pill fold (`pillFold`). Each press
+    /// restarts it.
+    static let hudLinger: TimeInterval = 1.5
+
+    /// The pop-up arriving or folding: the spring on the way in, the existing
+    /// fold on the way out. Reduce Motion: it appears and folds by crossfade,
+    /// with no growth travel (spec §2.4).
+    static func hud(appearing: Bool, reduceMotion: Bool) -> Animation {
+        guard !reduceMotion else { return reducedMotion }
+        return appearing ? hudAnimation : pillFold
+    }
+
+    /// The bar's step. Reduce Motion: it steps — a bar that glides is travel,
+    /// and the number of presses is what a person is counting.
+    static func hudLevel(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : hudLevel
+    }
 
     /// The body growing from 208 to 400 and back (spec §2.4, §6): spring 0.40 /
     /// 1.0. A little slower than the open's 0.34 because it moves a body that is

@@ -106,7 +106,8 @@ final class SettingsPaneTests: XCTestCase {
         // the row is not there to count, which is correct and not a missing switch.
         let expected: [SettingsSection: [String]] = [
             .general: ["Launch at Login", "Open on Hover"] + (AmbientWatch.hasBattery ? ["Charging"] : [])
-                + ["Headphones Connecting", "New Tracks"],
+                // Volume and Brightness joined in R5 (spec §12), off by default.
+                + ["Headphones Connecting", "New Tracks", "Volume and Brightness"],
             .privacy: ["Clipboard History", "Include Images", "Keep Pinned Items",
                        PrivacyMode.Section.clipboard.settingsTitle, PrivacyMode.Section.translate.settingsTitle,
                        "Hide from Screen Recording"],

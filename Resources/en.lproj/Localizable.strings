@@ -516,6 +516,12 @@
 "Version %@" = "Version %@";
 "Volume and Brightness" = "Volume and Brightness";
 "Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission." = "Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission.";
+"Accessibility" = "Accessibility";
+"Open Privacy & Security…" = "Open Privacy & Security…";
+"Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up." = "Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up.";
+"Volume %@" = "Volume %@";
+"Brightness %@" = "Brightness %@";
+"Keyboard Brightness %@" = "Keyboard Brightness %@";
 
 /* Translate: pair bar, Paste, Speak, History (R4) */
 "On this Mac" = "On this Mac";

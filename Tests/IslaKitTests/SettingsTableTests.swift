@@ -84,7 +84,8 @@ final class SettingsTableTests: XCTestCase {
         // The default context: a Mac with a battery, nothing failing, every
         // switch at its default. Conditional rows are tested below.
         let expected: [SettingsSection: [SettingsRowID]] = [
-            .general: [.launchAtLogin, .openOnHover, .panelWidth, .charging, .headphones, .newTracks],
+            // R5 (spec §12) turns Volume and Brightness on: last in "The island shows", off by default.
+            .general: [.launchAtLogin, .openOnHover, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness],
             .privacy: [.clipboardHistory, .includeImages, .keepPinned, .coverClipboard, .coverTranslate, .hideFromRecording],
             .shortcuts: [.shortcutOpenPanel, .shortcutLyrics, .shortcutTranslate],
             .music: [.musicOnly, .volumeAndOutput, .lyricBand],
@@ -253,27 +254,84 @@ final class SettingsTableTests: XCTestCase {
         }
     }
 
-    // MARK: - Volume and Brightness (R5): a row of the table, hidden behind one flag
+    // MARK: - Volume and Brightness (R5): the row is shown, off, with its Accessibility group
 
-    func testVolumeAndBrightnessIsHiddenBehindOneFlag() {
-        XCTAssertFalse(SettingsTable.shipsVolumeAndBrightness, "R5 flips it")
-        XCTAssertFalse(SettingsContext().offersVolumeAndBrightness)
-        for section in SettingsSection.allCases {
-            XCTAssertFalse(SettingsTable.rows(for: section, context: Self.everything).contains(.volumeAndBrightness),
-                           "the HUD row is not shown in \(section)")
-        }
-        // The row exists, with its key and default, so R5 only wires behaviour.
+    func testVolumeAndBrightnessIsShownOffByDefaultAndKeyedAsSpecified() {
+        // R4 held the row behind one flag; R5 flips it (spec §12).
+        XCTAssertTrue(SettingsTable.shipsVolumeAndBrightness, "R5 flipped it")
+        XCTAssertTrue(SettingsContext().offersVolumeAndBrightness)
         XCTAssertEqual(SettingsRowID.volumeAndBrightness.key, "island.showHUD")
-        XCTAssertEqual(SettingsRowID.volumeAndBrightness.defaultValue, .off)
+        XCTAssertEqual(SettingsRowID.volumeAndBrightness.defaultValue, .off, "off until chosen")
+        XCTAssertEqual(NotchViewModel.showHUDKey, "island.showHUD")
+        XCTAssertEqual(SettingsRowID.volumeAndBrightness.kind, .toggle)
 
-        // Flipping the one field is all it takes to show it, in General, last in
-        // "The island shows".
-        var shipped = SettingsContext()
-        shipped.offersVolumeAndBrightness = true
+        // Visible in General, last in "The island shows", and nowhere else.
         XCTAssertEqual(
-            SettingsTable.rows(for: .general, context: shipped),
+            SettingsTable.rows(for: .general, context: SettingsContext()),
             [.launchAtLogin, .openOnHover, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness]
         )
+        for section in SettingsSection.allCases where section != .general {
+            XCTAssertFalse(SettingsTable.rows(for: section, context: Self.everything).contains(.volumeAndBrightness),
+                           "the HUD row is not in \(section)")
+        }
+    }
+
+    /// An absent key reads off, a stored one is obeyed, and the accessor the
+    /// controller reads is the table's.
+    func testTheAccessorReadsTheTableAndNotTheOwnersDefaults() {
+        let defaults = suite()
+        XCTAssertFalse(NotchViewModel.volumeAndBrightnessEnabled(in: defaults), "absent means the spec's default: off")
+        SettingsRowID.volumeAndBrightness.write(true, in: defaults)
+        XCTAssertTrue(NotchViewModel.volumeAndBrightnessEnabled(in: defaults))
+        XCTAssertEqual(defaults.object(forKey: "island.showHUD") as? Bool, true)
+        SettingsRowID.volumeAndBrightness.write(false, in: defaults)
+        XCTAssertFalse(NotchViewModel.volumeAndBrightnessEnabled(in: defaults))
+    }
+
+    /// The "Accessibility" group, like the Music section's failure groups, exists
+    /// only while its condition holds: the setting on and Isla not yet trusted.
+    func testTheAccessibilityGroupExistsOnlyWhileOnAndUntrusted() {
+        XCTAssertFalse(SettingsContext().needsAccessibility, "off, or trusted: no group")
+        XCTAssertFalse(SettingsTable.rows(for: .general, context: SettingsContext()).contains(.accessibilityPermission))
+
+        var missing = SettingsContext()
+        missing.needsAccessibility = true
+        let blocks = SettingsTable.blocks(for: .general, context: missing)
+        XCTAssertTrue(blocks.contains(.group([.accessibilityPermission])))
+        XCTAssertTrue(blocks.contains(.footnote(
+            "Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up."
+        )))
+        XCTAssertEqual(SettingsRowID.accessibilityPermission.title, "Accessibility")
+        XCTAssertEqual(SettingsRowID.accessibilityPermission.kind, .push, "Open Privacy & Security… is a push button")
+        XCTAssertNil(SettingsRowID.accessibilityPermission.key, "it stores nothing")
+
+        // It follows the island's group and its footnote, as the board draws it.
+        let rows = blocks.flatMap(\.rows)
+        XCTAssertEqual(rows.last, .accessibilityPermission)
+
+        // And it is hidden with the row while R5 is not offered.
+        var notOffered = missing
+        notOffered.offersVolumeAndBrightness = false
+        XCTAssertFalse(SettingsTable.rows(for: .general, context: notOffered).contains(.accessibilityPermission))
+        XCTAssertFalse(SettingsTable.rows(for: .general, context: notOffered).contains(.volumeAndBrightness))
+    }
+
+    func testTheAccessibilityStringsAreInBothTables() {
+        for locale in ["en", "ru"] {
+            LabLocalization.use(locale)
+            for key in ["Accessibility", "Open Privacy & Security…", "Volume %@", "Brightness %@", "Keyboard Brightness %@",
+                        "Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up."] {
+                XCTAssertFalse(localized(key).isEmpty, "\(locale): \(key)")
+            }
+        }
+        LabLocalization.use("ru")
+        XCTAssertEqual(localized("Accessibility"), "Универсальный доступ")
+        XCTAssertEqual(localized("Open Privacy & Security…"), "Открыть «Конфиденциальность и безопасность»…")
+        XCTAssertEqual(
+            localized("Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up."),
+            "Isla пока не видит клавиши громкости. До тех пор Mac показывает своё окно."
+        )
+        LabLocalization.use("en")
     }
 
     // MARK: - Defaults and keys (spec §10 brackets, §14)
@@ -476,7 +534,8 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertEqual(SettingsRowID.newTracks.title, "New Tracks")
         let blocks = SettingsTable.blocks(for: .general)
         XCTAssertTrue(blocks.contains(.header("The island shows")))
-        XCTAssertTrue(blocks.contains(.group([.charging, .headphones, .newTracks])))
+        // R5 added Volume and Brightness to the group (spec §12).
+        XCTAssertTrue(blocks.contains(.group([.charging, .headphones, .newTracks, .volumeAndBrightness])))
         LabLocalization.use("ru")
         XCTAssertEqual(SettingsRowID.charging.title, "Зарядку")
         XCTAssertEqual(SettingsRowID.headphones.title, "Подключение наушников")
@@ -580,9 +639,10 @@ final class SettingsTableTests: XCTestCase {
                 homes[row] = section
             }
         }
-        // Every row the enum has is placed somewhere, but the HUD's, which waits.
+        // Every row the enum has is placed somewhere — R5's Volume and Brightness
+        // included — and `everything` makes the Accessibility group appear.
         let unplaced = Set(SettingsRowID.allCases).subtracting(homes.keys)
-        XCTAssertEqual(unplaced, [.volumeAndBrightness], "only the row R5 turns on is unplaced")
+        XCTAssertEqual(unplaced, [], "every row has a home")
     }
 
     /// The glyphs the few rows that carry one wear all resolve.
@@ -625,6 +685,7 @@ final class SettingsTableTests: XCTestCase {
         context.hasUnassignedCorrections = true
         context.lyricsNotice = "Couldn't read: a.lrc"
         context.showOnLockScreen = true
+        context.needsAccessibility = true
         context.spotify = SettingsPane.spotifyRows(
             connected: true, needsReconnect: false, signIn: nil, apiBlocked: false, canImport: true
         )
