@@ -223,8 +223,81 @@ class CommonTests(unittest.TestCase):
             result, calls, _, _ = self._fetch_with([(status, b"{}", 0.0)], url=url)
             self.assertIsNone(common.read_cache(self.root, url), status)
             self.assertEqual(calls, 1)
-            # 403 never reaches the caller as an answer; the other refusals still do (uncached)
-            self.assertEqual(result is None, status == 403, status)
+            # Third review, m3: every status that is neither kept nor transient is refused the
+            # same way, so a record run and its replay agree about it.
+            self.assertIsNone(result, status)
+
+    def test_every_status_that_is_neither_kept_nor_transient_is_refused(self):
+        """Third review, m3: only 403 was refused, so a 401 or 410 reached the caller as an answer
+        that was never cached, and a replay of it missed. The predicate is shared with Swift's
+        `refusesStatus`."""
+        for status in (100, 301, 302, 401, 402, 403, 405, 410, 418, 451):
+            self.assertTrue(common.refuses_status("https://lrclib.net/x", status), status)
+        for status in (200, 204, 299, 400, 404, 429, 500, 503, 599, None):
+            self.assertFalse(common.refuses_status("https://lrclib.net/x", status), status)
+        # iTunes answers 403 when it is throttling and the same URL succeeds later: transient there.
+        self.assertFalse(common.refuses_status("https://itunes.apple.com/search", 403))
+
+    def test_a_host_that_keeps_refusing_trips_like_one_that_keeps_throttling(self):
+        """Third review, m12: a gateway that blocks every request spent the whole live budget
+        against a host that allows about ten a minute."""
+        gate = common.HostGate(0.0, sleep=lambda seconds: None)
+        with mock.patch.dict(common._gates, {"example.test": gate}), \
+                mock.patch.dict(common._refused_in_a_row, {}, clear=True), \
+                mock.patch.object(common, "_tripped", set()), \
+                mock.patch.object(common, "_http_get", side_effect=[(403, b"", 0.0)] * 3 + [(200, b"[]", 0.0)]) as http, \
+                mock.patch.object(common.time, "sleep"), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            for n in range(4):
+                self.assertIsNone(common.fetch(f"https://example.test/b{n}", self.root, stats=common.Stats()))
+            self.assertEqual(http.call_count, 3)                  # the fourth never left the machine
+            self.assertIn("[trip] example.test", out.getvalue())
+            self.assertFalse(common.tripped("https://other.test/x"))
+
+    def test_only_a_gateways_refusals_trip_a_host_and_a_url_specific_status_does_not(self):
+        """N6: three 414s or 422s in a row, one over-long title's search URLs, tripped LRCLIB for the rest
+        of the run. They stay refused (a failed fetch, never cached), but only 401 and 403 count."""
+        gate = common.HostGate(0.0, sleep=lambda seconds: None)
+        for status in (414, 422, 410):
+            self.assertTrue(common.refuses_status("https://example.test/x", status), status)
+        with mock.patch.dict(common._gates, {"example.test": gate}), \
+                mock.patch.dict(common._refused_in_a_row, {}, clear=True), \
+                mock.patch.object(common, "_tripped", set()), \
+                mock.patch.object(common, "_http_get",
+                                  side_effect=[(414, b"", 0.0)] * 3 + [(422, b"", 0.0), (200, b"[]", 0.0)]) as http, \
+                mock.patch.object(common.time, "sleep"), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            results = [common.fetch(f"https://example.test/u{n}", self.root, stats=common.Stats()) for n in range(5)]
+            self.assertEqual([r.status if r else None for r in results], [None, None, None, None, 200])
+            self.assertEqual(http.call_count, 5)                  # every one of them was asked
+            self.assertNotIn("[trip]", out.getvalue())
+            self.assertFalse(common.tripped("https://example.test/x"))
+        # and three 401s or 403s in a row, with a 414 between them, still do
+        with mock.patch.dict(common._gates, {"example.test": gate}), \
+                mock.patch.dict(common._refused_in_a_row, {}, clear=True), \
+                mock.patch.object(common, "_tripped", set()), \
+                mock.patch.object(common, "_http_get",
+                                  side_effect=[(403, b"", 0.0), (414, b"", 0.0), (401, b"", 0.0), (403, b"", 0.0),
+                                               (200, b"[]", 0.0)]) as http, \
+                mock.patch.object(common.time, "sleep"), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            for n in range(5):
+                common.fetch(f"https://example.test/g{n}", self.root, stats=common.Stats())
+            self.assertEqual(http.call_count, 4)                  # the fifth never left the machine
+            self.assertIn("[trip] example.test", out.getvalue())
+        self.assertEqual(common.TRIP_STATUSES, (401, 403))        # the Swift harness's tripStatuses
+
+    def test_an_answer_between_refused_statuses_keeps_the_host_open(self):
+        gate = common.HostGate(0.0, sleep=lambda seconds: None)
+        replies = [(401, b"", 0.0)] * 2 + [(200, b"[]", 0.0)] + [(410, b"", 0.0)] * 2 + [(200, b"[]", 0.0)]
+        with mock.patch.dict(common._gates, {"example.test": gate}), \
+                mock.patch.dict(common._refused_in_a_row, {}, clear=True), \
+                mock.patch.object(common, "_tripped", set()), \
+                mock.patch.object(common, "_http_get", side_effect=replies), \
+                mock.patch.object(common.time, "sleep"), \
+                mock.patch("sys.stdout", new_callable=io.StringIO):
+            results = [common.fetch(f"https://example.test/k{n}", self.root, stats=common.Stats()) for n in range(6)]
+        self.assertEqual([r.status if r else None for r in results], [None, None, 200, None, None, 200])
 
     def test_truncated_body_is_retried_like_a_5xx(self):
         result, calls, sleeps, _ = self._fetch_with([(common.TRUNCATED, b"", 0.0), (200, b"[]", 0.0)],
@@ -2088,11 +2161,13 @@ class DisputedTruthTests(ReviewLab):
             self.lookup(a, "canonical", "none"), self.lookup(a, "apple", "found", 99, [[rows[4]]]),
             self.lookup(b, "canonical", "found", 3, [[rows[3]]]),
             self.lookup(c, "canonical", "found", 4, [[rows[4]]])])
+        # third review, M2: track b (one stray instrumental flag among records with lyrics) is scored now;
+        # see MixedAnchorFlagsTests for why
         self.assertEqual([self.verdict(a), self.verdict(a, "apple"), self.verdict(b), self.verdict(c)],
-                         ["disputed", "disputed", "disputed", "correct"])
+                         ["disputed", "disputed", "correct", "correct"])
         canonical = report["M1"]["canonical"]
-        self.assertEqual(canonical["excluded_from_scoring"], {"disputed": 2})
-        self.assertEqual((canonical["usable"], canonical["shown"]), (1, 1))
+        self.assertEqual(canonical["excluded_from_scoring"], {"disputed": 1})
+        self.assertEqual((canonical["usable"], canonical["shown"]), (2, 2))
 
 
 class PromotionTests(ReviewLab):
@@ -2169,11 +2244,12 @@ class BoundsTests(ReviewLab):
             self.lookup(b, "canonical", "found", None, [[rows[2]]]),          # unrecovered
             self.lookup(c, "canonical", "failed")])                           # an environment failure
         canonical = report["M1"]["canonical"]
-        self.assertEqual((canonical["usable"], canonical["correct"], canonical["unscorable_possibly_usable"]), (1, 1, 1))
-        self.assertEqual(canonical["accuracy_bounds"], {"lower": 0.5, "upper": 1.0, "as_computed": 1.0})
+        # third review, m2: `failed` is a lookup that may have been usable, like the unattributable one
+        self.assertEqual((canonical["usable"], canonical["correct"], canonical["unscorable_possibly_usable"]), (1, 1, 2))
+        self.assertEqual(canonical["accuracy_bounds"], {"lower": 0.3333, "upper": 1.0, "as_computed": 1.0})
         self.assertEqual(report["M1"]["accuracy_bounds"]["canonical"], canonical["accuracy_bounds"])
         self.assertEqual(report["M1"]["verdict"], "incomplete")           # as good as a pass, but one answer is missing
-        self.assertIn("[50.0%, 100.0%]", report["M1"]["summary"])
+        self.assertIn("[33.3%, 100.0%]", report["M1"]["summary"])
         # the same without the unattributable lookup is a pass, and the bounds close
         report = self.classify([self.lookup(a, "canonical", "found", 1, [[rows[1]]])])
         self.assertEqual(report["M1"]["verdict"], "pass")
@@ -2769,6 +2845,730 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result["transitions"], {"correct -> uncached": 1, "miss-unqueried -> correct": 1})
         self.assertEqual([r["track_id"] for r in result["needs_recording"]], ["s/002"])
         self.assertEqual(result["requests"]["candidate"]["requests"], 3)
+
+
+# --------------------------------------------------------------------------
+# Third review (2026-10-15): one test per finding, each written from the
+# reviewer's scenario before the code that fixes it.
+# --------------------------------------------------------------------------
+
+class AltAnchorTests(unittest.TestCase):
+    """Third review, B1, m5 and m12: the classifier's anchor set is the oracle's group, no more."""
+
+    URL = "https://lrclib.net/api/search?q=altanchor"
+
+    def build(self, sources=None):
+        rng = random.Random(7)
+        kana = [chr(c) for c in range(0x3042, 0x3093)]
+        jp = ["".join(rng.choice(kana) for _ in range(30)) for _ in range(24)]
+        romaji = synthetic_lines(77)
+        self.j1 = record(1, "Family Song", "Family Artist", jp, 240.0)
+        self.r1 = record(2, "Family Song", "Family Artist", romaji, 240.0)   # the resolver's alt-script anchor
+        self.r2 = record(3, "Family Song", "Family Artist", romaji, 200.0)   # the same text, only in Isla's answer
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        common.write_cache(tmp.name, self.URL, 200, json.dumps([self.j1, self.r1]).encode())
+        sources = sources or {}
+        track = {"track_id": "pop-anglo/000", "slice": "pop-anglo",
+                 "harvest": {k: v for k, v in resolve.normalize_harvest(
+                     harvest(title="Family Song", artists=["Family Artist"], album="Alb", language="ja"),
+                     "pop-anglo", 0).items() if k not in ("track_id", "slice", "index")},
+                 "apple": None, "deezer": None, "apple_us": None,
+                 "candidates": [{"id": 1, "anchor": True, "source_queries": sources.get(1, ["search:q"])},
+                                {"id": 2, "anchor": True, "source_queries": sources.get(2, ["search:q"])}],
+                 "truth": {"truth_status": "ok", "cluster_ids": [1], "alt_script_ids": [2], "notes": [],
+                           "group_family": "CJK"},
+                 "lrclib_urls": {"search:q": self.URL}}
+        return classify.Truth(tmp.name, track)
+
+    def lookup(self, outcome, chosen=None):
+        return {"variant": "canonical", "identity": {"duration": 200.0}, "outcome": outcome,
+                "chosen_id": chosen, "requests": []}
+
+    def test_a_romaji_copy_isla_showed_is_alt_script_and_never_makes_the_lookup_usable(self):
+        """B1: the alt anchor stayed in the anchor set and was re-shingled in the group's family, so a
+        second romaji upload only Isla's answer held read as the same text as the first, joined the
+        members, and scored `correct` and usable (the oracle itself puts it in alt, never the group)."""
+        truth = self.build()
+        self.assertEqual(sorted(truth.anchor_fps), [1])
+        shown = classify.judge(truth, self.lookup("found", 3), {3: self.r2})
+        self.assertEqual(shown["verdict"], "alt-script")
+        self.assertNotIn(3, shown["members"])
+        self.assertFalse(shown["usable"])
+        self.assertEqual(shown["fit_identity_ids"], [])
+        self.assertEqual(classify.judge(truth, self.lookup("found", 2), {2: self.r1})["verdict"], "alt-script")
+        # and a miss does not become `miss-rejected` over a record in another script
+        nothing = classify.judge(truth, self.lookup("none"), {3: self.r2})
+        self.assertEqual((nothing["verdict"], nothing["usable"]), ("miss-catalogue", False))
+
+    def test_the_sole_get_anchor_is_judged_on_the_groups_anchors_only(self):
+        """m5: a romaji anchor from a search must not hide that the group's only anchor came from /api/get."""
+        self.assertTrue(self.build(sources={1: ["get"], 2: ["search:q"]}).sole_anchor_from_get)
+        self.assertFalse(self.build(sources={1: ["get", "search:q"], 2: ["get"]}).sole_anchor_from_get)
+
+    def test_the_alt_script_test_is_the_oracles_expected_script_share(self):
+        """m12: a record with more than a fifth of its letters in the group's script is not alt-script
+        because another script has more of them (the oracle moves such a record into the group)."""
+        helper = TruthFamilyTests("test_group_family_is_the_clusters_choice_not_the_first_anchors_script")
+        helper.addCleanup = self.addCleanup
+        rows = helper.rows()
+        root, track = helper.build(rows, [1, 2], group_family="CJK")
+        with mock.patch.dict(oracle.THRESHOLD_TABLE, {"CJK": (0.5, 0.15), "LATIN": (0.7, 0.3)}):
+            truth = classify.Truth(root, track)
+            share = oracle.family_share(oracle.analyze_record(rows[2])["script_weights"], "CJK")
+            self.assertTrue(0.2 <= share < 0.5, share)
+            verdict = classify.judge(truth, {"variant": "canonical", "identity": {"duration": 200.0},
+                                             "outcome": "found", "chosen_id": 3, "requests": []}, {3: rows[2]})
+        self.assertEqual(verdict["verdict"], "correct")
+        self.assertIn(3, verdict["members"])
+
+    def test_a_record_with_a_fifth_of_its_letters_in_the_groups_script_is_uncertain_not_alt_script(self):
+        """N8, m12(a): the verdict's alt-script branch used to ask whether the record's dominant script
+        was another family's. A record that holds 0.2 or more of its letters in the group's script is not
+        in another script by the oracle's rule, so one whose containment falls between WRONG and SAME is
+        `uncertain`, not `alt-script`. (The members test above is not enough: a record in the members never
+        reaches this branch.)"""
+        helper = TruthFamilyTests("test_group_family_is_the_clusters_choice_not_the_first_anchors_script")
+        helper.addCleanup = self.addCleanup
+        rows = helper.rows()
+        root, track = helper.build(rows, [1, 2], group_family="CJK")
+        with mock.patch.dict(oracle.THRESHOLD_TABLE, {"CJK": (0.99, 0.15), "LATIN": (0.7, 0.3)}):
+            truth = classify.Truth(root, track)
+            info = truth.info(3, rows[2])
+            share = oracle.family_share(info["script_weights"], "CJK")
+            self.assertTrue(oracle.EXPECTED_SCRIPT_SHARE <= share, share)         # a fifth of it is in the group's script
+            self.assertEqual(info["script"], "LATIN")                             # and another script has the most
+            self.assertTrue(info["identity"])
+            self.assertTrue(truth.wrong <= truth.containment(3, info) < truth.same)
+            verdict = classify.judge(truth, {"variant": "canonical", "identity": {"duration": 200.0},
+                                             "outcome": "found", "chosen_id": 3, "requests": []}, {3: rows[2]})
+        self.assertEqual(verdict["verdict"], "uncertain")
+        self.assertNotIn(3, verdict["members"])
+        self.assertFalse(truth.foreign_script(info))
+
+
+class AltOutsidePoolTests(LabFixture):
+    """Fourth review, N1: M2's alt set is the same predicate as M1's `alt-script` verdict, so a romaji copy
+    only Isla's own queries returned is the song in another script in both sections."""
+
+    @classmethod
+    def build(cls):
+        tracks = [harvest(title="Fox Song", artists=["Artist F"], album="Alb", language="ja")]
+        dump(os.path.join(cls.root, "slices", "pop-anglo.json"), {"slice": "pop-anglo", "tracks": tracks})
+        romaji = synthetic_lines(250)
+        cls.rows = {41: record(41, "Fox Song", "Artist F", han_lines(1), 200.0),
+                    43: record(43, "Fox Song", "Artist F", romaji, 200.0),     # the resolver's alt anchor
+                    44: record(44, "Fox Song", "Artist F", romaji, 200.0),     # romaji only Isla's answer held
+                    45: record(45, "Fox Song", "Artist F", synthetic_lines(251), 200.0)}  # romaji, other song's words
+        cls.seed(0, tracks[0], None, [cls.rows[41], cls.rows[43]], [])
+
+    @classmethod
+    def write_results(cls):
+        variants = {(v["track_id"], v["variant"]): v for v in
+                    (json.loads(l) for l in slurp(os.path.join(cls.root, "resolved", "variants.jsonl")).splitlines())}
+        base = variants[("pop-anglo/000", "canonical")]
+        found = {"track_id": "pop-anglo/000", "variant": "canonical",
+                 "identity": {"player_id": base["player_id"], "title": base["title"], "artist": base["artist"],
+                              "album": base["album"], "duration": base["duration"]},
+                 "outcome": "found", "chosen_id": 44, "chosen_ambiguous": [], "chosen_via": "search",
+                 "granularity": "line", "lines": 24, "overrun": False, "timed_for_longer": False, "ms": 5,
+                 "requests": [cls.isla_response("search?fox-romaji", [cls.rows[44]])]}
+        os.makedirs(os.path.join(cls.root, "results"))
+        with open(os.path.join(cls.root, "results", "isla-lookups.jsonl"), "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(found) + "\n")
+        rows = [{"track_id": "pop-anglo/000", "perturbation": "s-latin", "applicable": True,
+                 "base_id": None, "picked_id": 44}] * 2 + \
+               [{"track_id": "pop-anglo/000", "perturbation": "s-latin", "applicable": True,
+                 "base_id": 41, "picked_id": 41}] * 98
+        with open(os.path.join(cls.root, "results", "perturbations.jsonl"), "w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row) + "\n")
+
+    def test_a_romaji_record_outside_the_resolver_pool_is_alt_script_in_m1_and_found_alt_in_m2(self):
+        self.assertEqual(self.verdicts()[("pop-anglo/000", "canonical")]["verdict"], "alt-script")
+        m2 = self.report["M2"]
+        cell = m2["perturbations"]["s-latin"]
+        self.assertEqual((cell["found-alt"], cell["switched-wrong"], cell["kept"]), (2, 0, 98))
+        self.assertEqual(m2["verdict"], "pass")
+
+
+class KnownPoolTests(ReviewLab):
+    """Third review, M1 and m1: usable comes from one pool every lookup of a track shares."""
+
+    def setUp(self):
+        super().setUp()
+        self.lines = synthetic_lines(700)
+        self.a = self.add("Alpha Known", None, [], [])
+        self.b = self.add("Bravo Known", None, [], [])           # no resolver anchor at all
+        self.A = self.row(1, self.a, self.lines, 240.0)           # the album cut, the resolver's only record
+        self.B = self.row(2, self.a, self.lines, 200.0)           # the 200 s edit only Isla's queries returned
+        self.R = self.row(5, self.b, synthetic_lines(701), 200.0)
+        self.pool(self.a, ta_rows=[self.A])
+        self.seal()
+
+    def at200(self, lookup):
+        lookup["identity"] = dict(lookup["identity"], duration=200.0)
+        return lookup
+
+    def write_results(self, name, lookups):
+        os.makedirs(os.path.join(self.root, name), exist_ok=True)
+        with open(os.path.join(self.root, name, "isla-lookups.jsonl"), "w", encoding="utf-8") as handle:
+            for row in lookups:
+                handle.write(json.dumps(row) + "\n")
+
+    def test_a_record_only_a_sibling_lookup_found_makes_this_lookup_a_miss_not_a_catalogue_gap(self):
+        shown = self.at200(self.lookup(self.a, "apple", "found", 2, [[self.B]]))
+        silent = self.at200(self.lookup(self.a, "canonical", "none"))
+        saw = self.at200(self.lookup(self.a, "deezer", "none", answers=[[self.B]]))
+        report = self.classify([shown, silent, saw])
+        self.assertEqual([self.verdict(self.a, v) for v in ("apple", "canonical", "deezer")],
+                         ["correct", "miss-unqueried", "miss-rejected"])
+        overall = report["M1"]["overall"]
+        self.assertEqual((overall["usable"], overall["correct"]), (3, 1))
+        # every one of them is usable only through a record the resolver never saw
+        self.assertEqual(overall["fit_outside_resolver_pool"], 3)
+        self.assertEqual(report["M1"]["canonical"]["fit_outside_resolver_pool"], 1)
+        self.assertIn("rest on records only Isla's own queries returned", report["M1"]["summary"])
+        # alone, the silent lookup has no fit to miss: the old verdict, now only for a track nobody found B for
+        alone = self.classify([silent])
+        self.assertEqual(self.verdict(self.a), "miss-catalogue")
+        self.assertEqual(alone["M1"]["overall"]["usable"], 0)
+
+    def test_the_accuracy_without_records_only_isla_found_is_reported_beside_the_count(self):
+        """N8: `fit_outside_resolver_pool` counted the lookups usable only through a record the resolver never
+        returned, but no figure said what M1's accuracy is without them."""
+        at240 = lambda lookup: dict(lookup, identity=dict(lookup["identity"], duration=240.0))
+        inside_ok = at240(self.lookup(self.a, "apple", "found", 1, [[self.A]]))       # the album cut, in the pool
+        inside_miss = at240(self.lookup(self.a, "canonical", "none"))                 # a miss on the same record
+        outside = self.at200(self.lookup(self.a, "deezer", "found", 2, [[self.B]]))   # the edit only Isla found
+        report = self.classify([inside_ok, inside_miss, outside])
+        self.assertEqual([self.verdict(self.a, v) for v in ("apple", "canonical", "deezer")],
+                         ["correct", "miss-unqueried", "correct"])
+        overall = report["M1"]["overall"]
+        self.assertEqual((overall["usable"], overall["correct"], overall["fit_outside_resolver_pool"]), (3, 2, 1))
+        self.assertEqual(overall["accuracy"], round(2 / 3, 4))
+        self.assertEqual((overall["usable_resolver_pool_only"], overall["accuracy_resolver_pool_only"]), (2, 0.5))
+        canonical = report["M1"]["canonical"]
+        self.assertEqual((canonical["usable_resolver_pool_only"], canonical["accuracy_resolver_pool_only"]), (1, 0.0))
+
+    def test_pool_results_widen_the_known_pool_of_each_track(self):
+        silent = self.at200(self.lookup(self.a, "canonical", "none"))
+        found = self.at200(self.lookup(self.a, "apple", "found", 2, [[self.B]]))
+        self.write_results("other", [found])
+        report = self.classify([silent], pool_results=["other"])
+        self.assertEqual(self.verdict(self.a), "miss-unqueried")       # not "rejected": this lookup never saw B
+        self.assertTrue(self.rows[("pop-anglo/000", "canonical")]["usable"] == "true")
+        self.assertEqual(report["meta"]["pool_results"], ["other"])
+        self.assertEqual(report["M1"]["overall"]["fit_outside_resolver_pool"], 1)
+        # what Isla saw is still this lookup's own responses
+        saw = self.at200(self.lookup(self.a, "canonical", "none", answers=[[self.B]]))
+        self.classify([saw], pool_results=["other"])
+        self.assertEqual(self.verdict(self.a), "miss-rejected")
+
+    def test_promotion_reads_the_known_pool_too(self):
+        silent = self.at200(self.lookup(self.b, "canonical", "none"))
+        found = self.at200(self.lookup(self.b, "apple", "found", 5, [[self.R]]))
+        self.write_results("other", [found])
+        self.classify([silent])
+        self.assertEqual(self.verdict(self.b), "miss-catalogue")
+        report = self.classify([silent], pool_results=["other"])
+        self.assertEqual(self.verdict(self.b), "miss-unqueried")
+        self.assertIn("anchor-promoted", self.rows[("pop-anglo/001", "canonical")]["flags"])
+        self.assertEqual(report["M1"]["overall"]["usable"], 0)                  # promoted: out of the headline
+        self.assertEqual(report["M1"]["anchor_promoted"]["usable"], 1)
+
+
+class BoundsThirdReviewTests(ReviewLab):
+    """Third review, m1, m2, m4, m7 and m10."""
+
+    def setUp(self):
+        super().setUp()
+
+    def test_maybe_usable_leaves_out_lookups_that_could_never_have_been_usable(self):
+        """m1: an unrecovered lookup whose truth holds no fit, and an uncached one on a track with no
+        anchor that was not promoted, are not part of the upper bound."""
+        fit = self.add("Alpha Maybe", None, [], [])
+        nofit = self.add("Bravo Maybe", None, [], [])
+        bare = self.add("Charlie Maybe", None, [], [])
+        good = self.add("Delta Maybe", None, [], [])
+        rows = {1: self.row(1, fit, synthetic_lines(710)), 2: self.row(2, nofit, synthetic_lines(711), 240.0),
+                4: self.row(4, good, synthetic_lines(713))}
+        self.pool(fit, ta_rows=[rows[1]])
+        self.pool(nofit, ta_rows=[rows[2]])
+        self.pool(good, ta_rows=[rows[4]])
+        self.seal()
+        report = self.classify([
+            self.lookup(good, "canonical", "found", 4, [[rows[4]]]),
+            self.lookup(fit, "canonical", "found", None, [[rows[1]]]),         # unrecovered, a fit exists
+            self.lookup(nofit, "canonical", "found", None, [[rows[2]]]),       # unrecovered, 240 s against 200 s
+            self.lookup(bare, "canonical", "uncached")])                       # nothing could have anchored it
+        canonical = report["M1"]["canonical"]
+        self.assertEqual([self.verdict(i) for i in (fit, nofit, bare)], ["unrecovered", "unrecovered", "uncached"])
+        self.assertEqual((canonical["usable"], canonical["unscorable_possibly_usable"]), (1, 1))
+        self.assertEqual(canonical["accuracy_bounds"], {"lower": 0.5, "upper": 1.0, "as_computed": 1.0})
+
+    def test_an_unrecovered_lookup_on_a_track_with_no_anchor_does_not_widen_the_wrong_rate(self):
+        """N7: on a no-anchor track a recovered pick is `unjudged` and in no `shown`, so an unrecovered
+        row there is not a wrong pick missing from the wrong rate. On an anchored track it still is."""
+        good = self.add("Alpha Rate", None, [], [])
+        bare = self.add("Bravo Rate", None, [], [])
+        anchored = self.add("Charlie Rate", None, [], [])
+        rows = {1: self.row(1, good, synthetic_lines(750)), 3: self.row(3, anchored, synthetic_lines(752))}
+        elsewhere = record(2, "Some Other Title", "Artist Z", synthetic_lines(751), 200.0)    # never anchors Bravo
+        self.pool(good, ta_rows=[rows[1]])
+        self.pool(anchored, ta_rows=[rows[3]])
+        self.seal()
+        lookups = [self.lookup(good, "canonical", "found", 1, [[rows[1]]]),
+                   self.lookup(bare, "canonical", "found", None, [[elsewhere]])]
+        report = self.classify(lookups)
+        self.assertEqual(self.rows[("pop-anglo/001", "canonical")]["truth_status"], "no-anchor")
+        self.assertEqual(self.verdict(bare), "unrecovered")
+        canonical = report["M1"]["canonical"]
+        self.assertEqual((canonical["shown"], canonical["unrecovered"]), (1, 1))
+        self.assertEqual(canonical["wrong_rate_bounds"], {"lower": 0.0, "upper": 0.0, "as_computed": 0.0})
+        # the same lookup on a track that is scored does widen it
+        report = self.classify(lookups + [self.lookup(anchored, "canonical", "found", None, [[rows[3]]])])
+        self.assertEqual(self.verdict(anchored), "unrecovered")
+        self.assertEqual(report["M1"]["canonical"]["wrong_rate_bounds"]["upper"], 0.5)   # 1 of (1 shown + 1 unrecovered)
+
+    def test_a_failed_lookup_is_in_the_bounds_and_blocks_a_pass(self):
+        """m2: `failed` was in no denominator, no bound and no incomplete trigger."""
+        a = self.add("Alpha Failed", None, [], [])
+        b = self.add("Bravo Failed", None, [], [])
+        rows = {1: self.row(1, a, synthetic_lines(720)), 2: self.row(2, b, synthetic_lines(721))}
+        self.pool(a, ta_rows=[rows[1]])
+        self.pool(b, ta_rows=[rows[2]])
+        self.seal()
+        report = self.classify([self.lookup(a, "canonical", "found", 1, [[rows[1]]]),
+                                self.lookup(b, "canonical", "failed")])
+        canonical = report["M1"]["canonical"]
+        self.assertEqual((canonical["usable"], canonical["unscorable_possibly_usable"]), (1, 1))
+        self.assertEqual(canonical["accuracy_bounds"], {"lower": 0.5, "upper": 1.0, "as_computed": 1.0})
+        self.assertEqual(report["M1"]["verdict"], "incomplete")
+
+    def test_incomplete_counts_only_what_could_move_the_figure(self):
+        """m4: an unrecovered lookup that cannot have been usable, and an unanswered query on a
+        disputed track, leave a pass a pass."""
+        flat = dict(instrumental=True, plainLyrics="", syncedLyrics="")
+        good = self.add("Alpha Quiet", None, [], [])
+        nofit = self.add("Bravo Quiet", None, [], [])
+        disputed = self.add("Charlie Quiet", None, [], [], answer_q=False)
+        rows = {1: self.row(1, good, synthetic_lines(730)), 2: self.row(2, nofit, synthetic_lines(731), 240.0),
+                3: self.row(3, disputed, [], **flat)}
+        self.pool(good, ta_rows=[rows[1]])
+        self.pool(nofit, ta_rows=[rows[2]])
+        self.pool(disputed, ta_rows=[rows[3]])
+        self.seal()
+        report = self.classify([
+            self.lookup(good, "canonical", "found", 1, [[rows[1]]]),
+            self.lookup(nofit, "canonical", "found", None, [[rows[2]]]),
+            self.lookup(disputed, "canonical", "none")])
+        self.assertEqual(self.verdict(disputed), "disputed")
+        self.assertEqual(report["M1"]["lrclib_unanswered_tracks"], 0)
+        self.assertEqual(report["M1"]["overall"]["unrecovered"], 1)       # still counted and reported
+        self.assertEqual(report["M1"]["verdict"], "pass")
+
+    def test_an_uncached_lookup_behind_a_403_is_possibly_usable_and_blocks_a_pass(self):
+        """m10: since a 403 is a miss in Swift the lookup is `uncached`, never `failed`; the old test fed
+        `failed` plus a 403. The real path ends in the bounds and in `incomplete`."""
+        a = self.add("Alpha Gateway", None, [], [])
+        b = self.add("Bravo Gateway", None, [], [])
+        rows = {1: self.row(1, a, synthetic_lines(740)), 2: self.row(2, b, synthetic_lines(741))}
+        self.pool(a, ta_rows=[rows[1]])
+        self.pool(b, ta_rows=[rows[2]])
+        self.seal()
+        refused = [{"key": None, "path": "/api/get", "status": 403, "cached": False}]
+        report = self.classify([self.lookup(a, "canonical", "found", 1, [[rows[1]]]),
+                                self.lookup(b, "canonical", "uncached", requests=refused)])
+        self.assertEqual(self.verdict(b), "uncached")
+        canonical = report["M1"]["canonical"]
+        self.assertEqual(canonical["unscorable_possibly_usable"], 1)
+        self.assertEqual(canonical["accuracy_bounds"]["lower"], 0.5)
+        self.assertEqual(report["M1"]["verdict"], "incomplete")
+
+    def test_the_wrong_rate_has_bounds_that_count_unattributed_lyrics(self):
+        """m7: `unrecovered` is lyrics shown that nobody could attribute; the wrong rate lies between
+        counting none of them wrong and counting every one wrong."""
+        a = self.add("Alpha Wrong", None, [], [])
+        b = self.add("Bravo Wrong", None, [], [])
+        c = self.add("Charlie Wrong", None, [], [])
+        d = self.add("Delta Wrong", None, [], [])
+        rows = {i + 1: self.row(i + 1, i, synthetic_lines(750 + i)) for i in range(4)}
+        rows[9] = self.row(9, a, synthetic_lines(759))                   # another song's lyrics under a's name
+        for index in (a, b, c, d):
+            self.pool(index, ta_rows=[rows[index + 1]])
+        self.seal()
+        report = self.classify([
+            self.lookup(a, "canonical", "found", 9, [[rows[9]]]),               # wrong-song
+            self.lookup(b, "canonical", "found", 2, [[rows[2]]]),
+            self.lookup(c, "canonical", "found", 3, [[rows[3]]]),
+            self.lookup(d, "canonical", "found", None, [[rows[4]]])])         # unrecovered
+        canonical = report["M1"]["canonical"]
+        self.assertEqual((canonical["shown"], canonical["wrong"], canonical["unrecovered"]), (3, 1, 1))
+        self.assertEqual(canonical["wrong_rate_bounds"], {"lower": 0.25, "upper": 0.5, "as_computed": 0.3333})
+
+
+class MixedAnchorFlagsTests(ReviewLab):
+    """Third review, M2: one stray instrumental flag among records with lyrics is a mislabelled record,
+    not a verdict on the song, and Isla's early exit on it is a real failure the lab must surface."""
+
+    def test_the_early_exit_on_a_mislabelled_record_is_a_recoverable_miss_and_is_cut_apart(self):
+        flat = dict(instrumental=True, plainLyrics="", syncedLyrics="")
+        b = self.add("Bravo Flag", None, [], [])
+        c = self.add("Charlie Flag", None, [], [])
+        rows = {2: self.row(2, b, [], **flat), 3: self.row(3, b, synthetic_lines(800)),
+                4: self.row(4, c, synthetic_lines(801))}
+        self.pool(b, ta_rows=[rows[2], rows[3]])
+        self.pool(c, ta_rows=[rows[4]])
+        self.seal()
+        truth = {tid: t["truth"] for tid, t in self.tracks().items()}
+        self.assertEqual(truth["pop-anglo/000"]["instrumental_disagreement"], "mixed-anchor-flags")
+        self.assertNotIn("mixed-anchor-flags", classify.DISPUTES)
+        report = self.classify([
+            self.lookup(b, "canonical", "none"),                               # the /api/get answered `instrumental`
+            self.lookup(b, "apple", "found", 3, [[rows[3]]]),
+            self.lookup(c, "canonical", "found", 4, [[rows[4]]])])
+        self.assertEqual([self.verdict(b), self.verdict(b, "apple"), self.verdict(c)],
+                         ["miss-unqueried", "correct", "correct"])
+        overall = report["M1"]["overall"]
+        self.assertEqual((overall["usable"], overall["recoverable_misses"]), (3, 1))
+        self.assertNotIn("disputed", overall["excluded_from_scoring"])
+        cuts = report["M1"]["by_mixed_anchor_flags"]
+        self.assertEqual((cuts["yes"]["lookups"], cuts["yes"]["usable"], cuts["no"]["lookups"]), (2, 2, 1))
+        self.assertEqual(report["M1"]["flag_counts"]["mixed-anchor-flags"], 2)
+
+
+class PerturbationThirdReviewTests(unittest.TestCase):
+    def cell(self, rows, clusters, alts):
+        section = classify.perturbation_section(
+            [dict(r, track_id="t", applicable=True, perturbation="s-latin") for r in rows], clusters, alts)
+        return section, section["perturbations"]["s-latin"]
+
+    def test_a_null_base_that_finds_an_alt_script_record_is_found_alt_and_no_threshold_reads_it(self):
+        """M5: `s-latin` sends the Latin title and artist, and a romaji upload found where the base found
+        nothing was `switched-wrong` and failed the section."""
+        section, c = self.cell([{"base_id": None, "picked_id": 9}] * 2 + [{"base_id": 1, "picked_id": 1}] * 98,
+                               {"t": {1}}, {"t": {9}})
+        self.assertEqual((c["found-alt"], c["switched-wrong"], c["found-new"]), (2, 0, 0))
+        self.assertEqual(section["verdict"], "pass")
+        # outside the song and outside its alt-script records it is still wrong
+        section, c = self.cell([{"base_id": None, "picked_id": 5}] * 2 + [{"base_id": 1, "picked_id": 1}] * 98,
+                               {"t": {1}}, {"t": {9}})
+        self.assertEqual((c["found-alt"], c["switched-wrong"], section["verdict"]), (0, 2, "fail"))
+
+    def test_the_switched_alt_share_is_over_bases_that_could_switch(self):
+        """m6: an alt-script base cannot switch to alt, so it is not in the denominator of that share."""
+        rows = [{"base_id": 8, "picked_id": 8}] * 100 + [{"base_id": 1, "picked_id": 1}] * 40 \
+            + [{"base_id": 1, "picked_id": 9}]
+        section, c = self.cell(rows, {"t": {1}}, {"t": {8, 9}})
+        self.assertEqual((c["base_in_cluster"], c["base_in_cluster_only"], c["switched-alt"]), (141, 41, 1))
+        self.assertEqual(c["switched-alt_share_of_base_in_cluster_only"], 0.0244)
+        self.assertEqual(section["verdict"], "concern")
+        self.assertIn("1 of 41 switched to another script", section["summary"])
+
+
+class VariantThirdReviewTests(unittest.TestCase):
+    """Third review, m8."""
+
+    def row(self, track, variant, verdict, usable=True, flags=()):
+        return {"track_id": track, "variant": variant, "verdict": verdict, "usable": usable, "flags": list(flags)}
+
+    def test_only_variants_that_could_have_been_right_count_against_canonical(self):
+        rows = [
+            self.row("t1", "canonical", "correct"), self.row("t1", "apple", "miss-catalogue", usable=False),
+            self.row("t2", "canonical", "correct"), self.row("t2", "apple", "miss-rejected"),
+            self.row("t4", "canonical", "correct"), self.row("t4", "apple", "correct"),
+            # canonical right only without a fit: nothing to measure a variant against
+            self.row("t5", "canonical", "correct", usable=False), self.row("t5", "apple", "miss-rejected"),
+            # promoted: canonical's correctness is partly by construction
+            self.row("t3", "canonical", "correct", flags=["anchor-promoted"]),
+            self.row("t3", "apple", "miss-unqueried", flags=["anchor-promoted"]),
+        ]
+        section = classify.variant_section(rows)
+        lost = section["lost_by_variant"]["apple"]
+        self.assertEqual((lost["tracks"], lost["of_canonical_correct_with_this_variant"]), (1, 2))
+        self.assertEqual(lost["share"], 0.5)
+        self.assertEqual(section["non_usable_variant_misses"], {"apple": 1})
+        promoted = section["anchor_promoted"]
+        self.assertEqual(promoted["lost_by_variant"]["apple"]["tracks"], 1)
+        self.assertEqual(promoted["comparable_by_variant"], {"apple": 1})
+        self.assertEqual(section["comparable_by_variant"], {"apple": 2})
+
+
+class CompareThirdReviewTests(unittest.TestCase):
+    """Third review, M3 and M4: the headline of a comparison cannot be won by making lookups unanswerable,
+    and a promoted track's transitions are not gains."""
+
+    COLUMNS = ["track_id", "variant", "slice", "pick", "title", "artist", "duration",
+               "verdict", "chosen_id", "chosen_via", "flags", "usable"]
+
+    def write(self, root, name, rows, headline=None, lookups=()):
+        directory = os.path.join(root, name)
+        os.makedirs(directory)
+        with open(os.path.join(directory, "rows.csv"), "w", encoding="utf-8") as handle:
+            handle.write(",".join(self.COLUMNS) + "\n")
+            for r in rows:
+                handle.write(",".join(str(r.get(c, "")) for c in self.COLUMNS) + "\n")
+        canonical = headline or {"accuracy": 0.8}
+        dump(os.path.join(directory, "match-lab-report.json"), {"M1": {"canonical": canonical, "overall": canonical}})
+        with open(os.path.join(directory, "isla-lookups.jsonl"), "w", encoding="utf-8") as handle:
+            for row in lookups:
+                handle.write(json.dumps(row) + "\n")
+
+    def row(self, track, verdict, usable=None, flags="", variant="canonical"):
+        usable = verdict in ("correct", "miss-unqueried", "miss-rejected") if usable is None else usable
+        return {"track_id": track, "variant": variant, "slice": "s", "verdict": verdict,
+                "usable": "true" if usable else "false", "flags": flags}
+
+    def compared(self, base, cand, **kwargs):
+        import compare
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "base", base, kwargs.get("base_headline"))
+            self.write(root, "cand", cand, kwargs.get("cand_headline"))
+            return compare.compare(root, "base", "cand", "base", "cand")
+
+    def test_a_candidate_that_makes_lookups_unanswerable_does_not_win_on_the_headline(self):
+        """M3: 8 correct and 2 miss-unqueried is 80%; the candidate changes the query URL of the 2, the
+        replay has no answer, and 'accuracy 80% -> 100%' with gained 0 and lost 0 was the summary."""
+        import compare
+        base = [self.row(f"s/{i}", "correct") for i in range(8)] + [self.row(f"s/{i}", "miss-unqueried") for i in (8, 9)]
+        cand = [self.row(f"s/{i}", "correct") for i in range(8)] + [self.row(f"s/{i}", "uncached") for i in (8, 9)]
+        bounds = lambda lower, upper, computed: {"lower": lower, "upper": upper, "as_computed": computed}
+        result = self.compared(base, cand,
+                               base_headline={"accuracy": 0.8, "accuracy_bounds": bounds(0.8, 0.8, 0.8)},
+                               cand_headline={"accuracy": 1.0, "accuracy_bounds": bounds(0.8, 1.0, 1.0),
+                                              "unscorable_possibly_usable": 2, "unrecovered": 0})
+        self.assertTrue(result["incomplete"])
+        self.assertEqual(len(result["needs_recording"]), 2)
+        paired = result["paired"]["canonical"]
+        self.assertEqual((paired["n_paired"], paired["base_accuracy"], paired["candidate_accuracy"]), (8, 1.0, 1.0))
+        self.assertEqual(paired["unscorable_on_one_side"], 2)
+        self.assertEqual(paired["unscorable_transitions"], {"miss-unqueried -> uncached": 2})
+        headline = result["headline"]["canonical"]
+        for key in ("accuracy_bounds", "unrecovered", "unscorable_possibly_usable", "correct_without_fit",
+                    "wrong_rate_bounds"):
+            self.assertIn(key, headline)
+        text = compare.summary(result)
+        self.assertIn("INCOMPLETE", text)
+        self.assertIn("[80.0%, 80.0%] -> [80.0%, 100.0%]", text)
+
+    def test_a_loss_into_unrecovered_makes_the_comparison_incomplete_without_any_recording_needed(self):
+        result = self.compared([self.row("s/1", "correct"), self.row("s/2", "correct")],
+                               [self.row("s/1", "correct"), self.row("s/2", "unrecovered")])
+        self.assertEqual(result["needs_recording"], [])
+        self.assertTrue(result["incomplete"])
+        self.assertEqual(result["totals"]["unscorable"], 1)
+        for after in ("failed", "unjudged"):
+            self.assertTrue(self.compared([self.row("s/1", "correct")], [self.row("s/1", after)])["incomplete"], after)
+
+    def test_a_complete_comparison_is_not_marked_and_paired_accuracy_moves_with_the_verdicts(self):
+        result = self.compared([self.row("s/1", "miss-unqueried"), self.row("s/2", "correct"),
+                                self.row("s/3", "uncached")],
+                               [self.row("s/1", "correct"), self.row("s/2", "correct"),
+                                self.row("s/3", "correct")])
+        self.assertFalse(result["incomplete"])               # uncached on the base side is not a loss of anything
+        paired = result["paired"]["canonical"]
+        self.assertEqual((paired["n_paired"], paired["base_accuracy"], paired["candidate_accuracy"]), (2, 0.5, 1.0))
+        self.assertEqual(paired["unscorable_transitions"], {"uncached -> correct": 1})
+
+    def test_a_lookup_in_one_run_only_makes_the_comparison_incomplete(self):
+        """N2: the base has 8 correct and 2 miss-unqueried, the candidate has no rows for those 2; the
+        headline went from 80% to 100% and the comparison called itself complete."""
+        base = [self.row(f"s/{i}", "correct") for i in range(8)] + [self.row(f"s/{i}", "miss-unqueried") for i in (8, 9)]
+        cand = [self.row(f"s/{i}", "correct") for i in range(8)]
+        result = self.compared(base, cand, base_headline={"accuracy": 0.8}, cand_headline={"accuracy": 1.0})
+        self.assertEqual(result["lookups_in_one_run_only"], 2)
+        self.assertTrue(result["incomplete"])
+        # and the other way round: a lookup only the candidate has
+        self.assertTrue(self.compared(cand, base)["incomplete"])
+        import compare
+        self.assertIn("INCOMPLETE", compare.summary(result))
+
+    def test_promoted_lookups_are_a_tally_of_their_own(self):
+        """M4: a promoted track's anchor and cluster come from each run's own answers, so a transition
+        measures whether Isla found an identity match, not whether it was right."""
+        base = [self.row("s/1", "miss-catalogue", usable=False), self.row("s/2", "correct", flags="anchor-promoted"),
+                self.row("s/3", "correct"), self.row("s/4", "miss-unqueried", variant="apple")]
+        cand = [self.row("s/1", "correct", flags="anchor-promoted"), self.row("s/2", "miss-catalogue", usable=False),
+                self.row("s/3", "correct"), self.row("s/4", "correct", variant="apple")]
+        result = self.compared(base, cand)
+        self.assertEqual(result["totals"], {"gain": 1, "loss": 0, "unscorable": 0, "changed_same_rank": 0})
+        self.assertEqual(result["anchor_promoted"], {"lookups": 2, "gain": 1, "loss": 1, "same": 0, "unscorable": 0})
+        self.assertEqual(sum(c["gain"] + c["loss"] for c in result["by_variant"].values()), 1)
+        self.assertEqual(result["by_slice"], {"s": {"gain": 1, "loss": 0, "unscorable": 0, "changed_same_rank": 0}})
+        self.assertEqual(result["transitions"], {"miss-unqueried -> correct": 1})
+        # and a promoted lookup is in no paired accuracy
+        self.assertEqual(result["paired"]["overall"]["n_paired"], 2)
+        self.assertEqual([c["track_id"] for c in result["changed"]], ["s/4"])
+
+    def test_a_promoted_lookup_that_became_unattributable_does_not_make_the_comparison_incomplete(self):
+        result = self.compared([self.row("s/1", "correct", flags="anchor-promoted"), self.row("s/2", "correct")],
+                               [self.row("s/1", "unrecovered", flags="anchor-promoted"), self.row("s/2", "correct")])
+        self.assertFalse(result["incomplete"])
+        self.assertEqual(result["anchor_promoted"]["unscorable"], 1)
+
+
+class ScoreCandidateScriptTests(unittest.TestCase):
+    """Third review, m11 and the M1 pairing: both sides are judged against one pool, and the checkout is
+    left exactly as it was found."""
+
+    HERE = os.path.dirname(os.path.abspath(__file__))
+    SCRIPT = os.path.join(HERE, "score-candidate.sh")
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", self.wt, "-c", "user.name=t", "-c", "user.email=t@t.test", *args],
+                              capture_output=True, text=True, check=True).stdout
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = self.tmp.name
+        self.lab = os.path.join(base, "lab")
+        self.wt = os.path.join(base, "wt")
+        for directory in (os.path.join(self.lab, "resolved"), os.path.join(self.lab, "results"),
+                          os.path.join(self.lab, "reports"), os.path.join(self.wt, "Sources"),
+                          os.path.join(self.wt, "Tests"), os.path.join(self.wt, "Scripts")):
+            os.makedirs(directory)
+        open(os.path.join(self.lab, "resolved", "tracks.jsonl"), "w").close()      # an empty corpus
+        self.fake_reports("reports")
+        with open(os.path.join(self.wt, "Sources", "a.txt"), "w") as handle:
+            handle.write("one\n")
+        with open(os.path.join(self.wt, "Tests", "b.txt"), "w") as handle:
+            handle.write("two\n")
+        # a stand-in for the Swift runner: it writes one lookup into the directory it was told to
+        with open(os.path.join(self.wt, "Scripts", "lyric-match-lab.sh"), "w") as handle:
+            handle.write('#!/bin/bash\nmkdir -p "$1/$ISLA_MATCH_OUT"\n'
+                         'echo \'{"track_id":"s/1","variant":"canonical"}\' > "$1/$ISLA_MATCH_OUT/isla-lookups.jsonl"\n')
+        subprocess.run(["git", "init", "-q", self.wt], check=True)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "base")
+        with open(os.path.join(self.wt, "Sources", "a.txt"), "w") as handle:
+            handle.write("one\nchanged\n")
+        with open(os.path.join(self.wt, "Tests", "b.txt"), "w") as handle:
+            handle.write("two\nchanged\n")
+        with open(os.path.join(self.wt, "Tests", "new.txt"), "w") as handle:
+            handle.write("new\n")
+        self.git("add", "-A")
+        self.patch = os.path.join(base, "candidate.patch")
+        with open(self.patch, "w") as handle:
+            handle.write(self.git("diff", "--cached"))
+        self.git("reset", "-q", "--hard")
+
+    def fake_reports(self, name):
+        directory = os.path.join(self.lab, name)
+        os.makedirs(directory, exist_ok=True)
+        with open(os.path.join(directory, "rows.csv"), "w") as handle:
+            handle.write("track_id,variant,verdict\n")
+        dump(os.path.join(directory, "match-lab-report.json"), {"M1": {}})
+
+    def run_script(self, name, *patch, **env):
+        environment = {"PATH": os.environ["PATH"], "HOME": self.tmp.name, "TMPDIR": self.tmp.name}
+        environment.update(env)
+        return subprocess.run(["/bin/bash", self.SCRIPT, self.lab, self.wt, name, *patch],
+                              env=environment, capture_output=True, text=True)
+
+    def test_a_candidate_without_a_control_is_refused_before_anything_is_applied(self):
+        done = self.run_script("c1", self.patch)
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("control", done.stderr)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_a_candidate_is_compared_with_the_control_and_both_sides_share_a_pool(self):
+        self.fake_reports("cf-control-reports")
+        os.makedirs(os.path.join(self.lab, "cf-control"))
+        with open(os.path.join(self.lab, "cf-control", "isla-lookups.jsonl"), "w") as handle:
+            handle.write('{"track_id":"s/1","variant":"canonical"}\n')
+        done = self.run_script("c1", self.patch)
+        # the stand-in writes a lookup the empty corpus has no track for, so classify has nothing to read:
+        # what matters is what ran, in which order, and that the checkout came back whole
+        self.assertEqual(self.git("status", "--porcelain"), "", done.stderr)
+        self.assertEqual(slurp(os.path.join(self.wt, "Tests", "b.txt")), "two\n")
+        self.assertFalse(os.path.exists(os.path.join(self.wt, "Tests", "new.txt")))
+        for name in ("cf-c1-reports", "cf-c1-base-reports"):
+            self.assertTrue(os.path.exists(os.path.join(self.lab, name, "match-lab-report.json")), (name, done.stdout))
+        candidate = json.loads(slurp(os.path.join(self.lab, "cf-c1-reports", "match-lab-report.json")))
+        base = json.loads(slurp(os.path.join(self.lab, "cf-c1-base-reports", "match-lab-report.json")))
+        self.assertEqual(candidate["meta"]["pool_results"], ["cf-control"])
+        self.assertEqual((base["meta"]["results_dir"], base["meta"]["pool_results"]), ("cf-control", ["cf-c1"]))
+        compared = json.loads(slurp(os.path.join(self.lab, "cf-c1-reports", "compare.json")))
+        self.assertEqual(compared["base"], {"reports": "cf-c1-base-reports", "results": "cf-control"})
+
+    def test_a_checkout_left_dirty_after_the_revert_fails_loudly(self):
+        """m11: `git checkout -- Sources` reverted neither Tests/ nor a new file; now the patch is reversed
+        and anything still there stops the run."""
+        self.fake_reports("cf-control-reports")
+        os.makedirs(os.path.join(self.lab, "cf-control"))
+        with open(os.path.join(self.wt, "Scripts", "lyric-match-lab.sh"), "a") as handle:
+            handle.write('echo stray > "$(dirname "$0")/../Tests/stray.txt"\n')
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "runner")
+        done = self.run_script("c2", self.patch)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("not clean", done.stderr)
+        self.assertIn("stray.txt", done.stderr)
+
+    def make_control(self):
+        self.fake_reports("cf-control-reports")
+        os.makedirs(os.path.join(self.lab, "cf-control"))
+        with open(os.path.join(self.lab, "cf-control", "isla-lookups.jsonl"), "w") as handle:
+            handle.write('{"track_id":"s/1","variant":"canonical","marker":"control"}\n')
+
+    def test_base_reports_alone_never_makes_the_record_run_the_base_of_a_candidate(self):
+        """N3: BASE_REPORTS without BASE_RESULTS skipped the control default, and BASE_RESULTS then fell
+        back to `results`, the record run. A candidate reads BASE_RESULTS only, and the other is refused."""
+        self.make_control()
+        done = self.run_script("c3", self.patch, BASE_REPORTS="cf-control-reports")
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("BASE_RESULTS", done.stderr)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertFalse(os.path.exists(os.path.join(self.lab, "cf-c3")))
+        # BASE_RESULTS names the base, and BASE_REPORTS beside it is not read
+        os.makedirs(os.path.join(self.lab, "cf-other"))
+        with open(os.path.join(self.lab, "cf-other", "isla-lookups.jsonl"), "w") as handle:
+            handle.write('{"track_id":"s/1","variant":"canonical"}\n')
+        done = self.run_script("c3", self.patch, BASE_RESULTS="cf-other", BASE_REPORTS="reports")
+        self.assertNotEqual(done.returncode, 2, done.stderr)
+        compared = json.loads(slurp(os.path.join(self.lab, "cf-c3-reports", "compare.json")))
+        self.assertEqual(compared["base"]["results"], "cf-other")
+
+    def test_a_patch_run_never_overwrites_the_base_it_is_compared_with(self):
+        """N4: `... control fix.patch` deleted and rewrote cf-control with the patched output, so the
+        candidate was compared with itself and every later candidate with a patched control."""
+        self.make_control()
+        before = slurp(os.path.join(self.lab, "cf-control", "isla-lookups.jsonl"))
+        done = self.run_script("control", self.patch)
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("control", done.stderr)
+        self.assertEqual(slurp(os.path.join(self.lab, "cf-control", "isla-lookups.jsonl")), before)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        # any run whose output directory is the base's, under another base
+        os.makedirs(os.path.join(self.lab, "cf-c4"))
+        done = self.run_script("c4", self.patch, BASE_RESULTS="cf-c4")
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("cf-c4", done.stderr)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_a_worktree_dirty_outside_sources_is_refused_before_the_patch_goes_on(self):
+        """N5: the check before the run looked at Sources/ only, the one after at the whole tree, so a
+        leftover under Tests/ ended every run with "not clean after reversing the patch"."""
+        self.make_control()
+        leftover = os.path.join(self.wt, "Tests", "leftover.txt")
+        with open(leftover, "w") as handle:
+            handle.write("not mine\n")
+        done = self.run_script("c5", self.patch)
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("leftover.txt", done.stderr)
+        self.assertNotIn("after reversing", done.stderr)
+        self.assertEqual(slurp(os.path.join(self.wt, "Sources", "a.txt")), "one\n")      # nothing was applied
+        self.assertEqual(slurp(leftover), "not mine\n")
+        self.assertFalse(os.path.exists(os.path.join(self.lab, "cf-c5")))
+
+    def test_the_control_itself_is_scored_beside_the_record_run(self):
+        done = self.run_script("control")
+        self.assertEqual(done.returncode, 0, done.stderr + done.stdout)
+        compared = json.loads(slurp(os.path.join(self.lab, "cf-control-reports", "compare.json")))
+        self.assertEqual(compared["base"], {"reports": "reports", "results": "results"})
+        self.assertFalse(os.path.exists(os.path.join(self.lab, "cf-control-base-reports")))
 
 
 if __name__ == "__main__":
