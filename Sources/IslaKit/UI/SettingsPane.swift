@@ -210,13 +210,17 @@ struct SettingsPane: View {
             case .file: rows.append(.note(localized("Stored in a file only you can read.")))
             case .unavailable: rows.append(.note(localized("Cannot be stored on this Mac.")))
             }
-            // Said only after a real refusal that names a permission. There used
-            // to be a "Liked Songs: Allowed" row beside it that began as
-            // "Allowed" before the API had been asked anything and turned to
-            // "Not allowed" under a note that said the same; and an `.other`
-            // 403 is not known to be about permission at all, so it explains
-            // nothing it cannot back.
-            if apiBlocked, let refusal, refusal != .other { rows.append(.note(refusal.explanation)) }
+            // Said whenever a refusal has hidden the lock-screen heart, with the
+            // sentence for what Spotify said: a permission when it named one, the
+            // generic "refused this account's library request" when it did not.
+            // The generic line was dropped once, on the reasoning that an `.other`
+            // 403 is not known to be about permission, and the heart then
+            // vanished from the lock screen with no word anywhere — a control
+            // that disappears owes a sentence. The sentence claims only what is
+            // known (a refusal), which is why `.other` can say it. There is no
+            // "Liked Songs: Allowed" value row beside it: that began as "Allowed"
+            // before the API had been asked anything.
+            if apiBlocked, let refusal { rows.append(.note(refusal.explanation)) }
             rows.append(.note(localized("Isla forgets the account on this Mac. Your Spotify library stays as it is.")))
             rows.append(.note(localized("The heart on the lock screen adds the song to your Liked Songs.")))
         }

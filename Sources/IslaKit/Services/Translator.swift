@@ -88,6 +88,12 @@ final class Translator: ObservableObject {
         case translationLanguages
         case turnOnOnline
         case retry
+        /// "Use Online" offered again, in the place of `retry`, under a result
+        /// that a Use Online press produced: the press is spent, so Try Again
+        /// would run without it and land on the "not downloaded" obstacle (and,
+        /// after a partial answer, wipe the part that came back). Pressing this
+        /// is a new press, a new request and a new send.
+        case useOnline
     }
 
     /// Which of the things `failure` can say it is — the obstacles above, and
@@ -575,18 +581,29 @@ final class Translator: ObservableObject {
     /// render could otherwise only be made on a Mac that happens to miss one.
     var capabilitiesOverride: ((Route) -> Capabilities)?
 
+    /// A seam for a test to make the device-language read suspend, nil in the
+    /// app (`languagesOnThisMac()` is used). It is awaited on the override path
+    /// too, so a test can revoke a Use Online press in the middle of the lookup.
+    var languagesProvider: (@MainActor () async -> Set<String>)?
+
+    /// `onlineByRequest` is deliberately NOT decided here. It was computed
+    /// before the awaits below, so a press revoked during them (the cover
+    /// came down, the panel closed, Escape) was still honoured by the run
+    /// already in flight. `translate()` reads the press once, after every
+    /// await, immediately before it spends it.
     private func capabilities(for route: Route) async -> Capabilities {
         if let capabilitiesOverride {
-            var capabilities = capabilitiesOverride(route)
-            capabilities.onlineByRequest = onlineRequest?.covers(text: trimmed, route: route) ?? false
+            let capabilities = capabilitiesOverride(route)
+            if let languagesProvider { _ = await languagesProvider() }
             return capabilities
         }
         var capabilities = await Self.deviceCapabilities(
             for: route, onlineEnabled: defaults.bool(forKey: NotchViewModel.onlineTranslationKey)
         )
-        capabilities.onlineByRequest = onlineRequest?.covers(text: trimmed, route: route) ?? false
         guard !capabilities.belowMinimumSystem else { return capabilities }
-        if onDeviceLanguages == nil { onDeviceLanguages = await Self.languagesOnThisMac() }
+        if onDeviceLanguages == nil {
+            onDeviceLanguages = await (languagesProvider ?? { @MainActor in await Self.languagesOnThisMac() })()
+        }
         capabilities.sourceOffDevice = isOnlineOnly(route.source)
         capabilities.targetOffDevice = isOnlineOnly(route.target)
         return capabilities
@@ -743,8 +760,13 @@ final class Translator: ObservableObject {
         defer { if self.generation == generation { isTranslating = false } }
 
         let route = route
-        let capabilities = await capabilities(for: route)
+        var capabilities = await capabilities(for: route)
         guard !Task.isCancelled, self.generation == generation else { return }
+        // The press is read here, after every await and immediately before it
+        // is spent, from the text and route this run captured. A revoke that
+        // landed while the capabilities were being looked up (cover, panel
+        // close, Escape, pair change) is therefore no press at all.
+        capabilities.onlineByRequest = onlineRequest?.covers(text: text, route: route) ?? false
         // Spent here: this run is the request the press authorized (its text
         // and route were compared above), and from this line on it either goes
         // to MyMemory or does not. Whatever it finds — an answer, a failure, a
@@ -753,6 +775,9 @@ final class Translator: ObservableObject {
         // the reply can leave it standing for another run.
         revokeOnlineRequest()
         let engines = Self.engines(given: capabilities)
+        // Online answered or was tried because of the press, not because
+        // Translate Online is on. Its Try Again would have no press behind it.
+        let byRequest = capabilities.onlineByRequest && engines.contains(.online)
         guard !engines.isEmpty else {
             let obstacle = Self.obstacle(for: route, given: capabilities)
             output = ""
@@ -784,7 +809,7 @@ final class Translator: ObservableObject {
                 // next one this would skip.
                 let (message, retryable) = Self.describe(cause)
                 received(translated, for: text, by: candidate, note: message)
-                remedies = retryable ? [.retry] : []
+                remedies = retryable ? retryRemedies(byRequest: byRequest) : []
                 return
             } catch {
                 guard !Task.isCancelled, self.generation == generation else { return }
@@ -805,7 +830,18 @@ final class Translator: ObservableObject {
         // failure (F-042, M-10), so a spent daily allowance or Apple's
         // guardrail — which refuse the same text the same way every time —
         // wore a button that could only fail again.
-        remedies = lastFailure.retryable ? [.retry] : []
+        remedies = lastFailure.retryable ? retryRemedies(byRequest: byRequest) : []
+    }
+
+    /// What a second try is called after an online run. Through Translate Online
+    /// it is Try Again, as always. After a Use Online press it is Use Online
+    /// again, and only while the day's allowance is not spent: Try Again re-ran
+    /// without the (spent) press and landed on "not downloaded", after a
+    /// partial answer wiping the part that had come back. The cover is the
+    /// pane's to apply, as for every other button that sends text.
+    private func retryRemedies(byRequest: Bool) -> [Remedy] {
+        guard byRequest else { return [.retry] }
+        return allowanceSpent() ? [] : [.useOnline]
     }
 
     /// The one place an answer lands: the text, what it answers, and which

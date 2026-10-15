@@ -378,6 +378,22 @@ struct TranslateAlert: Equatable {
         return alert
     }
 
+    /// The buttons under a partial answer's note, from the same remedies, with
+    /// the same two guards: a Use Online that sends text is withheld under the
+    /// cover and once the day's allowance is gone.
+    @MainActor
+    static func noteActions(remedies: [Translator.Remedy], allowanceSpent: Bool, covered: Bool) -> [Action] {
+        remedies.compactMap { remedy -> Action? in
+            switch remedy {
+            case .appleIntelligenceSettings: return .appleIntelligenceSettings
+            case .translationLanguages: return .translationLanguages
+            case .turnOnOnline: return covered ? nil : .turnOnOnline
+            case .retry: return .tryAgain
+            case .useOnline: return covered || allowanceSpent ? nil : .useOnline
+            }
+        }
+    }
+
     @MainActor
     private static func unguarded(
         kind: Translator.FailureKind?, message: String, remedies: [Translator.Remedy], allowanceSpent: Bool
@@ -388,6 +404,7 @@ struct TranslateAlert: Equatable {
             case .translationLanguages: return .translationLanguages
             case .turnOnOnline: return .turnOnOnline
             case .retry: return .tryAgain
+            case .useOnline: return .useOnline
             }
         }
         let quota = Translator.describe(OnlineTranslation.Failure.quotaExhausted).message

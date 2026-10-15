@@ -136,6 +136,138 @@ final class TranslateReviewFixTests: XCTestCase {
         XCTAssertEqual(sent.texts, ["Hello"], "no second online send without another press")
     }
 
+    // MARK: - Try Again after a Use Online run
+
+    /// A partial answer from a Use Online run used to offer Try Again, which ran
+    /// without the (spent) press, landed on "not downloaded" and wiped the part
+    /// that had come back. It offers Use Online instead; the answer stays.
+    func testAPartialAnswerAfterAPressOffersUseOnlineAndKeepsItsAnswer() async {
+        let (rig, sent) = downloadRig()
+        defer { rig.release() }
+        let translator = rig.translator
+        sent.failure = OnlineTranslation.Failure.partial(text: "Привіт", cause: .unreachable)
+        await translator.translate()
+        translator.useOnline()
+        await translator.translate()
+        XCTAssertEqual(sent.texts, ["Hello"])
+        XCTAssertEqual(translator.output, "Привіт")
+        XCTAssertNotNil(translator.outputNote)
+        XCTAssertEqual(translator.remedies, [.useOnline], "not Try Again: its press is spent")
+
+        // Nothing sends without a press, and the answer survives a lone re-run.
+        translator.retry()
+        await translator.translate()
+        XCTAssertEqual(sent.texts, ["Hello"])
+
+        // Pressed again, it sends exactly once more.
+        sent.failure = nil
+        translator.useOnline()
+        await translator.translate()
+        XCTAssertEqual(sent.texts, ["Hello", "Hello"])
+        XCTAssertEqual(translator.output, "Привіт")
+        XCTAssertEqual(translator.engine, .online)
+    }
+
+    func testAnUnreachableFailureAfterAPressOffersUseOnline() async {
+        let (rig, sent) = downloadRig()
+        defer { rig.release() }
+        let translator = rig.translator
+        sent.failure = OnlineTranslation.Failure.unreachable
+        await translator.translate()
+        translator.useOnline()
+        await translator.translate()
+        XCTAssertEqual(translator.failureKind, .unreachable)
+        XCTAssertEqual(translator.remedies, [.useOnline])
+        XCTAssertEqual(sent.texts, ["Hello"])
+
+        translator.retry()
+        await translator.translate()
+        XCTAssertEqual(sent.texts, ["Hello"], "nothing sends without the press")
+
+        sent.failure = nil
+        translator.useOnline()
+        await translator.translate()
+        XCTAssertEqual(sent.texts, ["Hello", "Hello"])
+        XCTAssertEqual(translator.engine, .online)
+    }
+
+    /// Never while the allowance is spent; the pane withholds it under the cover.
+    func testUseOnlineIsNotOfferedAgainWhileTheAllowanceIsSpentOrCovered() async {
+        let (rig, sent) = downloadRig()
+        defer { rig.release() }
+        let translator = rig.translator
+        sent.failure = OnlineTranslation.Failure.unreachable
+        translator.allowanceSpent = { true }
+        await translator.translate()
+        translator.useOnline()
+        await translator.translate()
+        XCTAssertEqual(translator.remedies, [])
+
+        translator.allowanceSpent = { false }
+        translator.useOnline()
+        await translator.translate()
+        XCTAssertEqual(translator.remedies, [.useOnline])
+        XCTAssertEqual(
+            TranslateAlert.make(kind: .unreachable, message: "m", remedies: [.useOnline], allowanceSpent: false, covered: true).actions, []
+        )
+        XCTAssertEqual(
+            TranslateAlert.noteActions(remedies: [.useOnline], allowanceSpent: false, covered: true), []
+        )
+        XCTAssertEqual(
+            TranslateAlert.noteActions(remedies: [.useOnline], allowanceSpent: true, covered: false), []
+        )
+        XCTAssertEqual(
+            TranslateAlert.noteActions(remedies: [.useOnline], allowanceSpent: false, covered: false), [.useOnline]
+        )
+    }
+
+    /// Through Translate Online (no press) Try Again is unchanged.
+    func testTranslateOnlineKeepsTryAgain() async {
+        let rig = TranslateRig()
+        defer { rig.release() }
+        let translator = rig.translator
+        translator.capabilitiesOverride = { _ in
+            var capabilities = Translator.Capabilities()
+            capabilities.onlineEnabled = true
+            return capabilities
+        }
+        translator.onlineTranslate = { _, _ in throw OnlineTranslation.Failure.unreachable }
+        translator.choose(target: .uzbek)
+        translator.input = "Hello"
+        await translator.translate()
+        XCTAssertEqual(translator.remedies, [.retry])
+    }
+
+    // MARK: - The press is read after the last await
+
+    /// Holds the device-language lookup open until the test lets it go.
+    @MainActor private final class Gate {
+        var entered = false
+        private var continuation: CheckedContinuation<Void, Never>?
+        func wait() async {
+            entered = true
+            await withCheckedContinuation { continuation = $0 }
+        }
+        func open() { continuation?.resume(); continuation = nil }
+    }
+
+    func testARevokeDuringTheCapabilityLookupSendsNothing() async {
+        let (rig, sent) = downloadRig()
+        defer { rig.release() }
+        let translator = rig.translator
+        let gate = Gate()
+        translator.languagesProvider = { await gate.wait(); return [] }
+        translator.useOnline()
+        let run = Task { await translator.translate() }
+        for _ in 0..<200 where !gate.entered { await Task.yield() }
+        XCTAssertTrue(gate.entered, "the run is suspended inside the lookup")
+        translator.revokeOnlineRequest()
+        gate.open()
+        await run.value
+        XCTAssertTrue(sent.texts.isEmpty, "a press revoked mid-lookup is no press: \(sent.texts)")
+        XCTAssertEqual(translator.failureKind, .obstacle(.needsDownload(.ukrainian)))
+    }
+
     func testAPressEndsWithAnEditClearAndEscape() async {
         let (rig, sent) = downloadRig()
         defer { rig.release() }

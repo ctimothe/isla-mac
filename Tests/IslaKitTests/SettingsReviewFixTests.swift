@@ -29,19 +29,28 @@ final class SettingsReviewFixTests: XCTestCase {
                       "the one value row that remains is a real reading")
     }
 
-    func testOnlyAPermissionRefusalIsExplained() {
+    /// Every refusal that hides the lock-screen heart is explained, the generic
+    /// one included, and nothing is said before a refusal has happened.
+    func testEveryRefusalThatHidesTheHeartIsExplained() {
         func notes(_ blocked: Bool, _ refusal: SpotifyAccount.Refusal?) -> [SettingsPane.SpotifyRow] {
             SettingsPane.spotifyRows(
                 connected: true, needsReconnect: false, signIn: nil, apiBlocked: blocked, refusal: refusal
             )
         }
-        for refusal in [SpotifyAccount.Refusal.notRegistered, .premiumRequired] {
+        for refusal in [SpotifyAccount.Refusal.notRegistered, .premiumRequired, .other] {
             XCTAssertTrue(notes(true, refusal).contains(.note(refusal.explanation)), "\(refusal)")
             XCTAssertFalse(notes(false, refusal).contains(.note(refusal.explanation)), "no refusal has happened: \(refusal)")
         }
-        let other = SpotifyAccount.Refusal.other.explanation
-        XCTAssertFalse(notes(true, .other).contains(.note(other)), "a 403 that names no permission is not one")
-        XCTAssertFalse(notes(true, nil).contains(.note(other)))
+        XCTAssertFalse(notes(true, nil).contains(.note(SpotifyAccount.Refusal.other.explanation)))
+    }
+
+    /// An unclassified 403 (`.other`) hides the heart too, so the footnote says
+    /// that Spotify refused, once.
+    func testAnUnclassifiedRefusalIsExplainedInTheSection() {
+        let rows = SettingsPane.spotifyRows(
+            connected: true, needsReconnect: false, signIn: nil, apiBlocked: true, refusal: .other
+        )
+        XCTAssertEqual(rows.filter { $0 == .note(SpotifyAccount.Refusal.other.explanation) }.count, 1)
     }
 
     // MARK: - Renamed keys are written back

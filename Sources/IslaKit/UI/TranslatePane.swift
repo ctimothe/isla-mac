@@ -587,8 +587,11 @@ struct TranslatePane: View {
                     if translator.isTranslating {
                         ProgressView()
                             .controlSize(.small)
-                    } else if !translator.remedies.isEmpty {
-                        actionRow(translator.remedies.map(alertAction))
+                    } else {
+                        let actions = TranslateAlert.noteActions(
+                            remedies: translator.remedies, allowanceSpent: translator.allowanceSpent(), covered: covered
+                        )
+                        if !actions.isEmpty { actionRow(actions) }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -736,15 +739,6 @@ struct TranslatePane: View {
         }
         .frame(width: card.width - TranslateLayout.resultTextTrailing, alignment: .leading)
         .modifier(Placement(frame: CGRect(x: 0, y: 10, width: card.width - TranslateLayout.resultTextTrailing, height: card.height - 10)))
-    }
-
-    private func alertAction(_ remedy: Translator.Remedy) -> TranslateAlert.Action {
-        switch remedy {
-        case .appleIntelligenceSettings: return .appleIntelligenceSettings
-        case .translationLanguages: return .translationLanguages
-        case .turnOnOnline: return .turnOnOnline
-        case .retry: return .tryAgain
-        }
     }
 
     /// The buttons: push buttons on the toolbar plate, side by side where they

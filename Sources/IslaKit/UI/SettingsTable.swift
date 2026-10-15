@@ -634,7 +634,6 @@ enum SettingsTable {
     /// the action, storage, refusal, what disconnecting keeps. Notes are inline,
     /// never a toast: the person acted on this section, so this section answers.
     private static func spotify(_ c: SettingsContext) -> [SettingsBlock] {
-        let connected = c.spotify.contains { if case .confirm = $0 { return true } else { return false } }
         var account: [SettingsRowID] = [.spotifyAccount]
         if c.spotify.contains(.importAccount) { account.append(.spotifyImport) }
         var blocks: [SettingsBlock] = [
