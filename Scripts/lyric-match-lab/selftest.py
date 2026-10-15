@@ -1466,6 +1466,7 @@ class LabFixture(unittest.TestCase):
             lookup(7, "canonical", "found", 62, [r("search?hotel", [rows[62]])]),
             lookup(8, "canonical", "found", 801, [r("search?india", [rows[801]])]),
             lookup(9, "canonical", "none", None, [r("get?juliet", {"message": "x"}, 404)]),
+            lookup(9, "apple", "found", 92, [r("search?juliet-karaoke", [cls.rows[92]])]),
             lookup(10, "canonical", "found", 101, [r("search?kilo", [rows[101]])]),
             lookup(10, "apple", "none", None, [r("get?kilo", {"message": "x"}, 404)]),
             lookup(11, "canonical", "found", 112, [r("search?lima", [rows[112]])]),
@@ -1609,18 +1610,24 @@ class ClassifyTests(LabFixture):
         # 11 wrong (an instrumental), 12 truth-incomplete, 13 failed-request, 14 rejected (overrun-only)
         self.assertEqual(canonical["lookups"], 15)
         self.assertEqual(canonical["verdicts"]["correct"], 1)
-        # tracks 0, 3, 4, 5 (alt has fit via 41/42), 7, 13 (failed-request counts as a miss), 14
-        self.assertEqual(canonical["usable"], 7)
-        self.assertEqual(canonical["accuracy"], round(1 / 7, 4))
+        # tracks 0, 4, 5 (alt has fit via 41/42), 7, 13 (failed-request counts as a miss), 14; track 3,
+        # anchored from Isla's own answers, is out of the headline and counted apart (second review, finding 2)
+        self.assertEqual(canonical["usable"], 6)
+        self.assertEqual(canonical["accuracy"], round(1 / 6, 4))
         self.assertEqual(canonical["shown"], 4)          # correct, alt-script, uncertain, and track 11's lyrics
         self.assertEqual(canonical["wrong"], 2)          # wrong-song + uncertain
         self.assertEqual(canonical["wrong_rate"], 0.5)
-        self.assertEqual(canonical["recoverable_misses"], 3)   # tracks 3, 4 and 14
+        self.assertEqual(canonical["recoverable_misses"], 2)   # tracks 4 and 14 (3 is promoted)
         self.assertEqual(canonical["text_only_misses"], 1)
         self.assertEqual(canonical["excluded_from_scoring"],
-                         {"truth-uncertain": 1, "truth-incomplete": 1, "disputed": 1})
+                         {"truth-uncertain": 1, "truth-incomplete": 1, "disputed": 1, "anchor-promoted": 1})
         self.assertEqual(m1["overall"]["excluded_from_scoring"],
-                         {"truth-uncertain": 2, "truth-incomplete": 2, "disputed": 2})
+                         {"truth-uncertain": 2, "truth-incomplete": 2, "disputed": 2, "anchor-promoted": 2})
+        # the promoted track's lookups keep their verdicts and are scored on their own
+        promoted = m1["anchor_promoted"]
+        self.assertEqual((promoted["lookups"], promoted["usable"], promoted["correct"], promoted["accuracy"]),
+                         (2, 2, 1, 0.5))
+        self.assertEqual(promoted["verdicts"], {"correct": 1, "miss-unqueried": 1})
         self.assertEqual(m1["verdict"], "fail")
         for cut_name in ("by_slice", "by_variant", "by_slice_variant", "by_pick", "by_tag", "by_script_family"):
             self.assertTrue(m1[cut_name], cut_name)
@@ -1733,6 +1740,21 @@ class ClassifyTests(LabFixture):
             (9, "canonical"): "false",         # F3: a karaoke upload is not recoverable
             (14, "canonical"): "true",         # F13: an overrun-fit Isla would have shown is
             (0, "canonical"): "true"})
+
+    def test_usable_is_decided_from_the_truth_not_from_what_isla_showed(self):
+        """Second review, finding 3: `correct` used to be usable with no fit while every other outcome
+        needed one, so Isla showing a karaoke upload under another artist grew the denominator and
+        showing nothing did not."""
+        shown, nothing = self.v(9, "apple"), self.v(9, "canonical")
+        self.assertEqual((shown["verdict"], nothing["verdict"]), ("correct", "miss-text-only"))
+        self.assertEqual((shown["usable"], nothing["usable"]), ("false", "false"))
+        self.assertEqual(self.report["M1"]["overall"]["correct_without_fit"], 1)
+        self.assertEqual(self.report["M1"]["canonical"]["correct_without_fit"], 0)
+        # where an identity-matching fit exists the lookup is usable whatever Isla did
+        self.assertEqual([self.v(0, name)["usable"] for name in ("canonical", "apple", "no-album", "deezer")],
+                         ["true"] * 4)
+        # and an overrun-only record that Isla showed flagged, or did not show, is usable alike
+        self.assertEqual([self.v(14, name)["usable"] for name in ("canonical", "apple", "deezer")], ["true"] * 3)
 
     def test_text_only_fit_is_reported_apart_from_recoverable_misses(self):
         self.assertEqual(self.v(9, "canonical")["verdict"], "miss-text-only")
@@ -1859,6 +1881,224 @@ class ClassifyTests(LabFixture):
         os.remove(path)
 
 
+class ReviewLab(unittest.TestCase):
+    """A small synthetic corpus a test builds track by track: `add` the tracks, `seal`
+    resolves them offline, `lookup` fabricates what Isla did, `classify` scores it.
+    The second adversarial review's findings each get one here."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        os.makedirs(os.path.join(self.root, "slices"))
+        self.entries = []
+        self.counter = 0
+        self.variants = {}
+
+    def add(self, title, get_row, ta_rows, q_rows, answer_q=True, apple_ms=200000, **harvest_fields):
+        h = harvest(title=title, artists=["Artist " + title.split()[0]], album="Alb", **harvest_fields)
+        self.entries.append((h, get_row, ta_rows, q_rows, answer_q, apple_ms))
+        return len(self.entries) - 1
+
+    def pool(self, index, get_row=None, ta_rows=(), q_rows=()):
+        """What the resolver's queries returned for track `index`."""
+        h, _, _, _, answer_q, apple_ms = self.entries[index]
+        self.entries[index] = (h, get_row, list(ta_rows), list(q_rows), answer_q, apple_ms)
+
+    def row(self, rid, index, lines, duration=200.0, **extra):
+        title, artist = self.entries[index][0]["title"], self.entries[index][0]["artists"][0]
+        return record(rid, title, artist, lines, duration, **extra)
+
+    def seal(self):
+        dump(os.path.join(self.root, "slices", "pop-anglo.json"),
+             {"slice": "pop-anglo", "tracks": [e[0] for e in self.entries]})
+        for index, (h, get_row, ta_rows, q_rows, answer_q, apple_ms) in enumerate(self.entries):
+            seed_track(self.root, index, h, get_row, ta_rows, q_rows, apple_ms, answer_q=answer_q)
+        quiet_run(self.root, offline=True)
+        for line in slurp(os.path.join(self.root, "resolved", "variants.jsonl")).splitlines():
+            v = json.loads(line)
+            self.variants[(v["track_id"], v["variant"])] = v
+
+    def tracks(self):
+        return {t["track_id"]: t for t in map(json.loads, slurp(os.path.join(self.root, "resolved", "tracks.jsonl")).splitlines())}
+
+    def lookup(self, index, variant, outcome, chosen=None, answers=(), status=200, requests=None):
+        tid = f"pop-anglo/{index:03d}"
+        base = self.variants.get((tid, variant)) or self.variants[(tid, "canonical")]
+        made = []
+        for body in answers:
+            self.counter += 1
+            url = f"https://lrclib.net/api/search?review={self.counter}"
+            common.write_cache(self.root, url, status, json.dumps(body).encode(), sub="isla")
+            made.append({"key": common.url_key(url), "path": "/api/search", "status": status, "cached": True})
+        return {"track_id": tid, "variant": variant,
+                "identity": {"player_id": base["player_id"], "title": base["title"], "artist": base["artist"],
+                             "album": base["album"], "duration": base["duration"]},
+                "outcome": outcome, "chosen_id": chosen, "chosen_ambiguous": [],
+                "chosen_via": "search" if chosen else None,
+                "granularity": "line" if chosen else None, "lines": 24 if chosen else None,
+                "overrun": False, "timed_for_longer": False,
+                "requests": made if requests is None else requests, "ms": 1}
+
+    def classify(self, lookups, **kwargs):
+        os.makedirs(os.path.join(self.root, "results"), exist_ok=True)
+        with open(os.path.join(self.root, "results", "isla-lookups.jsonl"), "w", encoding="utf-8") as handle:
+            for row in lookups:
+                handle.write(json.dumps(row) + "\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            report = classify.run(self.root, **kwargs)
+        import csv
+        with open(os.path.join(self.root, kwargs.get("reports_name", "reports"), "rows.csv"), encoding="utf-8", newline="") as handle:
+            self.rows = {(r["track_id"], r["variant"]): r for r in csv.DictReader(handle)}
+        return report
+
+    def verdict(self, index, variant="canonical"):
+        return self.rows[(f"pop-anglo/{index:03d}", variant)]["verdict"]
+
+
+class DisputedTruthTests(ReviewLab):
+    def test_an_instrumental_disagreement_either_way_takes_the_track_out_of_scoring(self):
+        """Second review, finding 4: only harvest-none-lrclib-lyrics was disputed. A vocal song whose
+        LRCLIB anchors are all instrumental, and anchors that disagree about the flag, are as doubtful."""
+        lyrics = synthetic_lines(600)
+        flat = dict(instrumental=True, plainLyrics="", syncedLyrics="")
+        a = self.add("Alpha Flag", None, [], [])
+        b = self.add("Bravo Flag", None, [], [])
+        c = self.add("Charlie Flag", None, [], [])
+        rows = {1: self.row(1, a, [], **flat),
+                2: self.row(2, b, [], **flat), 3: self.row(3, b, lyrics),
+                4: self.row(4, c, synthetic_lines(601))}
+        self.pool(a, ta_rows=[rows[1]])
+        self.pool(b, ta_rows=[rows[2], rows[3]])
+        self.pool(c, ta_rows=[rows[4]])
+        self.seal()
+        truth = {tid: t["truth"] for tid, t in self.tracks().items()}
+        self.assertEqual(truth["pop-anglo/000"]["instrumental_disagreement"], "harvest-vocal-lrclib-instrumental")
+        self.assertEqual(truth["pop-anglo/001"]["instrumental_disagreement"], "mixed-anchor-flags")
+        self.assertIsNone(truth["pop-anglo/002"]["instrumental_disagreement"])
+        report = self.classify([
+            self.lookup(a, "canonical", "none"), self.lookup(a, "apple", "found", 99, [[rows[4]]]),
+            self.lookup(b, "canonical", "found", 3, [[rows[3]]]),
+            self.lookup(c, "canonical", "found", 4, [[rows[4]]])])
+        self.assertEqual([self.verdict(a), self.verdict(a, "apple"), self.verdict(b), self.verdict(c)],
+                         ["disputed", "disputed", "disputed", "correct"])
+        canonical = report["M1"]["canonical"]
+        self.assertEqual(canonical["excluded_from_scoring"], {"disputed": 2})
+        self.assertEqual((canonical["usable"], canonical["shown"]), (1, 1))
+
+
+class PromotionTests(ReviewLab):
+    def test_promoted_tracks_leave_the_headline_and_an_unanswered_one_is_never_promoted(self):
+        """Second review, finding 2: promotion rescued only no-anchor tracks where Isla's own responses held
+        an identity record, so on them Isla could be right or reject what it saw but never fail to ask."""
+        promoted = self.add("Alpha Promo", None, [], [])
+        unanswered = self.add("Bravo Promo", None, [], [], answer_q=False)
+        plain = self.add("Charlie Promo", None, [], [])
+        rows = {1: self.row(1, promoted, synthetic_lines(610)), 5: self.row(5, unanswered, synthetic_lines(611)),
+                7: self.row(7, plain, synthetic_lines(612))}
+        self.pool(plain, ta_rows=[rows[7]])
+        self.seal()
+        self.assertEqual(self.tracks()["pop-anglo/001"]["truth"]["truth_status"], "no-anchor")
+        report = self.classify([
+            self.lookup(promoted, "canonical", "found", 1, [[rows[1]]]),
+            self.lookup(promoted, "apple", "none", None, [[]]),
+            self.lookup(unanswered, "canonical", "found", 5, [[rows[5]]]),
+            self.lookup(plain, "canonical", "found", 7, [[rows[7]]]),
+            self.lookup(plain, "apple", "none", None, [[]])])
+        # verdicts stay in rows.csv
+        self.assertEqual([self.verdict(promoted), self.verdict(promoted, "apple"), self.verdict(unanswered),
+                          self.verdict(plain), self.verdict(plain, "apple")],
+                         ["correct", "miss-unqueried", "truth-incomplete", "correct", "miss-unqueried"])
+        self.assertIn("anchor-promoted", self.rows[("pop-anglo/000", "canonical")]["flags"])
+        self.assertNotIn("anchor-promoted", self.rows[("pop-anglo/001", "canonical")]["flags"])
+        m1 = report["M1"]
+        # the headline holds the one ordinary track only
+        self.assertEqual((m1["overall"]["usable"], m1["overall"]["correct"], m1["overall"]["accuracy"]), (2, 1, 0.5))
+        self.assertEqual(m1["overall"]["verdicts"], {"correct": 1, "miss-unqueried": 1, "truth-incomplete": 1})
+        self.assertEqual(m1["overall"]["excluded_from_scoring"], {"truth-incomplete": 1, "anchor-promoted": 2})
+        self.assertEqual(m1["canonical"]["excluded_from_scoring"], {"truth-incomplete": 1, "anchor-promoted": 1})
+        self.assertEqual((m1["canonical"]["usable"], m1["canonical"]["accuracy"]), (1, 1.0))
+        for name in ("by_slice", "by_variant", "by_pick", "by_script_family"):
+            cell = m1[name]
+            self.assertEqual(sum(c["usable"] for c in cell.values()), 2, name)
+        self.assertEqual(m1["by_variant"]["apple"]["usable"], 1)
+        # and they are scored on their own
+        self.assertEqual(m1["anchor_promoted"]["verdicts"], {"correct": 1, "miss-unqueried": 1})
+        self.assertEqual((m1["anchor_promoted"]["usable"], m1["anchor_promoted"]["accuracy"]), (2, 0.5))
+        self.assertEqual(m1["anchor_promoted_tracks"], 1)
+
+
+class BoundsTests(ReviewLab):
+    def test_accuracy_bounds_count_every_lookup_that_might_have_been_usable(self):
+        """Second review, finding 5: the printed 'between X and as_computed' was not an upper bound, and
+        M1 could pass with lookups the harness could not attribute or resolver queries unanswered."""
+        a = self.add("Alpha Bound", None, [], [])
+        b = self.add("Bravo Bound", None, [], [])
+        c = self.add("Charlie Bound", None, [], [])
+        rows = {i: self.row(i, i - 1, synthetic_lines(620 + i)) for i in (1, 2, 3)}
+        for index in (a, b, c):
+            self.pool(index, ta_rows=[rows[index + 1]])
+        self.seal()
+        report = self.classify([
+            self.lookup(a, "canonical", "found", 1, [[rows[1]]]),
+            self.lookup(b, "canonical", "found", None, [[rows[2]]]),          # unrecovered
+            self.lookup(c, "canonical", "failed")])                           # an environment failure
+        canonical = report["M1"]["canonical"]
+        self.assertEqual((canonical["usable"], canonical["correct"], canonical["unscorable_possibly_usable"]), (1, 1, 1))
+        self.assertEqual(canonical["accuracy_bounds"], {"lower": 0.5, "upper": 1.0, "as_computed": 1.0})
+        self.assertEqual(report["M1"]["accuracy_bounds"]["canonical"], canonical["accuracy_bounds"])
+        self.assertEqual(report["M1"]["verdict"], "incomplete")           # as good as a pass, but one answer is missing
+        self.assertIn("[50.0%, 100.0%]", report["M1"]["summary"])
+        # the same without the unattributable lookup is a pass, and the bounds close
+        report = self.classify([self.lookup(a, "canonical", "found", 1, [[rows[1]]])])
+        self.assertEqual(report["M1"]["verdict"], "pass")
+        self.assertEqual(report["M1"]["canonical"]["accuracy_bounds"], {"lower": 1.0, "upper": 1.0, "as_computed": 1.0})
+
+    def test_an_unanswered_resolver_query_on_an_anchored_track_makes_m1_incomplete(self):
+        a = self.add("Alpha Gap", None, [], [], answer_q=False)
+        b = self.add("Bravo Gap", None, [], [])
+        rows = {1: self.row(1, a, synthetic_lines(630)), 2: self.row(2, b, synthetic_lines(631))}
+        self.pool(a, ta_rows=[rows[1]])
+        self.pool(b, ta_rows=[rows[2]])
+        self.seal()
+        notes = self.tracks()["pop-anglo/000"]["truth"]["notes"]
+        self.assertTrue(any(n.startswith("lrclib-unanswered") for n in notes))
+        lookups = [self.lookup(a, "canonical", "found", 1, [[rows[1]]]),
+                   self.lookup(b, "canonical", "found", 2, [[rows[2]]])]
+        report = self.classify(lookups)
+        self.assertEqual(report["M1"]["canonical"]["accuracy"], 1.0)
+        self.assertEqual((report["M1"]["verdict"], report["M1"]["lrclib_unanswered_tracks"]), ("incomplete", 1))
+        self.assertIn("1 anchored tracks had an LRCLIB query go unanswered", report["M1"]["summary"])
+        report = self.classify(lookups[1:])
+        self.assertEqual((report["M1"]["verdict"], report["M1"]["lrclib_unanswered_tracks"]), ("pass", 0))
+
+
+class SoleAnchorFromGetTests(ReviewLab):
+    def test_tracks_anchored_only_by_the_get_query_are_flagged_and_cut_apart(self):
+        """Second review, finding 11: the resolver's /api/get is Isla's own canonical query, so a record only
+        it returned can be the sole anchor and make Isla's canonical pick correct by construction."""
+        a = self.add("Alpha Get", None, [], [])
+        b = self.add("Bravo Get", None, [], [])
+        c = self.add("Charlie Get", None, [], [])
+        rows = {i: self.row(i, i - 1, synthetic_lines(640 + i)) for i in (1, 2, 3)}
+        self.pool(a, get_row=rows[1])                              # only /api/get
+        self.pool(b, ta_rows=[rows[2]])                            # only a search
+        self.pool(c, get_row=rows[3], ta_rows=[rows[3]])           # both
+        self.seal()
+        sources = {t: [x["source_queries"] for x in line["candidates"] if x["anchor"]] for t, line in self.tracks().items()}
+        self.assertEqual(sources["pop-anglo/000"], [["get"]])
+        self.assertEqual(sources["pop-anglo/001"], [["search:track_artist"]])
+        self.assertEqual(sources["pop-anglo/002"], [["get", "search:track_artist"]])
+        report = self.classify([self.lookup(i, "canonical", "found", i + 1, [[rows[i + 1]]]) for i in (a, b, c)])
+        flagged = [self.rows[(f"pop-anglo/{i:03d}", "canonical")]["flags"] for i in (a, b, c)]
+        self.assertEqual(flagged, ["sole-anchor-from-get", "", ""])
+        cuts = report["M1"]["by_sole_anchor_from_get"]
+        self.assertEqual((cuts["yes"]["lookups"], cuts["yes"]["usable"], cuts["no"]["lookups"], cuts["no"]["usable"]),
+                         (1, 1, 2, 2))
+        self.assertEqual(report["M1"]["canonical"]["usable"], 3)           # flagged, never excluded
+        self.assertEqual(report["M1"]["flag_counts"]["sole-anchor-from-get"], 1)
+
+
 class TruthFamilyTests(unittest.TestCase):
     """classify.Truth reads the group's script family from the oracle's cluster, and
     fingerprints every record it compares in that family (second review, findings 1 and 8)."""
@@ -1962,15 +2202,17 @@ class MiniLab(unittest.TestCase):
         """F6: the lookups the cache could not answer might have been wrong."""
         complete = self.classify([self.lookup("canonical", "found", 1)])
         self.assertEqual(complete["M1"]["verdict"], "pass")
-        self.assertEqual(complete["M1"]["canonical"]["accuracy_bounds"], {"as_computed": 1.0, "uncached_as_misses": 1.0})
+        self.assertEqual(complete["M1"]["canonical"]["accuracy_bounds"],
+                         {"lower": 1.0, "upper": 1.0, "as_computed": 1.0})
         partial = self.classify([self.lookup("canonical", "found", 1), self.lookup("canonical-b", "uncached")])
         self.assertEqual(partial["M1"]["verdict"], "incomplete")
         self.assertIn("uncached", partial["M1"]["summary"])
         self.assertEqual(partial["M1"]["overall"]["uncached"], 1)
-        # on canonical lookups alone the bounds are still computed: 1 correct of 1 usable, or of 2 if the
-        # uncached one had been a usable miss
-        self.assertEqual(partial["M1"]["overall"]["accuracy_bounds"], {"as_computed": 1.0, "uncached_as_misses": 0.5})
-        self.assertEqual(partial["M1"]["accuracy_bounds"]["overall"]["uncached_as_misses"], 0.5)
+        # 1 correct of 1 usable; the uncached lookup may have been a usable miss (lower 1/2) or a
+        # usable hit (upper 2/2)
+        self.assertEqual(partial["M1"]["overall"]["accuracy_bounds"], {"lower": 0.5, "upper": 1.0, "as_computed": 1.0})
+        self.assertEqual(partial["M1"]["accuracy_bounds"]["overall"]["lower"], 0.5)
+        self.assertIn("[50.0%, 100.0%]", partial["M1"]["summary"])
         self.assertEqual(partial["meta"]["verdict_values"], "pass | concern | fail | info | incomplete")
         # a fail stays a fail
         failing = self.classify([self.lookup("canonical", "none"), self.lookup("canonical-b", "uncached")])
