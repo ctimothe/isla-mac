@@ -1772,7 +1772,7 @@ class ClassifyTests(LabFixture):
         self.assertEqual(cell["base_in_cluster"], 2)
         self.assertEqual(cell["lost_share"], 0.5)                  # of the rows with a base pick in the cluster
         self.assertEqual(self.report["M2"]["both_null_rows"], 1)
-        self.assertIn("lost <= 0.02 of the rows whose base pick is in the cluster",
+        self.assertIn("lost <= 0.02 of the rows whose base pick is in the song",
                       self.report["M2"]["thresholds"]["pass"])
 
     def test_perturbation_verdict_rules_on_synthetic_rows(self):
@@ -1793,6 +1793,31 @@ class ClassifyTests(LabFixture):
         lost = verdict([{"base_id": 1, "picked_id": None}] + [{"base_id": 5, "picked_id": None}] * 99)
         self.assertEqual(lost["perturbations"]["c-x"]["lost_share"], 1.0)
         self.assertEqual(lost["verdict"], "concern")
+
+    def test_m2_buckets_treat_alt_script_as_the_song_and_a_wrong_to_wrong_move_as_no_new_harm(self):
+        """Second review, finding 7: a base outside the cluster moving to a different outside row, and an
+        alt-script base moving to another alt-script row, were switched-wrong and fed the 0.01 fail threshold."""
+        clusters, alts = {"t": {1, 2}}, {"t": {8, 9}}
+
+        def cell(rows):
+            section = classify.perturbation_section(
+                [dict(r, track_id="t", applicable=True, perturbation="c-x") for r in rows], clusters, alts)
+            return section, section["perturbations"]["c-x"]
+
+        section, c = cell([{"base_id": 5, "picked_id": 6}] * 100 + [{"base_id": 1, "picked_id": 1}] * 100)
+        self.assertEqual((c["wrong-to-wrong"], c["switched-wrong"], section["verdict"]), (100, 0, "pass"))
+        self.assertEqual(c["wrong-to-wrong_share"], 0.5)
+        self.assertEqual(c["base_in_cluster"], 100)                     # the wrong bases had nothing to lose
+        # an alt-script base: another alt row or the cluster is fine, nothing is lost, outside is wrong
+        _, c = cell([{"base_id": 8, "picked_id": 9}, {"base_id": 8, "picked_id": 1}, {"base_id": 8, "picked_id": None},
+                     {"base_id": 8, "picked_id": 5}])
+        self.assertEqual((c["kept"], c["lost"], c["switched-wrong"], c["base_in_cluster"]), (2, 1, 1, 4))
+        # the right song in another script replacing a wrong base is an improvement, not wrong
+        _, c = cell([{"base_id": 5, "picked_id": 9}, {"base_id": 1, "picked_id": 9}])
+        self.assertEqual((c["switched-ok"], c["switched-alt"], c["switched-wrong"]), (1, 1, 0))
+        # a real switch still fails the section
+        section, c = cell([{"base_id": 1, "picked_id": 5}] + [{"base_id": 1, "picked_id": 1}] * 10)
+        self.assertEqual((c["switched-wrong"], section["verdict"]), (1, "fail"))
 
     def test_alternate_results_and_reports_directories(self):
         """F18: a candidate run is scored beside the baseline, and never replaces matched/."""

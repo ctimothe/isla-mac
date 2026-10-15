@@ -126,8 +126,9 @@ THRESHOLDS = {
            "incomplete": "the result would be a pass but a lookup is uncached or unrecovered, or an anchored "
                          "track had an LRCLIB query go unanswered: the missing answers could move it, so M1 "
                          "reports accuracy bounds [lower, upper] instead"},
-    "M2": {"pass": "no switched-wrong and lost <= 0.02 of the rows whose base pick is in the cluster, "
-                   "switched-alt <= 0.02 of the same (duration edges excluded)",
+    "M2": {"pass": "no switched-wrong and lost <= 0.02 of the rows whose base pick is in the song (cluster "
+                   "or alt-script), switched-alt <= 0.02 of the same (duration edges excluded); "
+                   "wrong-to-wrong is reported and is in no threshold",
            "fail": "switched-wrong > 0.01 of applicable rows (rows where both base and pick are null "
                    "are not applicable)"},
     "M6": {"pass": "no variant loses more than 0.05 of the tracks canonical gets right "
@@ -646,21 +647,30 @@ def section(verdict: str, summary: str, **data) -> dict:
 
 def perturbation_section(rows: List[dict], clusters: Dict[str, set], alts: Optional[Dict[str, set]] = None) -> dict:
     """M2 buckets. `base` is the pick for the unperturbed identity, `picked`
-    the pick for the perturbed one.
+    the pick for the perturbed one. A pick is "in the song" when it is in the
+    cluster or an alt-script record of it; the cluster alone is "in the cluster".
 
-      kept            same pick, or both in the cluster
-      lost            base in the cluster, nothing picked
-      switched-ok     base outside the cluster, pick inside
+      kept            same pick; or base and pick both in the song (alt-script
+                      counts as the song on the base side: nothing is lost in
+                      moving between its records)
+      lost            base in the song, nothing picked
+      switched-ok     base outside the song, pick in the cluster or alt-script (a wrong
+                      base replaced by the right song)
       switched-alt    base in the cluster, pick an alt-script record
-      switched-wrong  base in the cluster, pick outside it and not alt-script;
-                      or base null and the pick outside the cluster
+      switched-wrong  base in the song, pick outside it; or base null and the
+                      pick not in the cluster
+      wrong-to-wrong  base outside the song, a different pick outside it: the
+                      matcher was wrong before and still is, which the
+                      perturbation did not cause. Not in the verdict thresholds
       found-new       base null, pick in the cluster (a good outcome)
-      dropped-wrong   base outside the cluster, nothing picked (a good outcome)
+      dropped-wrong   base outside the song, nothing picked (a good outcome)
 
     A row with both picks null is not applicable. `lost` is divided by the rows
-    whose base pick is in the cluster, since only those had anything to lose.
+    whose base pick is in the song (the cell key `base_in_cluster` counts them),
+    since only those had anything to lose.
     """
-    buckets = ("kept", "lost", "switched-wrong", "switched-ok", "switched-alt", "found-new", "dropped-wrong")
+    buckets = ("kept", "lost", "switched-wrong", "switched-ok", "switched-alt", "found-new", "dropped-wrong",
+               "wrong-to-wrong")
     alts = alts or {}
     per: Dict[str, dict] = {}
     both_null = 0
@@ -675,22 +685,30 @@ def perturbation_section(rows: List[dict], clusters: Dict[str, set], alts: Optio
         if base is None and picked is None:
             both_null += 1
             continue
+        base_in_song = base is not None and (base in cluster or base in alt)
         if picked == base:
             outcome = "kept"
         elif base is None:
             outcome = "found-new" if picked in cluster else "switched-wrong"
         elif picked is None:
-            outcome = "lost" if base in cluster else "dropped-wrong"
+            outcome = "lost" if base_in_song else "dropped-wrong"
         elif picked in cluster:
-            outcome = "kept" if base in cluster else "switched-ok"
-        elif base in cluster and picked in alt:
-            outcome = "switched-alt"
-        else:
+            outcome = "kept" if base_in_song else "switched-ok"
+        elif picked in alt:
+            if base in cluster:
+                outcome = "switched-alt"
+            elif base in alt:
+                outcome = "kept"
+            else:
+                outcome = "switched-ok"      # a wrong base replaced by the right song in another script
+        elif base_in_song:
             outcome = "switched-wrong"
+        else:
+            outcome = "wrong-to-wrong"
         cell = per.setdefault(r["perturbation"], {"applicable": 0, "base_in_cluster": 0, **{b: 0 for b in buckets},
                                                  "examples": {"lost": [], "switched-wrong": []}})
         cell["applicable"] += 1
-        cell["base_in_cluster"] += 1 if base is not None and base in cluster else 0
+        cell["base_in_cluster"] += 1 if base_in_song else 0
         cell[outcome] += 1
         if outcome in ("lost", "switched-wrong") and len(cell["examples"][outcome]) < 5:
             cell["examples"][outcome].append(r["track_id"])

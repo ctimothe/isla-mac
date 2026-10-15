@@ -637,6 +637,18 @@ M3 estimation, M9 and M10 are computed here from the cached records.
 >   `source_queries == ["get"]` carry the flag `sole-anchor-from-get`; M1 has
 >   a cut `by_sole_anchor_from_get` (`yes` and `no`) so the report shows
 >   accuracy with and without them. They are not excluded.
+>
+> - **M2 buckets (finding 7).** The F4 buckets above stand, with these
+>   changes. An alt-script base is treated like an in-cluster base: nothing
+>   picked is `lost`, a pick outside the song is `switched-wrong`, and a pick
+>   anywhere in the song (the cluster or another alt-script record) is `kept`;
+>   the "rows whose base is in the cluster" denominator now counts them too
+>   (the cell key stays `base_in_cluster`). A base outside the song moving to a
+>   different row outside it is the new bucket `wrong-to-wrong`: the matcher
+>   was wrong before and the perturbation changed nothing about that, so it is
+>   reported and is in no threshold (it used to be `switched-wrong` and fed the
+>   0.01 fail threshold). A wrong base replaced by an alt-script record is
+>   `switched-ok`.
 
 ## Counterfactual scoring (amended 2026-10-15)
 
