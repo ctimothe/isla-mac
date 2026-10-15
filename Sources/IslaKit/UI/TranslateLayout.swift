@@ -427,8 +427,13 @@ struct TranslateAlert: Equatable {
         case .obstacle(.modelNotReady):
             return TranslateAlert(glyph: .spinner, message: message, actions: remedyActions)
         case .unreachable, .quotaExhausted, .other, nil:
+            // A lyric translation can spend the shared allowance between the
+            // failure and this redraw: Use Online is then withheld above and the
+            // card would end with a message and no action. Say why instead.
+            let withheld = allowanceSpent && remedies.contains(.useOnline)
             return TranslateAlert(
-                glyph: .symbol("exclamationmark.bubble", isWarning: true), message: message, actions: remedyActions
+                glyph: .symbol("exclamationmark.bubble", isWarning: true), message: withheld ? quota : message,
+                actions: remedyActions
             )
         }
     }

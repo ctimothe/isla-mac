@@ -676,6 +676,26 @@ final class TranslateReviewFixTests: XCTestCase {
         XCTAssertEqual(useOnlineCount(.unreachable, remedies: [.useOnline], spent: false), 1)
     }
 
+    func testUnreachableSaysTheAllowanceIsSpentWhenThatWithheldUseOnline() {
+        let quota = Translator.describe(OnlineTranslation.Failure.quotaExhausted).message
+        let alert = TranslateAlert.make(kind: .unreachable, message: "m", remedies: [.useOnline], allowanceSpent: true)
+        XCTAssertEqual(alert.message, quota)
+        XCTAssertFalse(alert.actions.contains(.useOnline))
+        XCTAssertEqual(alert.glyph, .symbol("exclamationmark.bubble", isWarning: true))
+    }
+
+    func testUnreachableKeepsItsMessageAndOffersUseOnlineWhenAllowanceLeft() {
+        let alert = TranslateAlert.make(kind: .unreachable, message: "m", remedies: [.useOnline], allowanceSpent: false)
+        XCTAssertEqual(alert.message, "m")
+        XCTAssertEqual(alert.actions.filter { $0 == .useOnline }.count, 1)
+    }
+
+    func testUnreachableWithoutUseOnlineKeepsItsMessageWhenAllowanceSpent() {
+        let alert = TranslateAlert.make(kind: .unreachable, message: "m", remedies: [.retry], allowanceSpent: true)
+        XCTAssertEqual(alert.message, "m")
+        XCTAssertEqual(alert.actions, [.tryAgain])
+    }
+
     func testNeedsDownloadListsUseOnlineOnce() {
         XCTAssertEqual(useOnlineCount(.obstacle(.needsDownload(.ukrainian)), remedies: [.useOnline], spent: false), 1)
         XCTAssertEqual(useOnlineCount(.obstacle(.needsDownload(.ukrainian)), remedies: [], spent: false), 1)
