@@ -207,7 +207,7 @@ final class LyricMatchLabPerturbationTests: XCTestCase {
         let candidates = pool.enumerated().map {
             MatchLab.Candidate(exchange: 0, row: $0.offset, via: "search", record: $0.element)
         }
-        return MatchLab.recover(target: match.timeline.lines, identity: identity, candidates: candidates)?.id
+        return MatchLab.recover(target: match.timeline, identity: identity, candidates: candidates)?.id
     }
 
     func testPerturbations() throws {

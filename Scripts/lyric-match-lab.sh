@@ -6,10 +6,11 @@
 #   bash Scripts/lyric-match-lab.sh <root> --record     # fetch cache misses from LRCLIB
 #   bash Scripts/lyric-match-lab.sh <root> --diagnose-only   # just the diagnosis case
 #   ISLA_MATCH_LAB=<root> bash Scripts/lyric-match-lab.sh
+#   ISLA_MATCH_OUT=candidate bash Scripts/lyric-match-lab.sh <root>   # results in <root>/candidate/
 #
 # <root> is the corpus root (~/code/_tools/isla-lyrics-lab/): resolved/variants.jsonl,
 # wordtimed/<slice>/<id>.json and the cache/isla/ replay cache. It is outside git
-# because it holds lyric text. The run writes under <root>/results/ and, with
+# because it holds lyric text. The run writes under <root>/results/ (or ISLA_MATCH_OUT) and, with
 # --record, <root>/cache/isla/. It never writes anywhere else, and what it
 # writes holds numbers, LRCLIB ids, titles and artist names, never a lyric line.
 #
@@ -20,8 +21,18 @@
 #      LyricMatchLabReadabilityTests  -> results/readability.json         (M4)
 #   3. LyricMatchLabDiagnosisTests    -> results/diagnosis.jsonl           (why a record
 #      was accepted or refused; reads reports/diagnose-input.jsonl, which the Python
-#      classifier writes AFTER the first two, so a plain run runs this only if the
-#      file is already there. No network at all: cache reads only, even with --record.)
+#      classifier writes AFTER the first two). It runs ONLY with --diagnose-only: a
+#      plain or --record run is about to rewrite the lookups, so any diagnose-input
+#      already on disk describes the previous run's lookups and would be diagnosed
+#      against the wrong answers. Run the classifier on the fresh results, then
+#      --diagnose-only. No network at all: cache reads only.
+#
+# "results" above is ISLA_MATCH_OUT (default `results`), a plain directory name
+# under <root>. Setting it scores a candidate change to Isla beside the baseline
+# over the same cache: the lab reads and writes <root>/<ISLA_MATCH_OUT>/ and
+# removes only that directory's four stale files. ISLA_MATCH_REPORTS (default
+# `reports`) names where the diagnosis case reads diagnose-input.jsonl; give the
+# classifier the same two names: classify.py --results <OUT> --reports <REPORTS>.
 #
 # The cases live in Tests/IslaKitTests/LyricMatchLab*.swift and skip themselves
 # unless ISLA_MATCH_LAB is set, so ./scripts/check never runs them.
@@ -40,6 +51,14 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 LAB="${ISLA_MATCH_LAB:-}"
+OUT="${ISLA_MATCH_OUT:-results}"
+REPORTS="${ISLA_MATCH_REPORTS:-reports}"
+for name in "$OUT" "$REPORTS"; do
+  case "$name" in
+    ""|.|..|*/*|*\\*) echo "ISLA_MATCH_OUT/ISLA_MATCH_REPORTS must be a plain directory name, got: $name" >&2; exit 2 ;;
+  esac
+done
+export ISLA_MATCH_OUT="$OUT" ISLA_MATCH_REPORTS="$REPORTS"
 RECORD=0
 DIAGNOSE_ONLY=0
 for arg in "$@"; do
@@ -64,7 +83,7 @@ if [ "$DIAGNOSE_ONLY" = 0 ] && [ ! -s "$LAB/resolved/variants.jsonl" ]; then
   echo "no $LAB/resolved/variants.jsonl: run the resolver first" >&2
   exit 2
 fi
-mkdir -p "$LAB/results"
+mkdir -p "$LAB/$OUT"
 
 # The diagnosis case, alone or as the third invocation. It makes no network
 # call whatever the mode, so the record switch is cleared for it.
@@ -79,16 +98,16 @@ run_diagnosis() {
 LOG3="$(mktemp "${TMPDIR:-/tmp}/lyric-match-lab-diagnosis.XXXXXX")"
 
 if [ "$DIAGNOSE_ONLY" = 1 ]; then
-  if [ ! -s "$LAB/reports/diagnose-input.jsonl" ]; then
-    echo "no $LAB/reports/diagnose-input.jsonl: the classifier writes it" >&2
+  if [ ! -s "$LAB/$REPORTS/diagnose-input.jsonl" ]; then
+    echo "no $LAB/$REPORTS/diagnose-input.jsonl: the classifier writes it" >&2
     exit 2
   fi
   echo "mode:   diagnose only (cache reads, no network)"
   echo "root:   $LAB"
-  rm -f "$LAB/results/diagnosis.jsonl"
+  rm -f "$LAB/$OUT/diagnosis.jsonl"
   run_diagnosis
   STATUS=$?
-  [ -s "$LAB/results/diagnosis.jsonl" ] || { echo "  MISSING results/diagnosis.jsonl (see $LOG3)" >&2; STATUS=1; }
+  [ -s "$LAB/$OUT/diagnosis.jsonl" ] || { echo "  MISSING $OUT/diagnosis.jsonl (see $LOG3)" >&2; STATUS=1; }
   exit $((STATUS != 0))
 fi
 
@@ -106,9 +125,10 @@ LOG2="$(mktemp "${TMPDIR:-/tmp}/lyric-match-lab-sections.XXXXXX")"
 echo "logs:   $LOG1 $LOG2"
 
 # A stale result from an earlier run would read as this run's if a case failed
-# before writing; remove the four this script owns.
-rm -f "$LAB/results/isla-lookups.jsonl" "$LAB/results/perturbations.jsonl" \
-      "$LAB/results/word-fidelity.json" "$LAB/results/readability.json"
+# before writing; remove the four this script owns, from the directory this run
+# writes to (ISLA_MATCH_OUT), never from another one.
+rm -f "$LAB/$OUT/isla-lookups.jsonl" "$LAB/$OUT/perturbations.jsonl" \
+      "$LAB/$OUT/word-fidelity.json" "$LAB/$OUT/readability.json"
 
 ISLA_MATCH_LAB="$LAB" \
   swift test --package-path "$ROOT" --disable-sandbox --filter LyricMatchLabLookupTests >"$LOG1" 2>&1
@@ -116,7 +136,7 @@ STATUS1=$?
 grep -E "^MATCH-LAB|error:|Executed" "$LOG1" || true
 
 STATUS2=0
-if [ -s "$LAB/results/isla-lookups.jsonl" ]; then
+if [ -s "$LAB/$OUT/isla-lookups.jsonl" ]; then
   ISLA_MATCH_LAB="$LAB" \
     swift test --package-path "$ROOT" --disable-sandbox \
       --filter LyricMatchLabPerturbationTests \
@@ -129,20 +149,16 @@ else
   STATUS2=1
 fi
 
+# The diagnosis case is not run here: a diagnose-input.jsonl already on disk
+# was written for the lookups this run just replaced.
 STATUS3=0
-if [ -s "$LAB/reports/diagnose-input.jsonl" ]; then
-  rm -f "$LAB/results/diagnosis.jsonl"
-  run_diagnosis
-  STATUS3=$?
-else
-  echo "(no reports/diagnose-input.jsonl yet: run the classifier, then --diagnose-only)"
-fi
+echo "(diagnosis not run: classify.py --root \"$LAB\" --results $OUT --reports $REPORTS on these results, then --diagnose-only)"
 
 echo
 echo "summary:"
 { grep -h "^MATCH-LAB" "$LOG1" "$LOG2" 2>/dev/null | grep -v "lookups [0-9]*/" || true; } | sed 's/^MATCH-LAB /  /'
 for f in isla-lookups.jsonl perturbations.jsonl word-fidelity.json readability.json; do
-  [ -s "$LAB/results/$f" ] || echo "  MISSING results/$f" >&2
+  [ -s "$LAB/$OUT/$f" ] || echo "  MISSING $OUT/$f" >&2
 done
 { grep -h "^LYRIC-MATCH" "$LOG3" 2>/dev/null || true; } | sed 's/^LYRIC-MATCH /  /'
 

@@ -82,7 +82,7 @@ final class LyricMatchLabLookupTests: XCTestCase {
         var ambiguous: [Int] = []
         if let timeline {
             let candidates = MatchLab.candidates(exchanges.map { ($0.path, $0.status, $0.body) })
-            if let recovered = MatchLab.recover(target: timeline.lines, identity: identity, candidates: candidates) {
+            if let recovered = MatchLab.recover(target: timeline, identity: identity, candidates: candidates) {
                 chosenID = recovered.id
                 chosenVia = recovered.via
                 ambiguous = recovered.ambiguous

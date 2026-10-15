@@ -11,10 +11,21 @@ import XCTest
 /// `OnlineLyrics.timeline(from:)` with the lookup's own length, so the lines are
 /// the ones that survived the cut at the track's end). Per slice it reports:
 ///
-/// - **Line duration:** the next line's start minus this one's. The last line
-///   runs to the track's end, capped at 10 s. A gap before the next line (an
-///   instrumental break) counts, because the section asks how long a line
-///   *could* be read, and the share it measures is the short end.
+/// - **Line duration:** until the line's own end when the timeline has one
+///   that Isla honours (`LyricSweep.effectiveEnd`: an LRC empty stamp at least
+///   `minimumHonouredGap` before the next line), otherwise until the next
+///   line's start. The last line runs to the track's end, capped at 10 s. The
+///   section asks how long a line *could* be read, and the share it measures
+///   is the short end. A line that ends before an instrumental break is no
+///   longer credited with the break (adversarial review F15).
+/// - **Credit lines are left out.** `LyricsStore.Line.isCredit` marks the
+///   lines the app inferred as metadata ("Written by …"); the stage and the
+///   band do not treat them as lyrics, so they are not measured. The count
+///   left out is `credit_lines_excluded`.
+/// - **Per lookup.** `per_lookup` holds the raw figures of every rebuilt
+///   lookup, so the classifier can drop the lookups whose verdict is
+///   wrong-song (the lyrics of another song are not evidence about the
+///   right ones) and report the figures without them.
 /// - **Graphemes without spaces per second**, and **syllables per second** from
 ///   `MatchLab.syllables` (a per-script heuristic, with the share of lines it
 ///   flagged low-confidence).
@@ -156,6 +167,7 @@ final class LyricMatchLabReadabilityTests: XCTestCase {
         var under10 = 0
         var lowConfidence = 0
         var surfaces: [String: SurfaceTally] = [:]
+        var creditLines = 0
 
         func json(_ surfaces: [Surface]) -> [String: Any] {
             var surfaceJSON: [String: Any] = [:]
@@ -180,6 +192,23 @@ final class LyricMatchLabReadabilityTests: XCTestCase {
                 "share_under_0_6_s": MatchLab.share(under06, of: lines),
                 "share_under_1_0_s": MatchLab.share(under10, of: lines),
                 "syllable_low_confidence_share": MatchLab.share(lowConfidence, of: lines),
+                "credit_lines_excluded": creditLines,
+                "surfaces": surfaceJSON,
+            ]
+        }
+
+        /// The raw numbers, for the classifier to merge without the lookups it
+        /// excludes.
+        func raw(trackID: String, slice: String) -> [String: Any] {
+            var surfaceJSON: [String: Any] = [:]
+            for (key, tally) in surfaces {
+                surfaceJSON[key] = [
+                    "ratios": tally.ratios, "widths": tally.widths, "rows": tally.rows, "overflow": tally.overflow,
+                ] as [String: Any]
+            }
+            return [
+                "track_id": trackID, "slice": slice, "lines": lines, "durations": durations,
+                "cps": cps, "sps": sps, "low_confidence": lowConfidence, "credit_lines_excluded": creditLines,
                 "surfaces": surfaceJSON,
             ]
         }
@@ -197,6 +226,7 @@ final class LyricMatchLabReadabilityTests: XCTestCase {
         var all = SliceTally()
         var found = 0, rebuilt = 0, missingCache = 0
         var calibrationSample: [String] = []
+        var perLookup: [[String: Any]] = []
 
         for lookup in lookups where lookup.outcome == "found" {
             found += 1
@@ -210,15 +240,18 @@ final class LyricMatchLabReadabilityTests: XCTestCase {
 
             let lines = timeline.lines
             let trackEnd = lookup.identity.duration
+            var mine = SliceTally()
+            mine.tracks = 1
             for (index, line) in lines.enumerated() {
+                if line.isCredit {
+                    slices[lookup.slice, default: SliceTally()].creditLines += 1
+                    all.creditLines += 1
+                    mine.creditLines += 1
+                    continue
+                }
+                let duration = Self.duration(of: index, in: lines, trackEnd: trackEnd)
                 // What the surfaces draw is the first row of a bilingual line.
                 let text = LyricTranslation.rows(of: line.text).primary
-                let next: TimeInterval = index + 1 < lines.count
-                    ? lines[index + 1].at
-                    // The last line runs to the track's end, capped at 10 s;
-                    // with no length it has only the cap.
-                    : min(line.at + 10, trackEnd > 0 ? max(trackEnd, line.at) : line.at + 10)
-                let duration = next - line.at
                 let graphemes = text.filter { !$0.isWhitespace }.count
                 let syllables = MatchLab.syllables(in: text)
 
@@ -235,6 +268,7 @@ final class LyricMatchLabReadabilityTests: XCTestCase {
                 }
                 add(to: &slices[lookup.slice, default: SliceTally()])
                 add(to: &all)
+                add(to: &mine)
 
                 // One layout per distinct font, however many surfaces share it.
                 for (_, group) in attributedFonts {
@@ -256,10 +290,12 @@ final class LyricMatchLabReadabilityTests: XCTestCase {
                         }
                         record(into: &slices[lookup.slice, default: SliceTally()])
                         record(into: &all)
+                        record(into: &mine)
                     }
                 }
                 if calibrationSample.count < 40, index % 11 == 0, !text.isEmpty { calibrationSample.append(text) }
             }
+            perLookup.append(mine.raw(trackID: lookup.trackID, slice: lookup.slice))
         }
 
         let summary = "\(rebuilt) of \(found) found canonical lookups rebuilt (\(missingCache) not), \(all.lines) lines; "
@@ -283,12 +319,26 @@ final class LyricMatchLabReadabilityTests: XCTestCase {
             "calibration": Self.calibrate(sample: calibrationSample, surfaces: surfaces),
             "all": all.json(surfaces),
             "slices": sliceJSON,
+            "per_lookup": perLookup,
         ]
         try MatchLab.writeJSON(report, to: MatchLab.resultsURL(root, "readability.json"))
         MatchLab.report(section: "readability", summary: summary)
     }
 
     // MARK: - Helpers
+
+    /// How long line `index` can be read: until its own end when the timeline
+    /// has one that Isla honours (`LyricSweep.effectiveEnd`), otherwise until
+    /// the next line starts; the last line runs to the track's end, capped at
+    /// 10 s, and with no length it has only the cap.
+    static func duration(of index: Int, in lines: [LyricsStore.Line], trackEnd: TimeInterval) -> TimeInterval {
+        let line = lines[index]
+        let next: TimeInterval = LyricSweep.effectiveEnd(of: index, in: lines)
+            ?? (index + 1 < lines.count
+                ? lines[index + 1].at
+                : min(line.at + 10, trackEnd > 0 ? max(trackEnd, line.at) : line.at + 10))
+        return next - line.at
+    }
 
     /// The timeline Isla chose, rebuilt from the cached answers the lookup
     /// received: the record with `chosenID`, read the way Isla reads an answer,
