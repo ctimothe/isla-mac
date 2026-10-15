@@ -157,6 +157,11 @@ Spotify URL-scheme callback. Since 2026-10-11 a pinned panel that is not key
 also holds plain Escape through a transient Carbon hot key, registered only
 while the pin stands (`NotchController.updateEscapeHotKey`), and ends on
 another app's activation; key status is unchanged by it.
+The Shelf's Delete key (⌫, ⌘⌫) uses the same mechanism since 2026-10-15
+(`ShelfDeleteKeyHolder`): held only while the panel is open on the Shelf, the
+pointer is over the pane, Isla is not active, and the selection was made
+during this opening — a stuck one would eat Delete system-wide, so every
+other state releases it.
 
 **Window sizing.** The window is cut once to the tallest body any tab can ask
 for and then never resized — it is transparent outside the visible panel, and

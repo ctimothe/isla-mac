@@ -1489,6 +1489,15 @@ New settings and their defaults (spec §14):
   back.
 - [ ] **R3-H4** Pins survive a relaunch with Keep Pinned Items on, and the
   file is gone when it is turned off.
+- [ ] **R3-H5** With Mail frontmost and the pointer resting on the Shelf,
+  ⌫ deletes text in Mail unless a tile was selected during this opening;
+  reopening the panel shows no selection.
+- [ ] **R3-H6** The Clipboard's Kind filter and search field sit below the
+  header, clear of the notch, at 480, 560 and 620 and in Russian.
+- [ ] **R3-H7** With "Paste from Other Apps" set to Ask, copying a picture
+  with history on asks once and never twice. This amends sp/CB-02 (above):
+  Include Images, on by default, is a third reason Isla reads a copy's
+  contents, beside Clipboard History and Save Clipboard Screenshots.
 
 ### R4 — Translate and Settings (`feat/redesign-r4-translate-settings`)
 

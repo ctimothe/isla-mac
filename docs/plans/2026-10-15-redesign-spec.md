@@ -691,6 +691,27 @@ AirDrop". AirDrop sends without keeping (the existing `ShelfSharing`).
 | Full | `Shelf-Full` | at 60 the oldest leaves; the bar says "The Shelf holds %d, so the oldest card left it. Its file is untouched." (existing) for 4 s |
 | Already kept | `Shelf-Already` | no duplicate; the existing tile shows its selection well for 1.2 s and the bar says "Already on the Shelf" (existing) |
 
+> **Amended 2026-10-15 (R3 review).** As built and reviewed:
+> - Columns are `⌊(bw − 72 + 4) / 82⌋` (5 at 480, 6 at 560 and 620): the
+>   formula above dropped the last tile's missing gap and gave 5 at 560,
+>   against this section's own boards. At 208 the grid shows one row and the
+>   top of the next under the fade; Expand shows the rest.
+> - The already-kept tile shows an accent well (fill α 0.18, 2 pt ring), so
+>   it never reads as a click selection. The bar folds into "…" by measure as
+>   well as below 540, so Russian's five buttons never truncate.
+> - **The Delete key.** The panel is never key on the Shelf, so ⌫ and ⌘⌫
+>   arrive through a transient Carbon hot key, the pinned Escape key's
+>   pattern. It is held only while the panel is open on the Shelf, the
+>   pointer is over the pane, Isla is not the active app, and the selection
+>   was made during this opening; every other state releases it at once. The
+>   selection is cleared when the panel closes or leaves the Shelf, so a
+>   tile chosen earlier can never take a keystroke meant for another app.
+> - The context menu keeps its first, disabled line (kind, size, folder).
+>   Only images get Quick Look thumbnails; other files show their icon.
+>   Clear's question does not lapse on its own; Escape or Cancel withdraws
+>   it. A promised drop (Mail, Photos) keeps the target it was dropped on,
+>   even when another drop arrives before its file does.
+
 ## 9. Clipboard (R3)
 
 `Clip-All`, `Clip-All-Tall`, `Clip-Text`, `Clip-Links`, `Clip-Images`,
@@ -784,6 +805,28 @@ way it does for Translate, and gives it back when the field closes.
   managers are skipped." (new wording of the existing line); history off:
   "Clipboard History", "Clipboard history is off in Settings." (existing) and
   a Turn On button.
+
+> **Amended 2026-10-15 (R3 review).** As built and reviewed:
+> - **The filter and the search field move below the header.** The header
+>   row is the notch's row, and the notch (real or the one Isla draws)
+>   covers its middle, where §9.3 put the 270 pt filter and the 294 pt field.
+>   Both now sit in a filter row at (58, 44), 22 tall, the list 30 pt lower;
+>   Search and Expand stay in the header's trailing corner, and Expand stays
+>   while searching. The segmented control shows words where they fit the
+>   row and the symbols otherwise.
+> - "Paste as Plain Text ⌥⇧⌘V" is **Copy as Plain Text**: Isla has no
+>   Accessibility permission to press ⌘V in another app, so it puts the plain
+>   string on the pasteboard and says Copied.
+> - Search matches across every kind (the filter is not on screen while the
+>   field is open) and never matches a covered row's content. A filter with
+>   no entries says so ("No Images", …) instead of "Nothing copied yet".
+> - Code detection adds a sixth signal, a call written `a.b(…)`, and looks
+>   only at a copy's first 2 KB. Pictures copied as JPEG alone are kept too.
+> - Include Images reads a copied picture's contents once. Under macOS's
+>   Ask setting for pasting from other apps that is one prompt per picture
+>   copy, as text copies already were with history on; nothing is retried.
+> - Keep Pinned Items brings back only pinned files that are still present on
+>   a local disk.
 
 ## 10. Settings (R4): the tall body with a sidebar
 
