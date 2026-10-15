@@ -1,3 +1,4 @@
+import CoreText
 import Foundation
 import XCTest
 @testable import IslaKit
@@ -198,5 +199,29 @@ final class LyricMatchLabSelfTests: XCTestCase {
         XCTAssertEqual(LyricMatchLabReadabilityTests.duration(of: 2, in: lines, trackEnd: 100), 9, accuracy: 1e-9)
         XCTAssertEqual(LyricMatchLabReadabilityTests.duration(of: 3, in: lines, trackEnd: 100), 10, accuracy: 1e-9)
         XCTAssertEqual(LyricMatchLabReadabilityTests.duration(of: 3, in: lines, trackEnd: 43), 3, accuracy: 1e-9)
+    }
+
+    // MARK: The tail ellipsis
+
+    /// A line cut at its tail loses the last stretch of the row to "…" (third
+    /// review, m9): a word whose caret lies in `[available - width("…"), available)`
+    /// is replaced by it and never drawn, so the sweep's `beyond_visible` cut
+    /// must start there. A line that fits draws no ellipsis.
+    func testTheTailEllipsisTakesRoomFromTheVisibleWidth() throws {
+        _ = try MatchLab.requireRoot()
+        for surface in LyricMatchLabReadabilityTests.surfaces() {
+            let ellipsis = LyricMatchLabSweepTests.ellipsisWidth(of: surface)
+            XCTAssertGreaterThan(ellipsis, 0, surface.key)
+            XCTAssertLessThan(ellipsis, surface.size * 2, "one glyph, not a line: \(surface.key)")
+            // the glyph measured the way the words are: the same font, weight and tracking
+            let direct = LyricMatchLabReadabilityTests.attributed(
+                "\u{2026}", size: surface.size, weight: surface.weight, tracking: surface.tracking
+            )
+            XCTAssertEqual(ellipsis, CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(direct), nil, nil, nil)),
+                           accuracy: 1e-6)
+        }
+        XCTAssertEqual(LyricMatchLabSweepTests.visibleLimit(available: 100, lineWidth: 140, ellipsis: 7), 93, accuracy: 1e-9)
+        XCTAssertEqual(LyricMatchLabSweepTests.visibleLimit(available: 100, lineWidth: 100, ellipsis: 7), 100, accuracy: 1e-9)
+        XCTAssertEqual(LyricMatchLabSweepTests.visibleLimit(available: 100, lineWidth: 60, ellipsis: 7), 100, accuracy: 1e-9)
     }
 }

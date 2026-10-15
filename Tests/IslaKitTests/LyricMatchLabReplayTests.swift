@@ -108,12 +108,55 @@ final class LyricMatchLabReplayTests: XCTestCase {
         for status in [301, 401, 403, 410, 429, 500, 503] {
             XCTAssertFalse(ReplayTransport.cachesStatus(status), "\(status)")
         }
-        // A 403 is a miss, never an answer, and never one that is also kept.
-        XCTAssertTrue(ReplayTransport.refusesStatus(403))
-        for status in [200, 400, 401, 404, 429, 500] {
+        // Anything that is neither kept nor transient is a miss, never an answer: the Python
+        // `common.refuses_status`, which this test holds the same set of (third review, m3).
+        for status in [100, 301, 401, 402, 403, 405, 410, 418, 451] {
+            XCTAssertTrue(ReplayTransport.refusesStatus(status), "\(status)")
+        }
+        for status in [200, 204, 299, 400, 404, 429, 500, 503, 599] {
             XCTAssertFalse(ReplayTransport.refusesStatus(status), "\(status)")
         }
-        XCTAssertFalse(ReplayTransport.cachesStatus(403) && ReplayTransport.refusesStatus(403))
+        for status in 100...599 {
+            XCTAssertFalse(ReplayTransport.cachesStatus(status) && ReplayTransport.refusesStatus(status), "\(status)")
+        }
+    }
+
+    /// A host that keeps refusing is closed like one that keeps throttling: the fourth request
+    /// never leaves the machine (third review, m12; Python's twin is
+    /// `test_a_host_that_keeps_refusing_trips_like_one_that_keeps_throttling`). `send` stands in
+    /// for curl, and `example.test` has no gap to wait out.
+    func testRefusedStatusesTripAHostLikeThrottlingDoes() async throws {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("match-lab-replay-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        let replies = Replies([403, 401, 410, 200])
+        let transport = ReplayTransport(root: scratch, record: true, stopAtFirst429: false) { _ in
+            (Data(), replies.next())
+        }
+        for n in 0..<4 {
+            transport.beginLookup()
+            do {
+                _ = try await transport.fetch(URLRequest(url: URL(string: "https://example.test/api/get?n=\(n)")!))
+                XCTFail("a refused status is never an answer, and a tripped host is not asked")
+            } catch is ReplayTransport.Miss {
+                // expected
+            }
+            let exchanges = transport.takeExchanges()
+            XCTAssertEqual(exchanges.map(\.kind), [.miss])
+            XCTAssertNil(MatchLab.cacheEntry(scratch, key: exchanges[0].key))
+        }
+        XCTAssertEqual(transport.liveRequests, 3)
+        XCTAssertTrue(transport.isTripped(URL(string: "https://example.test/api/search")!))
+        XCTAssertFalse(transport.isTripped(URL(string: "https://other.test/api/search")!))
+    }
+
+    private final class Replies: @unchecked Sendable {
+        private let lock = NSLock()
+        private var statuses: [Int]
+        init(_ statuses: [Int]) { self.statuses = statuses }
+        func next() -> Int { lock.withLock { statuses.isEmpty ? 200 : statuses.removeFirst() } }
     }
 
     func testTheLRCLIBGapCanOnlyBeSlowerThanTheTable() {

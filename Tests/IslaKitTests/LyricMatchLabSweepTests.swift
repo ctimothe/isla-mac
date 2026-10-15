@@ -36,7 +36,11 @@ import XCTest
 /// among them. A word whose reading start lies past the surface's visible
 /// width (`Surface.available`) is therefore never drawn, so it cannot be "on
 /// the word": it is left out of the error statistics and counted per surface
-/// as `beyond_visible`.
+/// as `beyond_visible`. On a line that overflows, `.truncationMode(.tail)`
+/// replaces the end of the visible row with "…", so the room for words is
+/// `available` less the ellipsis, measured in the surface's own font the way
+/// the words are (`visibleLimit`; third review, m9). A line that fits draws no
+/// ellipsis and keeps all of `available`.
 ///
 /// `width` is CoreText's typographic width of the whole line, trailing
 /// whitespace included, and that is what `KaraokeRenderer` multiplies the
@@ -103,6 +107,21 @@ final class LyricMatchLabSweepTests: XCTestCase {
         return offsets
     }
 
+    /// The typographic width of "…" in a surface's font, weight and tracking:
+    /// what tail truncation spends on the ellipsis it draws.
+    static func ellipsisWidth(of surface: LyricMatchLabReadabilityTests.Surface) -> CGFloat {
+        let attributed = LyricMatchLabReadabilityTests.attributed(
+            "\u{2026}", size: surface.size, weight: surface.weight, tracking: surface.tracking
+        )
+        return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(attributed), nil, nil, nil))
+    }
+
+    /// The x beyond which no word is drawn: all of `available` for a line that
+    /// fits, and `available` less the ellipsis for one that is cut at its tail.
+    static func visibleLimit(available: CGFloat, lineWidth: CGFloat, ellipsis: CGFloat) -> CGFloat {
+        lineWidth > available ? available - ellipsis : available
+    }
+
     /// The first moment the lit width covers `caret`: `wordFraction` never
     /// falls as the clock runs, so a bisection finds it.
     static func edgeTime(words: [LyricWord], lineStart: TimeInterval, lineEnd: TimeInterval,
@@ -132,6 +151,7 @@ final class LyricMatchLabSweepTests: XCTestCase {
         let root = try MatchLab.requireRoot()
         let records = MatchLab.readWordRecords(root)
         let surfaces = LyricMatchLabReadabilityTests.surfaces().filter { $0.bodyWidth == NotchMetrics.defaultBodyWidth }
+        let ellipsis = Dictionary(uniqueKeysWithValues: surfaces.map { ($0.name, Self.ellipsisWidth(of: $0)) })
 
         var wordTimedRecords = 0, lines = 0, unmapped = 0, words = 0
         var under120Hz = 0, under60Hz = 0, under100ms = 0
@@ -178,7 +198,9 @@ final class LyricMatchLabSweepTests: XCTestCase {
                         // (see the class comment). A word that starts past the
                         // visible width is never drawn, and counting it would put
                         // an edge that cannot be seen into the error statistics.
-                        if surface.available > 0, caret >= surface.available {
+                        if surface.available > 0,
+                           caret >= Self.visibleLimit(available: surface.available, lineWidth: width,
+                                                      ellipsis: ellipsis[surface.name] ?? 0) {
                             tally.beyondVisible += 1
                             continue
                         }
@@ -232,6 +254,7 @@ final class LyricMatchLabSweepTests: XCTestCase {
             "surfaces": perSurface,
             "beyond_visible": beyondVisible,
             "surface_available_pt": Dictionary(uniqueKeysWithValues: surfaces.map { ($0.name, Double($0.available)) }),
+            "ellipsis_pt": Dictionary(uniqueKeysWithValues: ellipsis.map { ($0.key, Double($0.value)) }),
             "worst_band": Array(worst.prefix(25)),
             "method": "error = first t with wordFraction(t) x width >= caret(word start) - 0.5 pt, minus the word's stamp; "
                 + "caret from CTLineGetOffsetForStringIndex in the surface's system font, weight and tracking",
