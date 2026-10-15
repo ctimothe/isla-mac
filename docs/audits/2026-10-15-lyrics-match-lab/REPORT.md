@@ -6,10 +6,10 @@ file. The corpus holds copyrighted lyrics and lives outside the repository, in
 `~/code/_tools/isla-lyrics-lab/`. This report carries counts, timings, LRCLIB
 record ids, titles and artists only.
 
-**Status: in progress.** Isla's timing and parsing are measured on 1,441 real
-records. The catalogue's own limits are measured from LRCLIB's answers and its
-server source. Whether Isla finds the right lyrics for a song (M1) is not
-measured yet: LRCLIB stopped answering this machine's address after 129
+**Status: in progress.** Isla's timing and parsing, and how its lyric surfaces
+fit the lines, are measured on 1,441 real records. The catalogue's own limits
+are measured from LRCLIB's answers and its server source. Whether Isla finds
+the right lyrics for a song (M1) is not measured yet: LRCLIB stopped answering this machine's address after 129
 answers, before Isla's own lookups could be recorded. The section "What is
 owed" says what each open measurement needs.
 
@@ -20,6 +20,10 @@ owed" says what each open measurement needs.
   two corpora, 2 of 1,441 records do. Isla's word karaoke needs word timing,
   so for online lyrics it almost never runs. A matcher change cannot fix that;
   a source with word timing can.
+- **Long lyric lines lose their ending on screen.** At the default panel
+  width, the lyric column beside the cover cuts 13 to 19 % of lines at the
+  tail, and two songs in three have at least one cut line. Fast rap loses
+  46 % of its line endings there. The full-width lyric page cuts about 2 %.
 - **Isla's own line-timing arithmetic is exact.** M5 tested it on 901 new
   records (46,765 lines) and on the 540-record corpus of 2026-10-11:
   - Isla reads every stamp to the millisecond.
@@ -49,9 +53,9 @@ owed" says what each open measurement needs.
 | Source | Size | Used for |
 |---|---|---|
 | Harvest | 465 tracks in 16 slices, 22–30 each | the songs Isla is asked about |
-| Resolved sample | 88 tracks (3 popular and 3 stress picks per slice), 375 query variants | M1, M2, M4, M6, M10: not run yet |
-| Pool | 901 synced LRCLIB records for 3 slices | M5 |
-| 2026-10-11 corpus | 540 LRCLIB records in 20 categories | M5, compared with the earlier run |
+| Resolved sample | 88 tracks (3 popular and 3 stress picks per slice), 375 query variants | M1, M2, M6, M10: not run yet; M4 ran on the 3 lookups that found lyrics |
+| Pool | 901 synced LRCLIB records for 3 slices | M5, M4 by slice |
+| 2026-10-11 corpus | 540 LRCLIB records in 20 categories | M5, compared with the earlier run; M4 by genre |
 | Cache | 129 LRCLIB answers (116 search pages, 13 gets), plus 823 iTunes and 984 Deezer answers | the twin, M9, the C8 estimate, the findings |
 | LRCLIB's server source | `tranxuanthang/lrclib`, read locally | how both endpoints match and rank |
 
@@ -202,7 +206,54 @@ household, an office — shares the allowance.
 
 A fake transport in a unit test covers this without any LRCLIB traffic.
 
-### 3. Uploads of one song disagree about when lines start (M9)
+### 3. Long lines lose their ending on screen (M4)
+
+Every lyric surface draws one line and cuts a longer one at its tail with an
+ellipsis: the stage's rows (`LyricsStage.swift:613`, `LyricRow.swift:372-373`)
+and the player's band (`KaraokeText.swift:121,167-168`). The lab laid out
+every line of the 1,432 records Isla accepts in both corpora, in the fonts and
+widths the code defines on this branch (the redesign, R1–R5):
+
+| Surface, panel width | Lines cut, 2026-10-11 corpus | Songs with a cut line | Lines cut, pool | Songs with a cut line |
+|---|---|---|---|---|
+| Lyric column beside the cover, 560 (278 pt) | 18.8 % | 68.9 % | 13.4 % | 65.5 % |
+| Player's lyric band, 560 (340 pt) | 6.8 % | 43.9 % | 5.5 % | 36.4 % |
+| Tall lyric page, 560 (488 pt) | 2.0 % | 21.0 % | 2.4 % | 20.9 % |
+| Lyric column, 480 (198 pt) | 46.1 % | 91.4 % | 40.3 % | 92.4 % |
+| Player's lyric band, 480 (260 pt) | 23.4 % | 75.0 % | 19.0 % | 80.0 % |
+| Tall lyric page, 480 (408 pt) | 7.7 % | 47.5 % | 6.3 % | 39.3 % |
+
+560 pt is the default panel width and 480 the narrowest. The corpora hold
+24,230 and 46,765 lines.
+
+- **By genre** (the column at 560, 2026-10-11 corpus):
+  - the most lines cut: fast rap 45.5 %, slow trap 37.9 %, pop hits 22.9 %,
+    duets and choirs 22.2 %, country 20.1 %, R&B 19.9 %;
+  - the fewest: Mandarin and Cantonese 0.0 %, Arabic, Turkish and Hindi
+    5.5 %, opera and art song 6.8 %, J-pop 9.0 %, K-pop 10.3 %;
+  - every fast-rap and slow-trap song has at least one cut line there.
+- **Two rows would almost always be enough.** Wrapped at the column's width
+  at 560, at least 95 % of the cut lines need two rows (99 % in the
+  2026-10-11 corpus); the longest needs four.
+- **Some lines change at the moment they are sung.** The column sets the sung
+  line bold and the others semibold. At 560, 377 lines (1.6 %) fit while they
+  wait and gain the ellipsis as the voice reaches them; at 480, 528 (2.2 %).
+  The pool gives 349 (0.7 %) and 929 (2.0 %).
+- **The widths can be trusted.** On 80 lines drawn from every category,
+  AppKit's widths are within 1.4 % of SwiftUI's own layout (median ratio
+  1.000 at 13 pt and 0.998 at 17 pt). At most 3.8 % of lines lie within 2 %
+  of an edge, so no share above can move by more than that.
+- **Line length in time is not the problem.** 1.9 % of lines last under
+  1.0 s (pool 2.9 %), and the median line lasts 3.4 s (pool 2.7 s). Fast rap
+  is the densest: 14.5 characters a second at the median, against 6.7
+  overall.
+
+A share is a share of records, not of distinct songs: the 2026-10-11 corpus
+picked about 25 records per category, and the pool holds several uploads of
+most songs. The raw figures are `reports/m4-accuracy-2026-10-11.json` and
+`reports/m4-pool.json` in the corpus root (SPEC, "M4 over the held corpus").
+
+### 4. Uploads of one song disagree about when lines start (M9)
 
 `Scripts/lyric-match-lab/noise.py` measured this from the cached pages (SPEC,
 "M9 from the cached pages"):
@@ -228,7 +279,7 @@ offset by hand, but not per-line jitter. On the matcher's side, the lever is
 picking the upload closest to the consensus (M10), and it cannot be scored
 until Isla's lookups are recorded.
 
-### 4. One record in nine is stamped for a longer cut (M5 L10)
+### 5. One record in nine is stamped for a longer cut (M5 L10)
 
 101 of 893 pool records with a length (11.3 %) have stamps more than 3 s past
 their own listed length. The median overrun is 43 s. On the 2026-10-11 corpus
@@ -257,7 +308,7 @@ Isla already handles this:
 - It prefers a row that fits.
 - It offers Sync Here.
 
-### 5. Isla's clock and parser are exact (M5)
+### 6. Isla's clock and parser are exact (M5)
 
 M5 reruns the 2026-10-11 timing tests (`LyricAccuracyLab*`) on today's code.
 It uses two corpora: the pool, which those tests have never seen, and the
@@ -284,7 +335,7 @@ empty stamps, no pool track has a line lit more than 1.3 s too long in total.
 The raw reports are `reports/m5-pool.json` and
 `reports/m5-accuracy-2026-10-11.json` in the corpus root.
 
-### 6. LRCLIB's two endpoints, and its 20-row cap (F-C, F-D)
+### 7. LRCLIB's two endpoints, and its 20-row cap (F-C, F-D)
 
 - **`/api/get` returns the oldest match.** It takes the oldest upload whose
   normalised title, artist and album (when sent) match, within 2 s of the
@@ -305,7 +356,7 @@ The raw reports are `reports/m5-pool.json` and
 
   Candidate C4 searches anyway.
 
-### 7. The album on `/api/get`: open (F-E, C8)
+### 8. The album on `/api/get`: open (F-E, C8)
 
 When a player names an album, LRCLIB's exact query requires the record's
 album to match. Replaying LRCLIB's rule over the cached pages first suggested
@@ -320,7 +371,7 @@ Where the answer depends on the page, the counts are 16 of 20 and 15 of 20.
 H8 is open, and C8 (send no album) waits for recorded traffic. SPEC, C8
 amendment, has the tables.
 
-### 8. Smaller findings
+### 9. Smaller findings
 
 - **F-F: normalisation is Latin-only.** LRCLIB folds Latin diacritics only
   (ı→i, ø→o, ß→s). It leaves ё, й and Greek accents alone, and treats U+02BB
@@ -366,22 +417,31 @@ In order:
 
 1. **Handle 429 apart from failures (F-H).** This protects every listener, not
    just the lab, and needs no LRCLIB traffic to build or test.
-2. **Decide on a word-timed source.** It is the only route to word-by-word
+2. **Let a long line show its ending (finding 3).** This reaches every
+   listener who has lyrics on, needs no network, and the measurement reruns
+   in seconds. How is the owner's design call: the sung line could take a
+   second row, the column could widen while lyrics show, or a cut line could
+   slide to show its tail. The redesign spec's decision 6 holds under each
+   (`docs/plans/2026-10-15-redesign-spec.md`, §0: the sung line keeps its
+   neighbours' size, set apart by weight and brightness). The spec settles no
+   rule for a line too long for its row. The same change should settle the
+   lines that gain their ellipsis only when they are sung.
+3. **Decide on a word-timed source.** It is the only route to word-by-word
    lyrics for most songs. It is the owner's call, because of terms of
    service, accounts and the privacy default.
-3. **Then land C1 and decode `lyricsfile` (F-B).** Both are small and correct,
+4. **Then land C1 and decode `lyricsfile` (F-B).** Both are small and correct,
    but they reach almost nothing until a word-timed source exists.
-4. **Record Isla's lookups from a local LRCLIB (below), or once LRCLIB
+5. **Record Isla's lookups from a local LRCLIB (below), or once LRCLIB
    answers again.** Then score every candidate in one replay. C8 goes first,
-   because its page-bound signal is the largest (finding 7).
-5. **After recording, measure M10.** It shows whether picking the upload
-   closest to the consensus beats Isla's pick, given the spread in finding 3.
+   because its page-bound signal is the largest (finding 8).
+6. **After recording, measure M10.** It shows whether picking the upload
+   closest to the consensus beats Isla's pick, given the spread in finding 4.
 
 ## What is owed
 
 | Measurement | Needs |
 |---|---|
-| M1 accuracy, M2 perturbation robustness, M4 readability, M6 variant robustness, M10 selection | Isla's lookups for the 375 sampled variants: up to about 1,100 LRCLIB requests, fewer where the resolver already holds the answer |
+| M1 accuracy, M2 perturbation robustness, M6 variant robustness, M10 selection, and M4 on the timelines Isla chose (finding 3 measures the catalogue's) | Isla's lookups for the 375 sampled variants: up to about 1,100 LRCLIB requests, fewer where the resolver already holds the answer |
 | M3 word-timing fidelity, and scoring an estimate | word-timed truth: a word-timed source (finding 1) |
 | The delay between a lit line and the heard voice | audio, so the owner's ear on real hardware; the lead stays 0.20 s by the owner's calibration |
 | Hardware checks | the redesign checklist's run sheet |
@@ -404,6 +464,9 @@ There are two ways to get Isla's lookups:
 ```bash
 # Timing (M5), on any corpus of LRCLIB JSON records; no network
 ISLA_LYRIC_CORPUS=<corpus> ISLA_LYRIC_REPORT=<report.json> swift test --filter 'LyricAccuracyLab'
+
+# Readability by genre (M4) on the same corpora; no network
+ISLA_LYRIC_CORPUS=<corpus> ISLA_LYRIC_REPORT=<report.json> swift test --filter 'LyricMatchLabReadabilityTests/testReadabilityByGenre$'
 
 # Catalogue timing noise (M9) from the cached pages; no network
 python3 -I Scripts/lyric-match-lab/noise.py --root ~/code/_tools/isla-lyrics-lab
