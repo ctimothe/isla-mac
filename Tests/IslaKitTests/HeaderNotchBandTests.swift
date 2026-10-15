@@ -15,7 +15,7 @@ import XCTest
 /// This holds the whole app's header controls once, at 480, 560 and 620 and at
 /// both notch widths, against a band 8 pt wider than the notch each side: the
 /// Clipboard's tools and filter row, the Shelf's count and Expand, the lyric
-/// header's three tools, and the player's source tag.
+/// header's three tools, Translate's History and Expand, and the player's source tag.
 @MainActor
 final class HeaderNotchBandTests: XCTestCase {
     private let widths: [CGFloat] = [480, 560, 620]
@@ -146,6 +146,26 @@ final class HeaderNotchBandTests: XCTestCase {
                 ("More", HeaderToolFrames.more(bodyWidth: width)),
                 ("Expand", HeaderToolFrames.expand(bodyWidth: width)),
             ])
+        }
+    }
+
+    // MARK: Translate
+
+    /// Translate's header tools (redesign 2026-10-15, spec §11): History at
+    /// (`bw − 67`, 8) and Expand beside it, both right of the notch at every width
+    /// and both notch widths, and clear of each other. The pair bar and the cards
+    /// are below the header, from y 46.
+    func testTheTranslateHeaderToolsStayRightOfTheNotch() {
+        for width in widths {
+            let history = TranslateHeader.history(bodyWidth: width)
+            let expand = HeaderToolFrames.expand(bodyWidth: width)
+            XCTAssertEqual(history, CGRect(x: width - 67, y: 8, width: 22, height: 22))
+            XCTAssertFalse(history.intersects(expand), "History and Expand at \(width)")
+            assertClear(at: width, [("History", history), ("Expand", expand)])
+            let bar = TranslateLayout.pairBar(bodyWidth: width, headerHeight: notchHeight)
+            for (name, frame) in [("Translate From", bar.from), ("Swap Languages", bar.swap), ("Translate To", bar.to)] {
+                XCTAssertGreaterThanOrEqual(frame.minY, notchHeight, "\(name) is below the header at \(width)")
+            }
         }
     }
 

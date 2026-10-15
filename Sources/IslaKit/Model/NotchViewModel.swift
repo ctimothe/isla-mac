@@ -89,6 +89,11 @@ final class NotchViewModel: ObservableObject {
             // query, inside the next visit.
             if !isOpen, oldValue {
                 closeClipboardSearch()
+                // Reading a translation aloud ends with the panel (spec §11), and
+                // the History list is for the visit it was opened in: the next
+                // opening starts on the cards, where the field is.
+                translator.speaker.stop()
+                translateShowsHistory = false
                 // And the Shelf's selection (review 2026-10-15): a tile picked
                 // on Monday was still picked on Tuesday, and with the pointer
                 // resting on the grid while typing in Mail, the transient
@@ -189,10 +194,40 @@ final class NotchViewModel: ObservableObject {
     /// gone by then and a vanished view sends no last word.
     @Published var textInputRect: CGRect = .zero
 
+    /// Whether the Translate tab shows its History list in place of the two cards
+    /// (spec §11): the header's History button toggles it. Memory only, and put
+    /// away by a tab change, the panel closing, text arriving by the hot key or
+    /// the Service, and Keep History being turned off — each of which is a
+    /// moment the person is not looking at a list they opened earlier.
+    @Published var translateShowsHistory = false
+
+    /// Keep History turned on or off in Settings (spec §11, §14). Off empties the
+    /// list, now: a person who switches remembering off expects the record to go
+    /// with it, and the list was only ever in memory. On starts remembering from
+    /// the next answer; `Translator.received` reads the switch at that moment.
+    func setTranslateKeepHistory(_ enabled: Bool) {
+        guard !enabled else { return }
+        translator.history.clear()
+        translateShowsHistory = false
+    }
+
+    /// Speak Button turned off in Settings: whatever is being read stops, since
+    /// the control that would stop it is gone (spec §11).
+    func setTranslateSpeakButton(_ enabled: Bool) {
+        if !enabled { translator.speaker.stop() }
+    }
+
     @Published var tab: Tab = .media {
         didSet {
             if tab == .shelf { shelfHasNew = false }
-            if tab != .translate { textInputRect = .zero }
+            if tab != .translate {
+                textInputRect = .zero
+                // A tab change ends speech and the list (spec §11); the pane's
+                // own disappearance stops the voice too, this is the model's
+                // half, so it holds without a view on screen.
+                translator.speaker.stop()
+                translateShowsHistory = false
+            }
             // The shelf can hold files inside the folders macOS guards, and
             // looking at one raises a permission prompt. It is asked here,
             // with the shelf on screen, rather than at launch with nothing to
@@ -692,6 +727,9 @@ final class NotchViewModel: ObservableObject {
             // stays covered.
             privacy.conceal(TranslatePane.revealID)
             translator.input = text
+            // The text lands in the field, and the field is under the list while
+            // History is up.
+            translateShowsHistory = false
         }
         // After the text: setting `input` clears the notice.
         translator.notice = prepared.notice
@@ -1767,6 +1805,11 @@ final class NotchViewModel: ObservableObject {
     func consumeEscape() -> Bool {
         if ArmedConfirmations.shared.disarmAll() { return true }
         switch tab {
+        // An open History list is the nearest thing to cancel (spec §11); the
+        // text under it is untouched.
+        case .translate where translateShowsHistory:
+            translateShowsHistory = false
+            return true
         case .translate where !translator.input.isEmpty:
             translator.reset()
             return true

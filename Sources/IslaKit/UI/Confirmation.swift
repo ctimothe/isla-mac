@@ -44,6 +44,8 @@ struct CopyButton: View {
     /// the copy. A count that also moves for the button's own press costs
     /// nothing: the flag is already up, and raising it again is the same tick.
     var copiesElsewhere: Int = 0
+    /// The plate's side: 22 everywhere, 24 for Translate's footer (spec §11).
+    var side: CGFloat = 22
     let copy: () -> Void
 
     @State private var copied = false
@@ -68,7 +70,7 @@ struct CopyButton: View {
                 .islandFont(.caption, weight: .semibold)
                 .foregroundStyle(copied ? Theme.success : Theme.secondary)
                 .symbolSwap(value: copied, reduceMotion: reduceMotion)
-                .frame(width: 22, height: 22)
+                .frame(width: side, height: side)
                 .contentShape(Rectangle())
         }
         .buttonStyle(PanelButtonStyle())

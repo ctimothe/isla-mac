@@ -1055,6 +1055,42 @@ enum Theme {
         Color.white.opacity(searchFieldOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
     }
 
+    // MARK: - Translate (redesign 2026-10-15, spec §11)
+
+    /// The source card's fill: white at 0.07 on the black island (spec §11), the
+    /// well a person can tell is typed into. Increase Contrast steps it to 0.16 —
+    /// the same rule every translucent fill follows (§2.1) — so the card still
+    /// reads as a shape; the placeholder and the counter on it are drawn through
+    /// `tertiary` and `quaternary`, which carry their own contrast floors.
+    static func translateCardOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.16 : 0.07
+    }
+
+    /// The card's half-point hairline, white at 0.08 (spec §11); 0.35 as a
+    /// defined edge under Increase Contrast, between the base hairline and the
+    /// selected chip's 0.55 so a card is edged without shouting.
+    static func translateCardEdgeOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.35 : 0.08
+    }
+
+    /// The language pop-ups' plate: white at 0.12 (the board's `popup()`), 0.24
+    /// under Increase Contrast — the `surface` ratio, doubled and rounded.
+    static func popUpOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.24 : 0.12
+    }
+
+    @MainActor static var translateCardFill: Color {
+        Color.white.opacity(translateCardOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    @MainActor static var translateCardEdge: Color {
+        Color.white.opacity(translateCardEdgeOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    @MainActor static var popUpFill: Color {
+        Color.white.opacity(popUpOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
     /// A search match: `#FFD60A` behind `#1D1D1F` text (spec §2.1, §9.3) — the
     /// find-in-page yellow Safari, Notes and Mail mark a match with, so nobody
     /// has to be told what it means. Dark text on it, whatever the row's own

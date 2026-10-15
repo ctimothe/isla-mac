@@ -38,7 +38,6 @@
 
 /* Translate */
 "Translation Languages…" = "Translation Languages…";
-"Retry" = "Retry";
 
 /* Countdown, lower-case: the capital is added where the label is built.
    Abbreviated on purpose: a panel header has room for "in 12 min"
@@ -516,3 +515,14 @@
 "Version %@" = "Version %@";
 "Volume and Brightness" = "Volume and Brightness";
 "Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission." = "Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission.";
+
+/* Translate: pair bar, Paste, Speak, History (R4) */
+"On this Mac" = "On this Mac";
+"Recent" = "Recent";
+"Paste" = "Paste";
+"Speak" = "Speak";
+"Stop Speaking" = "Stop Speaking";
+"History" = "History";
+"Use Online" = "Use Online";
+"No translations yet" = "No translations yet";
+"Sends this text to MyMemory over the internet." = "Sends this text to MyMemory over the internet.";

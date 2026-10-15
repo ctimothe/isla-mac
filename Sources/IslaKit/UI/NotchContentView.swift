@@ -704,6 +704,22 @@ struct NotchContentView: View {
                 ),
                 openSearch: { vm.openClipboardSearch() }
             ))
+            // Translate's History and Expand (spec §11), the same way. History is
+            // there only while Keep History is on.
+            .modifier(TranslateHeaderTools(
+                isShown: showsTranslateTools,
+                bodyWidth: size.width,
+                keepHistory: NotchViewModel.translateKeepHistoryEnabled(in: vm.translator.defaults),
+                isHistoryOpen: $vm.translateShowsHistory,
+                isExpanded: Binding(
+                    get: { vm.expandedTabs.contains(.translate) },
+                    set: { wants in
+                        withAnimation(Theme.expand(reduceMotion: reduceMotion)) {
+                            vm.setExpanded(wants, for: .translate)
+                        }
+                    }
+                )
+            ))
             .modifier(LyricHeaderTools(
                 isShown: showsLyricTools,
                 bodyWidth: size.width,
@@ -735,6 +751,12 @@ struct NotchContentView: View {
     /// not under the welcome.
     private var showsClipboardTools: Bool {
         !vm.isShowingWelcome && vm.tab == .clipboard
+    }
+
+    /// Whether the header carries Translate's tools: the Translate tab, and not
+    /// under the welcome.
+    private var showsTranslateTools: Bool {
+        !vm.isShowingWelcome && vm.tab == .translate
     }
 
     /// Whether the header carries the lyric tools: the Music tab on the column
@@ -1056,8 +1078,8 @@ struct NotchContentView: View {
             // while the cover was on (H-026).
             EmptyView()
         case .translate:
-            // Nothing: the columns name both languages already, and the strip
-            // is the one part of the panel worth not spending on a repeat.
+            // Nothing in the strip's own row: the pop-ups name both languages,
+            // and History and Expand are `TranslateHeaderTools` (spec §11).
             EmptyView()
         case .settings:
             EmptyView()
@@ -1177,7 +1199,10 @@ struct NotchContentView: View {
                 turnOnHistory: { vm.setClipboardHistory(true) }
             )
         case .translate:
-            TranslatePane(translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
+            TranslatePane(
+                translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard,
+                showsHistory: $vm.translateShowsHistory, headerHeight: vm.geometry.notchSize.height
+            )
                 .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
         case .settings:
             SettingsPane(
@@ -1202,6 +1227,8 @@ struct NotchContentView: View {
                 setClipboardIncludeImages: vm.setClipboardIncludeImages,
                 setClipboardKeepPinned: vm.setClipboardKeepPinned,
                 refreshClipboardPolling: vm.refreshClipboardPolling,
+                setTranslateKeepHistory: vm.setTranslateKeepHistory,
+                setTranslateSpeakButton: vm.setTranslateSpeakButton,
                 selection: $vm.settingsSection,
                 headerHeight: vm.geometry.notchSize.height
             )

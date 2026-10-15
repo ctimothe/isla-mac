@@ -44,7 +44,6 @@
 
 /* Перевод */
 "Translation Languages…" = "Языки перевода…";
-"Retry" = "Повторить";
 
 /* Отсчёт со строчной: прописную ставит то место, где строится подпись.
    Сокращения намеренные: в шапку панели помещается «через 12 мин», но
@@ -522,3 +521,14 @@
 "Version %@" = "Версия %@";
 "Volume and Brightness" = "Громкость и яркость";
 "Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission." = "«Громкость и яркость» заменяет системное окно Mac и требует разрешения универсального доступа.";
+
+/* Translate: pair bar, Paste, Speak, History (R4) */
+"On this Mac" = "На этом Mac";
+"Recent" = "Недавние";
+"Paste" = "Вставить";
+"Speak" = "Произнести";
+"Stop Speaking" = "Остановить";
+"History" = "История";
+"Use Online" = "Перевести онлайн";
+"No translations yet" = "Переводов пока нет";
+"Sends this text to MyMemory over the internet." = "Отправляет этот текст в MyMemory через интернет.";

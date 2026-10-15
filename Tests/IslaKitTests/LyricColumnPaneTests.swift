@@ -222,15 +222,21 @@ final class LyricColumnPaneTests: XCTestCase {
         XCTAssertNil(s.root.first(label: "More Lyrics Options"))
     }
 
-    /// Translate gets the button in the release after R3 (the Shelf has it
-    /// since R3 task 1 and the Clipboard since task 2, redesign 2026-10-15, spec
-    /// §8.1, §9.3); Settings never does before R4.
-    func testOtherTabsHaveNoExpandButtonYet() async throws {
-        for tab in [NotchViewModel.Tab.translate, .settings] {
-            let s = try await shell(.player, tab: tab)
-            XCTAssertNil(s.root.first(label: "Expand"), "\(tab)")
-            XCTAssertNil(s.root.first(label: "Collapse"), "\(tab)")
-        }
+    /// Translate has the button since R4 (redesign 2026-10-15, spec §11: Expand at
+    /// `bw − 39`, beside History); Settings never does — its body is always tall
+    /// (spec §10). Before R4 this asserted Translate had none yet.
+    func testTranslateHasTheExpandButtonAndSettingsNeverDoes() async throws {
+        let translate = try await shell(.player, tab: .translate)
+        let button = try XCTUnwrap(
+            translate.root.first(label: "Expand") ?? translate.root.first(label: "Collapse"), translate.root.dump
+        )
+        XCTAssertEqual(
+            try body(button, in: translate), CGRect(x: translate.bodyWidth - 39, y: 8, width: 22, height: 22), accuracy: 1
+        )
+
+        let settings = try await shell(.player, tab: .settings)
+        XCTAssertNil(settings.root.first(label: "Expand"))
+        XCTAssertNil(settings.root.first(label: "Collapse"))
     }
 
     /// The Clipboard's button is the same one in the same place, beside Search

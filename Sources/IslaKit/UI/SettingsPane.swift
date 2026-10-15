@@ -56,6 +56,10 @@ struct SettingsPane: View {
     var setClipboardIncludeImages: (Bool) -> Void = { _ in }
     var setClipboardKeepPinned: (Bool) -> Void = { _ in }
     var refreshClipboardPolling: () -> Void = {}
+    /// Keep History and Speak Button (spec §11): the switch itself is written by
+    /// `flagBinding`; these are what turning it off does to a list and a voice.
+    var setTranslateKeepHistory: (Bool) -> Void = { _ in }
+    var setTranslateSpeakButton: (Bool) -> Void = { _ in }
     /// The section on screen: a binding to `NotchViewModel.settingsSection`, which
     /// is also what the next open restores. Constant in the tests and the lab,
     /// where a test names the section it wants to look at.
@@ -675,8 +679,13 @@ struct SettingsPane: View {
             // `OnlineTranslation` names, and the footnote says so before it is
             // flipped.
             switchRow(row, isOn: flagBinding(row))
-        case .keepHistory, .speakButton:
-            switchRow(row, isOn: flagBinding(row))
+        case .keepHistory:
+            // Off empties the list at once (`NotchViewModel.setTranslateKeepHistory`);
+            // the Translate tab reads the switch itself when an answer lands.
+            switchRow(row, isOn: flagBinding(row) { setTranslateKeepHistory($0) })
+        case .speakButton:
+            // Off stops anything being read aloud; the tab hides the button.
+            switchRow(row, isOn: flagBinding(row) { setTranslateSpeakButton($0) })
 
         // Spotify
         case .likedSongs:
