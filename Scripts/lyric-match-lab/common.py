@@ -94,8 +94,16 @@ THROTTLE_HOLD = 60.0  # seconds a host stays closed after a request ends on 429
 TRIP_AFTER = 3
 
 # Statuses that are an answer rather than a hiccup. 400 is deterministic for a
-# URL and 404 is LRCLIB's "no record"; both would come back identically.
+# URL and 404 is LRCLIB's "no record"; both would come back identically. The
+# cache holds exactly these and every 2xx, and the Swift harness's
+# ReplayTransport.cachesStatus holds the same set, so a record run and its
+# replay agree (second review, finding 6).
 CACHEABLE_STATUSES = (400, 404)
+# A 403 is neither cached nor an answer: it is a gateway or a throttle refusing
+# this client, not LRCLIB's word on the URL. It is a failed fetch here and a
+# miss in the Swift harness, so it never reaches Isla (or the classifier) as a
+# response.
+REFUSED_STATUSES = (403,)
 
 
 class Response(NamedTuple):
@@ -431,6 +439,9 @@ def fetch(url: str, root: str, *, offline: bool = False,
                 _note_outcome(url, refused=False)
                 write_cache(root, url, status, body)
                 return Response(status, body, False)
+            if status in REFUSED_STATUSES and not _is_transient(url, status):
+                stats.failed()
+                return None
             if not _is_transient(url, status):
                 return Response(status, body, False)
             if status == 429:

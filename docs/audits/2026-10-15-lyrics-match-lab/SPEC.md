@@ -115,6 +115,17 @@ reports/rows.csv               Python classifier: one row per lookup with its ve
   space to the server, so it is never matched to the resolver's `%2B`. An
   answer found this way is copied to `cache/isla` under Isla's own key, so
   every key a results file names is a file that exists.
+- *Amended 2026-10-15 (after the second review).* Both caches keep exactly the
+  same statuses: every 2xx, 400 and 404. The resolver cached 400 and the Swift
+  harness did not (`ReplayTransport.cachesStatus`), so a record run and its
+  replay could disagree. A 403 is never cached and never reaches Isla as an
+  answer on either side: in Python it is a failed fetch (`common.fetch`
+  returns `None`; iTunes' 403 is still retried first, as a throttle), in the
+  Swift `ReplayTransport` it is logged and thrown as a miss like a transport
+  failure, so the lookup reads `uncached` and the next record run asks again.
+  The classifier does not count a 403 as a `failed-request`. Swift holds the
+  rule as a predicate test (`LyricMatchLabReplayTests`), because a live fetch
+  needs a server.
 
 ## Rules for everything in the lab
 

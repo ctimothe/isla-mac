@@ -51,7 +51,7 @@ Verdicts (M1)
   miss-plain-only      nothing shown, the cluster has plain lyrics only
   miss-catalogue       nothing shown, nothing usable exists
   correct-none         an expected instrumental, nothing shown
-  failed-request       Isla's request drew a 4xx other than 404 and 429 (a deterministic
+  failed-request       Isla's request drew a 4xx other than 403, 404 and 429 (a deterministic
                        refusal of Isla's own request): an Isla outcome, a miss in usable
                        when a fit exists
   truth-uncertain      the track's anchors contradict each other (anchor-conflict): excluded
@@ -109,9 +109,10 @@ EXCLUDED_TRUTH = ("truth-uncertain", "truth-incomplete", "disputed")
 DISPUTES = ("harvest-none-lrclib-lyrics", "harvest-vocal-lrclib-instrumental", "mixed-anchor-flags")
 # Verdicts for which nothing can be said of Isla at all.
 NO_JUDGEMENT = ("failed", "uncached", "unrecovered")
-# HTTP statuses that are LRCLIB's ordinary answer or a rate limit, not a
-# refusal of Isla's request.
-BENIGN_STATUSES = (404, 429)
+# HTTP statuses that are LRCLIB's ordinary answer, a rate limit, or a gateway
+# refusing the lab's client (403: neither side caches it, and the harness reads
+# it as a miss, so it normally never appears), not a refusal of Isla's request.
+BENIGN_STATUSES = (403, 404, 429)
 DIAGNOSE = ("miss-rejected", "miss-unqueried", "miss-tolerance", "wrong-song", "uncertain",
             "correct-longer-cut", "alt-script", "unrecovered")
 MATCHED_VERDICTS = ("correct", "correct-longer-cut", "alt-script")

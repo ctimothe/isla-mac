@@ -187,6 +187,22 @@ class CommonTests(unittest.TestCase):
         self.assertEqual(calls, 2)  # a dead network is tried once more, not four times
         self.assertIsNone(common.read_cache(self.root, "https://example.test/f"))
 
+    def test_the_cache_holds_2xx_400_and_404_and_a_403_is_a_failed_fetch(self):
+        """Second review, finding 6: the two caches disagreed about 400, and a 403 reached the caller as an answer."""
+        for status in (200, 204, 400, 404):
+            url = f"https://example.test/status/{status}"
+            result, calls, _, _ = self._fetch_with([(status, b"{}", 0.0)], url=url)
+            self.assertEqual((result.status, calls), (status, 1), status)
+            self.assertEqual(common.read_cache(self.root, url).status, status)
+        self.assertEqual(sorted(common.CACHEABLE_STATUSES), [400, 404])
+        for status in (401, 403, 410):
+            url = f"https://example.test/status/{status}"
+            result, calls, _, _ = self._fetch_with([(status, b"{}", 0.0)], url=url)
+            self.assertIsNone(common.read_cache(self.root, url), status)
+            self.assertEqual(calls, 1)
+            # 403 never reaches the caller as an answer; the other refusals still do (uncached)
+            self.assertEqual(result is None, status == 403, status)
+
     def test_truncated_body_is_retried_like_a_5xx(self):
         result, calls, sleeps, _ = self._fetch_with([(common.TRUNCATED, b"", 0.0), (200, b"[]", 0.0)],
                                                     url="https://example.test/t")
@@ -2051,6 +2067,23 @@ class PromotionTests(ReviewLab):
         self.assertEqual(m1["anchor_promoted"]["verdicts"], {"correct": 1, "miss-unqueried": 1})
         self.assertEqual((m1["anchor_promoted"]["usable"], m1["anchor_promoted"]["accuracy"]), (2, 0.5))
         self.assertEqual(m1["anchor_promoted_tracks"], 1)
+
+
+class RefusedStatusTests(ReviewLab):
+    def test_a_403_is_not_a_refusal_of_isla_s_request(self):
+        """Second review, finding 6: neither cache keeps a 403 and the harness reads it as a miss, so the
+        classifier must not call a lookup that saw one a failed-request."""
+        a = self.add("Alpha Refuse", None, [], [])
+        row = self.row(1, a, synthetic_lines(650))
+        self.pool(a, ta_rows=[row])
+        self.seal()
+        refused = lambda status: [{"key": None, "path": "/api/get", "status": status, "cached": False}]
+        report = self.classify([self.lookup(a, "canonical", "failed", requests=refused(403)),
+                                self.lookup(a, "apple", "failed", requests=refused(400)),
+                                self.lookup(a, "deezer", "failed", requests=refused(401))])
+        self.assertEqual([self.verdict(a, v) for v in ("canonical", "apple", "deezer")],
+                         ["failed", "failed-request", "failed-request"])
+        self.assertEqual(report["M1"]["overall"]["failed_request"], 2)
 
 
 class BoundsTests(ReviewLab):
