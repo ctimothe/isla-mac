@@ -313,8 +313,9 @@ final class MediaKeyHUDTests: XCTestCase {
     func testPanelOpenMidPressNeverRenewsAndTheHoldStaysConsumedUntilItsKeyUp() {
         let hud = hud()
         on(hud)
-        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
         moment += 10
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
+        moment += 1
         hud.panelOpened()
         XCTAssertEqual(taps.created, 1, "a hold is in progress, so no rebuild")
         XCTAssertTrue(hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none))
@@ -322,6 +323,31 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertTrue(hud.handle(up(.volumeUp), modifiers: .none), "the key-up is consumed")
         hud.panelOpened()
         XCTAssertEqual(taps.created, 2, "the next opening renews")
+    }
+
+    func testAHoldThatWentSilentIsDroppedAndTheTapIsRenewed() {
+        let hud = hud()
+        on(hud)
+        moment += 10
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
+        moment += 4
+        hud.panelOpened()
+        XCTAssertEqual(taps.created, 2, "no event for 4 s: the key-up is lost, renew")
+        XCTAssertFalse(hud.handle(up(.volumeUp), modifiers: .none), "the stale hold is gone")
+    }
+
+    func testAHoldWhoseRepeatsKeepArrivingNeverLetsAnOpeningRenew() {
+        let hud = hud()
+        on(hud)
+        moment += 10
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
+        for _ in 0..<50 {
+            moment += 0.1
+            XCTAssertTrue(hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none))
+        }
+        hud.panelOpened()
+        XCTAssertEqual(taps.created, 1, "5 s of repeats: still a live press")
+        XCTAssertTrue(hud.handle(up(.volumeUp), modifiers: .none))
     }
 
     func testPanelOpenLeavesATapYoungerThanFiveSecondsAlone() {

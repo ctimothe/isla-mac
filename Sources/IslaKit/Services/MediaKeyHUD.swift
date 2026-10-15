@@ -92,6 +92,16 @@ final class MediaKeyHUD: ObservableObject {
     /// key-up. See `handle`.
     private enum Hold { case consume, pass }
     private var holds: [MediaKey: Hold] = [:]
+    /// When each hold last had an event (its key-down or a repeat), for
+    /// `panelOpened()`: a hold is live only while its events keep coming.
+    private var holdLastEvent: [MediaKey: TimeInterval] = [:]
+
+    /// How long a hold may stay silent and still count as a press in progress.
+    /// macOS's slowest "delay until repeat" is about 2 s, so a held key sends
+    /// its first repeat within that; 3 s leaves a margin. Past it the tap has
+    /// stopped hearing the key (the stale-tap case renewal exists for) and the
+    /// key-up that would clear the hold is never coming.
+    static let holdStaleAfter: TimeInterval = 3.0
 
     /// Output-device glyphs found so far, for the repeats of a held key only.
     private var glyphs: [AudioDeviceID: String?] = [:]
@@ -170,13 +180,19 @@ final class MediaKeyHUD: ObservableObject {
     /// rebuilds more than once per `rebuildInterval`. Holds are cleared, as
     /// `stopTap` always does, so nothing is renewed while a hold is active:
     /// opening the panel mid-press would otherwise let the repeats and the
-    /// key-up of a key whose key-down Isla consumed slip back to macOS. The
-    /// next opening renews instead.
+    /// key-up of a key whose key-down Isla consumed slip back to macOS. A hold
+    /// with no event for `holdStaleAfter` is dropped and does not count, so a
+    /// lost key-up cannot block renewal for good.
     func panelOpened() {
         refresh()
         guard isEnabled(), trust.isTrusted(), tap != nil else { return }
-        guard holds.isEmpty else { return }
         let moment = now()
+        // A hold that heard something lately is a press in progress: renewing
+        // now would let its repeats and key-up slip back to macOS. A silent
+        // one is a lost key-up; drop it so it cannot veto every opening.
+        if holds.keys.contains(where: { moment - (holdLastEvent[$0] ?? -.infinity) <= Self.holdStaleAfter }) { return }
+        holds.removeAll()
+        holdLastEvent.removeAll()
         guard let created = tapCreatedAt, moment - created >= Self.rebuildInterval else { return }
         stopTap()
         lastRebuild = moment
@@ -245,16 +261,21 @@ final class MediaKeyHUD: ObservableObject {
     /// - Mute repeats do nothing, consumed or not: a held mute used to flip the
     ///   mute back and forth.
     func handle(_ press: MediaKeyPress, modifiers: MediaKeyModifiers) -> Bool {
-        guard press.isDown else { return holds.removeValue(forKey: press.key) == .consume }
+        guard press.isDown else {
+            holdLastEvent.removeValue(forKey: press.key)
+            return holds.removeValue(forKey: press.key) == .consume
+        }
 
         if press.isRepeat {
             guard holds[press.key] == .consume else { return false }
+            holdLastEvent[press.key] = now()
             continueHold(press, modifiers: modifiers)
             return true
         }
 
         let consumed = decideFreshPress(press, modifiers: modifiers)
         holds[press.key] = consumed ? .consume : .pass
+        holdLastEvent[press.key] = now()
         return consumed
     }
 
@@ -328,6 +349,7 @@ final class MediaKeyHUD: ObservableObject {
                 // key-up the system had already seen. Clear the holds now, so
                 // whatever arrives after the re-enable is passed consistently.
                 self?.holds.removeAll()
+                self?.holdLastEvent.removeAll()
                 DispatchQueue.main.async { self?.refresh() }
             }
         )
@@ -346,6 +368,7 @@ final class MediaKeyHUD: ObservableObject {
         tap = nil
         tapCreatedAt = nil
         holds.removeAll()
+        holdLastEvent.removeAll()
     }
 
     private func startPolling() {
