@@ -254,6 +254,103 @@ final class SettingsTableTests: XCTestCase {
         }
     }
 
+    // MARK: - Players on This Mac
+
+    private func player(_ id: String, _ name: String) -> AppIcons.Installed {
+        AppIcons.Installed(
+            bundleID: id, url: URL(fileURLWithPath: "/Applications/\(id).app"), name: name,
+            icon: NSImage(size: NSSize(width: 4, height: 4))
+        )
+    }
+
+    /// The group sits right after Music Only and its footnote, before the
+    /// player's own switches, and exists only while there is a player to list.
+    func testPlayersOnThisMacFollowMusicOnlyAndNeedAPlayer() {
+        XCTAssertFalse(
+            SettingsTable.blocks(for: .music).contains(.header("Players on This Mac")),
+            "no player installed: no header over an empty card"
+        )
+        var context = SettingsContext()
+        context.installedPlayers = [player("com.apple.Music", "Apple Music"), player("com.spotify.client", "Spotify")]
+        let blocks = SettingsTable.blocks(for: .music, context: context)
+        let start = blocks.firstIndex(of: .header("Music"))!
+        XCTAssertEqual(Array(blocks[start...].prefix(6)), [
+            .header("Music"),
+            .group([.musicOnly]),
+            .footnote(localized("Videos and films stay off the island.")),
+            .header("Players on This Mac"),
+            .group([.installedPlayers]),
+            .footnote(localized("These players always show. Any other app shows when it says it is playing audio.")),
+        ])
+        XCTAssertEqual(blocks[(start + 6)...].first, .header("In the player"))
+        XCTAssertEqual(SettingsRowID.installedPlayers.kind, .custom, "drawn by a view of its own")
+        XCTAssertEqual(SettingsRowID.installedPlayers.title, "Players on This Mac")
+        XCTAssertNil(SettingsRowID.installedPlayers.key, "a statement about the Mac, not a setting")
+        XCTAssertNil(SettingsRowID.installedPlayers.defaultValue)
+    }
+
+    /// Worded from `MediaSourcePolicy.allows`: music apps always; Telegram for a
+    /// song and not for a video; any other app when it labels audio; and with
+    /// Music Only off, everything.
+    func testThePlayersFootnoteSaysWhatMusicOnlyDoesWithThem() {
+        let plain = [player("com.spotify.client", "Spotify")]
+        let withTelegram = plain + [player("ru.keepcoder.Telegram", "Telegram")]
+        XCTAssertEqual(
+            SettingsTable.playersNote(musicOnly: true, players: plain),
+            "These players always show. Any other app shows when it says it is playing audio."
+        )
+        XCTAssertEqual(
+            SettingsTable.playersNote(musicOnly: true, players: withTelegram),
+            "These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio."
+        )
+        XCTAssertNil(
+            SettingsTable.playersNote(musicOnly: false, players: withTelegram),
+            "Music Only off: its own footnote already says anything shows; the rule is stated once"
+        )
+        // And the policy agrees with every claim: a listed player passes with no
+        // label, Telegram passes only for a song, an unknown app only if labelled.
+        XCTAssertTrue(MediaSourcePolicy.allows(bundleIdentifier: "com.spotify.client", mediaType: nil, artist: ""))
+        XCTAssertFalse(MediaSourcePolicy.allows(bundleIdentifier: "ru.keepcoder.Telegram", mediaType: nil, artist: ""))
+        XCTAssertTrue(MediaSourcePolicy.allows(bundleIdentifier: "com.example.other", mediaType: MediaSourcePolicy.audioType, artist: ""))
+        // Music Only off reads the switch from the context: the group has no
+        // footnote and Music Only's says everything shows.
+        var off = SettingsContext()
+        off.musicOnly = false
+        off.installedPlayers = plain
+        let offBlocks = SettingsTable.blocks(for: .music, context: off)
+        XCTAssertTrue(offBlocks.contains(.footnote(localized("Anything playing shows on the island, videos included."))))
+        let group = offBlocks.firstIndex(of: .group([.installedPlayers]))!
+        if case .footnote = offBlocks[group + 1] { XCTFail("a second footnote under the players with Music Only off") }
+    }
+
+    /// One statement of the rule (review 2026-10-15): with Music Only on, its
+    /// footnote says only what it hides and the players' footnote says what
+    /// always shows; neither repeats the other.
+    func testTheRuleIsStatedOnceWithMusicOnlyOn() {
+        var context = SettingsContext()
+        context.installedPlayers = [player("ru.keepcoder.Telegram", "Telegram")]
+        let footnotes: [String] = SettingsTable.blocks(for: .music, context: context).compactMap {
+            if case let .footnote(text) = $0 { return text } else { return nil }
+        }
+        XCTAssertEqual(footnotes.filter { $0.contains("Music apps") || $0.contains("always show") }.count, 1, "\(footnotes)")
+        XCTAssertFalse(footnotes.contains { $0.contains("podcasts") })
+    }
+
+    func testThePlayersGroupIsRussianToo() {
+        LabLocalization.use("ru")
+        XCTAssertEqual(SettingsRowID.installedPlayers.title, "Плееры на этом Mac")
+        let note = try! XCTUnwrap(SettingsTable.playersNote(musicOnly: true, players: [player("ru.keepcoder.Telegram", "Telegram")]))
+        XCTAssertTrue(note.contains("Telegram"), note)
+        XCTAssertNotEqual(note, "These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio.")
+    }
+
+    /// Spotify and About still wear an app's own icon; whether it is the real
+    /// one is `AppIcons`' to say at draw time.
+    func testSpotifyAndAboutKeepTheirAppIconGlyphs() {
+        XCTAssertEqual(SettingsSection.spotify.glyph, .spotify)
+        XCTAssertEqual(SettingsSection.about.glyph, .isla)
+    }
+
     // MARK: - Volume and Brightness (R5): the row is shown, off, with its Accessibility group
 
     func testVolumeAndBrightnessIsShownOffByDefaultAndKeyedAsSpecified() {
@@ -587,6 +684,7 @@ final class SettingsTableTests: XCTestCase {
             ("Automation status rows", .automationStatus, .music),
             ("Open Automation Settings…", .automationPermission, .music),
             ("Music Only", .musicOnly, .music),
+            ("Players on This Mac", .installedPlayers, .music),
             ("Volume and Output", .volumeAndOutput, .music),
             ("Lyric Band", .lyricBand, .music),
             ("Show Lyrics", .showLyrics, .lyrics),
@@ -680,6 +778,12 @@ final class SettingsTableTests: XCTestCase {
         context.canRestoreShortcuts = true
         context.nowPlayingFailure = NowPlayingRouteFailure.keptStopping.explanation
         context.automation = SettingsPane.automationRows([.spotify: .denied, .music: .allowed])
+        context.installedPlayers = [
+            AppIcons.Installed(
+                bundleID: "com.spotify.client", url: URL(fileURLWithPath: "/Applications/Spotify.app"),
+                name: "Spotify", icon: NSImage(size: NSSize(width: 4, height: 4))
+            ),
+        ]
         context.delayIsSet = true
         context.libraryHasFolders = true
         context.hasUnassignedCorrections = true

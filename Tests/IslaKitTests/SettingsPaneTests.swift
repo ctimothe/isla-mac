@@ -213,7 +213,7 @@ final class SettingsPaneTests: XCTestCase {
     func testARefusedPlayerPointsToAutomationSettings() {
         let rows = SettingsPane.automationRows([.spotify: .denied])
         XCTAssertEqual(rows, [
-            .status(player: "Spotify", state: localized("Not allowed")),
+            .status(player: "Spotify", bundleID: "com.spotify.client", state: localized("Not allowed")),
             .note(localized("Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation.")),
             .openAutomationSettings,
         ])
@@ -230,7 +230,7 @@ final class SettingsPaneTests: XCTestCase {
         XCTAssertEqual(SettingsPane.automationRows([:]), [])
         XCTAssertEqual(SettingsPane.automationRows([.music: .unknown, .spotify: .unknown]), [])
         XCTAssertEqual(SettingsPane.automationRows([.music: .allowed, .spotify: .unknown]), [
-            .status(player: PlayerApp.music.displayName, state: localized("Allowed")),
+            .status(player: PlayerApp.music.displayName, bundleID: "com.apple.Music", state: localized("Allowed")),
         ])
     }
 
@@ -239,14 +239,14 @@ final class SettingsPaneTests: XCTestCase {
     /// no recovery, because the first panel open on Music asks.
     func testEveryReadableStateHasARowAndOnlyARefusalHasTheAction() {
         XCTAssertEqual(SettingsPane.automationRows([.spotify: .notAsked, .music: .allowed]), [
-            .status(player: PlayerApp.music.displayName, state: localized("Allowed")),
-            .status(player: "Spotify", state: localized("Not asked yet")),
+            .status(player: PlayerApp.music.displayName, bundleID: "com.apple.Music", state: localized("Allowed")),
+            .status(player: "Spotify", bundleID: "com.spotify.client", state: localized("Not asked yet")),
         ])
         let bothRefused = SettingsPane.automationRows([.spotify: .denied, .music: .denied])
         XCTAssertEqual(bothRefused.filter { $0 == .openAutomationSettings }.count, 1)
         XCTAssertEqual(bothRefused.prefix(2), [
-            .status(player: PlayerApp.music.displayName, state: localized("Not allowed")),
-            .status(player: "Spotify", state: localized("Not allowed")),
+            .status(player: PlayerApp.music.displayName, bundleID: "com.apple.Music", state: localized("Not allowed")),
+            .status(player: "Spotify", bundleID: "com.spotify.client", state: localized("Not allowed")),
         ])
     }
 

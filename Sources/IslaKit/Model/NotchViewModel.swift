@@ -73,6 +73,10 @@ final class NotchViewModel: ObservableObject {
         static let rightRail: [Tab] = []
     }
 
+    /// Whose cache the opening refreshes; `.shared` in the app, a test's own
+    /// where it counts openings.
+    var icons: AppIcons = .shared
+
     @Published var isOpen = false {
         didSet {
             // Opening ends a charger or headphones moment and a track peek
@@ -109,6 +113,14 @@ final class NotchViewModel: ObservableObject {
                 // main actor, while the Translate tab is the one on screen (the
                 // tab's own arrival does it for the other openings).
                 if tab == .translate { translator.speaker.refreshVoices() }
+                // Apps are installed and removed while Isla runs, so the music
+                // apps' icons and names are asked afresh once per opening —
+                // here, before any pane draws, and not from a pane's
+                // `onAppear`, which ran after the first render had filled the
+                // cache and cleared it again (two lookups per app per opening,
+                // mid-animation). The refresh only forgets; nothing is asked
+                // until a view needs an icon.
+                icons.refresh()
                 openingGeneration &+= 1
                 if shelfSelectionIsCurrent { shelfSelectionIsCurrent = false }
             }

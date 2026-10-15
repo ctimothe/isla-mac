@@ -91,6 +91,9 @@ enum SettingsLayout {
 
     static let groupRadius: CGFloat = 9
     static let rowHeight: CGFloat = 28
+    /// An app's icon at the head of a row (Players on This Mac, the Automation
+    /// status): the sidebar tile's side, so the two columns of icons agree.
+    static let rowAppIconSide: CGFloat = sidebarIconSide
     /// The row's inset either side, and the hairline's: it stops short of the
     /// group's edge so the card reads as one object with lines in it.
     static let rowInset: CGFloat = 10

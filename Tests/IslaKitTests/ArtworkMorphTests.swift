@@ -78,7 +78,7 @@ final class ArtworkMorphTests: XCTestCase {
     /// The pane still renders without a namespace, so the existing render
     /// tests and the lock card keep working.
     func testTheMediaPaneRendersWithoutANamespace() {
-        let pane = MediaPane(media: playingController(), lyrics: LyricsStore(), morph: nil)
+        let pane = MediaPane(media: playingController(), lyrics: LyricsStore(), morph: nil, icons: SettingsFixture.macWithApps([:]))
         let image = ImageRenderer(content: pane.frame(width: 560, height: 157)).nsImage
         XCTAssertNotNil(image, "MediaPane must render with morph: nil")
     }
@@ -117,7 +117,7 @@ final class ArtworkMorphTests: XCTestCase {
         let cover = try XCTUnwrap(media.artwork, "the cover has to decode for this to test anything")
         XCTAssertGreaterThan(cover.size.width, cover.size.height, "a wide cover is the whole point")
 
-        let pane = MediaPane(media: media, lyrics: LyricsStore(), morph: nil)
+        let pane = MediaPane(media: media, lyrics: LyricsStore(), morph: nil, icons: SettingsFixture.macWithApps([:]))
             .frame(width: 560, height: 157)
             .background(Color.black)
         let renderer = ImageRenderer(content: pane)

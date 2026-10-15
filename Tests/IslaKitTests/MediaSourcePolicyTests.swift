@@ -48,6 +48,46 @@ final class MediaSourcePolicyTests: XCTestCase {
         }
     }
 
+    /// Players added on 2026-10-15 from Homebrew's cask stanzas (`zap`/`quit`),
+    /// each always shown like any music app; nothing already listed is dropped.
+    func testTheAddedPlayersAreMusicApps() {
+        let added = [
+            "com.qobuz.QobuzDesktop",         // Qobuz
+            "com.github.th-ch.youtube-music", // YouTube Music desktop
+            "com.audirvana.Audirvana",        // Audirvana
+            "com.electron.pocket-casts",      // Pocket Casts
+            "au.com.shiftyjelly.PocketCasts", // Pocket Casts
+        ]
+        for bundle in added {
+            XCTAssertTrue(MediaSourcePolicy.musicApps.contains(bundle), bundle)
+            XCTAssertTrue(MediaSourcePolicy.allows(bundleIdentifier: bundle, mediaType: nil, artist: ""), bundle)
+        }
+        let kept = [
+            "com.apple.Music", "com.apple.podcasts", "com.spotify.client", "ru.yandex.desktop.music",
+            "com.tidal.desktop", "com.deezer.deezer-desktop", "com.amazon.music", "com.soundcloud.desktop",
+            "com.pandora.desktop", "tv.plex.plexamp", "com.electron.cider", "co.brushedtype.doppler-macos",
+            "com.coppertino.Vox", "com.swinsian.Swinsian", "com.audirvana.Audirvana-Origin",
+            "com.audirvana.Audirvana-Studio", "com.shiftyjelly.pocketcasts", "fm.overcast.overcast",
+        ]
+        for bundle in kept { XCTAssertTrue(MediaSourcePolicy.musicApps.contains(bundle), "\(bundle) was dropped") }
+        XCTAssertEqual(MediaSourcePolicy.mixedApps, ["ru.keepcoder.Telegram", "com.tdesktop.Telegram"])
+    }
+
+    /// The podcast apps are music apps to the filter and not to the empty
+    /// player's "Open …" offer; Telegram is neither.
+    func testPodcastAppsAreMusicAppsTheEmptyPlayerDoesNotOffer() {
+        XCTAssertTrue(MediaSourcePolicy.podcastApps.isSubset(of: MediaSourcePolicy.musicApps))
+        XCTAssertEqual(MediaSourcePolicy.podcastApps, [
+            "com.apple.podcasts", "com.shiftyjelly.pocketcasts", "com.electron.pocket-casts",
+            "au.com.shiftyjelly.PocketCasts", "fm.overcast.overcast",
+        ])
+        XCTAssertEqual(MediaSourcePolicy.songApps, MediaSourcePolicy.musicApps.subtracting(MediaSourcePolicy.podcastApps))
+        XCTAssertTrue(MediaSourcePolicy.songApps.isDisjoint(with: MediaSourcePolicy.mixedApps))
+        XCTAssertTrue(MediaSourcePolicy.songApps.contains("com.deezer.deezer-desktop"))
+        XCTAssertEqual(MediaSourcePolicy.leadingApps, ["com.apple.Music", "com.spotify.client"])
+        XCTAssertTrue(MediaSourcePolicy.leadingApps.allSatisfy(MediaSourcePolicy.songApps.contains))
+    }
+
     /// The case that asked for this: a YouTube video in a browser says nothing
     /// about what it is, so the browser owning it is what keeps it off.
     func testAVideoInABrowserIsFilteredOut() {

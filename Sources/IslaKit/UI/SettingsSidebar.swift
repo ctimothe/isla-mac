@@ -12,6 +12,7 @@ import SwiftUI
 /// sections", and each row is a button that says whether it is the selected one.
 struct SettingsSidebar: View {
     @Binding var selection: SettingsSection
+    var icons: AppIcons = .shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsLayout.sidebarRowPitch - SettingsLayout.sidebarRowHeight) {
@@ -30,7 +31,7 @@ struct SettingsSidebar: View {
             selection = section
         } label: {
             HStack(spacing: SettingsLayout.sidebarLabelInset - SettingsLayout.sidebarIconInset - SettingsLayout.sidebarIconSide) {
-                SettingsSectionIcon(glyph: section.glyph)
+                SettingsSectionIcon(glyph: section.glyph, icons: icons)
                     .padding(.leading, SettingsLayout.sidebarIconInset)
                 Text(section.title)
                     .islandFont(.reading, weight: isSelected ? .medium : .regular)
@@ -58,11 +59,14 @@ struct SettingsSidebar: View {
 /// The 18 pt tile at the head of a sidebar row.
 ///
 /// A symbol in white on the section's colour with the half-point lit top edge
-/// the boards draw, or — for Spotify and About — the app's own mark. Decoration:
-/// the row's label already says what it is.
+/// the boards draw, or — for Spotify and About — the app's own icon, drawn at
+/// the optical size of the tiles beside it (`AppIconImage`). Decoration: the
+/// row's label already says what it is.
 struct SettingsSectionIcon: View {
     let glyph: SettingsSection.Glyph
     var side: CGFloat = SettingsLayout.sidebarIconSide
+    /// `.shared` in the app; injected by a test that renders the sidebar.
+    var icons: AppIcons = .shared
 
     var body: some View {
         Group {
@@ -80,11 +84,13 @@ struct SettingsSectionIcon: View {
                             .foregroundStyle(Theme.settingsIconGlyph)
                     }
             case .spotify:
-                SpotifyMark()
+                // The real Spotify, from this Mac's own copy of the app; the
+                // drawn disc only where Spotify is not installed.
+                InstalledAppIcon(bundleID: PlayerApp.spotify.bundleID, side: side, icons: icons) { SpotifyMark() }
             case .isla:
-                Image(nsImage: NSApplication.shared.applicationIconImage)
-                    .resizable()
-                    .interpolation(.high)
+                // Isla's icon carries the same transparent margin every macOS
+                // icon does, so it sat visibly smaller than the tiles above it.
+                AppIconImage(image: NSApplication.shared.applicationIconImage, side: side)
             }
         }
         .frame(width: side, height: side)
@@ -92,10 +98,18 @@ struct SettingsSectionIcon: View {
     }
 }
 
-/// Spotify's mark: a green disc and three arcs. Drawn rather than shipped as an
-/// image — the one place the app names a brand it does not own, so no asset of
-/// the brand's travels in the bundle (and `test-branding.sh` has nothing to
-/// look at).
+/// The fallback for Spotify's icon, drawn when Spotify is not installed: a green
+/// disc and three arcs.
+///
+/// It used to be the only Spotify mark Settings had, in the sidebar and the
+/// 40 pt section head, and it looked fake — the owner said so — next to the
+/// real icons of the apps on his Mac. Now the real icon comes from the person's
+/// own copy of the app (`AppIcons`, `InstalledAppIcon`), and this stays as the
+/// stand-in for a Mac that has none. It is drawn rather than shipped as an
+/// image on purpose: this is the one place the app names a brand it does not
+/// own, so no asset of the brand's travels in the bundle (and
+/// `test-branding.sh` has nothing to look at). The real icons never do either:
+/// they are read from `/Applications` at runtime and never copied.
 struct SpotifyMark: View {
     var body: some View {
         Circle()

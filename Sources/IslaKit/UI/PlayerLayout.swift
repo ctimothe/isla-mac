@@ -197,6 +197,120 @@ struct PlayerLayout: Equatable {
         static let textWidth: CGFloat = 330
         static let buttonHeight: CGFloat = 22
         static let buttonSpacing: CGFloat = 8
+        static let openButtonHorizontalPadding: CGFloat = 10
+    }
+
+    // MARK: - The empty player's "Open …" buttons
+
+    /// Most buttons the empty player offers. Three is what a 480-wide panel can
+    /// hold in the 260 pt right of the text column with the shortest names; the
+    /// fit below decides the rest, per name and per width.
+    static let maxOpenButtons = 3
+    /// The app's own icon at the button's leading edge, and the gap after it.
+    static let openButtonIconSide: CGFloat = 16
+    static let openButtonIconGap: CGFloat = 6
+
+    /// What the row of buttons may occupy: from the text column's left edge to
+    /// the pane's right edge. The buttons start where the title does
+    /// (`columnLeading`), so a pane's width alone says how far they can run.
+    static func openButtonsRoom(paneWidth: CGFloat) -> CGFloat {
+        paneWidth - (columnLeading - paneLeading)
+    }
+
+    /// How a row of "Open …" buttons is dressed, from the generous form to the
+    /// tightest. The Russian row is why this exists: at 480 the text column
+    /// leaves 260 pt, and «Открыть Apple Music» beside «Открыть Spotify» needs
+    /// about 290 with an icon and ten points of padding a side, so the row
+    /// dropped Spotify, which the spec and every earlier build always offered.
+    /// Two buttons that always appear, squeezed a little, beat a third button
+    /// and a missing Spotify.
+    enum OpenButtonForm: CaseIterable, Equatable {
+        /// The icon, and 10 pt of padding either side.
+        case full
+        /// The icon still, with 6 pt of padding: the first thing given up.
+        case tight
+        /// Words only, 6 pt of padding: what a long language at the narrowest
+        /// panel comes to. Never truncated, so this is the last step.
+        case iconless
+
+        var horizontalPadding: CGFloat { self == .full ? EmptyFrames.openButtonHorizontalPadding : 6 }
+        var showsIcon: Bool { self != .iconless }
+    }
+
+    /// One button's width: the padding either side, the icon and its gap (in the
+    /// forms that draw one), and the label as the `body` role sets it. A button
+    /// is never truncated, so this is what the fit below is made of;
+    /// `labelWidth` is injected so a test names the width it means and the view
+    /// measures the real string.
+    static func openButtonWidth(labelWidth: CGFloat, form: OpenButtonForm = .full) -> CGFloat {
+        form.horizontalPadding * 2
+            + (form.showsIcon ? openButtonIconSide + openButtonIconGap : 0) + labelWidth
+    }
+
+    /// The label's width in the `body` role (11 pt medium, 0.07 pt of tracking
+    /// a character), rounded up and padded by a point so the rendered text
+    /// never needs the last pixel of its button.
+    static func measuredLabelWidth(_ text: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: Theme.TypeRole.body.size, weight: .medium)
+        let kern = Theme.tracking(forSize: Theme.TypeRole.body.size)
+        let width = (text as NSString).size(withAttributes: [.font: font, .kern: kern]).width
+        return ceil(width) + 1
+    }
+
+    /// The buttons the row shows and the form they are drawn in.
+    struct OpenButtonRow: Equatable {
+        var apps: [AppIcons.Installed]
+        var form: OpenButtonForm
+    }
+
+    /// Which of the installed music apps get a button, and how they are dressed.
+    ///
+    /// The installed `MediaSourcePolicy.leadingApps` (Apple Music, Spotify) are
+    /// always offered. If they do not fit in the full form they are drawn
+    /// tighter — less padding, then no icon — until they do, and the row offers
+    /// nothing else. Only when they fit in the full form do the other apps
+    /// follow, in the order given, as the longest prefix that still fits `room`
+    /// with `spacing` between buttons, at most `limit`.
+    ///
+    /// A prefix and not "whatever fits": a long name skipped to make room for
+    /// a short one further down would put an app nobody has heard of ahead of
+    /// Spotify. And never a truncated button: when even the iconless form is
+    /// too wide the row is still that form (two short words cannot be made
+    /// shorter), but no supported panel width reaches it.
+    static func openButtonRow(
+        _ apps: [AppIcons.Installed], room: CGFloat, spacing: CGFloat = EmptyFrames.buttonSpacing,
+        limit: Int = maxOpenButtons, labelWidth: (AppIcons.Installed) -> CGFloat
+    ) -> OpenButtonRow {
+        let lead = MediaSourcePolicy.leadingApps
+        let required = apps.filter { lead.contains($0.bundleID) }
+        let ordered = required + apps.filter { !lead.contains($0.bundleID) }
+        func width(_ list: [AppIcons.Installed], _ form: OpenButtonForm) -> CGFloat {
+            list.reduce(0) { $0 + openButtonWidth(labelWidth: labelWidth($1), form: form) }
+                + spacing * CGFloat(max(0, list.count - 1))
+        }
+        guard width(required, .full) <= room else {
+            let form = [OpenButtonForm.tight, .iconless].first { width(required, $0) <= room } ?? .iconless
+            return OpenButtonRow(apps: required, form: form)
+        }
+        var chosen: [AppIcons.Installed] = []
+        var used: CGFloat = 0
+        for app in ordered {
+            guard chosen.count < limit else { break }
+            let w = openButtonWidth(labelWidth: labelWidth(app))
+            let next = used + (chosen.isEmpty ? 0 : spacing) + w
+            guard next <= room else { break }
+            chosen.append(app)
+            used = next
+        }
+        return OpenButtonRow(apps: chosen, form: .full)
+    }
+
+    /// The apps alone, for a caller that does not draw.
+    static func openButtonApps(
+        _ apps: [AppIcons.Installed], room: CGFloat, spacing: CGFloat = EmptyFrames.buttonSpacing,
+        limit: Int = maxOpenButtons, labelWidth: (AppIcons.Installed) -> CGFloat
+    ) -> [AppIcons.Installed] {
+        openButtonRow(apps, room: room, spacing: spacing, limit: limit, labelWidth: labelWidth).apps
     }
 
     static func emptyFrames(for message: MediaPane.EmptyStateMessage) -> EmptyFrames {
