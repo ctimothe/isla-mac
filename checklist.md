@@ -1569,11 +1569,13 @@ New settings and their defaults (spec §14):
   write, ⌥/⇧/⌘/⌃ shortcuts left to macOS, one decision per hold). The owner's
   real-icons fix (`fix/redesign-real-app-icons`, merged in `aca4780`) ships
   with this release. The hardware checks below are owed.
-- [ ] **Codex review owed for `5d8f23e` and `d58d235`.** Codex's usage limit
-  ran out after `468ebd9`, so those two fixes have had an Opus review only.
-  The limit lifts at 16:13 on 2026-10-15; the review is
-  `codex exec review --base 468ebd9`, and its findings are answered before
-  R5 counts as reviewed.
+- [x] **Codex review of `5d8f23e` and `d58d235`.** Codex's usage limit ran
+  out after `468ebd9`, so those two fixes had an Opus review only at first.
+  Reviewed 2026-10-15 at 15:27 with `codex exec review --base 468ebd9`
+  (gpt-6-luna, high), which read the `MediaKeyHUD` diff and its tests:
+  "No actionable bugs found in the changes." Its own focused test run could
+  not start inside its sandbox (SwiftPM's cache was not writable), so the
+  tests are the closing `./scripts/check`'s.
 - [ ] **R5-H1** Turn it on, grant Accessibility: the volume keys show Isla's
   pop-up and never the Mac's.
 - [ ] **R5-H2** Mute keeps the level, dimmed; unmute restores it.
@@ -1681,10 +1683,11 @@ Two things the pass turned up besides the checks:
   "AirDrop" / "Send to a nearby device") and `ShelfAccessibilityTests` holds
   in the gate. The lab case skips itself in `./scripts/check`, which is why
   it went unseen; its expectations are owed an update, not the app.
-- [ ] **`./scripts/check` is owed for this pass.** It changes only this
-  file, and the code has not changed since the green gate at `d58d235`. It
-  was not run because the Lyrics Accuracy Lab was running in the same
-  worktree; it runs with the 16:14 Codex review.
+- [x] **`./scripts/check` for this pass.** It changes only this file, and
+  the code has not changed since the green gate at `d58d235`. Held back while
+  the Lyrics Accuracy Lab shared the worktree, then run 2026-10-15 at 15:28
+  after the Codex review: 11 of 11 steps in 199 s, 1982 tests with 30
+  skipped and 0 failures (`gatekeeper` skips itself on the ad-hoc build).
 
 #### The owner's run sheet
 
