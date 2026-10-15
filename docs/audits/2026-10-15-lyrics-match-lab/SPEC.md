@@ -1094,6 +1094,11 @@ ISLA_LYRIC_CORPUS=<corpus> ISLA_LYRIC_REPORT=<root>/reports/m4-<corpus>.json \
   - `column_lines_cut_only_while_sung`: the column sets the sung line bold and
     the others semibold, so these lines fit while they wait and are cut the
     moment they are sung.
+- **What a second row leaves cut** (amended 2026-10-15, after the report
+  recommended a second row): each surface also carries
+  `lines_two_rows_cannot_hold` and its share of all lines, the lines whose
+  wrapped layout needs three rows or more. Adding them changed no other
+  figure in either corpus's `M4` section.
 - **The calibration sample** takes up to four lines from each category, so
   every script the corpus holds is in it.
 

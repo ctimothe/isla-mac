@@ -283,9 +283,13 @@ corpora, in the fonts and widths the code defines on this branch:
   - the fewest: Mandarin and Cantonese 0.0 %, Arabic, Turkish and Hindi
     5.5 %, opera and art song 6.8 %, J-pop 9.0 %, K-pop 10.3 %;
   - every fast-rap and slow-trap song has at least one cut line there.
-- **Two rows would almost always be enough.** Wrapped at the column's width
-  at 560, at least 95 % of the cut lines need two rows (99 % in the
-  2026-10-11 corpus); the longest needs four.
+- **Two rows would almost always be enough at 560.** Wrapped at the column's
+  width at 560, at least 95 % of the cut lines need two rows (99 % in the
+  2026-10-11 corpus); the longest needs four. Counted directly, a two-row
+  column at 560 would still cut 0.15 % of lines (pool 0.26 %), the band
+  0.02 % (0.03 %), and the tall page 1 line in each corpus. At 480 a
+  two-row column would still cut 3.3 % (3.1 %), so the narrowest width needs
+  a third row or a wider column.
 - **Some lines change at the moment they are sung.** The column sets the sung
   line bold and the others semibold. At 560, 377 lines (1.6 %) fit while they
   wait and gain the ellipsis as the voice reaches them; at 480, 528 (2.2 %).
