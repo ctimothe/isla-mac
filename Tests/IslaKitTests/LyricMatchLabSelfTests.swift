@@ -43,6 +43,18 @@ final class LyricMatchLabSelfTests: XCTestCase {
         )
     }
 
+    // MARK: N8
+
+    /// A run that measures nothing must not read as a pass: the sweep case
+    /// throws `XCTSkip` through this when the corpus holds no word-timed record.
+    func testAnEmptyMeasurementIsASkipNotAPass() throws {
+        _ = try MatchLab.requireRoot()
+        XCTAssertNoThrow(try MatchLab.requireMeasured(1, of: "word-timed records"))
+        XCTAssertThrowsError(try MatchLab.requireMeasured(0, of: "word-timed records")) { error in
+            XCTAssertTrue(error is XCTSkip)
+        }
+    }
+
     // MARK: F11
 
     /// A fitting search row was credited to an overrunning `/api/get` record

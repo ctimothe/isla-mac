@@ -218,6 +218,8 @@ final class LyricMatchLabSweepTests: XCTestCase {
             }
         }
 
+        try MatchLab.requireMeasured(wordTimedRecords, of: "word-timed records")
+
         var perSurface: [String: Any] = [:]
         for (surface, scripts) in tallies {
             var out: [String: Any] = [:]

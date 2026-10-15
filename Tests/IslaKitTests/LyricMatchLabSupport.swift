@@ -212,6 +212,15 @@ enum MatchLab {
         return URL(fileURLWithPath: path, isDirectory: true)
     }
 
+    /// A case that found nothing to measure skips instead of passing (fourth
+    /// review, N8): a corpus without word-timed records made the sweep case
+    /// write an empty result and read as a pass.
+    static func requireMeasured(_ count: Int, of what: String) throws {
+        guard count > 0 else {
+            throw XCTSkip("the corpus holds no \(what): nothing was measured, so this run is a skip, not a pass")
+        }
+    }
+
     /// A directory name under the root: no separators, not empty, not `..`.
     /// Anything else could write outside the corpus root.
     static func isPlainDirectoryName(_ name: String) -> Bool {

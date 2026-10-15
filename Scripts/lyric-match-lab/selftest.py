@@ -2728,6 +2728,30 @@ class AltAnchorTests(unittest.TestCase):
         self.assertEqual(verdict["verdict"], "correct")
         self.assertIn(3, verdict["members"])
 
+    def test_a_record_with_a_fifth_of_its_letters_in_the_groups_script_is_uncertain_not_alt_script(self):
+        """N8, m12(a): the verdict's alt-script branch used to ask whether the record's dominant script
+        was another family's. A record that holds 0.2 or more of its letters in the group's script is not
+        in another script by the oracle's rule, so one whose containment falls between WRONG and SAME is
+        `uncertain`, not `alt-script`. (The members test above is not enough: a record in the members never
+        reaches this branch.)"""
+        helper = TruthFamilyTests("test_group_family_is_the_clusters_choice_not_the_first_anchors_script")
+        helper.addCleanup = self.addCleanup
+        rows = helper.rows()
+        root, track = helper.build(rows, [1, 2], group_family="CJK")
+        with mock.patch.dict(oracle.THRESHOLD_TABLE, {"CJK": (0.99, 0.15), "LATIN": (0.7, 0.3)}):
+            truth = classify.Truth(root, track)
+            info = truth.info(3, rows[2])
+            share = oracle.family_share(info["script_weights"], "CJK")
+            self.assertTrue(oracle.EXPECTED_SCRIPT_SHARE <= share, share)         # a fifth of it is in the group's script
+            self.assertEqual(info["script"], "LATIN")                             # and another script has the most
+            self.assertTrue(info["identity"])
+            self.assertTrue(truth.wrong <= truth.containment(3, info) < truth.same)
+            verdict = classify.judge(truth, {"variant": "canonical", "identity": {"duration": 200.0},
+                                             "outcome": "found", "chosen_id": 3, "requests": []}, {3: rows[2]})
+        self.assertEqual(verdict["verdict"], "uncertain")
+        self.assertNotIn(3, verdict["members"])
+        self.assertFalse(truth.foreign_script(info))
+
 
 class AltOutsidePoolTests(LabFixture):
     """Fourth review, N1: M2's alt set is the same predicate as M1's `alt-script` verdict, so a romaji copy
@@ -2810,10 +2834,28 @@ class KnownPoolTests(ReviewLab):
         # every one of them is usable only through a record the resolver never saw
         self.assertEqual(overall["fit_outside_resolver_pool"], 3)
         self.assertEqual(report["M1"]["canonical"]["fit_outside_resolver_pool"], 1)
+        self.assertIn("rest on records only Isla's own queries returned", report["M1"]["summary"])
         # alone, the silent lookup has no fit to miss: the old verdict, now only for a track nobody found B for
         alone = self.classify([silent])
         self.assertEqual(self.verdict(self.a), "miss-catalogue")
         self.assertEqual(alone["M1"]["overall"]["usable"], 0)
+
+    def test_the_accuracy_without_records_only_isla_found_is_reported_beside_the_count(self):
+        """N8: `fit_outside_resolver_pool` counted the lookups usable only through a record the resolver never
+        returned, but no figure said what M1's accuracy is without them."""
+        at240 = lambda lookup: dict(lookup, identity=dict(lookup["identity"], duration=240.0))
+        inside_ok = at240(self.lookup(self.a, "apple", "found", 1, [[self.A]]))       # the album cut, in the pool
+        inside_miss = at240(self.lookup(self.a, "canonical", "none"))                 # a miss on the same record
+        outside = self.at200(self.lookup(self.a, "deezer", "found", 2, [[self.B]]))   # the edit only Isla found
+        report = self.classify([inside_ok, inside_miss, outside])
+        self.assertEqual([self.verdict(self.a, v) for v in ("apple", "canonical", "deezer")],
+                         ["correct", "miss-unqueried", "correct"])
+        overall = report["M1"]["overall"]
+        self.assertEqual((overall["usable"], overall["correct"], overall["fit_outside_resolver_pool"]), (3, 2, 1))
+        self.assertEqual(overall["accuracy"], round(2 / 3, 4))
+        self.assertEqual((overall["usable_resolver_pool_only"], overall["accuracy_resolver_pool_only"]), (2, 0.5))
+        canonical = report["M1"]["canonical"]
+        self.assertEqual((canonical["usable_resolver_pool_only"], canonical["accuracy_resolver_pool_only"]), (1, 0.0))
 
     def test_pool_results_widen_the_known_pool_of_each_track(self):
         silent = self.at200(self.lookup(self.a, "canonical", "none"))

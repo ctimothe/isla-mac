@@ -63,7 +63,12 @@ Verdicts (M1)
   disputed             the harvest and LRCLIB disagree about instrumental (either way): excluded;
                        anchors that disagree among themselves are scored, as a cut (third review, M2)
   unreadable           taken as the harness reported it
-  failed / uncached    no answer could be obtained (an environment failure): excluded
+  failed / uncached    no answer could be obtained (an environment failure): in no denominator,
+                       but a lookup that might have been usable (on a scorable track; an
+                       uncached or failed one on a track with no anchor that was not promoted
+                       could not have been) is in the accuracy bounds and holds M1 at
+                       `incomplete` instead of `pass`; so is an unrecovered one whose truth
+                       holds a fit (fourth review, N8)
 
 The last three of those (truth-uncertain, truth-incomplete, disputed) are
 track-level: every lookup of the track that reached an answer gets the verdict,
@@ -140,9 +145,11 @@ THRESHOLDS = {
                    "no lookup that might have been usable left uncached, unrecovered or failed, and no "
                    "unanswered LRCLIB query on an anchored, scored track",
            "fail": "canonical accuracy < 0.75 or wrong rate > 0.05",
-           "incomplete": "the result would be a pass but a lookup is uncached or unrecovered, or an anchored "
-                         "track had an LRCLIB query go unanswered: the missing answers could move it, so M1 "
-                         "reports accuracy bounds [lower, upper] instead"},
+           "incomplete": "the result would be a pass but a lookup that might have been usable has no "
+                         "answer (uncached or failed, on a track with an anchor) or none the harness could attribute (unrecovered, where the truth "
+                         "holds a fit), or an anchored, scored track had an LRCLIB query go unanswered: "
+                         "the missing answers could move it, so M1 reports accuracy bounds [lower, upper] "
+                         "instead"},
     "M2": {"pass": "no switched-wrong and lost <= 0.02 of the rows whose base pick is in the song (cluster "
                    "or alt-script), switched-alt <= 0.02 of the rows whose base pick is in the cluster itself "
                    "(duration edges excluded); wrong-to-wrong and found-alt are reported and are in no "
@@ -706,6 +713,12 @@ def counts(rows: List[dict], keep_promoted: bool = False) -> dict:
         # returned (third review, M1): a measure of how much of the accuracy
         # rests on what Isla's queries found.
         "fit_outside_resolver_pool": sum(1 for r in scored if FIT_OUTSIDE_FLAG in r["flags"]),
+        # The same accuracy without those lookups, so a reader sees how much of
+        # M1 rests on records only Isla's own queries returned (fourth review, N8).
+        "usable_resolver_pool_only": sum(1 for r in usable if FIT_OUTSIDE_FLAG not in r["flags"]),
+        "accuracy_resolver_pool_only": analysis.share(
+            sum(1 for r in usable if r["verdict"] == "correct" and FIT_OUTSIDE_FLAG not in r["flags"]),
+            sum(1 for r in usable if FIT_OUTSIDE_FLAG not in r["flags"])),
         "recoverable_misses": recoverable,
         "recoverable_of_usable": analysis.share(
             sum(1 for r in usable if r["verdict"] in RECOVERABLE), len(usable)),
@@ -1279,6 +1292,10 @@ def run(root: str, results_name: str = DEFAULT_RESULTS, reports_name: str = DEFA
             + (f"; {unscored_total} lookups uncached, unrecovered or failed, accuracy over every lookup in "
                f"[{_pct(m1_counts['accuracy_bounds']['lower'])}, {_pct(m1_counts['accuracy_bounds']['upper'])}]"
                if unscored_total else "")
+            + (f"; {canon_counts['fit_outside_resolver_pool']} canonical usable lookups rest on records only Isla's "
+               f"own queries returned (accuracy without them {_pct(canon_counts['accuracy_resolver_pool_only'])} "
+               f"of {canon_counts['usable_resolver_pool_only']})"
+               if canon_counts["fit_outside_resolver_pool"] else "")
             + (f"; {unanswered_anchored} anchored tracks had an LRCLIB query go unanswered" if unanswered_anchored else "")
             + (f"; excluded from scoring: {m1_counts['excluded_from_scoring']}"
                if m1_counts["excluded_from_scoring"] else "")

@@ -906,3 +906,18 @@ from the records and the `no-album` variant directly, without a patch.
 >   m1 narrowed the accuracy bounds. On a `no-anchor` track a recovered pick is
 >   `unjudged` and in no `shown`, so an unrecovered row there cannot be a wrong
 >   pick missing from the rate; it used to widen both bounds.
+> - **M1 reports its accuracy without the records only Isla found (N8).** Beside
+>   `fit_outside_resolver_pool`, `counts()` gives `usable_resolver_pool_only`
+>   and `accuracy_resolver_pool_only`: the same accuracy over the usable
+>   lookups not flagged `fit-outside-resolver-pool`. The canonical summary says
+>   so when any canonical lookup is flagged. A reader can then see how much of
+>   M1 rests on records that only Isla's own queries returned.
+> - **A sweep case that measured nothing is a skip (N8).**
+>   `testSweepEdgeMeetsEachWord` throws `XCTSkip` through
+>   `MatchLab.requireMeasured` when the corpus holds no word-timed record, and
+>   writes no `sweep-edge.json`. It used to write an empty result and pass.
+> - **Stale text.** `THRESHOLDS["M1"]["incomplete"]` and the module docstring's
+>   `failed / uncached` line now state the rule that has held since the third
+>   review: a lookup that might have been usable and has no answer, or none the
+>   harness could attribute, holds M1 at `incomplete` and is in the accuracy
+>   bounds; one that could not have been usable does neither.
