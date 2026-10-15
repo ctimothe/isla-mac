@@ -912,6 +912,391 @@ final class LyricsCoordinatorTests: XCTestCase {
         )
     }
 
+    // MARK: - Too many requests
+
+    /// A coordinator on a real `MediaController` whose catalogue answers with
+    /// `answer`, recording every song it is asked about.
+    private func limitedCoordinator(
+        cache: OnlineLyricsCache? = nil,
+        hold: @escaping (Int) -> TimeInterval = { _ in 0 },
+        answer: @escaping (Int) -> OnlineLyrics.Outcome,
+        asked: @escaping (LocalTrackIdentity) -> Void
+    ) -> (LyricsCoordinator, MediaController) {
+        let media = MediaController()
+        var count = 0
+        let coordinator = LyricsCoordinator(
+            media: media, library: LocalLyricsLibrary(directory: root), isEnabled: { true },
+            isOnlineEnabled: { true },
+            onlineCache: cache ?? OnlineLyricsCache(directory: root),
+            onlineLookUp: { identity in
+                count += 1
+                asked(identity)
+                let held = hold(count)
+                // A request on the wire for `held` seconds; a cancel ends it.
+                if held > 0 { try? await Task.sleep(for: .seconds(held)) }
+                return answer(count)
+            }
+        )
+        return (coordinator, media)
+    }
+
+    private func play(_ title: String, on media: MediaController) {
+        var snapshot = playingSnapshot()
+        snapshot.title = title
+        snapshot.takenAt = Date()
+        media.apply(snapshot)
+    }
+
+    /// The catalogue's 429 is about this address, not about the song that met
+    /// it, so the next song does not ask. On 2026-10-15 LRCLIB's gateway
+    /// answered 429 for hours and this address was banned: every new song
+    /// started again from its first request.
+    func testALimitedAnswerPausesEveryLookUp() async throws {
+        var calls: [LocalTrackIdentity] = []
+        let (coordinator, media) = limitedCoordinator(
+            answer: { _ in .limited(retryAfter: 60) }, asked: { calls.append($0) }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("One", on: media)
+        for _ in 0..<50 where calls.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(calls.count, 1)
+
+        play("Two", on: media)
+        try? await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(calls.count, 1, "the second song does not ask while the service has said stop")
+        XCTAssertEqual(coordinator.availability, .noLocalLyrics, "the failed state, quietly: no spinner, no new text")
+    }
+
+    /// A failed lookup retries the same song after 5 s, 30 s and 2 min. A
+    /// limited one must not: that ladder was the bug, three more requests per
+    /// song against a gateway that had asked for quiet.
+    func testNoRetryLadderRunsWhilePaused() async throws {
+        LyricsCoordinator.retryDelays = [0.05]
+        defer { LyricsCoordinator.retryDelays = [5, 30, 120] }
+        var calls = 0
+        let (coordinator, media) = limitedCoordinator(
+            answer: { _ in .limited(retryAfter: 60) }, asked: { _ in calls += 1 }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("One", on: media)
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(calls, 1, "no per-song retry while the whole client is paused")
+    }
+
+    /// The pause stops requests, not memory. A song the cache knows still
+    /// shows, with no call, because nothing about it needs the service.
+    func testCachedLyricsStillShowWhilePaused() async throws {
+        let cache = OnlineLyricsCache(directory: root)
+        let cached = LocalTrackIdentity(
+            playerID: "any", title: "Cached", artist: "Artist", album: "Album", duration: 180, recordingID: nil
+        )
+        cache.remember(.found(LyricTimeline(
+            lines: [LyricsStore.Line(at: 2, text: "From the cache", end: 5)], granularity: .line
+        )), for: cached)
+        var calls: [LocalTrackIdentity] = []
+        let (coordinator, media) = limitedCoordinator(
+            cache: cache, answer: { _ in .limited(retryAfter: 60) }, asked: { calls.append($0) }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("One", on: media)
+        for _ in 0..<50 where calls.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(calls.count, 1)
+
+        play("Cached", on: media)
+        try? await Task.sleep(for: .milliseconds(100))
+        guard case .ready(let timeline) = coordinator.availability else {
+            return XCTFail("a remembered hit shows while the service is paused")
+        }
+        XCTAssertEqual(timeline.lines.first?.text, "From the cache")
+        XCTAssertEqual(calls.count, 1, "and costs no request")
+    }
+
+    /// A 429 says nothing about the recording, so it is never cached: a miss
+    /// remembered from it would have hidden the song's words for a fortnight.
+    func testALimitedAnswerIsNeverRememberedAsAMiss() async throws {
+        let cache = OnlineLyricsCache(directory: root)
+        var calls = 0
+        let (coordinator, media) = limitedCoordinator(
+            cache: cache, answer: { _ in .limited(retryAfter: 60) }, asked: { _ in calls += 1 }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("Song", on: media)
+        for _ in 0..<50 where calls == 0 { try? await Task.sleep(for: .milliseconds(10)) }
+        try? await Task.sleep(for: .milliseconds(50))
+        let identity = try XCTUnwrap(coordinator.currentLocalTrackIdentity)
+        XCTAssertTrue(cache.cached(identity) == nil)
+    }
+
+    /// When the pause ends the app asks about the song playing then, not the
+    /// one that met the 429, and does not go back to that one. Song One is
+    /// skipped during the pause; asking about it afterwards would spend the
+    /// first request of a fresh window on words nobody is looking at.
+    func testThePauseEndingAsksOnlyTheSongPlaying() async throws {
+        var calls: [LocalTrackIdentity] = []
+        let (coordinator, media) = limitedCoordinator(
+            answer: { $0 == 1 ? .limited(retryAfter: 0.5) : .none }, asked: { calls.append($0) }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("One", on: media)
+        for _ in 0..<50 where calls.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        play("Two", on: media)
+        // Long enough for a lookup Task to have started had one been made,
+        // and well inside the half-second pause. Asserted at once it would
+        // run before any such Task could, and pass for nothing.
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(calls.count, 1, "nothing asked during the pause")
+
+        for _ in 0..<100 where calls.count < 2 { try? await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(calls.map(\.title), ["One", "Two"], "the wake asks the song playing now")
+        try? await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(calls.map(\.title), ["One", "Two"], "and the song that was skipped is never asked again")
+    }
+
+    /// The pause is a time, read from the clock when a song asks: a song that
+    /// starts after it has passed is asked about at once, with no wake needed.
+    func testAPauseThatHasPassedLetsTheNextSongAsk() async throws {
+        var skew: TimeInterval = 0
+        LyricsCoordinator.now = { Date().addingTimeInterval(skew) }
+        defer { LyricsCoordinator.now = { Date() } }
+        var calls: [LocalTrackIdentity] = []
+        let (coordinator, media) = limitedCoordinator(
+            answer: { $0 == 1 ? .limited(retryAfter: 60) : .none }, asked: { calls.append($0) }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("One", on: media)
+        for _ in 0..<50 where calls.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        play("Two", on: media)
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(calls.count, 1)
+
+        skew = 61
+        play("Three", on: media)
+        for _ in 0..<50 where calls.count < 2 { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(calls.map(\.title), ["One", "Three"])
+    }
+
+    /// With no Retry-After the pause is the backoff, drawn through the
+    /// coordinator's jitter seam, so a test can pin the dice.
+    func testALimitedAnswerWithNoRetryAfterUsesTheBackoff() async throws {
+        var drawn: [ClosedRange<Double>] = []
+        LyricsCoordinator.jitter = { range in drawn.append(range); return range.upperBound }
+        defer { LyricsCoordinator.jitter = { Double.random(in: $0) } }
+        var calls = 0
+        let (coordinator, media) = limitedCoordinator(
+            answer: { _ in .limited(retryAfter: nil) }, asked: { _ in calls += 1 }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("One", on: media)
+        for _ in 0..<50 where calls == 0 { try? await Task.sleep(for: .milliseconds(10)) }
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(drawn, [30...60])
+    }
+
+    /// The drawn ranges for a 429, then an answer `gap` seconds later, then
+    /// another 429 with no Retry-After: what the jitter seam is asked for each.
+    private func backoffDraws(answerAfter gap: TimeInterval) async throws -> [ClosedRange<Double>] {
+        var skew: TimeInterval = 0
+        LyricsCoordinator.now = { Date().addingTimeInterval(skew) }
+        defer { LyricsCoordinator.now = { Date() } }
+        var drawn: [ClosedRange<Double>] = []
+        LyricsCoordinator.jitter = { range in drawn.append(range); return range.upperBound }
+        defer { LyricsCoordinator.jitter = { Double.random(in: $0) } }
+        var calls = 0
+        let (coordinator, media) = limitedCoordinator(
+            answer: { $0 == 2 ? .none : .limited(retryAfter: nil) }, asked: { _ in calls += 1 }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("One", on: media)
+        for _ in 0..<50 where calls < 1 { try? await Task.sleep(for: .milliseconds(10)) }
+        skew = gap
+        play("Two", on: media)
+        for _ in 0..<50 where calls < 2 { try? await Task.sleep(for: .milliseconds(10)) }
+        try? await Task.sleep(for: .milliseconds(50))
+        play("Three", on: media)
+        for _ in 0..<50 where calls < 3 { try? await Task.sleep(for: .milliseconds(10)) }
+        try? await Task.sleep(for: .milliseconds(50))
+        return drawn
+    }
+
+    /// A song the service answers about, after a quiet half hour, ends the
+    /// streak: the next 429 is a first step again. Seen through the jitter
+    /// seam, which is handed the range of whichever step it is.
+    func testASuccessResetsTheBackoff() async throws {
+        let drawn = try await backoffDraws(answerAfter: 31 * 60)
+        XCTAssertEqual(drawn, [30...60, 30...60], "the second 429 is a first step again, not 60...120")
+    }
+
+    /// And an answer soon after a 429 does not: the 2026-10-15 ban let a
+    /// probe through now and then, and the backoff has to keep climbing.
+    func testAnAnswerSoonAfterALimitKeepsTheBackoffStreak() async throws {
+        let drawn = try await backoffDraws(answerAfter: 61)
+        XCTAssertEqual(drawn, [30...60, 60...120], "the second 429 continues the streak")
+    }
+
+    /// A lookup that starts after the pause has ended, by the wall clock,
+    /// retires the wake. The wake runs on the continuous clock and can lag
+    /// the wall clock; it used to fire into the request already on the wire,
+    /// cancel it, and send it again.
+    func testALookUpThatStartsAfterThePauseCancelsTheWake() async throws {
+        var skew: TimeInterval = 0
+        LyricsCoordinator.now = { Date().addingTimeInterval(skew) }
+        defer { LyricsCoordinator.now = { Date() } }
+        var calls: [LocalTrackIdentity] = []
+        // Times are generous on purpose: at least half a second of slack
+        // between each step, so a stalled main actor cannot fail this for a
+        // reason that has nothing to do with the wake.
+        let (coordinator, media) = limitedCoordinator(
+            hold: { $0 == 2 ? 2.2 : 0 },
+            answer: { $0 == 1 ? .limited(retryAfter: 1.0) : .none }, asked: { calls.append($0) }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("One", on: media)
+        for _ in 0..<100 where calls.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        try? await Task.sleep(for: .milliseconds(50))
+        // The wall clock is past the pause; the wake still has ~1 s to sleep.
+        skew = 2
+        play("Two", on: media)
+        // 0.6 s past the moment the wake was set for, with Two's request
+        // still on the wire for another 0.6 s.
+        try? await Task.sleep(for: .milliseconds(1550))
+        XCTAssertEqual(calls.map(\.title), ["One", "Two"], "Two is asked once, and not again by the wake")
+    }
+
+    /// A retry that was waiting when the 429 came does not become an ask. Song
+    /// One's first answer fails and a retry is scheduled for 0.6 s; before it
+    /// fires, Retry runs the same song's lookup again (`retry()` does not
+    /// touch the pending retry), and that one meets a 429. When the old retry
+    /// fires into the pause it must send nothing, and neither may a later skip.
+    func testARetryScheduledBeforeA429DoesNotAsk() async throws {
+        LyricsCoordinator.retryDelays = [0.6]
+        defer { LyricsCoordinator.retryDelays = [5, 30, 120] }
+        var calls: [LocalTrackIdentity] = []
+        let (coordinator, media) = limitedCoordinator(
+            answer: { $0 == 1 ? .failed : .limited(retryAfter: 60) }, asked: { calls.append($0) }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("One", on: media)
+        for _ in 0..<100 where calls.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        try? await Task.sleep(for: .milliseconds(50))
+        coordinator.retry()
+        for _ in 0..<100 where calls.count < 2 { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(calls.count, 2, "the failure, and the retry that met the 429")
+
+        // Well past the 0.6 s the first failure's retry was waiting for.
+        try? await Task.sleep(for: .milliseconds(1000))
+        XCTAssertEqual(calls.count, 2, "the old retry fired into the pause and asked nothing")
+
+        play("Two", on: media)
+        try? await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(calls.count, 2, "a later skip asks nothing while the pause stands")
+    }
+
+    /// A hit cached before line ends is refreshed once, in the background, and
+    /// that refresh is a request like any other: not while paused. The old
+    /// words stay up.
+    func testAnOldHitIsNotRefreshedWhilePaused() async throws {
+        let online = root.appendingPathComponent("online", isDirectory: true)
+        try fileManager.createDirectory(at: online, withIntermediateDirectories: true)
+        let old = LocalTrackIdentity(
+            playerID: "any", title: "Cached", artist: "Artist", album: "Album", duration: 180, recordingID: nil
+        )
+        let oldLines = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode([LyricsStore.Line(at: 2, text: "Cached before ends")])
+        )
+        try JSONSerialization.data(withJSONObject: [
+            OnlineLyricsCache.key(old): ["lines": oldLines, "checkedAt": Date().timeIntervalSinceReferenceDate],
+        ]).write(to: online.appendingPathComponent("cache.json"))
+        var calls: [LocalTrackIdentity] = []
+        let (coordinator, media) = limitedCoordinator(
+            cache: OnlineLyricsCache(directory: online),
+            answer: { _ in .limited(retryAfter: 60) }, asked: { calls.append($0) }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("One", on: media)
+        for _ in 0..<50 where calls.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+
+        play("Cached", on: media)
+        try? await Task.sleep(for: .milliseconds(150))
+        guard case .ready(let shown) = coordinator.availability else {
+            return XCTFail("the old hit still shows while paused")
+        }
+        XCTAssertEqual(shown.lines.first?.text, "Cached before ends")
+        XCTAssertEqual(calls.map(\.title), ["One"], "and is not refreshed until the pause ends")
+    }
+
+    /// A moment with no length forgets the track, which cancels the wake. The
+    /// next song looked up during the pause schedules it again, and the end
+    /// of the pause then asks that song.
+    func testAForgottenTrackRearmsTheWakeOnTheNextSong() async throws {
+        var calls: [LocalTrackIdentity] = []
+        let (coordinator, media) = limitedCoordinator(
+            answer: { $0 == 1 ? .limited(retryAfter: 0.5) : .none }, asked: { calls.append($0) }
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+
+        play("One", on: media)
+        for _ in 0..<50 where calls.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        var live = playingSnapshot()
+        live.title = "Radio"
+        live.duration = 0
+        live.takenAt = Date()
+        media.apply(live)
+        try? await Task.sleep(for: .milliseconds(50))
+        play("Two", on: media)
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(calls.map(\.title), ["One"], "still paused")
+
+        for _ in 0..<100 where calls.count < 2 { try? await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(calls.map(\.title), ["One", "Two"], "the wake the forgotten track cancelled is back")
+    }
+
     private func playingSnapshot() -> NowPlayingFeed.Snapshot {
         var snapshot = NowPlayingFeed.Snapshot()
         snapshot.title = "Song"

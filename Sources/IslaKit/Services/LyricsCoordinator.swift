@@ -121,6 +121,24 @@ final class LyricsCoordinator: ObservableObject {
     /// When a failed lookup is asked again: soon, then less often, then left
     /// for the song's next play.
     static var retryDelays: [TimeInterval] = [5, 30, 120]
+
+    /// What the catalogue last said about being asked too often, for every
+    /// song at once.
+    ///
+    /// On 2026-10-15 LRCLIB's gateway answered 429 for hours and this address
+    /// was banned, because each song started its own ladder of retries and
+    /// each new song started another. A 429 is about the address, so the
+    /// answer to it is held once here and survives track changes: a skip
+    /// neither cancels nor restarts it. While it stands no lookup is sent,
+    /// the failed state shows as it does for any failure, and cached lyrics
+    /// still show because they need nothing from the service.
+    private var pause = OnlineLyricsPause()
+    /// Asks about the song playing when the pause ends. One at a time.
+    private var pauseWakeTask: Task<Void, Never>?
+    /// The clock and the dice behind the pause, as statics for tests to move,
+    /// like `retryDelays`.
+    static var now: () -> Date = { Date() }
+    static var jitter: (ClosedRange<Double>) -> Double = { Double.random(in: $0) }
     /// False until `quietGrace` has passed with no answer. Reset by every
     /// track change, so each skip gets its own quiet moment.
     private var waitIsWorthAdmitting = false
@@ -225,6 +243,7 @@ final class LyricsCoordinator: ObservableObject {
         admitWaitTask = nil
         cancelNoLengthWait()
         resetRetries()
+        cancelPauseWake()
         localLookup = nil
         hasLocalOverride = false
         presentation?.presentLocalOverride(false)
@@ -256,6 +275,61 @@ final class LyricsCoordinator: ObservableObject {
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self, self.lookUpGeneration == generation else { return }
             self.lookUpOnlineIfNeeded(for: identity)
+        }
+    }
+
+    private func cancelPauseWake() {
+        pauseWakeTask?.cancel()
+        pauseWakeTask = nil
+    }
+
+    /// Arranges to ask when the pause ends, and about the song playing then.
+    ///
+    /// The wake reads `currentIdentity` when it fires and not the identity
+    /// that met the 429: the listener has usually skipped on by then, and
+    /// spending the first request of a fresh window on a song nobody is
+    /// hearing is the kind of waste the pause exists to stop. It goes through
+    /// the ordinary path, so the cache, the local library and the pause
+    /// itself are all asked again — a pause renewed in the meantime simply
+    /// schedules the next wake. With nothing playing it does nothing.
+    ///
+    /// There is one wake at a time and it is aimed at `pause.until`, not at a
+    /// song. Every paused lookup — each track change during a pause, each
+    /// cached hit that wants a refresh — cancels it and creates it again for
+    /// the same instant. `forgetTrack` cancels it too, which a stream, an
+    /// untitled track, and a song's moment with no length all reach; the next
+    /// song to be looked up while the pause stands schedules it afresh. What
+    /// ends it for good is the pause ending (it asks and clears itself), an
+    /// answer from the service, a lookup that is about to start, a disable,
+    /// or `stop()`.
+    private func schedulePauseWake() {
+        guard let until = pause.until else { return }
+        cancelPauseWake()
+        let delay = max(until.timeIntervalSince(Self.now()), 0)
+        pauseWakeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            self.pauseWakeTask = nil
+            guard let identity = self.currentIdentity else { return }
+            self.lookUpOnlineIfNeeded(for: identity)
+        }
+    }
+
+    /// Folds one lookup's outcome into the pause. A 429 arms it; any answer
+    /// from the service ends the pause, and the backoff streak decays only
+    /// after a quiet half hour (`OnlineLyricsPause.answered(at:)`). A plain
+    /// failure — no network, a 5xx, bad JSON — says nothing about whether the
+    /// service wants fewer requests, so it leaves the pause alone.
+    private func settlePause(after outcome: OnlineLyrics.Outcome) {
+        switch outcome {
+        case .limited(let retryAfter):
+            _ = pause.limited(retryAfter: retryAfter, at: Self.now(), jitter: Self.jitter)
+            schedulePauseWake()
+        case .found, .none, .unreadable:
+            pause.answered(at: Self.now())
+            cancelPauseWake()
+        case .failed:
+            break
         }
     }
 
@@ -396,6 +470,10 @@ final class LyricsCoordinator: ObservableObject {
         admitWaitTask?.cancel()
         admitWaitTask = nil
         resetRetries()
+        // Only the wake, never the pause: nothing is playing that it could
+        // ask about, and the next song that is will schedule it again. The
+        // pause itself is the client's, not the song's, so it stands.
+        cancelPauseWake()
         hasLocalOverride = false
         presentation?.presentLocalOverride(false)
     }
@@ -458,19 +536,51 @@ final class LyricsCoordinator: ObservableObject {
             // costs one request each rather than one per play.
             onlineTimeline = remembered
             publishAvailability()
-            if remembered != nil, onlineCache.needsRefresh(identity) { refreshOldHit(identity) }
+            if remembered != nil, onlineCache.needsRefresh(identity) {
+                if pause.isPaused(at: Self.now()) {
+                    // The old words stay up; the wake asks about this song
+                    // too, through here, once the service may be asked.
+                    schedulePauseWake()
+                } else {
+                    refreshOldHit(identity)
+                }
+            }
+            return
+        }
+        // After the cache, which needs nothing from the service. A paused
+        // client sends nothing: the song reads as any failed lookup does, and
+        // the wake asks about whatever is playing when the pause ends. No
+        // per-song retry either — that ladder is what the pause replaces.
+        if pause.isPaused(at: Self.now()) {
+            onlineFailed = true
+            publishAvailability()
+            schedulePauseWake()
             return
         }
         let generation = lookUpGeneration
+        // A lookup that starts means the pause is over by the wall clock, and
+        // the wake — timed on the continuous clock, which can run behind it —
+        // may not have fired yet. Left alone it would fire into this request:
+        // cancel it on the wire and send it again, or stack a request on this
+        // song's retry ladder.
+        cancelPauseWake()
         lookUpTask?.cancel()
         lookUpTask = Task { [weak self] in
             guard let self else { return }
             let outcome = await self.onlineLookUp(identity)
             guard !Task.isCancelled, self.lookUpGeneration == generation else { return }
             self.onlineCache.remember(outcome, for: identity)
+            self.settlePause(after: outcome)
             if case .found(let timeline) = outcome { self.onlineTimeline = timeline }
-            self.onlineFailed = outcome == .failed
-            if outcome == .failed { self.scheduleRetry(for: identity, generation: generation) }
+            switch outcome {
+            case .failed:
+                self.onlineFailed = true
+                self.scheduleRetry(for: identity, generation: generation)
+            case .limited:
+                self.onlineFailed = true
+            case .found, .none, .unreadable:
+                self.onlineFailed = false
+            }
             self.publishAvailability()
         }
         // And start the clock on admitting to the wait, if it becomes one.
@@ -498,12 +608,18 @@ final class LyricsCoordinator: ObservableObject {
     /// the song's next play. A skip cancels it like any other lookup.
     private func refreshOldHit(_ identity: LocalTrackIdentity) {
         let generation = lookUpGeneration
+        // As in `lookUpOnlineIfNeeded`: a request that starts retires a wake
+        // that has not fired yet.
+        cancelPauseWake()
         lookUpTask?.cancel()
         lookUpTask = Task { [weak self] in
             guard let self else { return }
             let outcome = await self.onlineLookUp(identity)
             guard !Task.isCancelled, self.lookUpGeneration == generation else { return }
             self.onlineCache.remember(outcome, for: identity)
+            // A 429 here arms the pause like any other, and still leaves the
+            // old words up and the hit unsettled for the next play.
+            self.settlePause(after: outcome)
             guard case .found(let timeline) = outcome else { return }
             self.onlineTimeline = timeline
             self.publishAvailability()

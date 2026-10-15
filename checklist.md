@@ -82,6 +82,21 @@ are the exception the design did not anticipate:
   a newer parser ships. Answers stamped past the track's end lose the lines
   that can never show, and a search row that fits the track outranks one that
   does not (`OnlineLyricsTests`, `OnlineLyricsSearchTests`).
+  2026-10-15: a 429 from LRCLIB pauses every lookup, not just the song's. The
+  gateway in front of it answered 429 for hours and this address was banned,
+  because each song retried itself and each new song began again. Now a 429
+  stops the lookup at once (no search is sent after it) and holds all lookups
+  for its Retry-After (delay-seconds or any of the three HTTP-date forms), or
+  for a backoff whose first wait is 30–60 s (equal jitter) and which doubles
+  to a 30 min cap. The ban was partial — a few answers got through between
+  429s — so an answer ends the pause but the backoff streak decays only after
+  a quiet half hour. Lyrics already cached still show; no per-song retry runs
+  while the pause stands; when it ends, one ask is made for the song playing
+  then, not the one that met the 429. A 5xx on a search ends that lookup's
+  searching, and a 503 with a Retry-After of 5 s or less is asked once more.
+  The pause is kept in memory only, so a relaunch forgets it. Held by
+  `OnlineLyricsTests`, `OnlineLyricsSearchTests`, `OnlineLyricsPauseTests` and
+  `LyricsCoordinatorTests`.
 - **Translate Online** (Settings › Translate, default off, added 2026-09-21)
   sends a pair no engine on this Mac offers at all — Uzbek and Kazakh — to
   MyMemory (translated.net): free, no account, no key. It receives the text and
