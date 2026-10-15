@@ -722,6 +722,12 @@ final class ReplayTransport: @unchecked Sendable {
     /// a request ran out of retries on 429 — the ban outlasts its Retry-After.
     static let maxFactor = 8.0
     static let throttleHold: TimeInterval = 60
+    /// After this many requests in a row ran out of retries on 429, a host
+    /// gets no more live requests for the rest of the run: its limiter is in
+    /// a long ban, and every refused request extends it. The lookups left are
+    /// `uncached`, never cached, so the next run asks again (common.py's
+    /// TRIP_AFTER is the same rule for the resolver).
+    static let tripAfter = 3
 
     private let root: URL
     private let record: Bool
@@ -731,6 +737,8 @@ final class ReplayTransport: @unchecked Sendable {
     private var lastLive: [String: Date] = [:]
     private var factor: [String: Double] = [:]
     private var holdUntil: [String: Date] = [:]
+    private var refusedInARow: [String: Int] = [:]
+    private var tripped: Set<String> = []
     private var liveCount = 0
 
     init(root: URL, record: Bool, maxLive: Int? = nil) {
@@ -808,6 +816,25 @@ final class ReplayTransport: @unchecked Sendable {
         lock.withLock { holdUntil[Self.slot(for: url)] = Date().addingTimeInterval(Self.throttleHold) }
     }
 
+    func isTripped(_ url: URL) -> Bool { lock.withLock { tripped.contains(url.host ?? "") } }
+
+    /// Counts requests that ran out of retries on 429, in a row per host, and
+    /// trips the host at `tripAfter`; any answer resets the count.
+    private func noteOutcome(_ url: URL, refused: Bool) {
+        let host = url.host ?? ""
+        let trippedNow: Bool = lock.withLock {
+            guard refused else { refusedInARow[host] = 0; return false }
+            refusedInARow[host, default: 0] += 1
+            guard refusedInARow[host, default: 0] >= Self.tripAfter, !tripped.contains(host) else { return false }
+            tripped.insert(host)
+            return true
+        }
+        if trippedNow {
+            print("MATCH-LAB trip \(host): \(Self.tripAfter) requests in a row ran out of retries on 429; "
+                + "no live request goes to it for the rest of this run")
+        }
+    }
+
     /// One live request through `/usr/bin/curl -4`, returning the body and
     /// the HTTP status.
     ///
@@ -877,6 +904,10 @@ final class ReplayTransport: @unchecked Sendable {
             throw Miss()
         }
 
+        if isTripped(url) {
+            log(MatchExchange(key: key, path: path, kind: .miss, status: nil, cached: false, body: nil))
+            throw Miss()
+        }
         var attempt = 0
         while true {
             guard takeLiveBudget() else {
@@ -903,12 +934,16 @@ final class ReplayTransport: @unchecked Sendable {
                     attempt += 1
                     continue
                 }
-                if status == 429 { hold(url) }
+                if status == 429 {
+                    hold(url)
+                    noteOutcome(url, refused: true)
+                }
                 log(MatchExchange(key: key, path: path, kind: .miss, status: status, cached: false, body: nil))
                 throw Miss()
             }
             if (200..<300).contains(status) || status == 404 {
                 succeeded(url)
+                noteOutcome(url, refused: false)
                 try MatchLab.store(root, key: key, url: url.absoluteString, status: status, body: data)
             }
             log(MatchExchange(key: key, path: path, kind: .answer, status: status, cached: false, body: data))

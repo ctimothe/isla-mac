@@ -86,6 +86,12 @@ RETRY_AFTER_CAP = 60.0  # caps the server's Retry-After, never our own delays
 TIMEOUT = 30
 TRUNCATED = 599       # synthetic status for a body cut short mid-transfer
 THROTTLE_HOLD = 60.0  # seconds a host stays closed after a request ends on 429
+# After this many requests in a row ran out of retries on 429, a host gets no
+# more live requests for the rest of the run. Its limiter is in a long ban and
+# every refused request extends it (2026-10-15: a run that kept poking got one
+# answer a minute); the lookups left go unanswered, which is never cached, so
+# the next run asks again once the ban has passed.
+TRIP_AFTER = 3
 
 # Statuses that are an answer rather than a hiccup. 400 is deterministic for a
 # URL and 404 is LRCLIB's "no record"; both would come back identically.
@@ -250,6 +256,29 @@ class HostSlot:
 _gates: dict = {}
 _host_slots: dict = {}
 _gates_lock = threading.Lock()
+_refused_in_a_row: dict = {}   # host -> requests in a row that ended on 429
+_tripped: set = set()          # hosts that get no more live requests this run
+
+
+def tripped(url: str) -> bool:
+    with _gates_lock:
+        return (urllib.parse.urlsplit(url).hostname or "").lower() in _tripped
+
+
+def _note_outcome(url: str, refused: bool) -> None:
+    """Counts requests that ran out of retries on 429, in a row per host, and
+    trips the host at TRIP_AFTER. Any answer resets the count."""
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    with _gates_lock:
+        if not refused:
+            _refused_in_a_row[host] = 0
+            return
+        _refused_in_a_row[host] = _refused_in_a_row.get(host, 0) + 1
+        if _refused_in_a_row[host] < TRIP_AFTER or host in _tripped:
+            return
+        _tripped.add(host)
+    print(f"[trip] {host}: {TRIP_AFTER} requests in a row ran out of retries on 429; "
+          f"no live request goes to it for the rest of this run", flush=True)
 
 
 def gate_key(url: str) -> str:
@@ -381,6 +410,9 @@ def fetch(url: str, root: str, *, offline: bool = False,
         return hit
     if offline:
         return None
+    if tripped(url):
+        stats.failed()
+        return None
     gate = gate_for(url)
     with gate:
         # Another thread may have fetched the same URL while this one queued.
@@ -396,6 +428,7 @@ def fetch(url: str, root: str, *, offline: bool = False,
                 status = 502
             if status is not None and (200 <= status < 300 or status in CACHEABLE_STATUSES):
                 gate.succeeded()
+                _note_outcome(url, refused=False)
                 write_cache(root, url, status, body)
                 return Response(status, body, False)
             if not _is_transient(url, status):
@@ -409,6 +442,7 @@ def fetch(url: str, root: str, *, offline: bool = False,
                 stats.failed()
                 if status == 429:
                     gate.hold(THROTTLE_HOLD)
+                    _note_outcome(url, refused=True)
                 return None
             delays = THROTTLE_DELAYS if status == 429 else RETRY_DELAYS
             time.sleep(max(delays[attempt], min(retry_after, RETRY_AFTER_CAP)))

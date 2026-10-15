@@ -123,10 +123,44 @@ class CommonTests(unittest.TestCase):
     def _fetch_with(self, replies, url="https://example.test/r", **kwargs):
         gate = common.HostGate(0.0)
         with mock.patch.dict(common._gates, {"example.test": gate}), \
+                mock.patch.dict(common._refused_in_a_row, {}, clear=True), \
+                mock.patch.object(common, "_tripped", set()), \
                 mock.patch.object(common, "_http_get", side_effect=list(replies)) as http, \
                 mock.patch.object(common.time, "sleep") as sleep:
             result = common.fetch(url, self.root, stats=common.Stats(), **kwargs)
         return result, http.call_count, [c.args[0] for c in sleep.call_args_list], gate
+
+    def test_a_host_trips_after_three_requests_in_a_row_end_on_429(self):
+        # The fourth lookup never reaches the network: a limiter in a long ban
+        # counts every refused request, so poking it only extends the ban.
+        gate = common.HostGate(0.0, sleep=lambda seconds: None)  # its 60 s hold is not waited out
+        refused = [(429, b"", 0.0)] * 4
+        with mock.patch.dict(common._gates, {"example.test": gate}), \
+                mock.patch.dict(common._refused_in_a_row, {}, clear=True), \
+                mock.patch.object(common, "_tripped", set()), \
+                mock.patch.object(common, "_http_get", side_effect=refused * 3 + [(200, b"[]", 0.0)]) as http, \
+                mock.patch.object(common.time, "sleep"), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            for n in range(3):
+                self.assertIsNone(common.fetch(f"https://example.test/t{n}", self.root, stats=common.Stats()))
+            self.assertIsNone(common.fetch("https://example.test/t3", self.root, stats=common.Stats()))
+            self.assertEqual(http.call_count, 12)
+            self.assertIn("[trip] example.test", out.getvalue())
+            # Other hosts are untouched.
+            self.assertFalse(common.tripped("https://other.test/x"))
+
+    def test_an_answer_between_refusals_keeps_the_host_open(self):
+        gate = common.HostGate(0.0, sleep=lambda seconds: None)  # its 60 s hold is not waited out
+        refused = [(429, b"", 0.0)] * 4
+        replies = refused * 2 + [(200, b"[]", 0.0)] + refused * 2 + [(200, b"[]", 0.0)]
+        with mock.patch.dict(common._gates, {"example.test": gate}), \
+                mock.patch.dict(common._refused_in_a_row, {}, clear=True), \
+                mock.patch.object(common, "_tripped", set()), \
+                mock.patch.object(common, "_http_get", side_effect=replies), \
+                mock.patch.object(common.time, "sleep"), \
+                mock.patch("sys.stdout", new_callable=io.StringIO):
+            results = [common.fetch(f"https://example.test/o{n}", self.root, stats=common.Stats()) for n in range(6)]
+        self.assertEqual([r.status if r else None for r in results], [None, None, 200, None, None, 200])
 
     def test_retries_5xx_after_2_8_30_seconds_and_429_after_30_60_120(self):
         result, calls, sleeps, _ = self._fetch_with(
