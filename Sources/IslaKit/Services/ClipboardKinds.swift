@@ -308,8 +308,15 @@ enum ClipboardDetection {
     /// of identifier characters was a fresh start that scanned to the end of the
     /// run before failing to find a bracket, which is quadratic in the run
     /// (review 2026-10-15).
+    ///
+    /// The lookbehind first refused every start after a dot, which also refused
+    /// the calls that follow a bracket or a quote: `$("#a").hide()`,
+    /// `[1,2].map(f)` and `"s".split(",")` lost their call signal
+    /// (re-review 2026-10-15). Now a start is refused only after an identifier
+    /// character or after `identifier.`: the dot of a chain already being
+    /// scanned from its head, so a long dotted chain stays linear too.
     private static let call = try! NSRegularExpression(
-        pattern: "(?<![A-Za-z0-9_.])[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*\\([^()\\n]*\\)"
+        pattern: "(?<![A-Za-z0-9_])(?<![A-Za-z0-9_]\\.)[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*\\([^()\\n]*\\)"
     )
 }
 

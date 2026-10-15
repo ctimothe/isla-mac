@@ -338,12 +338,13 @@ final class ClipboardPinsTests: XCTestCase {
             asked.append(path)
             return FileManager.default.fileExists(atPath: path)
         })
-        XCTAssertEqual(loaded.map(\.payload), [.text("a note"), .file(present)], "text, and the one file that is there")
+        XCTAssertEqual(loaded.map(\.payload), [.text("a note"), .file(present), .file(mounted), .file(network)],
+                       "text, the file that is there and both mount pins; only the missing local one is gone")
         XCTAssertEqual(Set(asked), [present.path, missing.path], "a mount's path is never asked about")
         XCTAssertFalse(asked.contains { $0.hasPrefix("/Volumes/") || $0.hasPrefix("/Network/") })
     }
 
-    func testAStackKeepsTheFilesThatQualifyAndCollapsesToOneOrNone() throws {
+    func testAStackKeepsMountMembersAndDropsOnlyMissingLocalOnes() throws {
         let one = folder.appendingPathComponent("one.key")
         let two = folder.appendingPathComponent("two.key")
         let three = folder.appendingPathComponent("three.key")
@@ -356,7 +357,10 @@ final class ClipboardPinsTests: XCTestCase {
             .init(payload: .files([mounted, URL(fileURLWithPath: "/Volumes/Backup/b.key")]), date: date),
         ])
         let loaded = pinFile.load(exists: { FileManager.default.fileExists(atPath: $0) })
-        XCTAssertEqual(loaded.map(\.payload), [.files([one, two]), .file(three)], "a stack with nothing local left is gone")
+        XCTAssertEqual(loaded.map(\.payload), [
+            .files([one, two, mounted]), .files([three, mounted]),
+            .files([mounted, URL(fileURLWithPath: "/Volumes/Backup/b.key")]),
+        ], "mount members are kept")
     }
 
     /// Through the store: a missing pin does not come back as a row.
@@ -374,6 +378,31 @@ final class ClipboardPinsTests: XCTestCase {
         fresh.keepsPinned = { true }
         fresh.loadPinned()
         XCTAssertEqual(fresh.items.map(\.preview), ["here.txt"])
+    }
+
+    /// Re-review 2026-10-15: external-drive pins used to vanish for good at the
+    /// next save. They survive load and a save with no filesystem call, and the
+    /// file is rewritten without losing them while a missing local pin goes.
+    func testExternalDrivePinsSurviveLoadAndTheNextSave() throws {
+        let ext = URL(fileURLWithPath: "/Volumes/Ext/a.pdf")
+        let missing = folder.appendingPathComponent("gone.txt")
+        let date = Date(timeIntervalSince1970: 100)
+        try pinFile.save([.init(payload: .file(ext), date: date), .init(payload: .file(missing), date: date)])
+        let board = NSPasteboard(name: .init("ClipboardPinsTests.ext.\(UUID())"))
+        defer { board.releaseGlobally() }
+        let fresh = ClipboardStore(pasteboard: board)
+        fresh.pinnedFile = pinFile
+        fresh.keepsPinned = { true }
+        var asked: [String] = []
+        fresh.pinnedFileExists = { asked.append($0); return false }
+        fresh.loadPinned()
+        XCTAssertEqual(fresh.items.map(\.preview), ["a.pdf"], "the missing local pin is dropped, the drive's stays")
+        XCTAssertNil(fresh.items[0].fileSize, "size unknown, not read")
+        XCTAssertEqual(asked, [missing.path], "the drive's path is never asked about")
+        // A save (a new pin) rewrites the file; the drive's pin must still be in it.
+        fresh.record(text("another"))
+        fresh.setPinned(fresh.items.first { $0.preview == "another" }!, true)
+        XCTAssertTrue(pinFile.load(exists: { _ in true }).contains { $0.payload == .file(ext) })
     }
 
     // MARK: Fixtures

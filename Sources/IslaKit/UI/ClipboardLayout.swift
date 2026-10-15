@@ -21,6 +21,16 @@ enum ClipboardLayout {
     static let rowHeight: CGFloat = 28
     static let rowGap: CGFloat = 2
     static let listOrigin = CGPoint(x: PlayerLayout.paneLeading, y: 74)
+    /// The same, for a header taller or shorter than the reference 38
+    /// (re-review 2026-10-15): the filter row hangs 6 pt under the header and
+    /// the list 30 pt under that, so a display whose notch is taller than 38
+    /// does not slide the row beneath it.
+    static func listOrigin(headerHeight: CGFloat) -> CGPoint {
+        CGPoint(x: PlayerLayout.paneLeading, y: ClipboardHeader.filterRowTop(headerHeight: headerHeight) + ClipboardHeader.filterRowHeight + 8)
+    }
+    static func listOriginWithoutFilterRow(headerHeight: CGFloat) -> CGPoint {
+        CGPoint(x: PlayerLayout.paneLeading, y: ClipboardHeader.filterRowTop(headerHeight: headerHeight))
+    }
     /// The list's top while there is no filter row to clear (no history yet):
     /// the first row below the header, where the spec had it.
     static let listOriginWithoutFilterRow = CGPoint(x: PlayerLayout.paneLeading, y: 44)
@@ -62,9 +72,10 @@ enum ClipboardLayout {
     /// denied-access alert above it the list starts below the alert, and while
     /// Clear History is being asked the question's bar takes the foot.
     static func viewport(
-        bodySize: CGSize, showsAlert: Bool = false, confirming: Bool = false, hasFilterRow: Bool = true
+        bodySize: CGSize, showsAlert: Bool = false, confirming: Bool = false, hasFilterRow: Bool = true,
+        headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight
     ) -> CGRect {
-        let origin = hasFilterRow ? listOrigin : listOriginWithoutFilterRow
+        let origin = hasFilterRow ? listOrigin(headerHeight: headerHeight) : listOriginWithoutFilterRow(headerHeight: headerHeight)
         let top = origin.y + (showsAlert ? alertHeight + alertGap : 0)
         let bottom = confirming
             ? confirmBar(bodySize: bodySize).minY
@@ -164,12 +175,15 @@ enum ClipboardHeader {
 
     /// The row under the header: (58, 44), `bw − 72` wide, 22 tall. The segmented
     /// control is left-aligned in it and the search field fills it.
-    static let filterRowTop: CGFloat = 44
+    static let filterRowTop: CGFloat = PlayerLayout.referenceHeaderHeight + 6
+    /// 6 pt under the header, whatever its height (re-review 2026-10-15: a
+    /// fixed 44 slid under the notch where the header exceeds 38).
+    static func filterRowTop(headerHeight: CGFloat) -> CGFloat { headerHeight + 6 }
     static let filterRowHeight: CGFloat = 22
 
-    static func filterRow(bodyWidth: CGFloat) -> CGRect {
+    static func filterRow(bodyWidth: CGFloat, headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight) -> CGRect {
         CGRect(
-            x: PlayerLayout.paneLeading, y: filterRowTop,
+            x: PlayerLayout.paneLeading, y: filterRowTop(headerHeight: headerHeight),
             width: ClipboardLayout.rowWidth(bodyWidth: bodyWidth), height: filterRowHeight
         )
     }
@@ -228,14 +242,16 @@ enum ClipboardHeader {
     }
 
     /// Left-aligned on the row, centred in its 22 pt.
-    static func filter(bodyWidth: CGFloat, wordsFit: Bool) -> CGRect {
+    static func filter(
+        bodyWidth: CGFloat, wordsFit: Bool, headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight
+    ) -> CGRect {
         let size = filterSize(bodyWidth: bodyWidth, wordsFit: wordsFit)
-        let row = filterRow(bodyWidth: bodyWidth)
+        let row = filterRow(bodyWidth: bodyWidth, headerHeight: headerHeight)
         return CGRect(x: row.minX, y: row.minY + (row.height - size.height) / 2, width: size.width, height: size.height)
     }
 
-    static func filter(bodyWidth: CGFloat) -> CGRect {
-        filter(bodyWidth: bodyWidth, wordsFit: wordsFit(bodyWidth: bodyWidth))
+    static func filter(bodyWidth: CGFloat, headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight) -> CGRect {
+        filter(bodyWidth: bodyWidth, wordsFit: wordsFit(bodyWidth: bodyWidth), headerHeight: headerHeight)
     }
 
     // MARK: Search and Expand
@@ -249,8 +265,8 @@ enum ClipboardHeader {
     /// The open search field: the whole row, `bw − 72` × 22 at (58, 44), radius
     /// 7. It *replaces* the filter; Search leaves and Expand stays, since the ⓧ
     /// that closes the field lives inside it.
-    static func searchField(bodyWidth: CGFloat) -> CGRect {
-        filterRow(bodyWidth: bodyWidth)
+    static func searchField(bodyWidth: CGFloat, headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight) -> CGRect {
+        filterRow(bodyWidth: bodyWidth, headerHeight: headerHeight)
     }
 
     static let searchFieldRadius: CGFloat = 7
@@ -275,15 +291,17 @@ enum ClipboardHeader {
 
     /// Every control the header and the filter row draw, in body coordinates,
     /// for the notch-band test and anyone else who needs to ask what is where.
-    static func controlFrames(bodyWidth: CGFloat, isSearching: Bool) -> [(name: String, frame: CGRect, isTrailingTool: Bool)] {
+    static func controlFrames(
+        bodyWidth: CGFloat, isSearching: Bool, headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight
+    ) -> [(name: String, frame: CGRect, isTrailingTool: Bool)] {
         var frames: [(String, CGRect, Bool)] = [
             ("Expand", HeaderToolFrames.expand(bodyWidth: bodyWidth), true),
         ]
         if isSearching {
-            frames.append(("Search field", searchField(bodyWidth: bodyWidth), false))
+            frames.append(("Search field", searchField(bodyWidth: bodyWidth, headerHeight: headerHeight), false))
         } else {
             frames.append(("Search", search(bodyWidth: bodyWidth), true))
-            frames.append(("Kind filter", filter(bodyWidth: bodyWidth), false))
+            frames.append(("Kind filter", filter(bodyWidth: bodyWidth, headerHeight: headerHeight), false))
         }
         return frames
     }

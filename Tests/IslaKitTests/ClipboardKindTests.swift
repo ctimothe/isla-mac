@@ -243,6 +243,10 @@ final class ClipboardKindTests: XCTestCase {
         // The call pattern still finds a call after a dot, and ignores the middle of a word.
         XCTAssertGreaterThanOrEqual(ClipboardDetection.signalCount(of: "x = translator.translate()"), 1)
         XCTAssertEqual(ClipboardDetection.signalCount(of: "9lives(x)"), 0)
+        // Re-review 2026-10-15: a call after a closing bracket or quote counts.
+        for value in ["$(\"#a\").hide()", "[1,2].map(f)", "\"s\".split(\",\")"] {
+            XCTAssertGreaterThanOrEqual(ClipboardDetection.signalCount(of: value), 1, value)
+        }
     }
 
     // MARK: Search

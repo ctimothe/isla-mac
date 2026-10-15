@@ -326,6 +326,7 @@ final class NotchRootView: NSView {
         // drop's own receiver callbacks: a second drop made before this one's
         // files land must not change where they go (review 2026-10-15).
         let toAirDrop = onPromisedDrop?() ?? false
+        let releasedAt = Date()
         // Not counted — coalesced.
         //
         // There is no reliable count to wait for: the reader is called once per
@@ -350,7 +351,7 @@ final class NotchRootView: NSView {
         guard let inbox = promises else { return false }
         for receiver in receivers {
             receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: queue) { url, error in
-                inbox.arrived(url: url, error: error, toAirDrop: toAirDrop)
+                inbox.arrived(url: url, error: error, toAirDrop: toAirDrop, releasedAt: releasedAt)
             }
         }
         return true

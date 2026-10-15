@@ -67,6 +67,8 @@ final class NotchController {
     /// which a test process does not control. Production leaves both alone.
     var deleteKeyRegistrar: ShelfDeleteKeyHolder.Registrar?
     var appIsActive: () -> Bool = { NSApp?.isActive ?? false }
+    /// Where app activation is heard; a test posts to its own center.
+    var activationCenter: NotificationCenter = .default
     /// Whether the Shelf's Delete and ⌘⌫ are held right now.
     var holdsDeleteKey: Bool { deleteKey.isRegistered }
     /// Monotonic stamp for the deferred half of closing: any newer open or
@@ -654,7 +656,7 @@ final class NotchController {
         pointer.stop()
         stopGeometryWatchdog()
         if let pinnedClickMonitor {
-            NSEvent.removeMonitor(pinnedClickMonitor)
+            removeOutsideClickMonitor(pinnedClickMonitor)
             self.pinnedClickMonitor = nil
         }
         // Explicitly, not by the sink that normally gives it up: the sinks go
@@ -972,31 +974,54 @@ final class NotchController {
     /// itself open — which since the teleprompter went on 2026-08-22 means the
     /// pin and nothing else (`holdsOpen` is now just `isPinnedOpen`). It is a
     /// state the pointer cannot end, and it promises a click outside will.
-    private func updatePinnedClickMonitor() {
-        let wanted = viewModel?.holdsOpen == true
+    private func updatePinnedClickMonitor(selectionIsCurrent: Bool? = nil) {
+        // Also watched while a Shelf tile is selected on an open panel, pinned
+        // or not (re-review 2026-10-15): clicking into Mail leaves Mail the
+        // active app (this panel never activates, so no activation notification
+        // fires), and with the pointer resting over the grid the transient
+        // Delete key then ate the next ⌫ and removed the tile. A mouse-down
+        // outside the panel ends the selection; global mouse monitors need no
+        // Accessibility permission, unlike key monitors.
+        //
+        // `selectionIsCurrent` is the value a `$shelfSelectionIsCurrent` sink was
+        // handed: `@Published` announces before it stores, so re-reading the
+        // property there saw the old value and the first selection never
+        // installed the watch (re-review 2026-10-15, Codex P1).
+        let selected = selectionIsCurrent ?? (viewModel?.shelfSelectionIsCurrent == true)
+        let wanted = viewModel?.holdsOpen == true || (viewModel?.isOpen == true && selected)
         if wanted, pinnedClickMonitor == nil {
-            pinnedClickMonitor = NSEvent.addGlobalMonitorForEvents(
-                matching: [.leftMouseDown, .rightMouseDown]
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, self.viewModel?.holdsOpen == true else { return }
-                    // The click landed in another application — this app never
-                    // sees clicks on its own panel here — so whatever was
-                    // holding the panel open is over.
-                    self.viewModel?.isPinnedOpen = false
-                    self.setOpen(false)
-                    // Deliberate, like the other two closes: the click landed in
-                    // another app, but `openRect` reaches past the region this
-                    // panel takes clicks in, so the pointer that made it can be
-                    // inside the rect an arrival is measured against.
-                    self.pointer.closedByHand()
-                    self.updatePinnedClickMonitor()
-                }
+            pinnedClickMonitor = installOutsideClickMonitor { [weak self] in
+                MainActor.assumeIsolated { self?.outsideMouseDown() }
             }
         } else if !wanted, let monitor = pinnedClickMonitor {
-            NSEvent.removeMonitor(monitor)
+            removeOutsideClickMonitor(monitor)
             pinnedClickMonitor = nil
         }
+    }
+
+    /// Test seams: a test process must not register a real global monitor.
+    var installOutsideClickMonitor: (@escaping @Sendable () -> Void) -> Any? = { handler in
+        NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in handler() }
+    }
+    var removeOutsideClickMonitor: (Any) -> Void = { NSEvent.removeMonitor($0) }
+
+    /// A mouse-down in another application (this app never sees clicks on its
+    /// own panel here). Drops the Shelf selection, which releases the Delete
+    /// key, and ends a pin.
+    func outsideMouseDown() {
+        guard let vm = viewModel else { return }
+        vm.shelf.clearSelection()
+        if vm.holdsOpen {
+            // Whatever was holding the panel open is over.
+            vm.isPinnedOpen = false
+            setOpen(false)
+            // Deliberate, like the other two closes: the click landed in
+            // another app, but `openRect` reaches past the region this
+            // panel takes clicks in, so the pointer that made it can be
+            // inside the rect an arrival is measured against.
+            pointer.closedByHand()
+        }
+        updatePinnedClickMonitor()
     }
 
     /// Another app came to the front. Ends a pin the way a click in another app
@@ -1619,8 +1644,6 @@ final class NotchController {
                         panelHasKeyboard: vm.wantsKeyboard,
                         locked: vm.isLockedPresentation
                     )
-                    // Active, the app's own windows answer Delete.
-                    self.refreshDeleteKey()
                 }
             }
             .store(in: &cancellables)
@@ -1879,6 +1902,24 @@ final class NotchController {
                 }
             }
             .store(in: &cancellables)
+        // A selection appearing or ending adds or drops the outside-click watch.
+        vm.$shelfSelectionIsCurrent.removeDuplicates()
+            .sink { [weak self] current in
+                MainActor.assumeIsolated { self?.updatePinnedClickMonitor(selectionIsCurrent: current) }
+            }
+            .store(in: &cancellables)
+        // Activation is the one input of the Delete claim that is not the
+        // model's: Quick Look and AirDrop activate Isla from a Shelf card, and
+        // while it is active its own windows answer Delete. Installed here, not
+        // in `build`, so a test hears it through an injected center
+        // (re-review 2026-10-15: the sink was build-only and the test called
+        // `refreshDeleteKey()` by hand).
+        activationCenter.publisher(for: NSApplication.didBecomeActiveNotification)
+            .merge(with: activationCenter.publisher(for: NSApplication.didResignActiveNotification))
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshDeleteKey() }
+            }
+            .store(in: &cancellables)
         // The Shelf's pointer zone follows the tab: cut for the Shelf's body
         // while it shows, empty on every other tab, and at once (not a pass
         // later like the rects) because it is what ends the Delete claim.
@@ -1907,6 +1948,8 @@ final class NotchController {
     func attachForTesting(viewModel: NotchViewModel, rootView: NotchRootView) {
         self.viewModel = viewModel
         self.rootView = rootView
+        installOutsideClickMonitor = { _ in NSObject() }
+        removeOutsideClickMonitor = { _ in }
         // The same sinks `build` installs, so a test that flips `isOpen`, the tab
         // or the pointer sees the registration follow without a manual refresh.
         wireShelfClaims(viewModel)

@@ -92,14 +92,15 @@ struct PinnedClipboardFile {
     /// write elsewhere or edited by hand into nonsense is simply not pins, and
     /// the next save replaces it.
     ///
-    /// **Files come back only if they are local and still there** (review
-    /// 2026-10-15). A pinned file is a path, and `ClipItem.init` reads the file's
-    /// size on the main thread at launch: a path on a network mount that has
-    /// gone away can hang that read for as long as the mount's timeout, with
-    /// the whole island frozen behind it. Anything under `/Volumes/` or
-    /// `/Network/` is dropped without the filesystem being asked about it, and
-    /// anything else is kept only if `exists` says so. A stack of files keeps
-    /// the ones that qualify; none left, the pin is gone.
+    /// **A pin is never dropped for where it lives** (re-review 2026-10-15).
+    /// The earlier rule dropped every `/Volumes/` pin to keep a stale mount from
+    /// hanging the main thread, but `ClipboardStore.persistedPins = records`
+    /// then kept the filtered list and the next save erased every pin on an
+    /// external SSD for good. Now: a path under `/Volumes/`, `/Network/` or
+    /// `/net/` is kept without the filesystem being asked about it (its entry
+    /// is built with an unknown size, see `ClipItem.init`); only a path on the
+    /// boot volume that `exists` says is gone is dropped. A stack keeps its
+    /// members by the same rule; none left, the pin is gone.
     ///
     /// - Parameter exists: injectable so a test can prove a mount path is never
     ///   asked about; the app asks `FileManager`.
@@ -116,11 +117,16 @@ struct PinnedClipboardFile {
     }
 
     /// Paths under these are volumes that may not be local, or not there.
-    static let nonLocalPrefixes = ["/Volumes/", "/Network/"]
+    static let nonLocalPrefixes = ["/Volumes/", "/Network/", "/net/"]
 
-    static func isLocalAndPresent(_ path: String, exists: (String) -> Bool) -> Bool {
-        if nonLocalPrefixes.contains(where: { path.hasPrefix($0) }) { return false }
-        return exists(path)
+    static func isNonLocal(_ path: String) -> Bool {
+        nonLocalPrefixes.contains { path.hasPrefix($0) }
+    }
+
+    /// Kept unless the path is on the boot volume and confirmed missing. A
+    /// non-local path is never asked about: an unplugged disk is not a deleted file.
+    static func isKept(_ path: String, exists: (String) -> Bool) -> Bool {
+        isNonLocal(path) || exists(path)
     }
 
     static func keepingLocalFiles(_ record: Record, exists: (String) -> Bool) -> Record? {
@@ -128,9 +134,9 @@ struct PinnedClipboardFile {
         case .text, .image:
             return record
         case .file(let url):
-            return isLocalAndPresent(url.path, exists: exists) ? record : nil
+            return isKept(url.path, exists: exists) ? record : nil
         case .files(let urls):
-            let kept = urls.filter { isLocalAndPresent($0.path, exists: exists) }
+            let kept = urls.filter { isKept($0.path, exists: exists) }
             switch kept.count {
             case 0: return nil
             case 1: return Record(payload: .file(kept[0]), date: record.date)

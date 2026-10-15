@@ -50,7 +50,12 @@ struct ClipItem: Identifiable, Equatable {
         case .file(let url):
             self.kind = .file
             self.link = nil
-            self.fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init)
+            // Re-review 2026-10-15: a pin on a mount is restored without the
+            // filesystem being asked (a gone network volume can hang this read
+            // on the main thread), so its size is simply unknown.
+            self.fileSize = PinnedClipboardFile.isNonLocal(url.path)
+                ? nil
+                : (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init)
         case .files:
             self.kind = .files
             self.link = nil

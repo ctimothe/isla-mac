@@ -119,7 +119,7 @@ struct ClipboardPane: View {
         let confirming = clear.isAsking && !clipboard.items.isEmpty
         let hasFilterRow = ClipboardHeader.showsFilterRow(itemCount: clipboard.items.count, isSearching: browser.isSearching)
         let viewport = pane(ClipboardLayout.viewport(
-            bodySize: size, showsAlert: alert, confirming: confirming, hasFilterRow: hasFilterRow
+            bodySize: size, showsAlert: alert, confirming: confirming, hasFilterRow: hasFilterRow, headerHeight: headerHeight
         ))
         let listing = ClipboardBrowser.listing(
             of: clipboard.items, filter: browser.filter, query: browser.query, searching: browser.isSearching,
@@ -129,7 +129,7 @@ struct ClipboardPane: View {
             if alert { deniedAlert(size, hasFilterRow: hasFilterRow) }
             if hasFilterRow { filterRow(size) }
             if clipboard.items.isEmpty {
-                emptyState(in: pane(ClipboardLayout.viewport(bodySize: size, showsAlert: alert, hasFilterRow: hasFilterRow)))
+                emptyState(in: pane(ClipboardLayout.viewport(bodySize: size, showsAlert: alert, hasFilterRow: hasFilterRow, headerHeight: headerHeight)))
             } else if listing.items.isEmpty {
                 if listing.isSearch {
                     noResults(in: viewport)
@@ -158,13 +158,13 @@ struct ClipboardPane: View {
     @ViewBuilder
     private func filterRow(_ size: CGSize) -> some View {
         if browser.isSearching {
-            let frame = pane(ClipboardHeader.searchField(bodyWidth: size.width))
+            let frame = pane(ClipboardHeader.searchField(bodyWidth: size.width, headerHeight: headerHeight))
             ClipboardSearchField(browser: browser, wantsKeyboard: $wantsKeyboard, close: closeSearch)
                 .frame(width: frame.width, height: frame.height)
                 .offset(x: frame.minX, y: frame.minY)
                 .transition(.opacity)
         } else {
-            let frame = pane(ClipboardHeader.filter(bodyWidth: size.width))
+            let frame = pane(ClipboardHeader.filter(bodyWidth: size.width, headerHeight: headerHeight))
             ClipboardKindControl(selection: $browser.filter, bodyWidth: size.width)
                 .offset(x: frame.minX, y: frame.minY)
                 .transition(.opacity)
@@ -381,7 +381,9 @@ struct ClipboardPane: View {
     /// carries no second banner for the same event. What was kept before the
     /// refusal stays below it, still usable.
     private func deniedAlert(_ size: CGSize, hasFilterRow: Bool) -> some View {
-        let origin = hasFilterRow ? ClipboardLayout.listOrigin : ClipboardLayout.listOriginWithoutFilterRow
+        let origin = hasFilterRow
+            ? ClipboardLayout.listOrigin(headerHeight: headerHeight)
+            : ClipboardLayout.listOriginWithoutFilterRow(headerHeight: headerHeight)
         let frame = pane(CGRect(
             x: origin.x, y: origin.y,
             width: ClipboardLayout.rowWidth(bodyWidth: size.width), height: ClipboardLayout.alertHeight

@@ -96,6 +96,26 @@ final class HeaderNotchBandTests: XCTestCase {
         }
     }
 
+    /// Re-review 2026-10-15: the row followed a fixed 44, so a header above 38
+    /// could reach it. Headers of 32, 38 and 50: the row and the list start
+    /// below the header at every width and in both searching states.
+    func testTheClipboardFilterRowFollowsTheHeaderHeight() {
+        for header: CGFloat in [32, 38, 50] {
+            for width in widths {
+                XCTAssertEqual(ClipboardHeader.filterRow(bodyWidth: width, headerHeight: header).minY, header + 6)
+                XCTAssertEqual(ClipboardLayout.listOrigin(headerHeight: header).y, header + 36)
+                for searching in [false, true] {
+                    for control in ClipboardHeader.controlFrames(bodyWidth: width, isSearching: searching, headerHeight: header)
+                    where !control.isTrailingTool {
+                        XCTAssertGreaterThanOrEqual(control.frame.minY, header, "\(control.name) at header \(header), width \(width)")
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(ClipboardLayout.listOrigin(headerHeight: 38), ClipboardLayout.listOrigin)
+        XCTAssertEqual(ClipboardLayout.listOriginWithoutFilterRow(headerHeight: 38), ClipboardLayout.listOriginWithoutFilterRow)
+    }
+
     // MARK: Shelf
 
     func testTheShelfCountAndExpandStayRightOfTheNotch() {

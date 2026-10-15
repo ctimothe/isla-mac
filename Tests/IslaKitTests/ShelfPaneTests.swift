@@ -299,15 +299,38 @@ final class ShelfPaneTests: XCTestCase {
         }
     }
 
+    /// Re-review 2026-10-15: an AirDrop-aimed promise that lands long after the
+    /// release is kept, not sent. Injected clock: 3 s sends, 30 s keeps.
+    func testALateAirDropAimedPromiseIsKeptNotSent() {
+        for (elapsed, expectSent) in [(3.0, true), (30.0, false)] {
+            let fixture = try! Fixture(names: [])
+            defer { fixture.release() }
+            let inbox = PromisedDropInbox(shelf: fixture.shelf)
+            let released = Date(timeIntervalSince1970: 1_000_000)
+            inbox.now = { released.addingTimeInterval(elapsed) }
+            var kept: [[URL]] = []
+            var sent: [[URL]] = []
+            let delivered = expectation(description: "one batch at \(elapsed) s")
+            inbox.onBatch = { kept.append($0); delivered.fulfill() }
+            inbox.onAirDropBatch = { sent.append($0); delivered.fulfill() }
+            let file = URL(fileURLWithPath: "/tmp/isla-late-airdrop-\(elapsed).txt")
+            OperationQueue().addOperation { inbox.arrived(url: file, error: nil, toAirDrop: true, releasedAt: released) }
+            wait(for: [delivered], timeout: 4)
+            XCTAssertEqual(sent, expectSent ? [[file]] : [], "at \(elapsed) s")
+            XCTAssertEqual(kept, expectSent ? [] : [[file]], "at \(elapsed) s")
+        }
+    }
+
     // MARK: - The controller's Delete key
 
-    private func rig() throws -> (NotchController, NotchViewModel, ProbeStores, ShelfDeleteKeyTests.FakeRegistrar) {
+    private func rig(center: NotificationCenter = NotificationCenter()) throws -> (NotchController, NotchViewModel, ProbeStores, ShelfDeleteKeyTests.FakeRegistrar) {
         let isolated = ProbeFixtures.isolatedStores()
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
         let controller = NotchController()
         let fake = ShelfDeleteKeyTests.FakeRegistrar()
         controller.deleteKeyRegistrar = fake.registrar
         controller.appIsActive = { false }
+        controller.activationCenter = center
         controller.attachForTesting(viewModel: vm, rootView: NotchRootView(frame: .zero))
         return (controller, vm, isolated, fake)
     }
@@ -403,7 +426,8 @@ final class ShelfPaneTests: XCTestCase {
     }
 
     func testAppActivationGivesTheKeyBack() throws {
-        let (controller, vm, isolated, fake) = try rig()
+        let center = NotificationCenter()
+        let (controller, vm, isolated, fake) = try rig(center: center)
         defer { isolated.release(); controller.teardown() }
         vm.shelf.add([URL(fileURLWithPath: "/tmp/isla-delete-active.txt")])
         vm.isOpen = true
@@ -414,7 +438,43 @@ final class ShelfPaneTests: XCTestCase {
         // Activation is the one input that is not the model's: the controller
         // hears it from the two notifications and calls this.
         controller.appIsActive = { true }  // Quick Look activated Isla
-        controller.refreshDeleteKey()
+        center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        XCTAssertFalse(controller.holdsDeleteKey)
+        XCTAssertTrue(fake.live.isEmpty)
+    }
+
+    /// Codex P1, re-review 2026-10-15: the sink read the old value of a
+    /// `@Published`, so the first selection did not install the watch.
+    func testTheFirstSelectionInstallsTheOutsideClickWatchAndClearingRemovesIt() throws {
+        let (controller, vm, isolated, _) = try rig()
+        defer { isolated.release(); controller.teardown() }
+        var installed = 0, removed = 0
+        controller.installOutsideClickMonitor = { _ in installed += 1; return NSObject() }
+        controller.removeOutsideClickMonitor = { _ in removed += 1 }
+        vm.shelf.add([URL(fileURLWithPath: "/tmp/isla-watch.txt")])
+        vm.isOpen = true
+        vm.tab = .shelf
+        XCTAssertEqual(installed, 0)
+        vm.shelf.select(vm.shelf.items[0], modifiers: [])
+        XCTAssertEqual(installed, 1, "first selection installs the watch")
+        vm.shelf.clearSelection()
+        XCTAssertEqual(removed, 1, "no selection, no watch")
+    }
+
+    /// Re-review 2026-10-15: with the panel never activating, clicking into
+    /// Mail fires no activation notification; the mouse-down outside is what
+    /// releases Delete.
+    func testAnOutsideMouseDownClearsTheSelectionAndReleasesDelete() throws {
+        let (controller, vm, isolated, fake) = try rig()
+        defer { isolated.release(); controller.teardown() }
+        vm.shelf.add([URL(fileURLWithPath: "/tmp/isla-delete-outside.txt")])
+        vm.isOpen = true
+        vm.tab = .shelf
+        vm.isPointerOnShelf = true
+        vm.shelf.select(vm.shelf.items[0], modifiers: [])
+        XCTAssertTrue(controller.holdsDeleteKey)
+        controller.outsideMouseDown()
+        XCTAssertTrue(vm.shelf.selection.isEmpty)
         XCTAssertFalse(controller.holdsDeleteKey)
         XCTAssertTrue(fake.live.isEmpty)
     }

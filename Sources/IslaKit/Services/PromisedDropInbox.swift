@@ -33,6 +33,19 @@ final class PromisedDropInbox {
     /// its own.
     var onAirDropBatch: (([URL]) -> Void)?
 
+    /// The clock the AirDrop window is measured on; a test replaces it.
+    var now: () -> Date = { Date() }
+
+    /// How long after the release an AirDrop aim is still honoured.
+    ///
+    /// Re-review 2026-10-15: each drop carries its own target, so a promised
+    /// file aimed at AirDrop that finished downloading minutes later (an iCloud
+    /// original) opened the AirDrop picker out of nowhere, over whatever the
+    /// person was doing by then. Sending is an act the person watches happen;
+    /// ten seconds after the release it no longer is, and the file is kept on
+    /// the Shelf instead, where it can be sent by hand.
+    static let airDropWindow: TimeInterval = 10
+
     init(shelf: ShelfStore) {
         self.shelf = shelf
     }
@@ -50,8 +63,10 @@ final class PromisedDropInbox {
     /// compiler has to be told this one entry point is not.
     ///
     /// `toAirDrop` is the destination the drop that promised this file was
-    /// released on, captured by that drop's receiver closure.
-    nonisolated func arrived(url: URL?, error: Error?, toAirDrop: Bool = false) {
+    /// released on, captured by that drop's receiver closure, and `releasedAt`
+    /// is when that release happened (the default is "just now", for callers
+    /// that do not track it).
+    nonisolated func arrived(url: URL?, error: Error?, toAirDrop: Bool = false, releasedAt: Date? = nil) {
         if let error {
             Log.shelf.error("promised file failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public) \(error.localizedDescription, privacy: .private)")
             // A cancel is the user's own doing (the drag was abandoned or the
@@ -66,7 +81,7 @@ final class PromisedDropInbox {
         }
         guard let url else { return }
         Task { @MainActor [weak self] in
-            self?.enqueue(url, toAirDrop: toAirDrop)
+            self?.enqueue(url, toAirDrop: toAirDrop, releasedAt: releasedAt)
         }
     }
 
@@ -85,7 +100,8 @@ final class PromisedDropInbox {
     /// that the shelf does not feel slow.
     private static let coalesceWindow: TimeInterval = 0.4
 
-    private func enqueue(_ url: URL, toAirDrop: Bool) {
+    private func enqueue(_ url: URL, toAirDrop aimed: Bool, releasedAt: Date?) {
+        let toAirDrop = aimed && (releasedAt.map { now().timeIntervalSince($0) <= Self.airDropWindow } ?? true)
         if toAirDrop { pendingAirDrop.append(url) } else { pendingKeep.append(url) }
         // A ceiling on the sliding window: files arriving slower than the
         // debounce would otherwise push delivery back indefinitely.
