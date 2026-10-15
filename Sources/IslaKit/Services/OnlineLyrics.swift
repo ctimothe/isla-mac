@@ -53,6 +53,70 @@ enum OnlineLyrics {
         /// found" for 14 days — through the very update that learned to read
         /// it.
         case unreadable
+        /// The service said too many requests (429), possibly with the time to
+        /// come back at, in seconds. Nothing about the recording is known, so
+        /// it is never cached, and it is no reason to retry this song: the
+        /// refusal is about this address, and the coordinator pauses every
+        /// lookup for it (`OnlineLyricsPause`).
+        case limited(retryAfter: TimeInterval?)
+    }
+
+    /// The longest a Retry-After is believed. A header that says a week would
+    /// otherwise silence lyrics for a week on one misconfigured gateway.
+    static let longestRetryAfter: TimeInterval = 86_400
+
+    /// The longest 503 Retry-After worth sitting out inside a lookup. LRCLIB's
+    /// own server answers overload with 503 and `Retry-After: 1`, and a wait
+    /// that short is the difference between a busy second and a missing song.
+    /// Anything longer is somebody staring at "Finding lyrics…" for nothing.
+    static let longestWorthWaiting: TimeInterval = 5
+
+    /// The seconds a Retry-After header asks for, or nil when it is absent or
+    /// unreadable (RFC 9110 section 10.2.3: delay-seconds, or an HTTP-date).
+    ///
+    /// A date is measured against the response's own `Date` header when that
+    /// parses, because the server's clock and this Mac's may be minutes
+    /// apart and the server's date is the one the sender meant it against;
+    /// only without one does `now` stand in. A date already past is no wait,
+    /// and nothing is believed past `longestRetryAfter`.
+    static func retryAfter(from response: HTTPURLResponse, now: Date) -> TimeInterval? {
+        guard let raw = response.value(forHTTPHeaderField: "Retry-After")?
+            .trimmingCharacters(in: .whitespaces), !raw.isEmpty
+        else { return nil }
+        func clamped(_ seconds: TimeInterval) -> TimeInterval {
+            min(max(seconds, 0), longestRetryAfter)
+        }
+        // Digits only: delay-seconds is a non-negative integer, so "-5", "+5"
+        // and "1.5" are not a delay and are read as no header at all.
+        if raw.allSatisfy({ $0.isASCII && $0.isNumber }) {
+            // A Double so a string of forty digits clamps instead of failing
+            // to fit an Int and being read as no header at all.
+            return Double(raw).map(clamped)
+        }
+        guard let when = httpDate(raw) else { return nil }
+        let from = response.value(forHTTPHeaderField: "Date").flatMap(httpDate) ?? now
+        return clamped(when.timeIntervalSince(from))
+    }
+
+    /// An HTTP-date in any of the three forms RFC 9110 section 5.6.7 names:
+    /// IMF-fixdate, and the two obsolete forms a recipient MUST still accept,
+    /// rfc850 ("Sunday, 06-Nov-94 08:49:37 GMT") and asctime ("Sun Nov  6
+    /// 08:49:37 1994", which pads a one-digit day with a second space — runs
+    /// of spaces are collapsed before parsing). All are GMT.
+    private static func httpDate(_ text: String) -> Date? {
+        let normalised = text.split(separator: " ").joined(separator: " ")
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        for format in [
+            "EEE, dd MMM yyyy HH:mm:ss zzz",
+            "EEEE, dd-MMM-yy HH:mm:ss zzz",
+            "EEE MMM d HH:mm:ss yyyy",
+        ] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: normalised) { return date }
+        }
+        return nil
     }
 
     /// The exact-match query. Duration is included on purpose: it is what keeps
@@ -191,11 +255,22 @@ enum OnlineLyrics {
     /// final either: the search is asked for a row that fits. If none does,
     /// the exact answer is kept, with only the lines the clock can reach —
     /// a found lyric is never turned into a miss by being checked harder.
+    ///
+    /// Two rules about a service that is struggling, both from the 2026-10-15
+    /// ban: a 429 stops the lookup where it stands, because the search would
+    /// ask the same gateway a second later, and any 5xx ends the search loop,
+    /// because the next query meets the same overloaded server. A 503 with a
+    /// Retry-After of `longestWorthWaiting` or less is the one exception,
+    /// asked once more (`send`).
     static func lookUp(
         _ identity: LocalTrackIdentity,
         transport: @Sendable (URLRequest) async throws -> (Data, URLResponse) = { request in
             try await PrivateNetwork.session.data(for: request)
-        }
+        },
+        sleep: @Sendable (TimeInterval) async -> Void = { seconds in
+            try? await Task.sleep(for: .seconds(seconds))
+        },
+        now: @Sendable () -> Date = { Date() }
     ) async -> Outcome {
         guard let request = request(for: identity) else { return .none }
         // The best answer that overran the track, held in case nothing fits
@@ -203,8 +278,10 @@ enum OnlineLyrics {
         var overrunning: LyricTimeline?
         var unreadable = false
         do {
-            let (data, response) = try await transport(request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let sent = try await send(request, transport: transport, sleep: sleep, now: now)
+            if sent.status == 429 { return .limited(retryAfter: sent.retryAfter) }
+            let status = sent.status
+            let data = sent.data
             // An instrumental is an answer, and the search would only find the
             // same record again.
             if (200..<300).contains(status),
@@ -216,7 +293,7 @@ enum OnlineLyrics {
             case .found(let timeline):
                 if exact.fits { return .found(timeline) }
                 overrunning = timeline
-            case .failed: return .failed
+            case .failed, .limited: return .failed
             case .unreadable: unreadable = true
             case .none: break
             }
@@ -228,10 +305,26 @@ enum OnlineLyrics {
         for query in searchQueries(for: identity) {
             guard let search = searchRequest(title: query.title, artist: query.artist) else { continue }
             do {
-                let (data, response) = try await transport(search)
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                guard (200..<300).contains(status),
-                      let rows = try? JSONDecoder().decode([SearchRow].self, from: data) else {
+                let sent = try await send(search, transport: transport, sleep: sleep, now: now)
+                if sent.status == 429 {
+                    // An answer already in hand is not thrown away for a
+                    // refusal: a found lyric is never turned into a miss. The
+                    // pause is not armed from here, then — the next song's
+                    // first request meets the same 429 and arms it, and that
+                    // one request is the cost of keeping the words. It also
+                    // answered, so the pause's streak is not wiped by it
+                    // (`OnlineLyricsPause.answered(at:)`): the next 429
+                    // continues the streak instead of starting over.
+                    if let overrunning { return .found(overrunning) }
+                    return .limited(retryAfter: sent.retryAfter)
+                }
+                if (500..<600).contains(sent.status) {
+                    // The next query would meet the same overloaded server.
+                    if let overrunning { return .found(overrunning) }
+                    return .failed
+                }
+                guard (200..<300).contains(sent.status),
+                      let rows = try? JSONDecoder().decode([SearchRow].self, from: sent.data) else {
                     searchFailed = true
                     continue
                 }
@@ -252,6 +345,34 @@ enum OnlineLyrics {
         // the parser improves.
         if searchFailed { return .failed }
         return unreadable ? .unreadable : .none
+    }
+
+    /// One request, and one more if the server only asked for a moment.
+    ///
+    /// LRCLIB's own server answers overload with 503 and `Retry-After: 1`, so
+    /// a 503 whose Retry-After is `longestWorthWaiting` seconds or less is
+    /// waited out and the same request sent exactly once more. A second 503,
+    /// a longer wait, or none named is the caller's failure to read. A lookup
+    /// cancelled during the wait — a skip — does not send the second request.
+    private static func send(
+        _ request: URLRequest,
+        transport: @Sendable (URLRequest) async throws -> (Data, URLResponse),
+        sleep: @Sendable (TimeInterval) async -> Void,
+        now: @Sendable () -> Date
+    ) async throws -> (data: Data, status: Int, retryAfter: TimeInterval?) {
+        var retried = false
+        while true {
+            let (data, response) = try await transport(request)
+            let http = response as? HTTPURLResponse
+            let status = http?.statusCode ?? 0
+            let named = http.flatMap { Self.retryAfter(from: $0, now: now()) }
+            guard status == 503, !retried, let wait = named, wait <= longestWorthWaiting else {
+                return (data, status, named)
+            }
+            retried = true
+            await sleep(wait)
+            if Task.isCancelled { return (data, status, named) }
+        }
     }
 
     /// Whether `candidate` runs less far past the track's end than `held`, or
@@ -563,7 +684,7 @@ final class OnlineLyricsCache {
                     parserRevision: outcome == .unreadable ? parserRevision : nil
                 )
             }
-        case .failed:
+        case .failed, .limited:
             return
         }
         trim()

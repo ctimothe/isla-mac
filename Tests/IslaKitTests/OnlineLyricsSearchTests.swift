@@ -197,4 +197,187 @@ final class OnlineLyricsSearchTests: XCTestCase {
         let outcome = await OnlineLyrics.lookUp(track()) { try server.answer($0) }
         XCTAssertEqual(outcome, .unreadable)
     }
+
+    // MARK: - Too many requests, and a server that is only busy
+
+    /// A transport that plays back one scripted answer per request, whatever
+    /// the URL, and counts what it was asked. Past its script it answers 418,
+    /// so a request the lookup should not have sent shows up in the count and
+    /// in the outcome rather than as a crash.
+    private final class ScriptedServer: @unchecked Sendable {
+        struct Reply {
+            var status: Int
+            var headers: [String: String] = [:]
+            var body = "{}"
+        }
+        private let lock = NSLock()
+        private var script: [Reply]
+        private var asked: [URL] = []
+        init(_ script: [Reply]) { self.script = script }
+        var requests: [URL] { lock.lock(); defer { lock.unlock() }; return asked }
+        func answer(_ request: URLRequest) throws -> (Data, URLResponse) {
+            lock.lock(); defer { lock.unlock() }
+            let url = request.url!
+            asked.append(url)
+            let reply = script.isEmpty ? Reply(status: 418) : script.removeFirst()
+            return (
+                Data(reply.body.utf8),
+                HTTPURLResponse(url: url, statusCode: reply.status, httpVersion: nil, headerFields: reply.headers)!
+            )
+        }
+    }
+
+    /// The seconds a lookup asked to sleep, without sleeping them.
+    private final class SleepLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var asked: [TimeInterval] = []
+        var seconds: [TimeInterval] { lock.lock(); defer { lock.unlock() }; return asked }
+        func sleep(_ seconds: TimeInterval) async { record(seconds) }
+        private func record(_ seconds: TimeInterval) { lock.lock(); asked.append(seconds); lock.unlock() }
+    }
+
+    private static let hitBody = #"{"syncedLyrics":"[00:10.00]First line\n[00:15.00]Second line","instrumental":false,"duration":164}"#
+    private static let overrunBody = #"{"syncedLyrics":"[00:10.00]Reachable\n[03:24.00]Past the end","instrumental":false,"duration":164}"#
+
+    /// A track whose title and artist carry an edition and a company, so the
+    /// lookup has two search queries to make after the exact one.
+    private func twoQueryTrack() -> LocalTrackIdentity {
+        track(title: "Child Psychology - 2023 Remaster", artist: "Black Box Recorder, Someone", album: "England Made Me", duration: 164)
+    }
+
+    private func lookUp(
+        _ identity: LocalTrackIdentity, server: ScriptedServer, sleeps: SleepLog = SleepLog()
+    ) async -> OnlineLyrics.Outcome {
+        await OnlineLyrics.lookUp(identity, transport: { try server.answer($0) }, sleep: { await sleeps.sleep($0) })
+    }
+
+    /// A 429 on the exact query ends the lookup there: the search would ask the
+    /// same gateway the same question a second later. The outcome carries the
+    /// service's own Retry-After so the pause can honour it.
+    func testA429OnTheExactQueryStopsTheLookUp() async {
+        let server = ScriptedServer([.init(status: 429, headers: ["Retry-After": "120"])])
+        let outcome = await lookUp(twoQueryTrack(), server: server)
+        XCTAssertEqual(outcome, .limited(retryAfter: 120))
+        XCTAssertEqual(server.requests.count, 1, "no search is sent after a 429")
+    }
+
+    /// The same on a search: the second search query is not sent. The lookup
+    /// used to `continue` past any failed search status, so one limited
+    /// lookup was three requests against a gateway that had said stop.
+    func testA429OnASearchStopsTheRemainingQueries() async {
+        let server = ScriptedServer([
+            .init(status: 404),
+            .init(status: 429, headers: ["Retry-After": "60"]),
+        ])
+        let outcome = await lookUp(twoQueryTrack(), server: server)
+        XCTAssertEqual(outcome, .limited(retryAfter: 60))
+        XCTAssertEqual(server.requests.count, 2, "the exact query and the first search, and no more")
+    }
+
+    /// A found lyric is never turned into a miss by being checked harder. The
+    /// exact answer overran the track and the search was limited: the exact
+    /// answer stands, and nothing more is sent. The pause is not armed from
+    /// this lookup; the next song's first request meets the 429 and arms it,
+    /// which costs one request.
+    func testA429AfterAnOverrunningAnswerKeepsTheAnswer() async {
+        let server = ScriptedServer([
+            .init(status: 200, body: Self.overrunBody),
+            .init(status: 429, headers: ["Retry-After": "60"]),
+        ])
+        let outcome = await lookUp(twoQueryTrack(), server: server)
+        guard case .found(let timeline) = outcome else { return XCTFail("expected the exact answer, got \(outcome)") }
+        XCTAssertEqual(timeline.lines.map(\.text), ["Reachable"])
+        XCTAssertEqual(server.requests.count, 2)
+    }
+
+    /// LRCLIB's own server answers overload with 503 and `Retry-After: 1`. A
+    /// wait that short is worth taking once: the second ask is the answer.
+    func testA503WithAShortRetryAfterIsAskedOnceMore() async {
+        let server = ScriptedServer([
+            .init(status: 503, headers: ["Retry-After": "1"]),
+            .init(status: 200, body: Self.hitBody),
+        ])
+        let sleeps = SleepLog()
+        let outcome = await lookUp(track(), server: server, sleeps: sleeps)
+        guard case .found(let timeline) = outcome else { return XCTFail("expected lyrics, got \(outcome)") }
+        XCTAssertEqual(timeline.lines.first?.text, "First line")
+        XCTAssertEqual(server.requests.count, 2)
+        XCTAssertEqual(sleeps.seconds, [1])
+    }
+
+    /// Once, not until it works: a server still overloaded after the wait is
+    /// not helped by a third request.
+    func testASecond503Fails() async {
+        let server = ScriptedServer([
+            .init(status: 503, headers: ["Retry-After": "1"]),
+            .init(status: 503, headers: ["Retry-After": "1"]),
+        ])
+        let outcome = await lookUp(track(), server: server)
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertEqual(server.requests.count, 2)
+    }
+
+    /// Somebody is looking at "Finding lyrics" while this runs: a server that
+    /// asks for half a minute is not waited for.
+    func testA503WithALongRetryAfterFailsWithoutWaiting() async {
+        let server = ScriptedServer([.init(status: 503, headers: ["Retry-After": "30"])])
+        let sleeps = SleepLog()
+        let outcome = await lookUp(track(), server: server, sleeps: sleeps)
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertEqual(server.requests.count, 1)
+        XCTAssertEqual(sleeps.seconds, [])
+    }
+
+    /// A 503 with no Retry-After is not retried either: nothing says the wait
+    /// would be short.
+    func testA503WithNoRetryAfterFailsWithoutWaiting() async {
+        let server = ScriptedServer([.init(status: 503)])
+        let sleeps = SleepLog()
+        let outcome = await lookUp(track(), server: server, sleeps: sleeps)
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertEqual(server.requests.count, 1)
+        XCTAssertEqual(sleeps.seconds, [])
+    }
+
+    /// The next search query would meet the same overloaded server, so a 5xx
+    /// ends the loop. A decode error or a thrown transport error says nothing
+    /// about the server and still lets the next query try.
+    func testA5xxOnASearchStopsTheRemainingQueries() async {
+        let server = ScriptedServer([.init(status: 404), .init(status: 500)])
+        let outcome = await lookUp(twoQueryTrack(), server: server)
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertEqual(server.requests.count, 2)
+    }
+
+    /// And a search row that cannot be decoded is the old behaviour: the loop
+    /// goes on to the second query.
+    func testAnUnreadableSearchAnswerStillTriesTheNextQuery() async {
+        let server = ScriptedServer([
+            .init(status: 404),
+            .init(status: 200, body: "not json"),
+            .init(status: 200, body: "[\(Self.row(title: "Child Psychology", artist: "Black Box Recorder", duration: 164))]"),
+        ])
+        let outcome = await lookUp(twoQueryTrack(), server: server)
+        guard case .found = outcome else { return XCTFail("expected lyrics, got \(outcome)") }
+        XCTAssertEqual(server.requests.count, 3)
+    }
+
+    /// A lookup that is cancelled while it waits out a 503 does not send the
+    /// second request: a skip must not leave requests running.
+    func testACancelledLookUpDoesNotAskAgainAfterTheWait() async {
+        let server = ScriptedServer([
+            .init(status: 503, headers: ["Retry-After": "1"]),
+            .init(status: 200, body: Self.hitBody),
+        ])
+        let identity = track()
+        let task = Task {
+            await OnlineLyrics.lookUp(
+                identity, transport: { try server.answer($0) },
+                sleep: { _ in withUnsafeCurrentTask { $0?.cancel() } }
+            )
+        }
+        let outcome = await task.value
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertEqual(server.requests.count, 1)
+    }
 }
