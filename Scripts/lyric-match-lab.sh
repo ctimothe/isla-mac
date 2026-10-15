@@ -36,6 +36,9 @@
 # Knobs:
 #   ISLA_MATCH_MAX_LIVE=N   stop making live requests after N (a development
 #                           guard); a lookup that needed one is reported `uncached`
+#   ISLA_MATCH_LRCLIB_GAP=S keep S seconds between LRCLIB requests instead of
+#                           7.5, to probe a limiter that has just refused this
+#                           address; a value under 7.5 is ignored
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

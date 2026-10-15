@@ -163,6 +163,9 @@ enum MatchLab {
     /// A ceiling on live requests in one process: a development run against a
     /// hand-made corpus must not be able to turn into a crawl by a typo.
     static let maxLiveKey = "ISLA_MATCH_MAX_LIVE"
+    /// Seconds between two live LRCLIB requests for this run, when slower than
+    /// the SPEC's gap (`ReplayTransport.gap(for:)`).
+    static let lrclibGapKey = "ISLA_MATCH_LRCLIB_GAP"
 
     /// The lab's own version, so a results file says which harness wrote it.
     static let harnessVersion = "2026-10-15.1"
@@ -298,6 +301,50 @@ enum MatchLab {
             return CacheEntry(url: (object["url"] as? String) ?? "", status: status, body: body)
         }
         return nil
+    }
+
+    /// The cached answer for `url`: its exact string first, then the same
+    /// request as the Python resolver spells it (`resolverForm`). An answer
+    /// found the second way comes back `aliased`, so the caller can keep a
+    /// copy under the key Isla's own request hashes to, and every later
+    /// reader (this harness in replay, classify.py) finds it by that key.
+    static func cacheEntry(_ root: URL, for url: URL) -> (entry: CacheEntry, aliased: Bool)? {
+        if let entry = cacheEntry(root, key: sha256Hex(url.absoluteString)) { return (entry, false) }
+        guard let alias = resolverForm(of: url), alias != url.absoluteString,
+              let entry = cacheEntry(root, key: sha256Hex(alias)), entry.url == alias
+        else { return nil }
+        return (entry, true)
+    }
+
+    /// `url` as the Python resolver's `build_url` spells the same request: the
+    /// same names and values in the same order, each percent-encoded as
+    /// `urllib.parse.quote(safe="")` does, which leaves only `A-Z a-z 0-9 - . _ ~`
+    /// bare. URLComponents also leaves `'()!,:;@/?$*` bare, so for
+    /// "Don't Stop Me Now" the two strings differ, and keyed on the exact
+    /// string the resolver's /api/get never answered Isla's identical first
+    /// lookup — one LRCLIB request paid for twice while LRCLIB allows about
+    /// ten a minute. A bare `+` is a space to the server (form decoding), so
+    /// it turns into `%20` here: Isla's "Dan + Shay" is a different request
+    /// from the resolver's "Dan %2B Shay" and must never be answered by it.
+    static func resolverForm(of url: URL) -> String? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let query = components.percentEncodedQuery, !query.isEmpty else { return nil }
+        let bare = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        func spelled(_ text: Substring) -> String? {
+            text.replacingOccurrences(of: "+", with: " ").removingPercentEncoding?
+                .addingPercentEncoding(withAllowedCharacters: bare)
+        }
+        var pairs: [String] = []
+        for item in query.split(separator: "&", omittingEmptySubsequences: false) {
+            let parts = item.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let name = spelled(parts[0]), let value = spelled(parts.count > 1 ? parts[1] : "") else {
+                return nil
+            }
+            pairs.append("\(name)=\(value)")
+        }
+        components.percentEncodedQuery = nil
+        guard let base = components.url?.absoluteString else { return nil }
+        return base + "?" + pairs.joined(separator: "&")
     }
 
     static func store(_ root: URL, key: String, url: String, status: Int, body: Data) throws {
@@ -652,6 +699,19 @@ final class ReplayTransport: @unchecked Sendable {
         "lrclib.net": 7.5, "lrclib.net/api/search": 7.5,
         "itunes.apple.com": 3.2, "api.deezer.com": 0.25,
     ]
+
+    /// The gap a slot keeps in this run: the table's, or a slower one for
+    /// LRCLIB from `ISLA_MATCH_LRCLIB_GAP`, which exists to probe a limiter
+    /// that has just refused this address without editing the table. A value
+    /// below the table's is ignored: the table is a floor (SPEC, Politeness).
+    static func gap(for slot: String) -> TimeInterval? {
+        guard let floor = minimumGap[slot] else { return nil }
+        if slot.hasPrefix("lrclib.net"),
+           let asked = MatchLab.environment[MatchLab.lrclibGapKey].flatMap(TimeInterval.init), asked > floor {
+            return asked
+        }
+        return floor
+    }
     /// Seconds to wait before retry 1, 2 and 3 of a 5xx, and of a 429. A 429
     /// waits far longer: LRCLIB's limiter counts the requests it refuses, so a
     /// quick retry only extends the ban it is waiting out.
@@ -715,8 +775,8 @@ final class ReplayTransport: @unchecked Sendable {
             let now = Date()
             let host = url.host ?? ""
             let slot = Self.slot(for: url)
-            let hostGap = Self.minimumGap[host] ?? 0.6
-            let gap = (Self.minimumGap[slot] ?? hostGap) * (factor[slot] ?? 1)
+            let hostGap = Self.gap(for: host) ?? 0.6
+            let gap = (Self.gap(for: slot) ?? hostGap) * (factor[slot] ?? 1)
             let start = max(
                 now,
                 (lastLive[slot] ?? .distantPast).addingTimeInterval(gap),
@@ -802,7 +862,13 @@ final class ReplayTransport: @unchecked Sendable {
         let key = MatchLab.sha256Hex(url.absoluteString)
         let path = Self.path(of: url)
 
-        if let entry = MatchLab.cacheEntry(root, key: key) {
+        if let hit = MatchLab.cacheEntry(root, for: url) {
+            let entry = hit.entry
+            if hit.aliased {
+                // Kept under Isla's own spelling, so the key this exchange
+                // logs names a file that exists. No network is involved.
+                try? MatchLab.store(root, key: key, url: url.absoluteString, status: entry.status, body: entry.body)
+            }
             log(MatchExchange(key: key, path: path, kind: .answer, status: entry.status, cached: true, body: entry.body))
             return (entry.body, Self.response(for: url, status: entry.status))
         }

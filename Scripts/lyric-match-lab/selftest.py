@@ -463,6 +463,20 @@ class VariantTests(unittest.TestCase):
             "apple-us": "com.apple.Music", "deezer": "com.deezer.deezer-desktop",
             "spotify-style": "com.spotify.client"})
 
+    def test_get_url_is_the_canonical_variants_own_first_lookup(self):
+        # One request serves the truth pool and Isla's first lookup, so the
+        # get asks exactly what the canonical variant asks: every credited
+        # artist, and a duration rounded the way Swift rounds it.
+        t = track(title="Duet", artists=["Artist A", "Artist B"])
+        canonical = resolve.build_variants(t, APPLE, None)[0]
+        self.assertEqual(canonical["artist"], "Artist A, Artist B")
+        url = resolve.lrclib_get_url(t, 214.5, "Alb")
+        self.assertEqual(url, "https://lrclib.net/api/get?track_name=Duet"
+                              "&artist_name=Artist%20A%2C%20Artist%20B&album_name=Alb&duration=215")
+        self.assertEqual(resolve.isla_seconds(213.5), "214")   # round() would say 214 too
+        self.assertEqual(resolve.isla_seconds(214.5), "215")   # round() would say 214
+        self.assertEqual(resolve.isla_seconds(214.49), "214")
+
     def test_track_ids_are_slice_slash_zero_padded_index(self):
         self.assertEqual(track(index=4, slice_id="jazz")["track_id"], "jazz/004")
 
@@ -706,6 +720,15 @@ class ResolveEndToEndTests(unittest.TestCase):
         self.assertEqual(resolve.load_slices(self.root, None, None), [])
         self.assertEqual(len(resolve.load_slices(self.root, ["_dev"], None)[0][1]), 3)
         self.assertEqual(len(resolve.load_slices(self.root, ["_dev"], 2)[0][1]), 2)
+
+    def test_sample_keeps_stress_picks_and_harvest_indices(self):
+        # Every slice lists its popular picks first; --limit would drop the
+        # stress picks, --sample keeps the first of each kind in harvest order.
+        picks = ["popular"] * 5 + ["stress"] * 3
+        tracks = [resolve.normalize_harvest(harvest(title=f"T{i}", pick=p), "jazz", i) for i, p in enumerate(picks)]
+        chosen = resolve.sample_tracks(tracks, 2, 2)
+        self.assertEqual([t["track_id"] for t in chosen], ["jazz/000", "jazz/001", "jazz/005", "jazz/006"])
+        self.assertEqual(len(resolve.sample_tracks(tracks, 9, 9)), 8)
 
     def test_apple_us_is_a_variant_only_when_the_us_names_differ(self):
         t = resolve.normalize_harvest(harvest(title="Хочешь?", artists=["Земфира"], album="", language="ru"),

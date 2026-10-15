@@ -107,6 +107,14 @@ reports/rows.csv               Python classifier: one row per lookup with its ve
 - The key is the lowercase hex SHA-256 of the exact URL string as sent.
 - A network failure is never cached.
 - An HTTP 404 is cached, because it is LRCLIB's answer for no record.
+- *Amended 2026-10-15:* the Swift harness also looks a request up in the
+  resolver's spelling (`MatchLab.resolverForm`): the same names and values in
+  the same order, percent-encoded as Python's `quote(safe="")` does.
+  URLComponents leaves `'()!,:;@/?$*` bare and Python does not, so an
+  identical request had two keys and LRCLIB was asked twice. A bare `+` is a
+  space to the server, so it is never matched to the resolver's `%2B`. An
+  answer found this way is copied to `cache/isla` under Isla's own key, so
+  every key a results file names is a file that exists.
 
 ## Rules for everything in the lab
 
@@ -130,6 +138,14 @@ reports/rows.csv               Python classifier: one row per lookup with its ve
     counts the requests it refuses, so quick retries only extended the ban.)
   - The resolver and the Swift harness never run against LRCLIB at the same
     time.
+  - *Amended 2026-10-15, the collection budget.* At about ten requests a
+    minute the full corpus needs about 2,100–2,500 LRCLIB requests (a cache-only
+    count), four to six hours. Collection therefore runs in passes over
+    `resolve.py --sample P,S` (the first P popular and S stress picks of every
+    slice; ids keep their harvest index), each pass a resolver run and then a
+    `--record` run, so every pass leaves a complete, scorable corpus that the
+    next one extends. `--gap lrclib.net=<s>` and `ISLA_MATCH_LRCLIB_GAP=<s>`
+    slow LRCLIB down for a run, and never below the table.
   - The lab's own requests send the User-Agent
     `isla-lyrics-lab/0.2 (https://github.com/ctimothe/isla-mac)`. Isla's
     requests in the Swift harness keep Isla's own User-Agent, because they
@@ -243,7 +259,10 @@ For each harvested track:
 4. **LRCLIB candidates.**
    - Collect them with these queries:
      - `GET /api/get` (canonical title, primary artist, album, Apple
-       duration);
+       duration); *amended 2026-10-15:* every credited artist joined with
+       ", " and the duration rounded half away from zero, which is exactly
+       the canonical variant's first lookup, so one request serves the truth
+       pool and Isla;
      - `GET /api/search?track_name=&artist_name=`;
      - `GET /api/search?q=<title> <artist>`;
      - the same two searches with the Latin forms, when they differ.

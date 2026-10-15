@@ -7,12 +7,15 @@ and Deezer who the song is, collects LRCLIB candidates, decides with the
 independent oracle (oracle.py) which of them are the same song, and writes the
 identities Isla will be asked about.
 
-    python3 resolve.py --root <root> [--slices a,b] [--limit N] [--offline]
+    python3 resolve.py --root <root> [--slices a,b] [--limit N | --sample P,S] [--offline]
 
     --root     corpus root (default ~/code/_tools/isla-lyrics-lab)
     --slices   comma list of slice ids or slice file names; a file starting
                with "_" (such as _dev.json) is read only when named here
     --limit    at most N tracks from each slice
+    --sample   the first P popular and the first S stress picks of each slice,
+               in harvest order. Every slice lists its popular picks first, so
+               --limit alone would drop exactly the tracks chosen to break things
     --check-harvest  parse the slice files, print counts and schema anomalies,
                then stop: no network, nothing written
     --offline  answer from cache/ alone; a miss is "unknown", the network is
@@ -33,13 +36,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
 import threading
 import time
 import unicodedata
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -136,13 +140,14 @@ def normalize_harvest(raw: dict, slice_id: str, index: int) -> dict:
     return track
 
 
-def load_slices(root: str, only: Optional[List[str]], limit: Optional[int]):
+def load_slices(root: str, only: Optional[List[str]], limit: Optional[int],
+                sample: Optional[Tuple[int, int]] = None):
     """[(slice_id, [track, …])] in file-name order.
 
     A file starting with "_" is a scratch slice and is read only when named.
     Names match the file stem or the `slice` field. Tracks are numbered in
-    harvest order from 0, before --limit trims them, so an id never changes
-    when a run is limited.
+    harvest order from 0, before --limit or --sample trims them, so an id
+    never changes when a run is limited.
     """
     directory = os.path.join(root, "slices")
     names = sorted(n for n in os.listdir(directory) if n.endswith(".json")) if os.path.isdir(directory) else []
@@ -158,8 +163,26 @@ def load_slices(root: str, only: Optional[List[str]], limit: Optional[int]):
         elif stem not in only and slice_id not in only:
             continue
         tracks = [normalize_harvest(t, slice_id, i) for i, t in enumerate(data.get("tracks") or [])]
+        if sample:
+            tracks = sample_tracks(tracks, *sample)
         out.append((slice_id, tracks[:limit] if limit else tracks))
     return out
+
+
+def sample_tracks(tracks: List[dict], popular: int, stress: int) -> List[dict]:
+    """The first `popular` popular picks and the first `stress` stress picks,
+    in harvest order.
+
+    The collection budget is LRCLIB's: about ten requests a minute from one
+    address (2026-10-15), so a run covers a few tracks from every slice and
+    grows in passes rather than finishing slices one by one. Each slice lists
+    its 20-odd popular picks before its stress picks, so a plain --limit would
+    measure only the easy half.
+    """
+    chosen_popular = [t for t in tracks if t.get("pick") != "stress"][:popular]
+    chosen_stress = [t for t in tracks if t.get("pick") == "stress"][:stress]
+    keep = {id(t) for t in chosen_popular + chosen_stress}
+    return [t for t in tracks if id(t) in keep]
 
 
 TAG_VOCABULARY = {
@@ -552,16 +575,36 @@ def lrclib_search_urls(track: dict) -> Dict[str, str]:
     return urls
 
 
+def canonical_artist(track: dict) -> str:
+    """The canonical variant's artist: every credited artist, comma-joined."""
+    return ", ".join(track["artists"])
+
+
+def isla_seconds(duration: float) -> str:
+    """A duration as Isla sends it: rounded half away from zero, as Swift's
+    `rounded()` does. Python's round() goes half to even, so a 214.5 s track
+    would ask for 214 where Isla asks for 215 — a different request."""
+    return str(int(math.floor(duration + 0.5)))
+
+
 def lrclib_get_url(track: dict, duration: float, album: Optional[str] = None) -> str:
-    """/api/get with the canonical identity and the Apple duration. Album and
-    duration are left out when unknown rather than sent empty."""
-    params = [("track_name", track["title"]),
-              ("artist_name", track["artists"][0] if track["artists"] else "")]
+    """/api/get exactly as Isla asks it for the canonical variant: the harvest
+    title, `canonical_artist`, the canonical album and `isla_seconds`.
+
+    One request then serves both the truth pool and Isla's first lookup. The
+    Swift replay finds it by meaning (`MatchLab.resolverForm`) although
+    URLComponents spells some characters differently, which saves one LRCLIB
+    request a track while LRCLIB allows about ten a minute (2026-10-15).
+    Before this the artist was the primary one alone, so a multi-artist track
+    asked LRCLIB twice and got answers to two different questions. Album and
+    duration are left out when unknown rather than sent empty, as Isla does.
+    """
+    params = [("track_name", track["title"]), ("artist_name", canonical_artist(track))]
     album = track["album"] if album is None else album
     if album:
         params.append(("album_name", album))
     if duration and duration > 0:
-        params.append(("duration", str(int(round(duration)))))
+        params.append(("duration", isla_seconds(duration)))
     return common.build_url(f"{LRCLIB}/get", params)
 
 
@@ -726,10 +769,9 @@ def build_variants(track: dict, apple: Optional[dict], deezer: Optional[dict],
                 "player_id": PLAYER_IDS[variant], "title": title, "artist": artist,
                 "album": album_, "duration": duration}
 
-    canonical_artist = ", ".join(track["artists"])
-    variants = [line("canonical", track["title"], canonical_artist, album, fallback)]
+    variants = [line("canonical", track["title"], canonical_artist(track), album, fallback)]
     if track["index"] % NO_ALBUM_EVERY == 0:
-        variants.append(line("no-album", track["title"], canonical_artist, "", fallback))
+        variants.append(line("no-album", track["title"], canonical_artist(track), "", fallback))
     if apple:
         variants.append(line("apple", apple["trackName"], apple["artistName"],
                              apple["collectionName"], apple_duration))
@@ -1110,9 +1152,10 @@ def drop_reason(apple_result: dict, deezer_result: dict) -> str:
 
 
 def run(root: str, slices: Optional[List[str]] = None, limit: Optional[int] = None,
-        offline: bool = False, warm: Optional[List[str]] = None) -> dict:
+        offline: bool = False, warm: Optional[List[str]] = None,
+        sample: Optional[Tuple[int, int]] = None) -> dict:
     root = os.path.expanduser(root)
-    loaded = load_slices(root, slices, limit)
+    loaded = load_slices(root, slices, limit, sample)
     if not loaded:
         print(f"no slices to resolve under {root}/slices", flush=True)
     everything = [t for _, ts in loaded for t in ts]
@@ -1201,6 +1244,8 @@ def main(argv=None) -> int:
     parser.add_argument("--root", default=DEFAULT_ROOT)
     parser.add_argument("--slices", help="comma list of slice ids or file names")
     parser.add_argument("--limit", type=int, help="at most N tracks per slice")
+    parser.add_argument("--sample", metavar="P,S",
+                        help="the first P popular and S stress picks of each slice")
     parser.add_argument("--offline", action="store_true", help="cache only, never the network")
     parser.add_argument("--check-harvest", action="store_true",
                         help="validate the slice files and print anomalies; no network, writes nothing")
@@ -1218,7 +1263,16 @@ def main(argv=None) -> int:
         report = check_harvest(args.root, only)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
-    run(args.root, only, args.limit, args.offline, warm)
+    sample = None
+    if args.sample:
+        try:
+            popular, stress = (int(n) for n in args.sample.split(","))
+        except ValueError:
+            parser.error("--sample takes P,S: two counts, popular then stress")
+        if args.limit:
+            parser.error("--sample and --limit both trim the slices; give one")
+        sample = (popular, stress)
+    run(args.root, only, args.limit, args.offline, warm, sample)
     return 0
 
 
