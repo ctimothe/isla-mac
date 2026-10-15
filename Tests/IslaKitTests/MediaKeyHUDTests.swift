@@ -111,6 +111,7 @@ final class MediaKeyHUDTests: XCTestCase {
     /// Every device the glyph lookup was asked about: the enumerator, counted.
     private var glyphLookups: [AudioDeviceID] = []
     private var glyphs: [AudioDeviceID: String] = [42: "airpods.pro"]
+    private var moment: TimeInterval = 1000
 
     private func hud() -> MediaKeyHUD {
         let hud = MediaKeyHUD(
@@ -122,7 +123,8 @@ final class MediaKeyHUDTests: XCTestCase {
             deviceSymbol: { [unowned self] id in
                 self.glyphLookups.append(id)
                 return self.glyphs[id]
-            }
+            },
+            now: { [unowned self] in self.moment }
         )
         hud.onReading = { [unowned self] in self.readings.append($0) }
         return hud
@@ -261,6 +263,44 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertFalse(tap.started, "a revoked permission is one of the reasons macOS disables a tap")
     }
 
+    func testADisabledNoticeClearsHoldsSoLeftoversPassAfterTheReenable() {
+        let hud = hud()
+        on(hud)
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
+        taps.disabled?()
+        XCTAssertFalse(hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none), "the system took it while the tap was off")
+        XCTAssertFalse(hud.handle(up(.volumeUp), modifiers: .none))
+    }
+
+    func testATapMacOSKeepsSwitchingOffIsRebuiltAtMostEveryFiveSeconds() {
+        let hud = hud()
+        on(hud)
+        taps.taps[0].enabled = false
+        hud.refresh()
+        XCTAssertEqual(taps.created, 2)
+        taps.taps[1].enabled = false
+        moment += 1
+        hud.refresh()
+        XCTAssertEqual(taps.created, 2, "one second later: left alone")
+        moment += 5
+        hud.refresh()
+        XCTAssertEqual(taps.created, 3, "six seconds after the first: rebuilt again")
+    }
+
+    func testTrustRegainedRebuildsAtOnceInsideTheFiveSeconds() {
+        let hud = hud()
+        on(hud)
+        taps.taps[0].enabled = false
+        hud.refresh()
+        XCTAssertEqual(taps.created, 2)
+        trust.trusted = false
+        hud.refresh()
+        trust.trusted = true
+        moment += 1
+        hud.refresh()
+        XCTAssertEqual(taps.created, 3)
+    }
+
     // MARK: Consuming
 
     func testAKeyIsConsumedOnlyWhenIslaAppliedIt() {
@@ -344,6 +384,28 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(glyphLookups, [42], "resolved after the callback returned, for the pop-up only")
         XCTAssertEqual(readings.map(\.deviceSymbol), ["airpods.pro"])
         XCTAssertEqual(readings.first?.outputDevice, 42)
+    }
+
+    func testNoPopUpFollowsAPressOnceTheMacLocksBeforeTheQueueDrains() async {
+        let hud = hud()
+        var locked = false
+        hud.isLocked = { locked }
+        on(hud)
+        applier.reading = HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil, outputDevice: 42)
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
+        locked = true
+        await drain()
+        XCTAssertTrue(readings.isEmpty)
+    }
+
+    func testNoPopUpFollowsAPressOnceTheTapHasStoppedBeforeTheQueueDrains() async {
+        let hud = hud()
+        on(hud)
+        applier.reading = HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil, outputDevice: 42)
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
+        hud.stop()
+        await drain()
+        XCTAssertTrue(readings.isEmpty)
     }
 
     func testTheRepeatsOfAHeldVolumeKeyReuseTheGlyphAndStayInOrder() async {

@@ -59,11 +59,26 @@ final class MediaKeyHUD: ObservableObject {
     /// device; a test counts the calls.
     typealias DeviceSymbol = (AudioDeviceID) -> String?
 
+    /// Seconds on a monotonic clock. A seam: the tests move time by hand.
+    typealias Clock = @MainActor () -> TimeInterval
+
+    /// The least time between two rebuilds of a tap that reports itself
+    /// disabled. macOS keeps switching a tap off while Secure Input is on (a
+    /// password field, a terminal's "secure keyboard entry"); each disabled
+    /// notice queues a `refresh()`, and a refresh that rebuilt every time would
+    /// create and destroy a tap in a loop for as long as that lasted. Trust
+    /// coming back is exempt: that rebuild is a state change, not a retry.
+    static let rebuildInterval: TimeInterval = 5.0
+
     private let trust: AccessibilityTrust
     private let makeTap: MediaKeyTapFactory
     private let applier: MediaKeyApplying
     private let schedule: Scheduler
     private let deviceSymbol: DeviceSymbol
+    private let now: Clock
+
+    /// When a tap was last rebuilt, for `rebuildInterval`.
+    private var lastRebuild: TimeInterval?
 
     private var tap: MediaKeyTapping?
     private var cancelPoll: (() -> Void)?
@@ -88,7 +103,8 @@ final class MediaKeyHUD: ObservableObject {
         makeTap: MediaKeyTapFactory? = nil,
         applier: MediaKeyApplying? = nil,
         schedule: Scheduler? = nil,
-        deviceSymbol: DeviceSymbol? = nil
+        deviceSymbol: DeviceSymbol? = nil,
+        now: Clock? = nil
     ) {
         self.isEnabled = isEnabled ?? { NotchViewModel.volumeAndBrightnessEnabled }
         self.trust = trust ?? SystemAccessibilityTrust()
@@ -96,6 +112,7 @@ final class MediaKeyHUD: ObservableObject {
         self.applier = applier ?? SystemLevelApplier()
         self.schedule = schedule ?? MediaKeyHUD.mainQueueScheduler
         self.deviceSymbol = deviceSymbol ?? { AudioOutputs.output(id: $0)?.symbol }
+        self.now = now ?? { ProcessInfo.processInfo.systemUptime }
     }
 
     /// Whether a tap is up right now.
@@ -122,8 +139,18 @@ final class MediaKeyHUD: ObservableObject {
             // and it need not send a disabled notice on the way. Trust going
             // from missing to present, or a tap macOS reports as switched off,
             // means the one we hold is not to be trusted: end it and make a
-            // fresh one.
-            if let tap, regained || !tap.isTapEnabled { stopTap() }
+            // fresh one. A tap that merely reports itself off is rebuilt at
+            // most once per `rebuildInterval`; in between it is left as it is
+            // (macOS may well keep it off, and the disabled notice has already
+            // asked the tap to switch itself back on).
+            if let tap {
+                let moment = now()
+                let dueAgain = lastRebuild.map { moment - $0 >= Self.rebuildInterval } ?? true
+                if regained || (!tap.isTapEnabled && dueAgain) {
+                    stopTap()
+                    lastRebuild = moment
+                }
+            }
             startTap()
         } else {
             stopTap()
@@ -244,7 +271,10 @@ final class MediaKeyHUD: ObservableObject {
             return
         }
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            // The press was consumed a turn ago; the Mac may have locked, or
+            // the tap ended (setting off, permission revoked), since. A pop-up
+            // over the lock screen or after the feature went away is wrong.
+            guard let self, !self.isLocked(), self.isTapped else { return }
             var shown = reading
             if isRepeat, let known = self.glyphs[device] {
                 shown.deviceSymbol = known
@@ -266,6 +296,13 @@ final class MediaKeyHUD: ObservableObject {
             { [weak self] in
                 // macOS switched the tap off: the tap has already turned itself
                 // back on, and the permission may be why it was off.
+                //
+                // While it was off, the system took a consumed hold's repeats
+                // and key-up directly, so the `.consume` entry would otherwise
+                // linger until the next fresh press and then swallow a stray
+                // key-up the system had already seen. Clear the holds now, so
+                // whatever arrives after the re-enable is passed consistently.
+                self?.holds.removeAll()
                 DispatchQueue.main.async { self?.refresh() }
             }
         )
