@@ -166,6 +166,17 @@ enum MatchLab {
     /// Seconds between two live LRCLIB requests for this run, when slower than
     /// the SPEC's gap (`ReplayTransport.gap(for:)`).
     static let lrclibGapKey = "ISLA_MATCH_LRCLIB_GAP"
+    /// The directory under the root that holds the harness output, default
+    /// `results`. A candidate change to Isla is scored beside the baseline by
+    /// pointing this at another name (`ISLA_MATCH_OUT=candidate`): the same
+    /// cache answers both, and neither overwrites the other. The classifier
+    /// reads it with `--results`.
+    static let outKey = "ISLA_MATCH_OUT"
+    static let defaultOut = "results"
+    /// The directory under the root the classifier writes its report to,
+    /// default `reports`; the diagnosis case reads its input from there.
+    static let reportsKey = "ISLA_MATCH_REPORTS"
+    static let defaultReports = "reports"
 
     /// The lab's own version, so a results file says which harness wrote it.
     static let harnessVersion = "2026-10-15.1"
@@ -185,11 +196,37 @@ enum MatchLab {
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
             throw XCTSkip("\(rootKey) does not name a directory: \(path)")
         }
+        for key in [outKey, reportsKey] {
+            if let value = environment[key], !value.isEmpty, !isPlainDirectoryName(value) {
+                throw MatchLabError("\(key)=\(value) is not a plain directory name under the root")
+            }
+        }
         return URL(fileURLWithPath: path, isDirectory: true)
     }
 
-    static func resultsURL(_ root: URL, _ name: String) -> URL {
-        root.appendingPathComponent("results", isDirectory: true).appendingPathComponent(name)
+    /// A directory name under the root: no separators, not empty, not `..`.
+    /// Anything else could write outside the corpus root.
+    static func isPlainDirectoryName(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains("\\")
+    }
+
+    private static func directoryName(key: String, default defaultName: String, _ environment: [String: String]) -> String {
+        guard let value = environment[key], !value.isEmpty else { return defaultName }
+        return isPlainDirectoryName(value) ? value : defaultName
+    }
+
+    /// Where results are written and read: `ISLA_MATCH_OUT`, else `results`.
+    /// `requireRoot` refuses a value that is not a plain name, so a bad one
+    /// never reaches here during a run.
+    static var outDirectory: String { directoryName(key: outKey, default: defaultOut, environment) }
+    static var reportsDirectory: String { directoryName(key: reportsKey, default: defaultReports, environment) }
+
+    static func resultsURL(_ root: URL, _ name: String, out: String? = nil) -> URL {
+        root.appendingPathComponent(out ?? outDirectory, isDirectory: true).appendingPathComponent(name)
+    }
+
+    static func reportsURL(_ root: URL, _ name: String, reports: String? = nil) -> URL {
+        root.appendingPathComponent(reports ?? reportsDirectory, isDirectory: true).appendingPathComponent(name)
     }
 
     // MARK: JSON in and out
@@ -477,14 +514,29 @@ enum MatchLab {
         a.count == b.count && zip(a, b).allSatisfy { $0.at == $1.at && $0.text == $1.text }
     }
 
-    /// Which record is the one behind `target`, the lines Isla returned.
+    /// The same lines AND the same `overrun`. `reachable` drops the lines past
+    /// the track's end, so a record stamped for a longer cut and a record that
+    /// ends where this one's reachable lines end can read identically; the
+    /// first carries an overrun and is shown as timed for a longer version, the
+    /// second does not. Matching on lines alone credited a fitting search row
+    /// to an overrunning `/api/get` record (adversarial review F11).
+    static func sameTimeline(_ a: LyricTimeline, _ b: LyricTimeline) -> Bool {
+        guard sameLines(a.lines, b.lines) else { return false }
+        switch (a.overrun, b.overrun) {
+        case (nil, nil): return true
+        case let (x?, y?): return abs(x - y) < 1e-6
+        default: return false
+        }
+    }
+
+    /// Which record is the one behind `target`, the timeline Isla returned.
     ///
     /// Each candidate is read through Isla's own path (`timeline(from:status:
     /// duration:)`, with a search row wrapped as a get-shaped object), and the
     /// ones whose lines equal the target's are the answer. Both sides were cut
     /// at the track's end by the same `reachable`, so the lines are compared
     /// whole: a record whose lines merely start the same way is another
-    /// record. A search row must also be one the matcher would accept on its
+    /// record. The `overrun` must be equal too (`sameTimeline`). A search row must also be one the matcher would accept on its
     /// own — `bestCandidate(in: [row])` is Isla's per-row test of title,
     /// artist and length — so a wrong-song copy of the same stamps can never be
     /// named as the choice.
@@ -497,7 +549,7 @@ enum MatchLab {
     /// (`bestCandidate`'s strict `<`). The first by that order is the choice;
     /// every distinct id is listed as ambiguous.
     static func recover(
-        target: [LyricsStore.Line], identity: LocalTrackIdentity, candidates: [Candidate]
+        target: LyricTimeline, identity: LocalTrackIdentity, candidates: [Candidate]
     ) -> (id: Int, via: String, ambiguous: [Int])? {
         var matching: [(candidate: Candidate, difference: Double)] = []
         for candidate in candidates {
@@ -505,11 +557,11 @@ enum MatchLab {
             guard record.id != nil, record.instrumental != true else { continue }
             if candidate.via == "search" {
                 guard let match = OnlineLyrics.bestCandidate(in: [searchRow(record)], for: identity).match,
-                      sameLines(match.timeline.lines, target) else { continue }
+                      sameTimeline(match.timeline, target) else { continue }
             }
             guard case .found(let timeline) = OnlineLyrics.timeline(
                 from: getShaped(record), status: 200, duration: identity.duration
-            ), sameLines(timeline.lines, target) else { continue }
+            ), sameTimeline(timeline, target) else { continue }
             let difference = candidate.via == "search" && identity.duration > 0
                 ? abs((record.duration ?? 0) - identity.duration) : 0
             matching.append((candidate, difference))
@@ -657,7 +709,7 @@ enum MatchLab {
 
 /// One request a lookup made, as the transport saw it.
 struct MatchExchange {
-    enum Kind { case answer, miss, failure }
+    enum Kind { case answer, miss }
     let key: String
     /// The path with its query, percent-encoded as sent.
     let path: String
@@ -921,8 +973,12 @@ final class ReplayTransport: @unchecked Sendable {
             do {
                 (data, status) = try await Self.curl(request)
             } catch {
-                // Never cached: the next record run asks again.
-                log(MatchExchange(key: key, path: path, kind: .failure, status: nil, cached: false, body: nil))
+                // Never cached, and logged as a miss, not a failure: a curl
+                // transport failure (no connection, a timeout) is a fact about
+                // this run's network and not about Isla, so the lookup reads
+                // `uncached` and the next record run asks again. Logged as a
+                // failure it became `failed` and was never retried (F17).
+                log(MatchExchange(key: key, path: path, kind: .miss, status: nil, cached: false, body: nil))
                 throw error
             }
             let response = Self.response(for: url, status: status)

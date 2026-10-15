@@ -5,7 +5,8 @@ import XCTest
 /// Why did Isla's matcher accept or refuse a record? Asked of the records the
 /// classifier singled out, by running Isla's own predicates on each.
 ///
-/// Input: `<root>/reports/diagnose-input.jsonl`, written by the Python
+/// Input: `<root>/<reports>/diagnose-input.jsonl` (`reports` unless
+/// `ISLA_MATCH_REPORTS` names another directory), written by the Python
 /// classifier, one line per lookup worth explaining:
 ///
 ///     {track_id, variant, verdict, identity{player_id,title,artist,album,duration},
@@ -166,7 +167,7 @@ final class LyricMatchLabDiagnosisTests: XCTestCase {
 
     func testDiagnosis() throws {
         let root = try MatchLab.requireRoot()
-        let input = try MatchLab.readJSONL(root.appendingPathComponent("reports/diagnose-input.jsonl"))
+        let input = try MatchLab.readJSONL(MatchLab.reportsURL(root, "diagnose-input.jsonl"))
         let pyIndex = Self.indexPy(root)
 
         var rows: [[String: Any]] = []

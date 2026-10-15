@@ -357,6 +357,72 @@ For each harvested track:
 >   Cyrillic song had no anchor. These aliases feed anchor matching only.
 >   They never become a variant, except where the harvest gave a Latin form.
 
+> **Amended 2026-10-15 (after the adversarial review).** The review found
+> measurement biases in the oracle and the classifier. The original rows above
+> stand; these replace them where they differ.
+>
+> - **Fingerprints per script family (F1).** Bigrams for every spaceless
+>   script were too coarse: two unrelated Thai texts reached a median
+>   containment of 0.61, so other songs joined the cluster, and unrelated
+>   Japanese or Chinese texts fell into `uncertain`. The shingle is now a table
+>   in `oracle.py` (`NGRAM_TABLE`), keyed by script family, with Han, kana and
+>   Japanese one family (`CJK`):
+>
+>   | Family | Shingle |
+>   |---|---|
+>   | Thai (and Lao, Khmer, Myanmar, Tibetan, unprobed) | character 7-grams |
+>   | Han, kana, Japanese | character 5-grams |
+>   | Hangul and every space-separated script | word 3-shingles |
+>
+>   SAME and WRONG are per family too (`oracle.THRESHOLD_TABLE`, default 0.6 and
+>   0.2), read by `classify.py`. `calibrate.py --root <root>` measures both
+>   distributions on the real corpus and writes
+>   `reports/oracle-calibration.json`. Precedence: the file's `recommended`
+>   entry for a family, if it exists and `oracle.load_calibration` ran (the
+>   resolver and the classifier both call it; `--no-calibration` skips it),
+>   then the table. Each `tracks.jsonl` line records the oracle parameters it
+>   was made with, and the classifier counts the tracks that disagree.
+>
+>   The sizes are the smallest n whose containment between unrelated texts of
+>   about 1,000 characters stays under 0.2 at the 99th percentile, probed with
+>   macOS UI translations as stand-in text, never lyrics
+>   (`standin_probe.py`, 800 pairs each; the pool is `core`, the apps under
+>   `/System/Library/CoreServices`, or `wide`, every bundle, which repeats
+>   formulaic phrases and so is the harsher null). The p99 of the null:
+>
+>   | Language (family) | n=2 | n=3 | n=4 | n=5 | n=6 | n=7 | n=8 |
+>   |---|---|---|---|---|---|---|---|
+>   | Thai, core | 0.661 | 0.366 | 0.244 | 0.151 | 0.100 | 0.067 | 0.049 |
+>   | Thai, wide | 0.660 | 0.404 | 0.307 | 0.247 | 0.213 | **0.188** | 0.166 |
+>   | Japanese, core | 0.474 | 0.190 | 0.087 | 0.045 | 0.029 | 0.019 | 0.013 |
+>   | Japanese, wide | 0.401 | 0.273 | 0.208 | **0.168** | 0.140 | 0.116 | 0.099 |
+>   | Chinese (TW), core | 0.166 | 0.053 | 0.023 | 0.010 | 0.005 | 0.002 | 0.000 |
+>   | Chinese (TW), wide | 0.293 | 0.187 | 0.134 | 0.106 | 0.089 | 0.076 | 0.066 |
+>   | Chinese (CN), wide | 0.282 | 0.178 | 0.126 | 0.093 | 0.074 | 0.064 | 0.057 |
+>   | Korean, word shingles, wide | 0.151 | 0.080 | 0.051 | - | - | - | - |
+>
+>   The bigram row for Thai (0.66) reproduces the review's figure. The
+>   starting defaults of 4 for Thai and 3 for Han and kana fail on the wide
+>   pool (Thai 0.307, Japanese 0.273) and Thai 4 fails on the core pool too
+>   (0.244), hence 7 and 5. A larger n scores a same-song pair with spelling
+>   variants lower (simulated: with 8 percent of characters changed and a
+>   third of the lines missing, the p5 of containment is 0.56 at Thai n=7 and
+>   0.59 at Han n=5), so `calibrate.py` re-picks n and the thresholds from
+>   real same-song pairs.
+> - **Script dominance (F2).** `dominant_script` weights Han, kana and Hangul
+>   characters 2.5 letters each. In `cluster()` the expected script wins
+>   whenever an anchor holds at least 20 percent of its weighted letters in it,
+>   so a Korean lyric that is half English no longer makes the romanised
+>   copies the truth. A track whose anchors contradict each other
+>   (`anchor-conflict`) has truth status `truth-uncertain`.
+> - **Anchors from Isla's own responses (F7).** A track whose resolver pool has
+>   no anchor is anchored in the classifier: any record in any of Isla's
+>   responses for the track that matches the title and artist and has lyric
+>   text becomes an anchor, and the cluster is built as usual. Such a lookup
+>   carries the flag `anchor-promoted`. A track that still has no anchor and
+>   whose truth notes carry `lrclib-unanswered` has status `truth-incomplete`:
+>   an unanswered query means the catalogue cannot be called empty.
+
 ## The Swift harness (`Tests/IslaKitTests/LyricMatchLab*.swift`, `Scripts/lyric-match-lab.sh`)
 
 It runs only with `ISLA_MATCH_LAB=<root>`. Live requests on a cache miss are
@@ -402,6 +468,33 @@ allowed only when `ISLA_MATCH_RECORD=1`; otherwise a miss is recorded as
     and the stage row, at their real widths and fonts as the code defines
     them, measured with AppKit text layout.
 
+> **Amended 2026-10-15 (after the adversarial review).**
+> - `MatchLab.recover` credits a record only when its timeline also has the
+>   same `overrun` as the one Isla returned. The reachable lines of an
+>   overrunning `/api/get` record can equal a fitting search row's (F11).
+> - In record mode a curl transport failure is logged as a miss, so the lookup
+>   is `uncached` and the next record run asks again; as a failure it was
+>   `failed` and never retried (F17).
+> - Readability (F15): a line lasts until its own end where the timeline has
+>   one that Isla honours (`LyricSweep.effectiveEnd`), else until the next
+>   line; credit lines (`Line.isCredit`) are not measured, and their count is
+>   reported. `readability.json` carries one raw entry per lookup under
+>   `per_lookup`, and the classifier reports the figures again without the
+>   canonical lookups whose verdict is `wrong-song`.
+> - `Scripts/lyric-match-lab.sh` does not run the diagnosis case in a plain or
+>   `--record` run: a `reports/diagnose-input.jsonl` already on disk describes
+>   the lookups that run is replacing. Only `--diagnose-only` runs it (F17).
+> - Alternate output (F18). `ISLA_MATCH_OUT=<dirname>` (default `results`)
+>   moves every file the harness writes and reads under `<root>/<dirname>/`;
+>   `ISLA_MATCH_REPORTS=<dirname>` (default `reports`) names where the
+>   diagnosis case reads its input. The runner passes both through and removes
+>   its four stale files from the output directory only. A candidate change to
+>   Isla is scored beside the baseline over the same cache with
+>   `classify.py --results <dirname> --reports <dirname>`; `matched/`, the M5
+>   corpus, is written only when `--reports` is `reports`.
+> - Lab self-tests: `LyricMatchLabSelfTests` pins the repairs above; like every
+>   lab case it skips unless `ISLA_MATCH_LAB` is set.
+
 ## Classification (`Scripts/lyric-match-lab/classify.py`)
 
 The classifier joins `isla-lookups.jsonl` with the truth. Each lookup gets one
@@ -431,3 +524,52 @@ The headline figures are worked out for each slice and variant:
 
 M3 estimation, M9 and M10 are computed here from the cached records.
 `matched/` is written here for M5.
+
+> **Amended 2026-10-15 (after the adversarial review).** The table above stands
+> as written; these change what each row means and add verdicts.
+>
+> | Verdict | Meaning |
+> |---|---|
+> | `miss-rejected`, `miss-unqueried` | now need a fit record that also passes the oracle's title and artist match against the track's identity titles and artists (F3). Also (flag `overrun-only`) an identity-matching record within 3 s of the variant's length whose last stamp runs more than 3 s past the end: Isla would show it, flagged as timed for a longer cut. In Isla's own responses it is `miss-rejected`, only in the pool `miss-unqueried` (F13) |
+> | `miss-text-only` | new: nothing shown, and the only fit is a record of the same lyrics whose title or artist differs (a karaoke upload under another artist). Reported; not recoverable and not usable (F3) |
+> | `failed-request` | new: a `failed` lookup whose requests include a 4xx other than 404 and 429, a deterministic refusal of Isla's own request. An Isla outcome, a miss in `usable` when a fit exists. Other `failed` lookups stay environment failures (F5) |
+> | `truth-uncertain` | new: the track's anchors contradict each other (F2) |
+> | `truth-incomplete` | new: no anchor, even after promotion, and an LRCLIB query went unanswered (F7) |
+> | `disputed` | new: the harvest says instrumental and LRCLIB holds lyrics (`instrumental_disagreement` is `harvest-none-lrclib-lyrics`) (F8) |
+> | `unrecovered` | now excluded from `usable`, like `failed` (F12) |
+>
+> The three track-level verdicts (`truth-uncertain`, `truth-incomplete`,
+> `disputed`) replace every lookup of the track that reached an answer. They
+> are in no accuracy or wrong-rate denominator and are counted apart, under
+> `excluded_from_scoring`.
+>
+> M1 (F6): when any lookup is `uncached` the verdict can never be `pass`; it is
+> `incomplete`. M1 reports accuracy twice, `as_computed` and with every
+> uncached lookup counted as a usable miss.
+>
+> M2 (F4):
+> - A row whose base and pick are both null is not applicable.
+> - Base null with a pick in the cluster is `found-new`; with a pick outside it,
+>   `switched-wrong`.
+> - Base in the cluster with an alt-script pick is `switched-alt`.
+> - Base outside the cluster with no pick is `dropped-wrong`, a good outcome.
+> - The lost share is divided by the rows whose base is in the cluster.
+> - Pass: no `switched-wrong`, and `lost` and `switched-alt` each at most 0.02
+>   of those rows. Fail: `switched-wrong` above 0.01 of applicable rows.
+>
+> M6 (F5): `failed`, `uncached` and `unrecovered` variant lookups leave the
+> denominator as well as the numerator.
+>
+> M3 (F9): a line's span ends at the next stamp (the LRC's empty stamp is the
+> next stamp), never at the record's own last-word end, which a line-only
+> lyric does not have. Only words whose start is a tag in the record are
+> scored; a start interpolated by character share is not. E4's cap is tuned on
+> even-indexed tracks (the number after the slash in `track_id`) and every
+> figure is scored on odd-indexed ones; the section says so.
+>
+> M9 and M10 (F10): records whose stamp sequences are equal to 10 ms collapse to
+> one before pairing and before the consensus (the scored record is kept), the
+> group sizes are reported, and a record is scored against a consensus that
+> leaves it out.
+>
+> M4 (F15): see the Swift harness amendment.

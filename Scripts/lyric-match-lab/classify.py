@@ -1,54 +1,85 @@
 #!/usr/bin/env python3
 """Classify what Isla did against the oracle's truth: the lab's report (phase 2).
 
-    python3 classify.py --root <root>
+    python3 classify.py --root <root> [--results <dir>] [--reports <dir>] [--no-calibration]
 
-Joins `results/isla-lookups.jsonl` (written by the Swift harness) with
+Joins `<results>/isla-lookups.jsonl` (written by the Swift harness) with
 `resolved/tracks.jsonl` (written by resolve.py) and gives every lookup one
 verdict (SPEC "Classification", made exact in the rules below). Offline: it
 reads the two replay caches and never opens a socket.
 
-Reads   resolved/{tracks,variants}.jsonl  results/{isla-lookups,perturbations}.jsonl
-        results/{word-fidelity,readability}.json  wordtimed/<slice>/<id>.json
+Reads   resolved/{tracks,variants}.jsonl  <results>/{isla-lookups,perturbations}.jsonl
+        <results>/{word-fidelity,readability}.json  wordtimed/<slice>/<id>.json
         cache/py/ and cache/isla/ (LRCLIB rows, by URL and by the Swift run's keys)
-Writes  reports/match-lab-report.json   every section, numbers only
-        reports/rows.csv                one row per lookup with its verdict
-        reports/diagnose-input.jsonl    the lookups a Swift case re-examines
-        matched/<slice>/<id>.json       the records Isla chose, in the 2026-10-11
-                                        lab's corpus format, for M5
+        reports/oracle-calibration.json (optional; see oracle.load_calibration)
+Writes  <reports>/match-lab-report.json   every section, numbers only
+        <reports>/rows.csv                one row per lookup with its verdict
+        <reports>/diagnose-input.jsonl    the lookups a Swift case re-examines
+        matched/<slice>/<id>.json         the records Isla chose, in the 2026-10-11
+                                          lab's corpus format, for M5
 
-Nothing written under reports/ carries a lyric line. matched/ and wordtimed/
-do, and stay under the corpus root.
+`--results` and `--reports` (default `results` and `reports`) name directories
+under the root. They let a candidate change to Isla be scored beside the
+baseline over the same cache. `matched/` is the M5 corpus of the baseline: it
+is written only when `--reports` is the default `reports`, so an experiment
+never overwrites it.
+
+Nothing written under the reports directory carries a lyric line. matched/ and
+wordtimed/ do, and stay under the corpus root.
 
 Verdicts (M1)
   correct              chosen record is in the same-song cluster; not timed for a longer cut
   correct-longer-cut   same song, but Isla itself says it is timed for a longer version
   alt-script           same song in another script, or a translation
-  wrong-song           containment <= 0.2 with the cluster; or any lyric for an expected
+  wrong-song           containment <= WRONG with the cluster; or any lyric for an expected
                        instrumental (flag instrumental-fp; catalogue-mislabel if the record
                        is a title-and-artist match)
-  uncertain            containment between 0.2 and 0.6
+  uncertain            containment between WRONG and SAME
   unrecovered          Isla showed lyrics but the harness could not say which record
+                       (excluded from usable, like failed)
   unjudged             lyrics shown for a track with no anchor record (listed, not scored)
-  miss-rejected        nothing shown, a fit record was in Isla's own responses
-  miss-unqueried       nothing shown, a fit record exists but no query of Isla's returned it
+  miss-rejected        nothing shown, a fit record that also matches the track's title and
+                       artist was in Isla's own responses; also (flag overrun-only) when the
+                       only such record is an overrun-fit that Isla would have shown
+                       flagged as timed for a longer cut
+  miss-unqueried       nothing shown, such a fit record exists but no query of Isla's
+                       returned it (flag overrun-only: it is an overrun-fit)
+  miss-text-only       nothing shown, a record of the same lyrics fits the length but its
+                       title or artist differs (a karaoke upload under another artist);
+                       reported, not recoverable, not usable
   miss-tolerance       nothing shown, only near records (3-10 s off) exist
   miss-plain-only      nothing shown, the cluster has plain lyrics only
   miss-catalogue       nothing shown, nothing usable exists
   correct-none         an expected instrumental, nothing shown
-  unreadable / failed / uncached   taken as the harness reported them
+  failed-request       Isla's request drew a 4xx other than 404 and 429 (a deterministic
+                       refusal of Isla's own request): an Isla outcome, a miss in usable
+                       when a fit exists
+  truth-uncertain      the track's anchors contradict each other (anchor-conflict): excluded
+  truth-incomplete     no anchor and an LRCLIB query went unanswered: excluded
+  disputed             the harvest says instrumental, LRCLIB holds lyrics: excluded
+  unreadable           taken as the harness reported it
+  failed / uncached    no answer could be obtained (an environment failure): excluded
+
+The last three of those (truth-uncertain, truth-incomplete, disputed) are
+track-level: every lookup of the track that reached an answer gets the verdict,
+and none of them is in the accuracy or wrong-rate denominators. They are counted
+separately under `excluded_from_scoring`.
 
 "Same-song" and "fit" records are the union of the resolver's pool and the
 records in Isla's own responses to that lookup. A response record joins the
-cluster when its containment against the group anchors is at least 0.6. "Fit"
-is judged against the lookup's own variant duration: within 3 s, last sung
-stamp no later than duration + 3.
+cluster when its containment against the group anchors is at least SAME (per
+script family, oracle.thresholds). "Fit" is judged against the lookup's own
+variant duration: within 3 s, last sung stamp no later than duration + 3. A
+track the resolver found no anchor for is anchored here from Isla's own
+responses: any record in any of its lookups' answers that matches the title and
+artist and has lyric text.
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import json
+import math
 import os
 import shutil
 import statistics
@@ -64,25 +95,39 @@ import resolve  # noqa: E402
 
 DEFAULT_ROOT = resolve.DEFAULT_ROOT
 
-SAME = 0.6       # containment at or above: the same song
-WRONG = 0.2      # containment at or below: a different song
+SAME, WRONG = oracle.DEFAULT_THRESHOLDS   # per-family values: oracle.thresholds(family)
 FIT_S = 3.0
 NEAR_S = 10.0
 
 SHOWN = ("correct", "correct-longer-cut", "alt-script", "wrong-song", "uncertain")
 WRONG_RATE_VERDICTS = ("wrong-song", "correct-longer-cut", "uncertain")
 RECOVERABLE = ("miss-rejected", "miss-unqueried")
+# Verdicts about the truth, not about Isla: never in a denominator.
+EXCLUDED_TRUTH = ("truth-uncertain", "truth-incomplete", "disputed")
+# Verdicts for which nothing can be said of Isla at all.
+NO_JUDGEMENT = ("failed", "uncached", "unrecovered")
+# HTTP statuses that are LRCLIB's ordinary answer or a rate limit, not a
+# refusal of Isla's request.
+BENIGN_STATUSES = (404, 429)
 DIAGNOSE = ("miss-rejected", "miss-unqueried", "miss-tolerance", "wrong-song", "uncertain",
             "correct-longer-cut", "alt-script", "unrecovered")
 MATCHED_VERDICTS = ("correct", "correct-longer-cut", "alt-script")
+DEFAULT_RESULTS = "results"
+DEFAULT_REPORTS = "reports"
 
 # Section verdict thresholds, stated here so the report can print them.
 THRESHOLDS = {
-    "M1": {"pass": "canonical accuracy >= 0.90, wrong rate <= 0.02, recoverable misses <= 0.02 of usable",
-           "fail": "canonical accuracy < 0.75 or wrong rate > 0.05"},
-    "M2": {"pass": "no switched-wrong and lost <= 0.02 of applicable (duration edges excluded)",
-           "fail": "switched-wrong > 0.01 of applicable"},
-    "M6": {"pass": "no variant loses more than 0.05 of the tracks canonical gets right",
+    "M1": {"pass": "canonical accuracy >= 0.90, wrong rate <= 0.02, recoverable misses <= 0.02 of usable, "
+                   "and no lookup uncached",
+           "fail": "canonical accuracy < 0.75 or wrong rate > 0.05",
+           "incomplete": "the result would be a pass but at least one lookup is uncached: the missing "
+                         "answers could move it, so M1 reports accuracy bounds instead"},
+    "M2": {"pass": "no switched-wrong and lost <= 0.02 of the rows whose base pick is in the cluster, "
+                   "switched-alt <= 0.02 of the same (duration edges excluded)",
+           "fail": "switched-wrong > 0.01 of applicable rows (rows where both base and pick are null "
+                   "are not applicable)"},
+    "M6": {"pass": "no variant loses more than 0.05 of the tracks canonical gets right "
+                   "(failed, uncached and unrecovered variant lookups are in neither count)",
            "fail": "a variant loses 0.20 or more"},
 }
 
@@ -191,6 +236,13 @@ class Truth:
         self.track = track
         self.harvest = track.get("harvest") or {}
         self.truth = track.get("truth") or {}
+        self.notes = list(self.truth.get("notes") or [])
+        self.status = self.truth.get("truth_status")
+        # A tracks.jsonl written before the resolver knew `truth-uncertain`
+        # says "ok" beside an anchor-conflict note; read it the same way.
+        if self.status == "ok" and "anchor-conflict" in self.notes:
+            self.status = "truth-uncertain"
+        self.promoted = False
         self.pool = pool_rows(root, track)
         self.infos: Dict[int, dict] = {}
         self.cluster = set(self.truth.get("cluster_ids") or [])
@@ -208,7 +260,11 @@ class Truth:
                 if info["fp"] and not info["instrumental"]:
                     self.anchor_fps[cid] = info["fp"]
                     group_scripts.append(info["script"])
-        self.group_family = oracle.script_family(group_scripts[0]) if group_scripts else ""
+        self._set_family(group_scripts[0] if group_scripts else "")
+
+    def _set_family(self, script: str) -> None:
+        self.group_family = oracle.script_family(script) if script else ""
+        self.same, self.wrong = oracle.thresholds(self.group_family)
 
     def info(self, rid: int, row: dict) -> dict:
         cached = self.infos.get(rid)
@@ -225,6 +281,61 @@ class Truth:
         if not info["fp"] or not others:
             return None
         return round(max(oracle.containment(info["fp"], fp) for fp in others), 3)
+
+    def promote(self, isla_rows_of_track: Dict[int, dict]) -> bool:
+        """Anchor a track the resolver found no anchor for, from Isla's answers.
+
+        The resolver's pool comes from its own queries; Isla's queries differ
+        (a different album, a different artist string) and can return the one
+        record the resolver never saw. Any such record that matches the
+        track's title and artist and has lyric text becomes an anchor, and the
+        cluster is built as usual (adversarial review F7). Without this a
+        shown lyric was `unjudged` and a miss was `miss-catalogue` while the
+        record was sitting in Isla's own responses.
+        """
+        if self.status != "no-anchor" or not isla_rows_of_track:
+            return False
+        everything = dict(self.pool)
+        for rid, row in isla_rows_of_track.items():
+            everything.setdefault(rid, row)
+        infos = {rid: self.info(rid, row) for rid, row in everything.items()}
+        anchors = [rid for rid in isla_rows_of_track
+                   if infos[rid]["identity"] and infos[rid]["fp"] and not infos[rid]["instrumental"]]
+        if not anchors:
+            return False
+        pool = [{"id": rid, "fp": frozenset() if i["instrumental"] else i["fp"], "script": i["script"],
+                 "script_weights": i["script_weights"], "instrumental": i["instrumental"]}
+                for rid, i in infos.items()]
+        prefer = oracle.expected_script(self.harvest.get("language") or "", self.harvest.get("title") or "")
+        result = oracle.cluster(pool, anchors, prefer_script=prefer)
+        if result["truth_status"] != "ok":
+            return False
+        self.pool = everything
+        self.cluster = set(result["cluster_ids"])
+        self.alt = set(result["alt_script_ids"])
+        self.anchor_fps = {aid: infos[aid]["fp"] for aid in result["anchor_ids"]
+                           if aid in infos and infos[aid]["fp"]}
+        scripts = [infos[aid]["script"] for aid in result["anchor_ids"] if aid in infos and infos[aid]["fp"]]
+        self._set_family(scripts[0] if scripts else "")
+        self.status = "truth-uncertain" if "anchor-conflict" in result["notes"] else "ok"
+        self.promoted = True
+        return True
+
+    def exclusion(self) -> Optional[str]:
+        """The track-level verdict that takes the track out of scoring, if any.
+
+        disputed: the harvest calls the song instrumental and LRCLIB holds lyrics
+        for it, so neither can be called the truth. truth-uncertain: the anchors
+        contradict each other. truth-incomplete: no anchor, and an LRCLIB query
+        went unanswered, so the catalogue cannot be called empty.
+        """
+        if self.truth.get("instrumental_disagreement") == "harvest-none-lrclib-lyrics":
+            return "disputed"
+        if self.status == "truth-uncertain":
+            return "truth-uncertain"
+        if self.status == "no-anchor" and any(str(n).startswith("lrclib-unanswered") for n in self.notes):
+            return "truth-incomplete"
+        return None
 
 
 def judge(truth: Truth, lookup: dict, rows: Dict[int, dict]) -> dict:
@@ -247,11 +358,11 @@ def judge(truth: Truth, lookup: dict, rows: Dict[int, dict]) -> dict:
         if rid in members or rid in truth.alt or not info["fp"] or info["instrumental"]:
             continue
         score = truth.containment(rid, info)
-        if score is not None and score >= SAME:
+        if score is not None and score >= truth.same:
             members.add(rid)
 
     synced = [rid for rid in members if infos[rid]["has_synced"] and rid not in truth.alt]
-    fit, near = [], []
+    fit, near, overrun_fit = [], [], []
     if duration <= 0:
         fit = [(0.0, rid) for rid in synced]
         flags.append("no-duration")
@@ -259,27 +370,49 @@ def judge(truth: Truth, lookup: dict, rows: Dict[int, dict]) -> dict:
         for rid in synced:
             info = infos[rid]
             delta = round(abs(info["duration"] - duration), 3)
-            if delta <= FIT_S and info["last_stamp"] is not None and info["last_stamp"] <= duration + FIT_S:
+            last = info["last_stamp"]
+            if delta <= FIT_S and last is not None and last <= duration + FIT_S:
                 fit.append((delta, rid))
             elif FIT_S < delta <= NEAR_S:
                 near.append((delta, rid))
+            # A right-length record stamped more than 3 s past the end: Isla
+            # still shows it, flagged as timed for a longer cut (F13).
+            if delta <= FIT_S and last is not None and last > duration + FIT_S and info["identity"]:
+                overrun_fit.append((delta, rid))
     fit_ids = [rid for _, rid in sorted(fit)]
     near_ids = [rid for _, rid in sorted(near)]
-    saw_fit = bool(set(fit_ids) & set(rows))
+    overrun_ids = [rid for _, rid in sorted(overrun_fit)]
+    # Recoverable means a record Isla's matcher could accept: its title and
+    # artist must also match. A fit by content alone (a karaoke upload under
+    # another artist) is `miss-text-only` (F3).
+    fit_identity_ids = [rid for rid in fit_ids if infos[rid]["identity"]]
+    saw_fit = bool(set(fit_identity_ids) & set(rows))
+    saw_overrun = bool(set(overrun_ids) & set(rows))
     plain_only = bool(members) and not any(infos[r]["has_synced"] for r in members) \
         and any(infos[r]["has_plain"] for r in members)
 
     chosen_id = lookup.get("chosen_id")
-    status = t.get("truth_status")
+    status = truth.status
     expected_instrumental = bool(t.get("instrumental_expected"))
     containment: Optional[float] = None
     verdict: str
 
     if lookup.get("chosen_ambiguous"):
         flags.append("ambiguous-recovery")
+    if truth.promoted:
+        flags.append("anchor-promoted")
 
-    if outcome in ("unreadable", "failed", "uncached"):
+    if outcome in ("unreadable", "uncached"):
         verdict = outcome
+    elif outcome == "failed":
+        refused = sorted({r["status"] for r in lookup.get("requests") or []
+                          if isinstance(r.get("status"), int) and 400 <= r["status"] < 500
+                          and r["status"] not in BENIGN_STATUSES})
+        if refused:
+            verdict = "failed-request"
+            flags.append(f"http-{refused[0]}")
+        else:
+            verdict = "failed"
     elif outcome == "found":
         chosen = infos.get(chosen_id) if chosen_id is not None else None
         if chosen is not None:
@@ -300,7 +433,7 @@ def judge(truth: Truth, lookup: dict, rows: Dict[int, dict]) -> dict:
                                             and truth.group_family
                                             and oracle.script_family(chosen["script"]) != truth.group_family):
                 same = None
-            elif containment is not None and containment >= SAME:
+            elif containment is not None and containment >= truth.same:
                 same = True
                 flags.append("late-cluster")
             else:
@@ -311,7 +444,7 @@ def judge(truth: Truth, lookup: dict, rows: Dict[int, dict]) -> dict:
                 verdict = "correct-longer-cut" if lookup.get("timed_for_longer") else "correct"
                 if duration > 0 and abs(chosen["duration"] - duration) > FIT_S:
                     flags.append("off-length")
-            elif containment is not None and containment > WRONG:
+            elif containment is not None and containment > truth.wrong:
                 verdict = "uncertain"
             else:
                 verdict = "wrong-song"
@@ -322,8 +455,13 @@ def judge(truth: Truth, lookup: dict, rows: Dict[int, dict]) -> dict:
             verdict = "miss-catalogue"
             if rows or truth.candidates:
                 flags.append("candidates-without-anchor")
-        elif fit_ids:
+        elif fit_identity_ids:
             verdict = "miss-rejected" if saw_fit else "miss-unqueried"
+        elif overrun_ids:
+            verdict = "miss-rejected" if saw_overrun else "miss-unqueried"
+            flags.append("overrun-only")
+        elif fit_ids:
+            verdict = "miss-text-only"
         elif near_ids:
             verdict = "miss-tolerance"
         elif plain_only:
@@ -332,16 +470,31 @@ def judge(truth: Truth, lookup: dict, rows: Dict[int, dict]) -> dict:
             verdict = "miss-catalogue"
             if synced:
                 flags.append("synced-off-length")
+            if any(str(n).startswith("lrclib-unanswered") for n in truth.notes):
+                flags.append("lrclib-unanswered")
 
+    exclusion = truth.exclusion()
+    if exclusion and (outcome in ("found", "none") or verdict == "failed-request"):
+        flags.append(f"was-{verdict}")
+        verdict = exclusion
+
+    judged_usable = verdict not in NO_JUDGEMENT and verdict not in EXCLUDED_TRUTH
     return {
         "verdict": verdict, "flags": flags, "containment": containment,
-        "fit_ids": fit_ids, "near_ids": near_ids, "isla_saw_fit": saw_fit,
+        "fit_ids": fit_ids, "fit_identity_ids": fit_identity_ids, "near_ids": near_ids,
+        "overrun_ids": overrun_ids,
+        "isla_saw_fit": saw_fit or (saw_overrun and verdict in RECOVERABLE),
         "cluster_ids": sorted(members), "alt_n": len(truth.alt),
         "chosen_info": infos.get(chosen_id) if chosen_id is not None else None,
         "infos": infos, "everything": everything, "members": members,
-        "usable": (not expected_instrumental and status != "no-anchor"
-                   and outcome not in ("failed", "uncached")
-                   and (bool(fit_ids) or verdict == "correct")),
+        # A lookup is usable when a right answer was within Isla's reach: a
+        # fit record that also matches title and artist, an overrun-fit it
+        # missed, or the correct answer it gave. Environment failures, a
+        # lookup the harness could not attribute, and tracks whose truth is in
+        # doubt are not usable.
+        "usable": (not expected_instrumental and status not in ("no-anchor", "truth-uncertain")
+                   and judged_usable
+                   and (bool(fit_identity_ids) or verdict == "correct" or verdict in RECOVERABLE)),
     }
 
 
@@ -359,17 +512,28 @@ def counts(rows: List[dict]) -> dict:
     shown = sum(verdicts.get(v, 0) for v in SHOWN)
     wrong = sum(verdicts.get(v, 0) for v in WRONG_RATE_VERDICTS)
     recoverable = sum(verdicts.get(v, 0) for v in RECOVERABLE)
+    uncached = verdicts.get("uncached", 0)
     return {
         "lookups": len(rows),
         "usable": len(usable),
         "correct": correct,
         "accuracy": analysis.share(correct, len(usable)),
+        # An uncached lookup is a lookup the cache could not answer. The first
+        # figure ignores them; the second reads every one as a usable miss.
+        "uncached": uncached,
+        "accuracy_bounds": {
+            "as_computed": analysis.share(correct, len(usable)),
+            "uncached_as_misses": analysis.share(correct, len(usable) + uncached),
+        },
         "shown": shown,
         "wrong": wrong,
         "wrong_rate": analysis.share(wrong, shown),
         "recoverable_misses": recoverable,
         "recoverable_of_usable": analysis.share(
             sum(1 for r in usable if r["verdict"] in RECOVERABLE), len(usable)),
+        "text_only_misses": verdicts.get("miss-text-only", 0),
+        "failed_request": verdicts.get("failed-request", 0),
+        "excluded_from_scoring": {v: verdicts[v] for v in EXCLUDED_TRUTH if verdicts.get(v)},
         "verdicts": dict(sorted(verdicts.items())),
     }
 
@@ -392,54 +556,88 @@ def section(verdict: str, summary: str, **data) -> dict:
 # M2 and M6
 # --------------------------------------------------------------------------
 
-def perturbation_section(rows: List[dict], clusters: Dict[str, set]) -> dict:
-    buckets = ("kept", "lost", "switched-wrong", "switched-ok")
+def perturbation_section(rows: List[dict], clusters: Dict[str, set], alts: Optional[Dict[str, set]] = None) -> dict:
+    """M2 buckets. `base` is the pick for the unperturbed identity, `picked`
+    the pick for the perturbed one.
+
+      kept            same pick, or both in the cluster
+      lost            base in the cluster, nothing picked
+      switched-ok     base outside the cluster, pick inside
+      switched-alt    base in the cluster, pick an alt-script record
+      switched-wrong  base in the cluster, pick outside it and not alt-script;
+                      or base null and the pick outside the cluster
+      found-new       base null, pick in the cluster (a good outcome)
+      dropped-wrong   base outside the cluster, nothing picked (a good outcome)
+
+    A row with both picks null is not applicable. `lost` is divided by the rows
+    whose base pick is in the cluster, since only those had anything to lose.
+    """
+    buckets = ("kept", "lost", "switched-wrong", "switched-ok", "switched-alt", "found-new", "dropped-wrong")
+    alts = alts or {}
     per: Dict[str, dict] = {}
+    both_null = 0
     for r in rows:
         if not r.get("applicable"):
             continue
         cluster = clusters.get(r["track_id"])
         if cluster is None:
             continue
+        alt = alts.get(r["track_id"]) or set()
         base, picked = r.get("base_id"), r.get("picked_id")
+        if base is None and picked is None:
+            both_null += 1
+            continue
         if picked == base:
             outcome = "kept"
-        elif base is not None and picked is None:
-            outcome = "lost"
+        elif base is None:
+            outcome = "found-new" if picked in cluster else "switched-wrong"
+        elif picked is None:
+            outcome = "lost" if base in cluster else "dropped-wrong"
         elif picked in cluster:
             outcome = "kept" if base in cluster else "switched-ok"
+        elif base in cluster and picked in alt:
+            outcome = "switched-alt"
         else:
             outcome = "switched-wrong"
-        cell = per.setdefault(r["perturbation"], {"applicable": 0, **{b: 0 for b in buckets},
+        cell = per.setdefault(r["perturbation"], {"applicable": 0, "base_in_cluster": 0, **{b: 0 for b in buckets},
                                                  "examples": {"lost": [], "switched-wrong": []}})
         cell["applicable"] += 1
+        cell["base_in_cluster"] += 1 if base is not None and base in cluster else 0
         cell[outcome] += 1
         if outcome in ("lost", "switched-wrong") and len(cell["examples"][outcome]) < 5:
             cell["examples"][outcome].append(r["track_id"])
     for cell in per.values():
         for b in buckets:
             cell[f"{b}_share"] = analysis.share(cell[b], cell["applicable"])
+        # The lost share is over rows with something to lose.
+        cell["lost_share"] = analysis.share(cell["lost"], cell["base_in_cluster"])
+        cell["switched-alt_share_of_base_in_cluster"] = analysis.share(cell["switched-alt"], cell["base_in_cluster"])
     ordinary = [c for k, c in per.items() if not k.startswith("d-")]
     applicable = sum(c["applicable"] for c in ordinary)
+    base_in = sum(c["base_in_cluster"] for c in ordinary)
     lost = sum(c["lost"] for c in ordinary)
     wrong = sum(c["switched-wrong"] for c in ordinary)
+    alt_switch = sum(c["switched-alt"] for c in ordinary)
     total = sum(c["applicable"] for c in per.values())
     if not total:
-        return section("info", "no applicable perturbation rows", perturbations={})
+        return section("info", "no applicable perturbation rows", perturbations={}, both_null_rows=both_null)
     if applicable and wrong / applicable > 0.01:
         verdict = "fail"
-    elif wrong or (applicable and lost / applicable > 0.02):
+    elif wrong or (base_in and (lost / base_in > 0.02 or alt_switch / base_in > 0.02)):
         verdict = "concern"
     else:
         verdict = "pass"
     worst = max(per.items(), key=lambda kv: (kv[1]["switched-wrong"] + kv[1]["lost"]))
     return section(
         verdict,
-        f"{total} applicable perturbations across {len(per)} kinds; excluding duration edges "
-        f"{lost} lost and {wrong} switched to a wrong song out of {applicable}; "
+        f"{total} applicable perturbations across {len(per)} kinds ({both_null} rows with no pick on either side "
+        f"left out); excluding duration edges {lost} lost of {base_in} with a base pick in the cluster, "
+        f"{alt_switch} switched to another script, and {wrong} switched to a wrong song out of {applicable}; "
         f"worst kind {worst[0]} ({worst[1]['lost']} lost, {worst[1]['switched-wrong']} switched-wrong).",
         perturbations=dict(sorted(per.items())),
+        both_null_rows=both_null,
         duration_edges_excluded_from_verdict=sorted(k for k in per if k.startswith("d-")),
+        thresholds=THRESHOLDS["M2"],
     )
 
 
@@ -450,6 +648,7 @@ def variant_section(results: List[dict]) -> dict:
     matrix: Dict[str, Dict[str, Dict[str, int]]] = {}
     lost: Dict[str, dict] = {}
     base_right = 0
+    comparable: Dict[str, int] = {}
     for tid, variants in by_track.items():
         base = variants.get("canonical")
         if not base:
@@ -461,18 +660,18 @@ def variant_section(results: List[dict]) -> dict:
                 continue
             cell = matrix.setdefault(name, {}).setdefault(base["verdict"], {})
             cell[r["verdict"]] = cell.get(r["verdict"], 0) + 1
-            if right and r["verdict"] not in ("correct", "failed", "uncached"):
+            # A variant lookup that got no answer (failed, uncached) or could
+            # not be attributed (unrecovered) says nothing about Isla: it is
+            # in neither the lost count nor the denominator it is divided by.
+            if not right or r["verdict"] in NO_JUDGEMENT:
+                continue
+            comparable[name] = comparable.get(name, 0) + 1
+            if r["verdict"] != "correct":
                 entry = lost.setdefault(name, {"tracks": 0, "by_verdict": {}, "examples": []})
                 entry["tracks"] += 1
                 entry["by_verdict"][r["verdict"]] = entry["by_verdict"].get(r["verdict"], 0) + 1
                 if len(entry["examples"]) < 10:
                     entry["examples"].append(tid)
-    comparable: Dict[str, int] = {}
-    for variants in by_track.values():
-        if variants.get("canonical", {}).get("verdict") == "correct":
-            for name in variants:
-                if name != "canonical":
-                    comparable[name] = comparable.get(name, 0) + 1
     for name, entry in lost.items():
         entry["of_canonical_correct_with_this_variant"] = comparable.get(name, 0)
         entry["share"] = analysis.share(entry["tracks"], comparable.get(name, 0))
@@ -485,7 +684,8 @@ def variant_section(results: List[dict]) -> dict:
                + (f"the variant that loses most is {worst[0]} ({worst[1]['tracks']} of "
                   f"{worst[1]['of_canonical_correct_with_this_variant']}, {round(worst_share * 100, 1)}%)."
                   if worst else "no variant loses any."))
-    return section(verdict, summary, transitions=matrix, lost_by_variant=dict(sorted(lost.items())))
+    return section(verdict, summary, transitions=matrix, lost_by_variant=dict(sorted(lost.items())),
+                   comparable_by_variant=dict(sorted(comparable.items())), thresholds=THRESHOLDS["M6"])
 
 
 # --------------------------------------------------------------------------
@@ -495,7 +695,8 @@ def variant_section(results: List[dict]) -> dict:
 CSV_COLUMNS = ["track_id", "slice", "pick", "tags", "vocal", "language",
                "variant", "player_id", "title", "artist", "album", "duration",
                "outcome", "verdict", "flags", "chosen_id", "chosen_via", "containment", "timed_for_longer",
-               "truth_status", "fit_n", "near_n", "isla_saw_fit", "cluster_n", "alt_n", "notes"]
+               "truth_status", "fit_n", "fit_identity_n", "overrun_fit_n", "near_n", "isla_saw_fit",
+               "cluster_n", "alt_n", "usable", "notes"]
 
 
 def estimation_section(root: str, study: "analysis.EstimationStudy") -> dict:
@@ -523,32 +724,139 @@ def verbatim(path: str, name: str) -> dict:
     return data
 
 
-def run(root: str) -> dict:
+def plain_dirname(name: str) -> str:
+    """A directory name under the root: no separators, no `..`."""
+    if not name or name in (".", "..") or "/" in name or "\\" in name or os.path.isabs(name):
+        raise ValueError(f"{name!r} is not a plain directory name")
+    return name
+
+
+def nearest_rank_summary(values: List[float]) -> dict:
+    """The Swift harness's `LabStats.summary`: nearest-rank percentiles."""
+    if not values:
+        return {"n": 0}
+    ordered = sorted(values)
+
+    def rank(p: float) -> float:
+        index = max(0, math.ceil(p * len(ordered)) - 1)
+        return ordered[min(index, len(ordered) - 1)]
+
+    return {"n": len(ordered), "min": ordered[0], "p50": rank(0.5), "p95": rank(0.95), "p99": rank(0.99),
+            "max": ordered[-1], "mean": sum(ordered) / len(ordered)}
+
+
+def _readability_cell(entries: List[dict], surface_available: Dict[str, float]) -> dict:
+    lines = sum(e["lines"] for e in entries)
+    durations = [d for e in entries for d in e.get("durations", [])]
+    surfaces = {}
+    for key, available in surface_available.items():
+        ratios = [x for e in entries for x in (e.get("surfaces", {}).get(key, {}).get("ratios") or [])]
+        widths = [x for e in entries for x in (e.get("surfaces", {}).get(key, {}).get("widths") or [])]
+        rows = [x for e in entries for x in (e.get("surfaces", {}).get(key, {}).get("rows") or [])]
+        overflow = sum(e.get("surfaces", {}).get(key, {}).get("overflow", 0) for e in entries)
+        surfaces[key] = {"available_pt": available, "overflow_lines": overflow,
+                         "overflow_share": analysis.share(overflow, lines),
+                         "width_pt": nearest_rank_summary(widths),
+                         "width_over_available": nearest_rank_summary(ratios),
+                         "rows_if_wrapped_for_overflowing_lines": nearest_rank_summary(rows)}
+    return {
+        "tracks": len(entries), "lines": lines,
+        "line_duration_s": nearest_rank_summary(durations),
+        "graphemes_per_second": nearest_rank_summary([x for e in entries for x in e.get("cps", [])]),
+        "syllables_per_second": nearest_rank_summary([x for e in entries for x in e.get("sps", [])]),
+        "share_under_0_6_s": analysis.share(sum(1 for d in durations if d < 0.6), lines),
+        "share_under_1_0_s": analysis.share(sum(1 for d in durations if d < 1.0), lines),
+        "surfaces": surfaces,
+    }
+
+
+def readability_section(path: str, wrong_song_tracks: set) -> dict:
+    """M4, merged from the harness file, plus the same figures without the
+    canonical lookups whose verdict is wrong-song (adversarial review F15):
+    readability of lyrics for a different song is not a finding about the
+    right ones. The harness writes one entry per lookup under `per_lookup`;
+    an older file without it keeps the unfiltered figures and says so."""
+    data = verbatim(path, "M4 readability")
+    entries = data.get("per_lookup")
+    if not isinstance(entries, list):
+        if isinstance(data.get("all"), dict):
+            data["without_wrong_song"] = {"available": False, "reason":
+                                          "the file has no per_lookup entries; rerun the Swift harness"}
+        return data
+    kept = [e for e in entries if isinstance(e, dict) and e.get("track_id") not in wrong_song_tracks]
+    surface_available = {k: v.get("available_pt", 0) for k, v in
+                         ((data.get("all") or {}).get("surfaces") or {}).items()}
+    by_slice: Dict[str, List[dict]] = {}
+    for entry in kept:
+        by_slice.setdefault(str(entry.get("slice") or ""), []).append(entry)
+    data["without_wrong_song"] = {
+        "available": True,
+        "lookups_excluded": len(entries) - len(kept),
+        "lookups_kept": len(kept),
+        "all": _readability_cell(kept, surface_available),
+        "slices": {k: _readability_cell(v, surface_available) for k, v in sorted(by_slice.items())},
+    }
+    data["per_lookup"] = len(entries)   # the raw rows stay in the harness file, not in the report
+    kept_lines = data["without_wrong_song"]["all"]["lines"]
+    data["summary"] = (data.get("summary") or "") + (
+        f" | without wrong-song lookups ({len(entries) - len(kept)} excluded): {kept_lines} lines, "
+        f"under 0.6 s {_pct(data['without_wrong_song']['all']['share_under_0_6_s'])}")
+    return data
+
+
+def run(root: str, results_name: str = DEFAULT_RESULTS, reports_name: str = DEFAULT_REPORTS,
+        calibration: bool = True) -> dict:
     root = os.path.expanduser(root)
+    results_name, reports_name = plain_dirname(results_name), plain_dirname(reports_name)
+    results_dir = os.path.join(root, results_name)
+    reports_dir = os.path.join(root, reports_name)
+    # `matched/` is the M5 corpus of the baseline run. An experiment (an
+    # alternate reports directory) reads and scores but never replaces it.
+    write_matched = reports_name == DEFAULT_REPORTS
+    oracle.reset_calibration()
+    if calibration:
+        oracle.load_calibration(root)
+    params_now = oracle.active_params()
+    params_mismatch = 0
     tracks = read_jsonl(os.path.join(root, "resolved", "tracks.jsonl"))
-    lookups = read_jsonl(os.path.join(root, "results", "isla-lookups.jsonl"))
-    perturbations = read_jsonl(os.path.join(root, "results", "perturbations.jsonl"))
+    lookups = read_jsonl(os.path.join(results_dir, "isla-lookups.jsonl"))
+    perturbations = read_jsonl(os.path.join(results_dir, "perturbations.jsonl"))
     by_track: Dict[str, List[dict]] = {}
     for lookup in lookups:
         by_track.setdefault(lookup["track_id"], []).append(lookup)
 
     matched_root = os.path.join(root, "matched")
-    if os.path.isdir(matched_root):
+    if write_matched and os.path.isdir(matched_root):
         shutil.rmtree(matched_root)  # generated output; a stale record must not outlive its verdict
     matched_ids: set = set()
 
     results: List[dict] = []
     diagnose: List[dict] = []
     clusters: Dict[str, set] = {}
+    alts: Dict[str, set] = {}
+    wrong_song_tracks: set = set()
     noise = analysis.NoiseStudy()
     selection = analysis.SelectionStudy()
+    selection_duplicates = analysis.DuplicateTally()
+    promoted_tracks = 0
     coverage: Dict[str, dict] = {}
     consensus_cache: Dict[tuple, Dict] = {}
 
     for track in tracks:
         tid, slice_id = track["track_id"], track["slice"]
         truth = Truth(root, track)
+        if track.get("oracle_params") and track["oracle_params"] != params_now:
+            params_mismatch += 1
         harvest = truth.harvest
+        track_lookups = by_track.get(tid, [])
+        responses = [isla_rows(root, lookup) for lookup in track_lookups]
+        if truth.status == "no-anchor":
+            merged: Dict[int, dict] = {}
+            for rows_of_lookup in responses:
+                for row in rows_of_lookup.values():
+                    absorb(merged, row)
+            if truth.promote(merged):
+                promoted_tracks += 1
         family = oracle.script_family(oracle.expected_script(harvest.get("language") or "", harvest.get("title") or ""))
         cov = coverage.setdefault(slice_id, {
             "tracks": 0, "tracks_with_word_timed_record_in_cluster": 0,
@@ -558,8 +866,7 @@ def run(root: str) -> dict:
         if any(truth.candidates.get(i, {}).get("word_timing") for i in truth.cluster):
             cov["tracks_with_word_timed_record_in_cluster"] += 1
         canonical_judged = None
-        for lookup in by_track.get(tid, []):
-            rows = isla_rows(root, lookup)
+        for lookup, rows in zip(track_lookups, responses):
             j = judge(truth, lookup, rows)
             identity = lookup.get("identity") or {}
             variant = lookup["variant"]
@@ -573,12 +880,15 @@ def run(root: str) -> dict:
                 "outcome": lookup.get("outcome"), "verdict": j["verdict"], "flags": j["flags"],
                 "chosen_id": lookup.get("chosen_id"), "chosen_via": lookup.get("chosen_via"),
                 "containment": j["containment"], "timed_for_longer": lookup.get("timed_for_longer"),
-                "truth_status": truth.truth.get("truth_status"), "fit_n": len(j["fit_ids"]),
+                "truth_status": truth.status, "fit_n": len(j["fit_ids"]),
+                "fit_identity_n": len(j["fit_identity_ids"]), "overrun_fit_n": len(j["overrun_ids"]),
                 "near_n": len(j["near_ids"]), "isla_saw_fit": j["isla_saw_fit"],
                 "cluster_n": len(j["cluster_ids"]), "alt_n": len(truth.alt),
                 "notes": truth.truth.get("notes") or [], "usable": j["usable"],
             }
             results.append(result)
+            if variant == "canonical" and j["verdict"] == "wrong-song":
+                wrong_song_tracks.add(tid)
 
             if lookup.get("outcome") == "found":
                 gran = lookup.get("granularity") or "unknown"
@@ -597,18 +907,25 @@ def run(root: str) -> dict:
                 row = j["everything"].get(lookup["chosen_id"])
                 if row is not None and lookup["chosen_id"] not in matched_ids:
                     matched_ids.add(lookup["chosen_id"])
-                    path = os.path.join(matched_root, slice_id, f"{lookup['chosen_id']}.json")
-                    os.makedirs(os.path.dirname(path), exist_ok=True)
-                    with open(path, "w", encoding="utf-8") as handle:
-                        json.dump(dict(row, category=slice_id), handle, ensure_ascii=False)
+                    if write_matched:
+                        path = os.path.join(matched_root, slice_id, f"{lookup['chosen_id']}.json")
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        with open(path, "w", encoding="utf-8") as handle:
+                            json.dump(dict(row, category=slice_id), handle, ensure_ascii=False)
 
             # M10: of several correct records, did Isla pick the best?
             if variant in ("canonical", "apple") and j["verdict"] == "correct" and len(j["fit_ids"]) >= 2 \
                     and j["chosen_info"] is not None:
                 fit_key = tuple(sorted(j["fit_ids"]))
-                if fit_key not in consensus_cache:
-                    consensus_cache[fit_key] = analysis.consensus_deviation(
-                        {rid: analysis.sung(j["everything"][rid]) for rid in fit_key})
+                cache_key = (fit_key, lookup["chosen_id"])
+                if cache_key not in consensus_cache:
+                    # Copies of one timeline are one vote, and the chosen
+                    # record stays in its group so it can be scored.
+                    unique, groups = analysis.collapse_identical(
+                        {rid: analysis.sung(j["everything"][rid]) for rid in fit_key}, prefer=lookup["chosen_id"])
+                    selection_duplicates.add(groups)
+                    consensus_cache[cache_key] = analysis.expand_deviations(
+                        analysis.consensus_deviation(unique), groups)
                     if len(consensus_cache) > 4:
                         consensus_cache.pop(next(iter(consensus_cache)))
                 info = j["infos"]
@@ -618,7 +935,7 @@ def run(root: str) -> dict:
                      "word_timing": info[lookup["chosen_id"]]["word_timing"]},
                     [{"id": rid, "duration": info[rid]["duration"], "word_timing": info[rid]["word_timing"]}
                      for rid in fit_key],
-                    float(identity.get("duration") or 0), consensus_cache[fit_key])
+                    float(identity.get("duration") or 0), consensus_cache[cache_key])
 
             if j["verdict"] in DIAGNOSE:
                 entry = {
@@ -627,17 +944,19 @@ def run(root: str) -> dict:
                                  "artist": identity.get("artist"), "album": identity.get("album"),
                                  "duration": identity.get("duration")},
                     "request_keys": [r["key"] for r in lookup.get("requests") or [] if r.get("key")],
-                    "fit_ids": j["near_ids"] if j["verdict"] == "miss-tolerance" else j["fit_ids"],
+                    "fit_ids": j["near_ids"] if j["verdict"] == "miss-tolerance"
+                    else (j["fit_identity_ids"] or j["overrun_ids"] if j["verdict"] in RECOVERABLE else j["fit_ids"]),
                     "chosen_id": lookup.get("chosen_id"),
                     "cluster_ids": j["cluster_ids"],
                 }
                 if j["verdict"] == "miss-unqueried":
                     entry["found_by"] = {str(rid): truth.candidates.get(rid, {}).get("source_queries", [])
-                                         for rid in j["fit_ids"]}
+                                         for rid in entry["fit_ids"]}
                 diagnose.append(entry)
 
         # M2 needs the cluster as the canonical lookup saw it.
         clusters[tid] = canonical_judged[1]["members"] if canonical_judged else set(truth.cluster)
+        alts[tid] = set(truth.alt)
 
         # M9: independent synced records of one song, within 3 s of Apple's length.
         target = (track.get("apple") or {}).get("duration") or \
@@ -650,6 +969,7 @@ def run(root: str) -> dict:
                    if rid in infos and infos[rid]["has_synced"] and rid not in truth.alt
                    and abs(infos[rid]["duration"] - target) <= FIT_S]
             if len(ids) >= 2:
+                # NoiseStudy folds identical timelines into one record itself.
                 noise.add_track(slice_id, {rid: analysis.sung(everything[rid]) for rid in ids},
                                 canonical_judged[0].get("chosen_id") if canonical_judged else None)
 
@@ -657,8 +977,9 @@ def run(root: str) -> dict:
     canonical = [r for r in results if r["variant"] == "canonical"]
     m1_counts = counts(results)
     canon_counts = counts(canonical)
+    uncached_total = m1_counts["uncached"]
     if not results:
-        m1 = section("info", "no lookups: results/isla-lookups.jsonl is absent or empty")
+        m1 = section("info", f"no lookups: {results_name}/isla-lookups.jsonl is absent or empty")
     else:
         acc, wr, rec = canon_counts["accuracy"], canon_counts["wrong_rate"], canon_counts["recoverable_of_usable"]
         if acc is None:
@@ -666,7 +987,9 @@ def run(root: str) -> dict:
         elif acc < 0.75 or (wr or 0) > 0.05:
             verdict = "fail"
         elif acc >= 0.90 and (wr or 0) <= 0.02 and (rec or 0) <= 0.02:
-            verdict = "pass"
+            # A pass needs every answer. Lookups the cache could not answer
+            # could move any of these figures, so the result is incomplete.
+            verdict = "incomplete" if uncached_total else "pass"
         else:
             verdict = "concern"
         slice_cut = cut(canonical, lambda r: r["slice"])
@@ -677,8 +1000,18 @@ def run(root: str) -> dict:
             f"{len(results)} lookups ({len(canonical)} canonical). Canonical accuracy "
             f"{_pct(acc)} of {canon_counts['usable']} usable, wrong rate {_pct(wr)} of {canon_counts['shown']} shown, "
             f"recoverable misses {canon_counts['recoverable_misses']} ({_pct(rec)} of usable)"
-            + (f"; weakest slice {worst[0]} at {_pct(worst[1])}." if worst else "."),
+            + (f"; weakest slice {worst[0]} at {_pct(worst[1])}" if worst else "")
+            + (f"; {uncached_total} lookups uncached, canonical accuracy between "
+               f"{_pct(canon_counts['accuracy_bounds']['uncached_as_misses'])} (uncached as misses) and "
+               f"{_pct(canon_counts['accuracy_bounds']['as_computed'])}" if uncached_total else "")
+            + (f"; excluded from scoring: {m1_counts['excluded_from_scoring']}"
+               if m1_counts["excluded_from_scoring"] else "")
+            + ".",
             overall=m1_counts, canonical=canon_counts,
+            accuracy_bounds={"overall": m1_counts["accuracy_bounds"], "canonical": canon_counts["accuracy_bounds"]},
+            excluded_from_scoring={"overall": m1_counts["excluded_from_scoring"],
+                                   "canonical": canon_counts["excluded_from_scoring"]},
+            anchor_promoted_tracks=promoted_tracks,
             by_slice=cut(results, lambda r: r["slice"]),
             by_variant=cut(results, lambda r: r["variant"]),
             by_slice_variant=cut(results, lambda r: f"{r['slice']} | {r['variant']}"),
@@ -698,7 +1031,9 @@ def run(root: str) -> dict:
     best = estimation.get("e4_best_cap")
     overall = estimation.get("overall_excluding_estimator_made") or estimation.get("overall_all_records") or {}
     m3_summary = (
-        f"{estimation['records']} word-timed records ({estimation['lines']} lines, {estimation['words_scored']} words scored); "
+        f"{estimation['records']} word-timed records ({estimation['lines']} lines, {estimation['words_scored']} words scored, "
+        f"{estimation['interpolated_words_not_scored']} interpolated words left unscored). E4's cap was tuned on "
+        f"even-indexed tracks and every figure below is scored on odd-indexed ones; "
         f"{coverage_total['tracks_with_word_timed_record_in_cluster']} of {coverage_total['tracks']} tracks have one in the cluster, "
         f"{coverage_total['tracks_canonical_chosen_word_timed']} canonical picks are word-timed."
         + (f" Median start error E0 {_ms(overall.get('E0'))}, E1 {_ms(overall.get('E1'))}, E2 {_ms(overall.get('E2'))}, "
@@ -712,7 +1047,8 @@ def run(root: str) -> dict:
         f"{allcell['pairs']} record pairs on {allcell['tracks_with_pairs']} tracks: median |offset| "
         f"{allcell['abs_offset_s']['p50']} s, {_pct(allcell['share_offset_over_0.3s'])} over 0.3 s, "
         f"{_pct(allcell['share_offset_over_1s'])} over 1 s; residual p50 {allcell['residual_s']['p50']} s, p90 {allcell['residual_s']['p90']} s."
-        if allcell else "no track has two independent synced records to compare"), by_slice=noise_result)
+        if allcell else "no track has two independent synced records to compare"), by_slice=noise_result,
+        duplicate_timelines=noise.duplicate_report())
 
     sel = selection.result()
     sel_all = sel.get("all")
@@ -721,37 +1057,44 @@ def run(root: str) -> dict:
         f"{_pct(sel_all['picked_closest_length'])}, a word-timed record in {_pct(sel_all['picked_word_timed_when_available'])} "
         f"of {sel_all['word_timed_available_cases']} cases where one existed, the consensus-closest in "
         f"{_pct(sel_all['picked_closest_to_consensus'])} of {sel_all['consensus_cases']}."
-        if sel_all else "no correct lookup had two fit records"), by_variant=sel)
+        if sel_all else "no correct lookup had two fit records"), by_variant=sel,
+        duplicate_timelines=selection_duplicates.result())
 
     report = {
         "meta": {
             "root": root, "tracks": len(tracks), "lookups": len(lookups), "perturbation_rows": len(perturbations),
-            "matched_records": len(matched_ids), "diagnose_rows": len(diagnose),
+            "matched_records": len(matched_ids), "matched_written": write_matched,
+            "diagnose_rows": len(diagnose),
+            "results_dir": results_name, "reports_dir": reports_name,
+            "oracle": params_now, "oracle_params_mismatch_tracks": params_mismatch,
             "inputs": {name: os.path.exists(os.path.join(root, *name.split("/"))) for name in (
-                "resolved/tracks.jsonl", "results/isla-lookups.jsonl", "results/perturbations.jsonl",
-                "results/word-fidelity.json", "results/readability.json")},
+                "resolved/tracks.jsonl", f"{results_name}/isla-lookups.jsonl",
+                f"{results_name}/perturbations.jsonl", f"{results_name}/word-fidelity.json",
+                f"{results_name}/readability.json")},
             "thresholds": THRESHOLDS,
-            "verdict_values": "pass | concern | fail | info",
+            "verdict_values": "pass | concern | fail | info | incomplete",
         },
         "M1": m1,
-        "M2": perturbation_section(perturbations, clusters),
+        "M2": perturbation_section(perturbations, clusters, alts),
         "M3": m3,
-        "M3a": verbatim(os.path.join(root, "results", "word-fidelity.json"), "M3a word fidelity"),
-        "M4": verbatim(os.path.join(root, "results", "readability.json"), "M4 readability"),
-        "M5": section("info", f"{len(matched_ids)} chosen records written under matched/ for the 2026-10-11 lab's rerun.",
-                      records=len(matched_ids),
+        "M3a": verbatim(os.path.join(results_dir, "word-fidelity.json"), "M3a word fidelity"),
+        "M4": readability_section(os.path.join(results_dir, "readability.json"), wrong_song_tracks),
+        "M5": section("info", (f"{len(matched_ids)} chosen records written under matched/ for the 2026-10-11 lab's rerun."
+                               if write_matched else
+                               f"{len(matched_ids)} chosen records would be written; matched/ is left alone because "
+                               f"--reports is {reports_name}, not {DEFAULT_REPORTS}."),
+                      records=len(matched_ids) if write_matched else 0,
                       by_slice=_count(os.path.join(matched_root, d) for d in os.listdir(matched_root))
-                      if os.path.isdir(matched_root) else {}),
+                      if write_matched and os.path.isdir(matched_root) else {}),
         "M6": variant_section(results),
         "M9": m9,
         "M10": m10,
     }
 
-    reports = os.path.join(root, "reports")
-    os.makedirs(reports, exist_ok=True)
-    write_json(os.path.join(reports, "match-lab-report.json"), report)
-    write_csv(os.path.join(reports, "rows.csv"), results)
-    with open(os.path.join(reports, "diagnose-input.jsonl"), "w", encoding="utf-8") as handle:
+    os.makedirs(reports_dir, exist_ok=True)
+    write_json(os.path.join(reports_dir, "match-lab-report.json"), report)
+    write_csv(os.path.join(reports_dir, "rows.csv"), results)
+    with open(os.path.join(reports_dir, "diagnose-input.jsonl"), "w", encoding="utf-8") as handle:
         for entry in diagnose:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
     for name in ("M1", "M2", "M3", "M6", "M9", "M10"):
@@ -821,11 +1164,25 @@ def write_csv(path: str, results: List[dict]) -> None:
     os.replace(tmp, path)
 
 
+def _dirname_arg(value: str) -> str:
+    try:
+        return plain_dirname(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error))
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Classify Isla's lookups against the oracle's truth.")
     parser.add_argument("--root", default=DEFAULT_ROOT)
+    parser.add_argument("--results", default=DEFAULT_RESULTS, type=_dirname_arg,
+                        help="directory under the root the Swift harness wrote (ISLA_MATCH_OUT); default results")
+    parser.add_argument("--reports", default=DEFAULT_REPORTS, type=_dirname_arg,
+                        help="directory under the root to write the report, rows.csv and diagnose-input.jsonl "
+                        "to; matched/ is written only for the default reports")
+    parser.add_argument("--no-calibration", action="store_true",
+                        help="ignore reports/oracle-calibration.json and use the built-in n-gram table")
     args = parser.parse_args(argv)
-    run(args.root)
+    run(args.root, args.results, args.reports, calibration=not args.no_calibration)
     return 0
 
 

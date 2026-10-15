@@ -160,12 +160,21 @@ def _seconds(minutes: str, seconds: str, fraction: Optional[str]) -> float:
 
 
 class WordLine:
-    """One sung line of a word-timed record: `words` is `[(text, start_s)]`."""
+    """One sung line of a word-timed record: `words` is `[(text, start_s)]`.
 
-    def __init__(self, words: List[Tuple[str, float]], next_start: Optional[float], own_end: Optional[float]):
+    `exact[i]` is True when word i's start is a timestamp the record states
+    (a lyricsfile word entry, or the tag opening its segment). A word that
+    shares a tagged segment with the word before it only has a start the lab
+    interpolated by character share; scoring an estimator against that is
+    scoring it against another estimate, so such a word is never scored.
+    """
+
+    def __init__(self, words: List[Tuple[str, float]], next_start: Optional[float], own_end: Optional[float],
+                 exact: Optional[List[bool]] = None):
         self.words = words
         self.next_start = next_start
         self.own_end = own_end
+        self.exact = list(exact) if exact is not None else [True] * len(words)
 
     @property
     def start(self) -> float:
@@ -173,10 +182,16 @@ class WordLine:
 
     @property
     def end(self) -> Optional[float]:
-        """The line's span end: its own end or the next line's start, whichever
-        comes first. None when neither is known (a last line with no end)."""
-        known = [t for t in (self.next_start, self.own_end) if t is not None and t > self.start]
-        return min(known) if known else None
+        """The span the estimators spread the line over: where the next line
+        (or the LRC's own empty stamp, which is the next stamp) starts, and
+        nothing else. `own_end`, the true end of the last word, is never used:
+        a line-only lyric, which is what an estimator is applied to, does not
+        have it, so using it would hand the estimators the answer
+        (adversarial review F9). None for a last line with no stamp after it.
+        """
+        if self.next_start is not None and self.next_start > self.start:
+            return self.next_start
+        return None
 
 
 def lyricsfile_lines(raw: str) -> List[WordLine]:
@@ -195,7 +210,7 @@ def lyricsfile_lines(raw: str) -> List[WordLine]:
                                   following["words"][0]["start_ms"] if following["words"] else None)
                       if t is not None]
             nxt = min(starts) / 1000.0 if starts else None
-        out.append(WordLine(words, nxt, own_end))
+        out.append(WordLine(words, nxt, own_end, [True] * len(words)))
     return out
 
 
@@ -234,28 +249,36 @@ def enhanced_lines(synced: str) -> List[WordLine]:
                 segments.append((when, text))
         spaceless = oracle.dominant_script(" ".join(t for _, t in segments)) in oracle.NO_SPACE_SCRIPTS
         words: List[Tuple[str, float]] = []
+        exact: List[bool] = []
         glue = False  # the previous segment ended mid-word
         for k, (when, text) in enumerate(segments):
             span_end = segments[k + 1][0] if k + 1 < len(segments) else (own_end if own_end else when)
             pieces = re.findall(r"\s+|\S+", text)
             cursor = when
             total = max(1, len(text))
+            first_word_of_segment = True
             for piece in pieces:
                 if piece.isspace():
                     glue = False
+                    first_word_of_segment = False  # leading space: the word starts after the tag
                 else:
                     if spaceless:
                         words.append((piece, cursor))
+                        exact.append(first_word_of_segment)
                     elif glue and words:
                         words[-1] = (words[-1][0] + piece, words[-1][1])
                     else:
                         words.append((piece, cursor))
+                        # Only the word that opens a segment starts at a tag;
+                        # the next words of the segment start at a share of it.
+                        exact.append(first_word_of_segment)
+                    first_word_of_segment = False
                     glue = not spaceless
                 cursor += (span_end - when) * len(piece) / total if span_end > when else 0.0
         if not words:
             continue
         later = [s for s in stamps[i + 1:] if s is not None]
-        out.append(WordLine(words, later[0] if later else None, own_end))
+        out.append(WordLine(words, later[0] if later else None, own_end, exact))
     return out
 
 
@@ -319,13 +342,37 @@ def tempo_bucket(syllables_per_second: float) -> str:
     return TEMPO_BUCKETS[-1][0]
 
 
+def track_parity(record: dict) -> Tuple[int, str]:
+    """(parity, how) of the track a word-timed record belongs to.
+
+    The split that keeps E4's cap honest: the cap is tuned on even-indexed
+    tracks and scored on odd-indexed ones. The index is the number after the
+    slash in `track_id` ("jazz/014" is 14). A record with no usable track_id
+    falls back to the parity of its LRCLIB id, which is just as arbitrary and
+    just as stable.
+    """
+    tid = str(record.get("track_id") or "")
+    tail = tid.rsplit("/", 1)[-1]
+    if tail.isdigit():
+        return int(tail) % 2, "track-index"
+    try:
+        return int(record.get("id")) % 2, "record-id"
+    except (TypeError, ValueError):
+        return 0, "record-id"
+
+
 class EstimationStudy:
     """Collects absolute word-start errors per estimator, cut four ways.
 
-    A cell key is `(scope, value)` with scope in all / slice / script / tempo.
+    A cell key is `(scope, value, subset, half)` with scope in all / slice /
+    script / tempo, subset all-records / real-records, and half "even" or
+    "odd" (the parity of the record's track index). E4's cap is tuned on the
+    even half and every figure the report quotes is scored on the odd half, so
+    no estimator is judged on the data its parameter was fitted to.
+
     Errors exclude each line's first word (all estimators agree on it by
-    construction, so it would only dilute the figures) and lines with fewer
-    than two words or no known span.
+    construction), lines with fewer than two words or no known span, and any
+    word whose start is not a timestamp the record states (`WordLine.exact`).
     """
 
     def __init__(self):
@@ -335,7 +382,9 @@ class EstimationStudy:
         self.skipped_lines = 0
         self.lines = 0
         self.words = 0
+        self.interpolated_words_skipped = 0
         self.flagged_ids: List[int] = []
+        self.half_counts: Dict[str, Dict[str, int]] = {"even": {"records": 0, "words": 0}, "odd": {"records": 0, "words": 0}}
 
     def _bucket(self, key: tuple) -> Dict[str, List[float]]:
         return self.errors.setdefault(key, {name: [] for name in ESTIMATORS[:4]} | {f"E4@{c:.2f}": [] for c in CAPS})
@@ -347,49 +396,63 @@ class EstimationStudy:
             return False
         lines, source = word_lines(record)
         script = oracle.script_family(oracle.dominant_script(oracle.lyric_text(record)))
-        rows = []  # (words, start, end, tempo)
+        parity, parity_basis = track_parity(record)
+        half = "even" if parity == 0 else "odd"
+        rows = []  # (line, words, end, tempo, scored positions)
         for line in lines:
             end = line.end
             texts = [w for w, _ in line.words]
             if len(texts) < 2 or end is None or end <= line.start:
                 self.skipped_lines += 1
                 continue
+            scored = [i for i in range(1, len(texts)) if line.exact[i]]
+            self.interpolated_words_skipped += (len(texts) - 1) - len(scored)
+            if not scored:
+                self.skipped_lines += 1
+                continue
             syl = sum(syllables(w) for w in texts)
-            rows.append((line, texts, end, syl / (end - line.start)))
+            rows.append((line, texts, end, syl / (end - line.start), scored))
         if not rows:
             return False
         # Is this record itself the output of an estimator? Some uploads
         # spread a line's time over its words by a formula and call it word
         # sync. Measuring an estimator against such a record would reward it
         # for matching its own kind, so those records are flagged and the
-        # report gives the figures with and without them.
+        # report gives the figures with and without them. Only words with a
+        # stated start are compared, or a record's own interpolation would
+        # flag it as made by the estimator that interpolates the same way.
         made = None
         if len(rows) >= MIN_ESTIMATOR_MADE_LINES:
             for name in ("E1", "E2", "E3"):
                 deviations = []
-                for line, texts, end, _ in rows:
+                for line, texts, end, _, scored in rows:
                     guess = estimate_starts(texts, line.start, end, name)
-                    deviations.extend(abs(g - t) for g, (_, t) in list(zip(guess, line.words))[1:])
+                    deviations.extend(abs(guess[i] - line.words[i][1]) for i in scored)
                 if deviations and statistics.median(deviations) <= ESTIMATOR_MADE_TOLERANCE:
                     made = name
                     break
         if made:
             self.estimator_made[made] += 1
             self.flagged_ids.append(rid)
-        self.records[rid] = {"slice": slice_id, "source": source, "lines": len(rows), "estimator_made": made}
+        self.records[rid] = {"slice": slice_id, "source": source, "lines": len(rows), "estimator_made": made,
+                             "half": half, "half_basis": parity_basis}
+        self.half_counts[half]["records"] += 1
         scopes_base = [("slice", slice_id), ("script", script)]
-        for line, texts, end, tempo in rows:
+        for line, texts, end, tempo, scored in rows:
             self.lines += 1
-            self.words += len(texts) - 1
+            self.words += len(scored)
+            self.half_counts[half]["words"] += len(scored)
             bucket_name = tempo_bucket(tempo)
-            actual = [t for _, t in line.words][1:]
-            estimates = {name: estimate_starts(texts, line.start, end, name)[1:] for name in ESTIMATORS[:4]}
+            actual = [line.words[i][1] for i in scored]
+            estimates = {name: [estimate_starts(texts, line.start, end, name)[i] for i in scored]
+                         for name in ESTIMATORS[:4]}
             for cap in CAPS:
-                estimates[f"E4@{cap:.2f}"] = estimate_starts(texts, line.start, end, "E4", cap)[1:]
+                all_e4 = estimate_starts(texts, line.start, end, "E4", cap)
+                estimates[f"E4@{cap:.2f}"] = [all_e4[i] for i in scored]
             scopes = [("all", "all")] + scopes_base + [("tempo", bucket_name)]
             for scope in scopes:
-                bucket = self._bucket((scope[0], scope[1], "all-records"))
-                real = None if made else self._bucket((scope[0], scope[1], "real-records"))
+                bucket = self._bucket((scope[0], scope[1], "all-records", half))
+                real = None if made else self._bucket((scope[0], scope[1], "real-records", half))
                 for name, guesses in estimates.items():
                     errors = [abs(g - a) for g, a in zip(guesses, actual)]
                     bucket[name].extend(errors)
@@ -397,7 +460,9 @@ class EstimationStudy:
                         real[name].extend(errors)
         return True
 
-    def best_cap(self, key: tuple = ("all", "all", "all-records")) -> Tuple[Optional[float], List[dict]]:
+    def best_cap(self, key: tuple = ("all", "all", "all-records", "even")) -> Tuple[Optional[float], List[dict]]:
+        """The cap with the lowest median error on the tuning (even) half, and
+        that half's whole curve."""
         bucket = self.errors.get(key)
         if not bucket:
             return None, []
@@ -411,6 +476,7 @@ class EstimationStudy:
         return (best["cap"] if best else None), curve
 
     def _cell(self, key: tuple, best_cap: Optional[float]) -> dict:
+        """E0-E3 and E4 at `best_cap`, scored on the odd half (key's `half`)."""
         bucket = self.errors.get(key)
         if not bucket:
             return {}
@@ -423,11 +489,11 @@ class EstimationStudy:
 
     def result(self) -> dict:
         best, curve = self.best_cap()
-        best_real, curve_real = self.best_cap(("all", "all", "real-records"))
+        best_real, curve_real = self.best_cap(("all", "all", "real-records", "even"))
         cuts: Dict[str, dict] = {"slice": {}, "script": {}, "tempo": {}}
-        for (scope, value, subset), _ in sorted(self.errors.items()):
-            if scope in cuts and subset == "all-records":
-                cuts[scope][value] = self._cell((scope, value, subset), best)
+        for (scope, value, subset, half), _ in sorted(self.errors.items()):
+            if scope in cuts and subset == "all-records" and half == "odd":
+                cuts[scope][value] = self._cell((scope, value, subset, half), best)
         return {
             "records": len(self.records),
             "records_by_source": _count(r["source"] for r in self.records.values()),
@@ -436,9 +502,16 @@ class EstimationStudy:
             "estimator_made_ids": sorted(self.flagged_ids),
             "lines": self.lines,
             "words_scored": self.words,
+            "interpolated_words_not_scored": self.interpolated_words_skipped,
             "lines_without_span_or_words": self.skipped_lines,
-            "overall_all_records": self._cell(("all", "all", "all-records"), best),
-            "overall_excluding_estimator_made": self._cell(("all", "all", "real-records"), best_real),
+            "split": {
+                "e4_cap_tuned_on": "even-indexed tracks",
+                "all_figures_scored_on": "odd-indexed tracks",
+                "index": "the number after the slash in track_id (record id when there is none)",
+                "records_and_words_by_half": self.half_counts,
+            },
+            "overall_all_records": self._cell(("all", "all", "all-records", "odd"), best),
+            "overall_excluding_estimator_made": self._cell(("all", "all", "real-records", "odd"), best_real),
             "e4_best_cap": best,
             "e4_curve": curve,
             "e4_best_cap_excluding_estimator_made": best_real,
@@ -509,13 +582,63 @@ def select_pairs(ids: List) -> List[Tuple]:
     return pairs[::step][:MAX_PAIRS_PER_TRACK]
 
 
+DUPLICATE_ROUNDING_S = 0.01
+
+
+def collapse_identical(lines_by_id: Dict, prefer=None) -> Tuple[Dict, Dict]:
+    """Keep one record per group of identical timelines.
+
+    LRCLIB holds many copies of one timeline (one upload mirrored onto several
+    releases). Two such copies agree to the millisecond, which M9 would read as
+    perfect catalogue accuracy and M10's consensus as two independent votes
+    (adversarial review F10). Records whose stamp sequences are equal once
+    rounded to 10 ms form a group; the group keeps `prefer` when it is a member
+    (the record being scored), else its lowest id.
+
+    Returns (kept records, {kept id: [every id in its group]}).
+    """
+    groups: Dict[tuple, List] = {}
+    for rid in sorted(lines_by_id, key=str):
+        key = tuple(round(stamp / DUPLICATE_ROUNDING_S) for stamp, _ in lines_by_id[rid])
+        groups.setdefault(key, []).append(rid)
+    kept: Dict = {}
+    members: Dict = {}
+    for ids in groups.values():
+        keeper = prefer if prefer in ids else ids[0]
+        kept[keeper] = lines_by_id[keeper]
+        members[keeper] = ids
+    return kept, members
+
+
+class DuplicateTally:
+    """How many records collapsed into how many timelines, and the group sizes."""
+
+    def __init__(self):
+        self.before = 0
+        self.after = 0
+        self.sizes: Dict[int, int] = {}
+
+    def add(self, members: Dict) -> None:
+        for ids in members.values():
+            self.before += len(ids)
+            self.after += 1
+            self.sizes[len(ids)] = self.sizes.get(len(ids), 0) + 1
+
+    def result(self) -> dict:
+        return {"records_before": self.before, "unique_timelines": self.after,
+                "group_sizes": {str(k): v for k, v in sorted(self.sizes.items())}}
+
+
 def consensus_deviation(lines_by_id: Dict) -> Dict:
     """Each record's median |stamp − consensus| over the lines it shares.
 
     The reference is the record with the most lines. Every other record is
-    aligned to it by text, and a reference line has a consensus when at least
-    MIN_CONSENSUS_RECORDS records carry it (the median of their stamps).
-    Records covering fewer than MIN_ALIGNED consensus lines get None.
+    aligned to it by text. A record is scored against the median of the OTHER
+    records' stamps for each line (its own stamp is left out, or a record
+    would pull the consensus toward itself and look better than it is), and a
+    line has a consensus when at least MIN_CONSENSUS_RECORDS - 1 others carry
+    it. Records covering fewer than MIN_ALIGNED consensus lines get None.
+    Fewer than MIN_CONSENSUS_RECORDS records give None for all.
     """
     if len(lines_by_id) < MIN_CONSENSUS_RECORDS:
         return {rid: None for rid in lines_by_id}
@@ -527,11 +650,25 @@ def consensus_deviation(lines_by_id: Dict) -> Dict:
             continue
         for i, j in align(ref, lines):
             stamps[i][rid] = lines[j][0]
-    medians = {i: statistics.median(by.values()) for i, by in stamps.items() if len(by) >= MIN_CONSENSUS_RECORDS}
     out = {}
     for rid in lines_by_id:
-        deviations = [abs(by[rid] - medians[i]) for i, by in stamps.items() if i in medians and rid in by]
+        deviations = []
+        for by in stamps.values():
+            if rid not in by:
+                continue
+            others = [t for r, t in by.items() if r != rid]
+            if len(others) >= MIN_CONSENSUS_RECORDS - 1:
+                deviations.append(abs(by[rid] - statistics.median(others)))
         out[rid] = statistics.median(deviations) if len(deviations) >= MIN_ALIGNED else None
+    return out
+
+
+def expand_deviations(deviations: Dict, members: Dict) -> Dict:
+    """Give every record of a collapsed group its keeper's deviation."""
+    out = {}
+    for keeper, ids in members.items():
+        for rid in ids:
+            out[rid] = deviations.get(keeper)
     return out
 
 
@@ -545,8 +682,13 @@ class NoiseStudy:
         self.pairs: Dict[str, int] = {}
         self.tracks_with_pairs: Dict[str, int] = {}
         self.consensus: Dict[str, dict] = {}
+        self.duplicates = DuplicateTally()
 
     def add_track(self, slice_id: str, lines_by_id: Dict, chosen_id=None) -> None:
+        # Identical timelines are one record, before pairing and before the
+        # consensus; the chosen record stays when its group is collapsed.
+        lines_by_id, members = collapse_identical(lines_by_id, prefer=chosen_id)
+        self.duplicates.add(members)
         ids = list(lines_by_id)
         done = 0
         for a, b in select_pairs(ids):
@@ -603,6 +745,9 @@ class NoiseStudy:
                 }
             out[key] = cell
         return out
+
+    def duplicate_report(self) -> dict:
+        return self.duplicates.result()
 
 
 # --------------------------------------------------------------------------

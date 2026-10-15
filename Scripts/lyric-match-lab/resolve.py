@@ -92,7 +92,8 @@ INDIAN_LANGUAGES = {"hi", "pa", "ta", "te", "ml", "kn", "mr", "bn", "gu", "ur", 
 
 FIT_TOLERANCE = 3.0   # seconds, SPEC step 6
 NEAR_TOLERANCE = 10.0
-CLUSTER_THRESHOLD = 0.6
+# SAME containment for the cluster comes from the oracle's per-family table
+# (`oracle.thresholds`), which defaults to 0.6.
 
 
 def storefront(slice_id: str, language: str) -> str:
@@ -826,13 +827,18 @@ def truth_for(track: dict, variants: List[dict], candidates: List[dict], result:
     elif lyric_anchors and instrumental_anchors:
         disagreement = "mixed-anchor-flags"
     status = "instrumental" if expected else result["truth_status"]
+    # Anchors that contradict each other leave the song itself in doubt: the
+    # kept group is a guess, so the classifier scores nothing against it.
+    uncertain = status == "ok" and "anchor-conflict" in notes
+    if uncertain:
+        status = "truth-uncertain"
     members = [by_id[i] for i in result["cluster_ids"] if i in by_id]
 
     per_variant = {}
     for variant in variants:
         duration = variant["duration"]
         fit, near = [], []
-        if status == "ok" and duration > 0:
+        if status in ("ok", "truth-uncertain") and duration > 0:
             for c in members:
                 if not c["has_synced"]:
                     continue
@@ -842,14 +848,14 @@ def truth_for(track: dict, variants: List[dict], candidates: List[dict], result:
                     fit.append((delta, c["id"]))
                 elif FIT_TOLERANCE < delta <= NEAR_TOLERANCE:
                     near.append((delta, c["id"]))
-        elif status == "ok":
+        elif status in ("ok", "truth-uncertain"):
             notes.append(f"no-duration:{variant['variant']}")
         per_variant[variant["variant"]] = {
             "duration": duration,
             "synced_fit": [i for _, i in sorted(fit)],
             "synced_near": [i for _, i in sorted(near)],
         }
-    plain_only = bool(members) and status == "ok" and not any(c["has_synced"] for c in members) \
+    plain_only = bool(members) and status in ("ok", "truth-uncertain") and not any(c["has_synced"] for c in members) \
         and any(c["has_plain"] for c in members)
     return {
         "truth_status": status,
@@ -884,10 +890,11 @@ def analyze_track(track: dict, apple: Optional[dict], deezer: Optional[dict], ro
         analyzed[rid] = info
     # The instrumental flag trumps any placeholder text a record carries.
     pool = [{"id": rid, "fp": frozenset() if i["instrumental"] else i["fp"], "script": i["script"],
-             "instrumental": i["instrumental"]} for rid, i in analyzed.items()]
+             "script_weights": i["script_weights"], "instrumental": i["instrumental"]}
+            for rid, i in analyzed.items()]
     anchors = [rid for rid, i in analyzed.items() if i["identity"]]
     prefer = oracle.expected_script(track["language"], track["title"])
-    result = oracle.cluster(pool, anchors, prefer_script=prefer, threshold=CLUSTER_THRESHOLD)
+    result = oracle.cluster(pool, anchors, prefer_script=prefer, threshold=None)
 
     candidates = []
     for rid in sorted(rows):
@@ -922,6 +929,7 @@ def analyze_track(track: dict, apple: Optional[dict], deezer: Optional[dict], ro
         "candidates": [{k: v for k, v in c.items() if k != "_has_text"} for c in candidates],
         "truth": truth,
         "lrclib_urls": urls,
+        "oracle_params": oracle.active_params(),
         "lrclib_unanswered": sorted(set(failed)),
     }
     in_cluster = set(result["cluster_ids"])
@@ -1153,8 +1161,13 @@ def drop_reason(apple_result: dict, deezer_result: dict) -> str:
 
 def run(root: str, slices: Optional[List[str]] = None, limit: Optional[int] = None,
         offline: bool = False, warm: Optional[List[str]] = None,
-        sample: Optional[Tuple[int, int]] = None) -> dict:
+        sample: Optional[Tuple[int, int]] = None, calibration: bool = True) -> dict:
     root = os.path.expanduser(root)
+    # The oracle's per-family n-gram and thresholds: the table, unless the
+    # calibration file exists (see oracle.load_calibration for the precedence).
+    oracle.reset_calibration()
+    if calibration and oracle.load_calibration(root):
+        print(f"oracle calibration loaded from {oracle.CALIBRATION_FILE}", flush=True)
     loaded = load_slices(root, slices, limit, sample)
     if not loaded:
         print(f"no slices to resolve under {root}/slices", flush=True)
@@ -1251,6 +1264,8 @@ def main(argv=None) -> int:
                         help="validate the slice files and print anomalies; no network, writes nothing")
     parser.add_argument("--warm", help="comma list of stage A jobs (itunes, deezer, lrclib) to run alone: "
                         "fills the cache, resolves nothing, writes no outputs")
+    parser.add_argument("--no-calibration", action="store_true",
+                        help="ignore reports/oracle-calibration.json and use the built-in n-gram table")
     parser.add_argument("--gap", action="append", default=[], metavar="KEY=SECONDS",
                         help="slow a host or endpoint down, e.g. lrclib.net/api/search=12 (repeatable)")
     args = parser.parse_args(argv)
@@ -1272,7 +1287,7 @@ def main(argv=None) -> int:
         if args.limit:
             parser.error("--sample and --limit both trim the slices; give one")
         sample = (popular, stress)
-    run(args.root, only, args.limit, args.offline, warm, sample)
+    run(args.root, only, args.limit, args.offline, warm, sample, calibration=not args.no_calibration)
     return 0
 
 
