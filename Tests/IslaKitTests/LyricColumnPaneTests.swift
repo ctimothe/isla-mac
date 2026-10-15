@@ -48,7 +48,8 @@ final class LyricColumnPaneTests: XCTestCase {
             isExpanded: state == .tall,
             morph: nil,
             showingLyrics: .constant(state != .player),
-            headerHeight: header, audio: Self.audio()
+            headerHeight: header, audio: Self.audio(),
+            icons: SettingsFixture.macWithApps([:])
         )
         .defaultAppStorage(isolated.suite)
         let layout = PlayerLayout(bodyWidth: width, headerHeight: header)

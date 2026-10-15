@@ -146,8 +146,10 @@ struct SettingsPane: View {
 
     /// One line of the Music section's Automation block.
     enum AccessRow: Hashable {
-        /// A player and where macOS stands on Isla scripting it.
-        case status(player: String, state: String)
+        /// A player and where macOS stands on Isla scripting it. The bundle
+        /// identifier travels with the name so the row finds its icon by it,
+        /// not by matching a display name that a rename would break.
+        case status(player: String, bundleID: String, state: String)
         case note(String)
         /// Opens Privacy & Security › Automation in System Settings.
         case openAutomationSettings
@@ -254,7 +256,7 @@ struct SettingsPane: View {
             case .notAsked: state = localized("Not asked yet")
             case .unknown: continue
             }
-            rows.append(.status(player: app.displayName, state: state))
+            rows.append(.status(player: app.displayName, bundleID: app.bundleID, state: state))
         }
         if statuses.values.contains(.denied) {
             rows.append(.note(localized("Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation.")))
@@ -282,7 +284,7 @@ struct SettingsPane: View {
             let formX = SettingsLayout.formLeading - PlayerLayout.paneLeading
             let formWidth = SettingsLayout.formWidth(bodyWidth: bodyWidth)
             ZStack(alignment: .topLeading) {
-                SettingsSidebar(selection: selection)
+                SettingsSidebar(selection: selection, icons: icons)
                     .offset(y: top)
                 // The hairline between the two, 5 pt past the sidebar.
                 Rectangle()
@@ -318,9 +320,11 @@ struct SettingsPane: View {
             // to reopen this tab. Read-only and off the main thread; it never
             // prompts.
             automation.refresh()
-            // Apps are installed and removed while Isla runs; the icons and the
-            // list of players are read afresh each time the pane is opened.
-            icons.refresh()
+            // No `icons.refresh()` here. This closure runs after the first
+            // render, which has already filled the cache, so clearing it made
+            // every opening resolve each player twice on the main actor. The
+            // panel refreshes the cache once as it opens
+            // (`NotchViewModel.isOpen`), before anything draws.
         }
         .onReceive(media.$fallbackReason) { fallbackReason = $0 }
     }
@@ -355,7 +359,10 @@ struct SettingsPane: View {
         c.musicOnly = flag(.musicOnly)
         c.nowPlayingFailure = fallbackReason?.explanation
         c.automation = Self.automationRows(automation.consents)
-        c.installedPlayers = icons.installedPlayers()
+        // Only the Music section lists them, and `context` is rebuilt on every
+        // render: resolving ~25 known players on the main actor for About or
+        // Privacy was work for a group that is not on screen.
+        if selection.wrappedValue == .music { c.installedPlayers = icons.installedPlayers() }
         c.delayIsSet = abs(lyrics.userOffset) > 0.01
         c.onlineLyrics = flag(.lookUpLyricsOnline)
         c.onlineTranslation = flag(.translateOnline)
@@ -782,7 +789,7 @@ struct SettingsPane: View {
             )
         case .spotifyHead:
             HStack(spacing: 10) {
-                SettingsSectionIcon(glyph: .spotify, side: 40)
+                SettingsSectionIcon(glyph: .spotify, side: 40, icons: icons)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(verbatim: row.title)
                         .islandFont(.subhead, weight: .semibold)
@@ -974,17 +981,14 @@ struct SettingsPane: View {
     /// label and a value rather than a control, and VoiceOver hears it as one
     /// element, "Spotify, Not allowed".
     private var automationStatusRows: some View {
-        let statuses: [(player: String, state: String)] = Self.automationRows(automation.consents).compactMap {
-            if case let .status(player, state) = $0 { return (player, state) } else { return nil }
+        let statuses: [(player: String, bundleID: String, state: String)] = Self.automationRows(automation.consents).compactMap {
+            if case let .status(player, bundleID, state) = $0 { return (player, bundleID, state) } else { return nil }
         }
         return VStack(spacing: 0) {
             ForEach(Array(statuses.enumerated()), id: \.offset) { index, status in
-                // The player's own icon before its name. The status row carries
-                // the name, not the bundle identifier, so the player is found
-                // by it; a name that matches no `PlayerApp` draws no icon.
-                SettingsRowChrome(label: status.player, appIcon: PlayerApp.allCases
-                    .first { $0.displayName == status.player }
-                    .flatMap { icons.icon($0.bundleID) }) {
+                // The player's own icon before its name, found by bundle
+                // identifier; none when the app is not installed.
+                SettingsRowChrome(label: status.player, appIcon: icons.icon(status.bundleID)) {
                     Text(status.state)
                         .islandFont(.reading, weight: .regular)
                         .foregroundStyle(Theme.secondary)

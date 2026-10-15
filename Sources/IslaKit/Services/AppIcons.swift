@@ -19,10 +19,12 @@ import SwiftUI
 /// from the bundle). Neither may run inside a SwiftUI `body` on every render,
 /// so each answer is kept per bundle identifier — including "not installed",
 /// which is the common answer for the dozen players this Mac has never heard
-/// of. `refresh()` drops the lot; it is called when Settings or the empty
-/// Music tab appears, because apps are installed and removed while Isla runs
-/// and a cache that never forgot would show the Yandex Music a person deleted
-/// last week.
+/// of. `refresh()` drops the lot; the panel calls it once as it opens
+/// (`NotchViewModel.isOpen`), because apps are installed and removed while
+/// Isla runs and a cache that never forgot would show the Yandex Music a person
+/// deleted last week. Not from a view's `onAppear`: that runs after the first
+/// render has already filled the cache, so clearing there made every opening
+/// ask LaunchServices twice, mid-animation.
 ///
 /// The three lookups are injected so a test never depends on what is installed
 /// on the machine that runs it.
@@ -58,9 +60,8 @@ final class AppIcons: ObservableObject {
     /// every other line of Isla (the Automation rows, the Open buttons, the
     /// empty player) says Apple Music. Two names for one app on one screen is
     /// worse than a name the Finder does not use.
-    static var preferredNames: [String: String] {
+    static let preferredNames: [String: String] =
         Dictionary(uniqueKeysWithValues: PlayerApp.allCases.map { ($0.bundleID, $0.displayName) })
-    }
 
     /// A Finder name with its `.app` stripped: `displayName(atPath:)` keeps the
     /// extension for a person who shows all of them, and «Spotify.app» in a row
@@ -122,7 +123,7 @@ final class AppIcons: ObservableObject {
     /// players and the ones that play songs and films (`MediaSourcePolicy`),
     /// ordered by `order`. Settings › Music › Players on This Mac.
     func installedPlayers() -> [Installed] {
-        Self.order(installed(MediaSourcePolicy.musicApps.union(MediaSourcePolicy.mixedApps)))
+        Self.order(installed(MediaSourcePolicy.listedPlayers))
     }
 
     /// The installed songs-only players — no podcast app, no Telegram — ordered
@@ -194,8 +195,10 @@ struct AppIconImage: View {
 struct InstalledAppIcon<Fallback: View>: View {
     let bundleID: String
     var side: CGFloat
+    /// `.shared` in the app; a test passes its own so the sidebar it renders
+    /// never asks the runner's LaunchServices.
+    @ObservedObject var icons: AppIcons = .shared
     @ViewBuilder var fallback: () -> Fallback
-    @ObservedObject private var icons: AppIcons = .shared
 
     var body: some View {
         if let image = icons.icon(bundleID) {

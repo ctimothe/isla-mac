@@ -19,6 +19,10 @@ final class PlayerPaneTests: XCTestCase {
         .init(id: 42, name: "AirPods Pro", transport: kAudioDeviceTransportTypeBluetooth),
     ]
 
+    /// The two players every Mac the empty player is drawn on has, so its
+    /// buttons never depend on what the runner has installed.
+    private static let appleMusicAndSpotify = ["com.apple.Music": "Music", "com.spotify.client": "Spotify"]
+
     private static func audio(volume: Float? = 0.62) -> AudioWatch {
         AudioWatch(read: { (outputs, 41, volume) }, readMuted: { false }, installListeners: {}, removeListeners: {})
     }
@@ -59,7 +63,8 @@ final class PlayerPaneTests: XCTestCase {
             store.present(.ready(LyricTimeline(lines: Self.lines, granularity: .line)))
         }
         let pane = MediaPane(
-            media: media, lyrics: store, morph: nil, headerHeight: header, audio: Self.audio(volume: volume)
+            media: media, lyrics: store, morph: nil, headerHeight: header, audio: Self.audio(volume: volume),
+            icons: SettingsFixture.macWithApps([:])
         )
         .defaultAppStorage(isolated.suite)
         let layout = PlayerLayout(
@@ -298,7 +303,7 @@ final class PlayerPaneTests: XCTestCase {
         // no-lyric positions.
         let layout = PlayerLayout(bodyWidth: 560, hasLyricBand: false)
         let root = await AXProbe.tree(
-            of: MediaPane(media: media, lyrics: isolated.stores.lyrics, morph: nil, audio: Self.audio())
+            of: MediaPane(media: media, lyrics: isolated.stores.lyrics, morph: nil, audio: Self.audio(), icons: SettingsFixture.macWithApps([:]))
                 .defaultAppStorage(isolated.suite),
             size: layout.paneSize
         )
@@ -322,7 +327,10 @@ final class PlayerPaneTests: XCTestCase {
         defer { isolated.release() }
         let layout = PlayerLayout(bodyWidth: 560)
         let root = await AXProbe.tree(
-            of: MediaPane(media: isolated.stores.media, lyrics: isolated.stores.lyrics, morph: nil, audio: Self.audio())
+            of: MediaPane(
+                    media: isolated.stores.media, lyrics: isolated.stores.lyrics, morph: nil, audio: Self.audio(),
+                    icons: SettingsFixture.macWithApps(Self.appleMusicAndSpotify)
+                )
                 .defaultAppStorage(isolated.suite),
             size: layout.paneSize
         )
@@ -343,7 +351,10 @@ final class PlayerPaneTests: XCTestCase {
             defer { isolated.release() }
             let layout = PlayerLayout(bodyWidth: width)
             let root = await AXProbe.tree(
-                of: MediaPane(media: isolated.stores.media, lyrics: isolated.stores.lyrics, morph: nil, audio: Self.audio())
+                of: MediaPane(
+                    media: isolated.stores.media, lyrics: isolated.stores.lyrics, morph: nil, audio: Self.audio(),
+                    icons: SettingsFixture.macWithApps(Self.appleMusicAndSpotify)
+                )
                     .defaultAppStorage(isolated.suite),
                 size: layout.paneSize
             )

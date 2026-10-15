@@ -12,6 +12,7 @@ import SwiftUI
 /// sections", and each row is a button that says whether it is the selected one.
 struct SettingsSidebar: View {
     @Binding var selection: SettingsSection
+    var icons: AppIcons = .shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsLayout.sidebarRowPitch - SettingsLayout.sidebarRowHeight) {
@@ -30,7 +31,7 @@ struct SettingsSidebar: View {
             selection = section
         } label: {
             HStack(spacing: SettingsLayout.sidebarLabelInset - SettingsLayout.sidebarIconInset - SettingsLayout.sidebarIconSide) {
-                SettingsSectionIcon(glyph: section.glyph)
+                SettingsSectionIcon(glyph: section.glyph, icons: icons)
                     .padding(.leading, SettingsLayout.sidebarIconInset)
                 Text(section.title)
                     .islandFont(.reading, weight: isSelected ? .medium : .regular)
@@ -64,6 +65,8 @@ struct SettingsSidebar: View {
 struct SettingsSectionIcon: View {
     let glyph: SettingsSection.Glyph
     var side: CGFloat = SettingsLayout.sidebarIconSide
+    /// `.shared` in the app; injected by a test that renders the sidebar.
+    var icons: AppIcons = .shared
 
     var body: some View {
         Group {
@@ -83,7 +86,7 @@ struct SettingsSectionIcon: View {
             case .spotify:
                 // The real Spotify, from this Mac's own copy of the app; the
                 // drawn disc only where Spotify is not installed.
-                InstalledAppIcon(bundleID: PlayerApp.spotify.bundleID, side: side) { SpotifyMark() }
+                InstalledAppIcon(bundleID: PlayerApp.spotify.bundleID, side: side, icons: icons) { SpotifyMark() }
             case .isla:
                 // Isla's icon carries the same transparent margin every macOS
                 // icon does, so it sat visibly smaller than the tiles above it.

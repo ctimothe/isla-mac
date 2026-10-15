@@ -25,7 +25,8 @@ final class PlayerCoverRenderTests: XCTestCase {
         let layout = PlayerLayout(bodyWidth: 560, hasLyricBand: false)
         return try bitmap(
             of: MediaPane(
-                media: isolated.stores.media, lyrics: isolated.stores.lyrics, morph: nil, audio: MediaPane.quietAudio()
+                media: isolated.stores.media, lyrics: isolated.stores.lyrics, morph: nil, audio: MediaPane.quietAudio(),
+                icons: SettingsFixture.macWithApps([:])
             ).defaultAppStorage(isolated.suite),
             size: layout.paneSize
         )

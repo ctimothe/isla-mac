@@ -270,22 +270,82 @@ final class PlayerLayoutTests: XCTestCase {
         XCTAssertEqual(chosen.map(\.bundleID), ["a"])
     }
 
-    /// Measured, not guessed: the real label in the `body` role at 480 with
-    /// Russian names still leaves the first button whole.
+    /// Measured, not guessed: the real label in the `body` role grows with its
+    /// text, and with the real Russian labels the row at every width still
+    /// holds Apple Music and Spotify, in order, ahead of anything else.
     func testAMeasuredLabelIsPositiveAndGrowsWithTheText() {
-        let short = PlayerLayout.measuredLabelWidth("Open Deezer")
-        let long = PlayerLayout.measuredLabelWidth("Открыть Яндекс Музыка")
+        LabLocalization.use("ru")
+        defer { LabLocalization.use("en") }
+        let short = PlayerLayout.measuredLabelWidth(localized("Open %@", "Spotify"))
+        let long = PlayerLayout.measuredLabelWidth(localized("Open %@", "Яндекс Музыка"))
+        XCTAssertEqual(localized("Open %@", "Spotify"), "Открыть Spotify")
         XCTAssertGreaterThan(short, 30)
         XCTAssertGreaterThan(long, short)
         let apps = [app("com.apple.Music", "Apple Music"), app("com.spotify.client", "Spotify"), app("x", "Яндекс Музыка")]
-        let at480 = MediaPane.openOffers(from: apps, paneWidth: PlayerLayout.paneWidth(bodyWidth: 480))
-        let at620 = MediaPane.openOffers(from: apps, paneWidth: PlayerLayout.paneWidth(bodyWidth: 620))
-        XCTAssertGreaterThanOrEqual(at480.count, 1)
-        XCTAssertLessThanOrEqual(at480.count, at620.count, "a wider panel never offers fewer")
         let order = ["com.apple.Music", "com.spotify.client", "x"]
-        XCTAssertGreaterThanOrEqual(at620.count, 2, "Apple Music and Spotify fit side by side at 620")
-        XCTAssertEqual(at620.map(\.bundleID), Array(order.prefix(at620.count)), "always a prefix, in order")
-        XCTAssertEqual(at480.map(\.bundleID), Array(order.prefix(at480.count)))
+        var previous = 0
+        for width in [CGFloat(480), 560, 620] {
+            let row = MediaPane.openOffers(from: apps, paneWidth: PlayerLayout.paneWidth(bodyWidth: width))
+            XCTAssertEqual(Array(row.apps.map(\.bundleID).prefix(2)), Array(order.prefix(2)), "both leaders at \(width)")
+            XCTAssertEqual(row.apps.map(\.bundleID), Array(order.prefix(row.apps.count)), "a prefix, in order")
+            XCTAssertGreaterThanOrEqual(row.apps.count, previous, "a wider panel never offers fewer")
+            previous = row.apps.count
+        }
+    }
+
+    /// The compact rule with the real Russian labels: Apple Music and Spotify are
+    /// always offered; whatever does not fit at full size is drawn tighter, then
+    /// without icons; and the row is never wider than the room.
+    func testRussianKeepsAppleMusicAndSpotifyAtEveryWidth() {
+        LabLocalization.use("ru")
+        defer { LabLocalization.use("en") }
+        let apps = [app("com.apple.Music", "Apple Music"), app("com.spotify.client", "Spotify"), app("x", "Deezer")]
+        func width(_ row: PlayerLayout.OpenButtonRow) -> CGFloat {
+            row.apps.reduce(0) {
+                $0 + PlayerLayout.openButtonWidth(
+                    labelWidth: PlayerLayout.measuredLabelWidth(localized("Open %@", $1.name)), form: row.form)
+            } + PlayerLayout.EmptyFrames.buttonSpacing * CGFloat(row.apps.count - 1)
+        }
+        for bodyWidth in [CGFloat(480), 560, 620] {
+            let room = PlayerLayout.openButtonsRoom(paneWidth: PlayerLayout.paneWidth(bodyWidth: bodyWidth))
+            let row = MediaPane.openOffers(from: apps, paneWidth: PlayerLayout.paneWidth(bodyWidth: bodyWidth))
+            XCTAssertEqual(Array(row.apps.map(\.bundleID).prefix(2)), ["com.apple.Music", "com.spotify.client"], "\(bodyWidth)")
+            XCTAssertLessThanOrEqual(width(row), room, "\(bodyWidth): \(row.form)")
+        }
+        let at480 = MediaPane.openOffers(from: apps, paneWidth: PlayerLayout.paneWidth(bodyWidth: 480))
+        XCTAssertEqual(at480.apps.count, 2, "no room for a third at 480, and the two are not given up for it")
+        XCTAssertNotEqual(at480.form, .full, "Russian at 480 does not fit the full form")
+    }
+
+    /// The forms in order, by number: leaders that fit at full size stay full and
+    /// let extras follow; otherwise tight, then iconless, and no extras.
+    func testTheCompactFormsComeInOrderAndExtrasNeedTheFullForm() {
+        let lead = [app("com.apple.Music", "A"), app("com.spotify.client", "S")]
+        let extra = app("x", "X")
+        // Each leader: full 42 + 40 = 82, tight 34 + 40 = 74, iconless 12 + 40 = 52.
+        func row(_ room: CGFloat, _ apps: [AppIcons.Installed]) -> PlayerLayout.OpenButtonRow {
+            PlayerLayout.openButtonRow(apps, room: room) { _ in 40 }
+        }
+        XCTAssertEqual(row(172, lead + [extra]).form, .full)
+        XCTAssertEqual(row(172, lead + [extra]).apps.count, 2, "172 holds two full, not three")
+        XCTAssertEqual(row(262, lead + [extra]).apps.count, 3)
+        XCTAssertEqual(row(171, lead + [extra]).form, .tight)
+        XCTAssertEqual(row(156, lead + [extra]).form, .tight)
+        XCTAssertEqual(row(156, lead + [extra]).apps.map(\.bundleID), ["com.apple.Music", "com.spotify.client"], "no extras in a compact form")
+        XCTAssertEqual(row(155, lead + [extra]).form, .iconless)
+        XCTAssertEqual(row(112, lead).form, .iconless)
+        XCTAssertFalse(PlayerLayout.OpenButtonForm.iconless.showsIcon)
+        XCTAssertLessThan(PlayerLayout.OpenButtonForm.tight.horizontalPadding, PlayerLayout.OpenButtonForm.full.horizontalPadding)
+    }
+
+    /// Reader down: only `PlayerBridge` works, so only Music and Spotify are
+    /// offered, whatever else is installed.
+    func testReaderDownOffersOnlyWhatPlayerBridgeCanShow() {
+        let apps = [app("com.apple.Music", "Apple Music"), app("com.spotify.client", "Spotify"), app("com.deezer.deezer-desktop", "Deezer")]
+        let width = PlayerLayout.paneWidth(bodyWidth: 620)
+        XCTAssertEqual(MediaPane.openOffers(from: apps, paneWidth: width, message: .readerDown).apps.map(\.bundleID),
+                       ["com.apple.Music", "com.spotify.client"])
+        XCTAssertEqual(MediaPane.openOffers(from: apps, paneWidth: width, message: .nothingPlaying).apps.count, 3)
     }
 
     /// Only the reader-down state has a footnote, and it is the only one with a

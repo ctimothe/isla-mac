@@ -76,7 +76,16 @@ enum MediaSourcePolicy {
     ]
 
     /// The players a person starts a song in: `musicApps` less the podcast apps.
-    static var songApps: Set<String> { musicApps.subtracting(podcastApps) }
+    ///
+    /// A stored constant, not a computed set: the empty player asks on every
+    /// layout pass, and a set rebuilt per pass is work for an answer that
+    /// cannot change.
+    static let songApps: Set<String> = musicApps.subtracting(podcastApps)
+
+    /// Every app Settings › Music › Players on This Mac lists: the dedicated
+    /// players and the ones that play songs and films. Stored for the same
+    /// reason as `songApps`.
+    static let listedPlayers: Set<String> = musicApps.union(mixedApps)
 
     /// Listed first wherever Isla names players: Apple Music, then Spotify —
     /// the two it can control, not just read.

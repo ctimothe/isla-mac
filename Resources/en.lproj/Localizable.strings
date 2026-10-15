@@ -191,12 +191,10 @@
 
 /* Music Only */
 "Music Only" = "Music Only";
-"Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show." = "Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show.";
 "Anything playing shows on the island, videos included." = "Anything playing shows on the island, videos included.";
 "Players on This Mac" = "Players on This Mac";
 "These players always show. Any other app shows when it says it is playing audio." = "These players always show. Any other app shows when it says it is playing audio.";
 "These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio." = "These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio.";
-"Music Only is off, so anything that is playing shows, these players included." = "Music Only is off, so anything that is playing shows, these players included.";
 
 /* Keyboard Shortcuts */
 "Show the lyrics" = "Show the lyrics";

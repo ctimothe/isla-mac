@@ -276,7 +276,7 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertEqual(Array(blocks[start...].prefix(6)), [
             .header("Music"),
             .group([.musicOnly]),
-            .footnote(localized("Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show.")),
+            .footnote(localized("Videos and films stay off the island.")),
             .header("Players on This Mac"),
             .group([.installedPlayers]),
             .footnote(localized("These players always show. Any other app shows when it says it is playing audio.")),
@@ -302,32 +302,45 @@ final class SettingsTableTests: XCTestCase {
             SettingsTable.playersNote(musicOnly: true, players: withTelegram),
             "These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio."
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             SettingsTable.playersNote(musicOnly: false, players: withTelegram),
-            "Music Only is off, so anything that is playing shows, these players included."
+            "Music Only off: its own footnote already says anything shows; the rule is stated once"
         )
         // And the policy agrees with every claim: a listed player passes with no
         // label, Telegram passes only for a song, an unknown app only if labelled.
         XCTAssertTrue(MediaSourcePolicy.allows(bundleIdentifier: "com.spotify.client", mediaType: nil, artist: ""))
         XCTAssertFalse(MediaSourcePolicy.allows(bundleIdentifier: "ru.keepcoder.Telegram", mediaType: nil, artist: ""))
         XCTAssertTrue(MediaSourcePolicy.allows(bundleIdentifier: "com.example.other", mediaType: MediaSourcePolicy.audioType, artist: ""))
-        // Music Only off reads the footnote, not the switch, from the context.
+        // Music Only off reads the switch from the context: the group has no
+        // footnote and Music Only's says everything shows.
         var off = SettingsContext()
         off.musicOnly = false
         off.installedPlayers = plain
-        XCTAssertTrue(SettingsTable.blocks(for: .music, context: off).contains(
-            .footnote(localized("Music Only is off, so anything that is playing shows, these players included."))
-        ))
+        let offBlocks = SettingsTable.blocks(for: .music, context: off)
+        XCTAssertTrue(offBlocks.contains(.footnote(localized("Anything playing shows on the island, videos included."))))
+        let group = offBlocks.firstIndex(of: .group([.installedPlayers]))!
+        if case .footnote = offBlocks[group + 1] { XCTFail("a second footnote under the players with Music Only off") }
+    }
+
+    /// One statement of the rule (review 2026-10-15): with Music Only on, its
+    /// footnote says only what it hides and the players' footnote says what
+    /// always shows; neither repeats the other.
+    func testTheRuleIsStatedOnceWithMusicOnlyOn() {
+        var context = SettingsContext()
+        context.installedPlayers = [player("ru.keepcoder.Telegram", "Telegram")]
+        let footnotes: [String] = SettingsTable.blocks(for: .music, context: context).compactMap {
+            if case let .footnote(text) = $0 { return text } else { return nil }
+        }
+        XCTAssertEqual(footnotes.filter { $0.contains("Music apps") || $0.contains("always show") }.count, 1, "\(footnotes)")
+        XCTAssertFalse(footnotes.contains { $0.contains("podcasts") })
     }
 
     func testThePlayersGroupIsRussianToo() {
         LabLocalization.use("ru")
         XCTAssertEqual(SettingsRowID.installedPlayers.title, "Плееры на этом Mac")
-        let note = SettingsTable.playersNote(musicOnly: true, players: [player("ru.keepcoder.Telegram", "Telegram")])
+        let note = try! XCTUnwrap(SettingsTable.playersNote(musicOnly: true, players: [player("ru.keepcoder.Telegram", "Telegram")]))
         XCTAssertTrue(note.contains("Telegram"), note)
         XCTAssertNotEqual(note, "These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio.")
-        XCTAssertNotEqual(SettingsTable.playersNote(musicOnly: false, players: []),
-                          "Music Only is off, so anything that is playing shows, these players included.")
     }
 
     /// Spotify and About still wear an app's own icon; whether it is the real

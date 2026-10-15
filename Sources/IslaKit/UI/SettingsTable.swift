@@ -561,7 +561,7 @@ enum SettingsTable {
             .header(localized("Music")),
             .group([.musicOnly]),
             .footnote(c.musicOnly
-                ? localized("Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show.")
+                ? localized("Videos and films stay off the island.")
                 : localized("Anything playing shows on the island, videos included.")),
         ]
         blocks += playersOnThisMac(c)
@@ -580,19 +580,27 @@ enum SettingsTable {
     /// other app is shown when it labels what it plays as audio (rule 2), and
     /// with Music Only off nothing is filtered at all. Read-only: the list is a
     /// statement about the Mac, not a setting.
+    ///
+    /// This group's footnote is the one place the rule is stated. Music Only's
+    /// own footnote used to say "Music apps, podcasts, and songs in Telegram
+    /// still show" a screen's height above this one, and with Music Only on the
+    /// two sat back to back saying nearly the same thing twice; Music Only's now
+    /// says only what it hides, and with Music Only off this group has no
+    /// footnote because "Anything playing shows" already says it.
     static func playersOnThisMac(_ c: SettingsContext) -> [SettingsBlock] {
         guard !c.installedPlayers.isEmpty else { return [] }
-        return [
+        var blocks: [SettingsBlock] = [
             .header(SettingsRowID.installedPlayers.title),
             .group([.installedPlayers]),
-            .footnote(playersNote(musicOnly: c.musicOnly, players: c.installedPlayers)),
         ]
+        if let note = playersNote(musicOnly: c.musicOnly, players: c.installedPlayers) {
+            blocks.append(.footnote(note))
+        }
+        return blocks
     }
 
-    static func playersNote(musicOnly: Bool, players: [AppIcons.Installed]) -> String {
-        guard musicOnly else {
-            return localized("Music Only is off, so anything that is playing shows, these players included.")
-        }
+    static func playersNote(musicOnly: Bool, players: [AppIcons.Installed]) -> String? {
+        guard musicOnly else { return nil }
         if players.contains(where: { MediaSourcePolicy.mixedApps.contains($0.bundleID) }) {
             return localized("These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio.")
         }

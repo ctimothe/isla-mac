@@ -125,4 +125,69 @@ final class RealAppIconPaneTests: XCTestCase {
         let (none, _) = await emptyPlayer(icons: SettingsFixture.macWithApps([:]), bodyWidth: 560)
         XCTAssertTrue(none.all { $0.role == "AXButton" }.isEmpty)
     }
+
+    /// Russian at 480: «Открыть Apple Music» and «Открыть Spotify» both stay, whole
+    /// and inside the pane, even though they cannot fit with icons; Deezer waits.
+    func testRussianAt480KeepsBothLeadersUntruncated() async throws {
+        LabLocalization.use("ru")
+        let (root, layout) = await emptyPlayer(icons: SettingsFixture.macWithApps(mac), bodyWidth: 480)
+        let buttons = root.all { $0.role == "AXButton" }
+        XCTAssertEqual(buttons.map(\.label), ["Открыть Apple Music", "Открыть Spotify"], root.dump)
+        let pane = CGRect(origin: .zero, size: layout.paneSize)
+        for button in buttons {
+            let frame = try XCTUnwrap(button.frame)
+            XCTAssertTrue(pane.contains(frame), "\(button.label) \(frame) leaves \(pane)")
+            let need = PlayerLayout.measuredLabelWidth(button.label)
+            // The measured width is an upper bound (rounded up, plus a point):
+            // a button as wide as its words, within that point and a half of
+            // rounding, shows them whole; a cut one would be narrower by much.
+            let bound = PlayerLayout.openButtonWidth(labelWidth: need, form: .iconless)
+            XCTAssertLessThanOrEqual(frame.width, bound + 0.5, "\(button.label) wider than measured")
+            XCTAssertGreaterThanOrEqual(frame.width, bound - 3, "\(button.label) is cut: \(frame.width) < \(bound)")
+        }
+    }
+
+    // MARK: Lookups
+
+    /// Settings resolved every known player on the main actor for every
+    /// section; only Music lists them, and the lookup is asked once per app.
+    func testOnlyTheMusicSectionResolvesThePlayers() async {
+        func lookups(section: SettingsSection) async -> Int {
+            var asked = Set<String>()
+            var count = 0
+            let icons = AppIcons(lookups: AppIcons.Lookups(
+                applicationURL: { id in count += 1; asked.insert(id); return nil },
+                icon: { _ in NSImage(size: NSSize(width: 4, height: 4)) },
+                displayName: { _ in "?" }
+            ))
+            let isolated = ProbeFixtures.isolatedStores()
+            defer { isolated.release() }
+            _ = await SettingsFixture.tree(isolated, section: section, icons: icons)
+            XCTAssertEqual(count, asked.count, "\(section): an app asked for twice")
+            return asked.subtracting([PlayerApp.spotify.bundleID, PlayerApp.music.bundleID]).count
+        }
+        let about = await lookups(section: .about)
+        let privacy = await lookups(section: .privacy)
+        let music = await lookups(section: .music)
+        XCTAssertEqual(about, 0)
+        XCTAssertEqual(privacy, 0)
+        XCTAssertGreaterThan(music, 5)
+    }
+
+    /// The cache is cleared as the panel opens, once, and not by a pane.
+    func testThePanelRefreshesTheIconsOncePerOpening() throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores, defaults: isolated.suite)
+        let icons = SettingsFixture.macWithApps([:])
+        vm.icons = icons
+        XCTAssertEqual(icons.generation, 0)
+        vm.isOpen = true
+        vm.isOpen = true
+        XCTAssertEqual(icons.generation, 1, "a redundant write is not an opening")
+        vm.isOpen = false
+        XCTAssertEqual(icons.generation, 1)
+        vm.isOpen = true
+        XCTAssertEqual(icons.generation, 2)
+    }
 }

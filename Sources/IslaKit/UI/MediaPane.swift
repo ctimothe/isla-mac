@@ -974,6 +974,17 @@ struct MediaPane: View {
         /// Which buttons the state offers: a player to open, or the one switch
         /// that decides what the island may show.
         var offersSettings: Bool { self == .hiddenByMusicOnly }
+
+        /// Whether the state may offer to open this app. With the reader down
+        /// only `PlayerBridge` works, and it speaks to Music and Spotify alone
+        /// (the caption says so): a Deezer button there would open a player
+        /// the island then cannot show, under a line that says it cannot.
+        func offersToOpen(_ bundleID: String) -> Bool {
+            switch self {
+            case .readerDown: return PlayerApp.allCases.contains { $0.bundleID == bundleID }
+            case .nothingPlaying, .hiddenByMusicOnly: return true
+            }
+        }
     }
 
     /// The empty tab used to say "Nothing is playing." over a YouTube video
@@ -1004,7 +1015,7 @@ struct MediaPane: View {
         let frames = PlayerLayout.emptyFrames(for: message)
         let leading = PlayerLayout.columnLeading - PlayerLayout.paneLeading
         return GeometryReader { proxy in
-            let offers = Self.openOffers(from: icons.installedMusicApps(), paneWidth: proxy.size.width)
+            let offers = Self.openOffers(from: icons.installedMusicApps(), paneWidth: proxy.size.width, message: message)
             ZStack(alignment: .topLeading) {
                 Color.clear
                 RoundedRectangle(cornerRadius: Theme.artworkMetrics(isOpen: true).cornerRadius, style: .continuous)
@@ -1054,17 +1065,19 @@ struct MediaPane: View {
                         // Apple Music and Spotify first, then the rest by name —
                         // as many as fit the row at this width, at most three. Each
                         // wears the app's own icon, from the person's copy of it.
-                        ForEach(offers, id: \.bundleID) { app in
+                        ForEach(offers.apps, id: \.bundleID) { app in
                             Button {
                                 NSWorkspace.shared.open(app.url)
                             } label: {
                                 HStack(spacing: PlayerLayout.openButtonIconGap) {
-                                    AppIconImage(image: app.icon, side: PlayerLayout.openButtonIconSide)
+                                    if offers.form.showsIcon {
+                                        AppIconImage(image: app.icon, side: PlayerLayout.openButtonIconSide)
+                                    }
                                     Text(localized("Open %@", app.name))
                                 }
                             }
                             .buttonStyle(OfferButtonStyle(
-                                horizontalPadding: PlayerLayout.EmptyFrames.openButtonHorizontalPadding,
+                                horizontalPadding: offers.form.horizontalPadding,
                                 fixedHeight: PlayerLayout.EmptyFrames.buttonHeight
                             ))
                         }
@@ -1083,17 +1096,19 @@ struct MediaPane: View {
                 }
             }
         }
-        // Apps are installed and removed while Isla runs: the buttons are read
-        // afresh each time the empty tab appears, and through the cache in
-        // between — never by asking LaunchServices on every render.
-        .onAppear { icons.refresh() }
     }
 
-    /// The music apps that get an "Open …" button at this pane width: the
-    /// installed ones, in `AppIcons.order`, as many as fit and at most three.
-    /// The label measured is the one the button shows.
-    static func openOffers(from apps: [AppIcons.Installed], paneWidth: CGFloat) -> [AppIcons.Installed] {
-        PlayerLayout.openButtonApps(apps, room: PlayerLayout.openButtonsRoom(paneWidth: paneWidth)) {
+    /// The music apps that get an "Open …" button at this pane width and the
+    /// form they are drawn in (`PlayerLayout.openButtonRow`): the installed
+    /// ones the state may offer, in `AppIcons.order`, Apple Music and Spotify
+    /// always. The label measured is the one the button shows.
+    static func openOffers(
+        from apps: [AppIcons.Installed], paneWidth: CGFloat, message: EmptyStateMessage = .nothingPlaying
+    ) -> PlayerLayout.OpenButtonRow {
+        PlayerLayout.openButtonRow(
+            apps.filter { message.offersToOpen($0.bundleID) },
+            room: PlayerLayout.openButtonsRoom(paneWidth: paneWidth)
+        ) {
             PlayerLayout.measuredLabelWidth(localized("Open %@", $0.name))
         }
     }
