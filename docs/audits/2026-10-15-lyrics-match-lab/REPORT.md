@@ -7,47 +7,58 @@ file. The corpus holds copyrighted lyrics and lives outside the repository, in
 record ids, titles and artists only.
 
 **Status: in progress.** Isla's timing and parsing, and how its lyric surfaces
-fit the lines, are measured on 1,441 real records. The catalogue's own limits
-are measured from LRCLIB's answers and its server source. Whether Isla finds
-the right lyrics for a song (M1) is not measured yet: LRCLIB stopped answering this machine's address after 129
+fit the lines, are measured on 1,441 real records (1,439 distinct: two are in
+both corpora). The catalogue's own limits are measured from LRCLIB's answers
+and its server source. Whether Isla finds the right lyrics for a song (M1) is
+not measured yet: LRCLIB stopped answering this machine's address after 129
 answers, before Isla's own lookups could be recorded. The section "What is
 owed" says what each open measurement needs.
 
 ## Headline
 
-- **Word-by-word lyrics barely exist in LRCLIB.** None of the 1,016 distinct
-  synced records in LRCLIB's answers to the lab carries word timing. In the
-  two corpora, 2 of 1,441 records do. Isla's word karaoke needs word timing,
-  so for online lyrics it almost never runs. A matcher change cannot fix that;
-  a source with word timing can.
+- **Word-by-word lyrics barely exist in what LRCLIB gave the lab.** None of
+  the 1,016 distinct synced records in its answers carries word timing, and
+  2 of the 1,441 corpus records do. The word-sync flag is the newest change
+  to LRCLIB's schema (migration 08 of 8), so the share may grow. Isla's word
+  karaoke needs word timing and is off by default, so for online lyrics it
+  almost never runs. A matcher change cannot fix that; a source with word
+  timing can.
 - **The redesign cuts long lyric lines short.** At the default panel width,
-  the lyric column beside the cover cuts 13 to 19 % of lines at the tail, and
-  two songs in three have at least one cut line. Fast rap loses 46 % of its
-  line endings there. The full-width lyric page cuts about 2 %. The shipped
-  0.3.0 wraps such a line instead, so this is new in the unmerged redesign.
-- **Isla's own line-timing arithmetic is exact.** M5 tested it on 901 new
-  records (46,765 lines) and on the 540-record corpus of 2026-10-11:
+  the lyric column beside the cover cuts 13 to 19 % of lines at the tail. In
+  the 2026-10-11 corpus, where a record is a song, two songs in three have at
+  least one cut line. Fast rap loses 46 % of its line endings there. The
+  full-width lyric page cuts about 2 %. The shipped 0.3.0 stage wraps such a
+  line to two rows, so the stage's cut is new in the unmerged redesign. (The
+  player's one-line caption already cut long lines in 0.3.0.)
+- **Isla's own line-timing arithmetic is exact.** M5 tested it on the pool's
+  901 records (46,765 lines; 899 of them new to these tests) and on the
+  540-record corpus of 2026-10-11:
   - Isla reads every stamp to the millisecond.
   - Its line search agrees with an oracle at every one-millisecond step.
   - No line is drawn more than one frame late (with a perfect player clock).
 
-  On the 2026-10-11 corpus, Isla now reads the one file it refused then:
-  LRCLIB 36877652, an enhanced LRC.
-- **The catalogue sets the accuracy floor.** Distinct uploads of one song at
-  one length disagree. In 21 % of pairs one whole timeline is shifted more
-  than 0.3 s from the other, and after that shift 15 % of lines still differ
-  by more than 0.25 s (M9; 29 pairs over 8 songs). Also, 11.3 % of records
-  are stamped for a longer cut than their own listed length.
+  On the 2026-10-11 corpus, Isla now reads LRCLIB 36877652, an enhanced LRC
+  it refused then. One record there, LRCLIB 36777161, stays unreadable: its
+  stamps (`[100:40:39.00]`) are not LRC, and the reference parser cannot read
+  them either.
+- **Uploads of one song can disagree, mostly through one stray upload.** M9
+  compared distinct uploads of 8 songs at one length (29 pairs). For 5 of the
+  songs the uploads agree within 0.02 s. In each of the other 3, one upload
+  sits off the rest (by 8.07, 0.89 and about 0.4 s), and those uploads hold
+  203 of the 219 lines that still differ by more than 0.25 s after the
+  offset is removed. Picking the upload the others agree with would avoid
+  most of it (M10, not measured yet). Separately, about 9 % of records with a
+  plausible length are stamped for a longer cut than that length.
 - **LRCLIB's rate limit decided what the lab could measure, and it can decide
   what a listener sees.** After 119 answers in 46 minutes, this address got
-  11 answers in the next three hours, 0 to 6 per probe. Isla treats a 429
+  10 answers in the next three hours, 0 to 5 per probe. Isla treats a 429
   like any failure and, while the song plays, asks again after 5, 30 and
-  120 s, with up to three requests each time.
+  120 s. While the limit holds, that is four refused requests a song.
 - **LRCLIB's two endpoints see different uploads.** `/api/get` returns the
-  oldest matching upload. In 5 of the 7 gets that found a record, it was an
-  upload that neither 20-row search page showed. 84 % of search pages are
-  full at 20 rows, so for a popular song Isla's search sees only part of the
-  uploads.
+  oldest matching track entry, with the latest lyrics uploaded for it. In 5
+  of the 7 gets that found a record, that upload was on neither 20-row search
+  page. 84 % of search pages are full at 20 rows, so for a popular song
+  Isla's search sees only part of the uploads.
 
 ## What the lab holds
 
@@ -55,8 +66,8 @@ owed" says what each open measurement needs.
 |---|---|---|
 | Harvest | 465 tracks in 16 slices, 22–30 each | the songs Isla is asked about |
 | Resolved sample | 88 tracks (3 popular and 3 stress picks per slice), 375 query variants | M1, M2, M6, M10: not run yet; M4 ran on the 3 lookups that found lyrics |
-| Pool | 901 synced LRCLIB records for 3 slices | M5, M4 by slice |
-| 2026-10-11 corpus | 540 LRCLIB records in 20 categories | M5, compared with the earlier run; M4 by genre |
+| Pool | 901 synced LRCLIB records of 184 songs, for 3 slices | M5, M4 by slice |
+| 2026-10-11 corpus | 540 LRCLIB records of 536 songs, in 20 categories | M5, compared with the earlier run; M4 by genre |
 | Cache | 129 LRCLIB answers (116 search pages, 13 gets), plus 823 iTunes and 984 Deezer answers | the twin, M9, the C8 estimate, the findings |
 | LRCLIB's server source | `tranxuanthang/lrclib`, read locally | how both endpoints match and rank |
 
@@ -114,24 +125,33 @@ In all, 2 of 1,441 corpus records (0.14 %) are word-timed:
   (`Sources/IslaKit/Services/OnlineLyrics.swift:32-36`). Every record that
   LRCLIB itself flags `hasWordSync` has its words in `lyricsfile`, and for
   those the server builds a line-only `syncedLyrics`.
-- **Only the first play animates (F-A).** Isla now reads LRCLIB 36877652
-  (M5 L1); on 2026-10-11 it refused it.
-  - The fresh path keeps the parsed granularity (`OnlineLyrics.swift:171`).
-    With precision sync and karaoke on, that record animates word by word on
-    the play that fetched it.
-  - The cache rebuilds every hit as `.line` (`OnlineLyrics.swift:524`). Isla
-    asks the cache first on every track change
-    (`LyricsCoordinator.swift:455`), so every later play is line by line.
+- **Word timing lasts until Isla reads the answer back from its cache
+  (F-A).** Isla now reads LRCLIB 36877652 (M5 L1); on 2026-10-11 it refused
+  it.
+  - A fresh lookup keeps the parsed granularity (`OnlineLyrics.swift:171`).
+    With precision sync and Word Karaoke on, that record animates word by
+    word. Word Karaoke is off by default (`SettingsTable.swift:326`).
+  - The cache rebuilds every hit as `.line` (`OnlineLyrics.swift:524`), and
+    Isla asks the cache first (`LyricsCoordinator.swift:455`). So the next
+    lookup of the song draws it line by line: a later play, or a recheck in
+    the same play, such as after the local lyrics library changes
+    (`LyricsCoordinator.swift:201-203`).
+  - A fresh fetch brings word timing back: after the song leaves the
+    1,000-song cache (`OnlineLyrics.swift:498`), after Retry, which forgets
+    the entry (`LyricsCoordinator.swift:269-273`), or when an old-format hit
+    is refreshed (`:499-510`).
   - The type's doc comment says every online timeline is `.line`
     (`OnlineLyrics.swift:15-17`). So the code disagrees with its own
-    contract.
+    contract. The lab's raw L5 output repeated that comment; it now says what
+    the code does.
 
   C1 settles this toward word timing. Settling it toward the doc comment is a
   one-line change too.
 - **`lyricsfile` line ends add almost nothing.** In 51,072 of 51,106 pool
-  pairs, a line's `end_ms` is the next line's start. One record in 901 ends
-  lines earlier than that. Line ends reach Isla as LRC's empty stamps
-  instead.
+  pairs, a line's `end_ms` is the next line's start. The other 34 pairs are
+  all in one record (LRCLIB 35687792): 15 end before the next line starts,
+  and 19 run past it by 0.1 to 0.7 s. Line ends reach Isla as LRC's empty
+  stamps instead.
 
 **What this means.** Decoding `lyricsfile` (F-B) and keeping word granularity
 in the cache (F-A, candidate C1) are correct and small. Today they reach 2
@@ -164,11 +184,14 @@ five hours ahead):
 |---|---|
 | 08:03–08:24 | 107 searches answered, about five a minute |
 | 08:40–08:49 | 12 gets answered, then three 429s |
-| 09:1x | 1 get answered |
+| 09:19 | 1 get answered (a 404), asked by the Swift harness |
 | 10:05–10:06 | 3 answered, then a 429 on the fourth and on every retry |
 | 10:45 | 1 answered, then a 429 |
-| 11:15–11:16 | 6 answered, then a 429 |
+| 11:15–11:16 | 5 answered, then a 429 |
 | 11:46 | none: the first request drew a 429, and the collector was stopped |
+
+The counts are the answers the lab stored. The collector's log says 6 at
+11:15, counting one request that left no stored answer.
 
 From 10:45 the collector stopped at the first 429, so each probe cost LRCLIB
 one refused request. It waited 30 to 60 minutes between probes.
@@ -178,9 +201,16 @@ Two things the owner should know about this run:
 - **The lab once changed address family to get past the limit.** Earlier the
   same day it moved from IPv6 to IPv4 after the IPv6 address drew 429s. SPEC
   records this as a gray area. It was not repeated.
-- **Isla on this Mac shares the address.** Its online lyrics are on. While the
-  lab spent the allowance, Isla's own lookups for songs it had not cached
+- **Isla on this Mac shares the address.** Its online lyrics are on
+  (`defaults read com.ctimothe.isla lyrics.onlineEnabled` prints 1). While
+  the lab spent the allowance, Isla's own lookups for songs it had not cached
   could fail. Cached songs were unaffected.
+
+**Where the 429s come from.** LRCLIB's own server never sends one: when its
+load budget runs out, it answers 503 with `Retry-After: 1`
+(`server/src/errors.rs:78-90` and `ARCHITECTURE.md:66` in
+`tranxuanthang/lrclib`). The 429s come from something in front of the
+server, and this run can only infer its rules.
 
 **What Isla does on a 429:**
 
@@ -190,19 +220,26 @@ Two things the owner should know about this run:
   (`OnlineLyrics.swift:219`).
 - A failed search makes the lookup `.failed` when nothing else matched.
 - `LyricsCoordinator` asks again after 5, 30 and 120 s while the same song
-  plays (`LyricsCoordinator.swift:123`, `:250-260`), with up to three
-  requests each time. One song that keeps failing can spend 12 requests.
+  plays (`LyricsCoordinator.swift:123`, `:250-260`). Under a 429 each try
+  stops at the refused get, so a song spends 4 requests. A failure later in
+  a try, such as a failed search, can cost up to three requests a try, so 12
+  a song.
 
 A listener skipping through a playlist spends one to three requests a song.
-The limiter counts refused requests (SPEC, politeness amendments), so the 5 s
-retry lands inside the refusal it extends. Everyone behind one address — a
-household, an office — shares the allowance.
+The limit appears to count refused requests too (inferred from this run;
+SPEC, politeness amendments), so the 5 s retry would land inside the refusal
+it extends. Everyone behind one address — a household, an office — shares
+the allowance.
 
-**Recommendation.** Make a 429 its own outcome:
+**Recommendation.** Handle LRCLIB's two refusals apart from other failures:
 
-- Do not retry it on the per-song ladder.
-- Back off the whole client for a long window: 30 minutes, or `Retry-After`
-  when LRCLIB sends one.
+- A 503 with `Retry-After` is the server saying it is busy: wait as long as
+  it says, then ask once more.
+- A 429 is the limit in front of the server. Do not retry it on the per-song
+  ladder. Pause new lookups for the whole client: for `Retry-After` when it
+  is sent, otherwise for a window that starts short and grows, up to about
+  30 minutes. A pause has a cost: songs not yet cached show no lyrics until
+  it ends.
 - Keep showing cached lyrics meanwhile.
 
 A fake transport in a unit test covers this without any LRCLIB traffic.
@@ -214,10 +251,13 @@ at its tail with an ellipsis: the stage's rows (`LyricsStage.swift:613`,
 `LyricRow.swift:372-373`) and the player's band
 (`KaraokeText.swift:121,167-168`).
 
-**This is new in the redesign (R1–R5, not merged).** On `main` (0.3.0) the
-stage lets a long line wrap to two rows (`lineLimit: 2`). On 2026-10-11 the
-lock card was changed to wrap its sung line the same way, because a cut sung
-line on the lock screen beside a whole one on the stage was a defect (H-019,
+**The stage's cut is new in the redesign (R1–R5, not merged).** On `main`
+(0.3.0) the stage lets a long line wrap to two rows (`lineLimit: 2`,
+`LyricsStage.swift:504` there). The player's caption already drew one line
+in 0.3.0 (`MediaPane.swift:511` and `KaraokeText.swift:121,167-168` on
+`main`), so the band's cut is not new. On 2026-10-11 the lock card was
+changed to wrap its sung line, because a cut sung line on the lock screen
+beside a whole one on the stage was a defect (H-019,
 `LockScreenCard.swift:1593-1625`). The lock card still wraps. The redesign
 spec fixes the line pitch (23 pt in the column, 34 on the tall page; §5.1)
 and says nothing about a line too long for its row.
@@ -225,7 +265,7 @@ and says nothing about a line too long for its row.
 The lab laid out every line of the 1,432 records Isla accepts in both
 corpora, in the fonts and widths the code defines on this branch:
 
-| Surface, panel width | Lines cut, 2026-10-11 corpus | Songs with a cut line | Lines cut, pool | Songs with a cut line |
+| Surface, panel width | Lines cut, 2026-10-11 corpus | Records with a cut line | Lines cut, pool | Records with a cut line |
 |---|---|---|---|---|
 | Lyric column beside the cover, 560 (278 pt) | 18.8 % | 68.9 % | 13.4 % | 65.5 % |
 | Player's lyric band, 560 (340 pt) | 6.8 % | 43.9 % | 5.5 % | 36.4 % |
@@ -253,18 +293,24 @@ corpora, in the fonts and widths the code defines on this branch:
 - **The widths can be trusted.** On 80 lines drawn from every category,
   AppKit's widths are within 1.4 % of SwiftUI's own layout (median ratio
   1.000 at 13 pt and 0.998 at 17 pt). At most 3.8 % of lines lie within 2 %
-  of an edge, so no share above can move by more than that.
+  of an edge, so no share of lines above can move by more than that. A share
+  of records can move more, because one line crossing the edge flips its
+  whole record.
+- **Isla's own picks.** On the 3 recorded lookups where Isla found lyrics
+  (211 lines), the column cuts 1.4 % of lines at 560 and 28.0 % at 480.
+  Three songs are too few to set against the corpora.
 - **Line length in time is not the problem.** 1.9 % of lines last under
   1.0 s (pool 2.9 %), and the median line lasts 3.4 s (pool 2.7 s). Fast rap
   is the densest: 14.5 characters a second at the median, against 6.7
   overall.
 
-A share is a share of records, not of distinct songs: the 2026-10-11 corpus
-picked about 25 records per category, and the pool holds several uploads of
-most songs. The raw figures are `reports/m4-accuracy-2026-10-11.json` and
+A share is a share of records, not of distinct songs. In the 2026-10-11
+corpus that is nearly the same thing: about 25 records per category, 540
+records of 536 songs. The pool holds 901 records of 184 songs, about five
+uploads a song. The raw figures are `reports/m4-accuracy-2026-10-11.json` and
 `reports/m4-pool.json` in the corpus root (SPEC, "M4 over the held corpus").
 
-### 4. Uploads of one song disagree about when lines start (M9)
+### 4. Uploads of one song can disagree about when lines start (M9)
 
 `Scripts/lyric-match-lab/noise.py` measured this from the cached pages (SPEC,
 "M9 from the cached pages"):
@@ -283,19 +329,29 @@ most songs. The raw figures are `reports/m4-accuracy-2026-10-11.json` and
 The sample is small and covers two slices (africa-caribbean-europe, 6 songs;
 country-folk-songwriter, 2), so read the shares as an order of magnitude.
 
-What they say: for a sizable minority of songs, whichever upload Isla picks
-may be a third of a second away from another upload of the same song. That is
-larger than the 0.20 s lead the owner tunes by ear. Sync Here fixes a constant
-offset by hand, but not per-line jitter. On the matcher's side, the lever is
-picking the upload closest to the consensus (M10), and it cannot be scored
-until Isla's lookups are recorded.
+What they say: the disagreement is concentrated. For 5 of the 8 songs the
+distinct uploads agree within 0.02 s. In each of the other 3, one upload sits
+off the rest, by 8.07, 0.89 and about 0.4 s, and those three uploads hold 203
+of the 219 lines that differ by more than 0.25 s. When Isla picks such a
+stray upload, its lines can sit a third of a second or more from the others'.
+That is larger than the 0.20 s lead the owner tunes by ear. Sync Here fixes a
+constant offset by hand, but not per-line jitter. On the matcher's side, the
+lever is picking the upload closest to the consensus (M10), and it cannot be
+scored until Isla's lookups are recorded.
 
-### 5. One record in nine is stamped for a longer cut (M5 L10)
+### 5. About one record in ten is stamped for a longer cut (M5 L10)
 
 101 of 893 pool records with a length (11.3 %) have stamps more than 3 s past
 their own listed length. The median overrun is 43 s. On the 2026-10-11 corpus
-it is 61 of 535 (11.4 %), with a median of 56 s. Of those 61, the overrun
-is:
+it is 61 of 535 (11.4 %), with a median of 56 s.
+
+Some of these list a wrong length rather than a longer cut. All 23 pool
+records that list under 90 s are flagged, and 10 of the 11 such records in
+the 2026-10-11 corpus. Leaving records under 90 s out, 78 of 870 (9.0 %) and
+51 of 524 (9.7 %) are stamped for a longer cut. Isla never matches a
+wrong-length record to the real track: its 3 s length window rejects it.
+
+Of the 61 flagged on the 2026-10-11 corpus, the overrun is:
 
 - 3–10 s for 6;
 - 10–30 s for 19;
@@ -322,12 +378,14 @@ Isla already handles this:
 ### 6. Isla's clock and parser are exact (M5)
 
 M5 reruns the 2026-10-11 timing tests (`LyricAccuracyLab*`) on today's code.
-It uses two corpora: the pool, which those tests have never seen, and the
-2026-10-11 corpus. The third column is the earlier run's final rerun.
+It uses two corpora: the pool, and the 2026-10-11 corpus. Those tests had
+seen only 2 of the pool's 901 records, the two that are in both corpora
+(LRCLIB 34755214 and 36997306). The third column is the earlier run's final
+rerun.
 
 | Test | Pool, today (901) | 2026-10-11 corpus, today (540) | 2026-10-11 corpus, final rerun that day |
 |---|---|---|---|
-| L1 parse | 895 accepted; 46,765 lines exact to the ms; 0 text mismatches; 0 sung lines lost | 537 accepted; 0 refused that the reference reads; 24,230 lines exact | 536 accepted; 1 refused (36877652); 24,186 lines exact |
+| L1 parse | 895 accepted; 46,765 lines exact to the ms; 0 text mismatches; 0 sung lines lost | 537 accepted; 0 refused that the reference reads; 1 unreadable by both (36777161); 24,230 lines exact | 536 accepted; 1 refused (36877652); 1 unreadable by both (36777161); 24,186 lines exact |
 | L2 index | 204.3 M one-ms steps and 1.79 M seeks: 0 disagreements | 154.0 M steps, 1.07 M seeks: 0 | 153.7 M steps, 1.07 M seeks: 0 |
 | L3 frame grid, perfect clock | 60 Hz p50 8.2, max 16.7 ms; 120 Hz p50 4.1, max 8.3 ms | 60 Hz p50 8.3, max 16.7 ms; 120 Hz p50 4.2, max 8.3 ms | the same |
 | L5 word sweep | 0 invariant failures; edge lag p50 4.2, p95 8.3 ms at 120 Hz | the same | the same |
@@ -339,6 +397,21 @@ It uses two corpora: the pool, which those tests have never seen, and the
 L4 (timers) and L7 (lead calibration) do not depend on the lyrics and were
 not rerun; the values from 2026-10-11 stand.
 
+The raw reports carry a verdict per test, and four need reading:
+
+- **L1 says `concern`** only because the harness flags any dropped empty
+  stamp and any line past the record's listed length (1,249 lines in 69
+  records of the 2026-10-11 corpus; 2,112 in 110 of the pool). Isla drops
+  empty stamps by design, as line ends, and the lines past the length are
+  L10's longer cuts. Nothing was refused or misread.
+- **L5 says `concern`** by construction: the harness never passes it,
+  because almost no real word timing reaches the sweep (2 lines in the
+  2026-10-11 corpus, none in the pool).
+- **L6 says `concern`** whenever any line stays lit after its voice ends,
+  and `fail` when a line stays lit through more than 8 s of silence inside
+  the song. A long outro alone does not fail it.
+- **L10 says `concern`** whenever any record is flagged.
+
 The pool's L6 verdict is `fail` because of one mid-song gap (19 s) and one
 outro (11 s). Both are measured against `lyricsfile` line ends. Against LRC's
 empty stamps, no pool track has a line lit more than 1.3 s too long in total.
@@ -348,20 +421,22 @@ The raw reports are `reports/m5-pool.json` and
 
 ### 7. LRCLIB's two endpoints, and its 20-row cap (F-C, F-D)
 
-- **`/api/get` returns the oldest match.** It takes the oldest upload whose
-  normalised title, artist and album (when sent) match, within 2 s of the
-  length. In LRCLIB's track repository this is `ORDER BY tracks.id LIMIT 1`.
-  In 5 of the 7 found gets in the cache, that upload was on neither full
-  search page for the same title and artist.
+- **`/api/get` returns the oldest match.** It takes the oldest track entry
+  whose normalised title, artist and album (when sent) match, within 2 s of
+  the length, and returns the latest lyrics uploaded for that entry. In
+  LRCLIB's track repository this is `ORDER BY tracks.id LIMIT 1`, joined on
+  the entry's `last_lyrics_id`. In 5 of the 7 found gets in the cache, that
+  upload was on neither full search page for the same title and artist.
 - **`/api/search` returns 20 rows.** They are the top 20 by BM25 over title
   and artist, ranked neither by length nor with synced uploads first. 98 of
   116 cached pages (84 %) are full.
 - **An instrumental oldest upload stops Isla.** Isla returns no lyrics without
   searching (`OnlineLyrics.swift:208-213`). The mechanism is real, but the
   sample shows no case of it:
-  - On the cached pages, uploads of a vocal song that match it in title and
-    within 2 s of length are never flagged instrumental: 0 of 270, across 30
-    songs.
+  - None of the 7 gets that found a record returned an instrumental one.
+  - Across all 116 cached pages, none of the 344 uploads that match a vocal
+    song in title and within 2 s of its length is flagged instrumental. A
+    page cannot show the upload a get returns, though (above).
   - On all vocal-song pages, 33 of 1,356 rows are flagged instrumental,
     against 748 of 767 on the pages of instrumental pieces.
 
@@ -378,7 +453,8 @@ exist. Where a complete page makes the answer certain:
 - Apple's album name cost the exact answer for 1 of 3 tracks.
 - Deezer's cost it for 0 of 5.
 
-Where the answer depends on the page, the counts are 16 of 20 and 15 of 20.
+So the certain evidence is 1 track in 8. Where the answer depends on the
+page, the counts are 16 of 20 and 15 of 20.
 H8 is open, and C8 (send no album) waits for recorded traffic. SPEC, C8
 amendment, has the tables.
 
@@ -388,8 +464,8 @@ amendment, has the tables.
   (ı→i, ø→o, ß→s). It leaves ё, й and Greek accents alone, and treats U+02BB
   and U+2018 as letters, not apostrophes. A player that writes "е" for "ё",
   or the reverse, misses the exact query. In this data the hazard is rare:
-  ʻ appears in 1 of 465 harvest identities, ß in 1 of 901 pooled records,
-  and ё nowhere.
+  ʻ appears in 1 of 465 harvest identities, ß in 3 of 901 pooled records
+  (counting the album, which `/api/get` normalises too), and ё nowhere.
 - **F-G: the artist test is a substring test.** "sia" is inside "asia"
   (`OnlineLyrics.swift:334`). The title and the 3 s length window must also
   match, so this is rare. Candidate C7 matches whole words.
@@ -426,27 +502,32 @@ lookups are recorded; the rest are uncached.
 
 In order:
 
-1. **Handle 429 apart from failures (F-H).** This protects every listener, not
-   just the lab, and needs no LRCLIB traffic to build or test.
+1. **Handle LRCLIB's refusals apart from failures (F-H).** Honour
+   `Retry-After` on a 503, and pause the client on a 429 (finding 2). This
+   protects every listener, not just the lab, and needs no LRCLIB traffic to
+   build or test.
 2. **Before the redesign merges, let a long line show its ending
    (finding 3).** This reaches every listener who has lyrics on, needs no
    network, and the measurement reruns in seconds. How is the owner's design
    call. A long line could take a second row: 0.3.0's stage lets every line
    wrap to two rows, and the lock card gives its sung line a second row by
    showing one neighbour fewer on each side (H-019). Or the column could
-   widen while lyrics show, or a cut line could slide to show its tail. The redesign spec's decision 6 holds under each
+   widen while lyrics show, or a cut line could slide to show its tail. The
+   redesign spec's decision 6 holds under each
    (`docs/plans/2026-10-15-redesign-spec.md`, §0: the sung line keeps its
-   neighbours' size, set apart by weight and brightness). The spec settles no
-   rule for a line too long for its row. The same change should settle the
-   lines that gain their ellipsis only when they are sung.
+   neighbours' size, set apart by weight and brightness). A second row would
+   mean amending the spec's fixed line pitch (§5.1). The spec settles no rule
+   for a line too long for its row. The same change should settle the lines
+   that gain their ellipsis only when they are sung.
 3. **Decide on a word-timed source.** It is the only route to word-by-word
    lyrics for most songs. It is the owner's call, because of terms of
    service, accounts and the privacy default.
 4. **Then land C1 and decode `lyricsfile` (F-B).** Both are small and correct,
    but they reach almost nothing until a word-timed source exists.
 5. **Record Isla's lookups from a local LRCLIB (below), or once LRCLIB
-   answers again.** Then score every candidate in one replay. C8 goes first,
-   because its page-bound signal is the largest (finding 8).
+   answers again.** Then score every candidate in one replay. C8 goes first:
+   its signal on full pages is the largest, though its certain evidence is
+   1 track in 8 (finding 8).
 6. **After recording, measure M10.** It shows whether picking the upload
    closest to the consensus beats Isla's pick, given the spread in finding 4.
 
@@ -461,16 +542,19 @@ In order:
 
 There are two ways to get Isla's lookups:
 
-- **A local LRCLIB, the practical way.** LRCLIB publishes database dumps
-  (about 44.3 GiB gzipped). With a dump, the twin answers both endpoints
-  exactly, for every harvested track, and no request leaves the machine. It
-  needs the owner's permission and more free disk than the 54 GB this Mac has
-  now.
+- **A local LRCLIB, the practical way.** LRCLIB publishes database dumps:
+  about 44.3 GiB gzipped, by a search snapshot of lrclib.net/db-dumps on
+  2026-10-15. With a dump, the twin answers `/api/get` by LRCLIB's own rule
+  for every harvested track. Its search only approximates LRCLIB's ranking,
+  so exact search answers need LRCLIB's published server
+  (`tranxuanthang/lrclib`) run locally on the dump. Either way no request
+  leaves the machine. It needs the owner's permission and more free disk
+  than the 54 GB this Mac has now.
 - **LRCLIB's allowance returns.** A polite collector records the canonical
   lookups first: one pass at a time, 15 s apart, stopping at the first 429.
-  At today's 1 to 6 answers per half hour this takes days. Even a fresh
-  allowance covers only part of it: the day's first burst gave 119 answers
-  before the refusals began.
+  At today's 0 to 5 answers per half hour this takes days. Even a fresh
+  allowance covers only part of it: the burst before the refusals gave 119
+  answers.
 
 ## How to rerun
 
@@ -515,6 +599,12 @@ fix is pinned by a test in `selftest.py` or the lab's Swift suites:
 - **Empty runs.** A measurement that found nothing to measure, such as the
   word sweep on a corpus without word-timed records, skips instead of
   passing.
+- **Wording.** L5's raw output said LRCLIB timelines never reach the word
+  sweep, after the doc comment F-A shows is wrong. It now says what the code
+  does, and both `m5-*.json` reports were rewritten by rerunning L5 alone;
+  every figure in them is unchanged.
 
 The third and fourth reviews' fixes were reviewed and merged into this
-branch (`0452c6f`). The fourth review found no blocker and no major.
+branch (`0452c6f`). The fourth review found no blocker and no major. A fifth
+review read this report against the evidence; its corrections are in the text
+above.

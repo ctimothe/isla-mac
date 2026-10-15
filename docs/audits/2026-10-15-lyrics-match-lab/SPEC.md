@@ -1015,13 +1015,14 @@ answers live only in a twin root (`<root>/twin/`, with a `TWIN` marker), never
 in the real cache, and a replay of the twin root needs no network.
 
 Validation against LRCLIB's own answers, with the twin built without them
-(`twin.py validate`: 124 cached LRCLIB answers, 111 search pages, 1,795
-records):
+(`twin.py validate`: 129 cached LRCLIB answers, 116 search pages, 1,894
+records; rerun after the last probes added five pages, which moved only the
+second row, from 1 of 48):
 
 | Query | Agrees with LRCLIB | Disagrees |
 |---|---|---|
 | a field search derived from a complete page (leave one out) | 7 of 7 | 0 |
-| a field search derived from full pages | 1 of 48 | 47 |
+| a field search derived from full pages | 1 of 50 | 49 |
 | `/api/get` that LRCLIB answered 404, full pages only | 6 of 6 | 0 |
 | `/api/get` that found a record, full pages only | 2 of 7 | 5: an old upload no page showed |
 
@@ -1036,7 +1037,8 @@ is kept because it corrected the C8 estimate above and found two facts for the
 report. First, LRCLIB's two endpoints see different uploads of a popular song:
 the get takes the oldest, and the search shows twenty others. Second, its
 normalisation is Latin-only. In this data that rarely bites: ʻ appears in 1 of
-465 harvest identities, ß in 1 of 901 pooled records, and ё nowhere. As the
+465 harvest identities, ß in 3 of 901 pooled records (counting the album,
+which `/api/get` normalises too), and ё nowhere. As the
 polite collector adds pages, `twin.py prepare --fresh`, `fill` and a replay of
 the twin root extend its reach without a single LRCLIB request.
 
