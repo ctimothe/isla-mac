@@ -184,6 +184,11 @@ final class LyricMatchLabReadabilityTests: XCTestCase {
                     "width_pt": MatchLab.stats(tally.widths),
                     "width_over_available": MatchLab.stats(tally.ratios),
                     "rows_if_wrapped_for_overflowing_lines": MatchLab.stats(tally.rows),
+                    // What a two-row stage would still cut: the report's fix for
+                    // these surfaces is a second row, and percentiles of `rows`
+                    // cannot say how many lines that leaves cut.
+                    "lines_two_rows_cannot_hold": tally.rows.filter { $0 > 2 }.count,
+                    "share_two_rows_cannot_hold": MatchLab.share(tally.rows.filter { $0 > 2 }.count, of: lines),
                 ] as [String: Any]
             }
             return [
