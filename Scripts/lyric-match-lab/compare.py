@@ -149,9 +149,6 @@ def compare(root: str, base: str, candidate: str, base_results: str, candidate_r
         b, a = before_rows[key], after_rows[key]
         if a["verdict"] == "uncached" and b["verdict"] != "uncached":
             needs_recording.append({"track_id": key[0], "variant": key[1], "before": b["verdict"]})
-        if b["verdict"] not in UNSCORABLE and a["verdict"] in LOSS_HIDING:
-            name = f"{b['verdict']} -> {a['verdict']}"
-            hidden[name] = hidden.get(name, 0) + 1
         moved = b["verdict"] != a["verdict"] or b["chosen_id"] != a["chosen_id"]
         if is_promoted(b, a):
             # Judged against a truth each run built from its own answers: a
@@ -162,6 +159,9 @@ def compare(root: str, base: str, candidate: str, base_results: str, candidate_r
                 verdict = judge(b["verdict"], a["verdict"])
                 promoted[verdict] += 1
             continue
+        if b["verdict"] not in UNSCORABLE and a["verdict"] in LOSS_HIDING:
+            name = f"{b['verdict']} -> {a['verdict']}"
+            hidden[name] = hidden.get(name, 0) + 1
         for scope in ("overall", "canonical") if key[1] == "canonical" else ("overall",):
             cell = paired[scope]
             if usable(b) and usable(a):

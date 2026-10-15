@@ -3050,6 +3050,12 @@ class CompareThirdReviewTests(unittest.TestCase):
         self.assertEqual(result["paired"]["overall"]["n_paired"], 2)
         self.assertEqual([c["track_id"] for c in result["changed"]], ["s/4"])
 
+    def test_a_promoted_lookup_that_became_unattributable_does_not_make_the_comparison_incomplete(self):
+        result = self.compared([self.row("s/1", "correct", flags="anchor-promoted"), self.row("s/2", "correct")],
+                               [self.row("s/1", "unrecovered", flags="anchor-promoted"), self.row("s/2", "correct")])
+        self.assertFalse(result["incomplete"])
+        self.assertEqual(result["anchor_promoted"]["unscorable"], 1)
+
 
 class ScoreCandidateScriptTests(unittest.TestCase):
     """Third review, m11 and the M1 pairing: both sides are judged against one pool, and the checkout is
