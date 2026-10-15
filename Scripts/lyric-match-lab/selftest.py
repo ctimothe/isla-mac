@@ -3214,6 +3214,62 @@ class ScoreCandidateScriptTests(unittest.TestCase):
         self.assertIn("not clean", done.stderr)
         self.assertIn("stray.txt", done.stderr)
 
+    def make_control(self):
+        self.fake_reports("cf-control-reports")
+        os.makedirs(os.path.join(self.lab, "cf-control"))
+        with open(os.path.join(self.lab, "cf-control", "isla-lookups.jsonl"), "w") as handle:
+            handle.write('{"track_id":"s/1","variant":"canonical","marker":"control"}\n')
+
+    def test_base_reports_alone_never_makes_the_record_run_the_base_of_a_candidate(self):
+        """N3: BASE_REPORTS without BASE_RESULTS skipped the control default, and BASE_RESULTS then fell
+        back to `results`, the record run. A candidate reads BASE_RESULTS only, and the other is refused."""
+        self.make_control()
+        done = self.run_script("c3", self.patch, BASE_REPORTS="cf-control-reports")
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("BASE_RESULTS", done.stderr)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertFalse(os.path.exists(os.path.join(self.lab, "cf-c3")))
+        # BASE_RESULTS names the base, and BASE_REPORTS beside it is not read
+        os.makedirs(os.path.join(self.lab, "cf-other"))
+        with open(os.path.join(self.lab, "cf-other", "isla-lookups.jsonl"), "w") as handle:
+            handle.write('{"track_id":"s/1","variant":"canonical"}\n')
+        done = self.run_script("c3", self.patch, BASE_RESULTS="cf-other", BASE_REPORTS="reports")
+        self.assertNotEqual(done.returncode, 2, done.stderr)
+        compared = json.loads(slurp(os.path.join(self.lab, "cf-c3-reports", "compare.json")))
+        self.assertEqual(compared["base"]["results"], "cf-other")
+
+    def test_a_patch_run_never_overwrites_the_base_it_is_compared_with(self):
+        """N4: `... control fix.patch` deleted and rewrote cf-control with the patched output, so the
+        candidate was compared with itself and every later candidate with a patched control."""
+        self.make_control()
+        before = slurp(os.path.join(self.lab, "cf-control", "isla-lookups.jsonl"))
+        done = self.run_script("control", self.patch)
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("control", done.stderr)
+        self.assertEqual(slurp(os.path.join(self.lab, "cf-control", "isla-lookups.jsonl")), before)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        # any run whose output directory is the base's, under another base
+        os.makedirs(os.path.join(self.lab, "cf-c4"))
+        done = self.run_script("c4", self.patch, BASE_RESULTS="cf-c4")
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("cf-c4", done.stderr)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_a_worktree_dirty_outside_sources_is_refused_before_the_patch_goes_on(self):
+        """N5: the check before the run looked at Sources/ only, the one after at the whole tree, so a
+        leftover under Tests/ ended every run with "not clean after reversing the patch"."""
+        self.make_control()
+        leftover = os.path.join(self.wt, "Tests", "leftover.txt")
+        with open(leftover, "w") as handle:
+            handle.write("not mine\n")
+        done = self.run_script("c5", self.patch)
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("leftover.txt", done.stderr)
+        self.assertNotIn("after reversing", done.stderr)
+        self.assertEqual(slurp(os.path.join(self.wt, "Sources", "a.txt")), "one\n")      # nothing was applied
+        self.assertEqual(slurp(leftover), "not mine\n")
+        self.assertFalse(os.path.exists(os.path.join(self.lab, "cf-c5")))
+
     def test_the_control_itself_is_scored_beside_the_record_run(self):
         done = self.run_script("control")
         self.assertEqual(done.returncode, 0, done.stderr + done.stdout)

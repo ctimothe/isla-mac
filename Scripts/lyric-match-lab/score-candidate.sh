@@ -24,11 +24,15 @@
 #
 # which writes <root>/cf-control/ and <root>/cf-control-reports/ and is itself
 # compared with the record run (<root>/reports and <root>/results). A candidate
-# (a patch given) uses cf-control-reports and cf-control as its base when they
-# exist, or BASE_REPORTS and BASE_RESULTS when those name others, and is refused
-# when there is neither: the record run is not a base for a candidate, because
-# the record and its replay can differ and that difference would show up as the
-# candidate's effect (third review, m11).
+# (a patch given) uses cf-control as its base when cf-control and
+# cf-control-reports exist, or the run BASE_RESULTS names, and is refused when
+# there is neither: the record run is not a base for a candidate, because the
+# record and its replay can differ and that difference would show up as the
+# candidate's effect (third review, m11). A candidate reads BASE_RESULTS only;
+# BASE_REPORTS alone is refused, since the base is classified again from its
+# results (fourth review, N3). A candidate named control, or named so that
+# cf-<name> is its base, is refused: it would overwrite the base (N4). The
+# worktree must be clean before the patch goes on, as it must be after (N5).
 #
 # Both sides are judged against one pool (third review, M1): the candidate is
 # classified with the base's results as `--pool-results`, and the base is
@@ -65,18 +69,38 @@ fi
 BASE_REPORTS_NAME="${BASE_REPORTS:-}"
 BASE_RESULTS_NAME="${BASE_RESULTS:-}"
 if [ -n "$PATCH" ]; then
-  if [ -z "$BASE_REPORTS_NAME" ] && [ -z "$BASE_RESULTS_NAME" ]; then
-    if [ -d "$LAB/cf-control-reports" ] && [ -d "$LAB/cf-control" ]; then
-      BASE_REPORTS_NAME="cf-control-reports"
+  # A candidate is compared with a base that is re-classified from its results
+  # (below), so BASE_RESULTS is the only variable it reads. BASE_REPORTS alone
+  # used to skip the control default and fall through to the record run, which
+  # is exactly the base m11 forbids (fourth review, N3).
+  if [ -z "$BASE_RESULTS_NAME" ]; then
+    if [ -n "$BASE_REPORTS_NAME" ]; then
+      echo "BASE_REPORTS is not read for a candidate: name the base run with BASE_RESULTS (or set neither" \
+           "to use the control)" >&2
+      exit 2
+    elif [ -d "$LAB/cf-control-reports" ] && [ -d "$LAB/cf-control" ]; then
       BASE_RESULTS_NAME="cf-control"
     else
       echo "no control to compare $NAME with: score the control first (the same command with the name" \
-           "control and no patch), or name another base with BASE_REPORTS and BASE_RESULTS" >&2
+           "control and no patch), or name another base with BASE_RESULTS" >&2
       exit 2
     fi
   fi
-  : "${BASE_REPORTS_NAME:=reports}"
-  : "${BASE_RESULTS_NAME:=results}"
+  # The run deletes and rewrites cf-$NAME, so it must not be the base it is
+  # compared with: a patched "control" would become every later candidate's
+  # base (fourth review, N4).
+  if [ "$NAME" = "control" ] || [ "cf-$NAME" = "$BASE_RESULTS_NAME" ]; then
+    echo "refusing to run a patch as $NAME: cf-$NAME is the base ($BASE_RESULTS_NAME) it would overwrite;" \
+         "the control is the run with no patch, so give the candidate another name" >&2
+    exit 2
+  fi
+  # The same whole-tree check the exit trap runs, before the patch is applied:
+  # dirt that predates the run would otherwise be blamed on the patch (N5).
+  if [ -n "$(git -C "$WT" status --porcelain)" ]; then
+    echo "$WT has uncommitted changes: refusing to stack a patch on them:" >&2
+    git -C "$WT" status --porcelain >&2
+    exit 2
+  fi
   PATCH="$(cd "$(dirname "$PATCH")" && pwd)/$(basename "$PATCH")"
   git -C "$WT" apply --check "$PATCH" || { echo "patch does not apply: $PATCH" >&2; exit 2; }
   git -C "$WT" apply "$PATCH"

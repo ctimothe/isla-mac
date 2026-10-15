@@ -878,3 +878,17 @@ from the records and the `no-album` variant directly, without a patch.
 >   Before, such a lookup was only counted in `lookups_in_one_run_only`, so a
 >   candidate whose rows had lost two misses showed 80% to 100% and called the
 >   comparison complete.
+> - **A candidate's base is named by `BASE_RESULTS` alone (N3).** The base is
+>   classified again from its results, so a patched run never reads
+>   `BASE_REPORTS`. Setting `BASE_REPORTS` without `BASE_RESULTS` is refused
+>   (exit 2); it used to skip the control default and compare the candidate
+>   with the record run, which m11 forbids.
+> - **A patch run cannot overwrite its own base (N4).** `score-candidate.sh`
+>   refuses (exit 2) a patch named `control`, or any patch whose `cf-<name>` is
+>   the base results directory, before it runs anything. The run deletes and
+>   rewrites `cf-<name>`, so the candidate was compared with itself and every
+>   later candidate with a patched "control".
+> - **The scratch worktree must be clean before the patch goes on (N5).** The
+>   whole-tree `git status --porcelain` check that follows the run now also
+>   precedes the patch (exit 2). A leftover outside `Sources/` used to end
+>   every run with "not clean after reversing the patch", blaming the patch.
