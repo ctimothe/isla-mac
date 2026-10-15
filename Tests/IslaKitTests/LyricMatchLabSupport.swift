@@ -166,6 +166,14 @@ enum MatchLab {
     /// Seconds between two live LRCLIB requests for this run, when slower than
     /// the SPEC's gap (`ReplayTransport.gap(for:)`).
     static let lrclibGapKey = "ISLA_MATCH_LRCLIB_GAP"
+    /// `1` trips a host on its first 429: no retry, and no live request goes
+    /// to it for the rest of the run. On 2026-10-15 LRCLIB let three requests
+    /// through after an hour's cool-down and refused the fourth, so the 30/60/120 s
+    /// retries and the `tripAfter` requests were all refusals that extend the
+    /// ban. A collector probing a banned limiter on a schedule sets this, and
+    /// each probe then costs the limiter one refused request. The resolver's
+    /// twin is `LAB_STOP_AT_429` (common.py).
+    static let stopAt429Key = "ISLA_MATCH_STOP_AT_429"
     /// The directory under the root that holds the harness output, default
     /// `results`. A candidate change to Isla is scored beside the baseline by
     /// pointing this at another name (`ISLA_MATCH_OUT=candidate`): the same
@@ -799,19 +807,30 @@ final class ReplayTransport: @unchecked Sendable {
     private let root: URL
     private let record: Bool
     private let maxLive: Int?
+    private let stopAtFirst429: Bool
+    private let send: @Sendable (URLRequest) async throws -> (Data, Int)
     private let lock = NSLock()
     private var exchanges: [MatchExchange] = []
     private var lastLive: [String: Date] = [:]
     private var factor: [String: Double] = [:]
     private var holdUntil: [String: Date] = [:]
     private var refusedInARow: [String: Int] = [:]
+    private var throttles: [String: Int] = [:]
     private var tripped: Set<String> = []
     private var liveCount = 0
 
-    init(root: URL, record: Bool, maxLive: Int? = nil) {
+    /// `send` makes one live request and returns the body and HTTP status; it
+    /// is `curl` unless a self-test stands in for the network.
+    init(
+        root: URL, record: Bool, maxLive: Int? = nil,
+        stopAtFirst429: Bool = MatchLab.environment[MatchLab.stopAt429Key] == "1",
+        send: (@Sendable (URLRequest) async throws -> (Data, Int))? = nil
+    ) {
         self.root = root
         self.record = record
         self.maxLive = maxLive
+        self.stopAtFirst429 = stopAtFirst429
+        self.send = send ?? { try await ReplayTransport.curl($0) }
     }
 
     /// How many live HTTP requests this process has made, retries included.
@@ -864,10 +883,26 @@ final class ReplayTransport: @unchecked Sendable {
         }
     }
 
+    /// Counts a 429 and says so in the log, as the resolver's `[throttle]`
+    /// line does: the fetch loop retries quietly otherwise, and a run that is
+    /// being refused looks merely slow.
     private func throttled(_ url: URL) {
-        lock.withLock {
-            let slot = Self.slot(for: url)
+        let slot = Self.slot(for: url)
+        let count: Int = lock.withLock {
             factor[slot] = min((factor[slot] ?? 1) * 2, Self.maxFactor)
+            throttles[slot, default: 0] += 1
+            return throttles[slot, default: 0]
+        }
+        print("MATCH-LAB throttle \(slot) 429 #\(count)")
+    }
+
+    /// `ISLA_MATCH_STOP_AT_429`: the host's first 429 closes it for the run.
+    private func tripNow(_ url: URL) {
+        let host = url.host ?? ""
+        let trippedNow: Bool = lock.withLock { tripped.insert(host).inserted }
+        if trippedNow {
+            print("MATCH-LAB trip \(host): stopped at the first 429 (\(MatchLab.stopAt429Key)); "
+                + "no live request goes to it for the rest of this run")
         }
     }
 
@@ -986,7 +1021,7 @@ final class ReplayTransport: @unchecked Sendable {
             let data: Data
             let status: Int
             do {
-                (data, status) = try await Self.curl(request)
+                (data, status) = try await send(request)
             } catch {
                 // Never cached, and logged as a miss, not a failure: a curl
                 // transport failure (no connection, a timeout) is a fact about
@@ -998,6 +1033,12 @@ final class ReplayTransport: @unchecked Sendable {
             }
             let response = Self.response(for: url, status: status)
             if status == 429 { throttled(url) }
+            if status == 429, stopAtFirst429 {
+                hold(url)
+                tripNow(url)
+                log(MatchExchange(key: key, path: path, kind: .miss, status: status, cached: false, body: nil))
+                throw Miss()
+            }
             if status == 429 || (500...599).contains(status) {
                 if attempt < Self.backoff.count {
                     let delays = status == 429 ? Self.throttleBackoff : Self.backoff

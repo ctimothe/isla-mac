@@ -52,6 +52,9 @@
 #   ISLA_MATCH_LRCLIB_GAP=S keep S seconds between LRCLIB requests instead of
 #                           7.5, to probe a limiter that has just refused this
 #                           address; a value under 7.5 is ignored
+#   ISLA_MATCH_STOP_AT_429=1 close a host on its first 429, with no retry: a
+#                           probe of a banned limiter costs it one refused
+#                           request (the resolver's twin is LAB_STOP_AT_429=1)
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

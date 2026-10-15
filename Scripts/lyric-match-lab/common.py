@@ -92,6 +92,13 @@ THROTTLE_HOLD = 60.0  # seconds a host stays closed after a request ends on 429
 # answer a minute); the lookups left go unanswered, which is never cached, so
 # the next run asks again once the ban has passed.
 TRIP_AFTER = 3
+# LAB_STOP_AT_429=1 trips a host on its first 429: no retry, no second refused
+# request. On 2026-10-15 LRCLIB let three requests through after an hour's
+# cool-down and refused the fourth, so the 30/60/120 s retries and the three
+# requests TRIP_AFTER spends were all refusals that extend the ban. A collector
+# that probes a banned limiter on a schedule sets this, and each probe then
+# costs the limiter one refused request.
+STOP_AT_429 = os.environ.get("LAB_STOP_AT_429") == "1"
 
 # Statuses that are an answer rather than a hiccup. 400 is deterministic for a
 # URL and 404 is LRCLIB's "no record"; both would come back identically. The
@@ -289,6 +296,17 @@ def _note_outcome(url: str, refused: bool) -> None:
           f"no live request goes to it for the rest of this run", flush=True)
 
 
+def _trip_now(url: str) -> None:
+    """STOP_AT_429: the host's first 429 closes it for the rest of the run."""
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    with _gates_lock:
+        if host in _tripped:
+            return
+        _tripped.add(host)
+    print(f"[trip] {host}: stopped at the first 429 (LAB_STOP_AT_429); "
+          f"no live request goes to it for the rest of this run", flush=True)
+
+
 def gate_key(url: str) -> str:
     """The endpoint when it has a gap of its own (ENDPOINT_GAPS), else the host."""
     parts = urllib.parse.urlsplit(url)
@@ -447,6 +465,11 @@ def fetch(url: str, root: str, *, offline: bool = False,
             if status == 429:
                 gate.throttled()
                 stats.throttled(url)
+                if STOP_AT_429:
+                    stats.failed()
+                    gate.hold(THROTTLE_HOLD)
+                    _trip_now(url)
+                    return None
             # A dead network does not heal in 40 s of retries: try once more, then stop.
             last = attempt == len(RETRY_DELAYS) or (status is None and attempt >= 1)
             if last:

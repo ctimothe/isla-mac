@@ -151,6 +151,27 @@ class CommonTests(unittest.TestCase):
             # Other hosts are untouched.
             self.assertFalse(common.tripped("https://other.test/x"))
 
+    def test_stop_at_429_spends_one_refused_request_and_closes_the_host(self):
+        # A collector probing a banned limiter on a schedule: the first 429 is
+        # the only refusal the probe costs. No retry, and the next lookup on
+        # that host never reaches the network.
+        gate = common.HostGate(0.0, sleep=lambda seconds: None)
+        with mock.patch.dict(common._gates, {"example.test": gate}), \
+                mock.patch.dict(common._refused_in_a_row, {}, clear=True), \
+                mock.patch.object(common, "_tripped", set()), \
+                mock.patch.object(common, "STOP_AT_429", True), \
+                mock.patch.object(common, "_http_get", side_effect=[(429, b"", 0.0), (200, b"[]", 0.0)]) as http, \
+                mock.patch.object(common.time, "sleep") as sleep, \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertIsNone(common.fetch("https://example.test/s0", self.root, stats=common.Stats()))
+            self.assertIsNone(common.fetch("https://example.test/s1", self.root, stats=common.Stats()))
+            self.assertEqual(http.call_count, 1)
+            self.assertEqual(sleep.call_count, 0)
+            self.assertIn("[throttle] example.test 429 #1", out.getvalue())
+            self.assertIn("[trip] example.test: stopped at the first 429", out.getvalue())
+            self.assertFalse(common.tripped("https://other.test/x"))
+        self.assertIsNone(common.read_cache(self.root, "https://example.test/s0"))
+
     def test_an_answer_between_refusals_keeps_the_host_open(self):
         gate = common.HostGate(0.0, sleep=lambda seconds: None)  # its 60 s hold is not waited out
         refused = [(429, b"", 0.0)] * 4

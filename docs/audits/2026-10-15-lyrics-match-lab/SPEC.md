@@ -157,6 +157,34 @@ reports/rows.csv               Python classifier: one row per lookup with its ve
     `--record` run, so every pass leaves a complete, scorable corpus that the
     next one extends. `--gap lrclib.net=<s>` and `ISLA_MATCH_LRCLIB_GAP=<s>`
     slow LRCLIB down for a run, and never below the table.
+  - *Amended 2026-10-15, a ban is not a rate.* LRCLIB's limiter holds more
+    than a per-minute rate. These are all the LRCLIB answers the cache holds,
+    by time in UTC:
+
+    | Time (UTC) | What happened |
+    |---|---|
+    | 08:03–08:24 | 107 searches answered, about five a minute, no 429 |
+    | 08:40–08:49 | 12 gets answered a little over one a minute apart, then three 429s |
+    | 09:1x | one more get answered after a cool-down |
+    | 10:05–10:06 | three searches answered, then 429 on the fourth and on every retry |
+
+    The rate a minute ago does not predict the next answer. What predicts it
+    is how much the address has already spent. So, for collection:
+    - **A 429 bans the machine's address.** It is not a cue to slow down.
+      `LAB_STOP_AT_429=1` (resolver) and `ISLA_MATCH_STOP_AT_429=1` (Swift
+      harness) close the host on its first 429, with no retry. A probe of a
+      banned limiter then costs it one refused request, instead of four
+      retries plus `TRIP_AFTER`.
+    - **The collector waits before the next probe.** It waits 30, then 45,
+      then 60 minutes after a refusal before probing again. It logs how many
+      answers each probe got, which measures how fast the limiter refills.
+    - **LRCLIB gets 15 s between requests in a collection run.** This is set
+      with `--gap lrclib.net=15` and `ISLA_MATCH_LRCLIB_GAP=15`.
+    - **A ban is never worked around.** No other address family, no other
+      address, no other client. Earlier on 2026-10-15 the lab moved from IPv6
+      to IPv4 after the IPv6 address drew 429s (`curl -4`, and IPv4-first in
+      common.py). The report records that switch as a gray area, and it is
+      not repeated.
   - The lab's own requests send the User-Agent
     `isla-lyrics-lab/0.2 (https://github.com/ctimothe/isla-mac)`. Isla's
     requests in the Swift harness keep Isla's own User-Agent, because they

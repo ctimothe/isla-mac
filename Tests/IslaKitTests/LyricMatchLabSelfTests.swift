@@ -116,6 +116,37 @@ final class LyricMatchLabSelfTests: XCTestCase {
         XCTAssertNil(MatchLab.cacheEntry(scratch, key: exchanges[0].key))
     }
 
+    // MARK: Stop at the first 429
+
+    /// A collector probing a banned limiter sets ISLA_MATCH_STOP_AT_429, and
+    /// the first 429 is then the only refused request the run spends on that
+    /// host: no retry (a retry would sleep 30 s here), the lookup is a miss,
+    /// nothing is cached, and the next request to the host never goes out.
+    /// Other hosts stay open.
+    func testStopAtFirst429SpendsOneRefusedRequest() async throws {
+        let root = try MatchLab.requireRoot()
+        let scratch = root.appendingPathComponent("self-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        let transport = ReplayTransport(root: scratch, record: true, stopAtFirst429: true) { _ in (Data(), 429) }
+        for name in ["first", "second"] {
+            transport.beginLookup()
+            do {
+                _ = try await transport.fetch(URLRequest(url: URL(string: "https://lrclib.net/api/get?track_name=\(name)")!))
+                XCTFail("a 429 is never an answer")
+            } catch {
+                // expected
+            }
+            let exchanges = transport.takeExchanges()
+            XCTAssertEqual(exchanges.map(\.kind), [.miss])
+            XCTAssertNil(MatchLab.cacheEntry(scratch, key: exchanges[0].key))
+        }
+        XCTAssertEqual(transport.liveRequests, 1)
+        XCTAssertTrue(transport.isTripped(URL(string: "https://lrclib.net/api/search")!))
+        XCTAssertFalse(transport.isTripped(URL(string: "https://itunes.apple.com/search")!))
+    }
+
     // MARK: F18
 
     /// `ISLA_MATCH_OUT` and `ISLA_MATCH_REPORTS` name directories under the
