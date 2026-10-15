@@ -117,6 +117,9 @@ struct MediaPane: View {
     /// once when the unreadable state appears — it re-reads and re-parses the
     /// file, which is no work for a body that redraws with the clock.
     @State private var invalidFileLine: Int?
+    /// Observed so the empty tab's "Open …" buttons follow an app being
+    /// installed or removed (`AppIcons.refresh`).
+    @ObservedObject var icons: AppIcons = .shared
 
     /// One line of the lyric band: 17 pt, the height both slots keep so a line
     /// turning out and the next turning in share a window that clips them.
@@ -1000,82 +1003,99 @@ struct MediaPane: View {
         )
         let frames = PlayerLayout.emptyFrames(for: message)
         let leading = PlayerLayout.columnLeading - PlayerLayout.paneLeading
-        return ZStack(alignment: .topLeading) {
-            Color.clear
-            RoundedRectangle(cornerRadius: Theme.artworkMetrics(isOpen: true).cornerRadius, style: .continuous)
-                .fill(Theme.emptyWell)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.artworkMetrics(isOpen: true).cornerRadius, style: .continuous)
-                        .strokeBorder(Theme.emptyWellEdge, lineWidth: 0.5)
-                )
-                .overlay(
-                    Image(systemName: "music.note")
-                        .font(.system(size: Theme.emptyNoteSize))
-                        .foregroundStyle(Theme.emptyWellNote)
-                )
-                .placed(PlayerLayout.inPane(PlayerLayout.emptyWell, headerHeight: headerHeight))
-                .accessibilityHidden(true)
+        return GeometryReader { proxy in
+            let offers = Self.openOffers(from: icons.installedMusicApps(), paneWidth: proxy.size.width)
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                RoundedRectangle(cornerRadius: Theme.artworkMetrics(isOpen: true).cornerRadius, style: .continuous)
+                    .fill(Theme.emptyWell)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.artworkMetrics(isOpen: true).cornerRadius, style: .continuous)
+                            .strokeBorder(Theme.emptyWellEdge, lineWidth: 0.5)
+                    )
+                    .overlay(
+                        Image(systemName: "music.note")
+                            .font(.system(size: Theme.emptyNoteSize))
+                            .foregroundStyle(Theme.emptyWellNote)
+                    )
+                    .placed(PlayerLayout.inPane(PlayerLayout.emptyWell, headerHeight: headerHeight))
+                    .accessibilityHidden(true)
 
-            // Status, not instruction: an empty pane on its own would not say
-            // whether nothing is playing, nothing could be read, or something
-            // is playing that the island chose not to show.
-            Text(message.headline)
-                .islandFont(frames.titleSize, weight: .semibold)
-                .foregroundStyle(.white)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(width: PlayerLayout.EmptyFrames.textWidth, alignment: .topLeading)
-                .offset(x: leading, y: frames.titleY - headerHeight)
-            Text(message.caption)
-                .islandFont(.reading, weight: .regular)
-                .foregroundStyle(Theme.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(width: PlayerLayout.EmptyFrames.textWidth, alignment: .topLeading)
-                .offset(x: leading, y: frames.bodyY - headerHeight)
-            // And an affordance, because a dead end teaches people not to
-            // open the tab. Status first, then one remedy: when the filter is
-            // what hides a playing source, the remedy is the switch, not a
-            // player to open — a person watching YouTube does not need
-            // Spotify launched. It opens Settings at the switch rather than
-            // flipping it from here, because a status line has no room to say
-            // what else Music Only decides.
-            HStack(spacing: PlayerLayout.EmptyFrames.buttonSpacing) {
-                if message.offersSettings {
-                    Button(action: openMusicOnlySetting) {
-                        Text(localized("Open Settings"))
-                    }
-                    .buttonStyle(OfferButtonStyle(horizontalPadding: 10, fixedHeight: PlayerLayout.EmptyFrames.buttonHeight))
-                } else {
-                    // One button per player that is actually installed.
-                    ForEach(PlayerApp.allCases.filter(Self.isInstalled), id: \.rawValue) { app in
-                        Button {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: Self.applicationPath(for: app) ?? ""))
-                        } label: {
-                            Text(localized("Open %@", app.displayName))
+                // Status, not instruction: an empty pane on its own would not say
+                // whether nothing is playing, nothing could be read, or something
+                // is playing that the island chose not to show.
+                Text(message.headline)
+                    .islandFont(frames.titleSize, weight: .semibold)
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: PlayerLayout.EmptyFrames.textWidth, alignment: .topLeading)
+                    .offset(x: leading, y: frames.titleY - headerHeight)
+                Text(message.caption)
+                    .islandFont(.reading, weight: .regular)
+                    .foregroundStyle(Theme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: PlayerLayout.EmptyFrames.textWidth, alignment: .topLeading)
+                    .offset(x: leading, y: frames.bodyY - headerHeight)
+                // And an affordance, because a dead end teaches people not to
+                // open the tab. Status first, then one remedy: when the filter is
+                // what hides a playing source, the remedy is the switch, not a
+                // player to open — a person watching YouTube does not need
+                // Spotify launched. It opens Settings at the switch rather than
+                // flipping it from here, because a status line has no room to say
+                // what else Music Only decides.
+                HStack(spacing: PlayerLayout.EmptyFrames.buttonSpacing) {
+                    if message.offersSettings {
+                        Button(action: openMusicOnlySetting) {
+                            Text(localized("Open Settings"))
                         }
                         .buttonStyle(OfferButtonStyle(horizontalPadding: 10, fixedHeight: PlayerLayout.EmptyFrames.buttonHeight))
+                    } else {
+                        // One button per music app that is actually installed —
+                        // Apple Music and Spotify first, then the rest by name —
+                        // as many as fit the row at this width, at most three. Each
+                        // wears the app's own icon, from the person's copy of it.
+                        ForEach(offers, id: \.bundleID) { app in
+                            Button {
+                                NSWorkspace.shared.open(app.url)
+                            } label: {
+                                HStack(spacing: PlayerLayout.openButtonIconGap) {
+                                    AppIconImage(image: app.icon, side: PlayerLayout.openButtonIconSide)
+                                    Text(localized("Open %@", app.name))
+                                }
+                            }
+                            .buttonStyle(OfferButtonStyle(
+                                horizontalPadding: PlayerLayout.EmptyFrames.openButtonHorizontalPadding,
+                                fixedHeight: PlayerLayout.EmptyFrames.buttonHeight
+                            ))
+                        }
                     }
                 }
-            }
-            .offset(x: leading, y: frames.buttonsY - headerHeight)
-            if let footnote = message.footnote, let footerY = frames.footerY {
-                HStack(spacing: 6) {
-                    Image(systemName: "info.circle")
-                        .islandFont(.body, weight: .regular)
-                    Text(footnote)
-                        .islandFont(.body, weight: .regular)
+                .offset(x: leading, y: frames.buttonsY - headerHeight)
+                if let footnote = message.footnote, let footerY = frames.footerY {
+                    HStack(spacing: 6) {
+                        Image(systemName: "info.circle")
+                            .islandFont(.body, weight: .regular)
+                        Text(footnote)
+                            .islandFont(.body, weight: .regular)
+                    }
+                    .foregroundStyle(Theme.tertiary)
+                    .offset(x: leading, y: footerY - headerHeight)
                 }
-                .foregroundStyle(Theme.tertiary)
-                .offset(x: leading, y: footerY - headerHeight)
             }
         }
+        // Apps are installed and removed while Isla runs: the buttons are read
+        // afresh each time the empty tab appears, and through the cache in
+        // between — never by asking LaunchServices on every render.
+        .onAppear { icons.refresh() }
     }
 
-    private static func isInstalled(_ app: PlayerApp) -> Bool {
-        applicationPath(for: app) != nil
-    }
-
-    private static func applicationPath(for app: PlayerApp) -> String? {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleID)?.path
+    /// The music apps that get an "Open …" button at this pane width: the
+    /// installed ones, in `AppIcons.order`, as many as fit and at most three.
+    /// The label measured is the one the button shows.
+    static func openOffers(from apps: [AppIcons.Installed], paneWidth: CGFloat) -> [AppIcons.Installed] {
+        PlayerLayout.openButtonApps(apps, room: PlayerLayout.openButtonsRoom(paneWidth: paneWidth)) {
+            PlayerLayout.measuredLabelWidth(localized("Open %@", $0.name))
+        }
     }
 }
 

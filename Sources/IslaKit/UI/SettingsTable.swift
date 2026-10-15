@@ -109,7 +109,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
     case shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts
     // Music
     case nowPlayingReader, automationStatus, automationPermission
-    case musicOnly, volumeAndOutput, lyricBand
+    case musicOnly, installedPlayers, volumeAndOutput, lyricBand
     // Lyrics
     case showLyrics, wordKaraoke, showNextLineEarly, lyricDelay, resetLyricDelay
     case translateLyrics, translateTo, lookUpLyricsOnline
@@ -168,7 +168,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
             return .link
         case .automationStatus:
             return .value
-        case .lyricDelay, .cardStyle, .libraryFolders, .unassignedCorrections, .spotifyHead, .aboutHead:
+        case .lyricDelay, .cardStyle, .libraryFolders, .unassignedCorrections, .installedPlayers, .spotifyHead, .aboutHead:
             return .custom
         }
     }
@@ -201,6 +201,8 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .automationStatus: return localized("Automation")
         case .automationPermission: return localized("Permission")
         case .musicOnly: return localized("Music Only")
+        // The group's header, and what VoiceOver calls the list of players.
+        case .installedPlayers: return localized("Players on This Mac")
         case .volumeAndOutput: return localized("Volume and Output")
         case .lyricBand: return localized("Lyric Band")
         case .showLyrics: return localized("Show Lyrics")
@@ -413,6 +415,10 @@ struct SettingsContext: Equatable {
     var musicOnly = true
     var nowPlayingFailure: String? = nil
     var automation: [SettingsPane.AccessRow] = []
+    /// The music apps installed on this Mac, in the order Settings lists them
+    /// (`AppIcons.installedPlayers`). Empty draws no group: a header over a
+    /// card with nothing in it says only that the list failed to load.
+    var installedPlayers: [AppIcons.Installed] = []
     // Lyrics
     var delayIsSet = false
     var onlineLyrics = false
@@ -557,11 +563,40 @@ enum SettingsTable {
             .footnote(c.musicOnly
                 ? localized("Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show.")
                 : localized("Anything playing shows on the island, videos included.")),
+        ]
+        blocks += playersOnThisMac(c)
+        blocks += [
             .header(localized("In the player")),
             .group([.volumeAndOutput, .lyricBand]),
             .footnote(localized("Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title.")),
         ]
         return blocks
+    }
+
+    /// The apps Isla recognises as music players, each with its real icon, and
+    /// what Music Only does with them — written from `MediaSourcePolicy.allows`,
+    /// the only place the island asks: a music or podcast app is always shown
+    /// (rule 1), Telegram is shown for a song and not for a video (rule 3), any
+    /// other app is shown when it labels what it plays as audio (rule 2), and
+    /// with Music Only off nothing is filtered at all. Read-only: the list is a
+    /// statement about the Mac, not a setting.
+    static func playersOnThisMac(_ c: SettingsContext) -> [SettingsBlock] {
+        guard !c.installedPlayers.isEmpty else { return [] }
+        return [
+            .header(SettingsRowID.installedPlayers.title),
+            .group([.installedPlayers]),
+            .footnote(playersNote(musicOnly: c.musicOnly, players: c.installedPlayers)),
+        ]
+    }
+
+    static func playersNote(musicOnly: Bool, players: [AppIcons.Installed]) -> String {
+        guard musicOnly else {
+            return localized("Music Only is off, so anything that is playing shows, these players included.")
+        }
+        if players.contains(where: { MediaSourcePolicy.mixedApps.contains($0.bundleID) }) {
+            return localized("These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio.")
+        }
+        return localized("These players always show. Any other app shows when it says it is playing audio.")
     }
 
     private static func lyrics(_ c: SettingsContext) -> [SettingsBlock] {

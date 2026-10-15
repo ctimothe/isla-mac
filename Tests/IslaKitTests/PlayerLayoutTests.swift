@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import IslaKit
 
@@ -215,6 +216,76 @@ final class PlayerLayoutTests: XCTestCase {
         XCTAssertEqual(PlayerLayout.EmptyFrames.buttonHeight, 22)
         XCTAssertEqual(PlayerLayout.EmptyFrames.buttonSpacing, 8)
         XCTAssertEqual(PlayerLayout.columnLeading, 206, "the text starts where the player's column does")
+    }
+
+    // MARK: - The "Open …" buttons: order and cap
+
+    private func app(_ id: String, _ name: String) -> AppIcons.Installed {
+        AppIcons.Installed(
+            bundleID: id, url: URL(fileURLWithPath: "/Applications/\(id).app"), name: name,
+            icon: NSImage(size: NSSize(width: 4, height: 4))
+        )
+    }
+
+    func testTheButtonsRoomRunsFromTheTextColumnToThePanesEdge() {
+        // The column starts 148 into the pane: 408 - 148 at 480, 548 - 148 at 620.
+        XCTAssertEqual(PlayerLayout.openButtonsRoom(paneWidth: PlayerLayout.paneWidth(bodyWidth: 480)), 260)
+        XCTAssertEqual(PlayerLayout.openButtonsRoom(paneWidth: PlayerLayout.paneWidth(bodyWidth: 560)), 340)
+        XCTAssertEqual(PlayerLayout.openButtonsRoom(paneWidth: PlayerLayout.paneWidth(bodyWidth: 620)), 400)
+        XCTAssertEqual(PlayerLayout.paneWidth(bodyWidth: 480), 408)
+    }
+
+    func testAButtonIsPaddingIconGapAndLabel() {
+        XCTAssertEqual(PlayerLayout.openButtonWidth(labelWidth: 70), 10 + 10 + 16 + 6 + 70)
+        XCTAssertEqual(PlayerLayout.openButtonIconSide, 16)
+    }
+
+    /// Fits all three: the first three in order, no more than three.
+    func testAtMostThreeButtonsInTheGivenOrder() {
+        let apps = [app("a", "A"), app("b", "B"), app("c", "C"), app("d", "D"), app("e", "E")]
+        let chosen = PlayerLayout.openButtonApps(apps, room: 10_000) { _ in 40 }
+        XCTAssertEqual(chosen.map(\.bundleID), ["a", "b", "c"])
+        XCTAssertEqual(PlayerLayout.maxOpenButtons, 3)
+        XCTAssertEqual(PlayerLayout.openButtonApps([], room: 400) { _ in 40 }, [])
+    }
+
+    /// Never a truncated button: what does not fit is left out. Each button is
+    /// 42 + 40 = 82 wide; three need 82 × 3 + 16 = 262.
+    func testTheCapFollowsTheRoomAtEachWidth() {
+        let apps = [app("a", "A"), app("b", "B"), app("c", "C")]
+        func count(_ room: CGFloat) -> Int { PlayerLayout.openButtonApps(apps, room: room) { _ in 40 }.count }
+        XCTAssertEqual(count(262), 3, "exactly fits")
+        XCTAssertEqual(count(261), 2, "one point short: the third is left out, not squeezed")
+        XCTAssertEqual(count(172), 2)
+        XCTAssertEqual(count(171), 1)
+        XCTAssertEqual(count(82), 1)
+        XCTAssertEqual(count(81), 0)
+    }
+
+    /// A long name stops the row where it stands: a shorter one behind it does
+    /// not jump the queue, because Apple Music and Spotify lead on purpose.
+    func testALongNameEndsTheRowAndNothingSkipsAheadOfIt() {
+        let apps = [app("a", "A"), app("b", "Bbbbbbbbbbbbbbbbbbbb"), app("c", "C")]
+        let chosen = PlayerLayout.openButtonApps(apps, room: 260) { $0.bundleID == "b" ? 200 : 20 }
+        XCTAssertEqual(chosen.map(\.bundleID), ["a"])
+    }
+
+    /// Measured, not guessed: the real label in the `body` role at 480 with
+    /// Russian names still leaves the first button whole.
+    func testAMeasuredLabelIsPositiveAndGrowsWithTheText() {
+        let short = PlayerLayout.measuredLabelWidth("Open Deezer")
+        let long = PlayerLayout.measuredLabelWidth("Открыть Яндекс Музыка")
+        XCTAssertGreaterThan(short, 30)
+        XCTAssertGreaterThan(long, short)
+        let apps = [app("com.apple.Music", "Apple Music"), app("com.spotify.client", "Spotify"), app("x", "Яндекс Музыка")]
+        let at480 = MediaPane.openOffers(from: apps, paneWidth: PlayerLayout.paneWidth(bodyWidth: 480))
+        let at620 = MediaPane.openOffers(from: apps, paneWidth: PlayerLayout.paneWidth(bodyWidth: 620))
+        XCTAssertGreaterThanOrEqual(at480.count, 1)
+        XCTAssertLessThanOrEqual(at480.count, at620.count, "a wider panel never offers fewer")
+        let order = ["com.apple.Music", "com.spotify.client", "x"]
+        XCTAssertGreaterThanOrEqual(at620.count, 2, "Apple Music and Spotify fit side by side at 620")
+        XCTAssertEqual(at620.map(\.bundleID), Array(order.prefix(at620.count)), "always a prefix, in order")
+        XCTAssertEqual(at480.map(\.bundleID), Array(order.prefix(at480.count)))
     }
 
     /// Only the reader-down state has a footnote, and it is the only one with a

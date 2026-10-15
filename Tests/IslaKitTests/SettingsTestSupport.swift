@@ -20,6 +20,7 @@ enum SettingsFixture {
         lyrics: LyricsStore? = nil,
         automation: AutomationAccess? = nil,
         updates: UpdateCheck? = nil,
+        icons: AppIcons? = nil,
         headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight
     ) -> SettingsPane {
         let stores = isolated.stores
@@ -33,10 +34,22 @@ enum SettingsFixture {
             hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
             updates: updates ?? UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) }),
             automation: automation ?? AutomationAccess(),
+            icons: icons ?? Self.macWithApps([:]),
             selection: .constant(section),
             headerHeight: headerHeight,
             settingsDefaults: isolated.suite
         )
+    }
+
+    /// A Mac that has exactly these apps (bundle id to the name the Finder
+    /// shows), so no pane a test draws depends on what the runner has installed.
+    /// No brand artwork: every icon is a blank 4 pt image.
+    static func macWithApps(_ apps: [String: String]) -> AppIcons {
+        AppIcons(lookups: AppIcons.Lookups(
+            applicationURL: { id in apps[id].map { _ in URL(fileURLWithPath: "/Applications/\(id).app") } },
+            icon: { _ in NSImage(size: NSSize(width: 4, height: 4)) },
+            displayName: { url in apps[url.deletingPathExtension().lastPathComponent] ?? "?" }
+        ))
     }
 
     /// The pane's own size in the panel at a body width: `bw − 72` wide (the
@@ -49,10 +62,11 @@ enum SettingsFixture {
     /// The section as an assistive client reads it, at `bodyWidth`.
     static func tree(
         _ isolated: ProbeStores, section: SettingsSection, bodyWidth: CGFloat = 560, height: CGFloat = 1400,
-        lyrics: LyricsStore? = nil, automation: AutomationAccess? = nil, updates: UpdateCheck? = nil
+        lyrics: LyricsStore? = nil, automation: AutomationAccess? = nil, updates: UpdateCheck? = nil,
+        icons: AppIcons? = nil
     ) async -> AXNode {
         await AXProbe.tree(
-            of: pane(isolated, section: section, lyrics: lyrics, automation: automation, updates: updates),
+            of: pane(isolated, section: section, lyrics: lyrics, automation: automation, updates: updates, icons: icons),
             size: paneSize(bodyWidth: bodyWidth, height: height)
         )
     }

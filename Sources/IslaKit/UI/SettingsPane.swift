@@ -52,6 +52,12 @@ struct SettingsPane: View {
     /// never on the media clock's tick. A test passes its own, so nothing it
     /// draws depends on what the runner's Mac has granted.
     @ObservedObject var automation: AutomationAccess = .shared
+    /// Observed so a refresh that finds a newly installed (or removed) player
+    /// redraws the rows and the Spotify head. Asked through its cache: the
+    /// system is consulted once per app between refreshes, never per render.
+    /// A test passes its own, so what the pane draws never depends on the
+    /// apps the runner's Mac has installed.
+    @ObservedObject var icons: AppIcons = .shared
     var setClipboardHistory: (Bool) -> Void = { _ in }
     var setClipboardIncludeImages: (Bool) -> Void = { _ in }
     var setClipboardKeepPinned: (Bool) -> Void = { _ in }
@@ -312,6 +318,9 @@ struct SettingsPane: View {
             // to reopen this tab. Read-only and off the main thread; it never
             // prompts.
             automation.refresh()
+            // Apps are installed and removed while Isla runs; the icons and the
+            // list of players are read afresh each time the pane is opened.
+            icons.refresh()
         }
         .onReceive(media.$fallbackReason) { fallbackReason = $0 }
     }
@@ -346,6 +355,7 @@ struct SettingsPane: View {
         c.musicOnly = flag(.musicOnly)
         c.nowPlayingFailure = fallbackReason?.explanation
         c.automation = Self.automationRows(automation.consents)
+        c.installedPlayers = icons.installedPlayers()
         c.delayIsSet = abs(lyrics.userOffset) > 0.01
         c.onlineLyrics = flag(.lookUpLyricsOnline)
         c.onlineTranslation = flag(.translateOnline)
@@ -594,6 +604,8 @@ struct SettingsPane: View {
             SettingsRowChrome(label: row.title) { pushButton(row) }
         case .automationStatus:
             automationStatusRows
+        case .installedPlayers:
+            installedPlayerRows
         case .musicOnly:
             // First among the switches because it decides what reaches the
             // island at all; everything below it is about the music that does.
@@ -967,13 +979,32 @@ struct SettingsPane: View {
         }
         return VStack(spacing: 0) {
             ForEach(Array(statuses.enumerated()), id: \.offset) { index, status in
-                SettingsRowChrome(label: status.player) {
+                // The player's own icon before its name. The status row carries
+                // the name, not the bundle identifier, so the player is found
+                // by it; a name that matches no `PlayerApp` draws no icon.
+                SettingsRowChrome(label: status.player, appIcon: PlayerApp.allCases
+                    .first { $0.displayName == status.player }
+                    .flatMap { icons.icon($0.bundleID) }) {
                     Text(status.state)
                         .islandFont(.reading, weight: .regular)
                         .foregroundStyle(Theme.secondary)
                 }
                 .accessibilityElement(children: .combine)
                 .overlay(alignment: .top) { if index > 0 { rowDivider } }
+            }
+        }
+    }
+
+    /// One read-only row per music app installed on this Mac, with its real icon
+    /// and the name the Finder shows. A label, not a control: VoiceOver says the
+    /// name.
+    private var installedPlayerRows: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(icons.installedPlayers().enumerated()), id: \.element.bundleID) { index, player in
+                SettingsRowChrome(label: player.name, appIcon: player.icon) { EmptyView() }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(player.name)
+                    .overlay(alignment: .top) { if index > 0 { rowDivider } }
             }
         }
     }
@@ -1184,11 +1215,15 @@ struct SettingsPane: View {
 struct SettingsRowChrome<Trailing: View>: View {
     var label: String?
     var icon: String? = nil
+    /// An installed app's real icon, drawn at the optical size of the tiles
+    /// (`AppIconImage`) before the label.
+    var appIcon: NSImage? = nil
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
         HStack(spacing: 8) {
             if let icon { RowIcon(symbol: icon) }
+            if let appIcon { AppIconImage(image: appIcon, side: SettingsLayout.rowAppIconSide) }
             if let label {
                 Text(label)
                     .islandFont(.reading, weight: .regular)

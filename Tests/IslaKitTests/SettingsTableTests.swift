@@ -253,6 +253,90 @@ final class SettingsTableTests: XCTestCase {
         }
     }
 
+    // MARK: - Players on This Mac
+
+    private func player(_ id: String, _ name: String) -> AppIcons.Installed {
+        AppIcons.Installed(
+            bundleID: id, url: URL(fileURLWithPath: "/Applications/\(id).app"), name: name,
+            icon: NSImage(size: NSSize(width: 4, height: 4))
+        )
+    }
+
+    /// The group sits right after Music Only and its footnote, before the
+    /// player's own switches, and exists only while there is a player to list.
+    func testPlayersOnThisMacFollowMusicOnlyAndNeedAPlayer() {
+        XCTAssertFalse(
+            SettingsTable.blocks(for: .music).contains(.header("Players on This Mac")),
+            "no player installed: no header over an empty card"
+        )
+        var context = SettingsContext()
+        context.installedPlayers = [player("com.apple.Music", "Apple Music"), player("com.spotify.client", "Spotify")]
+        let blocks = SettingsTable.blocks(for: .music, context: context)
+        let start = blocks.firstIndex(of: .header("Music"))!
+        XCTAssertEqual(Array(blocks[start...].prefix(6)), [
+            .header("Music"),
+            .group([.musicOnly]),
+            .footnote(localized("Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show.")),
+            .header("Players on This Mac"),
+            .group([.installedPlayers]),
+            .footnote(localized("These players always show. Any other app shows when it says it is playing audio.")),
+        ])
+        XCTAssertEqual(blocks[(start + 6)...].first, .header("In the player"))
+        XCTAssertEqual(SettingsRowID.installedPlayers.kind, .custom, "drawn by a view of its own")
+        XCTAssertEqual(SettingsRowID.installedPlayers.title, "Players on This Mac")
+        XCTAssertNil(SettingsRowID.installedPlayers.key, "a statement about the Mac, not a setting")
+        XCTAssertNil(SettingsRowID.installedPlayers.defaultValue)
+    }
+
+    /// Worded from `MediaSourcePolicy.allows`: music apps always; Telegram for a
+    /// song and not for a video; any other app when it labels audio; and with
+    /// Music Only off, everything.
+    func testThePlayersFootnoteSaysWhatMusicOnlyDoesWithThem() {
+        let plain = [player("com.spotify.client", "Spotify")]
+        let withTelegram = plain + [player("ru.keepcoder.Telegram", "Telegram")]
+        XCTAssertEqual(
+            SettingsTable.playersNote(musicOnly: true, players: plain),
+            "These players always show. Any other app shows when it says it is playing audio."
+        )
+        XCTAssertEqual(
+            SettingsTable.playersNote(musicOnly: true, players: withTelegram),
+            "These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio."
+        )
+        XCTAssertEqual(
+            SettingsTable.playersNote(musicOnly: false, players: withTelegram),
+            "Music Only is off, so anything that is playing shows, these players included."
+        )
+        // And the policy agrees with every claim: a listed player passes with no
+        // label, Telegram passes only for a song, an unknown app only if labelled.
+        XCTAssertTrue(MediaSourcePolicy.allows(bundleIdentifier: "com.spotify.client", mediaType: nil, artist: ""))
+        XCTAssertFalse(MediaSourcePolicy.allows(bundleIdentifier: "ru.keepcoder.Telegram", mediaType: nil, artist: ""))
+        XCTAssertTrue(MediaSourcePolicy.allows(bundleIdentifier: "com.example.other", mediaType: MediaSourcePolicy.audioType, artist: ""))
+        // Music Only off reads the footnote, not the switch, from the context.
+        var off = SettingsContext()
+        off.musicOnly = false
+        off.installedPlayers = plain
+        XCTAssertTrue(SettingsTable.blocks(for: .music, context: off).contains(
+            .footnote(localized("Music Only is off, so anything that is playing shows, these players included."))
+        ))
+    }
+
+    func testThePlayersGroupIsRussianToo() {
+        LabLocalization.use("ru")
+        XCTAssertEqual(SettingsRowID.installedPlayers.title, "Плееры на этом Mac")
+        let note = SettingsTable.playersNote(musicOnly: true, players: [player("ru.keepcoder.Telegram", "Telegram")])
+        XCTAssertTrue(note.contains("Telegram"), note)
+        XCTAssertNotEqual(note, "These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio.")
+        XCTAssertNotEqual(SettingsTable.playersNote(musicOnly: false, players: []),
+                          "Music Only is off, so anything that is playing shows, these players included.")
+    }
+
+    /// Spotify and About still wear an app's own icon; whether it is the real
+    /// one is `AppIcons`' to say at draw time.
+    func testSpotifyAndAboutKeepTheirAppIconGlyphs() {
+        XCTAssertEqual(SettingsSection.spotify.glyph, .spotify)
+        XCTAssertEqual(SettingsSection.about.glyph, .isla)
+    }
+
     // MARK: - Volume and Brightness (R5): a row of the table, hidden behind one flag
 
     func testVolumeAndBrightnessIsHiddenBehindOneFlag() {
@@ -528,6 +612,7 @@ final class SettingsTableTests: XCTestCase {
             ("Automation status rows", .automationStatus, .music),
             ("Open Automation Settings…", .automationPermission, .music),
             ("Music Only", .musicOnly, .music),
+            ("Players on This Mac", .installedPlayers, .music),
             ("Volume and Output", .volumeAndOutput, .music),
             ("Lyric Band", .lyricBand, .music),
             ("Show Lyrics", .showLyrics, .lyrics),
@@ -620,6 +705,12 @@ final class SettingsTableTests: XCTestCase {
         context.canRestoreShortcuts = true
         context.nowPlayingFailure = NowPlayingRouteFailure.keptStopping.explanation
         context.automation = SettingsPane.automationRows([.spotify: .denied, .music: .allowed])
+        context.installedPlayers = [
+            AppIcons.Installed(
+                bundleID: "com.spotify.client", url: URL(fileURLWithPath: "/Applications/Spotify.app"),
+                name: "Spotify", icon: NSImage(size: NSSize(width: 4, height: 4))
+            ),
+        ]
         context.delayIsSet = true
         context.libraryHasFolders = true
         context.hasUnassignedCorrections = true

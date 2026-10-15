@@ -1191,8 +1191,17 @@ enum Theme {
     static let recordingFill = accent.opacity(0.18)
     static let recordingRingWidth: CGFloat = 1.5
 
-    /// Spotify's mark in the sidebar and the section's head: its green and the
-    /// near-black of its arcs. Not `settingsConnected`: that green says "on and
+    /// How much larger than its frame an app's icon is drawn so its squircle
+    /// fills the frame. macOS app icons sit an 824 pt squircle in a 1024 pt
+    /// canvas (the Big Sur grid) and leave the margin transparent; drawn to
+    /// fit, a real icon read as a smaller tile than the SF-symbol ones beside
+    /// it. `AppIconImage` is the one place it is applied.
+    static let appIconOpticalScale: CGFloat = 1024.0 / 824.0
+
+    /// The fallback Spotify mark's green and the near-black of its arcs, shown
+    /// only when the real Spotify is not installed — everyone who has it sees
+    /// its own icon (`AppIcons`). Drawn rather than shipped: no brand asset
+    /// travels in the bundle. Not `settingsConnected`: that green says "on and
     /// working", this one is a brand's.
     static let spotifyMark = Color(red: 29.0 / 255, green: 185.0 / 255, blue: 84.0 / 255)
     static let spotifyMarkInk = Color(red: 25.0 / 255, green: 20.0 / 255, blue: 20.0 / 255)

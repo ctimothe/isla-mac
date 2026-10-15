@@ -199,6 +199,10 @@
 "Music Only" = "Только музыка";
 "Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show." = "Видео и фильмы не появляются на острове. Музыкальные приложения, подкасты и песни в Telegram по-прежнему видны.";
 "Anything playing shows on the island, videos included." = "На острове показывается всё, что играет, включая видео.";
+"Players on This Mac" = "Плееры на этом Mac";
+"These players always show. Any other app shows when it says it is playing audio." = "Эти плееры показываются всегда. Любое другое приложение показывается, когда сообщает, что воспроизводит звук.";
+"These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio." = "Эти плееры показываются всегда, кроме Telegram: он показывает песни, но не видео. Любое другое приложение показывается, когда сообщает, что воспроизводит звук.";
+"Music Only is off, so anything that is playing shows, these players included." = "Режим «Только музыка» выключен, поэтому на острове показывается всё, что играет, и эти плееры тоже.";
 
 /* Сочетания клавиш */
 "Show the lyrics" = "Показать текст песни";

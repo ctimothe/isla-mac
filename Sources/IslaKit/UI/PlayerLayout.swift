@@ -197,6 +197,69 @@ struct PlayerLayout: Equatable {
         static let textWidth: CGFloat = 330
         static let buttonHeight: CGFloat = 22
         static let buttonSpacing: CGFloat = 8
+        static let openButtonHorizontalPadding: CGFloat = 10
+    }
+
+    // MARK: - The empty player's "Open …" buttons
+
+    /// Most buttons the empty player offers. Three is what a 480-wide panel can
+    /// hold in the 260 pt right of the text column with the shortest names; the
+    /// fit below decides the rest, per name and per width.
+    static let maxOpenButtons = 3
+    /// The app's own icon at the button's leading edge, and the gap after it.
+    static let openButtonIconSide: CGFloat = 16
+    static let openButtonIconGap: CGFloat = 6
+
+    /// What the row of buttons may occupy: from the text column's left edge to
+    /// the pane's right edge. The buttons start where the title does
+    /// (`columnLeading`), so a pane's width alone says how far they can run.
+    static func openButtonsRoom(paneWidth: CGFloat) -> CGFloat {
+        paneWidth - (columnLeading - paneLeading)
+    }
+
+    /// One button's width: the padding either side, the icon and its gap, and
+    /// the label as the `body` role sets it. A button is never truncated, so
+    /// this is what the fit below is made of; `labelWidth` is injected so a
+    /// test names the width it means and the view measures the real string.
+    static func openButtonWidth(labelWidth: CGFloat) -> CGFloat {
+        EmptyFrames.openButtonHorizontalPadding * 2
+            + openButtonIconSide + openButtonIconGap + labelWidth
+    }
+
+    /// The label's width in the `body` role (11 pt medium, 0.07 pt of tracking
+    /// a character), rounded up and padded by a point so the rendered text
+    /// never needs the last pixel of its button.
+    static func measuredLabelWidth(_ text: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: Theme.TypeRole.body.size, weight: .medium)
+        let kern = Theme.tracking(forSize: Theme.TypeRole.body.size)
+        let width = (text as NSString).size(withAttributes: [.font: font, .kern: kern]).width
+        return ceil(width) + 1
+    }
+
+    /// Which of the installed music apps get a button, in the order given
+    /// (Apple Music and Spotify first — `AppIcons.order`): the longest prefix
+    /// that fits `room` with `spacing` between buttons, at most `limit`.
+    ///
+    /// A prefix and not "whatever fits": a long name skipped to make room for
+    /// a short one further down would put an app nobody has heard of ahead of
+    /// Spotify. And never a truncated button — the previous design offered only
+    /// Music and Spotify, so nothing could overflow; with more apps, what does
+    /// not fit is left out, not squeezed.
+    static func openButtonApps(
+        _ apps: [AppIcons.Installed], room: CGFloat, spacing: CGFloat = EmptyFrames.buttonSpacing,
+        limit: Int = maxOpenButtons, labelWidth: (AppIcons.Installed) -> CGFloat
+    ) -> [AppIcons.Installed] {
+        var chosen: [AppIcons.Installed] = []
+        var used: CGFloat = 0
+        for app in apps {
+            guard chosen.count < limit else { break }
+            let width = openButtonWidth(labelWidth: labelWidth(app))
+            let next = used + (chosen.isEmpty ? 0 : spacing) + width
+            guard next <= room else { break }
+            chosen.append(app)
+            used = next
+        }
+        return chosen
     }
 
     static func emptyFrames(for message: MediaPane.EmptyStateMessage) -> EmptyFrames {
