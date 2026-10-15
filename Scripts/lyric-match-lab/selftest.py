@@ -2681,6 +2681,51 @@ class TwinTests(unittest.TestCase):
                 twin.fill(root, "not-a-twin")
 
 
+class NoiseFromPagesTests(unittest.TestCase):
+    """noise.py: M9 from cached search pages, without the classifier."""
+
+    def test_a_cluster_holds_only_the_same_song_at_the_same_length(self):
+        import noise
+        lines = synthetic_lines(31)
+        t = track(title="Kayıp Kalp", artists=["Made Up", "Guest"])
+        rows = [
+            record(1, "kayip kalp", "Made Up & Guest", lines, 200.5),   # LRCLIB folds ı and case
+            record(2, "Kayıp Kalp (Live)", "Made Up", lines, 200),      # another title
+            record(3, "Kayıp Kalp", "Made Upper", lines, 200),          # the artist is not a phrase in it
+            record(4, "Kayıp Kalp", "Made Up", lines, 203),             # another length
+            record(5, "Kayıp Kalp", "Made Up", lines, 200, instrumental=True),
+            record(6, "Kayıp Kalp", "Made Up", lines, 200, syncedLyrics=None),
+        ]
+        self.assertEqual(sorted(noise.cluster(t, rows, 200.0)), [1])
+
+    def test_run_reads_only_the_cache_and_counts_a_copy_once(self):
+        import noise
+        lines = synthetic_lines(32)
+        late = "\n".join(f"[{int((i * 8 + 0.5) // 60):02d}:{(i * 8 + 0.5) % 60:05.2f}]{text}"
+                         for i, text in enumerate(lines))
+        rows = [
+            record(1, "Song One", "Artist A", lines, 200),
+            record(2, "Song One", "Artist A", lines, 200, syncedLyrics=late),   # the same song, 0.5 s late
+            record(3, "Song One", "Artist A", lines, 201),                      # a copy of record 1
+        ]
+        with tempfile.TemporaryDirectory() as root:
+            h = harvest()
+            os.makedirs(os.path.join(root, "slices"))
+            dump(os.path.join(root, "slices", "pop-anglo.json"), {"slice": "pop-anglo", "tracks": [h]})
+            seed_track(root, 0, h, None, rows, [])
+            with mock.patch("urllib.request.urlopen", side_effect=AssertionError("the network")):
+                summary = noise.run(root)
+            self.assertTrue(os.path.exists(os.path.join(root, "reports", "noise-from-pages.json")))
+        self.assertEqual(summary["by_slice"], {"pop-anglo": {"tracks": 1, "clusters": 1}})
+        self.assertEqual(summary["records_in_clusters"], 3)
+        self.assertEqual(summary["duplicates"]["records_before"], 3)
+        self.assertEqual(summary["duplicates"]["unique_timelines"], 2)
+        cell = summary["noise"]["all"]
+        self.assertEqual(cell["pairs"], 1)
+        self.assertEqual(cell["abs_offset_s"]["p50"], 0.5)
+        self.assertEqual(cell["residual_s"]["p50"], 0.0)
+
+
 class CompareTests(unittest.TestCase):
     """compare.py ranks a changed verdict by what a listener sees."""
 

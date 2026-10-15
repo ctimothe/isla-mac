@@ -860,3 +860,24 @@ normalisation is Latin-only. In this data that rarely bites: ʻ appears in 1 of
 465 harvest identities, ß in 1 of 901 pooled records, and ё nowhere. As the
 polite collector adds pages, `twin.py prepare --fresh`, `fill` and a replay of
 the twin root extend its reach without a single LRCLIB request.
+
+## M9 from the cached pages (amended 2026-10-15)
+
+The classifier computes M9 for resolved tracks, and LRCLIB refused this
+address before most of the sample was resolved. `Scripts/lyric-match-lab/noise.py`
+computes the same metric from the cached track-and-artist search pages alone,
+with the classifier's own code (`analysis.NoiseStudy`, F10's collapse of
+identical timelines included):
+
+- A cluster is the synced, non-instrumental rows of one page whose title
+  equals the track's after LRCLIB's normalisation, whose artist contains the
+  track's primary artist as a phrase, and whose length is within 2 s of the
+  track's (Apple's, else Deezer's).
+- A pair counts only when the two records share at least 5 lines of text, so
+  a cover or a translation that slipped into a cluster is not scored.
+
+Two limits travel with every figure. A page holds at most 20 rows, ranked by
+LRCLIB, so a cluster is the best-ranked uploads, not a random sample. And the
+collector answered slices in file order before LRCLIB refused it, so the pages
+cover three slices; `by_slice` in `reports/noise-from-pages.json` says which.
+The script reads only the cache and writes no lyric text.
