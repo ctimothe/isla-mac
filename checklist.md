@@ -671,8 +671,9 @@ Open, for the owner — each is a design decision, not a defect:
   "Two-press confirmations speak, wait and cancel".
 - [ ] `Toggle("", isOn:)` with a detached label: clicking the label text does
   not flip the switch, which a native labelled `Toggle` gives for free.
-- [ ] `TranslatePane`'s font ladder `[27, 20, 15, 11]` shares only its last
-  rung with the six type roles.
+- [x] `TranslatePane`'s font ladder `[27, 20, 15, 11]` shares only its last
+  rung with the six type roles. **Closed 2026-10-15 (R4)** — the ladder went
+  with the re-lay; card text is 15, and 13.5 on the tall body (spec §11).
 - [ ] `NotchMetrics.collapseRectShrinkDelay` (0.45) is tied to the open
   spring's settle by comment only.
 - [ ] `Translator.swift:173` uses the deprecated
@@ -1510,6 +1511,19 @@ New settings and their defaults (spec §14):
   truncates.
 - [ ] **R4-H2** Speak in a Russian and an English voice; Stop Speaking stops.
 - [ ] **R4-H3** The lock-style previews match the lock screen.
+- [ ] **R4-H4** Translate's pop-ups open from the panel with the chosen
+  item over the button, at 480, 560 and 620; Recent lists this session's
+  targets.
+- [ ] **R4-H5** With "Paste from Other Apps" set to Ask, opening Translate
+  never asks; pressing Paste asks once. Under Don't Allow, Paste is disabled
+  and its tooltip says why.
+- [ ] **R4-H6** Use Online on a language that is not downloaded sends once;
+  changing the target afterwards shows the card again and sends nothing
+  (watch with `nettop -p Isla` or a firewall prompt).
+- [ ] **R4-H7** Russian at 480: Translate's alert cards fit the card and
+  the pop-up labels truncate at the tail.
+- [ ] **R4-H8** "Lyrics Settings…" opens Settings on Lyrics; reopening
+  Settings returns to the last section; Acknowledgements… opens the notices.
 
 ### R5 — Volume and brightness pop-up (`feat/redesign-r5-hud`)
 

@@ -871,6 +871,32 @@ renamed labels ("Show Charging" → "Charging", "Show Headphones Connecting" →
 header "The island shows") get new keys; the old keys stay in both tables
 until nothing uses them, then go.
 
+> **Amended 2026-10-15 (R4 review).** As built and reviewed:
+> - The form is 274 wide below 540 and `bw − 206` from 540 up, so it steps
+>   from 274 to 334 at 540.
+> - The new keys are `island.charging`, `island.headphones` and
+>   `island.newTracks`, each on when unset (§14). A value saved under the old
+>   key (`island.showCharging`, `island.showHeadphones`, `sneakPeek`) is
+>   copied across once at launch when the new key is unset, and every later
+>   change is written to both, so an older build run afterwards agrees.
+> - The English key "Charging" now carries the row's Russian («Зарядку»);
+>   the island's label on a Mac with no battery, which used it, reads "Power
+>   adapter connected".
+> - Liked Songs is not a row: it has no key, the heart has no off state, and
+>   "Allowed" before Isla has asked Spotify anything would be a guess. The
+>   Spotify footnote explains a refusal once Spotify has refused for a
+>   permission reason (not registered, Premium required).
+> - The Automation group shows only while a player is denied; the old
+>   Allowed and "Not asked yet" status rows are gone.
+> - Quit Isla is one press, as this section draws it. Disconnect Spotify
+>   Account, Clear Screenshots Folder and the library's Remove ask on their
+>   own plate.
+> - Acknowledgements… opens the bundled `THIRD_PARTY_NOTICES.md`, and the
+>   About panel when nothing can open it.
+> - The automatic-update footnote shows only while Check for Updates
+>   Automatically is on.
+> - Volume and Brightness has its row and key behind one flag that R5 flips.
+
 ## 11. Translate (R4)
 
 `Translate-*`.
@@ -913,6 +939,35 @@ until nothing uses them, then go.
   the result card, never a toast as well.
 - **Covered** (`Translate-Covered`): both cards become moving dots.
 - **Expanded** (`Translate-Tall`): both cards 308 tall, text 13.5.
+
+> **Amended 2026-10-15 (R4 review).** As built and reviewed:
+> - Swap's left edge is at 290 (it is centred at 302 at 560, the boards'
+>   frame). The pair bar's positions follow the body width, so both pop-ups
+>   and Swap stay clear of each other at 480 and 620.
+> - The counter shows the existing input limit, "%d / 20,000": no 5,000
+>   limit exists, and ⌃⌥⌘T and the Service already cut at 20,000. A typed
+>   edit that would pass it is refused; a paste is cut to it with a notice.
+> - Recent holds this session's last three targets, in memory. A language
+>   under Recent is not repeated under On this Mac.
+> - **Use Online sends one text, once.** The press covers the text on screen
+>   and the pair it was pressed for, and is spent when that request ends or
+>   when the text, the pair, the cover or the panel changes; after a failed
+>   send, a second send needs a second press. It is never
+>   offered while the tab is covered, nor once MyMemory's daily allowance is
+>   spent (the card says so without naming a reset time). It never switches
+>   Translate Online on.
+> - Paste reads only the pasteboard's types until it is pressed, so opening
+>   the tab never raises macOS's paste prompt. Under Paste from Other Apps
+>   set to Don't Allow it is disabled and says why.
+> - The spoken words are drawn as a lit range (said so far in white, the
+>   rest tertiary), not through `KaraokeText`, which sweeps a fraction of a
+>   line's width rather than a character range. The voice is matched on
+>   region and script first, so Simplified Chinese is never read in
+>   Cantonese nor Brazilian Portuguese in a European voice.
+> - A History entry restores the pair, both texts, a partial answer's
+>   warning, and Detect Language when the source had been detected. Covered,
+>   its rows are dust too.
+> - Copy Translation stays while covered, as before; Speak is hidden.
 
 ## 12. Volume and brightness pop-up (R5, decision 13)
 
@@ -996,6 +1051,10 @@ so).
 > unset, Lyrics header, no) and `lyrics.translateRecents` (empty, Lyrics
 > header, no). The default target with nothing stored is the system language,
 > or English when the song is already in the system language.
+
+> **Amended 2026-10-15 (R4).** Added `island.charging`, `island.headphones`
+> and `island.newTracks` (all true when unset, General, R4, no), the renamed
+> rows' keys (§10).
 
 ## 15. New strings
 

@@ -148,7 +148,10 @@ geometry on `NSApplication.didChangeScreenParametersNotification`. The app is
 once in `IslaApplication.run()` and never changed at runtime. There is
 no status item: Open Panel, About, Quit and the privacy toggles all live in the
 **Settings** tab (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
-directly). `NotchController` (~1400 lines) owns panel lifecycle, geometry,
+directly). Since 2026-10-15 Settings is a 400-tall sidebar of ten sections
+drawn from `SettingsTable`, a pure table of every row with its key and
+default; `NotchViewModel`'s accessors read their defaults back from it, so add
+a setting there, not in the view. `NotchController` (~1400 lines) owns panel lifecycle, geometry,
 open/close timing, and the lock transition; `AppDelegate` owns the three global hot
 keys (⌃⌥⌘I open, ⌃⌥⌘T translate clipboard, ⌃⌥⌘L lyrics page — rebindable, held
 by `HotKeyCenter`), the "Translate in
