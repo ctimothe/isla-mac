@@ -1535,8 +1535,15 @@ New settings and their defaults (spec §14):
 
 ### R5 — Volume and brightness pop-up (`feat/redesign-r5-hud`)
 
-- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
-  installed.
+- [x] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed — 2026-10-15 at `d58d235`: 11 of 11 steps, 1982 tests with 30
+  skipped and 0 failures. Opus review and two re-reviews, five Codex passes;
+  findings fixed in `0bff08a`, `140053f`, `468ebd9`, `5d8f23e` and `d58d235`
+  (the tap's callback kept cheap, the output latched across a write, ⌥/⇧/⌘/⌃
+  shortcuts left to macOS, one decision per hold). Codex's usage limit ran
+  out before `d58d235`, so that last fix had an Opus review only. The owner's
+  real-icons fix (`fix/redesign-real-app-icons`, merged in `aca4780`) ships
+  with this release. The hardware checks below are owed.
 - [ ] **R5-H1** Turn it on, grant Accessibility: the volume keys show Isla's
   pop-up and never the Mac's.
 - [ ] **R5-H2** Mute keeps the level, dimmed; unmute restores it.
