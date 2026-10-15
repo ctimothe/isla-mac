@@ -1524,6 +1524,10 @@ New settings and their defaults (spec §14):
   the pop-up labels truncate at the tail.
 - [ ] **R4-H8** "Lyrics Settings…" opens Settings on Lyrics; reopening
   Settings returns to the last section; Acknowledgements… opens the notices.
+- [ ] **R4-H9** Type into a Translate source holding 20,000 characters: the
+  letter is refused and the field does not show it (SwiftUI's `TextEditor`
+  may keep a refused letter on screen; untested off hardware). Repeat with a
+  Japanese input method.
 
 ### R5 — Volume and brightness pop-up (`feat/redesign-r5-hud`)
 

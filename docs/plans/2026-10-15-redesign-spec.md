@@ -883,9 +883,9 @@ until nothing uses them, then go.
 >   the island's label on a Mac with no battery, which used it, reads "Power
 >   adapter connected".
 > - Liked Songs is not a row: it has no key, the heart has no off state, and
->   "Allowed" before Isla has asked Spotify anything would be a guess. The
->   Spotify footnote explains a refusal once Spotify has refused for a
->   permission reason (not registered, Premium required).
+>   "Allowed" before Isla has asked Spotify anything would be a guess. Once
+>   Spotify refuses a call, which hides the lock card's heart, the section's
+>   footnote says why, whatever the reason.
 > - The Automation group shows only while a player is denied; the old
 >   Allowed and "Not asked yet" status rows are gone.
 > - Quit Isla is one press, as this section draws it. Disconnect Spotify
@@ -951,8 +951,9 @@ until nothing uses them, then go.
 >   under Recent is not repeated under On this Mac.
 > - **Use Online sends one text, once.** The press covers the text on screen
 >   and the pair it was pressed for, and is spent when that request ends or
->   when the text, the pair, the cover or the panel changes; after a failed
->   send, a second send needs a second press. It is never
+>   when the text, the pair, the cover or the panel changes. After a send
+>   fails or comes back partial, the card offers Use Online again, not Try
+>   Again, so a second send needs a second press. It is never
 >   offered while the tab is covered, nor once MyMemory's daily allowance is
 >   spent (the card says so without naming a reset time). It never switches
 >   Translate Online on.
