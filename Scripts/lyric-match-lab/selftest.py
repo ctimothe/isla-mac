@@ -30,6 +30,7 @@ import common  # noqa: E402
 import oracle  # noqa: E402
 import pool  # noqa: E402
 import resolve  # noqa: E402
+import twin  # noqa: E402
 
 
 def dump(path: str, data) -> None:
@@ -2575,6 +2576,109 @@ esac
             done, calls = self.run_script(ISLA_MATCH_OUT=bad)
             self.assertEqual(done.returncode, 2, bad)
             self.assertEqual(calls, [])
+
+
+def lrclib_search(title: str, artist: str) -> str:
+    return common.build_url("https://lrclib.net/api/search", [("track_name", title), ("artist_name", artist)])
+
+
+def lrclib_get(title: str, artist: str, duration: int, album: str = "") -> str:
+    params = [("track_name", title), ("artist_name", artist)]
+    if album:
+        params.append(("album_name", album))
+    params.append(("duration", str(duration)))
+    return common.build_url("https://lrclib.net/api/get", params)
+
+
+def page(rows: list) -> bytes:
+    return json.dumps(rows).encode("utf-8")
+
+
+class TwinTests(unittest.TestCase):
+    """The offline LRCLIB twin (twin.py): LRCLIB's own rules, how sure each
+    answer is, and that it writes only into a twin root."""
+
+    def test_normalisation_follows_lrclib_not_unicode(self):
+        p = twin.prepare_input
+        self.assertEqual(p("Kayıp Kalp"), "kayip kalp")        # ı is in secular's lay table
+        self.assertEqual(p("Dan + Shay"), p("Dan  Shay"))
+        self.assertEqual(p("Don\u2019t"), "dont")
+        self.assertEqual(p("Straße"), "strase")                # ß -> s, not ss
+        self.assertEqual(p("Ægir"), "ægir")                    # multi-letter bases are skipped
+        self.assertEqual(p("Ёлка"), "ёлка")                    # Cyrillic keeps its marks
+        self.assertNotEqual(p("O\u02bbzbek"), p("O'zbek"))     # U+02BB is a letter, not an apostrophe
+        self.assertEqual(twin.tokens("\u0928\u092e\u0938\u094d\u0924\u0947"),
+                         ("\u0928\u092e\u0938", "\u0924\u0947"))   # a virama splits; a vowel sign does not
+
+    def test_get_takes_the_oldest_match_within_two_seconds(self):
+        rows = [record(30, "Tune", "Band", synthetic_lines(1, 3), 200.0),
+                record(10, "Tune", "Band", synthetic_lines(2, 3), 203.0),               # oldest, 3 s off
+                record(20, "Tune", "Band", synthetic_lines(3, 3), 201.5, albumName="Other"),
+                record(5, "Tune (Live)", "Band", synthetic_lines(4, 3), 200.0)]         # another title
+        t = twin.Twin.from_entries([(lrclib_search("Tune", "Band"), 200, page(rows))])
+        tier, status, _, got = t.answer(lrclib_get("Tune", "Band", 200))
+        self.assertEqual((tier, status, got), ("complete", 200, [20]))
+        tier, status, _, got = t.answer(lrclib_get("Tune", "Band", 200, album="Alb"))
+        self.assertEqual((tier, status, got), ("complete", 200, [30]))
+        tier, status, _, got = t.answer(lrclib_get("Tune", "Band", 200, album="Missing"))
+        self.assertEqual((tier, status, got), ("complete", 404, []))
+
+    def test_only_a_complete_page_stands_in_for_lrclib(self):
+        small = [record(1, "Tune", "Band", synthetic_lines(1, 2), 200.0),
+                 record(3, "Tune Remix", "Band", synthetic_lines(3, 2), 200.0)]
+        t = twin.Twin.from_entries([(lrclib_search("Tune", "Band"), 200, page(small))])
+        tier, _, _, got = t.answer(lrclib_search("Tune Remix", "Band"))
+        self.assertEqual((tier, got), ("complete", [3]))
+        self.assertEqual(t.answer(lrclib_search("Other", "Band"))[0], "unknown")
+
+        full = [record(100 + i, "Song", "Band", synthetic_lines(i, 2), 200.0) for i in range(20)]
+        t = twin.Twin.from_entries([(lrclib_search("Song", "Band"), 200, page(full))])
+        self.assertEqual(t.answer(lrclib_get("Song", "Band", 200))[0], "partial")
+        self.assertEqual(t.answer(lrclib_search("SONG", "Band!"))[0], "real")   # one query, two spellings
+        mixed = full[:19] + [record(200, "Song Extended", "Band", synthetic_lines(9, 2), 200.0)]
+        t = twin.Twin.from_entries([(lrclib_search("Song", "Band"), 200, page(mixed))])
+        self.assertEqual(t.answer(lrclib_get("Song", "Band", 200))[0], "ranked")
+        self.assertEqual(twin.SERVED, ("real", "complete"))
+
+    def test_validate_scores_gets_against_a_twin_that_never_saw_them(self):
+        with tempfile.TemporaryDirectory() as root:
+            rows = [record(7, "Tune", "Band", synthetic_lines(5, 2), 200.0)]
+            common.write_cache(root, lrclib_search("Tune", "Band"), 200, page(rows))
+            common.write_cache(root, lrclib_get("Tune", "Band", 200), 200, json.dumps(rows[0]).encode("utf-8"))
+            common.write_cache(root, lrclib_get("Tune", "Band", 260), 404, twin.NOT_FOUND)
+            summary = twin.validate(root)
+        self.assertEqual(summary["gets"], {"complete agree": 2})
+
+    def test_fill_writes_only_served_answers_and_only_into_the_twin_root(self):
+        with tempfile.TemporaryDirectory() as root:
+            rows = [record(7, "Tune", "Band", synthetic_lines(5, 2), 200.0)]
+            common.write_cache(root, lrclib_search("Tune", "Band"), 200, page(rows))
+            twin_root = twin.prepare(root, "twin")
+            real_files = sorted(os.listdir(os.path.join(root, "cache", "py")))
+            served, unknown = lrclib_get("Tune", "Band", 200), lrclib_get("Else", "Band", 200)
+            lookups = [{"track_id": f"s/{i}", "variant": "canonical", "outcome": "uncached",
+                        "requests": [{"key": common.url_key(u), "path": u[len(twin.ORIGIN):],
+                                      "status": None, "cached": False}]}
+                       for i, u in enumerate((served, unknown))]
+            os.makedirs(os.path.join(twin_root, "results"))
+            with open(os.path.join(twin_root, "results", "isla-lookups.jsonl"), "w", encoding="utf-8") as handle:
+                handle.write("".join(json.dumps(row) + "\n" for row in lookups))
+
+            self.assertEqual(twin.fill(root, "twin")["answered"], {"complete": 1, "unknown (not served)": 1})
+            self.assertEqual(common.read_cache(twin_root, served).status, 200)
+            self.assertIsNone(common.read_cache(twin_root, unknown))
+            self.assertEqual(sorted(os.listdir(os.path.join(root, "cache", "py"))), real_files)
+            self.assertIsNone(common.read_cache(root, served))
+            self.assertEqual(twin.fill(root, "twin")["answered"], {"unknown (not served)": 1})
+
+            manifest = twin.read_manifest(twin_root)
+            lookups[0]["requests"][0].update(cached=True, status=200)
+            self.assertEqual(twin.lookup_tier(lookups[0], manifest), "complete")
+            self.assertEqual(twin.lookup_tier(lookups[1], manifest), "unknown")
+            with self.assertRaises(SystemExit):
+                twin.prepare(root, "twin")              # exists: rebuilt only with --fresh
+            with self.assertRaises(SystemExit):
+                twin.fill(root, "not-a-twin")
 
 
 class CompareTests(unittest.TestCase):

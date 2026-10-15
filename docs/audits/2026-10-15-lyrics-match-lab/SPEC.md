@@ -792,3 +792,71 @@ from the records and the `no-album` variant directly, without a patch.
 > The sample is small and mostly one slice, so C8 is scored like every other
 > candidate. Isla's own `no-album` and player variants measure the same thing
 > directly.
+>
+> *Corrected 2026-10-15, later the same day.* The table above takes, for each
+> query, the oldest record on the cached pages. The twin's validation (next
+> section) showed what that misses: in 5 of the 7 cached `/api/get` answers
+> that found a record, LRCLIB returned an older upload that neither full page
+> for the same title and artist showed. A page cut at row 20 says little about
+> what lies past it, so the table bounds the effect rather than measuring it.
+> Split by whether a complete page (under 20 rows) makes the answer certain:
+>
+> | Album sent | Certain: found without it, 404 with it | Page-bound: the same |
+> |---|---|---|
+> | Apple's `collectionName` | 1 of 3 | 16 of 20 |
+> | Deezer's album | 0 of 5 | 15 of 20 |
+>
+> Where the answer is certain the album cost one track in eight; the large
+> page-bound counts may be uploads carrying the player's album past row 20.
+> H8 is open, and C8 waits for recorded traffic like the other candidates.
+
+## The twin (amended 2026-10-15)
+
+From the afternoon of 2026-10-15 LRCLIB answered this address about once per
+half hour, and 4 of the 375 sampled lookups were in the cache, so no candidate
+could be scored. `Scripts/lyric-match-lab/twin.py` stands in for LRCLIB where
+the cache allows. It applies LRCLIB's own rules, read from its open-source
+server, to the answers LRCLIB has already given:
+
+- Normalisation: `prepare_input` with secular's lay table, which covers Latin
+  letters only (ı→i, ø→o, ß→s), so ё, й and Greek accents keep their marks and
+  U+02BB (ʻ) and U+2018 (‘) are not apostrophes to it; then Tantivy's
+  tokenizer, in which a virama splits a word and an Indic or Arabic vowel sign
+  does not.
+- `/api/search`: the cached page for the same prepared query, or the rows of a
+  covering page with fewer than 20 rows, which holds every match, filtered by
+  the query's phrases.
+- `/api/get`: the oldest record seen whose prepared name, artist and album
+  (when sent) are equal and whose length is within 2 s.
+
+It serves only the answers it can stand behind (tiers `real` and `complete`).
+A query that only full pages cover is listed in `twin-answers.jsonl` with what
+it would have said and left a miss, so the lookup stays `uncached`. Twin
+answers live only in a twin root (`<root>/twin/`, with a `TWIN` marker), never
+in the real cache, and a replay of the twin root needs no network.
+
+Validation against LRCLIB's own answers, with the twin built without them
+(`twin.py validate`: 124 cached LRCLIB answers, 111 search pages, 1,795
+records):
+
+| Query | Agrees with LRCLIB | Disagrees |
+|---|---|---|
+| a field search derived from a complete page (leave one out) | 7 of 7 | 0 |
+| a field search derived from full pages | 1 of 48 | 47 |
+| `/api/get` that LRCLIB answered 404, full pages only | 6 of 6 | 0 |
+| `/api/get` that found a record, full pages only | 2 of 7 | 5: an old upload no page showed |
+
+The first validation run found a twin bug: an NFKD shortcut for secular left
+the dotless ı unfolded, so "Kayıp Kalp" missed rows uploaded as "Kayip Kalp".
+With secular's own table the complete tier agrees 7 of 7.
+
+Coverage is the limit. The twin can serve a get for 4 of the 88 sampled
+tracks: 84 % of search pages are full, and popular tracks are the ones with
+full pages. So the twin is not used for M1 or for scoring candidates today. It
+is kept because it corrected the C8 estimate above and found two facts for the
+report. First, LRCLIB's two endpoints see different uploads of a popular song:
+the get takes the oldest, and the search shows twenty others. Second, its
+normalisation is Latin-only. In this data that rarely bites: ʻ appears in 1 of
+465 harvest identities, ß in 1 of 901 pooled records, and ё nowhere. As the
+polite collector adds pages, `twin.py prepare --fresh`, `fill` and a replay of
+the twin root extend its reach without a single LRCLIB request.
