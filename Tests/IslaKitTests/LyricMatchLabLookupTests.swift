@@ -26,7 +26,7 @@ import XCTest
 final class LyricMatchLabLookupTests: XCTestCase {
     func testLookups() async throws {
         let root = try MatchLab.requireRoot()
-        let variants = try MatchLab.readVariants(root)
+        let variants = Self.canonicalFirst(try MatchLab.readVariants(root))
         XCTAssertFalse(variants.isEmpty, "resolved/variants.jsonl holds no variants")
 
         let replay = ReplayTransport(root: root, record: MatchLab.recording, maxLive: MatchLab.maxLiveRequests)
@@ -55,6 +55,19 @@ final class LyricMatchLabLookupTests: XCTestCase {
             section: "lookups",
             summary: "\(rows.count) lookups (\(tally)); live requests \(replay.liveRequests)"
         )
+    }
+
+    /// The canonical lookups first, then the player variants, each group in
+    /// file order. While LRCLIB rations this address (SPEC, "a ban is not a
+    /// rate"), a record run that stops at the first 429 ends partway through,
+    /// and the canonical lookups are M1's headline, so they spend the
+    /// allowance first. The output is joined by (track_id, variant), so the
+    /// order of its lines carries no meaning; the order of the requests inside
+    /// one lookup, which is measured, is untouched.
+    static func canonicalFirst(_ variants: [MatchVariant]) -> [MatchVariant] {
+        variants.enumerated()
+            .sorted { ($0.element.variant == "canonical" ? 0 : 1, $0.offset) < ($1.element.variant == "canonical" ? 0 : 1, $1.offset) }
+            .map(\.element)
     }
 
     /// One result line. `uncached` wins over whatever Isla returned when any

@@ -116,6 +116,21 @@ final class LyricMatchLabSelfTests: XCTestCase {
         XCTAssertNil(MatchLab.cacheEntry(scratch, key: exchanges[0].key))
     }
 
+    // MARK: Canonical lookups first
+
+    /// A record run that LRCLIB stops partway spends its answers on M1's
+    /// canonical lookups first; each group keeps its file order.
+    func testCanonicalLookupsRunFirst() throws {
+        _ = try MatchLab.requireRoot()
+        let variants = try [("a", "no-album"), ("a", "canonical"), ("b", "spotify"), ("b", "canonical")].map {
+            try XCTUnwrap(MatchVariant([
+                "track_id": "self/\($0.0)", "variant": $0.1, "title": "T", "artist": "A", "album": "", "duration": 100,
+            ]))
+        }
+        let order = LyricMatchLabLookupTests.canonicalFirst(variants).map { "\($0.trackID) \($0.variant)" }
+        XCTAssertEqual(order, ["self/a canonical", "self/b canonical", "self/a no-album", "self/b spotify"])
+    }
+
     // MARK: Stop at the first 429
 
     /// A collector probing a banned limiter sets ISLA_MATCH_STOP_AT_429, and
