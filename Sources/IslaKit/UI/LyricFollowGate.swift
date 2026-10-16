@@ -32,7 +32,7 @@ struct ScrollSample: Equatable {
 }
 
 /// Decides when a scroll on the lyric stage means "I am reading, not watching",
-/// and when the page should go back to the song by itself.
+/// and when the page should go back to the song.
 ///
 /// The stage used to stop following on *any* nonzero scroll event anywhere over
 /// the panel while it was on screen — a sideways swipe, a one-pixel brush of a
@@ -43,34 +43,50 @@ struct ScrollSample: Equatable {
 /// track on synchronization"). The rules now:
 ///
 /// 1. **Only over the stage.** The caller says whether the pointer is over the
-///    lyric stage; an event elsewhere decides nothing, and touches no state.
+///    lyric stage; an event elsewhere decides nothing.
 /// 2. **Mostly horizontal is not reading.** `|deltaX| > |deltaY|` is ignored.
 /// 3. **Distance, not a touch.** Vertical travel adds up per gesture, and the
 ///    page stops following only once a gesture has gone `stopDistance` points.
-///    A gesture begins on the trackpad's `began` phase or after `gestureGap`
-///    seconds of silence; the inertial tail of a flick is the same gesture.
-/// 4. **It comes back by itself.** Once not following, the page follows again
-///    `resumeDelay` seconds after the last scroll event, momentum included, and
-///    each new scroll starts that wait again. Tapping a line, the Sync pill and
-///    Sync Here still put it back at once; those call `reset()`.
+///    A trackpad gesture is *live* from its `began` phase until the fingers
+///    lift (`ended`/`cancelled`) and any momentum after them has ended; the tally
+///    never resets while it is live, however slowly the reader moves — a
+///    trackpad sends no events while the fingers rest, and reading a verse
+///    6 pt, pause, 6 pt is still one gesture. A mouse wheel has no phases, so
+///    it keeps the silence rule: a new gesture after `gestureGap` seconds.
+/// 4. **It comes back by itself, when it is not in the way.** Once not
+///    following, the page follows again once `resumeDelay` seconds have passed
+///    since the last scroll event, momentum included, the gesture is over *and
+///    the pointer is not over the stage* — a reader whose pointer is still
+///    resting on the verse is not pulled away ("do not force it", owner). It is
+///    asked again every `pointerRecheck` seconds. Tapping a line, the Sync pill
+///    and Sync Here still put it back at once; those call `reset()`.
 ///
-/// "Do not force it by overriding" (owner): nothing here moves the page while a
-/// hand is on it. A gesture too short to stop following still scrolls the page
-/// a little — the scroll view does that on its own — and `settle` is the one
-/// moment the stage puts it back, `gestureGap` after the hand has gone.
+/// Nothing here moves the page while a hand is on it. A gesture too short to
+/// stop following still scrolls the page a little — the scroll view does that
+/// on its own — and the page is put back only once the gesture is over
+/// (`settle` says `.recentre`), and the stage holds its line-follow centring
+/// back for as long as one is live (`isLive`).
 ///
-/// A value, with the clock handed in on every call: nothing in it knows what
-/// time it is, so the tests set it.
+/// A value, with the clock and the pointer handed in: nothing in it knows what
+/// time it is or where the pointer is, so the tests set both.
 struct LyricFollowGate: Equatable {
     /// How far one gesture must travel before the page stops following: about
     /// half a row on the tall page, the least that is plainly a reader's scroll
     /// and never a brush.
     static let stopDistance: CGFloat = 12
-    /// Silence after which the next event is a new gesture.
+    /// Silence after which a wheel's next event is a new gesture, and after
+    /// which a finished gesture's page is put back.
     static let gestureGap: TimeInterval = 0.5
-    /// How long the page waits, after the last scroll event, before it follows
-    /// the song again.
+    /// How long after the last scroll event the page may follow the song again.
     static let resumeDelay: TimeInterval = 4
+    /// How often a due resume asks again while the pointer is over the stage.
+    static let pointerRecheck: TimeInterval = 1
+    /// How often a live gesture is asked whether it is over.
+    static let liveRecheck: TimeInterval = 0.25
+    /// A live gesture silent for this long is taken to have lost its end event
+    /// (a view that went mid-gesture, a window that took the event): it stops
+    /// holding the page back. Resting fingers send nothing, so this is long.
+    static let liveTimeout: TimeInterval = 15
     /// What one line of a notched wheel is worth in points. A click of a mouse
     /// wheel is deliberate — nobody brushes one by accident — so a single
     /// notch reaches the stop distance by itself.
@@ -88,10 +104,33 @@ struct LyricFollowGate: Equatable {
         case kept
     }
 
+    /// What the stage does when its wait is up.
+    enum Settle: Equatable {
+        /// Nothing is waiting.
+        case none
+        /// Ask again after this many seconds.
+        case wait(TimeInterval)
+        /// A brush moved the page and is over: put it back on the sung line.
+        case recentre
+        /// The reader has gone quiet and the pointer is away: follow again.
+        case resume
+    }
+
     private(set) var travelled: CGFloat = 0
-    /// The last vertical event over the stage, for the gesture boundary and
-    /// for the settle that follows a nudge.
+    /// The last counted vertical event, for the gesture boundary and the waits.
     private(set) var lastEventAt: TimeInterval?
+    /// Fingers on the trackpad since a counted `began`/`changed`, until
+    /// `ended`/`cancelled`.
+    private var fingersDown = false
+    /// A counted momentum event has arrived and its end has not.
+    private var momentumLive = false
+
+    /// Whether a trackpad gesture is in progress: fingers down, or the glide
+    /// after them. Always false for a mouse wheel.
+    func isLive(at now: TimeInterval) -> Bool {
+        guard fingersDown || momentumLive, let lastEventAt else { return false }
+        return now - lastEventAt <= Self.liveTimeout
+    }
 
     /// Feeds one event to the gate. `following` is the stage's own state, which
     /// is not kept here: the tap, the Sync pill and Sync Here all change it from
@@ -99,37 +138,49 @@ struct LyricFollowGate: Equatable {
     mutating func handle(
         _ sample: ScrollSample, overStage: Bool, following: Bool, at now: TimeInterval
     ) -> Decision {
+        // A gesture's end is bookkeeping for one already live, and arrives
+        // wherever the pointer has wandered to; it is never refused.
+        if sample.phase == .ended || sample.phase == .cancelled { fingersDown = false }
+        if sample.momentumPhase == .ended || sample.momentumPhase == .cancelled { momentumLive = false }
         guard overStage else { return .ignored }
         // The start of a gesture clears the tally even when it carries no
         // distance yet — those are the events that open every trackpad phase.
         if sample.phase == .began { travelled = 0 }
         guard sample.deltaY != 0, abs(sample.deltaX) <= abs(sample.deltaY) else { return .ignored }
-        if !sample.isMomentum, let last = lastEventAt, now - last > Self.gestureGap {
+        // Silence starts a new gesture only between gestures: not while fingers
+        // are down or a glide is running, and never for the glide itself.
+        if !isLive(at: now), !sample.isMomentum, let last = lastEventAt, now - last > Self.gestureGap {
             travelled = 0
         }
         lastEventAt = now
         travelled += abs(sample.deltaY)
+        if sample.phase == .began || sample.phase == .changed { fingersDown = true }
+        if sample.momentumPhase == .began || sample.momentumPhase == .changed { momentumLive = true }
         guard following else { return .kept }
         return travelled >= Self.stopDistance ? .stoppedFollowing : .nudged
     }
 
-    /// Seconds until the stage should put the page back, or nil when nothing is
-    /// waiting. Zero or less means now.
+    /// What the stage should do about the page now.
     ///
-    /// Not following: `resumeDelay` after the last event. Following, after a
-    /// gesture too short to stop it: `gestureGap` after the last event, so a
-    /// brush that moved the page a few points does not leave it there until the
-    /// next line.
-    func settleIn(following: Bool, at now: TimeInterval) -> TimeInterval? {
-        guard let lastEventAt else { return nil }
-        let wait = following ? Self.gestureGap : Self.resumeDelay
-        return lastEventAt + wait - now
+    /// While a gesture is live nothing is due: the stage asks again shortly.
+    /// Following, after a gesture too short to stop it: put the page back
+    /// `gestureGap` after it is over. Not following: follow again `resumeDelay`
+    /// after the last event — but only while `pointerOverStage()` is false, and
+    /// asked again every `pointerRecheck` seconds while it is true, so the page
+    /// returns as soon as the pointer leaves. The pointer is a closure so it is
+    /// asked only when the answer matters.
+    func settle(following: Bool, pointerOverStage: () -> Bool, at now: TimeInterval) -> Settle {
+        guard let lastEventAt else { return .none }
+        if isLive(at: now) { return .wait(Self.liveRecheck) }
+        let due = lastEventAt + (following ? Self.gestureGap : Self.resumeDelay)
+        if now < due { return .wait(due - now) }
+        if following { return .recentre }
+        return pointerOverStage() ? .wait(Self.pointerRecheck) : .resume
     }
 
     /// The page is following and centred: nothing is waiting any more. Called
     /// when the stage resumes for any reason, and when it goes.
     mutating func reset() {
-        travelled = 0
-        lastEventAt = nil
+        self = LyricFollowGate()
     }
 }

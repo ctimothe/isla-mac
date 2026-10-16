@@ -382,8 +382,8 @@ Track" (the value strings exist; the "Repeat: %@" format is new).
 >   mapping the lock card's foot rail also uses), the way iOS's Now Playing
 >   route button shows AirPods when it is routed to them, and it follows the
 >   output live. A plain `speaker.wave.2` shows until the device is known.
->   Accessibility: label "Output", value the device's name; the tooltip is
->   the device's name.
+>   Accessibility: label "Sound Output" (the lock card's name for the same
+>   control), value the device's name; the tooltip is the device's name.
 > - The setting is relabelled **Output Button** («Кнопка выхода звука»); the
 >   stored key stays `player.volumeAndOutput` so the owner's choice survives.
 >   Off hides the button and the band keeps its place, as before.
@@ -559,10 +559,16 @@ mismatch notice, editor) move with it.
 > - Vertical travel adds up **per gesture** (a new one starts on the
 >   trackpad's `began` phase or after 0.5 s of silence; the momentum tail is
 >   the same gesture), and the page stops following only once a gesture has
->   gone **12 pt**. A shorter brush is put back 0.5 s after the hand leaves.
-> - Once not following, the page **follows again by itself 4 s after the
->   last scroll event**, momentum included; each new scroll starts the wait
->   again. The return uses the same scroll curve as any other recentring
+>   gone **12 pt**. A trackpad gesture is live from `began` until the
+>   fingers lift and any momentum has ended: its tally never resets while it
+>   is live (resting fingers send no events), the stage does not centre on a
+>   turning line under it, and a brush too short to stop following is put back
+>   only 0.5 s after it is over. A mouse wheel has no phases and keeps the
+>   0.5 s silence rule.
+> - Once not following, the page **follows again by itself once 4 s have
+>   passed since the last scroll event**, momentum included, the gesture is
+>   over **and the pointer is no longer over the stage** (asked again every
+>   second while it is); each new scroll starts the wait again. The return uses the same scroll curve as any other recentring
 >   (`Theme.lyricScroll`; Reduce Motion cuts it down), and nothing moves the
 >   page while a hand is on it.
 > - A tap on a line, the Sync pill and Sync Here still resume at once, as

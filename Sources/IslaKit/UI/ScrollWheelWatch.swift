@@ -28,19 +28,17 @@ import SwiftUI
 /// (the way the header menus find their button) says whether the event landed
 /// on this view's frame. The same trick `SecondaryClick.lands` plays.
 private struct ScrollWheelWatch: ViewModifier {
+    var pointer: StagePointer
     var onScroll: (ScrollSample, _ overView: Bool) -> Void
 
     @State private var monitor: Any?
-    /// The anchor behind the content, held in a box so the monitor's closure —
-    /// installed once — always reads the current view.
-    @State private var anchor = AnchorBox()
 
     func body(content: Content) -> some View {
         content
-            .background(ScrollAnchor(box: anchor))
+            .background(ScrollAnchor(box: pointer))
             .onAppear {
                 guard monitor == nil else { return }
-                let box = anchor
+                let box = pointer
                 monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
                     // The tail of an inertial flick keeps arriving after the
                     // fingers are gone; it is the same gesture and still counts.
@@ -60,12 +58,27 @@ private struct ScrollWheelWatch: ViewModifier {
     }
 }
 
-private final class AnchorBox {
+/// Where the pointer is, relative to the view the watch is attached to. The
+/// stage owns one and hands it to `onScrollWheel`, so the stage can also ask,
+/// without an event, whether the pointer is still over it — the auto-resume
+/// waits for the pointer to leave (`LyricFollowGate.settle`).
+@MainActor
+final class StagePointer {
     weak var view: NSView?
+    /// The pointer in screen coordinates; a test replaces it.
+    var location: () -> NSPoint = { NSEvent.mouseLocation }
+
+    /// Whether the pointer is over the view now: its screen rect, from the
+    /// view's window, against the mouse's screen location.
+    func isOver() -> Bool {
+        guard let view, let window = view.window else { return false }
+        let screenRect = window.convertToScreen(view.convert(view.bounds, to: nil))
+        return screenRect.contains(location())
+    }
 }
 
 private struct ScrollAnchor: NSViewRepresentable {
-    let box: AnchorBox
+    let box: StagePointer
 
     func makeNSView(context: Context) -> NSView {
         let view = FlippedAnchorView()
@@ -114,7 +127,9 @@ extension View {
     /// Calls `action` with every scroll event this app receives while the view
     /// is on screen, and whether the pointer was over this view when it
     /// arrived. The view decides what a scroll over it means.
-    func onScrollWheel(perform action: @escaping (ScrollSample, _ overView: Bool) -> Void) -> some View {
-        modifier(ScrollWheelWatch(onScroll: action))
+    func onScrollWheel(
+        pointer: StagePointer, perform action: @escaping (ScrollSample, _ overView: Bool) -> Void
+    ) -> some View {
+        modifier(ScrollWheelWatch(pointer: pointer, onScroll: action))
     }
 }

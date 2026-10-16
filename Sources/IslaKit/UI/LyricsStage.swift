@@ -24,7 +24,8 @@ import SwiftUI
 /// copies or syncs it. A reader's scroll over the stage — a real one, not a
 /// brush or a sideways swipe (`LyricFollowGate`) — stops the page following the
 /// song; the Sync pill, a tap on a line or Sync Here brings it back at once, and
-/// left alone it comes back by itself four seconds after the last scroll.
+/// left alone it comes back by itself four seconds after the last scroll — once
+/// the pointer has left the stage.
 struct LyricsStage: View {
     /// Which of the player's two lyric states the area is in: the column beside
     /// the controls (13 pt, 23 pt apart) or the tall page above them (17 pt,
@@ -111,13 +112,17 @@ struct LyricsStage: View {
     /// (`LyricFollowGate`): the stage then stays where it was put, and the song
     /// moving on no longer drags the page out from under the eye. The sync pill,
     /// a tap on a line and Sync Here put it back at once; otherwise it comes back
-    /// by itself four seconds after the last scroll event, momentum included.
+    /// by itself four seconds after the last scroll event, momentum included,
+    /// once the pointer is no longer over the stage.
     @State private var following = true
     /// What counts as a reader's scroll, and when the page is due back.
     @State private var gate = LyricFollowGate()
     /// The one task that waits for that moment: armed by a scroll, cancelled the
     /// moment the stage follows again or goes.
     @State private var settleTask: Task<Void, Never>?
+    /// Where the pointer is against the stage, for the scroll events and for
+    /// the resume's "not while the pointer is still on the verse".
+    @State private var pointer = StagePointer()
     /// Bumped when a brush that did not stop following should be put back: the
     /// body's `onChange` below re-centres on the anchor *as it is then* — the
     /// task alone would hold the one from the pass that armed it, and the song
@@ -441,7 +446,13 @@ struct LyricsStage: View {
                             currentIndex ?? -1, now,
                             slots.count, geo.size.height, following ? 1 : 0, strayed))
                     }
-                    guard following else { return }
+                    // Not while a gesture is live: a line turning under a hand
+                    // that is moving the page scrolled it a second time. The
+                    // settle that ends the gesture puts the page on the sung
+                    // line (`LyricFollowGate.settle` → `.recentre`).
+                    guard Self.centresOnLineChange(
+                        following: following, gestureIsLive: gate.isLive(at: Self.clockNow())
+                    ) else { return }
                     center(on: to)
                 }
                 .onChange(of: following) { _, resumed in
@@ -468,7 +479,7 @@ struct LyricsStage: View {
                     // `LyricFollowGate` ignores a pointer that is elsewhere and
                     // a sideways swipe, and waits for a gesture to go twelve
                     // points before it takes the song away.
-                .onScrollWheel { sample, overStage in
+                .onScrollWheel(pointer: pointer) { sample, overStage in
                     let decision = gate.handle(
                         sample, overStage: overStage, following: following, at: Self.clockNow()
                     )
@@ -489,6 +500,9 @@ struct LyricsStage: View {
                     settleTask?.cancel()
                     settleTask = nil
                     gate.reset()
+                    // A stage reopened later follows the song: it must not come
+                    // back stranded where a hand left it, with no gate waiting.
+                    following = true
                 }
                 // Only once the sung line has actually left the stage. A pill
                 // that appears the instant the page moves is an alarm about
@@ -579,27 +593,39 @@ struct LyricsStage: View {
     /// change of the Mac's time cannot make the wait come early or never.
     private static func clockNow() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
 
+    /// Whether a line turning moves the page: while the stage follows, and not
+    /// while a trackpad gesture is live under it.
+    static func centresOnLineChange(following: Bool, gestureIsLive: Bool) -> Bool {
+        following && !gestureIsLive
+    }
+
     /// Waits for the moment the gate says the page is due back, and puts it
-    /// there: following again when the reader had taken over, a plain re-centre
-    /// when a brush moved the page a few points without stopping it. One task
-    /// serves every scroll; a later scroll moves the gate's deadline and the
-    /// task, waking early, simply waits the rest — so a reader who keeps
-    /// scrolling is never interrupted.
+    /// there: following again when the reader had taken over and gone quiet with
+    /// the pointer away, a plain re-centre when a brush moved the page a few
+    /// points and is over. One task serves every scroll; the gate answers "ask
+    /// again in so long" while a gesture is live, the 4 s have not run out or
+    /// the pointer is still on the stage, so a reader who keeps scrolling or
+    /// keeps resting is never interrupted.
     private func armSettle() {
         guard settleTask == nil else { return }
+        let pointer = pointer
         settleTask = Task { @MainActor in
-            while !Task.isCancelled {
-                guard let wait = gate.settleIn(following: following, at: Self.clockNow()) else { break }
-                if wait <= 0 {
-                    if following {
-                        recentreTick += 1
-                        gate.reset()
-                    } else {
-                        following = true   // the `onChange` above centres and resets
-                    }
-                    break
+            loop: while !Task.isCancelled {
+                switch gate.settle(
+                    following: following, pointerOverStage: { pointer.isOver() }, at: Self.clockNow()
+                ) {
+                case .none:
+                    break loop
+                case .wait(let seconds):
+                    try? await Task.sleep(for: .seconds(seconds))
+                case .recentre:
+                    recentreTick += 1
+                    gate.reset()
+                    break loop
+                case .resume:
+                    following = true   // the `onChange` above centres and resets
+                    break loop
                 }
-                try? await Task.sleep(for: .seconds(wait))
             }
             // A cancelled task has already been replaced or cleared by whoever
             // cancelled it; clearing here would drop a newer task's handle.
