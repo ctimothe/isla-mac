@@ -181,6 +181,8 @@ final class InstallerRig {
     let relauncher: FakeRelauncher
     private(set) var scratchFolders: [URL] = []
     var freeBytes: Int64? = 10_000_000_000
+    /// Free space on the volume the download and the mount live on.
+    var scratchFreeBytes: Int64? = 10_000_000_000
     var publicKey: String?
     var installedPath: URL
     var writable: (URL) -> Bool = { FileManager.default.isWritableFile(atPath: $0.path) }
@@ -212,13 +214,15 @@ final class InstallerRig {
         let installedURL = installedPath
         let scratchRoot = scratchRoot
         let capacity = freeBytes
+        let scratchCapacity = scratchFreeBytes
         let writable = writable
         let key = publicKey
         let environment = UpdateEnvironment(
             installedURL: installedURL, publicKey: key, processID: 4242,
-            availableCapacity: { _ in capacity },
+            availableCapacity: { url in url.path == scratchRoot.path ? scratchCapacity : capacity },
             isWritable: writable,
-            makeScratchFolder: { [weak self] _ in
+            scratchRoot: scratchRoot,
+            makeScratchFolder: { [weak self] in
                 let folder = scratchRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 MainActor.assumeIsolated { self?.scratchFolders.append(folder) }

@@ -67,11 +67,15 @@ struct UpdateEnvironment {
     /// Bytes available for important use on the volume of `url`, nil if unknown.
     var availableCapacity: (URL) -> Int64?
     var isWritable: (URL) -> Bool
-    /// A fresh folder for the download and the mount, given the installed app.
-    var makeScratchFolder: (URL) throws -> URL
+    /// Where the download and the mount live, whose volume the free-space
+    /// check also looks at.
+    var scratchRoot: URL
+    /// A fresh private folder under `scratchRoot` for one run's download and mount.
+    var makeScratchFolder: () throws -> URL
 
     static func live() -> UpdateEnvironment {
-        UpdateEnvironment(
+        let scratch = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        return UpdateEnvironment(
             installedURL: Bundle.main.bundleURL,
             publicKey: UpdateSignature.bundledPublicKey,
             processID: ProcessInfo.processInfo.processIdentifier,
@@ -80,17 +84,16 @@ struct UpdateEnvironment {
                     .volumeAvailableCapacityForImportantUsage
             },
             isWritable: { FileManager.default.isWritableFile(atPath: $0.path) },
-            makeScratchFolder: { installed in
-                let fm = FileManager.default
-                // On the install volume, in the system's own temporary area for
-                // replacing an item, so the download is where the swap will be.
-                // Where that is refused, the user's temporary folder.
-                if let folder = try? fm.url(
-                    for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: installed, create: true
-                ) { return folder }
-                let folder = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-                    .appendingPathComponent("isla-update-\(UUID().uuidString)", isDirectory: true)
-                try fm.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            scratchRoot: scratch,
+            makeScratchFolder: {
+                // The user's own temporary folder, not the system's
+                // item-replacement area: a volume mounted under
+                // `TemporaryItems` answers "Operation not permitted" to anyone
+                // who lists it, which the first real run of this found. The
+                // staged copy, the only thing that has to be on the install
+                // volume, is made beside the installed app, not here.
+                let folder = scratch.appendingPathComponent("isla-update-\(UUID().uuidString)", isDirectory: true)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
                 return folder
             }
         )
@@ -255,11 +258,15 @@ final class UpdateInstaller: ObservableObject {
         }
         guard let image = release.dmg, let signature = release.signature else { return }
         let parent = environment.installedURL.deletingLastPathComponent()
-        // Unknown free space is not proof of too little.
-        if let free = environment.availableCapacity(parent), Double(free) < Self.spaceFactor * Double(image.size) {
-            Log.updates.notice("update: not enough space, \(free, privacy: .public) free for \(image.size, privacy: .public)")
-            phase = .failed(.diskSpace)
-            return
+        // Both volumes: the download and the mount are in the temporary folder,
+        // the staged copy is beside the app. Unknown free space is not proof of
+        // too little.
+        for volume in [parent, environment.scratchRoot] {
+            if let free = environment.availableCapacity(volume), Double(free) < Self.spaceFactor * Double(image.size) {
+                Log.updates.notice("update: not enough space, \(free, privacy: .public) free for \(image.size, privacy: .public)")
+                phase = .failed(.diskSpace)
+                return
+            }
         }
         phase = .downloading(received: 0, total: image.size)
         generation += 1
@@ -307,7 +314,7 @@ final class UpdateInstaller: ObservableObject {
             let parent = installed.deletingLastPathComponent()
             Self.sweepStaleStaging(in: parent)
 
-            let scratch = try step(.cannotReplace) { try environment.makeScratchFolder(installed) }
+            let scratch = try step(.cannotReplace) { try environment.makeScratchFolder() }
             disposables.add(scratch)
             // Named before it exists, so a failure half way through staging
             // still has its folder removed.

@@ -202,10 +202,21 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertEqual(rig.scratchFolders, [])
     }
 
+    func testTheVolumeTheDownloadLivesOnIsCheckedToo() async throws {
+        let rig = try InstallerRig(self)
+        rig.downloader.imageData = Data(repeating: 1, count: 1000)
+        rig.scratchFreeBytes = 2499
+        rig.build()
+        rig.installer.install(rig.release())
+        XCTAssertEqual(rig.installer.phase, .failed(.diskSpace))
+        XCTAssertEqual(rig.log.all, [])
+    }
+
     func testExactlyTwoAndAHalfTimesTheImageIsEnough() async throws {
         let rig = try InstallerRig(self)
         rig.downloader.imageData = Data(repeating: 1, count: 1000)
         rig.freeBytes = 2500
+        rig.scratchFreeBytes = 2500
         rig.build()
         rig.installer.install(rig.release())
         await rig.finish()
