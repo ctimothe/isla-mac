@@ -26,13 +26,19 @@ case "$BUILD" in
     ''|*[!0-9]*) echo "Scripts/version needs BUILD= and a whole number" >&2; exit 1 ;;
 esac
 
-# The app icon is a tracked asset (Resources/AppIcon.icns), copied verbatim into
-# the bundle. This script used to generate a placeholder icon into build/ so a
-# mid-build write could never dirty the tracked tree after release.sh had checked
-# it was clean; with a real, committed icon that indirection is gone. The build
-# dir is still created here because the per-build entitlements below live in it.
+# The app icon is two tracked assets, copied verbatim into the bundle:
+# Resources/Assets.car, the layered Icon Composer icon that macOS 26 draws in
+# every appearance (named by CFBundleIconName), and Resources/AppIcon.icns, the
+# flattened fallback (named by CFBundleIconFile). Both are compiled from
+# Resources/AppIcon.icon by Scripts/make-app-icon.sh, run by hand when the
+# icon changes, so a build needs no Xcode. This script used to generate a
+# placeholder icon into build/ so a mid-build write could never dirty the
+# tracked tree after release.sh had checked it was clean; with a real,
+# committed icon that indirection is gone. The build dir is still created here
+# because the per-build entitlements below live in it.
 mkdir -p "$ROOT/build"
 ICON="$ROOT/Resources/AppIcon.icns"
+ICON_CATALOG="$ROOT/Resources/Assets.car"
 
 # Universal. The README only ever said "macOS 15 or later", and macOS 15 and
 # 26 still run on Intel Macs, which got an app that refused to open. Intel Macs
@@ -61,6 +67,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key><string>com.ctimothe.isla</string>
     <key>CFBundleExecutable</key><string>Isla</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleURLTypes</key>
     <array><dict>
         <key>CFBundleURLName</key><string>com.ctimothe.isla.oauth</string>
@@ -99,11 +106,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-if [ ! -f "$ICON" ]; then
-    echo "missing app icon: $ICON" >&2
-    exit 1
-fi
+for asset in "$ICON" "$ICON_CATALOG"; do
+    if [ ! -f "$asset" ]; then
+        echo "missing app icon: $asset (rebuild it with Scripts/make-app-icon.sh)" >&2
+        exit 1
+    fi
+done
 cp "$ICON" "$APP/Contents/Resources/AppIcon.icns"
+cp "$ICON_CATALOG" "$APP/Contents/Resources/Assets.car"
 
 echo "==> licenses and notices"
 mkdir -p "$APP/Contents/Resources/Licenses"

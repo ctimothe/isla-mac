@@ -9,6 +9,9 @@ path.
 - macOS 15 or later.
 - Xcode Command Line Tools with Swift, Clang, `codesign`, `iconutil`, and
   `hdiutil`.
+- Full Xcode 26 or later only to change the app icon: `Scripts/make-app-icon.sh`
+  compiles `Resources/AppIcon.icon` with `actool`, which the Command Line Tools
+  lack. A build never needs it, because the compiled icon is committed.
 - A physical-notch MacBook for the hardware pass and a non-notch/external display
   for the synthetic pass.
 - Cyclop 0.6.5 built from pinned commit
