@@ -226,14 +226,30 @@
 
 /* Обновления */
 "Check for Updates" = "Проверить обновления";
-"Checking…" = "Проверка…";
-"Isla %@ is the latest version." = "Isla %@ — последняя версия.";
 "Download Isla %@" = "Скачать Isla %@";
 "Quit Isla, then replace it in Applications with the new version." = "Закройте Isla и замените её в Программах новой версией.";
 "Could not reach GitHub. Try again later." = "Не удалось связаться с GitHub. Попробуйте позже.";
 "Check for Updates Automatically" = "Проверять обновления автоматически";
 "Asks GitHub once a day for the latest version. It sends nothing about you." = "Раз в день спрашивает у GitHub последнюю версию. О вас ничего не отправляется.";
 "Update available" = "Доступно обновление";
+"Software Update" = "Обновление ПО";
+"Isla is up to date" = "Установлена последняя версия Isla";
+"Checking for updates…" = "Поиск обновлений…";
+"Update available · %@" = "Доступно обновление · %@";
+"Update Now" = "Обновить сейчас";
+"More Info…" = "Подробнее…";
+"Downloading Isla %@…" = "Загрузка Isla %@…";
+"Verifying…" = "Проверка…";
+"Installing…" = "Установка…";
+"Restarting Isla…" = "Перезапуск Isla…";
+"The update couldn't be installed." = "Не удалось установить обновление.";
+"The download didn't match Isla's signature, so it was deleted." = "Загруженный файл не совпал с подписью Isla, поэтому он удалён.";
+"Isla couldn't reach GitHub." = "Isla не удалось связаться с GitHub.";
+"There isn't enough space on the disk." = "На диске недостаточно места.";
+"Isla couldn't replace itself in its folder." = "Не удалось заменить Isla в её папке.";
+"The downloaded app isn't a valid Isla update." = "Загруженное приложение — не подлинное обновление Isla.";
+"Isla can't update itself from this location." = "Isla не может обновить себя из этого расположения.";
+"This update can only be installed from its download page." = "Это обновление можно установить только со страницы загрузки.";
 
 /* Предложения страницы текста */
 "Sends the title, artist, album and length to LRCLIB." = "Отправляет в LRCLIB название, исполнителя, альбом и длительность.";

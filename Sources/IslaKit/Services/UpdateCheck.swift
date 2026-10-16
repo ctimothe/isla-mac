@@ -16,7 +16,11 @@ import AppKit
 /// and a User-Agent naming the Isla version, and nothing else.
 @MainActor
 final class UpdateCheck: ObservableObject {
-    static let shared = UpdateCheck()
+    static var shared: UpdateCheck { sharedOverride ?? live }
+    /// Stands in front of the real one, for the visual lab, which draws every
+    /// state of the About card without a request leaving the Mac.
+    static var sharedOverride: UpdateCheck?
+    private static let live = UpdateCheck()
 
     enum State: Equatable {
         case idle
@@ -354,6 +358,10 @@ final class UpdateCheck: ObservableObject {
         timer?.invalidate()
         timer = nil
     }
+
+    /// The version this check compares against: the running one. Settings says
+    /// it under the card, so the card and the check cannot disagree about it.
+    var runningVersion: String { currentVersion() }
 
     /// Whether the Settings tab should wear a mark: an update was found.
     var hasUpdate: Bool { lastAvailable != nil }

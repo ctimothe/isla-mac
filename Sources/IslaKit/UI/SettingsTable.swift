@@ -124,7 +124,8 @@ enum SettingsRowID: String, CaseIterable, Hashable {
     // Screenshots
     case saveClipboardScreenshots, showScreenCaptures, showScreenshotsFolder, clearScreenshotsFolder
     // About
-    case aboutHead, updateStatus, downloadUpdate, checkForUpdatesAutomatically
+    case aboutHead, updatePanel, updateStatus, updateNow, updateMoreInfo, updateCancel, updateRetry, downloadUpdate
+    case checkForUpdatesAutomatically
     case copyDiagnostics, reportProblem, acknowledgements, quit
 
     /// What kind of control the row is. The view's dispatch and a test's "this
@@ -163,13 +164,15 @@ enum SettingsRowID: String, CaseIterable, Hashable {
              .resetLyricDelay,
              .openLyricsFolder, .addLyricsFolder, .importLRC, .rescanLocalLyrics, .clearImportedLyrics,
              .clearBindings, .translationLanguages, .spotifyAccount, .spotifyImport, .showScreenshotsFolder,
-             .clearScreenshotsFolder, .updateStatus, .downloadUpdate, .quit:
+             .clearScreenshotsFolder, .updateStatus, .updateNow, .updateMoreInfo, .updateCancel, .updateRetry,
+             .downloadUpdate, .quit:
             return .push
         case .copyDiagnostics, .reportProblem, .acknowledgements:
             return .link
         case .automationStatus:
             return .value
-        case .lyricDelay, .cardStyle, .libraryFolders, .unassignedCorrections, .installedPlayers, .spotifyHead, .aboutHead:
+        case .lyricDelay, .cardStyle, .libraryFolders, .unassignedCorrections, .installedPlayers, .spotifyHead, .aboutHead,
+             .updatePanel:
             return .custom
         }
     }
@@ -239,7 +242,14 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .showScreenshotsFolder: return localized("Show Screenshots Folder")
         case .clearScreenshotsFolder: return localized("Clear Screenshots Folder")
         case .aboutHead: return localized("About %@", ProductIdentity.displayName)
+        // What the update card says is `UpdatePresentation`'s; this is only the
+        // name of the card for an assistive client and the table's tests.
+        case .updatePanel: return localized("Software Update")
         case .updateStatus: return localized("Check for Updates")
+        case .updateNow: return localized("Update Now")
+        case .updateMoreInfo: return localized("More Info…")
+        case .updateCancel: return localized("Cancel")
+        case .updateRetry: return localized("Try Again")
         // The version is the update's, known only to the view that draws it.
         case .downloadUpdate: return localized("Download Isla %@", "").trimmingCharacters(in: .whitespaces)
         case .checkForUpdatesAutomatically: return localized("Check for Updates Automatically")
@@ -446,8 +456,8 @@ struct SettingsContext: Equatable {
     // Spotify: `SettingsPane.spotifyRows`, as it already was.
     var spotify: [SettingsPane.SpotifyRow] = [.connect]
     // About
-    var offersDownload = false
-    var updateNotes: [String] = []
+    /// The update card and its buttons (`UpdatePresentation`).
+    var update = UpdatePresentation.initial
     /// Check for Updates Automatically, as it stands: the line about what the
     /// check asks of GitHub is only true while it is on.
     var automaticUpdates = false
@@ -739,11 +749,12 @@ enum SettingsTable {
     }
 
     private static func about(_ c: SettingsContext) -> [SettingsBlock] {
-        var update: [SettingsRowID] = [.updateStatus]
-        if c.offersDownload { update.append(.downloadUpdate) }
-        update.append(.checkForUpdatesAutomatically)
-        var blocks: [SettingsBlock] = [.free(.aboutHead), .group(update)]
-        for note in c.updateNotes { blocks.append(.footnote(note)) }
+        var blocks: [SettingsBlock] = [.free(.aboutHead), .free(.updatePanel)]
+        // The buttons that make sense for the state the card is in, under it at
+        // the trailing edge, the way System Settings puts Software Update's.
+        if !c.update.actions.isEmpty { blocks.append(.buttons(c.update.actions)) }
+        for note in c.update.footnotes { blocks.append(.footnote(note)) }
+        blocks.append(.group([.checkForUpdatesAutomatically]))
         // Only while the switch is on: with it off nothing is asked of GitHub,
         // and the line used to say it was asked once a day.
         if c.automaticUpdates {

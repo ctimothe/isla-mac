@@ -117,6 +117,28 @@ are the exception the design did not anticipate:
   something new. It exists because nothing else could tell a 0.1.0 user that
   0.2.0 was out. Sparkle replaces it once there is a Developer ID to sign the
   feed with. `UpdateCheckTests` holds the default and the request.
+- **Update Now** (Settings › About, added 2026-10-16) installs an update from
+  inside Isla. It reaches the network only when asked: Check for Updates, Update
+  Now, or the opt-in daily check, which only reports and never downloads. It
+  downloads only from Isla's own GitHub releases (the release's `.dmg` and
+  `.dmg.sig`, at exactly `…/releases/download/v<version>/Isla-<version>.dmg`),
+  verifies the Ed25519 signature against `IslaUpdatePublicKey` in the app's
+  Info.plist before the image is mounted, validates the staged app (bundle id,
+  advertised and newer version, greater build, strict code signature), replaces
+  Isla in place and restarts it. User-initiated; the default is unchanged
+  (nothing runs automatically, the automatic check stays off). Without a key in
+  the build, or from a location Isla cannot write to, only the download page is
+  offered. Held by `UpdateReleaseTests`, `UpdateSignatureTests`,
+  `UpdateValidatorTests`, `UpdateInstallerTests`, `UpdateCollaboratorTests`,
+  `UpdatePresentationTests`, `UpdateCardTests` and the opt-in
+  `UpdateIntegrationTests` (`ISLA_UPDATE_INTEGRATION=1`).
+  **Owes on hardware:** a real update from one installed build to the next, on
+  the owner's Mac, with a key in both builds — Update Now from the older copy in
+  /Applications, watch it download, verify and restart as the newer one, and
+  check `hdiutil info` shows nothing mounted and no `.Isla-update-*` folder
+  beside it; Cancel mid-download; the same from a copy run off the DMG (must
+  offer only the download page); with the network off (Try Again); and that
+  Accessibility, Spotify and the Settings choices survive it.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain. Since 2026-10-11 the heart asks `GET /me/library/contains` and

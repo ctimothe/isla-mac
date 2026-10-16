@@ -220,14 +220,30 @@
 
 /* Updates */
 "Check for Updates" = "Check for Updates";
-"Checking…" = "Checking…";
-"Isla %@ is the latest version." = "Isla %@ is the latest version.";
 "Download Isla %@" = "Download Isla %@";
 "Quit Isla, then replace it in Applications with the new version." = "Quit Isla, then replace it in Applications with the new version.";
 "Could not reach GitHub. Try again later." = "Could not reach GitHub. Try again later.";
 "Check for Updates Automatically" = "Check for Updates Automatically";
 "Asks GitHub once a day for the latest version. It sends nothing about you." = "Asks GitHub once a day for the latest version. It sends nothing about you.";
 "Update available" = "Update available";
+"Software Update" = "Software Update";
+"Isla is up to date" = "Isla is up to date";
+"Checking for updates…" = "Checking for updates…";
+"Update available · %@" = "Update available · %@";
+"Update Now" = "Update Now";
+"More Info…" = "More Info…";
+"Downloading Isla %@…" = "Downloading Isla %@…";
+"Verifying…" = "Verifying…";
+"Installing…" = "Installing…";
+"Restarting Isla…" = "Restarting Isla…";
+"The update couldn't be installed." = "The update couldn't be installed.";
+"The download didn't match Isla's signature, so it was deleted." = "The download didn't match Isla's signature, so it was deleted.";
+"Isla couldn't reach GitHub." = "Isla couldn't reach GitHub.";
+"There isn't enough space on the disk." = "There isn't enough space on the disk.";
+"Isla couldn't replace itself in its folder." = "Isla couldn't replace itself in its folder.";
+"The downloaded app isn't a valid Isla update." = "The downloaded app isn't a valid Isla update.";
+"Isla can't update itself from this location." = "Isla can't update itself from this location.";
+"This update can only be installed from its download page." = "This update can only be installed from its download page.";
 
 /* Lyrics page offers */
 "Sends the title, artist, album and length to LRCLIB." = "Sends the title, artist, album and length to LRCLIB.";

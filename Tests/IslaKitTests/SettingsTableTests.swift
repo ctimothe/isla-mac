@@ -99,7 +99,7 @@ final class SettingsTableTests: XCTestCase {
             .spotify: [.spotifyHead, .spotifyAccount],
             .screenshots: [.saveClipboardScreenshots, .showScreenCaptures, .showScreenshotsFolder, .clearScreenshotsFolder],
             .about: [
-                .aboutHead, .updateStatus, .checkForUpdatesAutomatically, .copyDiagnostics, .reportProblem,
+                .aboutHead, .updatePanel, .updateStatus, .checkForUpdatesAutomatically, .copyDiagnostics, .reportProblem,
                 .acknowledgements, .quit,
             ],
         ]
@@ -172,9 +172,19 @@ final class SettingsTableTests: XCTestCase {
         off.showOnLockScreen = false
         XCTAssertEqual(SettingsTable.rows(for: .lockScreen, context: off), [.showOnLockScreen])
 
-        var update = SettingsContext()
-        update.offersDownload = true
-        XCTAssertTrue(SettingsTable.rows(for: .about, context: update).contains(.downloadUpdate))
+        // About's buttons are the card's state: each stage offers its own.
+        let release = UpdateCheck.Release(version: "0.3.1", page: URL(string: "https://github.com/ctimothe/isla-mac/releases/tag/v0.3.1")!)
+        func about(_ presentation: UpdatePresentation) -> [SettingsRowID] {
+            var context = SettingsContext()
+            context.update = presentation
+            return SettingsTable.rows(for: .about, context: context)
+        }
+        XCTAssertEqual(about(Self.stage(.available(release))).prefix(4), [.aboutHead, .updatePanel, .updateMoreInfo, .updateNow])
+        XCTAssertEqual(about(Self.stage(.downloading(release, received: 1, total: 2))).prefix(3), [.aboutHead, .updatePanel, .updateCancel])
+        XCTAssertEqual(about(Self.stage(.failed(release, .signature))).prefix(3), [.aboutHead, .updatePanel, .updateRetry])
+        XCTAssertEqual(about(Self.stage(.manualOnly(release, .notWritable))).prefix(3), [.aboutHead, .updatePanel, .downloadUpdate])
+        XCTAssertEqual(about(Self.stage(.verifying(release))).prefix(3), [.aboutHead, .updatePanel, .checkForUpdatesAutomatically],
+                       "no button while it verifies, installs or restarts")
         XCTAssertFalse(SettingsTable.rows(for: .about).contains(.downloadUpdate))
     }
 
@@ -764,14 +774,14 @@ final class SettingsTableTests: XCTestCase {
         ]
         for (control, row, section) in old {
             XCTAssertTrue(
-                SettingsTable.rows(for: section, context: Self.everything).contains(row),
+                Self.rowsAnywhere(in: section).contains(row),
                 "\(control): no \(row) row in \(section)"
             )
         }
         // And no row is in two sections: a control has one home.
         var homes: [SettingsRowID: SettingsSection] = [:]
         for section in SettingsSection.allCases {
-            for row in Set(SettingsTable.rows(for: section, context: Self.everything)) {
+            for row in Self.rowsAnywhere(in: section) {
                 XCTAssertNil(homes[row], "\(row) is in \(homes[row].map(String.init(describing:)) ?? "") and \(section)")
                 homes[row] = section
             }
@@ -832,8 +842,52 @@ final class SettingsTableTests: XCTestCase {
         context.spotify = SettingsPane.spotifyRows(
             connected: true, needsReconnect: false, signIn: nil, apiBlocked: false, canImport: true
         )
-        context.offersDownload = true
+        context.update = stage(.available(UpdateCheck.Release(
+            version: "0.3.1", page: URL(string: "https://github.com/ctimothe/isla-mac/releases/tag/v0.3.1")!
+        )))
         context.diagnosticsCopied = true
         return context
+    }
+
+    /// The card in a stage, with the check outcome that goes with it.
+    static func stage(_ stage: UpdatePresentation.Stage) -> UpdatePresentation {
+        let release: UpdateCheck.Release
+        var phase = UpdateInstaller.Phase.idle
+        var manual: UpdateInstaller.ManualReason?
+        switch stage {
+        case .idle, .checking, .upToDate:
+            return UpdatePresentation.make(
+                check: stage == .checking ? .checking : .idle, known: nil, phase: .idle, installerRelease: nil,
+                manualReason: nil, runningVersion: "0.3.0"
+            )
+        case .available(let r): release = r
+        case .downloading(let r, let received, let total): release = r; phase = .downloading(received: received, total: total)
+        case .verifying(let r): release = r; phase = .verifying
+        case .installing(let r): release = r; phase = .installing
+        case .relaunching(let r): release = r; phase = .relaunching
+        case .failed(let r, let failure): release = r; phase = .failed(failure)
+        case .manualOnly(let r, let reason): release = r; manual = reason
+        }
+        return UpdatePresentation.make(
+            check: .available(release), known: release, phase: phase, installerRelease: release,
+            manualReason: manual, runningVersion: "0.3.0"
+        )
+    }
+
+    /// A section's rows across every state the update card can be in, since each
+    /// state offers different buttons and no one context shows them all.
+    static func rowsAnywhere(in section: SettingsSection) -> Set<SettingsRowID> {
+        let release = UpdateCheck.Release(version: "0.3.1", page: URL(string: "https://github.com/ctimothe/isla-mac/releases/tag/v0.3.1")!)
+        let stages: [UpdatePresentation.Stage] = [
+            .available(release), .downloading(release, received: 1, total: 2), .failed(release, .offline),
+            .manualOnly(release, .notWritable), .checking, .upToDate,
+        ]
+        var rows = Set<SettingsRowID>()
+        for stage in stages {
+            var context = everything
+            context.update = Self.stage(stage)
+            rows.formUnion(SettingsTable.rows(for: section, context: context))
+        }
+        return rows
     }
 }

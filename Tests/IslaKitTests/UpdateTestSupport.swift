@@ -95,3 +95,18 @@ enum UpdateTestSupport {
         }
     }
 }
+
+
+extension UpdateEnvironment {
+    /// A Mac the installer can do nothing on: the app "lives" on a mounted
+    /// volume, so every release is manual-only and no button a test presses can
+    /// start a download. What a pane under test is given unless it asks for more.
+    static var neverInstalls: UpdateEnvironment {
+        UpdateEnvironment(
+            installedURL: URL(fileURLWithPath: "/Volumes/Isla Test/Isla.app"), publicKey: nil, processID: 1,
+            availableCapacity: { _ in nil }, isWritable: { _ in false },
+            scratchRoot: FileManager.default.temporaryDirectory,
+            makeScratchFolder: { throw CocoaError(.fileWriteNoPermission) }
+        )
+    }
+}

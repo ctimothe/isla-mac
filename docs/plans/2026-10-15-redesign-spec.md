@@ -937,6 +937,34 @@ before controls, and sliders shrink first (`Stress-Settings-RU-480`).
 | Screenshots | `photo.on.rectangle` (`#8E8E93`) | Save Clipboard Screenshots [off] · Show Screen Captures [on] · Show Screenshots Folder · Clear Screenshots Folder |
 | About | Isla's icon | name and version · "Isla %@ is the latest version." with Check for Updates · Check for Updates Automatically [off] · Copy Diagnostics · Report a Problem… · Acknowledgements… · "Nothing leaves your Mac unless you turn it on." and Quit Isla |
 
+> **Amended 2026-10-16 (owner).** About's update row is Software Update. The
+> "is the latest version" line with its one Check for Updates button became a
+> card in the form's own style, with the buttons that fit its state under it at
+> the trailing edge, as System Settings → General → Software Update does. An
+> update found by Check for Updates installs inside Isla: Update Now downloads
+> the release, verifies it, replaces Isla in its folder and restarts it, and
+> only the button starts a download (the daily check still only reports).
+> The states, in `UpdatePresentation`:
+>
+> | State | Card | Buttons |
+> |---|---|---|
+> | Up to date | "Isla is up to date" · "Isla 0.3.0" | Check for Updates |
+> | Checking | spinner · "Checking for updates…" | none |
+> | Available | "Isla 0.3.1" · "Update available · 9.8 MB" · the release notes (inline Markdown, six lines at most, links not clickable) | More Info…, **Update Now** |
+> | Downloading | "Downloading Isla 0.3.1…" · determinate bar · "4.2 MB of 9.8 MB" | Cancel |
+> | Verifying, Installing, Restarting | the word ("Verifying…", "Installing…", "Restarting Isla…") · an endless bar | none |
+> | Failed | "The update couldn't be installed." · one reason line (signature, offline, disk space, can't replace, invalid app) | Try Again |
+> | Manual only | "Isla can't update itself from this location." (translocated, on a volume, folder not writable) or "This update can only be installed from its download page." (no key in this build, no image or signature on the release) | Download Isla 0.3.1 |
+>
+> The signature is verified before the image is mounted, only Isla's own
+> release URLs are used, the staged copy is validated before it replaces
+> anything, and every temporary file is removed on every path
+> (`UpdateInstaller`). Layout changes between states use the panel's critically
+> damped expand spring, and under Reduce Motion its crossfade; the endless bar
+> fades instead of sweeping. `checklist.md` records what it reaches and what it
+> owes. This amends the About row of the table above; that row is left as the
+> original contract.
+
 The Music section's failure groups (`Settings-Music-Reader`,
 `Settings-Music-Automation`) carry the only Try Again and the only "Open
 Automation Settings…" in the app (one failure surface). Settings' existing

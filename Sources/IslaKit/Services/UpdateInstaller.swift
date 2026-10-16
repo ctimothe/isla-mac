@@ -288,6 +288,15 @@ final class UpdateInstaller: ObservableObject {
         phase = .idle
     }
 
+    /// Shows a state without being in it, for the visual lab, which draws every
+    /// card the installer can produce without a download. Does nothing outside a
+    /// test process.
+    func presentForTests(_ phase: Phase, release: UpdateCheck.Release?) {
+        guard PlayerBridge.isRunningTests else { return }
+        self.release = release
+        self.phase = phase
+    }
+
     private func progressed(_ received: Int64, generation id: Int) {
         guard id == generation, case .downloading(let old, let total) = phase, received > old else { return }
         phase = .downloading(received: min(received, total), total: total)
