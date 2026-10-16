@@ -98,6 +98,16 @@ final class FakeDiskImage: UpdateDiskImaging, @unchecked Sendable {
         detached.append(mount)
         return detaches
     }
+
+    /// What `cleanUp` answers, and the images it was asked about.
+    var cleansUp = true
+    private(set) var cleanedUp: [URL] = []
+
+    func cleanUp(image: URL) async -> Bool {
+        log.note("cleanup")
+        cleanedUp.append(image)
+        return cleansUp
+    }
 }
 
 final class FakeStager: UpdateStaging, @unchecked Sendable {
@@ -105,6 +115,9 @@ final class FakeStager: UpdateStaging, @unchecked Sendable {
     var error: Error?
     /// Waits, politely, until the task is cancelled: a tool that hung.
     var hangs = false
+    /// Waits this many seconds and does not look at cancellation at all: a tool
+    /// that is not listening.
+    var deafSeconds: TimeInterval = 0
     var marker = "new"
     private(set) var stagedApps: [URL] = []
 
@@ -113,6 +126,7 @@ final class FakeStager: UpdateStaging, @unchecked Sendable {
     func stage(volume: URL, into stagingFolder: URL) async throws -> URL {
         log.note("stage")
         if hangs { while true { try await Task.sleep(for: .milliseconds(5)) } }
+        if deafSeconds > 0 { usleep(UInt32(deafSeconds * 1_000_000)) }
         try FileManager.default.createDirectory(at: stagingFolder, withIntermediateDirectories: true)
         let app = stagingFolder.appendingPathComponent("Isla.app", isDirectory: true)
         try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)

@@ -141,4 +141,42 @@ final class UpdateSwapperTests: XCTestCase {
         XCTAssertEqual(moves, 0)
         XCTAssertEqual(UpdateTestSupport.fingerprint(of: rig.folder), before)
     }
+
+    /// If an error names the staged copy as where the original went, restoring
+    /// from it would install the update without its check: it is never moved.
+    func testTheStagedCopyIsNeverMovedIntoPlaceByARestore() throws {
+        var rig = try rig()
+        let hidden = rig.folder.appendingPathComponent("hidden.app")
+        let staged = rig.staged
+        rig.swapper.swap = { _, _ in ENOTSUP }
+        rig.swapper.replace = { installed, _ in
+            try FileManager.default.moveItem(at: installed, to: hidden)
+            throw NSError(domain: NSCocoaErrorDomain, code: 1, userInfo: [
+                FileManagerSwapper.originalItemLocationKey: staged,
+                NSURLErrorKey: hidden,
+            ])
+        }
+        var moved: [URL] = []
+        let real = rig.swapper.move
+        rig.swapper.move = { from, to in moved.append(from); try real(from, to) }
+        XCTAssertThrowsError(try rig.swapper.replace(installed: rig.installed, with: rig.staged))
+        XCTAssertEqual(moved, [hidden], "only the original, found by the next place the error names")
+        XCTAssertEqual(rig.marker(of: rig.installed), "old")
+        XCTAssertEqual(rig.marker(of: rig.staged), "new")
+    }
+
+    func testAStagedPathReachedThroughASymlinkIsAlsoExcluded() throws {
+        var rig = try rig()
+        let link = rig.folder.appendingPathComponent("link.app")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: rig.staged)
+        rig.swapper.swap = { _, _ in ENOTSUP }
+        rig.swapper.replace = { installed, _ in
+            try FileManager.default.removeItem(at: installed)
+            throw NSError(domain: NSCocoaErrorDomain, code: 1, userInfo: [FileManagerSwapper.originalItemLocationKey: link])
+        }
+        var moves = 0
+        rig.swapper.move = { _, _ in moves += 1 }
+        XCTAssertThrowsError(try rig.swapper.replace(installed: rig.installed, with: rig.staged))
+        XCTAssertEqual(moves, 0)
+    }
 }

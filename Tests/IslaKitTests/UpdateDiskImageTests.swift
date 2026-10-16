@@ -10,12 +10,14 @@ final class UpdateDiskImageTests: XCTestCase {
         private let lock = NSLock()
         private var answers: [([String]) -> UpdateTool.Result?]
         private(set) var calls: [Call] = []
+        private(set) var timeouts: [TimeInterval] = []
 
         init(_ answers: [([String]) -> UpdateTool.Result?]) { self.answers = answers }
 
         func run(_ executable: String, _ arguments: [String], _ timeout: TimeInterval) async -> UpdateTool.Result? {
             let answer: ([String]) -> UpdateTool.Result? = lock.withLock {
                 calls.append(Call(arguments: arguments))
+                timeouts.append(timeout)
                 return answers.isEmpty ? { _ in nil } : answers.removeFirst()
             }
             return answer(arguments)
@@ -135,5 +137,35 @@ final class UpdateDiskImageTests: XCTestCase {
         task.cancel()
         let gone = await task.value
         XCTAssertTrue(gone)
+    }
+
+    /// Cleanup after a failure must not outlast the ceiling by minutes: the
+    /// lookup and every detach try have a short timeout of their own.
+    func testCleanupCallsAreShort() async throws {
+        let script = Script([timedOut(), ok(info(device: "/dev/disk7", imagePath: "/tmp/scratch/Isla.dmg")), failed(), failed(), ok()])
+        do { _ = try await disk(script).attach(image, scratch: scratch); XCTFail() } catch {}
+        XCTAssertEqual(script.calls.map { $0.arguments.first }, ["attach", "info", "detach", "detach", "detach"])
+        XCTAssertEqual(script.timeouts.dropFirst().max(), 10, "info and each detach try: 10 s")
+    }
+
+    func testCleanUpDetachesAnImageThatMountedLate() async throws {
+        let script = Script([ok(info(device: "/dev/disk7", imagePath: "/tmp/scratch/Isla.dmg")), ok()])
+        let clean = await disk(script).cleanUp(image: image)
+        XCTAssertTrue(clean)
+        XCTAssertEqual(script.detaches, [["detach", "-force", "/dev/disk7"]])
+    }
+
+    func testCleanUpWithNothingAttachedDetachesNothing() async throws {
+        let script = Script([ok(info(device: "/dev/disk7", imagePath: "/tmp/elsewhere.dmg"))])
+        let clean = await disk(script).cleanUp(image: image)
+        XCTAssertTrue(clean)
+        XCTAssertEqual(script.detaches, [])
+    }
+
+    func testCleanUpSaysSoWhenItCannotLetGo() async throws {
+        let script = Script([ok(info(device: "/dev/disk7", imagePath: "/tmp/scratch/Isla.dmg")), failed(), failed(), failed()])
+        let clean = await disk(script).cleanUp(image: image)
+        XCTAssertFalse(clean)
+        XCTAssertEqual(script.detaches.count, 3)
     }
 }

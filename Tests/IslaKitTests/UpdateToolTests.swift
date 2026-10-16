@@ -95,4 +95,57 @@ final class UpdateToolTests: XCTestCase {
         let ran = await task.value
         XCTAssertTrue(ran, "a cancelled install still detaches")
     }
+
+    /// A process no signal reaches: the run still returns, `timedOut`, a grace
+    /// after SIGKILL was sent, instead of waiting for it for ever.
+    func testAProcessThatIgnoresEverySignalDoesNotHoldTheRunForever() async throws {
+        let deaf = UpdateTool.Signals(terminate: { _ in }, kill: { _ in })
+        let (result, seconds) = await timed {
+            await UpdateTool.run("/bin/sleep", ["4"], timeout: 0.2, killGrace: 0.2, drainGrace: 0.2, signals: deaf)
+        }
+        XCTAssertEqual(result?.timedOut, true)
+        XCTAssertEqual(result?.succeeded, false)
+        XCTAssertLessThan(seconds, 2.5, "timeout + two graces, not the four seconds the process takes")
+    }
+
+    func testKillIsOnlySentAfterTheGraceAndTermFirst() async throws {
+        let sent = SentSignals()
+        let signals = UpdateTool.Signals(terminate: { _ in sent.note("term") }, kill: { _ in sent.note("kill") })
+        _ = await UpdateTool.run("/bin/sleep", ["2"], timeout: 0.1, killGrace: 0.2, drainGrace: 0.1, signals: signals)
+        XCTAssertEqual(sent.all, ["term", "kill"])
+    }
+
+    /// A cancel that lands after the process has launched and before the job
+    /// says so used to be lost: the run went on to its timeout.
+    func testACancelWhileTheProcessIsStartingStillEndsIt() async throws {
+        let task = Task { () -> (UpdateTool.Result?, TimeInterval) in
+            let start = Date()
+            let result = await UpdateTool.run(
+                "/bin/sleep", ["60"], timeout: 60, killGrace: 0.3,
+                afterLaunch: { withUnsafeCurrentTask { $0?.cancel() } }
+            )
+            return (result, Date().timeIntervalSince(start))
+        }
+        let (result, seconds) = await task.value
+        XCTAssertEqual(result?.succeeded, false)
+        XCTAssertLessThan(seconds, 5, "ended by the cancel, not by the 60 s timeout")
+    }
+
+    /// The output stream ending while the process goes on is not the end of the
+    /// run, and does not spin: the run ends with the process.
+    func testAProcessThatClosesItsOutputEarlyStillEndsCleanly() async throws {
+        let (result, seconds) = await timed {
+            await UpdateTool.run("/bin/sh", ["-c", "echo early; exec 1>&-; sleep 0.5; exit 4"], timeout: 10)
+        }
+        XCTAssertEqual(String(decoding: result?.output ?? Data(), as: UTF8.self), "early\n")
+        XCTAssertEqual(result?.status, 4)
+        XCTAssertLessThan(seconds, 3)
+    }
+}
+
+private final class SentSignals: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [String] = []
+    func note(_ entry: String) { lock.withLock { entries.append(entry) } }
+    var all: [String] { lock.withLock { entries } }
 }

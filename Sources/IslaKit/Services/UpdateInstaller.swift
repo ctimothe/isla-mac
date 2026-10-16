@@ -33,6 +33,10 @@ protocol UpdateVerifying: Sendable {
 protocol UpdateDiskImaging: Sendable {
     func attach(_ image: URL, scratch: URL) async throws -> UpdateMount
     func detach(_ mount: UpdateMount) async -> Bool
+    /// Looks the image up once more by its file and detaches whatever is still
+    /// attached from it: a mount that landed late, after an attach that was
+    /// killed. True when nothing is left attached.
+    func cleanUp(image: URL) async -> Bool
 }
 
 /// Copies the one `Isla.app` at the root of a mounted volume into
@@ -392,11 +396,16 @@ final class UpdateInstaller: ObservableObject {
         defer { disposables.run() }
         let ceiling = Ceiling()
         var watchdog: Task<Void, Never>?
+        var attached = false
+        var scratchImage: URL?
         defer { watchdog?.cancel() }
         do {
             let installed = environment.installedURL
             let parent = installed.deletingLastPathComponent()
-            Self.sweepStaleStaging(in: parent, ownerID: Self.ownerID)
+            // Off the main actor: it lists and removes in the folder the app
+            // lives in. Not awaited; it can only find folders that already
+            // exist, and this install's has not been made.
+            Task.detached(priority: .utility) { Self.sweepStaleStaging(in: parent, ownerID: Self.ownerID) }
 
             let scratch = try step(.cannotReplace) { try environment.makeScratchFolder() }
             disposables.add(scratch)
@@ -420,6 +429,7 @@ final class UpdateInstaller: ObservableObject {
             // half way through a mount.
             if Task.isCancelled { throw Failure.cancelled }
             guard Self.size(of: imageFile) == image.size else { throw Failure.signature }
+            scratchImage = imageFile
 
             phase = .verifying
             guard await verifier.isValid(signatureBase64: signatureText, fileURL: imageFile) else {
@@ -428,16 +438,25 @@ final class UpdateInstaller: ObservableObject {
             }
 
             phase = .installing
-            // The ceiling on everything from the mount to the swap. It cancels
-            // this task, which ends the tool in flight; what a cancelled step
-            // throws is then read as the ceiling, not as a cancel.
+            attached = true
+            // The ceiling on everything from the mount to the swap. It is one:
+            // at the ceiling the card moves to the failure and Try Again is
+            // offered, whatever the steps behind it are still doing, and the
+            // cleanup they owe finishes in the background (every tool in it has
+            // a short timeout of its own). It also cancels this task, which
+            // ends the tool in flight; what a cancelled step throws is then read
+            // as the ceiling, not as a cancel.
             let seconds = installTimeout
             let running = task
-            watchdog = Task { [ceiling] in
+            watchdog = Task { [ceiling, weak self] in
                 try? await Task.sleep(for: .seconds(seconds))
                 guard !Task.isCancelled else { return }
                 ceiling.fire()
                 running?.cancel()
+                if let self, self.generation == id, self.phase == .installing {
+                    Log.updates.error("update: the installing phase hit its ceiling")
+                    self.phase = .failed(.cannotOpen)
+                }
             }
 
             let mount = try await attempt(.invalidUpdate, ceiling: ceiling) {
@@ -478,10 +497,24 @@ final class UpdateInstaller: ObservableObject {
             if ceiling.fired, failure == .cancelled || failure == .invalidUpdate { failure = .cannotOpen }
             if case UpdateImageError.stillAttached = error { failure = .cannotOpen }
             Log.updates.error("update stopped: \(String(describing: failure), privacy: .public)")
-            if case UpdateValidationError.identityChanged = error {
-                phase = .manualOnly(.identityChanged)
-            } else {
-                phase = failure == .cancelled ? .idle : .failed(failure)
+            // A run that was already ended at its ceiling, and a person who has
+            // since pressed Try Again, are the new run's: this one only cleans up.
+            if id == generation {
+                if case UpdateValidationError.identityChanged = error {
+                    phase = .manualOnly(.identityChanged)
+                } else {
+                    phase = failure == .cancelled ? .idle : .failed(failure)
+                }
+            }
+            // An attach that was killed can still mount late. Once more, by the
+            // image's file, before its folder is deleted; and if it will not
+            // let go, the folder is left (`Disposables` sees the volume).
+            if attached {
+                let diskImage = diskImage
+                let imageURL = scratchImage
+                if let imageURL, !(await UpdateTool.uncancellable { await diskImage.cleanUp(image: imageURL) }) {
+                    Log.updates.error("update: an image was still attached after the install ended")
+                }
             }
         }
     }
@@ -547,10 +580,11 @@ final class UpdateInstaller: ObservableObject {
     /// `.Isla-update-<UUID>`, exactly: the name this installer gives its staging
     /// folder and nothing a person or another program would.
     nonisolated static func isStagingFolderName(_ name: String) -> Bool {
-        name.range(
-            of: #"^\.Isla-update-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"#,
-            options: .regularExpression
-        ) != nil
+        // Parsed, not pattern-matched: `$` in a regular expression also matches
+        // before a trailing newline, and a name with one is not ours.
+        guard name.hasPrefix(stagingPrefix) else { return false }
+        let rest = String(name.dropFirst(stagingPrefix.count))
+        return rest.utf8.count == 36 && UUID(uuidString: rest) != nil
     }
 
     /// The owner of a path, without following a link at the end of it.

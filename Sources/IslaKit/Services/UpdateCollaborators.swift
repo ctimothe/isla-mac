@@ -197,11 +197,25 @@ enum UpdateTool {
         var succeeded: Bool { status == 0 && !timedOut }
     }
 
+    /// How a process is told to stop. Properties so a test can stand in a
+    /// process that ignores both: `terminate` is SIGTERM, `kill` SIGKILL.
+    struct Signals: Sendable {
+        var terminate: @Sendable (pid_t) -> Void = { _ = Darwin.kill($0, SIGTERM) }
+        var kill: @Sendable (pid_t) -> Void = { _ = Darwin.kill($0, SIGKILL) }
+    }
+
+    /// A tool that has still not gone this long after SIGKILL is given up on:
+    /// the run returns anyway, `timedOut`, so nothing that awaits it waits
+    /// forever on a process in a state no signal reaches.
     static func run(
         _ executable: String, _ arguments: [String],
-        timeout: TimeInterval = 120, killGrace: TimeInterval = 3, drainGrace: TimeInterval = 1
+        timeout: TimeInterval = 120, killGrace: TimeInterval = 3, drainGrace: TimeInterval = 1,
+        signals: Signals = Signals(), afterLaunch: (@Sendable () -> Void)? = nil
     ) async -> Result? {
-        let job = Job(executable: executable, arguments: arguments, timeout: timeout, killGrace: killGrace, drainGrace: drainGrace)
+        let job = Job(
+            executable: executable, arguments: arguments, timeout: timeout, killGrace: killGrace,
+            drainGrace: drainGrace, signals: signals, afterLaunch: afterLaunch
+        )
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in job.start(continuation) }
         } onCancel: {
@@ -222,6 +236,8 @@ enum UpdateTool {
         private let timeout: TimeInterval
         private let killGrace: TimeInterval
         private let drainGrace: TimeInterval
+        private let signals: Signals
+        private let afterLaunch: (@Sendable () -> Void)?
         private let lock = NSLock()
         private let process = Process()
         private let pipe = Pipe()
@@ -235,7 +251,12 @@ enum UpdateTool {
         private var finished = false
         private var eof = false
 
-        init(executable: String, arguments: [String], timeout: TimeInterval, killGrace: TimeInterval, drainGrace: TimeInterval) {
+        init(
+            executable: String, arguments: [String], timeout: TimeInterval, killGrace: TimeInterval,
+            drainGrace: TimeInterval, signals: Signals, afterLaunch: (@Sendable () -> Void)?
+        ) {
+            self.signals = signals
+            self.afterLaunch = afterLaunch
             self.executable = executable
             self.arguments = arguments
             self.timeout = timeout
@@ -256,6 +277,9 @@ enum UpdateTool {
             process.standardInput = FileHandle.nullDevice
             pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
                 let data = handle.availableData
+                // Empty is the end of the stream. A handler left in place is
+                // called again at once, forever, until the process ends.
+                if data.isEmpty { handle.readabilityHandler = nil }
                 self?.received(data)
             }
             process.terminationHandler = { [weak self] process in
@@ -265,7 +289,15 @@ enum UpdateTool {
                 finish(result: nil)
                 return
             }
-            lock.lock(); started = true; lock.unlock()
+            afterLaunch?()
+            lock.lock()
+            started = true
+            // A cancel that arrived while the process was starting found
+            // nothing to stop and left a note; it is read here, under the same
+            // lock that says the process is running, so it cannot be lost.
+            let cancelled = cancelledEarly
+            lock.unlock()
+            if cancelled { endProcess() }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in self?.expire() }
         }
 
@@ -285,14 +317,23 @@ enum UpdateTool {
             if running { endProcess() }
         }
 
-        /// SIGTERM now, SIGKILL if it is still there after the grace.
+        /// SIGTERM now, SIGKILL if it is still there after the grace, and if it
+        /// is *still* there after another, the run is finished without it.
         private func endProcess() {
-            process.terminate()
             let pid = process.processIdentifier
+            signals.terminate(pid)
             DispatchQueue.global().asyncAfter(deadline: .now() + killGrace) { [weak self] in
                 guard let self else { return }
                 self.lock.lock(); let alive = !self.ended; self.lock.unlock()
-                if alive { kill(pid, SIGKILL) }
+                guard alive else { return }
+                self.signals.kill(pid)
+                DispatchQueue.global().asyncAfter(deadline: .now() + self.killGrace) { [weak self] in
+                    guard let self else { return }
+                    self.lock.lock()
+                    let result = Result(status: -1, output: self.buffer, timedOut: true)
+                    self.lock.unlock()
+                    self.finish(result: result)
+                }
             }
         }
 
@@ -372,6 +413,10 @@ struct HdiutilDiskImage: UpdateDiskImaging {
 
     static let hdiutil = "/usr/bin/hdiutil"
     static let detachAttempts = 3
+    /// What one cleanup call may take, `hdiutil info` or one detach try. Short
+    /// on purpose: cleanup runs after a failure, often after the installing
+    /// ceiling has already ended the install, and must not outlast it by minutes.
+    static let cleanupTimeout: TimeInterval = 10
 
     var run: Runner = { await UpdateTool.run($0, $1, timeout: $2, killGrace: 3) }
     var retryDelay: TimeInterval = 0.5
@@ -403,6 +448,11 @@ struct HdiutilDiskImage: UpdateDiskImaging {
         await detach(devices: mount.devices.isEmpty ? [mount.mountPoint.path] : mount.devices)
     }
 
+    func cleanUp(image: URL) async -> Bool {
+        let devices = await attachedDevices(for: image)
+        return devices.isEmpty ? true : await detach(devices: devices)
+    }
+
     private func detach(devices: [String]) async -> Bool {
         let run = run, retryDelay = retryDelay
         // In a task of its own: this runs after a cancelled or timed-out step,
@@ -412,7 +462,7 @@ struct HdiutilDiskImage: UpdateDiskImaging {
             for device in devices {
                 var gone = false
                 for attempt in 1...Self.detachAttempts {
-                    if let result = await run(Self.hdiutil, ["detach", "-force", device], 60), result.succeeded {
+                    if let result = await run(Self.hdiutil, ["detach", "-force", device], Self.cleanupTimeout), result.succeeded {
                         gone = true
                         break
                     }
@@ -429,7 +479,7 @@ struct HdiutilDiskImage: UpdateDiskImaging {
     private func attachedDevices(for image: URL) async -> [String] {
         let run = run
         return await UpdateTool.uncancellable {
-            guard let info = await run(Self.hdiutil, ["info", "-plist"], 30), info.succeeded else { return [] }
+            guard let info = await run(Self.hdiutil, ["info", "-plist"], Self.cleanupTimeout), info.succeeded else { return [] }
             return Self.devices(inInfo: info.output, imagePath: image.resolvingSymlinksInPath().path)
         }
     }
@@ -588,33 +638,49 @@ struct BundleUpdateValidator: UpdateValidating {
 
     // MARK: Identity
 
-    /// Whether a designated requirement is an ad-hoc one: a signature with no
-    /// identity has only the hash of the build (`cdhash H"…"`) to be recognised by.
-    static func isAdHoc(requirement text: String) -> Bool {
-        text.contains("cdhash")
-    }
-
-    /// The check for the app that is running: nothing to keep when it is ad-hoc
-    /// (or cannot be read — then the Ed25519 signature stays the gate), the
-    /// running app's own designated requirement otherwise.
+    /// The check for the app that is running. It fails closed: an app whose
+    /// code cannot even be read is not known to be ad-hoc, so it is held to a
+    /// requirement it cannot produce, and the update is the download page.
     static func runningIdentityCheck() -> @Sendable (URL) -> Bool {
         var selfCode: SecCode?
         var staticCode: SecStaticCode?
         guard SecCodeCopySelf([], &selfCode) == errSecSuccess, let selfCode,
               SecCodeCopyStaticCode(selfCode, [], &staticCode) == errSecSuccess, let staticCode
-        else { return { _ in true } }
+        else { return { _ in false } }
         return identityCheck(for: staticCode)
+    }
+
+    /// Whether the code is ad-hoc: its signing information says so, in the flags
+    /// (`SecCodeSignatureFlags.adhoc`). Not a guess from the text of a requirement.
+    /// Information that cannot be read answers nil, which is not ad-hoc.
+    static func isAdHoc(_ code: SecStaticCode) -> Bool? {
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dictionary = info as? [String: Any],
+              let flags = dictionary[kSecCodeInfoFlags as String] as? UInt32
+        else { return nil }
+        return flags & SecCodeSignatureFlags.adhoc.rawValue != 0
     }
 
     /// The check for the app whose code is `staticCode`.
     static func identityCheck(for staticCode: SecStaticCode) -> @Sendable (URL) -> Bool {
         var requirement: SecRequirement?
         var text: CFString?
-        guard SecCodeCopyDesignatedRequirement(staticCode, [], &requirement) == errSecSuccess, let requirement,
-              SecRequirementCopyString(requirement, [], &text) == errSecSuccess, let text
-        else { return { _ in true } }
-        if isAdHoc(requirement: text as String) { return { _ in true } }
-        return identityCheck(requirementText: text as String)
+        var requirementText: String?
+        if SecCodeCopyDesignatedRequirement(staticCode, [], &requirement) == errSecSuccess, let requirement,
+           SecRequirementCopyString(requirement, [], &text) == errSecSuccess, let text {
+            requirementText = text as String
+        }
+        return identityCheck(adHoc: isAdHoc(staticCode) ?? false, requirementText: requirementText)
+    }
+
+    /// The decision. An ad-hoc running app has no identity to keep and accepts
+    /// any valid signature. Any other running app is held to its designated
+    /// requirement, and if that cannot be read nothing satisfies it.
+    static func identityCheck(adHoc: Bool, requirementText: String?) -> @Sendable (URL) -> Bool {
+        if adHoc { return { _ in true } }
+        guard let requirementText else { return { _ in false } }
+        return identityCheck(requirementText: requirementText)
     }
 
     /// The check that a staged app satisfies `requirementText`.
@@ -673,16 +739,20 @@ struct FileManagerSwapper: UpdateSwapping {
         do {
             try replace(installed, staged)
         } catch {
-            restore(installed: installed, after: error)
+            restore(installed: installed, staged: staged, after: error)
             throw error
         }
     }
 
     /// Moves the original back if the failed replace left the installed path empty.
-    private func restore(installed: URL, after error: Error) {
+    /// The staged copy is never a candidate, however the error names it: putting
+    /// it in place would be the update, installed without its check.
+    private func restore(installed: URL, staged: URL, after error: Error) {
         let fm = FileManager.default
         guard !fm.fileExists(atPath: installed.path) else { return }
-        for candidate in Self.candidates(in: error) where candidate != installed && fm.fileExists(atPath: candidate.path) {
+        let skip = [installed, staged].map { $0.resolvingSymlinksInPath().standardizedFileURL.path }
+        for candidate in Self.candidates(in: error)
+        where !skip.contains(candidate.resolvingSymlinksInPath().standardizedFileURL.path) && fm.fileExists(atPath: candidate.path) {
             do {
                 try move(candidate, installed)
                 Log.updates.notice("update: the original app was put back after a failed replace")

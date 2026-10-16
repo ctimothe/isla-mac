@@ -124,10 +124,14 @@ final class UpdateValidatorTests: XCTestCase {
         return try XCTUnwrap(code)
     }
 
-    func testOnlyACdhashRequirementIsAdHoc() {
-        XCTAssertTrue(BundleUpdateValidator.isAdHoc(requirement: #"cdhash H"0123456789abcdef0123456789abcdef01234567""#))
-        XCTAssertFalse(BundleUpdateValidator.isAdHoc(requirement: #"identifier "com.ctimothe.isla" and anchor apple generic and certificate leaf[subject.OU] = "TEAMID""#))
-        XCTAssertFalse(BundleUpdateValidator.isAdHoc(requirement: #"identifier "com.ctimothe.isla""#))
+    /// Ad-hoc is what the signing information's flags say, not what a
+    /// requirement's text looks like.
+    func testAdHocIsReadFromTheSigningFlags() throws {
+        let folder = try UpdateTestSupport.folder(self)
+        let adHoc = try UpdateTestSupport.tinyApp(in: folder, name: "AdHoc.app", version: "1.0", build: "1")
+        let unsigned = try UpdateTestSupport.tinyApp(in: folder, name: "Unsigned.app", version: "1.0", build: "1", signing: .none)
+        XCTAssertEqual(BundleUpdateValidator.isAdHoc(try staticCode(adHoc)), true)
+        XCTAssertEqual(BundleUpdateValidator.isAdHoc(try staticCode(unsigned)), false, "unsigned code reads, and is not ad-hoc")
     }
 
     /// An ad-hoc app's real designated requirement is a cdhash, which no update
@@ -135,16 +139,30 @@ final class UpdateValidatorTests: XCTestCase {
     func testARunningAdHocAppAcceptsAnyValidSignature() async throws {
         let folder = try UpdateTestSupport.folder(self)
         let running = try UpdateTestSupport.tinyApp(in: folder, name: "Running.app", version: "1.0", build: "1", marker: "running")
-        var requirement: SecRequirement?
-        var text: CFString?
-        XCTAssertEqual(SecCodeCopyDesignatedRequirement(try staticCode(running), [], &requirement), errSecSuccess)
-        XCTAssertEqual(SecRequirementCopyString(try XCTUnwrap(requirement), [], &text), errSecSuccess)
-        XCTAssertTrue(BundleUpdateValidator.isAdHoc(requirement: try XCTUnwrap(text) as String), "\(text as String? ?? "")")
-
         let check = BundleUpdateValidator.identityCheck(for: try staticCode(running))
         let update = try UpdateTestSupport.tinyApp(in: folder, name: "Update.app", version: "1.1", build: "2", marker: "update")
         XCTAssertTrue(check(update), "the Ed25519 signature is the gate, not the identity")
-        XCTAssertTrue(check(running.appendingPathComponent("nope")), "an ad-hoc running app asks nothing of the staged one's identity")
+    }
+
+    /// The decision, through its seam: it never fails open.
+    func testTheIdentityDecisionFailsClosed() throws {
+        let folder = try UpdateTestSupport.folder(self)
+        let app = try UpdateTestSupport.tinyApp(in: folder, version: "1.1", build: "2")
+        XCTAssertTrue(BundleUpdateValidator.identityCheck(adHoc: true, requirementText: nil)(app), "ad-hoc keeps nothing")
+        XCTAssertTrue(BundleUpdateValidator.identityCheck(adHoc: true, requirementText: #"identifier "x""#)(app))
+        XCTAssertFalse(BundleUpdateValidator.identityCheck(adHoc: false, requirementText: nil)(app),
+                       "not ad-hoc and no requirement to read: nothing satisfies it, manual-only")
+        XCTAssertTrue(BundleUpdateValidator.identityCheck(adHoc: false, requirementText: #"identifier "com.ctimothe.isla""#)(app))
+        XCTAssertFalse(BundleUpdateValidator.identityCheck(adHoc: false, requirementText: #"identifier "com.example.other""#)(app))
+    }
+
+    /// Signing information that cannot be read is not ad-hoc either: an unsigned
+    /// running app has no requirement, so its update is the download page.
+    func testARunningAppWithNoSignatureAcceptsNothing() throws {
+        let folder = try UpdateTestSupport.folder(self)
+        let running = try UpdateTestSupport.tinyApp(in: folder, name: "Running.app", version: "1.0", build: "1", signing: .none)
+        let update = try UpdateTestSupport.tinyApp(in: folder, name: "Update.app", version: "1.1", build: "2")
+        XCTAssertFalse(BundleUpdateValidator.identityCheck(for: try staticCode(running))(update))
     }
 
     /// The certificate branch, with the requirement written by hand: a running

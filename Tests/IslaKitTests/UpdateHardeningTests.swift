@@ -151,6 +151,72 @@ final class UpdateHardeningTests: XCTestCase {
         XCTAssertEqual(rig.installer.phase, .relaunching)
     }
 
+    /// The ceiling is one: at it, Try Again is on the card within a few seconds
+    /// even though a step behind it is not listening and is still running.
+    func testTheCeilingEndsTheCardEvenWhileAStepIsStillRunning() async throws {
+        let rig = try InstallerRig(self)
+        rig.stager.deafSeconds = 1.5
+        rig.installTimeout = 0.3
+        rig.build()
+        let before = rig.installedFingerprint
+        let start = Date()
+        rig.installer.install(rig.release())
+        await rig.until("the failure at the ceiling") { rig.installer.phase == .failed(.cannotOpen) }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1.2, "ceiling plus a moment, not when the step comes back")
+
+        // Try Again at once, while the old run is still inside its step.
+        rig.stager.deafSeconds = 0
+        rig.installer.install(rig.release())
+        await rig.until("the new run to finish") { rig.log.count("relaunch") == 1 }
+        // The old run now comes back, finds it is not the current one, cleans up
+        // and leaves the new run's card alone and the swap undone.
+        try await Task.sleep(for: .milliseconds(1800))
+        XCTAssertEqual(rig.installer.phase, .relaunching, "the old run did not overwrite the new run's phase")
+        XCTAssertEqual(rig.log.count("swap"), 1, "only the new run swapped; the old one stopped at the ceiling")
+        XCTAssertNotEqual(rig.installedFingerprint, before)
+        XCTAssertEqual(rig.leftovers(), [])
+    }
+
+    /// After a failure that followed a mount, the image is looked up once more
+    /// by its file before the folder goes; if it will not let go, the folder stays.
+    func testALateMountIsLookedForBeforeTheFolderIsDeleted() async throws {
+        let rig = try InstallerRig(self)
+        rig.validator.error = UpdateValidationError.signatureInvalid
+        rig.build()
+        rig.installer.install(rig.release())
+        await rig.finish()
+        XCTAssertEqual(rig.diskImage.cleanedUp.count, 1)
+        XCTAssertEqual(rig.diskImage.cleanedUp.first?.lastPathComponent, UpdateInstaller.imageFileName)
+        XCTAssertEqual(rig.leftovers(), [])
+    }
+
+    func testAnImageThatMountedLateAndWillNotDetachKeepsTheFolder() async throws {
+        let rig = try InstallerRig(self)
+        rig.stager.error = UpdateImageError.stageFailed
+        rig.diskImage.cleansUp = false
+        rig.containsMount = { $0.deletingLastPathComponent() == rig.scratchRoot }
+        rig.build()
+        rig.installer.install(rig.release())
+        await rig.finish()
+        XCTAssertEqual(rig.diskImage.cleanedUp.count, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(rig.scratchFolders.first).path))
+    }
+
+    func testNothingIsLookedForWhenNothingWasEverAttached() async throws {
+        let rig = try InstallerRig(self)
+        rig.downloader.failure = URLError(.timedOut)
+        rig.build()
+        rig.installer.install(rig.release())
+        await rig.finish()
+        XCTAssertEqual(rig.diskImage.cleanedUp, [])
+        let verifyFails = try InstallerRig(self)
+        verifyFails.verifier.valid = false
+        verifyFails.build()
+        verifyFails.installer.install(verifyFails.release())
+        await verifyFails.finish()
+        XCTAssertEqual(verifyFails.diskImage.cleanedUp, [], "a bad signature never reached the mount")
+    }
+
     // MARK: Who may replace the app
 
     func testAnAppAnotherAccountOwnsOffersOnlyTheDownload() async throws {
@@ -277,6 +343,7 @@ final class UpdateHardeningTests: XCTestCase {
         let mine = try staging(folder)
         let lower = try staging(folder, name: UUID().uuidString.lowercased())
         let notUUID = try staging(folder, name: "OLD")
+        let newline = try staging(folder, name: UUID().uuidString + "\n")
         let almost = try staging(folder, name: UUID().uuidString + "x")
         let prefixed = folder.appendingPathComponent("Isla-update-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: prefixed, withIntermediateDirectories: true)
@@ -294,7 +361,7 @@ final class UpdateHardeningTests: XCTestCase {
         let fm = FileManager.default
         XCTAssertFalse(fm.fileExists(atPath: mine.path))
         XCTAssertFalse(fm.fileExists(atPath: lower.path), "a UUID in any case")
-        for kept in [notUUID, almost, prefixed, file, bystander, target] {
+        for kept in [notUUID, newline, almost, prefixed, file, bystander, target] {
             XCTAssertTrue(fm.fileExists(atPath: kept.path), kept.lastPathComponent)
         }
         XCTAssertNotNil(try? fm.destinationOfSymbolicLink(atPath: link.path), "a link by that name is left, and what it points at")

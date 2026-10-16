@@ -423,7 +423,7 @@ final class UpdateInstallerTests: XCTestCase {
         rig.build()
         rig.installer.install(rig.release())
         await rig.finish()
-        XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path))
+        await rig.until("the sweep") { !FileManager.default.fileExists(atPath: stale.path) }
         XCTAssertTrue(FileManager.default.fileExists(atPath: bystander.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: lookalike.path))
     }

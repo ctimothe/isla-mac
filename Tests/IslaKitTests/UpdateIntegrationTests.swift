@@ -222,6 +222,9 @@ final class UpdateIntegrationTests: XCTestCase {
         XCTAssertEqual(installer.phase, .failed(.invalidUpdate))
         XCTAssertTrue(relauncher.calls.isEmpty)
         XCTAssertEqual(UpdateTestSupport.fingerprint(of: installed), before)
+        // The card moves to the failure first and the last of the cleanup (the
+        // lookup for a late mount, then the folders) finishes just behind it.
+        await wait(installer) { scratch.folders.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) } }
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: apps.path), ["Isla.app"])
         for folder in scratch.folders { XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "nothing is left in \(folder.path)") }
         XCTAssertEqual(mountedImages(), [], "neither volume stays mounted")
