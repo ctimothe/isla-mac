@@ -26,11 +26,13 @@ protocol UpdateVerifying: Sendable {
     func isValid(signatureBase64: String, fileURL: URL) async -> Bool
 }
 
-/// Attaches a disk image and detaches it again. `attach` returns the mount
-/// point; `detach` never throws, because it runs on the way out of a failure.
+/// Attaches a disk image and detaches it again. `attach` returns the mount; if
+/// it fails it has already detached anything it attached, or throws
+/// `UpdateImageError.stillAttached`. `detach` never throws, because it runs on
+/// the way out of a failure, and says whether the volume is gone.
 protocol UpdateDiskImaging: Sendable {
-    func attach(_ image: URL, scratch: URL) async throws -> URL
-    func detach(_ mountPoint: URL) async
+    func attach(_ image: URL, scratch: URL) async throws -> UpdateMount
+    func detach(_ mount: UpdateMount) async -> Bool
 }
 
 /// Copies the one `Isla.app` at the root of a mounted volume into
@@ -52,9 +54,12 @@ protocol UpdateSwapping {
 }
 
 /// Starts the new copy once this process has gone, and ends this process.
+/// Returns false, and does *not* end this process, when it could not start
+/// anything to open the new copy.
 @MainActor
 protocol UpdateRelaunching {
-    func relaunch(installed: URL, processID: Int32)
+    @discardableResult
+    func relaunch(installed: URL, processID: Int32) -> Bool
 }
 
 /// What the installer asks of the Mac it runs on, before it does anything.
@@ -67,6 +72,13 @@ struct UpdateEnvironment {
     /// Bytes available for important use on the volume of `url`, nil if unknown.
     var availableCapacity: (URL) -> Int64?
     var isWritable: (URL) -> Bool
+    /// Whether the installed bundle is owned by the current user and can be
+    /// removed by them: a swap that needs another account's rights would fail
+    /// after the whole download.
+    var canReplace: (URL) -> Bool
+    /// Whether anything under `url` is a mounted volume, which must never be
+    /// deleted into.
+    var containsMount: (URL) -> Bool
     /// Where the download and the mount live, whose volume the free-space
     /// check also looks at.
     var scratchRoot: URL
@@ -84,6 +96,8 @@ struct UpdateEnvironment {
                     .volumeAvailableCapacityForImportantUsage
             },
             isWritable: { FileManager.default.isWritableFile(atPath: $0.path) },
+            canReplace: { UpdateInstaller.currentUserCanReplace($0) },
+            containsMount: { UpdateInstaller.directoryContainsMount($0) },
             scratchRoot: scratch,
             makeScratchFolder: {
                 // The user's own temporary folder, not the system's
@@ -108,9 +122,10 @@ struct UpdateEnvironment {
 /// The order is the design, and it is the order of the risks:
 ///
 /// 1. **Before anything is fetched** the installer decides whether it can finish
-///    at all — where the app lives, whether its folder is writable, whether this
-///    build carries a key, whether the release names an image and a signature,
-///    whether the disk has room — so nobody downloads ten megabytes to hear no.
+///    at all — where the app lives, whether its folder is writable and the app
+///    is the user's to replace, whether this build carries a key, whether the
+///    release names an image and a signature, whether the disk has room — so
+///    nobody downloads ten megabytes to hear no.
 /// 2. **The signature is fetched first** (a kilobyte), then the image, and the
 ///    image's size must be the one advertised.
 /// 3. **The signature is verified before the image is mounted.** A disk image
@@ -118,12 +133,16 @@ struct UpdateEnvironment {
 /// 4. **Only the staged copy is judged.** The image is mounted read-only, the
 ///    app is copied beside the installed one (same volume, so the swap is a
 ///    rename), the image is detached, and the validator looks at the copy, not
-///    at the image, so nothing can change between the check and the use.
-/// 5. **The swap is one `replaceItemAt`.** A failure leaves the installed app
-///    untouched.
+///    at the image, so nothing can change between the check and the use. An
+///    image that cannot be detached stops the install before the swap.
+/// 5. **The swap is one atomic exchange** (`FileManagerSwapper`), and a failure
+///    leaves the installed app in place.
 /// 6. **Everything the run made is removed on every path**, including the
 ///    ones that end the process: the cleanup runs *before* the relaunch,
-///    because `terminate` does not return.
+///    because `terminate` does not return. Nothing is ever deleted into a
+///    volume that is still mounted.
+/// 7. **The installing phase has a ceiling** (`installTimeout`): a hung tool
+///    ends in a failure with Try Again, not in a card that never changes.
 ///
 /// One install runs at a time. Nothing starts it but `install(_:)`, and the
 /// only caller is the Update Now button: the daily check only reports.
@@ -141,22 +160,32 @@ final class UpdateInstaller: ObservableObject {
         case invalidUpdate
         case diskSpace
         case cannotReplace
+        /// The image would not open or would not let go: a tool that hung past
+        /// the ceiling, or a volume that could not be detached.
+        case cannotOpen
         /// Pressing Cancel while it downloads. Not shown as a failure: the
         /// installer returns to `idle` and the release is on offer again.
         case cancelled
     }
 
-    /// Why Update Now is not offered, decided before any download.
+    /// Why Update Now is not offered.
     enum ManualReason: Equatable {
         case translocated, mountedVolume, notAnApp, notWritable
+        /// The installed bundle belongs to another account, or cannot be removed
+        /// by this one.
+        case notOwned
         case noPublicKey, noImage, noSignature
+        /// The update is validly signed by a different identity than the running
+        /// app's, which would cost it its permissions. Decided only after the
+        /// download, when the staged copy can be looked at.
+        case identityChanged
 
         /// The app's place is the problem, as opposed to this release or this
         /// build; the panel words the two differently.
         var isLocation: Bool {
             switch self {
-            case .translocated, .mountedVolume, .notAnApp, .notWritable: return true
-            case .noPublicKey, .noImage, .noSignature: return false
+            case .translocated, .mountedVolume, .notAnApp, .notWritable, .notOwned: return true
+            case .noPublicKey, .noImage, .noSignature, .identityChanged: return false
             }
         }
     }
@@ -167,12 +196,15 @@ final class UpdateInstaller: ObservableObject {
         case verifying
         case installing
         case relaunching
+        /// The new copy is in place and could not be started: the person is
+        /// asked to quit and open Isla again. Final until Isla quits.
+        case restartNeeded
         case failed(Failure)
         case manualOnly(ManualReason)
 
         var isBusy: Bool {
             switch self {
-            case .downloading, .verifying, .installing, .relaunching: return true
+            case .downloading, .verifying, .installing, .relaunching, .restartNeeded: return true
             case .idle, .failed, .manualOnly: return false
             }
         }
@@ -185,10 +217,12 @@ final class UpdateInstaller: ObservableObject {
 
     /// Free space on the install volume the image's size is multiplied by:
     /// the download, the staged copy, and room to work.
-    static let spaceFactor = 2.5
+    nonisolated static let spaceFactor = 2.5
     nonisolated static let stagingPrefix = ".Isla-update-"
     nonisolated static let imageFileName = "Isla.dmg"
     nonisolated static let signatureFileName = "Isla.dmg.sig"
+    /// The ceiling on the installing phase, mount to swap.
+    nonisolated static let defaultInstallTimeout: TimeInterval = 120
 
     private let environment: UpdateEnvironment
     private let downloader: UpdateDownloading
@@ -198,8 +232,10 @@ final class UpdateInstaller: ObservableObject {
     private let validator: UpdateValidating
     private let swapper: UpdateSwapping
     private let relauncher: UpdateRelaunching
+    private let installTimeout: TimeInterval
     private var task: Task<Void, Never>?
     private var generation = 0
+    private var subscription: AnyCancellable?
 
     init(
         environment: UpdateEnvironment = .live(),
@@ -209,7 +245,8 @@ final class UpdateInstaller: ObservableObject {
         stager: UpdateStaging = DittoUpdateStager(),
         validator: UpdateValidating? = nil,
         swapper: UpdateSwapping = FileManagerSwapper(),
-        relauncher: UpdateRelaunching? = nil
+        relauncher: UpdateRelaunching? = nil,
+        installTimeout: TimeInterval = UpdateInstaller.defaultInstallTimeout
     ) {
         self.environment = environment
         self.downloader = downloader
@@ -219,6 +256,7 @@ final class UpdateInstaller: ObservableObject {
         self.validator = validator ?? BundleUpdateValidator.running()
         self.swapper = swapper
         self.relauncher = relauncher ?? ShellRelauncher()
+        self.installTimeout = installTimeout
     }
 
     // MARK: Deciding
@@ -235,6 +273,7 @@ final class UpdateInstaller: ObservableObject {
         // `swift run` and the tests have no bundle to replace.
         if installed.pathExtension != "app" { return .notAnApp }
         if !environment.isWritable(installed.deletingLastPathComponent()) { return .notWritable }
+        if !environment.canReplace(installed) { return .notOwned }
         if !UpdateSignature.isUsablePublicKey(environment.publicKey) { return .noPublicKey }
         guard let image = release.dmg,
               UpdateCheck.trustedAsset(name: image.name, url: image.url, size: image.size, version: release.version, kind: .dmg) != nil
@@ -284,8 +323,32 @@ final class UpdateInstaller: ObservableObject {
 
     /// Clears a failure or a manual-only verdict, back to offering the release.
     func reset() {
-        guard !phase.isBusy else { return }
-        phase = .idle
+        switch phase {
+        case .failed, .manualOnly: phase = .idle
+        case .idle, .downloading, .verifying, .installing, .relaunching, .restartNeeded: break
+        }
+    }
+
+    /// Follows a check. A failed or refused install belongs to the release it
+    /// tried, so a check that finds Isla up to date, or finds a different
+    /// release, ends it: Try Again must never install a release that is no
+    /// longer the one on offer. The same release again keeps it.
+    func observe(_ check: UpdateCheck) {
+        subscription = check.$state.sink { [weak self] state in
+            Task { @MainActor in self?.settle(with: state) }
+        }
+    }
+
+    func settle(with state: UpdateCheck.State) {
+        switch phase {
+        case .failed, .manualOnly: break
+        default: return
+        }
+        switch state {
+        case .upToDate: reset()
+        case .available(let found) where found.version != release?.version: reset()
+        default: break
+        }
     }
 
     /// Shows a state without being in it, for the visual lab, which draws every
@@ -302,12 +365,21 @@ final class UpdateInstaller: ObservableObject {
         phase = .downloading(received: min(received, total), total: total)
     }
 
-    /// Everything the run made on disk, removed in one place.
+    /// Everything the run made on disk, removed in one place, and never into a
+    /// mounted volume: a folder with a volume under it is left, and logged.
     private final class Disposables {
         private var urls: [URL] = []
+        private let containsMount: (URL) -> Bool
+        init(containsMount: @escaping (URL) -> Bool) { self.containsMount = containsMount }
         func add(_ url: URL) { urls.append(url) }
         func run() {
-            for url in urls { try? FileManager.default.removeItem(at: url) }
+            for url in urls {
+                if containsMount(url) {
+                    Log.updates.error("update: a folder was left because a volume is still mounted in it")
+                    continue
+                }
+                try? FileManager.default.removeItem(at: url)
+            }
             urls.removeAll()
         }
     }
@@ -316,12 +388,15 @@ final class UpdateInstaller: ObservableObject {
         _ release: UpdateCheck.Release, image: UpdateCheck.Release.Asset, signature: UpdateCheck.Release.Asset,
         generation id: Int
     ) async {
-        let disposables = Disposables()
+        let disposables = Disposables(containsMount: environment.containsMount)
         defer { disposables.run() }
+        let ceiling = Ceiling()
+        var watchdog: Task<Void, Never>?
+        defer { watchdog?.cancel() }
         do {
             let installed = environment.installedURL
             let parent = installed.deletingLastPathComponent()
-            Self.sweepStaleStaging(in: parent)
+            Self.sweepStaleStaging(in: parent, ownerID: Self.ownerID)
 
             let scratch = try step(.cannotReplace) { try environment.makeScratchFolder() }
             disposables.add(scratch)
@@ -353,33 +428,71 @@ final class UpdateInstaller: ObservableObject {
             }
 
             phase = .installing
-            let mountPoint = try await attempt(.invalidUpdate) {
+            // The ceiling on everything from the mount to the swap. It cancels
+            // this task, which ends the tool in flight; what a cancelled step
+            // throws is then read as the ceiling, not as a cancel.
+            let seconds = installTimeout
+            let running = task
+            watchdog = Task { [ceiling] in
+                try? await Task.sleep(for: .seconds(seconds))
+                guard !Task.isCancelled else { return }
+                ceiling.fire()
+                running?.cancel()
+            }
+
+            let mount = try await attempt(.invalidUpdate, ceiling: ceiling) {
                 try await diskImage.attach(imageFile, scratch: scratch)
             }
             let staged: URL
             do {
-                staged = try await attempt(.invalidUpdate) {
-                    try await stager.stage(volume: mountPoint, into: staging)
+                staged = try await attempt(.invalidUpdate, ceiling: ceiling) {
+                    try await stager.stage(volume: mount.mountPoint, into: staging)
                 }
             } catch {
-                await diskImage.detach(mountPoint)
+                // A volume that will not let go is the worse news.
+                if !(await detach(mount)) { throw Failure.cannotOpen }
                 throw error
             }
-            await diskImage.detach(mountPoint)
+            // Detached before the staged copy is judged or swapped in; an image
+            // that will not let go stops the install here.
+            guard await detach(mount) else { throw Failure.cannotOpen }
 
-            try await attempt(.invalidUpdate) { try await validator.validate(staged, release: release) }
+            try await attempt(.invalidUpdate, ceiling: ceiling) { try await validator.validate(staged, release: release) }
+            // The swap is not interruptible, so a ceiling that fired during
+            // validation ends the install before it, never in the middle of it.
+            if ceiling.fired { throw Failure.cannotOpen }
             try step(.cannotReplace) { try swapper.replace(installed: installed, with: staged) }
+            watchdog?.cancel()
 
             phase = .relaunching
             // Before the relaunch, which may never return: the process ends in
             // it, and a defer would not run.
             disposables.run()
-            relauncher.relaunch(installed: installed, processID: environment.processID)
+            if !relauncher.relaunch(installed: installed, processID: environment.processID) {
+                // The new copy is in place; there is just nothing to open it.
+                Log.updates.error("update: installed, but the relaunch could not start")
+                phase = .restartNeeded
+            }
         } catch {
-            let failure = Self.failure(from: error, default: .offline)
+            var failure = Self.failure(from: error, default: .offline)
+            if ceiling.fired, failure == .cancelled || failure == .invalidUpdate { failure = .cannotOpen }
+            if case UpdateImageError.stillAttached = error { failure = .cannotOpen }
             Log.updates.error("update stopped: \(String(describing: failure), privacy: .public)")
-            phase = failure == .cancelled ? .idle : .failed(failure)
+            if case UpdateValidationError.identityChanged = error {
+                phase = .manualOnly(.identityChanged)
+            } else {
+                phase = failure == .cancelled ? .idle : .failed(failure)
+            }
         }
+    }
+
+    /// Detaches in a task a cancelled install cannot end. If the volume is still
+    /// there afterwards its folder is kept, not deleted into.
+    private func detach(_ mount: UpdateMount) async -> Bool {
+        let diskImage = diskImage
+        let gone = await UpdateTool.uncancellable { await diskImage.detach(mount) }
+        if !gone { Log.updates.error("update: the disk image is still attached; its folder is left alone") }
+        return gone
     }
 
     private func download(
@@ -395,10 +508,24 @@ final class UpdateInstaller: ObservableObject {
 
     // MARK: Helpers
 
+    /// Whether the installing ceiling has been reached.
+    private final class Ceiling: @unchecked Sendable {
+        private let lock = NSLock()
+        private var reached = false
+        func fire() { lock.lock(); reached = true; lock.unlock() }
+        var fired: Bool { lock.lock(); defer { lock.unlock() }; return reached }
+    }
+
     /// Runs a step and turns whatever it throws into a `Failure`: its own if it
-    /// is one, a cancellation as `cancelled`, anything else as `fallback`.
-    private func attempt<T>(_ fallback: Failure, _ body: () async throws -> T) async throws -> T {
-        do { return try await body() } catch { throw Self.failure(from: error, default: fallback) }
+    /// is one, a cancellation as `cancelled`, anything else as `fallback`. An
+    /// `UpdateImageError.stillAttached` and an identity change pass through for
+    /// `perform` to read.
+    private func attempt<T>(_ fallback: Failure, ceiling: Ceiling? = nil, _ body: () async throws -> T) async throws -> T {
+        do { return try await body() } catch {
+            if case UpdateImageError.stillAttached = error { throw error }
+            if case UpdateValidationError.identityChanged = error { throw error }
+            throw Self.failure(from: error, default: fallback)
+        }
     }
 
     private func step<T>(_ fallback: Failure, _ body: () throws -> T) throws -> T {
@@ -415,14 +542,71 @@ final class UpdateInstaller: ObservableObject {
         (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int64
     }
 
-    /// A staging folder a crash or a power cut left beside the app. Only
-    /// folders with Isla's own prefix, and only here, where nothing else of
-    /// Isla's can be using one: an install is one at a time.
-    nonisolated static func sweepStaleStaging(in parent: URL) {
+    // MARK: Leftovers
+
+    /// `.Isla-update-<UUID>`, exactly: the name this installer gives its staging
+    /// folder and nothing a person or another program would.
+    nonisolated static func isStagingFolderName(_ name: String) -> Bool {
+        name.range(
+            of: #"^\.Isla-update-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    /// The owner of a path, without following a link at the end of it.
+    nonisolated static func ownerID(_ url: URL) -> UInt32? {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return nil }
+        return info.st_uid
+    }
+
+    /// Stale staging folders a crash or a power cut left beside the app: only
+    /// real directories named exactly like one (`isStagingFolderName`), owned by
+    /// the current user, and not `except` (the install under way).
+    nonisolated static func sweepStaleStaging(
+        in parent: URL, except current: URL? = nil,
+        ownerID owner: (URL) -> UInt32? = UpdateInstaller.ownerID, user: UInt32 = getuid()
+    ) {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: parent.path) else { return }
-        for name in names where name.hasPrefix(stagingPrefix) {
-            try? fm.removeItem(at: parent.appendingPathComponent(name))
+        for name in names where isStagingFolderName(name) {
+            let url = parent.appendingPathComponent(name, isDirectory: true)
+            guard url != current, owner(url) == user else { continue }
+            var info = stat()
+            guard lstat(url.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else { continue }
+            try? fm.removeItem(at: url)
         }
+    }
+
+    /// The sweep at launch, off the main thread: the folder beside the app is
+    /// the one a crashed install used. Does nothing for an app that is not an
+    /// installed bundle, or that runs from a place no install could have used.
+    static func sweepAtLaunch(environment: UpdateEnvironment = .live()) {
+        let installed = environment.installedURL
+        guard installed.pathExtension == "app", !installed.path.hasPrefix("/Volumes/"),
+              !installed.path.contains("/AppTranslocation/")
+        else { return }
+        let parent = installed.deletingLastPathComponent()
+        DispatchQueue.global(qos: .utility).async { sweepStaleStaging(in: parent) }
+    }
+
+    /// Whether the installed bundle is the current user's to replace: owned by
+    /// them and removable by them.
+    nonisolated static func currentUserCanReplace(_ url: URL) -> Bool {
+        ownerID(url) == getuid() && FileManager.default.isDeletableFile(atPath: url.path)
+    }
+
+    /// Whether any direct child of `url` is on another device than `url`: a
+    /// mount point under it. `-mountrandom` mounts directly under the scratch
+    /// folder, so one level is the whole question.
+    nonisolated static func directoryContainsMount(_ url: URL) -> Bool {
+        var root = stat()
+        guard lstat(url.path, &root) == 0 else { return false }
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: url.path) else { return false }
+        for name in names {
+            var child = stat()
+            if lstat(url.appendingPathComponent(name).path, &child) == 0, child.st_dev != root.st_dev { return true }
+        }
+        return false
     }
 }

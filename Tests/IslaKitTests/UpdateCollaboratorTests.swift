@@ -83,8 +83,8 @@ final class UpdateCollaboratorTests: XCTestCase {
         XCTAssertFalse(URLSessionUpdateDownloader.allowsRedirect(to: nil))
     }
 
-    /// The downloader goes through the same private configuration as every other
-    /// request: nothing cached, no cookies, no credentials.
+    /// The downloader's session comes from `PrivateNetwork`, whose configuration
+    /// keeps nothing: no cache, no cookies, no credentials.
     func testTheDownloadUsesThePrivateConfiguration() {
         let configuration = PrivateNetwork.makeConfiguration()
         XCTAssertNil(configuration.urlCache)
@@ -92,7 +92,12 @@ final class UpdateCollaboratorTests: XCTestCase {
         XCTAssertNil(configuration.urlCredentialStorage)
         XCTAssertFalse(configuration.httpShouldSetCookies)
         XCTAssertEqual(configuration.requestCachePolicy, .reloadIgnoringLocalCacheData)
-        XCTAssertEqual(URLSessionUpdateDownloader().configuration().urlCache, nil)
+        let session = PrivateNetwork.makeSession(delegate: URLSessionDelegateStub(), requestTimeout: 7, resourceTimeout: 9)
+        defer { session.invalidateAndCancel() }
+        XCTAssertNil(session.configuration.urlCache)
+        XCTAssertNil(session.configuration.httpCookieStorage)
+        XCTAssertEqual(session.configuration.timeoutIntervalForRequest, 7)
+        XCTAssertEqual(session.configuration.timeoutIntervalForResource, 9)
     }
 
     // MARK: The relaunch
@@ -117,7 +122,18 @@ final class UpdateCollaboratorTests: XCTestCase {
         // `true` ignores its arguments, so the real shell and the real `open`
         // never run.
         let relauncher = ShellRelauncher(terminate: { terminated += 1 }, shell: "/usr/bin/true")
-        relauncher.relaunch(installed: URL(fileURLWithPath: "/nonexistent/Isla.app"), processID: 2_000_000_000)
+        XCTAssertTrue(relauncher.relaunch(installed: URL(fileURLWithPath: "/nonexistent/Isla.app"), processID: 2_000_000_000))
         XCTAssertEqual(terminated, 1)
     }
+
+    /// A shell that cannot be started leaves Isla running: quitting would leave
+    /// nothing to open the new copy.
+    func testARelauncherThatCannotStartDoesNotQuit() {
+        var terminated = 0
+        let relauncher = ShellRelauncher(terminate: { terminated += 1 }, shell: "/nonexistent/sh")
+        XCTAssertFalse(relauncher.relaunch(installed: URL(fileURLWithPath: "/nonexistent/Isla.app"), processID: 1))
+        XCTAssertEqual(terminated, 0)
+    }
 }
+
+private final class URLSessionDelegateStub: NSObject, URLSessionDelegate {}

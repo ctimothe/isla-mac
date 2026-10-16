@@ -236,6 +236,8 @@
 "Verifying…" = "Verifying…";
 "Installing…" = "Installing…";
 "Restarting Isla…" = "Restarting Isla…";
+"Isla has been updated. Quit Isla and open it again to finish." = "Isla has been updated. Quit Isla and open it again to finish.";
+"Isla couldn't open the downloaded update." = "Isla couldn't open the downloaded update.";
 "The update couldn't be installed." = "The update couldn't be installed.";
 "The download didn't match Isla's signature, so it was deleted." = "The download didn't match Isla's signature, so it was deleted.";
 "Isla couldn't reach GitHub." = "Isla couldn't reach GitHub.";

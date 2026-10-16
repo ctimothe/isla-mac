@@ -75,6 +75,47 @@ final class UpdateIntegrationTests: XCTestCase {
         return Fixture(release: release, image: dmg)
     }
 
+    /// A disk image with TWO volumes, the first holding a 1.1 app: attaching it
+    /// mounts both. Made by partitioning a blank image (`diskutil`), copying the
+    /// app into the first volume and detaching.
+    private func makeTwoVolumeRelease() throws -> Fixture {
+        let blank = folder.appendingPathComponent("Isla-1.1.dmg")
+        let made = UpdateTestSupport.run("/usr/bin/hdiutil", ["create", "-size", "40m", "-layout", "GPTSPUD", "-fs", "HFS+", "-volname", "Seed", "-ov", blank.path])
+        XCTAssertEqual(made.status, 0, made.output)
+        let attach = UpdateTestSupport.run("/usr/bin/hdiutil", ["attach", "-nomount", "-plist", blank.path])
+        let device = try XCTUnwrap(attach.output.range(of: #"/dev/disk\d+"#, options: .regularExpression).map { String(attach.output[$0]) }, attach.output)
+        defer { UpdateTestSupport.run("/usr/bin/hdiutil", ["detach", "-force", device]) }
+        let tag = UUID().uuidString.prefix(8)
+        let first = "IslaLabOne\(tag)", second = "IslaLabTwo\(tag)"
+        let split = UpdateTestSupport.run("/usr/sbin/diskutil", ["partitionDisk", device, "GPT", "HFS+", first, "50%", "HFS+", second, "50%"])
+        XCTAssertEqual(split.status, 0, split.output)
+        let source = folder.appendingPathComponent("Src2", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let app = try UpdateTestSupport.tinyApp(in: source, version: "1.1", build: "2", marker: "new 1.1")
+        let copied = UpdateTestSupport.run("/usr/bin/ditto", [app.path, "/Volumes/\(first)/Isla.app"])
+        XCTAssertEqual(copied.status, 0, copied.output)
+        let bytes: Data = try {
+            UpdateTestSupport.run("/usr/bin/hdiutil", ["detach", "-force", device])
+            return try Data(contentsOf: blank)
+        }()
+        return try serve(bytes, image: blank)
+    }
+
+    private func serve(_ bytes: Data, image: URL) throws -> Fixture {
+        let signature = key.sign(bytes)
+        let sig = Data((signature + "\n").utf8)
+        let base = "https://github.com/ctimothe/isla-mac/releases/download/v1.1/"
+        StubGitHub.serve(URL(string: base + "Isla-1.1.dmg")!, bytes)
+        StubGitHub.serve(URL(string: base + "Isla-1.1.dmg.sig")!, sig)
+        let release = UpdateCheck.Release(
+            version: "1.1", page: URL(string: "https://github.com/ctimothe/isla-mac/releases/tag/v1.1")!,
+            notes: "Integration.",
+            dmg: .init(name: "Isla-1.1.dmg", url: URL(string: base + "Isla-1.1.dmg")!, size: Int64(bytes.count)),
+            signature: .init(name: "Isla-1.1.dmg.sig", url: URL(string: base + "Isla-1.1.dmg.sig")!, size: Int64(sig.count))
+        )
+        return Fixture(release: release, image: image)
+    }
+
     private func makeInstaller(relauncher: FakeRelauncher, scratch: ScratchLog) -> UpdateInstaller {
         var environment = UpdateEnvironment.live()
         environment.installedURL = installed
@@ -86,11 +127,7 @@ final class UpdateIntegrationTests: XCTestCase {
             return folder
         }
         var downloader = URLSessionUpdateDownloader()
-        downloader.configuration = {
-            let configuration = PrivateNetwork.makeConfiguration()
-            configuration.protocolClasses = [StubGitHub.self]
-            return configuration
-        }
+        downloader.makeSession = { PrivateNetwork.makeSession(delegate: $0, protocolClasses: [StubGitHub.self]) }
         return UpdateInstaller(
             environment: environment, downloader: downloader,
             validator: BundleUpdateValidator(runningVersion: "1.0", runningBuild: "1"),
@@ -159,6 +196,37 @@ final class UpdateIntegrationTests: XCTestCase {
         XCTAssertEqual(mountedImages(), [], "no volume stays mounted")
     }
 
+    /// An image that mounts two volumes is not an Isla update: both are detached,
+    /// nothing is copied, the app is untouched and no volume is left behind.
+    func testAnImageWithTwoVolumesIsRefusedAndBothAreDetached() async throws {
+        let fixture = try makeTwoVolumeRelease()
+        XCTAssertLessThanOrEqual(fixture.release.dmg?.size ?? .max, 100 * 1024 * 1024)
+        // First, that the image really does mount two volumes, and that the real
+        // collaborator says so and lets go of both.
+        let probe = folder.appendingPathComponent("probe", isDirectory: true)
+        try FileManager.default.createDirectory(at: probe, withIntermediateDirectories: true)
+        do {
+            _ = try await HdiutilDiskImage().attach(fixture.image, scratch: probe)
+            XCTFail("a two-volume image must not attach as one")
+        } catch {
+            XCTAssertEqual(error as? UpdateImageError, .oneVolumeExpected)
+        }
+        XCTAssertEqual(mountedImages(), [], "the probe detached both")
+        let relauncher = FakeRelauncher(log: Recorder())
+        let scratch = ScratchLog()
+        let installer = makeInstaller(relauncher: relauncher, scratch: scratch)
+        let before = UpdateTestSupport.fingerprint(of: installed)
+        installer.install(fixture.release)
+        await wait(installer) { if case .failed = installer.phase { return true } else { return false } }
+
+        XCTAssertEqual(installer.phase, .failed(.invalidUpdate))
+        XCTAssertTrue(relauncher.calls.isEmpty)
+        XCTAssertEqual(UpdateTestSupport.fingerprint(of: installed), before)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: apps.path), ["Isla.app"])
+        for folder in scratch.folders { XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "nothing is left in \(folder.path)") }
+        XCTAssertEqual(mountedImages(), [], "neither volume stays mounted")
+    }
+
     func testATamperedImageIsRefusedBeforeItIsEverMounted() async throws {
         let fixture = try makeRelease(tamper: true)
         let relauncher = FakeRelauncher(log: Recorder())
@@ -176,41 +244,4 @@ final class UpdateIntegrationTests: XCTestCase {
         for folder in scratch.folders { XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path)) }
         XCTAssertEqual(mountedImages(), [])
     }
-}
-
-/// Answers the two release URLs from memory with a 200 and the file's length,
-/// so the downloader's own delegate runs against a real `URLSession` with
-/// nothing leaving the Mac.
-final class StubGitHub: URLProtocol {
-    nonisolated(unsafe) private static var files: [URL: Data] = [:]
-    private static let lock = NSLock()
-
-    static func serve(_ url: URL, _ data: Data) { lock.lock(); files[url] = data; lock.unlock() }
-    static func clear() { lock.lock(); files = [:]; lock.unlock() }
-    private static func data(for url: URL) -> Data? { lock.lock(); defer { lock.unlock() }; return files[url] }
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        guard let url = request.url, let data = Self.data(for: url) else {
-            let response = HTTPURLResponse(url: request.url ?? URL(string: "https://invalid")!, statusCode: 404, httpVersion: nil, headerFields: nil)!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocolDidFinishLoading(self)
-            return
-        }
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
-                                       headerFields: ["Content-Length": "\(data.count)", "Content-Type": "application/octet-stream"])!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        // In pieces, so progress is reported more than once.
-        var offset = 0
-        while offset < data.count {
-            let end = min(offset + 64 * 1024, data.count)
-            client?.urlProtocol(self, didLoad: data.subdata(in: offset..<end))
-            offset = end
-        }
-        client?.urlProtocolDidFinishLoading(self)
-    }
-
-    override func stopLoading() {}
 }

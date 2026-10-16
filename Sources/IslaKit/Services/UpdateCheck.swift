@@ -209,12 +209,13 @@ final class UpdateCheck: ObservableObject {
     enum AssetKind {
         case dmg, signature
 
-        /// The most the file may be. A disk image of Isla is about ten
+        /// The most the file may be. A disk image of Isla is about five
         /// megabytes; the cap only has to refuse the absurd, because it is
-        /// also what the free-space check multiplies.
+        /// also what the free-space check multiplies and what the signature
+        /// check reads into memory.
         var sizeLimit: Int64 {
             switch self {
-            case .dmg: return 300 * 1024 * 1024
+            case .dmg: return 100 * 1024 * 1024
             case .signature: return 1024
             }
         }

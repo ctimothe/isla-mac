@@ -144,6 +144,7 @@ extension UpdatePresentation.Stage {
         case .relaunching: return 7
         case .failed: return 8
         case .manualOnly: return 9
+        case .restartNeeded: return 10
         }
     }
 }

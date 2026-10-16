@@ -33,6 +33,7 @@ final class UpdateInstallerTests: XCTestCase {
             case .verifying: kind = "verifying"
             case .installing: kind = "installing"
             case .relaunching: kind = "relaunching"
+            case .restartNeeded: kind = "restart"
             case .failed: kind = "failed"
             case .manualOnly: kind = "manual"
             }
@@ -302,7 +303,7 @@ final class UpdateInstallerTests: XCTestCase {
 
     func testAFailedSwapLeavesTheInstalledAppByteIdenticalAndCleansUp() async throws {
         let rig = try InstallerRig(self)
-        rig.swapper.error = CocoaError(.fileWriteNoPermission)
+        rig.swapper.swapper.swap = { _, _ in EACCES }
         rig.build()
         let before = rig.installedFingerprint
         rig.installer.install(rig.release())
@@ -320,7 +321,7 @@ final class UpdateInstallerTests: XCTestCase {
             switch scenario {
             case "stage fails": rig.stager.error = UpdateImageError.noApp
             case "validation fails": rig.validator.error = UpdateValidationError.notNewer
-            case "swap fails": rig.swapper.error = CocoaError(.fileWriteUnknown)
+            case "swap fails": rig.swapper.swapper.swap = { _, _ in EACCES }
             default: break
             }
             rig.build()
@@ -413,7 +414,7 @@ final class UpdateInstallerTests: XCTestCase {
 
     func testAStagingFolderALostRunLeftBesideTheAppIsSweptAtTheNextInstall() async throws {
         let rig = try InstallerRig(self)
-        let stale = rig.apps.appendingPathComponent("\(UpdateInstaller.stagingPrefix)OLD", isDirectory: true)
+        let stale = rig.apps.appendingPathComponent("\(UpdateInstaller.stagingPrefix)\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: stale.appendingPathComponent("Isla.app"), withIntermediateDirectories: true)
         let bystander = rig.apps.appendingPathComponent("Other.app", isDirectory: true)
         let lookalike = rig.apps.appendingPathComponent("Isla-update-notes", isDirectory: true)

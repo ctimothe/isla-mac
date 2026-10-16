@@ -115,4 +115,75 @@ final class UpdateValidatorTests: XCTestCase {
         XCTAssertNil(first)
         XCTAssertNil(second)
     }
+
+    // MARK: Identity continuity
+
+    private func staticCode(_ app: URL) throws -> SecStaticCode {
+        var code: SecStaticCode?
+        XCTAssertEqual(SecStaticCodeCreateWithPath(app as CFURL, [], &code), errSecSuccess)
+        return try XCTUnwrap(code)
+    }
+
+    func testOnlyACdhashRequirementIsAdHoc() {
+        XCTAssertTrue(BundleUpdateValidator.isAdHoc(requirement: #"cdhash H"0123456789abcdef0123456789abcdef01234567""#))
+        XCTAssertFalse(BundleUpdateValidator.isAdHoc(requirement: #"identifier "com.ctimothe.isla" and anchor apple generic and certificate leaf[subject.OU] = "TEAMID""#))
+        XCTAssertFalse(BundleUpdateValidator.isAdHoc(requirement: #"identifier "com.ctimothe.isla""#))
+    }
+
+    /// An ad-hoc app's real designated requirement is a cdhash, which no update
+    /// can share, so a running ad-hoc app accepts any valid signature.
+    func testARunningAdHocAppAcceptsAnyValidSignature() async throws {
+        let folder = try UpdateTestSupport.folder(self)
+        let running = try UpdateTestSupport.tinyApp(in: folder, name: "Running.app", version: "1.0", build: "1", marker: "running")
+        var requirement: SecRequirement?
+        var text: CFString?
+        XCTAssertEqual(SecCodeCopyDesignatedRequirement(try staticCode(running), [], &requirement), errSecSuccess)
+        XCTAssertEqual(SecRequirementCopyString(try XCTUnwrap(requirement), [], &text), errSecSuccess)
+        XCTAssertTrue(BundleUpdateValidator.isAdHoc(requirement: try XCTUnwrap(text) as String), "\(text as String? ?? "")")
+
+        let check = BundleUpdateValidator.identityCheck(for: try staticCode(running))
+        let update = try UpdateTestSupport.tinyApp(in: folder, name: "Update.app", version: "1.1", build: "2", marker: "update")
+        XCTAssertTrue(check(update), "the Ed25519 signature is the gate, not the identity")
+        XCTAssertTrue(check(running.appendingPathComponent("nope")), "an ad-hoc running app asks nothing of the staged one's identity")
+    }
+
+    /// The certificate branch, with the requirement written by hand: a running
+    /// app signed by a certificate is replaced only by a copy that satisfies its
+    /// designated requirement. (A real certificate needs a keychain; the
+    /// requirement language does not.)
+    func testARequirementIsHeldAgainstTheStagedApp() throws {
+        let folder = try UpdateTestSupport.folder(self)
+        let app = try UpdateTestSupport.tinyApp(in: folder, version: "1.1", build: "2")
+        XCTAssertTrue(BundleUpdateValidator.identityCheck(requirementText: #"identifier "com.ctimothe.isla""#)(app))
+        XCTAssertFalse(BundleUpdateValidator.identityCheck(requirementText: #"identifier "com.example.other""#)(app))
+        XCTAssertFalse(BundleUpdateValidator.identityCheck(requirementText: #"anchor apple generic and certificate leaf[subject.OU] = "AAAAAAAAAA""#)(app),
+                       "an ad-hoc copy does not satisfy a certificate's requirement")
+        XCTAssertFalse(BundleUpdateValidator.identityCheck(requirementText: "this is not a requirement")(app), "an unparsable requirement refuses")
+        XCTAssertFalse(BundleUpdateValidator.identityCheck(requirementText: #"identifier "com.ctimothe.isla""#)(folder.appendingPathComponent("Missing.app")))
+    }
+
+    func testAValidUpdateByAnotherIdentityIsRefusedForItsIdentity() async throws {
+        let folder = try UpdateTestSupport.folder(self)
+        let app = try UpdateTestSupport.tinyApp(in: folder, version: "1.1", build: "2")
+        var validator = validator()
+        validator.satisfiesRunningIdentity = { _ in false }
+        do {
+            try await validator.validate(app, release: release())
+            XCTFail("an identity change must not pass")
+        } catch {
+            XCTAssertEqual(error as? UpdateValidationError, .identityChanged)
+        }
+        validator.satisfiesRunningIdentity = { _ in true }
+        try await validator.validate(app, release: release())
+    }
+
+    func testTheIdentityIsOnlyAskedOfACopyWhoseSignatureHolds() async throws {
+        let folder = try UpdateTestSupport.folder(self)
+        let app = try UpdateTestSupport.tinyApp(in: folder, version: "1.1", build: "2", signing: .none)
+        var validator = validator()
+        validator.satisfiesRunningIdentity = { _ in false }
+        do { try await validator.validate(app, release: release()); XCTFail() } catch {
+            XCTAssertEqual(error as? UpdateValidationError, .signatureInvalid, "a broken signature is the first thing said")
+        }
+    }
 }

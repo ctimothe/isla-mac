@@ -125,7 +125,13 @@ are the exception the design did not anticipate:
   verifies the Ed25519 signature against `IslaUpdatePublicKey` in the app's
   Info.plist before the image is mounted, validates the staged app (bundle id,
   advertised and newer version, greater build, strict code signature), replaces
-  Isla in place and restarts it. User-initiated; the default is unchanged
+  Isla in place (one atomic exchange, so the installed path never holds
+  nothing) and restarts it; if it cannot restart it says so and keeps running.
+  The image is capped at 100 MB, read into memory rather than mapped, and the
+  installing phase ends in a failure after two minutes. A running copy signed by
+  a certificate accepts only an update that satisfies its own designated
+  requirement (an ad-hoc copy accepts any valid signature, because the Ed25519
+  signature is the gate). User-initiated; the default is unchanged
   (nothing runs automatically, the automatic check stays off). Without a key in
   the build, or from a location Isla cannot write to, only the download page is
   offered. Held by `UpdateReleaseTests`, `UpdateSignatureTests`,

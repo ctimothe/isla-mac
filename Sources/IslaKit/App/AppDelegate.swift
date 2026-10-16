@@ -89,6 +89,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.servicesProvider = self
         // Nothing, unless the user turned the daily check on in Settings.
         UpdateCheck.shared.startAutomaticIfEnabled()
+        // A failed or refused install belongs to the release it tried: a check
+        // that finds Isla current, or a different release, ends it.
+        UpdateInstaller.shared.observe(UpdateCheck.shared)
+        // A crashed install can leave its staging folder beside the app.
+        UpdateInstaller.sweepAtLaunch()
 
         // One visible moment on a fresh account, and only one. Everything about
         // this app is invisible by design — `.accessory`, no Dock icon, no

@@ -242,6 +242,8 @@
 "Verifying…" = "Проверка…";
 "Installing…" = "Установка…";
 "Restarting Isla…" = "Перезапуск Isla…";
+"Isla has been updated. Quit Isla and open it again to finish." = "Isla обновлена. Закройте Isla и откройте её снова, чтобы завершить.";
+"Isla couldn't open the downloaded update." = "Isla не удалось открыть загруженное обновление.";
 "The update couldn't be installed." = "Не удалось установить обновление.";
 "The download didn't match Isla's signature, so it was deleted." = "Загруженный файл не совпал с подписью Isla, поэтому он удалён.";
 "Isla couldn't reach GitHub." = "Isla не удалось связаться с GitHub.";

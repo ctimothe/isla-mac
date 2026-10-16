@@ -865,6 +865,7 @@ final class SettingsTableTests: XCTestCase {
         case .verifying(let r): release = r; phase = .verifying
         case .installing(let r): release = r; phase = .installing
         case .relaunching(let r): release = r; phase = .relaunching
+        case .restartNeeded(let r): release = r; phase = .restartNeeded
         case .failed(let r, let failure): release = r; phase = .failed(failure)
         case .manualOnly(let r, let reason): release = r; manual = reason
         }
@@ -880,7 +881,7 @@ final class SettingsTableTests: XCTestCase {
         let release = UpdateCheck.Release(version: "0.3.1", page: URL(string: "https://github.com/ctimothe/isla-mac/releases/tag/v0.3.1")!)
         let stages: [UpdatePresentation.Stage] = [
             .available(release), .downloading(release, received: 1, total: 2), .failed(release, .offline),
-            .manualOnly(release, .notWritable), .checking, .upToDate,
+            .manualOnly(release, .notWritable), .restartNeeded(release), .checking, .upToDate,
         ]
         var rows = Set<SettingsRowID>()
         for stage in stages {

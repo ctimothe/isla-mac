@@ -143,6 +143,32 @@ final class UpdatePresentationTests: XCTestCase {
         }
     }
 
+    func testACouldntOpenFailureHasItsOwnReasonLine() {
+        let r = release()
+        let p = make(known: r, phase: .failed(.cannotOpen), installerRelease: r)
+        XCTAssertEqual(p.title, "The update couldn't be installed.")
+        XCTAssertEqual(p.subtitle, "Isla couldn't open the downloaded update.")
+        XCTAssertEqual(p.actions, [.updateRetry])
+    }
+
+    func testAnInstalledUpdateThatCouldNotRestartAsksToQuit() {
+        let r = release()
+        let p = make(known: r, phase: .restartNeeded, installerRelease: r)
+        XCTAssertEqual(p.stage, .restartNeeded(r))
+        XCTAssertEqual(p.title, "Isla has been updated. Quit Isla and open it again to finish.")
+        XCTAssertEqual(p.actions, [.updateQuit])
+        XCTAssertEqual(SettingsRowID.updateQuit.title, "Quit Isla")
+        XCTAssertEqual(p.progress, .none)
+        XCTAssertNil(p.notes)
+    }
+
+    func testTheOwnershipAndIdentityVerdictsReadRight() {
+        let r = release()
+        XCTAssertEqual(make(known: r, manual: .notOwned).title, "Isla can't update itself from this location.")
+        XCTAssertEqual(make(known: r, phase: .manualOnly(.identityChanged), installerRelease: r).title,
+                       "This update can only be installed from its download page.")
+    }
+
     func testACancelledInstallIsOfferedAgainWithoutAnError() {
         let r = release()
         let p = make(known: r, phase: .failed(.cancelled), installerRelease: r)
@@ -198,7 +224,8 @@ final class UpdatePresentationTests: XCTestCase {
             "Isla couldn't reach GitHub.", "There isn't enough space on the disk.",
             "Isla couldn't replace itself in its folder.", "The downloaded app isn't a valid Isla update.",
             "Isla can't update itself from this location.", "This update can only be installed from its download page.",
-            "Update Now", "More Info…",
+            "Update Now", "More Info…", "Isla has been updated. Quit Isla and open it again to finish.",
+            "Isla couldn't open the downloaded update.",
         ] {
             XCTAssertTrue(table.contains("\"\(key)\" ="), key)
         }

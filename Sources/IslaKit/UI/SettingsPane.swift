@@ -758,7 +758,8 @@ struct SettingsPane: View {
             switchRow(row, isOn: flagBinding(row))
 
         // About
-        case .updatePanel, .updateStatus, .updateNow, .updateMoreInfo, .updateCancel, .updateRetry, .downloadUpdate:
+        case .updatePanel, .updateStatus, .updateNow, .updateMoreInfo, .updateCancel, .updateRetry, .updateQuit,
+             .downloadUpdate:
             // The card is a free view and its buttons sit under it
             // (`SettingsTable.about`): nothing of the update is a card row.
             EmptyView()
@@ -1006,6 +1007,10 @@ struct SettingsPane: View {
             push(row.title) {
                 if let release = updatePresentation.release { installer.install(release) }
             }
+        case .updateQuit:
+            // Installed, but Isla could not start its own replacement: the one
+            // thing left is for the person to quit it and open it again.
+            push(row.title) { NSApp.terminate(nil) }
         case .downloadUpdate:
             if let release = updatePresentation.release {
                 push(localized("Download Isla %@", release.version)) { NSWorkspace.shared.open(release.page) }

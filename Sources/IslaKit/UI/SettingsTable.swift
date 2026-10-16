@@ -124,7 +124,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
     // Screenshots
     case saveClipboardScreenshots, showScreenCaptures, showScreenshotsFolder, clearScreenshotsFolder
     // About
-    case aboutHead, updatePanel, updateStatus, updateNow, updateMoreInfo, updateCancel, updateRetry, downloadUpdate
+    case aboutHead, updatePanel, updateStatus, updateNow, updateMoreInfo, updateCancel, updateRetry, updateQuit, downloadUpdate
     case checkForUpdatesAutomatically
     case copyDiagnostics, reportProblem, acknowledgements, quit
 
@@ -165,7 +165,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
              .openLyricsFolder, .addLyricsFolder, .importLRC, .rescanLocalLyrics, .clearImportedLyrics,
              .clearBindings, .translationLanguages, .spotifyAccount, .spotifyImport, .showScreenshotsFolder,
              .clearScreenshotsFolder, .updateStatus, .updateNow, .updateMoreInfo, .updateCancel, .updateRetry,
-             .downloadUpdate, .quit:
+             .updateQuit, .downloadUpdate, .quit:
             return .push
         case .copyDiagnostics, .reportProblem, .acknowledgements:
             return .link
@@ -250,6 +250,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .updateMoreInfo: return localized("More Info…")
         case .updateCancel: return localized("Cancel")
         case .updateRetry: return localized("Try Again")
+        case .updateQuit: return localized("Quit Isla")
         // The version is the update's, known only to the view that draws it.
         case .downloadUpdate: return localized("Download Isla %@", "").trimmingCharacters(in: .whitespaces)
         case .checkForUpdatesAutomatically: return localized("Check for Updates Automatically")

@@ -25,6 +25,15 @@ final class VisualLabUpdateTests: VisualLabCase {
         case failedOffline = "failed-offline"
         case manualLocation = "manual-location"
         case manualDownloadPage = "manual-download-page"
+        // Added with the review fixes (2026-10-16).
+        case restartNeeded = "restart-needed"
+        case failedCannotOpen = "failed-cannot-open"
+
+        static let first: [Scene] = [
+            .upToDate, .checking, .available, .downloading, .verifying, .installing, .relaunching,
+            .failedSignature, .failedOffline, .manualLocation, .manualDownloadPage,
+        ]
+        static let added: [Scene] = [.restartNeeded, .failedCannotOpen]
     }
 
     private let notes = """
@@ -59,6 +68,7 @@ final class VisualLabUpdateTests: VisualLabCase {
             installedURL: URL(fileURLWithPath: "/Users/lab/Applications/Isla.app"),
             publicKey: UpdateTestSupport.Key().publicBase64, processID: 1,
             availableCapacity: { _ in nil }, isWritable: { _ in true },
+            canReplace: { _ in true }, containsMount: { _ in false },
             scratchRoot: FileManager.default.temporaryDirectory,
             makeScratchFolder: { throw CocoaError(.fileWriteNoPermission) }
         ))
@@ -100,6 +110,8 @@ final class VisualLabUpdateTests: VisualLabCase {
         case .relaunching: installer.presentForTests(.relaunching, release: release)
         case .failedSignature: installer.presentForTests(.failed(.signature), release: release)
         case .failedOffline: installer.presentForTests(.failed(.offline), release: release)
+        case .restartNeeded: installer.presentForTests(.restartNeeded, release: release)
+        case .failedCannotOpen: installer.presentForTests(.failed(.cannotOpen), release: release)
         default: break
         }
         UpdateInstaller.sharedOverride = installer
@@ -126,7 +138,7 @@ final class VisualLabUpdateTests: VisualLabCase {
             .manualLocation: "Isla runs from a place it cannot replace itself in: only the download page is offered.",
             .manualDownloadPage: "A release with no signature: only the download page is offered.",
         ]
-        for scene in Scene.allCases {
+        for scene in Scene.first {
             try await shoot.shoot(scene.rawValue, variants: [.base, .light, .russian], size: size, settle: 0.4,
                                   notes: notes[scene]) { variant in
                 try await self.stage(scene)
@@ -155,6 +167,31 @@ final class VisualLabUpdateTests: VisualLabCase {
             return Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
                 vm.settingsSection = .about
             }), variant, height: size.height)
+        }
+    }
+
+    /// The two states the review added: installed but unable to restart itself, and
+    /// an image that would not open or would not detach.
+    func testAboutNewUpdateStates() async throws {
+        let session = try makeSession()
+        addTeardownBlock { @MainActor in
+            UpdateCheck.sharedOverride = nil
+            UpdateInstaller.sharedOverride = nil
+        }
+        let shoot = LabPhotographer(session: session, surface: "panel-settings-update")
+        let size = CGSize(width: VisualLab.windowSize.width, height: 460)
+        let notes: [Scene: String] = [
+            .restartNeeded: "The new copy is in place and Isla could not start it: it stays running and asks to be quit.",
+            .failedCannotOpen: "The downloaded image would not open or would not detach (or a tool hung): Try Again.",
+        ]
+        for scene in Scene.added {
+            try await shoot.shoot(scene.rawValue, variants: [.base, .light, .russian], size: size, settle: 0.4,
+                                  notes: notes[scene]) { variant in
+                try await self.stage(scene)
+                return Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+                    vm.settingsSection = .about
+                }), variant, height: size.height)
+            }
         }
     }
 }

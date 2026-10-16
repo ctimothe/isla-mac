@@ -28,6 +28,8 @@ struct UpdatePresentation: Equatable {
         case verifying(UpdateCheck.Release)
         case installing(UpdateCheck.Release)
         case relaunching(UpdateCheck.Release)
+        /// Installed, and Isla could not restart itself.
+        case restartNeeded(UpdateCheck.Release)
         case failed(UpdateCheck.Release, UpdateInstaller.Failure)
         case manualOnly(UpdateCheck.Release, UpdateInstaller.ManualReason)
     }
@@ -89,6 +91,7 @@ struct UpdatePresentation: Equatable {
             case .verifying: return .verifying(working)
             case .installing: return .installing(working)
             case .relaunching: return .relaunching(working)
+            case .restartNeeded: return .restartNeeded(working)
             case .failed(let failure) where failure != .cancelled: return .failed(working, failure)
             case .manualOnly(let reason): return .manualOnly(working, reason)
             case .failed, .idle: break
@@ -155,6 +158,10 @@ struct UpdatePresentation: Equatable {
             release = r
             title = localized("Restarting Isla…")
             progress = .indeterminate
+        case .restartNeeded(let r):
+            release = r
+            title = localized("Isla has been updated. Quit Isla and open it again to finish.")
+            actions = [.updateQuit]
         case .failed(let r, let failure):
             release = r
             title = localized("The update couldn't be installed.")
@@ -199,6 +206,7 @@ struct UpdatePresentation: Equatable {
         case .offline: return localized("Isla couldn't reach GitHub.")
         case .diskSpace: return localized("There isn't enough space on the disk.")
         case .cannotReplace: return localized("Isla couldn't replace itself in its folder.")
+        case .cannotOpen: return localized("Isla couldn't open the downloaded update.")
         case .invalidUpdate, .cancelled: return localized("The downloaded app isn't a valid Isla update.")
         }
     }

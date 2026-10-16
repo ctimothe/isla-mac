@@ -953,8 +953,9 @@ before controls, and sliders shrink first (`Stress-Settings-RU-480`).
 > | Available | "Isla 0.3.1" · "Update available · 9.8 MB" · the release notes (inline Markdown, six lines at most, links not clickable) | More Info…, **Update Now** |
 > | Downloading | "Downloading Isla 0.3.1…" · determinate bar · "4.2 MB of 9.8 MB" | Cancel |
 > | Verifying, Installing, Restarting | the word ("Verifying…", "Installing…", "Restarting Isla…") · an endless bar | none |
-> | Failed | "The update couldn't be installed." · one reason line (signature, offline, disk space, can't replace, invalid app) | Try Again |
-> | Manual only | "Isla can't update itself from this location." (translocated, on a volume, folder not writable) or "This update can only be installed from its download page." (no key in this build, no image or signature on the release) | Download Isla 0.3.1 |
+> | Failed | "The update couldn't be installed." · one reason line (signature, offline, disk space, can't replace, invalid app, "Isla couldn't open the downloaded update.") | Try Again |
+> | Installed, could not restart | "Isla has been updated. Quit Isla and open it again to finish." (Isla keeps running: quitting with nothing to reopen it would make it vanish) | Quit Isla |
+> | Manual only | "Isla can't update itself from this location." (translocated, on a volume, folder not writable, bundle owned by another account) or "This update can only be installed from its download page." (no key in this build, no image or signature on the release, or an update signed by a different identity than a certificate-signed running app) | Download Isla 0.3.1 |
 >
 > The signature is verified before the image is mounted, only Isla's own
 > release URLs are used, the staged copy is validated before it replaces

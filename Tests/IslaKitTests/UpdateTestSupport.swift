@@ -105,8 +105,74 @@ extension UpdateEnvironment {
         UpdateEnvironment(
             installedURL: URL(fileURLWithPath: "/Volumes/Isla Test/Isla.app"), publicKey: nil, processID: 1,
             availableCapacity: { _ in nil }, isWritable: { _ in false },
+            canReplace: { _ in false }, containsMount: { _ in false },
             scratchRoot: FileManager.default.temporaryDirectory,
             makeScratchFolder: { throw CocoaError(.fileWriteNoPermission) }
         )
     }
+}
+
+/// Answers URLs from memory so the downloader's own delegate runs against a real
+/// `URLSession` with nothing leaving the Mac: a 200 with the file's length, in
+/// pieces; a 404 for anything unknown; or a 302 to another URL.
+final class StubGitHub: URLProtocol {
+    enum Answer {
+        case file(Data)
+        case redirect(to: URL)
+        case status(Int)
+    }
+
+    nonisolated(unsafe) private static var answers: [URL: Answer] = [:]
+    nonisolated(unsafe) private static var served: [URL] = []
+    private static let lock = NSLock()
+
+    static func serve(_ url: URL, _ data: Data) { answer(url, .file(data)) }
+    static func answer(_ url: URL, _ answer: Answer) { lock.lock(); answers[url] = answer; lock.unlock() }
+    static func clear() { lock.lock(); answers = [:]; served = []; lock.unlock() }
+    /// The URLs that were actually requested, in order.
+    static var requested: [URL] { lock.lock(); defer { lock.unlock() }; return served }
+    private static func answer(for url: URL) -> Answer? {
+        lock.lock(); defer { lock.unlock() }
+        served.append(url)
+        return answers[url]
+    }
+
+    /// A session of the private configuration whose wire is this stub.
+    static var session: @Sendable (URLSessionDelegate) -> URLSession {
+        { PrivateNetwork.makeSession(delegate: $0, protocolClasses: [StubGitHub.self]) }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        switch Self.answer(for: url) ?? .status(404) {
+        case .status(let code):
+            let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocolDidFinishLoading(self)
+        case .redirect(let target):
+            let response = HTTPURLResponse(url: url, statusCode: 302, httpVersion: nil, headerFields: ["Location": target.absoluteString])!
+            client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: target), redirectResponse: response)
+            // A redirect the delegate refuses leaves the 302 as the answer, and
+            // this protocol is what has to end it; a followed one has already
+            // stopped this instance, and the call is then ignored.
+            client?.urlProtocolDidFinishLoading(self)
+        case .file(let data):
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                           headerFields: ["Content-Length": "\(data.count)", "Content-Type": "application/octet-stream"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            // In pieces, so progress is reported more than once.
+            var offset = 0
+            while offset < data.count {
+                let end = min(offset + 64 * 1024, data.count)
+                client?.urlProtocol(self, didLoad: data.subdata(in: offset..<end))
+                offset = end
+            }
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
 }

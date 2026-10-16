@@ -76,27 +76,35 @@ final class FakeVerifier: UpdateVerifying, @unchecked Sendable {
 final class FakeDiskImage: UpdateDiskImaging, @unchecked Sendable {
     let log: Recorder
     var attachError: Error?
-    private(set) var mountPoints: [URL] = []
+    /// What `detach` answers: false is a volume that will not let go.
+    var detaches = true
+    private(set) var mounts: [UpdateMount] = []
+    private(set) var detached: [UpdateMount] = []
 
     init(log: Recorder) { self.log = log }
 
-    func attach(_ image: URL, scratch: URL) async throws -> URL {
+    func attach(_ image: URL, scratch: URL) async throws -> UpdateMount {
         log.note("attach")
         if let attachError { throw attachError }
-        let mount = scratch.appendingPathComponent("mount", isDirectory: true)
-        try FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
-        mountPoints.append(mount)
+        let folder = scratch.appendingPathComponent("mount", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let mount = UpdateMount(mountPoint: folder, devices: ["/dev/disk99"])
+        mounts.append(mount)
         return mount
     }
 
-    func detach(_ mountPoint: URL) async {
+    func detach(_ mount: UpdateMount) async -> Bool {
         log.note("detach")
+        detached.append(mount)
+        return detaches
     }
 }
 
 final class FakeStager: UpdateStaging, @unchecked Sendable {
     let log: Recorder
     var error: Error?
+    /// Waits, politely, until the task is cancelled: a tool that hung.
+    var hangs = false
     var marker = "new"
     private(set) var stagedApps: [URL] = []
 
@@ -104,6 +112,7 @@ final class FakeStager: UpdateStaging, @unchecked Sendable {
 
     func stage(volume: URL, into stagingFolder: URL) async throws -> URL {
         log.note("stage")
+        if hangs { while true { try await Task.sleep(for: .milliseconds(5)) } }
         try FileManager.default.createDirectory(at: stagingFolder, withIntermediateDirectories: true)
         let app = stagingFolder.appendingPathComponent("Isla.app", isDirectory: true)
         try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
@@ -129,18 +138,19 @@ final class FakeValidator: UpdateValidating, @unchecked Sendable {
     }
 }
 
-/// Replaces the installed folder with the staged one for real, in the test's
-/// own folder, unless told to fail before touching anything.
-final class FakeSwapper: UpdateSwapping {
+/// The real swapper over the test's own real folders, noted in the log. What
+/// forces a failure is the real swapper's own seams (`swapper.swap`, `.replace`,
+/// `.move`), so a failure happens to real directories and the state it leaves is
+/// the state a person would be left in.
+final class RecordingSwapper: UpdateSwapping {
     let log: Recorder
-    var error: Error?
+    var swapper = FileManagerSwapper()
 
     init(log: Recorder) { self.log = log }
 
     func replace(installed: URL, with staged: URL) throws {
         log.note("swap")
-        if let error { throw error }
-        _ = try FileManager.default.replaceItemAt(installed, withItemAt: staged, backupItemName: nil, options: [])
+        try swapper.replace(installed: installed, with: staged)
     }
 }
 
@@ -151,13 +161,17 @@ final class FakeRelauncher: UpdateRelaunching {
     /// What the test wants looked at while the relaunch is happening: the
     /// process ends there, so this is the last chance anything has to be gone.
     var onRelaunch: () -> Void = {}
+    /// False is a shell that could not be started: nothing is relaunched and
+    /// the process is not ended.
+    var succeeds = true
 
     init(log: Recorder) { self.log = log }
 
-    func relaunch(installed: URL, processID: Int32) {
+    func relaunch(installed: URL, processID: Int32) -> Bool {
         log.note("relaunch")
         calls.append((installed, processID))
         onRelaunch()
+        return succeeds
     }
 }
 
@@ -177,7 +191,7 @@ final class InstallerRig {
     let diskImage: FakeDiskImage
     let stager: FakeStager
     let validator: FakeValidator
-    let swapper: FakeSwapper
+    let swapper: RecordingSwapper
     let relauncher: FakeRelauncher
     private(set) var scratchFolders: [URL] = []
     var freeBytes: Int64? = 10_000_000_000
@@ -186,6 +200,11 @@ final class InstallerRig {
     var publicKey: String?
     var installedPath: URL
     var writable: (URL) -> Bool = { FileManager.default.isWritableFile(atPath: $0.path) }
+    var canReplace: (URL) -> Bool = { UpdateInstaller.currentUserCanReplace($0) }
+    /// Answers "is a volume still mounted under this folder"; the real check by
+    /// default, which is no for any folder a fake made.
+    var containsMount: (URL) -> Bool = { UpdateInstaller.directoryContainsMount($0) }
+    var installTimeout: TimeInterval = 30
     private(set) var installer: UpdateInstaller!
     private(set) var phases: [UpdateInstaller.Phase] = []
     private var subscription: AnyCancellable?
@@ -204,7 +223,7 @@ final class InstallerRig {
         diskImage = FakeDiskImage(log: log)
         stager = FakeStager(log: log)
         validator = FakeValidator(log: log)
-        swapper = FakeSwapper(log: log)
+        swapper = RecordingSwapper(log: log)
         relauncher = FakeRelauncher(log: log)
         publicKey = key.publicBase64
     }
@@ -216,11 +235,16 @@ final class InstallerRig {
         let capacity = freeBytes
         let scratchCapacity = scratchFreeBytes
         let writable = writable
+        let canReplace = canReplace
+        let containsMount = containsMount
+        let timeout = installTimeout
         let key = publicKey
         let environment = UpdateEnvironment(
             installedURL: installedURL, publicKey: key, processID: 4242,
             availableCapacity: { url in url.path == scratchRoot.path ? scratchCapacity : capacity },
             isWritable: writable,
+            canReplace: canReplace,
+            containsMount: containsMount,
             scratchRoot: scratchRoot,
             makeScratchFolder: { [weak self] in
                 let folder = scratchRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -231,7 +255,8 @@ final class InstallerRig {
         )
         installer = UpdateInstaller(
             environment: environment, downloader: downloader, verifier: verifier, diskImage: diskImage,
-            stager: stager, validator: validator, swapper: swapper, relauncher: relauncher
+            stager: stager, validator: validator, swapper: swapper, relauncher: relauncher,
+            installTimeout: timeout
         )
         subscription = installer.$phase.sink { [weak self] phase in self?.phases.append(phase) }
     }

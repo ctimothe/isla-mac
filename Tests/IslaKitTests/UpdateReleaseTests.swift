@@ -138,10 +138,10 @@ final class UpdateReleaseTests: XCTestCase {
     }
 
     func testTheImageSizeIsBounded() throws {
-        let cap = 300 * 1024 * 1024
+        let cap = 100 * 1024 * 1024
         let atCap = try parse(answer(assets: [dmg(size: cap), signature()]))
-        XCTAssertEqual(atCap.dmg?.size, Int64(cap), "300 MB exactly is allowed")
-        try assertImageRefused(dmg(size: cap + 1), "one byte over 300 MB")
+        XCTAssertEqual(atCap.dmg?.size, Int64(cap), "100 MB exactly is allowed")
+        try assertImageRefused(dmg(size: cap + 1), "one byte over 100 MB")
         try assertImageRefused(dmg(size: 0), "zero size")
         try assertImageRefused(dmg(size: -5), "negative size")
         try assertImageRefused(dmg(size: "9800000"), "size as a string")
