@@ -1,0 +1,46 @@
+{
+  "fill": "system-light",
+  "groups": [
+    {
+      "name": "Live activity",
+      "layers": [
+        {
+          "image-name": "02-activity.svg",
+          "name": "Live activity",
+          "glass": true
+        }
+      ],
+      "specular": true,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.08
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    },
+    {
+      "name": "Island",
+      "layers": [
+        {
+          "image-name": "01-capsule.svg",
+          "name": "Island",
+          "glass": true
+        }
+      ],
+      "specular": true,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.18
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

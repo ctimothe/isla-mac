@@ -8,6 +8,15 @@ PLIST="$APP/Contents/Info.plist"
 test -x "$APP/Contents/MacOS/Isla"
 test -f "$APP/Contents/Resources/libislamedia.dylib"
 test -f "$APP/Contents/Resources/AppIcon.icns"
+# The layered icon and the key that points at it. Without CFBundleIconName
+# macOS falls back to the flattened .icns, which has no dark, clear or tinted
+# appearance; without the catalog the name points at nothing. Either way the
+# app still launches, so only this check would notice.
+test -f "$APP/Contents/Resources/Assets.car"
+test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIconName' "$PLIST")" = "AppIcon"
+# The icon stack, not just the name: a catalog holding only a flat AppIcon
+# image would satisfy a plain name match and still draw no appearances.
+grep -aq 'AppIcon.iconstack' "$APP/Contents/Resources/Assets.car"
 test -f "$APP/Contents/Resources/en.lproj/Localizable.strings"
 test -f "$APP/Contents/Resources/ru.lproj/Localizable.strings"
 test -f "$APP/Contents/Resources/en.lproj/ServicesMenu.strings"

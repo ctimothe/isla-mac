@@ -41,6 +41,8 @@ sample_app() {
     local helper
     local bundle_kb
     local icon_bytes
+    local icns_bytes
+    local car_bytes
 
     test -f "$plist"
     executable="$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$plist")"
@@ -49,7 +51,12 @@ sample_app() {
     test -x "$binary"
     test -f "$helper"
     bundle_kb="$(du -sk "$app" | awk '{print $1}')"
-    icon_bytes="$(stat -f '%z' "$app/Contents/Resources/AppIcon.icns" 2>/dev/null || echo 0)"
+    # The icon is the .icns plus, since 2026-10-16, the Assets.car holding the
+    # layered Icon Composer icon. Counting the .icns alone would hide most of
+    # the icon's weight from the bundle-size allowance computed from this.
+    icns_bytes="$(stat -f '%z' "$app/Contents/Resources/AppIcon.icns" 2>/dev/null || echo 0)"
+    car_bytes="$(stat -f '%z' "$app/Contents/Resources/Assets.car" 2>/dev/null || echo 0)"
+    icon_bytes=$((icns_bytes + car_bytes))
     CURRENT_HELPER="$helper"
 
     for run in 1 2 3; do
