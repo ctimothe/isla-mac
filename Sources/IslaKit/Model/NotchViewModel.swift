@@ -262,6 +262,12 @@ final class NotchViewModel: ObservableObject {
         stores.hud.$needsAccessibility.removeDuplicates().eraseToAnyPublisher()
     }
 
+    /// Whether Settings should add the stale-entry line to that group: the
+    /// permission has stayed missing past `MediaKeyHUD.staleEntryAfter`.
+    var accessibilityEntrySuspectedStale: AnyPublisher<Bool, Never> {
+        stores.hud.$suspectsStaleEntry.removeDuplicates().eraseToAnyPublisher()
+    }
+
     @Published var tab: Tab = .media {
         didSet {
             if tab == .shelf { shelfHasNew = false }

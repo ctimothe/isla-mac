@@ -1615,6 +1615,13 @@ scroll the lyrics for real, let go and count four seconds.
   tests are the closing `./scripts/check`'s.
 - [ ] **R5-H1** Turn it on, grant Accessibility: the volume keys show Isla's
   pop-up and never the Mac's.
+  *2026-10-16 (owner):* granting must work with nothing extra. A tap that
+  fails to start is retried by the poll, the system's Accessibility-list
+  announcement triggers looks at 0.3 s and 1.5 s, and after 10 s of a missing
+  permission Settings says how to clear a stale entry. Held by
+  `MediaKeyHUDTests` and `SettingsTableTests`; the build-to-build grant itself
+  is `fix/stable-signing`'s. Still owed on hardware: grant, and the keys work
+  without removing and re-adding Isla.
 - [ ] **R5-H2** Mute keeps the level, dimmed; unmute restores it.
 - [ ] **R5-H3** Display and keyboard brightness keys on the MacBook Pro.
 - [ ] **R5-H4** Turning it off gives the keys back at once.

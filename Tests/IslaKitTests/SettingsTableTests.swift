@@ -385,6 +385,28 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertFalse(NotchViewModel.volumeAndBrightnessEnabled(in: defaults))
     }
 
+    /// After ten seconds of waiting the group adds one line that says what to do
+    /// about an entry macOS keeps for an older copy of Isla (2026-10-16, owner).
+    func testTheStaleEntryLineAppearsOnlyAfterTheWaitAndKeepsTheOpenAction() {
+        let line = "Already switched on in the list? macOS may be holding a permission from an older copy of Isla. Select Isla, remove it with −, then switch Volume and Brightness off and on again."
+        var waiting = SettingsContext()
+        waiting.needsAccessibility = true
+        XCTAssertFalse(SettingsTable.blocks(for: .general, context: waiting).contains(.footnote(line)))
+
+        var stale = waiting
+        stale.staleAccessibilityEntry = true
+        let blocks = SettingsTable.blocks(for: .general, context: stale)
+        XCTAssertTrue(blocks.contains(.footnote(line)))
+        XCTAssertTrue(blocks.contains(.group([.accessibilityPermission])), "Open Privacy & Security… stays")
+        XCTAssertTrue(blocks.contains(.footnote(
+            "Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up."
+        )))
+
+        var granted = SettingsContext()
+        granted.staleAccessibilityEntry = true
+        XCTAssertFalse(SettingsTable.blocks(for: .general, context: granted).contains(.footnote(line)), "no group, no line")
+    }
+
     /// The "Accessibility" group, like the Music section's failure groups, exists
     /// only while its condition holds: the setting on and Isla not yet trusted.
     func testTheAccessibilityGroupExistsOnlyWhileOnAndUntrusted() {

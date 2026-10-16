@@ -1123,6 +1123,24 @@ until nothing uses them, then go.
 >   permission is missing, and not while the display sleeps. A tap macOS
 >   switched off is rebuilt at the next look, at most every 5 s.
 
+> **Amended (2026-10-16, owner).** Turning it on must just work: the owner
+> granted the permission and the keys still showed the Mac's own pop-up until
+> they removed Isla from the Accessibility list and added it back.
+> - A tap that fails to start while the setting is on and Accessibility is
+>   trusted is retried by the same 2 s poll until one starts; the poll then
+>   stops. Never while the setting is off, the display sleeps or the Mac is
+>   locked, and the retries never raise the permission prompt (once, by the
+>   switch).
+> - Isla watches the system's `com.apple.accessibility.api` announcement (the
+>   Accessibility list changed) only while the permission is missing or a tap
+>   is pending, and looks again 0.3 s and 1.5 s after each one, because tccd
+>   can lag it. The 2 s poll stays as the fallback.
+> - Ten seconds after the setting went on with the permission still missing,
+>   the "Accessibility" group adds one footnote: "Already switched on in the
+>   list? macOS may be holding a permission from an older copy of Isla. Select
+>   Isla, remove it with −, then switch Volume and Brightness off and on
+>   again." The 10 s is judged by the looks above; no timer exists for it.
+
 ## 13. Stress rules
 
 | Rule | Board |
