@@ -412,6 +412,10 @@ struct SettingsContext: Equatable {
     /// likeliest cause is an entry macOS keeps for an older copy of Isla, and the
     /// group says how to clear it. Never true unless `needsAccessibility` is.
     var staleAccessibilityEntry = false
+    /// The permission is granted, the setting is on and macOS still passes the
+    /// island no keys (`MediaKeyHUD.tapRefusedAfter`). The group above is for a
+    /// missing permission and does not exist here; this is one footnote.
+    var volumeKeysRefused = false
     var opensOnHover = false
     var launchNote: String? = nil
     var offersLoginItems = false
@@ -526,6 +530,14 @@ enum SettingsTable {
                     "Already switched on in the list? macOS may be holding a permission from an older copy of Isla. Select Isla, remove it with −, then switch Volume and Brightness off and on again."
                 )))
             }
+        }
+        // Trusted, yet macOS will not make the tap: the one failure the groups
+        // above cannot name. Without this the Mac's own pop-up kept showing and
+        // nothing said why.
+        if c.offersVolumeAndBrightness, c.volumeKeysRefused, !c.needsAccessibility {
+            blocks.append(.footnote(localized(
+                "Isla has the permission but macOS isn’t passing it the volume and brightness keys yet. Switch Volume and Brightness off and on again; if that doesn’t help, restart the Mac."
+            )))
         }
         // Why the island moves or looks the way it does when the Mac asks for
         // less motion, less transparency or more contrast (M-34).

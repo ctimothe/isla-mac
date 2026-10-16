@@ -58,7 +58,7 @@ final class FakeTapFactory {
 @MainActor
 final class ManualScheduler {
     private(set) var intervals: [TimeInterval] = []
-    private var pending: [Int: @MainActor () -> Void] = [:]
+    private var pending: [Int: (interval: TimeInterval, work: @MainActor () -> Void)] = [:]
     private var next = 0
 
     var scheduler: MediaKeyHUD.Scheduler {
@@ -66,18 +66,29 @@ final class ManualScheduler {
             let id = self.next
             self.next += 1
             self.intervals.append(seconds)
-            self.pending[id] = work
+            self.pending[id] = (seconds, work)
             return { [weak self] in self?.pending[id] = nil }
         }
     }
 
     var pendingCount: Int { pending.count }
 
+    /// The delays of everything still waiting.
+    var pendingIntervals: [TimeInterval] { pending.values.map(\.interval).sorted() }
+
     /// Fires everything that is waiting, once.
     func fire() {
         let due = pending
         pending = [:]
-        for (_, work) in due { work() }
+        for (_, item) in due { item.work() }
+    }
+
+    /// Fires only what was scheduled with exactly this delay, once, and leaves
+    /// the rest waiting: the closure itself runs, not just its scheduling.
+    func fire(interval: TimeInterval) {
+        let due = pending.filter { $0.value.interval == interval }
+        for (id, _) in due { pending[id] = nil }
+        for (_, item) in due { item.work() }
     }
 }
 
@@ -1024,15 +1035,98 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(clock.intervals, [MediaKeyHUD.pollInterval, 0.3, 1.5])
         XCTAssertFalse(hud.isTapped, "the announcement itself decides nothing")
 
-        // tccd lags: the first look still says no, the second sees the grant.
-        trust.trusted = false
-        clock.fire()
+        // tccd lags: the 0.3 s look still hears "not trusted" and changes
+        // nothing...
+        clock.fire(interval: 0.3)
         XCTAssertFalse(hud.isTapped)
+        XCTAssertTrue(hud.needsAccessibility)
+
+        // ...and by the 1.5 s look the grant has landed: that closure alone
+        // makes the tap.
         trust.trusted = true
-        hud.refresh()
+        clock.fire(interval: 1.5)
         XCTAssertTrue(hud.isTapped)
+        XCTAssertFalse(hud.needsAccessibility)
         XCTAssertFalse(hud.isObserving)
+        XCTAssertFalse(hud.isPolling)
         XCTAssertEqual(trust.prompts, 0, "noticing a grant never prompts")
+    }
+
+    func testTheFirstLookEndingTheWatchDoesNotCancelTheSecond() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        hud.refresh()
+        grants.post()
+
+        trust.trusted = true
+        clock.fire(interval: 0.3)
+        XCTAssertTrue(hud.isTapped, "the 0.3 s look made the tap")
+        XCTAssertFalse(hud.isObserving, "nothing left to wait for")
+        XCTAssertEqual(clock.pendingIntervals, [1.5], "the second look survives it")
+
+        // The second look runs on its own: macOS switched the tap off meanwhile
+        // and it is due for a rebuild, which only a real refresh would notice.
+        taps.taps[0].enabled = false
+        moment += MediaKeyHUD.rebuildInterval
+        let checks = trust.checks
+        clock.fire(interval: 1.5)
+        XCTAssertGreaterThan(trust.checks, checks, "the closure itself looked")
+        XCTAssertEqual(taps.created, 2, "and rebuilt the tap")
+        XCTAssertTrue(hud.isTapped)
+        XCTAssertEqual(clock.pendingCount, 0)
+    }
+
+    func testTheSecondLookStillKeepsAHealthyTap() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        hud.refresh()
+        grants.post()
+        trust.trusted = true
+        clock.fire(interval: 0.3)
+        clock.fire(interval: 1.5)
+        XCTAssertEqual(taps.created, 1)
+        XCTAssertTrue(hud.isTapped)
+    }
+
+    func testTheLooksStillDieWhenTheFirstOneHasEndedTheWatchAndTheSettingGoesOff() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        hud.refresh()
+        grants.post()
+        trust.trusted = true
+        clock.fire(interval: 0.3)
+        XCTAssertEqual(clock.pendingIntervals, [1.5])
+        enabled = false
+        hud.settingChanged(to: false)
+        XCTAssertEqual(clock.pendingCount, 0)
+    }
+
+    func testTheLooksStillDieOnSuspendAndOnStopAfterTheWatchEnded() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        hud.refresh()
+        grants.post()
+        trust.trusted = true
+        clock.fire(interval: 0.3)
+        hud.suspend()
+        XCTAssertEqual(clock.pendingCount, 0, "a dark screen runs nothing")
+
+        hud.resume()
+        grants.post()   // not observing: a tap exists
+        XCTAssertEqual(clock.pendingCount, 0)
+
+        trust.trusted = false
+        hud.refresh()
+        grants.post()
+        trust.trusted = true
+        clock.fire(interval: 0.3)
+        XCTAssertEqual(clock.pendingIntervals, [1.5])
+        hud.stop()
+        XCTAssertEqual(clock.pendingCount, 0)
     }
 
     func testAnAnnouncementBurstReplacesTheLooksInsteadOfStackingThem() {
@@ -1075,9 +1169,9 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(clock.pendingCount, 0)
     }
 
-    // MARK: A stale entry is suspected after ten seconds (2026-10-16, owner)
+    // MARK: A stale entry is suspected after thirty silent seconds (2026-10-16, owner)
 
-    func testTheStaleEntryHintWaitsTenSecondsAfterThePermissionWentMissing() {
+    func testTheStaleEntryHintWaitsThirtySecondsAfterThePermissionWentMissing() {
         let hud = hud()
         enabled = true
         trust.trusted = false
@@ -1085,9 +1179,9 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertTrue(hud.needsAccessibility)
         XCTAssertFalse(hud.suspectsStaleEntry)
 
-        moment += 9.9
+        moment += 29.9
         hud.refresh()
-        XCTAssertFalse(hud.suspectsStaleEntry)
+        XCTAssertFalse(hud.suspectsStaleEntry, "a slow grant is not a stale entry")
 
         moment += 0.2
         clock.fire()   // the poll's own look
@@ -1100,7 +1194,7 @@ final class MediaKeyHUDTests: XCTestCase {
         enabled = true
         trust.trusted = false
         hud.refresh()
-        moment += 11
+        moment += 31
         hud.refresh()
         XCTAssertTrue(hud.suspectsStaleEntry)
 
@@ -1111,7 +1205,7 @@ final class MediaKeyHUDTests: XCTestCase {
 
         trust.trusted = false
         hud.refresh()
-        moment += 11
+        moment += 31
         hud.refresh()
         XCTAssertTrue(hud.suspectsStaleEntry)
         enabled = false
@@ -1119,12 +1213,12 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertFalse(hud.suspectsStaleEntry)
     }
 
-    func testSwitchingItOffAndOnRestartsTheTenSeconds() {
+    func testSwitchingItOffAndOnRestartsTheThirtySeconds() {
         let hud = hud()
         enabled = true
         trust.trusted = false
         hud.refresh()
-        moment += 11
+        moment += 31
         hud.refresh()
         XCTAssertTrue(hud.suspectsStaleEntry)
         enabled = false
@@ -1134,7 +1228,7 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertFalse(hud.suspectsStaleEntry)
     }
 
-    func testTimeSpentAsleepDoesNotCountTowardsTheTenSeconds() {
+    func testTimeSpentAsleepDoesNotCountTowardsTheThirtySeconds() {
         let hud = hud()
         enabled = true
         trust.trusted = false
@@ -1143,8 +1237,122 @@ final class MediaKeyHUDTests: XCTestCase {
         moment += 600
         hud.resume()
         XCTAssertFalse(hud.suspectsStaleEntry)
-        moment += 11
+        moment += 31
         hud.refresh()
         XCTAssertTrue(hud.suspectsStaleEntry)
+    }
+
+    func testAnAnnouncementRestartsTheStaleEntryWait() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        hud.refresh()
+        moment += 25
+        grants.post()   // the person is acting in System Settings
+        moment += 25
+        clock.fire(interval: 0.3)
+        XCTAssertFalse(hud.suspectsStaleEntry, "fifty seconds in, but only twenty-five since the last sign of life")
+        moment += 6
+        clock.fire(interval: 1.5)
+        XCTAssertTrue(hud.suspectsStaleEntry, "thirty-one silent seconds")
+    }
+
+    func testAnAnnouncementClearsAHintThatWasAlreadyShown() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        hud.refresh()
+        moment += 31
+        hud.refresh()
+        XCTAssertTrue(hud.suspectsStaleEntry)
+        grants.post()
+        clock.fire(interval: 0.3)
+        XCTAssertFalse(hud.suspectsStaleEntry)
+    }
+
+    // MARK: Trusted, but the tap never starts (2026-10-16, owner)
+
+    func testATapThatNeverStartsSlowsTheRetryAndSaysSoAfterThirtySeconds() {
+        let hud = hud()
+        taps.startSucceeds = false
+        on(hud)
+        XCTAssertFalse(hud.tapRefused)
+        XCTAssertEqual(clock.intervals, [MediaKeyHUD.pollInterval])
+
+        moment += 29.9
+        clock.fire()
+        XCTAssertFalse(hud.tapRefused)
+        XCTAssertEqual(clock.intervals.last, MediaKeyHUD.pollInterval)
+
+        moment += 0.2
+        clock.fire()
+        XCTAssertTrue(hud.tapRefused)
+        XCTAssertEqual(clock.intervals.last, MediaKeyHUD.slowPollInterval, "the retry backs off")
+        XCTAssertTrue(hud.isPolling, "but it does not stop")
+        XCTAssertFalse(hud.needsAccessibility, "the permission is not what is missing")
+        XCTAssertEqual(trust.prompts, 0)
+    }
+
+    func testTheRefusedNoticeClearsTheMomentATapStarts() {
+        let hud = hud()
+        taps.startSucceeds = false
+        on(hud)
+        moment += 31
+        clock.fire()
+        XCTAssertTrue(hud.tapRefused)
+        taps.startSucceeds = true
+        clock.fire()
+        XCTAssertTrue(hud.isTapped)
+        XCTAssertFalse(hud.tapRefused)
+        XCTAssertFalse(hud.isPolling)
+    }
+
+    func testTheRefusedNoticeClearsWhenTheSettingGoesOff() {
+        let hud = hud()
+        taps.startSucceeds = false
+        on(hud)
+        moment += 31
+        clock.fire()
+        XCTAssertTrue(hud.tapRefused)
+        enabled = false
+        hud.settingChanged(to: false)
+        XCTAssertFalse(hud.tapRefused)
+        XCTAssertFalse(hud.isPolling)
+        XCTAssertEqual(clock.pendingCount, 0)
+    }
+
+    func testTheRefusedWaitRestartsOnAnAnnouncementAndAfterSleep() {
+        let hud = hud()
+        taps.startSucceeds = false
+        on(hud)
+        moment += 25
+        grants.post()
+        moment += 25
+        clock.fire(interval: 0.3)
+        XCTAssertFalse(hud.tapRefused)
+
+        hud.suspend()
+        moment += 600
+        hud.resume()
+        XCTAssertFalse(hud.tapRefused, "dark-screen time does not count")
+        moment += 31
+        hud.refresh()
+        XCTAssertTrue(hud.tapRefused)
+    }
+
+    func testAHealthyTapNeverReadsAsRefused() {
+        let hud = hud()
+        on(hud)
+        moment += 600
+        hud.refresh()
+        XCTAssertFalse(hud.tapRefused)
+    }
+
+    func testAHUDBuiltWithDefaultsNeverRegistersARealObserver() {
+        let hud = MediaKeyHUD(isEnabled: { true }, trust: FakeTrust(false))
+        hud.refresh()
+        XCTAssertTrue(hud.needsAccessibility)
+        XCTAssertTrue(hud.isObserving, "it asked, and the inert notifier took it")
+        hud.stop()
     }
 }

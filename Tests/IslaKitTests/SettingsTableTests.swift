@@ -385,7 +385,24 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertFalse(NotchViewModel.volumeAndBrightnessEnabled(in: defaults))
     }
 
-    /// After ten seconds of waiting the group adds one line that says what to do
+    /// Trusted but no tap for thirty seconds: one footnote, and only then
+    /// (2026-10-16, owner).
+    func testTheRefusedKeysLineAppearsOnlyWhenTrustedAndTheTapNeverStarted() {
+        let line = "Isla has the permission but macOS isn’t passing it the volume and brightness keys yet. Switch Volume and Brightness off and on again; if that doesn’t help, restart the Mac."
+        XCTAssertFalse(SettingsTable.blocks(for: .general, context: SettingsContext()).contains(.footnote(line)))
+
+        var refused = SettingsContext()
+        refused.volumeKeysRefused = true
+        let blocks = SettingsTable.blocks(for: .general, context: refused)
+        XCTAssertTrue(blocks.contains(.footnote(line)))
+        XCTAssertFalse(blocks.flatMap(\.rows).contains(.accessibilityPermission), "the permission is granted: no group")
+
+        var notOffered = refused
+        notOffered.offersVolumeAndBrightness = false
+        XCTAssertFalse(SettingsTable.blocks(for: .general, context: notOffered).contains(.footnote(line)))
+    }
+
+    /// After thirty seconds of silent waiting the group adds one line that says what to do
     /// about an entry macOS keeps for an older copy of Isla (2026-10-16, owner).
     func testTheStaleEntryLineAppearsOnlyAfterTheWaitAndKeepsTheOpenAction() {
         let line = "Already switched on in the list? macOS may be holding a permission from an older copy of Isla. Select Isla, remove it with −, then switch Volume and Brightness off and on again."

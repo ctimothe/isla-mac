@@ -1617,8 +1617,9 @@ scroll the lyrics for real, let go and count four seconds.
   pop-up and never the Mac's.
   *2026-10-16 (owner):* granting must work with nothing extra. A tap that
   fails to start is retried by the poll, the system's Accessibility-list
-  announcement triggers looks at 0.3 s and 1.5 s, and after 10 s of a missing
-  permission Settings says how to clear a stale entry. Held by
+  announcement triggers looks at 0.3 s and 1.5 s, after 30 silent seconds of a
+  missing permission Settings says how to clear a stale entry, and after 30 s
+  of a trusted-but-refused tap the retry slows to 10 s and Settings says so. Held by
   `MediaKeyHUDTests` and `SettingsTableTests`; the build-to-build grant itself
   is `fix/stable-signing`'s. Still owed on hardware: grant, and the keys work
   without removing and re-adding Isla.

@@ -1135,11 +1135,20 @@ until nothing uses them, then go.
 >   Accessibility list changed) only while the permission is missing or a tap
 >   is pending, and looks again 0.3 s and 1.5 s after each one, because tccd
 >   can lag it. The 2 s poll stays as the fallback.
-> - Ten seconds after the setting went on with the permission still missing,
->   the "Accessibility" group adds one footnote: "Already switched on in the
+> - Thirty silent seconds after the setting went on with the permission still
+>   missing (an announcement above restarts the wait: the person is acting;
+>   ten seconds flashed the line mid-grant), the "Accessibility" group adds one
+>   footnote: "Already switched on in the
 >   list? macOS may be holding a permission from an older copy of Isla. Select
 >   Isla, remove it with −, then switch Volume and Brightness off and on
->   again." The 10 s is judged by the looks above; no timer exists for it.
+>   again." The 30 s is judged by the looks above; no timer exists for it.
+> - Trusted and on but with no tap for 30 s, the retry slows from 2 s to 10 s
+>   and the General section adds one footnote: "Isla has the permission but
+>   macOS isn’t passing it the volume and brightness keys yet. Switch Volume
+>   and Brightness off and on again; if that doesn’t help, restart the Mac."
+>   It clears the moment a tap starts or the setting goes off. The two looks an
+>   announcement queues run even if the first one ends the watch; they die
+>   only with the setting, a sleep or a lock, or `stop()`.
 
 ## 13. Stress rules
 

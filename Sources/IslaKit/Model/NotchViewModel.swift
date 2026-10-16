@@ -264,6 +264,12 @@ final class NotchViewModel: ObservableObject {
 
     /// Whether Settings should add the stale-entry line to that group: the
     /// permission has stayed missing past `MediaKeyHUD.staleEntryAfter`.
+    /// Whether Settings should say the Mac is not passing the keys on: trusted,
+    /// on, and no tap for `MediaKeyHUD.tapRefusedAfter`.
+    var volumeKeysRefused: AnyPublisher<Bool, Never> {
+        stores.hud.$tapRefused.removeDuplicates().eraseToAnyPublisher()
+    }
+
     var accessibilityEntrySuspectedStale: AnyPublisher<Bool, Never> {
         stores.hud.$suspectsStaleEntry.removeDuplicates().eraseToAnyPublisher()
     }

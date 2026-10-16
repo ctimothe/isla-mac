@@ -527,6 +527,7 @@
 "Accessibility" = "Универсальный доступ";
 "Open Privacy & Security…" = "Открыть «Конфиденциальность и безопасность»…";
 "Already switched on in the list? macOS may be holding a permission from an older copy of Isla. Select Isla, remove it with −, then switch Volume and Brightness off and on again." = "Уже включено в списке? Возможно, macOS хранит разрешение от более старой копии Isla. Выберите Isla, удалите её кнопкой −, затем выключите и снова включите «Громкость и яркость».";
+"Isla has the permission but macOS isn’t passing it the volume and brightness keys yet. Switch Volume and Brightness off and on again; if that doesn’t help, restart the Mac." = "У Isla есть разрешение, но macOS пока не передаёт ей клавиши громкости и яркости. Выключите и снова включите «Громкость и яркость»; если не поможет, перезагрузите Mac.";
 "Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up." = "Isla пока не видит клавиши громкости. До тех пор Mac показывает своё окно.";
 "Volume %@" = "Громкость: %@";
 "Brightness %@" = "Яркость: %@";

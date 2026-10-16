@@ -57,6 +57,19 @@ protocol AccessibilityGrantNotifying {
     func observe(_ handler: @escaping @MainActor @Sendable () -> Void) -> () -> Void
 }
 
+/// What a HUD built with defaults gets: the system's notifier, except under
+/// XCTest, where it is inert for the same reason `EventMediaKeyTap.live` becomes
+/// an `InertMediaKeyTap` there. A test that forgets to inject a fake can then
+/// never register a real distributed observer on the owner's Mac.
+@MainActor
+struct InertAccessibilityGrantNotifier: AccessibilityGrantNotifying {
+    func observe(_ handler: @escaping @MainActor @Sendable () -> Void) -> () -> Void { {} }
+
+    static var live: AccessibilityGrantNotifying {
+        PlayerBridge.isRunningTests ? InertAccessibilityGrantNotifier() : SystemAccessibilityGrantNotifier()
+    }
+}
+
 struct SystemAccessibilityGrantNotifier: AccessibilityGrantNotifying {
     /// What the system posts to the distributed centre when the list changes.
     static let name = Notification.Name("com.apple.accessibility.api")

@@ -42,13 +42,25 @@ final class MediaKeyHUD: ObservableObject {
     /// moment.
     static let grantLookDelays: [TimeInterval] = [0.3, 1.5]
 
-    /// How long the setting may stay on with the permission missing before
-    /// Settings suspects a stale entry. A person who is reading the system
-    /// prompt and flipping a switch is done well inside it; one who has
-    /// granted and still sees nothing is looking at an entry macOS keeps for an
-    /// older copy of Isla (ad-hoc signing ties a grant to one build), which only
-    /// removing it and switching the setting off and on again clears.
-    static let staleEntryAfter: TimeInterval = 10.0
+    /// How long the setting may stay on with the permission missing, and in
+    /// silence, before Settings suspects a stale entry. Reading the prompt,
+    /// opening System Settings and authenticating with Touch ID routinely takes
+    /// more than 10 s, and the first version of this hint (10 s) flashed
+    /// "remove it with −" in the middle of a slow, correct grant. 30 s is past
+    /// that, and any announcement from the system restarts the wait
+    /// (`accessibilityListChanged`): the person is acting, and the hint is for
+    /// the silent case, an entry macOS keeps for an older copy of Isla
+    /// (ad-hoc signing ties a grant to one build) that only removing it and
+    /// switching the setting off and on again clears.
+    static let staleEntryAfter: TimeInterval = 30.0
+
+    /// How long "on, trusted, and still no tap" may hold before the retry slows
+    /// down and Settings says so. A tap macOS refuses right after a grant
+    /// starts within a second or two; one that is still refused after this is
+    /// not coming from a faster poll, and 2 s forever is a wasted wake-up.
+    static let tapRefusedAfter: TimeInterval = 30.0
+    /// The retry's pace once `tapRefusedAfter` has passed.
+    static let slowPollInterval: TimeInterval = 10.0
 
     /// Starts `work` after `seconds` and returns a closure that cancels it. A
     /// seam: the tests drive time by hand.
@@ -71,6 +83,12 @@ final class MediaKeyHUD: ObservableObject {
     /// the panel opening), so no timer exists for it and none runs once the
     /// permission is granted.
     @Published private(set) var suspectsStaleEntry = false
+    /// True once the setting has been on, the permission granted and no tap
+    /// running for `tapRefusedAfter`: Settings says macOS is not passing the
+    /// keys on and what to try. Clears the moment a tap starts or the setting
+    /// goes off. Before this, the owner saw the Mac's own pop-up and nothing
+    /// said why.
+    @Published private(set) var tapRefused = false
 
     /// The setting. A closure, read at each use, so a switch in Settings and a
     /// test's value both act at once.
@@ -105,6 +123,8 @@ final class MediaKeyHUD: ObservableObject {
 
     /// When `needsAccessibility` last became true, for `staleEntryAfter`.
     private var missingSince: TimeInterval?
+    /// When "on, trusted, no tap" began, for `tapRefusedAfter`.
+    private var tapMissingSince: TimeInterval?
     /// Ends the watch on the Accessibility list; non-nil while watching.
     private var stopObserving: (() -> Void)?
     /// The looks that follow an announcement, cancelled together.
@@ -159,7 +179,7 @@ final class MediaKeyHUD: ObservableObject {
         self.schedule = schedule ?? MediaKeyHUD.mainQueueScheduler
         self.deviceSymbol = deviceSymbol ?? { AudioOutputs.output(id: $0)?.symbol }
         self.now = now ?? { ProcessInfo.processInfo.systemUptime }
-        self.grantNotifier = grantNotifier ?? SystemAccessibilityGrantNotifier()
+        self.grantNotifier = grantNotifier ?? InertAccessibilityGrantNotifier.live
     }
 
     /// Whether a tap is up right now.
@@ -207,15 +227,25 @@ final class MediaKeyHUD: ObservableObject {
                 }
             }
             startTap()
+            if tap == nil {
+                if tapMissingSince == nil { tapMissingSince = now() }
+            } else {
+                tapMissingSince = nil
+            }
+            let refused = tapMissingSince.map { now() - $0 > Self.tapRefusedAfter } ?? false
+            if tapRefused != refused { tapRefused = refused }
             // Trusted and the setting on, yet no tap: `CGEvent.tapCreate` can
             // refuse in the moments right after macOS records a grant. This used
             // to wait for the panel to open or the setting to be toggled, so a
             // person who had done everything right saw the Mac's own pop-up
             // until they did something extra. Keep looking until a tap starts,
-            // then stop: a running tap needs no poll.
+            // then stop: a running tap needs no poll. Past `tapRefusedAfter` the
+            // poll slows to `slowPollInterval` (read when it is scheduled).
             if tap == nil { startPolling() } else { stopPolling() }
         } else {
             stopTap()
+            tapMissingSince = nil
+            if tapRefused { tapRefused = false }
             if missing { startPolling() } else { stopPolling() }
         }
         updateObserving()
@@ -267,6 +297,7 @@ final class MediaKeyHUD: ObservableObject {
         // The wait for a permission starts again: the time the screen was dark
         // is not time the person spent looking at a missing grant.
         if missingSince != nil { missingSince = now() }
+        if tapMissingSince != nil { tapMissingSince = now() }
         refresh()
     }
 
@@ -429,7 +460,7 @@ final class MediaKeyHUD: ObservableObject {
 
     private func startPolling() {
         guard cancelPoll == nil, !isSuspended else { return }
-        cancelPoll = schedule(Self.pollInterval) { [weak self] in
+        cancelPoll = schedule(tapRefused ? Self.slowPollInterval : Self.pollInterval) { [weak self] in
             self?.cancelPoll = nil
             self?.refresh()
         }
@@ -446,19 +477,33 @@ final class MediaKeyHUD: ObservableObject {
     /// missing, or a trusted Isla whose tap would not start — and not otherwise.
     /// Never while suspended: a dark or locked screen has nobody to grant
     /// anything, the same rule as the poll.
+    ///
+    /// The scheduled looks an announcement queued are **not** tied to the watch:
+    /// the first look usually succeeds and ends the watch (a tap now exists),
+    /// and cancelling from inside it threw away the 1.5 s look that exists for
+    /// the case where the 0.3 s one was early. They are cancelled only when
+    /// nothing may run at all: the setting off, the display asleep or locked, or
+    /// `stop()`.
     private func updateObserving() {
-        let waiting = isEnabled() && !isSuspended && (needsAccessibility || (isTrusted && tap == nil))
+        let live = isEnabled() && !isSuspended
+        if !live { cancelLooks() }
+        let waiting = live && (needsAccessibility || (isTrusted && tap == nil))
         if waiting {
             guard stopObserving == nil else { return }
             stopObserving = grantNotifier.observe { [weak self] in self?.accessibilityListChanged() }
         } else {
-            stopObservingGrants()
+            stopObserving?()
+            stopObserving = nil
         }
     }
 
     private func stopObservingGrants() {
         stopObserving?()
         stopObserving = nil
+        cancelLooks()
+    }
+
+    private func cancelLooks() {
         cancelGrantLooks.forEach { $0() }
         cancelGrantLooks = []
     }
@@ -466,10 +511,14 @@ final class MediaKeyHUD: ObservableObject {
     /// The system says the list changed: look after each of
     /// `grantLookDelays`. Never the prompt, never a loop: two scheduled looks
     /// per announcement, and a burst of announcements replaces them rather than
-    /// stacking them.
+    /// stacking them. An announcement also restarts the stale-entry waits: the
+    /// person is acting in System Settings right now, which is the opposite of
+    /// the silent case those hints are for.
     private func accessibilityListChanged() {
         guard stopObserving != nil else { return }
-        cancelGrantLooks.forEach { $0() }
+        if missingSince != nil { missingSince = now() }
+        if tapMissingSince != nil { tapMissingSince = now() }
+        cancelLooks()
         cancelGrantLooks = Self.grantLookDelays.map { delay in
             schedule(delay) { [weak self] in self?.refresh() }
         }
