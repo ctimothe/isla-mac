@@ -1513,11 +1513,7 @@ struct LockScreenCard: View {
     }
 
     private var outputSymbol: String {
-        guard let currentOutput,
-              let device = outputs.first(where: { $0.id == currentOutput }) else {
-            return "airplayaudio"
-        }
-        return device.symbol
+        AudioOutputs.symbol(outputs: outputs, current: currentOutput, fallback: "airplayaudio")
     }
 
     /// Whether the heart is drawn: Spotify connected, the account answering and

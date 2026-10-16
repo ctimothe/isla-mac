@@ -32,7 +32,7 @@ final class PlayerShellLayoutTests: XCTestCase {
         // The body is centred in the window and hangs from its top.
         let origin = CGPoint(x: (size.width - bodyWidth) / 2, y: 0)
         let layout = PlayerLayout(
-            bodyWidth: bodyWidth, headerHeight: geometry.notchSize.height, hasLyricBand: true, hasVolumeAndOutput: true
+            bodyWidth: bodyWidth, headerHeight: geometry.notchSize.height, hasLyricBand: true, hasOutputButton: true
         )
         func body(_ node: AXNode) throws -> CGRect {
             let frame = try XCTUnwrap(node.frame, root.dump)

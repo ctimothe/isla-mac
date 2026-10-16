@@ -685,7 +685,7 @@ final class SettingsTableTests: XCTestCase {
             ("Open Automation Settings…", .automationPermission, .music),
             ("Music Only", .musicOnly, .music),
             ("Players on This Mac", .installedPlayers, .music),
-            ("Volume and Output", .volumeAndOutput, .music),
+            ("Output Button", .volumeAndOutput, .music),
             ("Lyric Band", .lyricBand, .music),
             ("Show Lyrics", .showLyrics, .lyrics),
             ("Word Karaoke", .wordKaraoke, .lyrics),

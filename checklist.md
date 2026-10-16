@@ -204,6 +204,9 @@ are the exception the design did not anticipate:
   8), because the controls only read until the person moves the slider or
   picks a device — nothing is written on its own. Recorded here as the one
   deliberate exception. Held by the redesign's `PlayerVolumeTests`.
+  *Amended 2026-10-16:* the player's slider is gone and the setting is now
+  **Output Button** (same stored key and default); only the output menu
+  remains, and the lock card keeps its slider.
 - **Volume and brightness pop-up** (Settings › General, default off, redesign
   R5) replaces the Mac's own pop-up in the island: volume, mute, display and
   keyboard brightness. It needs Accessibility, asked for only when the switch
@@ -1438,6 +1441,18 @@ New settings and their defaults (spec §14):
 | Translate › Keep History | off | memory only, but it is content |
 | Translate › Speak Button | on | sends nothing, changes nothing system-wide |
 | General › Volume and Brightness | off | decision 13; needs Accessibility, sets system values |
+
+**Amended 2026-10-16 (owner): the volume left the island.** The Music tab's
+volume bar and the Output menu's folded Volume row are gone (the volume is the
+Mac's, not the player's); the lock card keeps its slider. The Output button now
+draws the current output device's own glyph instead of `airplay.audio` (the
+owner read it as AirDrop), and the setting is relabelled **Output Button** with
+its stored key `player.volumeAndOutput` kept. Spec §4.5 carries the amendment;
+held by `OutputMenuTests`, `PlayerLayoutTests`, `PlayerStatesLayoutTests`,
+`PlayerPaneTests`. The physical check for R1-H5 narrows to: the button's glyph
+changes to the AirPods and back when they connect and disconnect, and the menu
+switches output. The row "Music › Volume and Output" in the table above is now
+"Music › Output Button", default still **on**.
 
 ### R1 — Island, Music, Lyrics (`feat/redesign-r1-island-music-lyrics`)
 

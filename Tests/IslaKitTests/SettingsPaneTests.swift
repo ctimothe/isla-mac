@@ -111,7 +111,7 @@ final class SettingsPaneTests: XCTestCase {
             .privacy: ["Clipboard History", "Include Images", "Keep Pinned Items",
                        PrivacyMode.Section.clipboard.settingsTitle, PrivacyMode.Section.translate.settingsTitle,
                        "Hide from Screen Recording"],
-            .music: ["Music Only", "Volume and Output", "Lyric Band"],
+            .music: ["Music Only", "Output Button", "Lyric Band"],
             .lyrics: ["Show Lyrics", "Word Karaoke", "Translate Lyrics", "Look Up Lyrics Online"],
             .lockScreen: ["Show on Lock Screen", "Rest as Banner"],
             .translate: ["Translate Online", "Keep History", "Speak Button"],

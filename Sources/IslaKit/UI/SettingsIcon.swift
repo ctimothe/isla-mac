@@ -67,8 +67,10 @@ enum SettingsIcon {
     static let resetTiming = "arrow.counterclockwise"
     /// A brief look at the track that just started.
     static let peek = "eye"
-    /// The player's system volume and output menu: the speaker.
-    static let volumeAndOutput = "speaker.wave.2"
+    /// The player's Output button: the speaker. The button itself draws the
+    /// glyph of whichever device is playing, which a settings row — that has no
+    /// device — cannot, so the row wears the generic output speaker.
+    static let outputButton = "speaker.wave.2"
     /// The sung line and the next one under the title: lines of text, left-set.
     static let lyricBand = "text.alignleft"
     /// A translated line under each lyric line: speech with text in it.
@@ -122,7 +124,7 @@ enum SettingsIcon {
         shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, readAhead, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
-        online, lyricTiming, resetTiming, peek, volumeAndOutput, lyricBand, translateLyrics, translateTarget, lockScreen, restAsBanner, cardStyle, automationAccess, openSystemSettings,
+        online, lyricTiming, resetTiming, peek, outputButton, lyricBand, translateLyrics, translateTarget, lockScreen, restAsBanner, cardStyle, automationAccess, openSystemSettings,
         connectAccount, disconnectAccount, importFromKeychain,
         clipboard, clipboardHistory, includeImages, keepPinned, translate, hideFromRecording,
         about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,

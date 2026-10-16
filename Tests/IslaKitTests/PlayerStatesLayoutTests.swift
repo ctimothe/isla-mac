@@ -33,7 +33,6 @@ final class PlayerStatesLayoutTests: XCTestCase {
             XCTAssertEqual(f.title, layout.title)
             XCTAssertEqual(f.progress, layout.progress)
             XCTAssertEqual(f.transport, layout.transport)
-            XCTAssertEqual(f.volume, layout.volume)
             XCTAssertEqual(f.output, layout.output)
             XCTAssertEqual(f.lyrics, layout.lyrics)
             XCTAssertTrue(f.showsModes, "shuffle and repeat flank the transport in the player")
@@ -57,7 +56,6 @@ final class PlayerStatesLayoutTests: XCTestCase {
             XCTAssertTrue(f.subtitleIsArtistOnly, "the column names the artist alone")
             XCTAssertEqual(f.progress, CGRect(x: 58, y: 116, width: 190, height: 12))
             XCTAssertEqual(f.transport, CGRect(x: 84, y: 136, width: 138, height: 28))
-            XCTAssertEqual(f.volume, CGRect(x: 58, y: 176, width: 128, height: 12))
             XCTAssertEqual(f.output, CGRect(x: 197, y: 169, width: 26, height: 26))
             XCTAssertEqual(f.lyrics, CGRect(x: 225, y: 169, width: 26, height: 26))
             XCTAssertFalse(f.showsModes, "shuffle and repeat fold away in the column")
@@ -99,8 +97,6 @@ final class PlayerStatesLayoutTests: XCTestCase {
             XCTAssertEqual(f.progress.minY, 358)
             XCTAssertEqual(f.output?.origin, CGPoint(x: width - 75, y: 351), "Output at bw − 75")
             XCTAssertEqual(f.lyrics.origin, CGPoint(x: width - 45, y: 351), "Lyrics at bw − 45")
-            XCTAssertEqual(f.volume?.origin.y, 358)
-            XCTAssertEqual(f.volume?.width, 78)
             XCTAssertFalse(f.showsModes)
             let area = try XCTUnwrap(f.lyricArea)
             XCTAssertEqual(area.minX, 58, "tall lines at x 58 at \(width)")
@@ -113,23 +109,22 @@ final class PlayerStatesLayoutTests: XCTestCase {
         }
     }
 
-    /// At 560 the footer is the board's: the progress row 158…376, the volume bar
-    /// at 388 and the two buttons at 485 and 515 — the arithmetic that produces
-    /// them from the trailing edge is what lets 480 and 620 keep their order.
+    /// At 560 the footer is the board's, less the volume bar that left on
+    /// 2026-10-16: the two buttons at 485 and 515, and the progress row 158…473
+    /// — it takes the room the bar left, ending 12 before Output. The arithmetic
+    /// that produces them from the trailing edge is what lets 480 and 620 keep
+    /// their order.
     func testTheTallFooterIsTheBoardsAtFiveSixtyAndKeepsItsOrderAtTheEnds() throws {
         let board = frames(.tall, 560)
-        XCTAssertEqual(board.progress, CGRect(x: 158, y: 358, width: 218, height: 12))
-        XCTAssertEqual(board.volume, CGRect(x: 388, y: 358, width: 78, height: 12))
+        XCTAssertEqual(board.progress, CGRect(x: 158, y: 358, width: 315, height: 12))
         XCTAssertEqual(board.output, CGRect(x: 485, y: 351, width: 26, height: 26))
         XCTAssertEqual(board.lyrics, CGRect(x: 515, y: 351, width: 26, height: 26))
 
         for width in Self.widths {
             let f = frames(.tall, width)
-            let volume = try XCTUnwrap(f.volume)
             let output = try XCTUnwrap(f.output)
             XCTAssertLessThanOrEqual(f.transport.maxX, f.progress.minX, "transport then progress at \(width)")
-            XCTAssertLessThan(f.progress.maxX, volume.minX, "progress then volume at \(width)")
-            XCTAssertLessThan(volume.maxX, output.minX, "volume then Output at \(width)")
+            XCTAssertLessThan(f.progress.maxX, output.minX, "progress then Output at \(width)")
             XCTAssertLessThan(output.maxX, f.lyrics.minX, "Output then Lyrics at \(width)")
             XCTAssertLessThanOrEqual(f.lyrics.maxX, width - 14, "inside the pane at \(width)")
             XCTAssertGreaterThan(f.progress.width, 120, "a scrubber, not a stub, at \(width)")
@@ -148,7 +143,6 @@ final class PlayerStatesLayoutTests: XCTestCase {
                     ("cover", f.cover), ("title", f.title), ("subtitle", f.subtitle),
                     ("progress", f.progress), ("transport", f.transport), ("lyrics", f.lyrics),
                 ]
-                if let volume = f.volume { parts.append(("volume", volume)) }
                 if let output = f.output { parts.append(("output", output)) }
                 if let area = f.lyricArea { parts.append(("lyricArea", area)) }
                 for (i, a) in parts.enumerated() {
