@@ -217,6 +217,120 @@ final class UpdateHardeningTests: XCTestCase {
         XCTAssertEqual(verifyFails.diskImage.cleanedUp, [], "a bad signature never reached the mount")
     }
 
+    // MARK: A sweep never meets an install
+
+    /// A sweep that lands while this install is staging, however it got there,
+    /// must not touch the folder: it is the app that is about to be swapped in.
+    func testASweepThatLandsDuringStagingLeavesTheInstallsFolderAlone() async throws {
+        let rig = try InstallerRig(self)
+        let apps = rig.apps
+        let seen = Seen()
+        rig.stager.afterStaging = {
+            UpdateInstaller.sweepStaleStaging(in: apps)     // no `except:`, the worst case
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: apps.path)) ?? []
+            seen.set(names.filter { $0.hasPrefix(UpdateInstaller.stagingPrefix) }.count)
+        }
+        rig.build()
+        rig.installer.install(rig.release())
+        await rig.finish()
+        XCTAssertEqual(seen.value, 1, "the staging folder was still there after the sweep")
+        XCTAssertEqual(rig.installer.phase, .relaunching)
+        XCTAssertEqual(try String(contentsOf: rig.installed.appendingPathComponent("marker.txt"), encoding: .utf8), "new")
+    }
+
+    func testASweepDuringValidationLeavesTheStagedCopyAlone() async throws {
+        let rig = try InstallerRig(self)
+        let apps = rig.apps
+        let seen = Seen()
+        rig.validator.onValidate = { staged in
+            UpdateInstaller.sweepStaleStaging(in: apps)
+            seen.set(FileManager.default.fileExists(atPath: staged.path) ? 1 : 0)
+        }
+        rig.build()
+        rig.installer.install(rig.release())
+        await rig.finish()
+        XCTAssertEqual(seen.value, 1, "the staged copy survived the sweep")
+        XCTAssertEqual(rig.log.count("relaunch"), 1)
+    }
+
+    func testTheGuardIsReleasedWhenTheInstallEndsHowEverItEnds() async throws {
+        for scenario in ["success", "stage fails", "validation fails", "swap fails"] {
+            let rig = try InstallerRig(self)
+            switch scenario {
+            case "stage fails": rig.stager.error = UpdateImageError.stageFailed
+            case "validation fails": rig.validator.error = UpdateValidationError.notNewer
+            case "swap fails": rig.swapper.swapper.swap = { _, _ in EACCES }
+            default: break
+            }
+            rig.build()
+            rig.installer.install(rig.release())
+            await rig.finish()
+            XCTAssertFalse(UpdateInstaller.stagingActivity.isActive, scenario)
+        }
+    }
+
+    func testASweepWithAnInstallStagingTouchesNothingAndOneAfterwardsDoes() throws {
+        let folder = try UpdateTestSupport.folder(self)
+        let stale = folder.appendingPathComponent("\(UpdateInstaller.stagingPrefix)\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
+        UpdateInstaller.stagingActivity.begin()
+        UpdateInstaller.sweepStaleStaging(in: folder)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stale.path), "refused while an install is staging")
+        UpdateInstaller.stagingActivity.end()
+        UpdateInstaller.sweepStaleStaging(in: folder)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path))
+    }
+
+    func testASweepThatStartsFreeStopsWhenAnInstallBeginsMidWalk() throws {
+        let folder = try UpdateTestSupport.folder(self)
+        var folders: [URL] = []
+        for _ in 0..<5 {
+            let url = folder.appendingPathComponent("\(UpdateInstaller.stagingPrefix)\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            folders.append(url)
+        }
+        var asked = 0
+        UpdateInstaller.sweepStaleStaging(in: folder, ownerID: { _ in
+            asked += 1
+            if asked == 2 { UpdateInstaller.stagingActivity.begin() }
+            return getuid()
+        })
+        defer { UpdateInstaller.stagingActivity.end() }
+        let left = folders.filter { FileManager.default.fileExists(atPath: $0.path) }.count
+        XCTAssertGreaterThanOrEqual(left, 3, "once an install began the walk removed nothing more")
+    }
+
+    // MARK: A run ended at its ceiling publishes nothing more
+
+    func testARunEndedAtItsCeilingCannotBringBackACardThatWasMovedOn() async throws {
+        let rig = try InstallerRig(self)
+        rig.stager.deafSeconds = 1.0
+        rig.installTimeout = 0.2
+        rig.build()
+        rig.installer.install(rig.release())
+        await rig.until("the ceiling") { rig.installer.phase == .failed(.cannotOpen) }
+        rig.installer.settle(with: .upToDate(version: "0.3.1"))
+        XCTAssertEqual(rig.installer.phase, .idle)
+        // The old run now comes back from its step, throws, and cleans up.
+        try await Task.sleep(for: .milliseconds(1600))
+        XCTAssertEqual(rig.installer.phase, .idle, "its catch published nothing")
+        XCTAssertEqual(rig.leftovers(), [])
+        XCTAssertEqual(rig.log.count("swap"), 0)
+    }
+
+    func testARunEndedAtItsCeilingCannotBringBackADifferentReleaseEither() async throws {
+        let rig = try InstallerRig(self)
+        rig.stager.deafSeconds = 1.0
+        rig.installTimeout = 0.2
+        rig.build()
+        rig.installer.install(rig.release())
+        await rig.until("the ceiling") { rig.installer.phase == .failed(.cannotOpen) }
+        rig.installer.settle(with: .available(rig.release(version: "0.4.0")))
+        XCTAssertEqual(rig.installer.phase, .idle)
+        try await Task.sleep(for: .milliseconds(1600))
+        XCTAssertEqual(rig.installer.phase, .idle)
+    }
+
     // MARK: Who may replace the app
 
     func testAnAppAnotherAccountOwnsOffersOnlyTheDownload() async throws {
@@ -405,4 +519,11 @@ final class UpdateHardeningTests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.2)
         XCTAssertTrue(FileManager.default.fileExists(atPath: stale.path))
     }
+}
+
+private final class Seen: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = -1
+    func set(_ value: Int) { lock.withLock { stored = value } }
+    var value: Int { lock.withLock { stored } }
 }

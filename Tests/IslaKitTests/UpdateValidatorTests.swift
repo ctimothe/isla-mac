@@ -9,7 +9,7 @@ final class UpdateValidatorTests: XCTestCase {
     private let page = URL(string: "https://github.com/ctimothe/isla-mac/releases/tag/v1.1")!
 
     private func validator(version: String = "1.0", build: String = "1") -> BundleUpdateValidator {
-        BundleUpdateValidator(runningVersion: version, runningBuild: build)
+        BundleUpdateValidator(runningVersion: version, runningBuild: build, satisfiesRunningIdentity: { _ in true })
     }
 
     private func release(_ version: String = "1.1") -> UpdateCheck.Release {
@@ -203,5 +203,21 @@ final class UpdateValidatorTests: XCTestCase {
         do { try await validator.validate(app, release: release()); XCTFail() } catch {
             XCTAssertEqual(error as? UpdateValidationError, .signatureInvalid, "a broken signature is the first thing said")
         }
+    }
+
+    /// There is no way to build a validator that accepts any identity by
+    /// forgetting to say: the argument is required, and `running()` is built from
+    /// the app that is running. Here that is the test host, signed by Apple and
+    /// not ad-hoc, so an ad-hoc app is not its update; were the host ad-hoc, it
+    /// would be.
+    func testTheRunningValidatorIsBuiltFromTheRunningApp() async throws {
+        let folder = try UpdateTestSupport.folder(self)
+        let update = try UpdateTestSupport.tinyApp(in: folder, version: "1.1", build: "2")
+        var me: SecCode?
+        var code: SecStaticCode?
+        XCTAssertEqual(SecCodeCopySelf([], &me), errSecSuccess)
+        XCTAssertEqual(SecCodeCopyStaticCode(try XCTUnwrap(me), [], &code), errSecSuccess)
+        let hostIsAdHoc = BundleUpdateValidator.isAdHoc(try XCTUnwrap(code)) ?? false
+        XCTAssertEqual(BundleUpdateValidator.running().satisfiesRunningIdentity(update), hostIsAdHoc)
     }
 }

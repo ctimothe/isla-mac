@@ -116,6 +116,19 @@ final class UpdateIntegrationTests: XCTestCase {
         return Fixture(release: release, image: image)
     }
 
+    /// The validator a running app of this identity would build: the real
+    /// identity logic over the installed tiny app's own code, which is ad-hoc, so
+    /// any valid signature is accepted. (The test host is not ad-hoc, so
+    /// `running()` itself would be the wrong stand-in here.)
+    private func installedValidator() -> BundleUpdateValidator {
+        var code: SecStaticCode?
+        SecStaticCodeCreateWithPath(installed as CFURL, [], &code)
+        return BundleUpdateValidator(
+            runningVersion: "1.0", runningBuild: "1",
+            satisfiesRunningIdentity: BundleUpdateValidator.identityCheck(for: code!)
+        )
+    }
+
     private func makeInstaller(relauncher: FakeRelauncher, scratch: ScratchLog) -> UpdateInstaller {
         var environment = UpdateEnvironment.live()
         environment.installedURL = installed
@@ -130,7 +143,7 @@ final class UpdateIntegrationTests: XCTestCase {
         downloader.makeSession = { PrivateNetwork.makeSession(delegate: $0, protocolClasses: [StubGitHub.self]) }
         return UpdateInstaller(
             environment: environment, downloader: downloader,
-            validator: BundleUpdateValidator(runningVersion: "1.0", runningBuild: "1"),
+            validator: installedValidator(),
             relauncher: relauncher
         )
     }
@@ -232,7 +245,7 @@ final class UpdateIntegrationTests: XCTestCase {
         let relauncher = FakeRelauncher(log: Recorder())
         let installer = UpdateInstaller(
             environment: environment,
-            validator: BundleUpdateValidator(runningVersion: "1.0", runningBuild: "1"),
+            validator: installedValidator(),
             relauncher: relauncher
         )
         XCTAssertNil(installer.manualReason(for: release))

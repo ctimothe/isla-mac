@@ -103,6 +103,9 @@ final class UpdateCheck: ObservableObject {
         self.rehearsal = rehearsal
     }
 
+    /// The most a rehearsal's release.json may be.
+    nonisolated static let rehearsalReleaseLimit = 64 * 1024
+
     /// Whether this is a rehearsal: the release comes from a local folder, and
     /// the card says so.
     var isRehearsal: Bool { rehearsal != nil }
@@ -121,7 +124,10 @@ final class UpdateCheck: ObservableObject {
         // GitHub's, and nothing is requested from anywhere.
         let fetch: Fetch = rehearsal.map { folder in
             { request in
-                let data = try Data(contentsOf: folder.appendingPathComponent("release.json"))
+                // A regular file of at most 64 KB: it is read before anything
+                // is trusted, and a FIFO there must not hang the check.
+                guard let data = SafeFile.readRegular(folder.appendingPathComponent("release.json"), limit: Self.rehearsalReleaseLimit)
+                else { throw URLError(.cannotOpenFile) }
                 return (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
         } ?? self.fetch

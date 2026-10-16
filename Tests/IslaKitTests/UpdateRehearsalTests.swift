@@ -289,6 +289,96 @@ final class UpdateRehearsalTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: scratch.path), [])
     }
 
+    // MARK: Files that are not files
+
+    /// Waits for a task that must finish quickly, and says so if it does not.
+    private func finishes<T: Sendable>(_ seconds: TimeInterval = 3, _ body: @escaping @Sendable () async -> T) async -> T? {
+        let box = ResultBox<T>()
+        let task = Task { box.set(await body()) }
+        for _ in 0..<Int(seconds * 200) where box.value == nil { try? await Task.sleep(for: .milliseconds(5)) }
+        if box.value == nil { task.cancel() }
+        return box.value
+    }
+
+    private func fifo(at url: URL) throws {
+        XCTAssertEqual(mkfifo(url.path, 0o600), 0, "mkfifo")
+    }
+
+    func testAFIFOAtTheAssetPathFailsQuicklyInsteadOfHangingTheCopy() async throws {
+        let folder = try rehearsalFolder()
+        let scratch = try rehearsalFolder()
+        let path = folder.appendingPathComponent("Isla-0.3.1.dmg")
+        try fifo(at: path)
+        let outcome = await finishes { () -> String in
+            do {
+                _ = try await URLSessionUpdateDownloader(rehearsal: folder).download(from: path, into: scratch, as: "Isla.dmg", expectedBytes: 1000) { _ in }
+                return "downloaded"
+            } catch { return "\(error)" }
+        }
+        XCTAssertEqual(outcome, "\(UpdateDownloadError.badResponse)", "refused, and quickly")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: scratch.path), [])
+    }
+
+    func testOnlyARegularFileIsOpened() throws {
+        let folder = try rehearsalFolder()
+        let regular = folder.appendingPathComponent("regular")
+        try Data("abc".utf8).write(to: regular)
+        let link = folder.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: regular)
+        let pipe = folder.appendingPathComponent("pipe")
+        try fifo(at: pipe)
+        XCTAssertEqual(SafeFile.openRegular(regular)?.size, 3)
+        XCTAssertNil(SafeFile.openRegular(link), "never through a link")
+        XCTAssertNil(SafeFile.openRegular(pipe))
+        XCTAssertNil(SafeFile.openRegular(folder), "a folder is not a file")
+        XCTAssertNil(SafeFile.openRegular(URL(fileURLWithPath: "/dev/null")), "nor a device")
+        XCTAssertNil(SafeFile.openRegular(folder.appendingPathComponent("missing")))
+        XCTAssertEqual(SafeFile.readRegular(regular, limit: 3), Data("abc".utf8))
+        XCTAssertNil(SafeFile.readRegular(regular, limit: 2), "over the limit")
+    }
+
+    func testAFIFOForReleaseJSONFailsTheCheckQuickly() async throws {
+        let folder = try rehearsalFolder()
+        try fifo(at: folder.appendingPathComponent("release.json"))
+        let check = UpdateCheck(fetch: { _ in throw URLError(.cancelled) }, currentVersion: { "0.3.0" }, rehearsal: folder)
+        check.check()
+        let ended = await finishes { await MainActor.run { check.state != .checking } ? true : await Self.settle(check) }
+        XCTAssertEqual(ended, true)
+        if case .failed = check.state {} else { XCTFail("\(check.state)") }
+    }
+
+    private static func settle(_ check: UpdateCheck) async -> Bool {
+        for _ in 0..<600 {
+            if await MainActor.run(body: { check.state != .checking }) { return true }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return false
+    }
+
+    func testAnOversizedReleaseJSONIsRefused() async throws {
+        let folder = try rehearsalFolder()
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: release(in: folder)) as? [String: Any])
+        object["body"] = String(repeating: "x", count: UpdateCheck.rehearsalReleaseLimit + 10)
+        try JSONSerialization.data(withJSONObject: object).write(to: folder.appendingPathComponent("release.json"))
+        let check = UpdateCheck(fetch: { _ in throw URLError(.cancelled) }, currentVersion: { "0.3.0" }, rehearsal: folder)
+        check.check()
+        _ = await Self.settle(check)
+        if case .failed = check.state {} else { XCTFail("\(check.state)") }
+    }
+
+    func testASymlinkedReleaseJSONIsRefused() async throws {
+        let folder = try rehearsalFolder()
+        let elsewhere = try rehearsalFolder()
+        try release(in: folder).write(to: elsewhere.appendingPathComponent("release.json"))
+        try FileManager.default.createSymbolicLink(
+            at: folder.appendingPathComponent("release.json"), withDestinationURL: elsewhere.appendingPathComponent("release.json")
+        )
+        let check = UpdateCheck(fetch: { _ in throw URLError(.cancelled) }, currentVersion: { "0.3.0" }, rehearsal: folder)
+        check.check()
+        _ = await Self.settle(check)
+        if case .failed = check.state {} else { XCTFail("\(check.state)") }
+    }
+
     // MARK: What the person sees
 
     func testTheCardSaysItIsARehearsal() {
@@ -324,4 +414,11 @@ private final class Counter: @unchecked Sendable {
     private var count = 0
     func bump() { lock.withLock { count += 1 } }
     var value: Int { lock.withLock { count } }
+}
+
+private final class ResultBox<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: T?
+    func set(_ value: T) { lock.withLock { stored = value } }
+    var value: T? { lock.withLock { stored } }
 }

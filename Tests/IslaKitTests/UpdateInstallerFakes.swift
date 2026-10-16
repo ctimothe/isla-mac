@@ -118,6 +118,8 @@ final class FakeStager: UpdateStaging, @unchecked Sendable {
     /// Waits this many seconds and does not look at cancellation at all: a tool
     /// that is not listening.
     var deafSeconds: TimeInterval = 0
+    /// Called once the staging folder and the copy exist, before `stage` returns.
+    var afterStaging: (@Sendable () -> Void)?
     var marker = "new"
     private(set) var stagedApps: [URL] = []
 
@@ -132,6 +134,7 @@ final class FakeStager: UpdateStaging, @unchecked Sendable {
         try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
         try Data(marker.utf8).write(to: app.appendingPathComponent("marker.txt"))
         // A failure after the copy began: the folder exists and has contents.
+        afterStaging?()
         if let error { throw error }
         stagedApps.append(app)
         return app
@@ -142,12 +145,14 @@ final class FakeValidator: UpdateValidating, @unchecked Sendable {
     let log: Recorder
     var error: Error?
     private(set) var validated: [URL] = []
+    var onValidate: (@Sendable (URL) -> Void)?
 
     init(log: Recorder) { self.log = log }
 
     func validate(_ app: URL, release: UpdateCheck.Release) async throws {
         log.note("validate")
         validated.append(app)
+        onValidate?(app)
         if let error { throw error }
     }
 }

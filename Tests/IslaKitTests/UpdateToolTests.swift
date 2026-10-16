@@ -131,6 +131,25 @@ final class UpdateToolTests: XCTestCase {
         XCTAssertLessThan(seconds, 5, "ended by the cancel, not by the 60 s timeout")
     }
 
+    /// A cancel that is only noticed after the process has already exited must
+    /// not signal its pid, which the system may have given to something else.
+    func testACancelAfterTheProcessHasGoneSignalsNothing() async throws {
+        let sent = SentSignals()
+        let signals = UpdateTool.Signals(terminate: { _ in sent.note("term") }, kill: { _ in sent.note("kill") })
+        let task = Task { () -> UpdateTool.Result? in
+            await UpdateTool.run(
+                "/usr/bin/true", [], timeout: 10, killGrace: 0.1, signals: signals,
+                afterLaunch: {
+                    usleep(400_000)                       // the process is long gone by now
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+            )
+        }
+        _ = await task.value
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(sent.all, [], "nothing is signalled to a pid that may be reused")
+    }
+
     /// The output stream ending while the process goes on is not the end of the
     /// run, and does not spin: the run ends with the process.
     func testAProcessThatClosesItsOutputEarlyStillEndsCleanly() async throws {

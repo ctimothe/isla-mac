@@ -401,21 +401,31 @@ final class UpdateInstaller: ObservableObject {
         var watchdog: Task<Void, Never>?
         var attached = false
         var scratchImage: URL?
-        defer { watchdog?.cancel() }
+        var stagingMarked = false
+        defer {
+            watchdog?.cancel()
+            if stagingMarked { Self.stagingActivity.end() }
+        }
         do {
             let installed = environment.installedURL
             let parent = installed.deletingLastPathComponent()
-            // Off the main actor: it lists and removes in the folder the app
-            // lives in. Not awaited; it can only find folders that already
-            // exist, and this install's has not been made.
-            Task.detached(priority: .utility) { Self.sweepStaleStaging(in: parent, ownerID: Self.ownerID) }
+            // Named before anything else, so a failure half way through staging
+            // still has its folder removed, and so the sweep below can be told
+            // to leave it alone.
+            let staging = parent.appendingPathComponent("\(Self.stagingPrefix)\(UUID().uuidString)", isDirectory: true)
+            disposables.add(staging)
+            // The sweep of what a lost run left runs to its end, off the main
+            // actor, *before* this install makes its own folder, and is told
+            // not to touch this one besides. It is never concurrent with the
+            // staging, validating and swapping below (`stagingActivity`): a
+            // sweep walking a folder while the swap moves it into place would
+            // leave no app at all.
+            await Task.detached(priority: .utility) {
+                Self.sweepStaleStaging(in: parent, except: staging, ownerID: Self.ownerID)
+            }.value
 
             let scratch = try step(.cannotReplace) { try environment.makeScratchFolder() }
             disposables.add(scratch)
-            // Named before it exists, so a failure half way through staging
-            // still has its folder removed.
-            let staging = parent.appendingPathComponent("\(Self.stagingPrefix)\(UUID().uuidString)", isDirectory: true)
-            disposables.add(staging)
 
             // The signature first: a kilobyte, and it fails a bad release
             // before ten megabytes are fetched.
@@ -442,6 +452,9 @@ final class UpdateInstaller: ObservableObject {
 
             phase = .installing
             attached = true
+            // From here to the swap a sweep must leave every staging folder be.
+            Self.stagingActivity.begin()
+            stagingMarked = true
             // The ceiling on everything from the mount to the swap. It is one:
             // at the ceiling the card moves to the failure and Try Again is
             // offered, whatever the steps behind it are still doing, and the
@@ -485,6 +498,8 @@ final class UpdateInstaller: ObservableObject {
             if ceiling.fired { throw Failure.cannotOpen }
             try step(.cannotReplace) { try swapper.replace(installed: installed, with: staged) }
             watchdog?.cancel()
+            Self.stagingActivity.end()
+            stagingMarked = false
 
             phase = .relaunching
             // Before the relaunch, which may never return: the process ends in
@@ -500,9 +515,11 @@ final class UpdateInstaller: ObservableObject {
             if ceiling.fired, failure == .cancelled || failure == .invalidUpdate { failure = .cannotOpen }
             if case UpdateImageError.stillAttached = error { failure = .cannotOpen }
             Log.updates.error("update stopped: \(String(describing: failure), privacy: .public)")
-            // A run that was already ended at its ceiling, and a person who has
-            // since pressed Try Again, are the new run's: this one only cleans up.
-            if id == generation {
+            // A run that was ended at its ceiling has already said so, and
+            // everything since (a check that moved the card on, a person who
+            // pressed Try Again) belongs to what came after: this run publishes
+            // nothing more and only cleans up.
+            if id == generation, !ceiling.fired {
                 if case UpdateValidationError.identityChanged = error {
                     phase = .manualOnly(.identityChanged)
                 } else {
@@ -511,7 +528,10 @@ final class UpdateInstaller: ObservableObject {
             }
             // An attach that was killed can still mount late. Once more, by the
             // image's file, before its folder is deleted; and if it will not
-            // let go, the folder is left (`Disposables` sees the volume).
+            // let go, the folder is left (`Disposables` sees the volume). A
+            // hdiutil that ignores even SIGKILL can still mount *after* this
+            // look, and nothing here can reach that: the folder is deleted
+            // unless a volume is seen in it.
             if attached {
                 let diskImage = diskImage
                 let imageURL = scratchImage
@@ -605,8 +625,11 @@ final class UpdateInstaller: ObservableObject {
         ownerID owner: (URL) -> UInt32? = UpdateInstaller.ownerID, user: UInt32 = getuid()
     ) {
         let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: parent.path) else { return }
+        guard !stagingActivity.isActive, let names = try? fm.contentsOfDirectory(atPath: parent.path) else { return }
         for name in names where isStagingFolderName(name) {
+            // Asked again for every folder: an install may have reached its
+            // staging since the list was made, and its folder is on that list.
+            guard !stagingActivity.isActive else { return }
             let url = parent.appendingPathComponent(name, isDirectory: true)
             guard url != current, owner(url) == user else { continue }
             var info = stat()
@@ -614,6 +637,17 @@ final class UpdateInstaller: ObservableObject {
             try? fm.removeItem(at: url)
         }
     }
+
+    /// Whether an install is between mounting and swapping, process-wide: the
+    /// launch sweep is static and has no installer to ask.
+    final class StagingActivity: @unchecked Sendable {
+        private let lock = NSLock()
+        private var depth = 0
+        func begin() { lock.withLock { depth += 1 } }
+        func end() { lock.withLock { depth = max(0, depth - 1) } }
+        var isActive: Bool { lock.withLock { depth > 0 } }
+    }
+    nonisolated static let stagingActivity = StagingActivity()
 
     /// The sweep at launch, off the main thread: the folder beside the app is
     /// the one a crashed install used. Does nothing for an app that is not an

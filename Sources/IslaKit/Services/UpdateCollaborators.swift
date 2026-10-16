@@ -77,13 +77,19 @@ struct URLSessionUpdateDownloader: UpdateDownloading {
         _ source: URL, to destination: URL, expectedBytes: Int64, progress: @Sendable (Int64) -> Void
     ) async throws -> URL {
         let fm = FileManager.default
-        let size = (try? fm.attributesOfItem(atPath: source.path))?[.size] as? Int64 ?? -1
-        guard size >= 0 else { throw UpdateDownloadError.badResponse }
-        guard size <= expectedBytes else { throw UpdateDownloadError.tooLarge }
+        // A regular file, opened without following a link and without blocking:
+        // a FIFO or a device at that path would otherwise hang the copy, and
+        // Cancel cannot stop a read that is waiting for a writer.
+        guard let opened = SafeFile.openRegular(source) else { throw UpdateDownloadError.badResponse }
+        let size = opened.size
+        guard size <= expectedBytes else { try? opened.handle.close(); throw UpdateDownloadError.tooLarge }
         try? fm.removeItem(at: destination)
-        guard fm.createFile(atPath: destination.path, contents: nil) else { throw UpdateDownloadError.badResponse }
+        guard fm.createFile(atPath: destination.path, contents: nil) else {
+            try? opened.handle.close()
+            throw UpdateDownloadError.badResponse
+        }
         do {
-            let input = try FileHandle(forReadingFrom: source)
+            let input = opened.handle
             let output = try FileHandle(forWritingTo: destination)
             defer { try? input.close(); try? output.close() }
             var copied: Int64 = 0
@@ -209,6 +215,44 @@ struct URLSessionUpdateDownloader: UpdateDownloading {
             if case .failure = result { try? FileManager.default.removeItem(at: destination) }
             continuation?.resume(with: result)
         }
+    }
+}
+
+// MARK: - Local files
+
+/// Reading a local file that came out of a JSON file or a folder somebody else
+/// can write to: a regular file only, never a link, a FIFO or a device.
+enum SafeFile {
+    struct Opened {
+        let handle: FileHandle
+        let size: Int64
+    }
+
+    /// The file opened for reading, or nil unless it is a regular file. `lstat`
+    /// says so, the open does not follow a link (`O_NOFOLLOW`) and does not
+    /// wait for a writer (`O_NONBLOCK`), `fstat` says so again on the descriptor
+    /// that was actually opened, and only then is blocking restored, which a
+    /// regular file never does.
+    static func openRegular(_ url: URL) -> Opened? {
+        var before = stat()
+        guard lstat(url.path, &before) == 0, (before.st_mode & S_IFMT) == S_IFREG else { return nil }
+        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard descriptor >= 0 else { return nil }
+        var after = stat()
+        guard fstat(descriptor, &after) == 0, (after.st_mode & S_IFMT) == S_IFREG else {
+            close(descriptor)
+            return nil
+        }
+        let flags = fcntl(descriptor, F_GETFL)
+        _ = fcntl(descriptor, F_SETFL, flags & ~O_NONBLOCK)
+        return Opened(handle: FileHandle(fileDescriptor: descriptor, closeOnDealloc: true), size: Int64(after.st_size))
+    }
+
+    /// A small regular file's bytes, or nil if it is not one or is over `limit`.
+    static func readRegular(_ url: URL, limit: Int) -> Data? {
+        guard let opened = openRegular(url), opened.size <= Int64(limit) else { return nil }
+        defer { try? opened.handle.close() }
+        return try? opened.handle.read(upToCount: limit + 1).flatMap { $0.count <= limit ? $0 : nil }
     }
 }
 
@@ -341,7 +385,7 @@ enum UpdateTool {
             // A cancel that arrived while the process was starting found
             // nothing to stop and left a note; it is read here, under the same
             // lock that says the process is running, so it cannot be lost.
-            let cancelled = cancelledEarly
+            let cancelled = cancelledEarly && !ended
             lock.unlock()
             if cancelled { endProcess() }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in self?.expire() }
@@ -367,6 +411,10 @@ enum UpdateTool {
         /// is *still* there after another, the run is finished without it.
         private func endProcess() {
             let pid = process.processIdentifier
+            // A process that is already gone has a pid the system may have
+            // given to something else; nothing is signalled then.
+            lock.lock(); let alive = !ended; lock.unlock()
+            guard alive else { return }
             signals.terminate(pid)
             DispatchQueue.global().asyncAfter(deadline: .now() + killGrace) { [weak self] in
                 guard let self else { return }
@@ -643,9 +691,10 @@ struct BundleUpdateValidator: UpdateValidating {
     var runningVersion: String
     var runningBuild: String
     var codeIsIntact: @Sendable (URL) -> Bool = { BundleUpdateValidator.codeSignatureIsIntact($0) }
-    /// Whether the staged app satisfies the running app's identity. The default
-    /// accepts anything, which is the ad-hoc case.
-    var satisfiesRunningIdentity: @Sendable (URL) -> Bool = { _ in true }
+    /// Whether the staged app satisfies the running app's identity. Required,
+    /// with no default: a validator made without one used to accept any
+    /// identity. `running()` builds it from the app that is running.
+    var satisfiesRunningIdentity: @Sendable (URL) -> Bool
 
     static func running() -> BundleUpdateValidator {
         BundleUpdateValidator(

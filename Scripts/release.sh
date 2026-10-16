@@ -15,6 +15,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The rehearsal overrides build a bundle as a version that does not exist.
+# Scripts/rehearse-update.sh sets them for its own children; a shell that still
+# has them would publish a fake version, so a release refuses to start.
+if [ -n "${ISLA_VERSION_OVERRIDE:-}" ] || [ -n "${ISLA_BUILD_OVERRIDE:-}" ]; then
+    echo "!!! ISLA_VERSION_OVERRIDE / ISLA_BUILD_OVERRIDE are set: they are for Scripts/rehearse-update.sh only. Unset them." >&2
+    exit 1
+fi
 ADHOC="${ISLA_ADHOC:-0}"
 REMOTE="${ISLA_RELEASE_REMOTE:-origin}"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" || true)"

@@ -269,16 +269,18 @@ variance.
 
 Update Now has only replaced an app in a test folder. Before merging it, run it
 once on real hardware: `bash Scripts/rehearse-update.sh` builds the next patch
-version of Isla (`ISLA_VERSION_OVERRIDE` / `ISLA_BUILD_OVERRIDE` in
-`Scripts/bundle.sh`, rehearsal only), packs and signs it with the update key, and
-writes a `release.json` into a fresh `$TMPDIR/isla-rehearsal-<version>` folder.
+version of the *installed* Isla (`ISLA_VERSION_OVERRIDE` /
+`ISLA_BUILD_OVERRIDE` in `Scripts/bundle.sh` and `Scripts/dmg.sh`, rehearsal
+only; `Scripts/release.sh` refuses to run with them set), packs it with
+`Scripts/dmg.sh` like a release image, signs it with the update key, and writes a `release.json` into a fresh `$TMPDIR/isla-rehearsal-<version>` folder.
 It then prints the steps: start the installed Isla with
 `open --env DI_UPDATE_REHEARSAL=<folder> /Applications/Isla.app`, press Check for
 Updates and Update Now, and watch for the restart, any App Management message,
 and whether Accessibility survives. It needs the update key in the login keychain
 and an installed Isla built with the same `IslaUpdatePublicKey`; it never
-launches, quits or installs anything. Go back to the real build with
-`bash Scripts/install.sh`.
+launches, quits or installs anything, and it removes its fake-version build from
+`build/` even when it fails. Go back to the real build with
+`bash Scripts/bundle.sh release && bash Scripts/install.sh`.
 
 ## 8. Developer ID and notarized release
 
