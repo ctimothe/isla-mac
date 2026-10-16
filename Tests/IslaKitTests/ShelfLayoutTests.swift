@@ -424,6 +424,11 @@ final class ShelfLayoutTests: XCTestCase {
     /// The AirDrop verb and the AirDrop well draw the image macOS shows in its
     /// share menus — `NSSharingService(named: .sendViaAirDrop)?.image`, full
     /// colour — and the old symbol only where the service is missing.
+    private func drawnSize(_ verb: ShelfVerb) -> NSSize? {
+        guard case .image(let image) = verb.icon else { return nil }
+        return image.size
+    }
+
     func testAirDropResolvesToTheSharingServicesImage() throws {
         guard let service = NSSharingService(named: .sendViaAirDrop) else {
             throw XCTSkip("this Mac has no AirDrop sharing service")
@@ -441,7 +446,8 @@ final class ShelfLayoutTests: XCTestCase {
             XCTAssertFalse(drawn.isTemplate)
             XCTAssertEqual(drawn.size, served.size)
         }
-        XCTAssertNotNil(ShelfVerb.airDrop.icon.nsImage)
+        XCTAssertEqual(ShelfVerb.airDrop.icon.nsImage?.size, NSSize(width: 16, height: 16), "a menu row's size")
+        XCTAssertEqual(drawnSize(.airDrop), served.size, "the shared service image is left as it was")
     }
 
     /// No service, or a service with no image: the symbol the Shelf used before.

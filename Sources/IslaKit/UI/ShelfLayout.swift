@@ -402,11 +402,17 @@ enum ShelfIcon {
     /// one and copy its picture on every pass.
     static let airDropOnThisMac: ShelfIcon = airDrop(service: NSSharingService(named: .sendViaAirDrop))
 
-    /// The menu-item form: the image as is, or the symbol.
+    /// What a menu item shows beside a verb: the symbol, or a 16 × 16 copy of
+    /// the image — the service's picture is larger than a menu row's, and
+    /// unsized it made AirDrop's row taller than the symbol rows around it.
     var nsImage: NSImage? {
         switch self {
-        case .symbol(let name): return NSImage(systemSymbolName: name, accessibilityDescription: nil)
-        case .image(let image): return image
+        case .symbol(let name):
+            return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        case .image(let image):
+            let sized = (image.copy() as? NSImage) ?? image
+            sized.size = NSSize(width: 16, height: 16)
+            return sized
         }
     }
 }
