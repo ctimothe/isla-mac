@@ -122,10 +122,14 @@ final class UpdateIntegrationTests: XCTestCase {
     /// `running()` itself would be the wrong stand-in here.)
     private func installedValidator() -> BundleUpdateValidator {
         var code: SecStaticCode?
-        SecStaticCodeCreateWithPath(installed as CFURL, [], &code)
+        let status = SecStaticCodeCreateWithPath(installed as CFURL, [], &code)
+        guard status == errSecSuccess, let code else {
+            XCTFail("the installed app's code could not be read (\(status))")
+            return BundleUpdateValidator(runningVersion: "1.0", runningBuild: "1", satisfiesRunningIdentity: { _ in false })
+        }
         return BundleUpdateValidator(
             runningVersion: "1.0", runningBuild: "1",
-            satisfiesRunningIdentity: BundleUpdateValidator.identityCheck(for: code!)
+            satisfiesRunningIdentity: BundleUpdateValidator.identityCheck(for: code)
         )
     }
 

@@ -212,6 +212,9 @@ final class InstallerRig {
     let validator: FakeValidator
     let swapper: RecordingSwapper
     let relauncher: FakeRelauncher
+    /// This rig's own guard, so nothing another test left held (or this one's
+    /// still-ending run holds) can change what a sweep in this test sees.
+    let activity = UpdateInstaller.StagingActivity()
     private(set) var scratchFolders: [URL] = []
     var freeBytes: Int64? = 10_000_000_000
     /// Free space on the volume the download and the mount live on.
@@ -275,7 +278,7 @@ final class InstallerRig {
         installer = UpdateInstaller(
             environment: environment, downloader: downloader, verifier: verifier, diskImage: diskImage,
             stager: stager, validator: validator, swapper: swapper, relauncher: relauncher,
-            installTimeout: timeout
+            installTimeout: timeout, stagingActivity: activity
         )
         subscription = installer.$phase.sink { [weak self] phase in self?.phases.append(phase) }
     }

@@ -116,18 +116,42 @@ final class UpdateSwapperTests: XCTestCase {
         XCTAssertEqual(rig.marker(of: rig.installed), "old")
     }
 
-    /// If putting it back fails too, the swapper still rethrows the first error
-    /// and does not crash; the original stays where it is, untouched.
-    func testARestoreThatFailsToo() throws {
+    /// If the original cannot be put back, the staged copy, already validated, is
+    /// moved into its place: the installed path is never left empty while there is
+    /// anything to put there.
+    func testWhenTheOriginalCannotBePutBackTheStagedCopyTakesItsPlace() throws {
         var rig = try rig()
         let hidden = rig.folder.appendingPathComponent("hidden-stuck.app")
+        let staged = rig.staged
+        rig.swapper.swap = { _, _ in ENOTSUP }
+        rig.swapper.replace = movingAsideThenFailing(rig, hide: hidden) { [FileManagerSwapper.originalItemLocationKey: $0] }
+        var moves: [URL] = []
+        let real = rig.swapper.move
+        rig.swapper.move = { from, to in
+            moves.append(from)
+            if moves.count == 1 { throw CocoaError(.fileWriteNoPermission) }     // putting the original back fails
+            try real(from, to)
+        }
+        XCTAssertNoThrow(try rig.swapper.replace(installed: rig.installed, with: rig.staged), "the update is what is installed")
+        XCTAssertEqual(moves, [hidden, staged])
+        XCTAssertEqual(rig.marker(of: rig.installed), "new")
+        XCTAssertEqual(rig.marker(of: hidden), "old", "the original is not deleted either")
+    }
+
+    /// Both steps fail: the swapper deletes nothing and says so by throwing, and
+    /// the staged copy is left exactly where it was.
+    func testWhenNothingCanBePutInPlaceNothingIsDeleted() throws {
+        var rig = try rig()
+        let hidden = rig.folder.appendingPathComponent("hidden-both.app")
         rig.swapper.swap = { _, _ in ENOTSUP }
         rig.swapper.replace = movingAsideThenFailing(rig, hide: hidden) { [FileManagerSwapper.originalItemLocationKey: $0] }
         var moves = 0
         rig.swapper.move = { _, _ in moves += 1; throw CocoaError(.fileWriteNoPermission) }
         XCTAssertThrowsError(try rig.swapper.replace(installed: rig.installed, with: rig.staged))
-        XCTAssertEqual(moves, 1)
-        XCTAssertEqual(rig.marker(of: hidden), "old", "the original is not lost, only not back yet")
+        XCTAssertEqual(moves, 2, "the original, then the staged copy")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rig.installed.path), "still empty: nothing could be put there")
+        XCTAssertEqual(rig.marker(of: hidden), "old")
+        XCTAssertEqual(rig.marker(of: rig.staged), "new", "the staged copy is untouched")
     }
 
     func testAFallbackThatFailsBeforeTouchingAnythingRestoresNothing() throws {
@@ -174,9 +198,13 @@ final class UpdateSwapperTests: XCTestCase {
             try FileManager.default.removeItem(at: installed)
             throw NSError(domain: NSCocoaErrorDomain, code: 1, userInfo: [FileManagerSwapper.originalItemLocationKey: link])
         }
-        var moves = 0
-        rig.swapper.move = { _, _ in moves += 1 }
-        XCTAssertThrowsError(try rig.swapper.replace(installed: rig.installed, with: rig.staged))
-        XCTAssertEqual(moves, 0)
+        var moved: [URL] = []
+        let real = rig.swapper.move
+        rig.swapper.move = { from, to in moved.append(from); try real(from, to) }
+        // The link is not taken for the original; with no original anywhere, the
+        // staged copy itself is what goes into place.
+        XCTAssertNoThrow(try rig.swapper.replace(installed: rig.installed, with: rig.staged))
+        XCTAssertEqual(moved.map(\.lastPathComponent), ["Isla.app"])
+        XCTAssertEqual(rig.marker(of: rig.installed), "new")
     }
 }

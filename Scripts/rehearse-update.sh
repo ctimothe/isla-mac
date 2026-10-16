@@ -84,6 +84,11 @@ FOLDER="$(cd "$FOLDER" && pwd -P)/isla-rehearsal-$NEW_VERSION"
 case "$FOLDER" in *[!A-Za-z0-9_./-]*) fail "the rehearsal folder path has characters that do not belong in a file URL: $FOLDER" ;; esac
 [ ! -e "$FOLDER" ] || fail "$FOLDER already exists; remove it or pick another version"
 
+# The rehearsal packs through Scripts/dmg.sh into build/, and its cleanup removes
+# what it made there; it must never remove or overwrite an image that is not its own.
+[ ! -e "$ROOT/build/Isla-$NEW_VERSION.dmg" ] \
+    || fail "$ROOT/build/Isla-$NEW_VERSION.dmg already exists and would be overwritten. Move it first: mv \"$ROOT/build/Isla-$NEW_VERSION.dmg\" ~/Desktop/"
+
 # From here a failure leaves nothing behind: the fake-version build and its image
 # are removed and unregistered, and the half-made folder goes with them. Only a
 # finished run keeps its folder.

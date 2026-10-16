@@ -224,9 +224,10 @@ final class UpdateHardeningTests: XCTestCase {
     func testASweepThatLandsDuringStagingLeavesTheInstallsFolderAlone() async throws {
         let rig = try InstallerRig(self)
         let apps = rig.apps
+        let activity = rig.activity
         let seen = Seen()
         rig.stager.afterStaging = {
-            UpdateInstaller.sweepStaleStaging(in: apps)     // no `except:`, the worst case
+            UpdateInstaller.sweepStaleStaging(in: apps, activity: activity)     // no `except:`, the worst case
             let names = (try? FileManager.default.contentsOfDirectory(atPath: apps.path)) ?? []
             seen.set(names.filter { $0.hasPrefix(UpdateInstaller.stagingPrefix) }.count)
         }
@@ -241,9 +242,10 @@ final class UpdateHardeningTests: XCTestCase {
     func testASweepDuringValidationLeavesTheStagedCopyAlone() async throws {
         let rig = try InstallerRig(self)
         let apps = rig.apps
+        let activity = rig.activity
         let seen = Seen()
         rig.validator.onValidate = { staged in
-            UpdateInstaller.sweepStaleStaging(in: apps)
+            UpdateInstaller.sweepStaleStaging(in: apps, activity: activity)
             seen.set(FileManager.default.fileExists(atPath: staged.path) ? 1 : 0)
         }
         rig.build()
@@ -265,7 +267,7 @@ final class UpdateHardeningTests: XCTestCase {
             rig.build()
             rig.installer.install(rig.release())
             await rig.finish()
-            XCTAssertFalse(UpdateInstaller.stagingActivity.isActive, scenario)
+            await rig.until("the guard to be let go: \(scenario)") { !rig.activity.isActive }
         }
     }
 
@@ -273,11 +275,12 @@ final class UpdateHardeningTests: XCTestCase {
         let folder = try UpdateTestSupport.folder(self)
         let stale = folder.appendingPathComponent("\(UpdateInstaller.stagingPrefix)\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
-        UpdateInstaller.stagingActivity.begin()
-        UpdateInstaller.sweepStaleStaging(in: folder)
+        let activity = UpdateInstaller.StagingActivity()
+        activity.begin()
+        UpdateInstaller.sweepStaleStaging(in: folder, activity: activity)
         XCTAssertTrue(FileManager.default.fileExists(atPath: stale.path), "refused while an install is staging")
-        UpdateInstaller.stagingActivity.end()
-        UpdateInstaller.sweepStaleStaging(in: folder)
+        activity.end()
+        UpdateInstaller.sweepStaleStaging(in: folder, activity: activity)
         XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path))
     }
 
@@ -290,14 +293,113 @@ final class UpdateHardeningTests: XCTestCase {
             folders.append(url)
         }
         var asked = 0
+        let activity = UpdateInstaller.StagingActivity()
         UpdateInstaller.sweepStaleStaging(in: folder, ownerID: { _ in
             asked += 1
-            if asked == 2 { UpdateInstaller.stagingActivity.begin() }
+            if asked == 2 { activity.begin() }
             return getuid()
-        })
-        defer { UpdateInstaller.stagingActivity.end() }
+        }, activity: activity)
         let left = folders.filter { FileManager.default.fileExists(atPath: $0.path) }.count
         XCTAssertGreaterThanOrEqual(left, 3, "once an install began the walk removed nothing more")
+    }
+
+    /// The guard is let go after the cleanup, so the cleanup finishes with no
+    /// sweep able to meet it.
+    func testTheGuardIsStillHeldWhileTheCleanupRuns() async throws {
+        let rig = try InstallerRig(self)
+        let activity = rig.activity
+        let held = Seen()
+        rig.stager.error = UpdateImageError.stageFailed
+        rig.containsMount = { _ in
+            // Asked by the cleanup for each folder it is about to remove.
+            held.set(activity.isActive ? 1 : 0)
+            return false
+        }
+        rig.build()
+        rig.installer.install(rig.release())
+        await rig.finish()
+        XCTAssertEqual(held.value, 1, "the guard was still held when the cleanup ran")
+        await rig.until("the guard to be let go") { !rig.activity.isActive }
+    }
+
+    // MARK: Never the only good copy
+
+    /// The worst swap: the fallback moves the original aside and fails, putting
+    /// it back fails, and the staged copy cannot be moved in either. The staging
+    /// folder is then all there is of Isla, and nothing may delete it.
+    func testTheStagedCopyIsKeptWhenNothingCouldBePutInPlace() async throws {
+        let rig = try InstallerRig(self)
+        let hidden = rig.root.appendingPathComponent("moved-aside.app")
+        rig.swapper.swapper.swap = { _, _ in ENOTSUP }
+        rig.swapper.swapper.replace = { installed, _ in
+            try FileManager.default.moveItem(at: installed, to: hidden)
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError,
+                          userInfo: [FileManagerSwapper.originalItemLocationKey: hidden])
+        }
+        rig.swapper.swapper.move = { _, _ in throw CocoaError(.fileWriteNoPermission) }
+        rig.build()
+        rig.installer.install(rig.release())
+        await rig.finish()
+        await rig.until("the guard to be let go") { !rig.activity.isActive }
+        XCTAssertEqual(rig.installer.phase, .failed(.cannotReplace))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rig.installed.path))
+        let beside = (try? FileManager.default.contentsOfDirectory(atPath: rig.apps.path)) ?? []
+        let staging = try XCTUnwrap(beside.first { $0.hasPrefix(UpdateInstaller.stagingPrefix) }, "the staging folder is still there: \(beside)")
+        XCTAssertEqual(
+            try String(contentsOf: rig.apps.appendingPathComponent(staging).appendingPathComponent("Isla.app/marker.txt"), encoding: .utf8),
+            "new", "with the new app in it"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: hidden.path), "and the original, where it was moved")
+        XCTAssertEqual(rig.log.count("relaunch"), 0)
+    }
+
+    func testTheStagedCopyTakesTheEmptyPathAndTheInstallSucceeds() async throws {
+        let rig = try InstallerRig(self)
+        let hidden = rig.root.appendingPathComponent("moved-aside.app")
+        let moves = Seen()
+        rig.swapper.swapper.swap = { _, _ in ENOTSUP }
+        rig.swapper.swapper.replace = { installed, _ in
+            try FileManager.default.moveItem(at: installed, to: hidden)
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError,
+                          userInfo: [FileManagerSwapper.originalItemLocationKey: hidden])
+        }
+        let real = rig.swapper.swapper.move
+        rig.swapper.swapper.move = { from, to in
+            moves.set(moves.value + 2)            // -1 -> 1 on the first call, 3 on the second
+            if moves.value == 1 { throw CocoaError(.fileWriteNoPermission) }
+            try real(from, to)
+        }
+        rig.build()
+        rig.installer.install(rig.release())
+        await rig.finish()
+        XCTAssertEqual(rig.installer.phase, .relaunching)
+        XCTAssertEqual(try String(contentsOf: rig.installed.appendingPathComponent("marker.txt"), encoding: .utf8), "new")
+        await rig.until("the cleanup") { rig.leftovers().isEmpty }
+    }
+
+    func testNoSweepRemovesAStagingFolderWhileTheInstalledPathIsMissing() throws {
+        let folder = try UpdateTestSupport.folder(self)
+        let installed = folder.appendingPathComponent("Isla.app", isDirectory: true)
+        let staging = folder.appendingPathComponent("\(UpdateInstaller.stagingPrefix)\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging.appendingPathComponent("Isla.app"), withIntermediateDirectories: true)
+        UpdateInstaller.sweepStaleStaging(in: folder, installed: installed, activity: UpdateInstaller.StagingActivity())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staging.path), "nothing is at the installed path")
+        try FileManager.default.createDirectory(at: installed, withIntermediateDirectories: true)
+        UpdateInstaller.sweepStaleStaging(in: folder, installed: installed, activity: UpdateInstaller.StagingActivity())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path), "once there is an app again it is just stale")
+    }
+
+    func testTheLaunchSweepAlsoWaitsForTheInstalledApp() async throws {
+        let folder = try UpdateTestSupport.folder(self)
+        let apps = folder.appendingPathComponent("Apps", isDirectory: true)
+        try FileManager.default.createDirectory(at: apps, withIntermediateDirectories: true)
+        let staging = apps.appendingPathComponent("\(UpdateInstaller.stagingPrefix)\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        var environment = UpdateEnvironment.neverInstalls
+        environment.installedURL = apps.appendingPathComponent("Isla.app")       // missing
+        UpdateInstaller.sweepAtLaunch(environment: environment)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staging.path))
     }
 
     // MARK: A run ended at its ceiling publishes nothing more

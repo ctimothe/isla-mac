@@ -240,6 +240,9 @@ final class UpdateInstaller: ObservableObject {
     private let swapper: UpdateSwapping
     private let relauncher: UpdateRelaunching
     private let installTimeout: TimeInterval
+    /// What a sweep asks before it removes anything. The process-wide one in the
+    /// app, because the launch sweep is static; a test gives its own.
+    private let stagingActivity: StagingActivity
     private var task: Task<Void, Never>?
     private var generation = 0
     private var subscription: AnyCancellable?
@@ -253,8 +256,10 @@ final class UpdateInstaller: ObservableObject {
         validator: UpdateValidating? = nil,
         swapper: UpdateSwapping = FileManagerSwapper(),
         relauncher: UpdateRelaunching? = nil,
-        installTimeout: TimeInterval = UpdateInstaller.defaultInstallTimeout
+        installTimeout: TimeInterval = UpdateInstaller.defaultInstallTimeout,
+        stagingActivity: StagingActivity = UpdateInstaller.stagingActivity
     ) {
+        self.stagingActivity = stagingActivity
         self.environment = environment
         self.downloader = downloader ?? URLSessionUpdateDownloader(rehearsal: environment.rehearsal)
         self.verifier = verifier ?? Ed25519UpdateVerifier(publicKey: environment.publicKey ?? "")
@@ -374,13 +379,25 @@ final class UpdateInstaller: ObservableObject {
 
     /// Everything the run made on disk, removed in one place, and never into a
     /// mounted volume: a folder with a volume under it is left, and logged.
+    ///
+    /// The staging folder is also left, and its path logged, while the installed
+    /// path holds nothing: if a swap failed half way it may hold the only good
+    /// copy of Isla there is.
     private final class Disposables {
-        private var urls: [URL] = []
+        private var urls: [(url: URL, needsInstalled: Bool)] = []
         private let containsMount: (URL) -> Bool
-        init(containsMount: @escaping (URL) -> Bool) { self.containsMount = containsMount }
-        func add(_ url: URL) { urls.append(url) }
+        private let installedExists: () -> Bool
+        init(containsMount: @escaping (URL) -> Bool, installedExists: @escaping () -> Bool) {
+            self.containsMount = containsMount
+            self.installedExists = installedExists
+        }
+        func add(_ url: URL, needsInstalled: Bool = false) { urls.append((url, needsInstalled)) }
         func run() {
-            for url in urls {
+            for (url, needsInstalled) in urls {
+                if needsInstalled, !installedExists() {
+                    Log.updates.error("update: the installed app is missing, so the staged copy is left at \(url.path, privacy: .public)")
+                    continue
+                }
                 if containsMount(url) {
                     Log.updates.error("update: a folder was left because a volume is still mounted in it")
                     continue
@@ -395,25 +412,31 @@ final class UpdateInstaller: ObservableObject {
         _ release: UpdateCheck.Release, image: UpdateCheck.Release.Asset, signature: UpdateCheck.Release.Asset,
         generation id: Int
     ) async {
-        let disposables = Disposables(containsMount: environment.containsMount)
-        defer { disposables.run() }
+        let installed = environment.installedURL
         let ceiling = Ceiling()
         var watchdog: Task<Void, Never>?
         var attached = false
         var scratchImage: URL?
         var stagingMarked = false
+        // Declared before the cleanup below, so it runs after it: the cleanup
+        // finishes while the guard is still held, and no sweep can meet it.
+        let activity = stagingActivity
         defer {
             watchdog?.cancel()
-            if stagingMarked { Self.stagingActivity.end() }
+            if stagingMarked { activity.end() }
         }
+        let disposables = Disposables(
+            containsMount: environment.containsMount,
+            installedExists: { FileManager.default.fileExists(atPath: installed.path) }
+        )
+        defer { disposables.run() }
         do {
-            let installed = environment.installedURL
             let parent = installed.deletingLastPathComponent()
             // Named before anything else, so a failure half way through staging
             // still has its folder removed, and so the sweep below can be told
             // to leave it alone.
             let staging = parent.appendingPathComponent("\(Self.stagingPrefix)\(UUID().uuidString)", isDirectory: true)
-            disposables.add(staging)
+            disposables.add(staging, needsInstalled: true)
             // The sweep of what a lost run left runs to its end, off the main
             // actor, *before* this install makes its own folder, and is told
             // not to touch this one besides. It is never concurrent with the
@@ -421,7 +444,7 @@ final class UpdateInstaller: ObservableObject {
             // sweep walking a folder while the swap moves it into place would
             // leave no app at all.
             await Task.detached(priority: .utility) {
-                Self.sweepStaleStaging(in: parent, except: staging, ownerID: Self.ownerID)
+                Self.sweepStaleStaging(in: parent, except: staging, installed: installed, ownerID: Self.ownerID, activity: activity)
             }.value
 
             let scratch = try step(.cannotReplace) { try environment.makeScratchFolder() }
@@ -453,7 +476,7 @@ final class UpdateInstaller: ObservableObject {
             phase = .installing
             attached = true
             // From here to the swap a sweep must leave every staging folder be.
-            Self.stagingActivity.begin()
+            activity.begin()
             stagingMarked = true
             // The ceiling on everything from the mount to the swap. It is one:
             // at the ceiling the card moves to the failure and Try Again is
@@ -498,13 +521,13 @@ final class UpdateInstaller: ObservableObject {
             if ceiling.fired { throw Failure.cannotOpen }
             try step(.cannotReplace) { try swapper.replace(installed: installed, with: staged) }
             watchdog?.cancel()
-            Self.stagingActivity.end()
-            stagingMarked = false
 
             phase = .relaunching
             // Before the relaunch, which may never return: the process ends in
-            // it, and a defer would not run.
+            // it, and a defer would not run. The guard is let go after it.
             disposables.run()
+            activity.end()
+            stagingMarked = false
             if !relauncher.relaunch(installed: installed, processID: environment.processID) {
                 // The new copy is in place; there is just nothing to open it.
                 Log.updates.error("update: installed, but the relaunch could not start")
@@ -620,16 +643,24 @@ final class UpdateInstaller: ObservableObject {
     /// Stale staging folders a crash or a power cut left beside the app: only
     /// real directories named exactly like one (`isStagingFolderName`), owned by
     /// the current user, and not `except` (the install under way).
+    ///
+    /// Never while the installed path is missing (`installed`, when given): a
+    /// staging folder may then hold the only good copy of the app.
     nonisolated static func sweepStaleStaging(
-        in parent: URL, except current: URL? = nil,
-        ownerID owner: (URL) -> UInt32? = UpdateInstaller.ownerID, user: UInt32 = getuid()
+        in parent: URL, except current: URL? = nil, installed: URL? = nil,
+        ownerID owner: (URL) -> UInt32? = UpdateInstaller.ownerID, user: UInt32 = getuid(),
+        activity: StagingActivity = UpdateInstaller.stagingActivity
     ) {
         let fm = FileManager.default
-        guard !stagingActivity.isActive, let names = try? fm.contentsOfDirectory(atPath: parent.path) else { return }
+        if let installed, !fm.fileExists(atPath: installed.path) {
+            Log.updates.error("update: the installed app is missing, so no staging folder is swept")
+            return
+        }
+        guard !activity.isActive, let names = try? fm.contentsOfDirectory(atPath: parent.path) else { return }
         for name in names where isStagingFolderName(name) {
             // Asked again for every folder: an install may have reached its
             // staging since the list was made, and its folder is on that list.
-            guard !stagingActivity.isActive else { return }
+            guard !activity.isActive else { return }
             let url = parent.appendingPathComponent(name, isDirectory: true)
             guard url != current, owner(url) == user else { continue }
             var info = stat()
@@ -658,7 +689,7 @@ final class UpdateInstaller: ObservableObject {
               !installed.path.contains("/AppTranslocation/")
         else { return }
         let parent = installed.deletingLastPathComponent()
-        DispatchQueue.global(qos: .utility).async { sweepStaleStaging(in: parent) }
+        DispatchQueue.global(qos: .utility).async { sweepStaleStaging(in: parent, installed: installed) }
     }
 
     /// Whether the installed bundle is the current user's to replace: owned by

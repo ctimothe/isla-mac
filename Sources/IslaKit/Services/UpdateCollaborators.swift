@@ -834,29 +834,58 @@ struct FileManagerSwapper: UpdateSwapping {
         do {
             try replace(installed, staged)
         } catch {
-            restore(installed: installed, staged: staged, after: error)
-            throw error
+            switch restore(installed: installed, staged: staged, after: error) {
+            case .originalBack, .untouched: throw error
+            case .stagedInPlace: return          // the validated update is what is installed
+            case .nothingInPlace: throw error
+            }
         }
     }
 
-    /// Moves the original back if the failed replace left the installed path empty.
-    /// The staged copy is never a candidate, however the error names it: putting
-    /// it in place would be the update, installed without its check.
-    private func restore(installed: URL, staged: URL, after error: Error) {
+    private enum Restored {
+        /// The installed path never lost its app.
+        case untouched
+        /// The original was found and moved back; the update did not happen.
+        case originalBack
+        /// The original could not be put back, so the staged, already
+        /// validated, copy was moved into place instead: the update happened.
+        case stagedInPlace
+        /// Nothing could be put in place. The installed path is empty, and the
+        /// staged copy is left exactly where it is.
+        case nothingInPlace
+    }
+
+    /// After a failed replace, makes sure the installed path holds an app. The
+    /// original goes back if the error says where it went; failing that, the
+    /// staged copy (already validated) goes into place; failing that, nothing is
+    /// deleted, the path of the staged copy is logged, and the installer, seeing
+    /// the installed path empty, leaves the staging folder where it is.
+    ///
+    /// The staged copy is never a candidate for being the *original*, however
+    /// the error names it: it is moved into place only as itself, on its own step.
+    private func restore(installed: URL, staged: URL, after error: Error) -> Restored {
         let fm = FileManager.default
-        guard !fm.fileExists(atPath: installed.path) else { return }
+        guard !fm.fileExists(atPath: installed.path) else { return .untouched }
         let skip = [installed, staged].map { $0.resolvingSymlinksInPath().standardizedFileURL.path }
         for candidate in Self.candidates(in: error)
         where !skip.contains(candidate.resolvingSymlinksInPath().standardizedFileURL.path) && fm.fileExists(atPath: candidate.path) {
             do {
                 try move(candidate, installed)
                 Log.updates.notice("update: the original app was put back after a failed replace")
-                return
+                return .originalBack
             } catch {
                 continue
             }
         }
-        Log.updates.error("update: the installed app is missing after a failed replace")
+        if fm.fileExists(atPath: staged.path) {
+            do {
+                try move(staged, installed)
+                Log.updates.notice("update: the original could not be put back, so the validated update was moved into place")
+                return .stagedInPlace
+            } catch {}
+        }
+        Log.updates.error("update: nothing is at the installed path; the staged copy is at \(staged.path, privacy: .public)")
+        return .nothingInPlace
     }
 
     /// `NSFileOriginalItemLocationKey`, which Foundation does not export to Swift.
