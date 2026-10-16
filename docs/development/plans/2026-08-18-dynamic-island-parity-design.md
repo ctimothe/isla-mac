@@ -74,7 +74,7 @@ icon, screenshots, interface copy, website content, and release presentation.
 > only as a descriptive tagline ("a Dynamic Island–style companion for the Mac
 > notch"), never as product identity — `Scripts/test-branding.sh` now bans the
 > old identity the way it bans Cyclop's. Rationale and full migration in
-> `docs/plans/2026-08-28-isla-open-core-migration.md`.
+> `docs/development/plans/2026-08-28-isla-open-core-migration.md`.
 
 ## Shell and interaction contract
 

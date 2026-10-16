@@ -1,9 +1,9 @@
 # Isla parity checklist
 
 This is the live completion view for the approved
-[Cyclop 0.6.5 parity design](docs/plans/2026-08-18-dynamic-island-parity-design.md).
+[Cyclop 0.6.5 parity design](plans/2026-08-18-dynamic-island-parity-design.md).
 Do not mark a manual gate complete without recording evidence in
-[the release checklist](docs/release-checklist.md).
+[the release checklist](../release-checklist.md).
 
 ## Automated gates
 
@@ -243,7 +243,7 @@ promises more than the mechanism is known to deliver. Hide from Screen
 Recording sets `sharingType = .none` on the panel and does nothing else,
 and whether ScreenCaptureKit capture and sharing apps on macOS 26 and 27
 honour it is unproven until live session S7
-(`docs/audits/2026-10-11-live-validation-script.md` §7). The switch stays
+(`docs/development/audits/2026-10-11-live-validation-script.md` §7). The switch stays
 on by default, because it does hold for the capture paths that respect it,
 but Settings now says only that it *asks* macOS, that some sharing apps
 may still show Isla, and to cover Clipboard and Translate before sharing.
@@ -275,7 +275,7 @@ when its name and artist match the song on screen. No per-track catalogue
 request (`GET /v1/tracks/{id}`) is made any more: its ISRC and exact duration
 had no reader. Accepted cost: right after a fresh grant, the heart can be
 missing on the lock card until Spotify's first play, pause or skip. Live
-check: session S2 (`docs/audits/2026-10-11-live-validation-script.md`).
+check: session S2 (`docs/development/audits/2026-10-11-live-validation-script.md`).
 
 ## Manual parity gates
 
@@ -339,11 +339,11 @@ check: session S2 (`docs/audits/2026-10-11-live-validation-script.md`).
 - [ ] `Scripts/release.sh` completes without bypassing a gate.
 
 Evidence and remaining blockers are recorded in
-[the 2026-08-18 release-candidate report](docs/verification/2026-08-18-release-candidate.md).
+[the 2026-08-18 release-candidate report](verification/2026-08-18-release-candidate.md).
 
 ## v0.2 — the front door
 
-Closed from the 2026-09-03 audit (`docs/audits/2026-09-03-synthesis.md`):
+Closed from the 2026-09-03 audit (`docs/development/audits/2026-09-03-synthesis.md`):
 
 - [x] A promised file from Mail or Photos no longer trapping the process
   (`ShelfDropTests`).
@@ -401,7 +401,7 @@ the mode the final review flagged for a fold-and-reopen. Both remain owed.
 
 ## v0.3 — native motion and material (in progress)
 
-From the approved plan `docs/plans/2026-09-10-v0.3-native-motion-and-material.md`,
+From the approved plan `docs/development/plans/2026-09-10-v0.3-native-motion-and-material.md`,
 branch `feat/v0.3-native-motion`:
 
 - [x] Increase Contrast reaches the whole app (2026-09-11,
@@ -498,13 +498,13 @@ Shipped:
   both leads drop from 0.25 s to 0.20 s now that the grid no longer has to be
   covered. `Scripts/measure-sync.sh` has **not** been re-run since; it is the
   arbiter and is owed a run against live Spotify. Amended in
-  `docs/superpowers/specs/2026-09-14-line-synced-lyrics-design.md`.
+  `docs/development/specs/2026-09-14-line-synced-lyrics-design.md`.
 - [x] **The Solid lock card is one surface.** `glassSurface(solid:)` routes
   it through the opaque panel Reduce Transparency already draws; the
   `.ultraThinMaterial` and black scrim that sat *under* the drawn glass are
   gone (`GlassRoutingTests`).
 
-`docs/research/2026-09-20-paid-notch-apps-patterns.md` records what the paid
+`docs/development/research/2026-09-20-paid-notch-apps-patterns.md` records what the paid
 notch apps charge for and ranks ten things Isla could ship free without a new
 entitlement — camera/mic in-use pill, AirDrop from the Shelf, battery, Shortcuts
 via App Intents, a volume HUD promoted off the lock card, a timer, a mirror,
@@ -525,7 +525,7 @@ started; each is the owner's call.
   cure for a catalogue that ran early — or for the delay a pair of AirPods
   adds — was nudging every track one at a time. Named *delay* to keep it
   distinct from the lyrics page's per-track *timing* nudge. Closes item 3 of
-  `docs/audits/2026-09-13-…-lyric-sync-investigation.md` §3.4.
+  `docs/development/audits/2026-09-13-…-lyric-sync-investigation.md` §3.4.
 - [x] **A lyric can be copied.** Right-click any line on the page: Copy Line,
   or Copy All Lyrics, which leaves out the credits the app inferred. The words
   were readable and not quotable, which for a lyric is most of the point.
@@ -774,7 +774,7 @@ notch in a single frame, "too intense, too raw".
 ### For strangers — 2026-09-23
 
 Everything the 2026-09-23 exploration found, except Developer ID and
-notarization, which the owner excluded. Plan: `docs/plans/2026-09-23-for-strangers.md`.
+notarization, which the owner excluded. Plan: `docs/development/plans/2026-09-23-for-strangers.md`.
 The baseline it answered: 8 stars, 5 of them the owner's own accounts, 5 DMG
 downloads in total, and no outside issues.
 
@@ -847,7 +847,7 @@ downloads in total, and no outside issues.
   timing moves: the owner's −0.247 s reads +0.247 s at the same effective
   lead, −0.047 s (lab L7 and L8 rerun on the 540-track corpus, unchanged).
   A build from before this change, run after it, reads every correction
-  inverted. Design amendment: `docs/superpowers/specs/2026-09-14-line-synced-lyrics-design.md`.
+  inverted. Design amendment: `docs/development/specs/2026-09-14-line-synced-lyrics-design.md`.
 - [ ] **Physical check owed:** on the installed build, Settings → Music shows
   Lyric Delay +0.25 s where it showed −0.25 s, lyrics (and any per-track
   nudge on the lyrics page) sit exactly where they sat before the upgrade,
@@ -1053,7 +1053,7 @@ copy, and when a read comes back empty; nothing is read to find out.
   and built-in speakers), and a player whose position already includes its
   output latency would count it twice.
 - [ ] **Owner session owed (S-LEAD in
-  `docs/audits/2026-10-11-live-validation-script.md`):** per player and per
+  `docs/development/audits/2026-10-11-live-validation-script.md`):** per player and per
   route, CoreAudio's reported latency from the trail beside the by-ear
   correction. Applying the term (with any migration of stored corrections)
   and wiring the island screen's real refresh rate are a follow-up gated on

@@ -3,7 +3,7 @@
 > **For agentic workers:** this is a MASTER roadmap spanning several independent
 > subsystems. Per the `writing-plans` scope check, each phase below is executed
 > from its **own** detailed, bite-sized plan written at the time that phase
-> starts (`docs/plans/2026-08-28-isla-<phase>.md`). Do not treat the phase
+> starts (`docs/development/plans/2026-08-28-isla-<phase>.md`). Do not treat the phase
 > summaries here as step-complete; they define scope, deliverable, edge cases,
 > and definition-of-done for the per-phase plan that follows.
 

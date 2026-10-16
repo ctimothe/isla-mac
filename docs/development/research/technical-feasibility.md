@@ -10,7 +10,7 @@ lastModified: 2026-08-18
 > unresolved questions, and corrections from the original planning phase. It
 > is not the implementation contract. See
 > [`../specs/shell-music-mvp.md`](../specs/shell-music-mvp.md) for binding MVP
-> requirements and [`../../checklist.md`](../../checklist.md) for current status.
+> requirements and [`../../checklist.md`](../checklist.md) for current status.
 
 The material below is preserved from the original requirements checklist. Some
 questions have since been resolved by the binding MVP specification; retain

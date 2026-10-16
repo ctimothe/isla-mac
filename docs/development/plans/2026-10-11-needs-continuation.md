@@ -1,14 +1,14 @@
 # Needs continuation
 
-What the 2026-10-11 island program left unfinished, as of release 0.3.0. Everything else in `docs/plans/2026-10-11-island-build-plan.md` is built, dropped or held (see `docs/audits/2026-10-11-closure-audit.md`: 178 of 179 findings closed). Each item says what is missing, why, and what unblocks it.
+What the 2026-10-11 island program left unfinished, as of release 0.3.0. Everything else in `docs/development/plans/2026-10-11-island-build-plan.md` is built, dropped or held (see `docs/development/audits/2026-10-11-closure-audit.md`: 178 of 179 findings closed). Each item says what is missing, why, and what unblocks it.
 
 ## Needs the owner (a decision, a measurement or a physical Mac)
 
-1. **Live validation** (`docs/audits/2026-10-11-live-validation-script.md`, 18 sessions of about ten minutes). 40 findings are closed only as far as headless evidence goes. Nothing in this program was run on a physical notch. Record the tested Mac model and macOS version in `checklist.md` afterwards, as CLAUDE.md asks.
+1. **Live validation** (`docs/development/audits/2026-10-11-live-validation-script.md`, 18 sessions of about ten minutes). 40 findings are closed only as far as headless evidence goes. Nothing in this program was run on a physical notch. Record the tested Mac model and macOS version in `checklist.md` afterwards, as CLAUDE.md asks.
 2. **The lyric lead (L-02, P1).** The lead is a sum of named terms and a live CoreAudio output-latency monitor, but `LyricLeadModel.appliesOutputLatency` is false, so the lead is still 0.20 s. Session S-LEAD measures the real offset; the lab suggests about 0.3 s is statistically best, and the owner has calibrated 0.20 s by ear. The Auto next-line setting is separate and already shipped.
 3. **Developer ID and notarization (J-002).** Needed to stop the Gatekeeper alert on the media helper and the permission re-prompt on every update. Also unblocks an in-app updater (G-027) and Homebrew.
 4. **Decision 21: clipboard text going online.** `sp/PV-04` (clipboard text waits for one click before it goes to MyMemory) is built and tested on branch `feat/clipboard-online-consent-held` and not merged. After the owner says yes, merge it and delete the "no extra click" record in the build plan (lines 166 and 244). `ms/MS-19` touched the same entry point, so expect a small merge conflict in `NotchViewModel.receiveCommandedTranslation`.
-5. **The other open owner decisions** at the end of `docs/audits/2026-10-11-wave-a-backlog.md` (24 items), plus: the volume and brightness HUD (would cost a permission), the `quietInFullScreen` Settings switch and a Focus filter for quiet ambient moments (K-003, below).
+5. **The other open owner decisions** at the end of `docs/development/audits/2026-10-11-wave-a-backlog.md` (24 items), plus: the volume and brightness HUD (would cost a permission), the `quietInFullScreen` Settings switch and a Focus filter for quiet ambient moments (K-003, below).
 
 ## Unfinished work
 
@@ -37,9 +37,9 @@ What the 2026-10-11 island program left unfinished, as of release 0.3.0. Everyth
 - `SettingsIcon.about` and `SettingsIcon.quit` are no longer used by the app (kept for the lab and `SettingsIcon.all`); remove or keep.
 - `Diagnostics` reports Launch at Login as off while macOS approval is pending; use `LaunchAtLogin.read()`.
 - Docs that contradict the code and were not rewritten (the build plan is a dated approved document): it still schedules `ax/KB-06`/`KB-07` and says `ax/KB-01` makes the panel key; the `ly/LY-08` text still describes applying output latency. `CLAUDE.md` is the record.
-- Visual-lab baselines and the contact sheets in `docs/audits/2026-10-11-visual-lab` were generated before the last batches; regenerate with `bash Scripts/visual-lab.sh`.
+- Visual-lab baselines and the contact sheets in `docs/development/audits/2026-10-11-visual-lab` were generated before the last batches; regenerate with `bash Scripts/visual-lab.sh`.
 - Finding M-27 appears only in the plan, not in the audit register.
 
 ## How to resume
 
-Pick from the owner list first; the unfinished-work table is small and mostly P3. Build with a Sonnet engineer per related group of tasks, test-first, in a worktree, and gate with `./scripts/check` (see `docs/plans/2026-10-11-island-next-level-program.md` for the method and the incidents it hit).
+Pick from the owner list first; the unfinished-work table is small and mostly P3. Build with a Sonnet engineer per related group of tasks, test-first, in a worktree, and gate with `./scripts/check` (see `docs/development/plans/2026-10-11-island-next-level-program.md` for the method and the incidents it hit).

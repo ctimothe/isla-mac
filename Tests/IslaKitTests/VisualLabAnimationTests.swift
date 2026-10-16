@@ -440,7 +440,7 @@ final class VisualLabAnimationTests: VisualLabCase {
         let openBody = CGSize(width: NotchMetrics.defaultBodyWidth, height: NotchMetrics.standardBodyHeight)
         let pillBody = CGSize(width: notch.width + NotchMetrics.compactMediaExtension, height: notch.height)
 
-        let note = "Reconstructed from the sampled curves and the real end-state views; see docs/audits/2026-10-11-visual-lab/README.md §Keyframes."
+        let note = "Reconstructed from the sampled curves and the real end-state views; see docs/development/audits/2026-10-11-visual-lab/README.md §Keyframes."
 
         func frame(_ sequence: String, _ ms: Int, size: CGSize, notes: String, _ view: @escaping () -> AnyView) async throws {
             let shoot = LabPhotographer(session: session, surface: "keyframes-\(sequence)")

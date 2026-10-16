@@ -11,50 +11,50 @@ result, evidence path, or issue link to every gate.
 
 1. [x] **Unit and service tests** — every test passes (29 on the day this line was first
    written; 520 or so as of 2026-09-23 — trust the run, not this number). Evidence:
-   [release-candidate report](verification/2026-08-18-release-candidate.md)
+   [release-candidate report](development/verification/2026-08-18-release-candidate.md)
 2. [x] **Media-helper contract** — live NDJSON response and shutdown pass;
    numeric commands and restart/fallback pass unit tests. Evidence:
-   [release-candidate report](verification/2026-08-18-release-candidate.md)
+   [release-candidate report](development/verification/2026-08-18-release-candidate.md)
 3. [x] **Release packaging** — release bundle, ad-hoc signature, package test,
    and versioned local DMG pass. Evidence:
-   [release-candidate report](verification/2026-08-18-release-candidate.md)
+   [release-candidate report](development/verification/2026-08-18-release-candidate.md)
 4. [ ] **UI coverage** — automated smoke coverage and Computer Use validation
    pass for every tab. Blocked: Computer Use returned `cgWindowNotFound` for
    the borderless panel after three isolated discovery attempts. Evidence:
-   [release-candidate report](verification/2026-08-18-release-candidate.md)
+   [release-candidate report](development/verification/2026-08-18-release-candidate.md)
 5. [ ] **Permissions and network** — on a fresh account, no launch-time
    prompting; protected-folder prompts appear only in the context of a Shelf
    action; with the default switches, nothing is written to
    `~/Pictures/Isla` and no request leaves the machine. Reworded on
    2026-08-21: this gate named the removed Calendar flow and so could never be
    completed as written. Clean-account manual flow is not run. Evidence:
-   [release-candidate report](verification/2026-08-18-release-candidate.md)
+   [release-candidate report](development/verification/2026-08-18-release-candidate.md)
 6. [ ] **Displays** — physical-notch and synthetic-notch passes complete.
    Physical notch detected, but UI workflow not completed; no synthetic display
-   is connected. Evidence: [release-candidate report](verification/2026-08-18-release-candidate.md)
+   is connected. Evidence: [release-candidate report](development/verification/2026-08-18-release-candidate.md)
 7. [ ] **Localization** — English and Russian key checks plus visual review
    key parity passes; visual review is blocked with UI coverage. Evidence:
-   [release-candidate report](verification/2026-08-18-release-candidate.md)
+   [release-candidate report](development/verification/2026-08-18-release-candidate.md)
 8. [ ] **Recovery and lifecycle** — quit/relaunch, launch at login, an
    unreadable lyrics cache, an unreadable credentials file, an unavailable
    helper, a silent-but-running helper, and a missing Shelf file all pass.
    Reworded on 2026-08-21: this gate named the removed snippets file, and again
    on 2026-08-24, when the notes file and the teleprompter script went with
    their features. Automated persistence and helper lifecycle pass; remaining
-   manual scenarios are not run. Evidence: [release-candidate report](verification/2026-08-18-release-candidate.md)
+   manual scenarios are not run. Evidence: [release-candidate report](development/verification/2026-08-18-release-candidate.md)
 9. [ ] **Performance** — three-run medians meet the pinned Cyclop CPU, RSS,
    responsiveness, lifecycle, and bundle gates. The two thresholds that blocked
    this were themselves wrong and were corrected on 2026-08-21: idle CPU is now
    compared against the reference rather than against an absolute 0.0%, and a
    helper that was not running is no longer recorded as using 0 KB. Needs a
-   re-run. Evidence: [performance report](performance/2026-08-18-cyclop-0.6.5-baseline.md)
+   re-run. Evidence: [performance report](development/performance/2026-08-18-cyclop-0.6.5-baseline.md)
 10. [x] **Original identity** — branding scan and generated-icon visual review
     find no Cyclop
     icon, identifier, paths, screenshots, marketing copy, or unintended visible
-    product strings. Evidence: [release-candidate report](verification/2026-08-18-release-candidate.md)
+    product strings. Evidence: [release-candidate report](development/verification/2026-08-18-release-candidate.md)
 11. [x] **License and attribution** — packaged `LICENSE`,
     `THIRD_PARTY_NOTICES.md`, and pinned provenance pass. Evidence:
-    [release-candidate report](verification/2026-08-18-release-candidate.md)
+    [release-candidate report](development/verification/2026-08-18-release-candidate.md)
 
 ## Final release controls
 

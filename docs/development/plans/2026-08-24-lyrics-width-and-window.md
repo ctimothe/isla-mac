@@ -340,7 +340,7 @@ Default **560 pt**, adjustable **480…620**, from Settings. The window stays `7
 - [ ] `bash Scripts/test-localizations.sh` → `✓`.
 - [ ] `swift test` green, `CompactMediaActivityTests` included.
 - [ ] The binding design is amended in place, dated, under the metrics table at
-      `docs/plans/2026-08-18-dynamic-island-parity-design.md:76` — the way Snippets, Calendar,
+      `docs/development/plans/2026-08-18-dynamic-island-parity-design.md:76` — the way Snippets, Calendar,
       Notes and the Teleprompter were amended, never by rewriting the row. Record it in
       `checklist.md` under "Scope divergence from Cyclop 0.6.5" too.
 

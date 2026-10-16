@@ -3,7 +3,7 @@
 **Date:** 2026-09-13 · **Product build in `/Applications`:** Sep 13 06:35 = `feat/lyrics-accuracy`
 @ `eace5e7` · **This document is the single complete picture:** what shipped, what is verified by
 measurement, what remains unfinished, and what nobody knew to ask. Companion evidence:
-`docs/research/2026-09-12-latent-failure-audit.md` (the audit that drove the fixes) and
+`docs/development/research/2026-09-12-latent-failure-audit.md` (the audit that drove the fixes) and
 `.superpowers/sdd/progress.md` (the task ledger with every review verdict and owed minor).
 
 ---
@@ -169,7 +169,7 @@ voice" is produced **downstream of the clock**, and there are exactly three cont
 A research pass on lead conventions in shipping systems (AMLL's players, lyricify, LRCLIB-player
 practice), word-timestamp semantics in QRC/KRC tooling, and MediaRemote-latency precedents in
 boring.notch/mew-notch was dispatched with this investigation; its citations land beside this file
-as `docs/research/2026-09-13-lead-conventions.md` when it returns, and any number it contradicts
+as `docs/development/research/2026-09-13-lead-conventions.md` when it returns, and any number it contradicts
 here wins — same amendment rule as the design doc. *(If the file is absent, the pass had not
 returned when this status was cut; treat §3.4 as the plan regardless — it proceeds from this
 repo's own measurements.)*

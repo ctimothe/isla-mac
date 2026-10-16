@@ -6,7 +6,7 @@ name: Build and verify
 # a push runs only where work lands.
 on:
   push:
-    branches: [main, dynamic-island-parity]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
