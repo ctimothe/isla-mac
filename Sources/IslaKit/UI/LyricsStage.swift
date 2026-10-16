@@ -264,6 +264,17 @@ struct LyricsStage: View {
         // Lowered under the epoch it was raised in: after a rebuild reset the
         // demand, this view's late lowering must not cancel the new panel's.
         .onDisappear { translation.setDemand(.lyricArea, false, epoch: demandEpoch) }
+        // A new song follows from the top. The stage is not always rebuilt for
+        // one — a cached lyric can go resolving → ready in a single turn, so the
+        // synced branch never leaves the view tree — and a pointer parked on the
+        // old song's verse would otherwise leave the new one unfollowed at an
+        // arbitrary row.
+        .onChange(of: media.track?.key) { _, _ in
+            settleTask?.cancel()
+            settleTask = nil
+            gate.reset()
+            following = true
+        }
         // Verification hook, environment-gated like the open hook: replays the
         // row button's exact statement on the line after the current one, then
         // samples the position for the backward yank this hook exists to catch.
@@ -451,7 +462,8 @@ struct LyricsStage: View {
                     // settle that ends the gesture puts the page on the sung
                     // line (`LyricFollowGate.settle` → `.recentre`).
                     guard Self.centresOnLineChange(
-                        following: following, gestureIsLive: gate.isLive(at: Self.clockNow())
+                        following: following,
+                        gestureIsLive: gate.isLive(at: Self.clockNow(), pointerOverStage: { pointer.isOver() })
                     ) else { return }
                     center(on: to)
                 }
@@ -491,7 +503,7 @@ struct LyricsStage: View {
                         if DebugTrail.openLyrics {
                             DebugTrail.note("STAGE reader took over")
                         }
-                    case .nudged, .kept:
+                    case .nudged, .kept, .held:
                         break
                     }
                     armSettle()

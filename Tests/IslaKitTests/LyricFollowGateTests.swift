@@ -15,6 +15,11 @@ final class LyricFollowGateTests: XCTestCase {
         ScrollSample(deltaX: dx, deltaY: dy, phase: phase, momentumPhase: momentum)
     }
 
+    /// `isLive` with the pointer as a plain Bool: off the stage by default.
+    private func live(_ gate: LyricFollowGate, at now: TimeInterval, over: Bool = false) -> Bool {
+        gate.isLive(at: now, pointerOverStage: { over })
+    }
+
     // MARK: - Where and which way
 
     /// An event while the pointer is anywhere but the stage decides nothing and
@@ -35,11 +40,12 @@ final class LyricFollowGateTests: XCTestCase {
         XCTAssertEqual(gate.handle(vertical(30, dx: 29), overStage: true, following: true, at: 0.02), .stoppedFollowing)
     }
 
-    /// The zero-delta events that open and close every trackpad phase are not
-    /// scrolls.
+    /// A zero-delta event that is no hold is not a scroll: nothing is counted,
+    /// and an end with nothing live leaves no state. (`mayBegin` and `began`
+    /// hold the page; see `testTwoFingersLaidDownHoldThePage`.)
     func testAZeroDistanceEventIsIgnored() {
         var gate = LyricFollowGate()
-        XCTAssertEqual(gate.handle(vertical(0, phase: .mayBegin), overStage: true, following: true, at: 0), .ignored)
+        XCTAssertEqual(gate.handle(vertical(0, phase: .changed), overStage: true, following: true, at: 0), .ignored)
         XCTAssertEqual(gate.handle(vertical(0, phase: .ended), overStage: true, following: true, at: 0.2), .ignored)
         XCTAssertEqual(settle(gate, following: true, at: 0), .none)
     }
@@ -111,28 +117,42 @@ final class LyricFollowGateTests: XCTestCase {
     func testSlowReadingWithFingersDownStillDetaches() {
         var gate = LyricFollowGate()
         XCTAssertEqual(gate.handle(vertical(6, phase: .began), overStage: true, following: true, at: 0), .nudged)
-        XCTAssertTrue(gate.isLive(at: 0.1))
+        XCTAssertTrue(live(gate, at: 0.1))
         XCTAssertEqual(gate.handle(vertical(6, phase: .changed), overStage: true, following: true, at: 1.4),
                        .stoppedFollowing, "fingers never lifted, so 6 + 6 reaches 12")
     }
 
     /// A gesture is live from `began` to the fingers lifting and the glide
-    /// ending, and a wheel is never live.
+    /// ending.
     func testALiveGestureRunsFromBeganThroughMomentumEnd() {
         var gate = LyricFollowGate()
-        XCTAssertFalse(gate.isLive(at: 0))
+        XCTAssertFalse(live(gate, at: 0))
         _ = gate.handle(vertical(3, phase: .began), overStage: true, following: true, at: 0)
-        XCTAssertTrue(gate.isLive(at: 5), "fingers resting for five seconds: still live")
+        XCTAssertTrue(live(gate, at: 5), "fingers resting for five seconds: still live")
         _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: true, at: 5.1)
-        XCTAssertFalse(gate.isLive(at: 5.1), "fingers lifted, no glide")
+        XCTAssertFalse(live(gate, at: 5.1), "fingers lifted, no glide")
         _ = gate.handle(vertical(3, phase: .none, momentum: .began), overStage: true, following: true, at: 5.15)
-        XCTAssertTrue(gate.isLive(at: 5.2), "a glide began")
+        XCTAssertTrue(live(gate, at: 5.2), "a glide began")
         _ = gate.handle(vertical(0, phase: .none, momentum: .ended), overStage: true, following: true, at: 5.6)
-        XCTAssertFalse(gate.isLive(at: 5.6))
+        XCTAssertFalse(live(gate, at: 5.6))
+    }
 
-        var wheel = LyricFollowGate()
-        _ = wheel.handle(vertical(3, phase: .none), overStage: true, following: true, at: 0)
-        XCTAssertFalse(wheel.isLive(at: 0), "a wheel has no phases")
+    /// Item 4: events with no phase at all — a notched wheel, a smooth-scroll
+    /// utility, a mouse driver with fine deltas — are live for the silence gap
+    /// after each, so line-follow does not centre under a hand moving the page.
+    func testPhaselessScrollsAreLiveForTheGapAfterEachEvent() {
+        var gate = LyricFollowGate()
+        _ = gate.handle(vertical(1, phase: .none), overStage: true, following: true, at: 10)
+        XCTAssertTrue(live(gate, at: 10.2))
+        XCTAssertTrue(live(gate, at: 10.49))
+        XCTAssertFalse(live(gate, at: 10.5), "0.5 s of silence ends it")
+        _ = gate.handle(vertical(1, phase: .none), overStage: true, following: true, at: 10.4)
+        XCTAssertTrue(live(gate, at: 10.8), "each event extends it")
+        XCTAssertFalse(LyricsStage.centresOnLineChange(following: true, gestureIsLive: live(gate, at: 10.8)))
+        // And a phased event takes over: no phaseless clock after it.
+        _ = gate.handle(vertical(1, phase: .began), overStage: true, following: true, at: 20)
+        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: true, at: 20.1)
+        XCTAssertFalse(live(gate, at: 20.2))
     }
 
     /// The end arrives even when the pointer has wandered off the stage, or the
@@ -141,15 +161,43 @@ final class LyricFollowGateTests: XCTestCase {
         var gate = LyricFollowGate()
         _ = gate.handle(vertical(3, phase: .began), overStage: true, following: true, at: 0)
         XCTAssertEqual(gate.handle(vertical(0, phase: .ended), overStage: false, following: true, at: 1), .ignored)
-        XCTAssertFalse(gate.isLive(at: 1))
+        XCTAssertFalse(live(gate, at: 1))
     }
 
-    /// A lost end event does not hold the page back forever.
-    func testALiveGestureThatWentSilentForAgesIsNoLongerLive() {
+    /// Item 1. A trackpad sends nothing while the fingers rest, which looks the
+    /// same as an end event that never came. A silent gesture is let go of after
+    /// the timeout only when the pointer is off the stage; over it, it stays
+    /// live — and the page is not recentred, resumed or the tally reset.
+    func testALongRestWithThePointerOnTheStageStaysLive() {
+        var gate = LyricFollowGate()
+        XCTAssertEqual(gate.handle(vertical(6, phase: .began), overStage: true, following: true, at: 0), .nudged)
+        let long = LyricFollowGate.liveTimeout + 20
+        XCTAssertTrue(live(gate, at: long, over: true), "resting on the pad, pointer over the stage")
+        XCTAssertEqual(
+            gate.settle(following: true, pointerOverStage: { true }, at: long), .wait(LyricFollowGate.liveRecheck),
+            "no recentre under the hand"
+        )
+        XCTAssertEqual(
+            gate.settle(following: false, pointerOverStage: { true }, at: long), .wait(LyricFollowGate.liveRecheck),
+            "no resume under the hand"
+        )
+        XCTAssertEqual(gate.travelled, 6, "the tally survives the rest")
+        // The reader moves again after the long pause: 6 + 6 reaches 12.
+        XCTAssertEqual(
+            gate.handle(vertical(6, phase: .changed), overStage: true, following: true, at: long),
+            .stoppedFollowing
+        )
+    }
+
+    /// And with the pointer gone, the silent gesture is let go of.
+    func testALongRestWithThePointerAwayIsLetGo() {
         var gate = LyricFollowGate()
         _ = gate.handle(vertical(3, phase: .began), overStage: true, following: true, at: 0)
-        XCTAssertTrue(gate.isLive(at: LyricFollowGate.liveTimeout))
-        XCTAssertFalse(gate.isLive(at: LyricFollowGate.liveTimeout + 0.1))
+        XCTAssertTrue(live(gate, at: LyricFollowGate.liveTimeout, over: false))
+        XCTAssertFalse(live(gate, at: LyricFollowGate.liveTimeout + 0.1, over: false))
+        XCTAssertEqual(
+            gate.settle(following: true, pointerOverStage: { false }, at: LyricFollowGate.liveTimeout + 0.1), .recentre
+        )
     }
 
     /// The stage does not centre on a turning line under a hand that is moving
@@ -160,7 +208,7 @@ final class LyricFollowGateTests: XCTestCase {
         XCTAssertFalse(LyricsStage.centresOnLineChange(following: false, gestureIsLive: false))
         var gate = LyricFollowGate()
         _ = gate.handle(vertical(3, phase: .began), overStage: true, following: true, at: 0)
-        XCTAssertFalse(LyricsStage.centresOnLineChange(following: true, gestureIsLive: gate.isLive(at: 0.2)))
+        XCTAssertFalse(LyricsStage.centresOnLineChange(following: true, gestureIsLive: live(gate, at: 0.2)))
     }
 
     // MARK: - Putting the page back after a brush
@@ -185,13 +233,12 @@ final class LyricFollowGateTests: XCTestCase {
     func testRecentreAfterTheGestureHasEndedAndMomentumToo() throws {
         var gate = LyricFollowGate()
         _ = gate.handle(vertical(3, phase: .began), overStage: true, following: true, at: 0)
-        _ = gate.handle(vertical(2, phase: .ended), overStage: true, following: true, at: 0.2)
-        _ = gate.handle(vertical(2, phase: .none, momentum: .began), overStage: true, following: true, at: 0.21)
+        _ = gate.handle(vertical(2, phase: .ended), overStage: true, following: true, at: 0.25)
+        _ = gate.handle(vertical(2, phase: .none, momentum: .began), overStage: true, following: true, at: 0.25)
         XCTAssertEqual(settle(gate, following: true, at: 0.5), .wait(LyricFollowGate.liveRecheck), "the glide is running")
-        _ = gate.handle(vertical(0, phase: .none, momentum: .ended), overStage: true, following: true, at: 0.6)
-        guard case .wait(let remaining) = settle(gate, following: true, at: 0.6) else { return XCTFail("not yet") }
-        XCTAssertEqual(remaining, 0.11, accuracy: 1e-9, "half a second after the last counted event")
-        XCTAssertEqual(settle(gate, following: true, at: 0.72), .recentre)
+        _ = gate.handle(vertical(0, phase: .none, momentum: .ended), overStage: true, following: true, at: 0.5)
+        XCTAssertEqual(settle(gate, following: true, at: 0.5), .wait(0.5), "half a second after the glide ends")
+        XCTAssertEqual(settle(gate, following: true, at: 1), .recentre)
     }
 
     /// A wheel has no end event: it is put back half a second after the notch.
@@ -212,13 +259,66 @@ final class LyricFollowGateTests: XCTestCase {
         XCTAssertEqual(gate.travelled, 3, "0.6 s of silence: a new gesture")
     }
 
+    /// Item 2: the recentre is timed from the lift, not from the last movement.
+    /// A brush, fingers resting three seconds, then lifting: the page is not put
+    /// back as the fingers leave, but half a second after.
+    func testRecentreIsTimedFromTheLiftNotTheLastMovement() {
+        var gate = LyricFollowGate()
+        _ = gate.handle(vertical(3, phase: .began), overStage: true, following: true, at: 0)
+        XCTAssertEqual(settle(gate, following: true, at: 3), .wait(LyricFollowGate.liveRecheck), "resting")
+        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: true, at: 3)
+        XCTAssertEqual(settle(gate, following: true, at: 3), .wait(0.5), "half a second from the lift")
+        XCTAssertEqual(settle(gate, following: true, at: 3.5), .recentre)
+    }
+
+    /// Item 2, for the glide: from its end.
+    func testRecentreIsTimedFromTheEndOfTheGlide() {
+        var gate = LyricFollowGate()
+        _ = gate.handle(vertical(3, phase: .began), overStage: true, following: true, at: 0)
+        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: true, at: 0.5)
+        _ = gate.handle(vertical(2, phase: .none, momentum: .began), overStage: true, following: true, at: 0.5)
+        _ = gate.handle(vertical(0, phase: .none, momentum: .ended), overStage: true, following: true, at: 2)
+        XCTAssertEqual(settle(gate, following: true, at: 2), .wait(0.5))
+    }
+
+    /// Item 3: two fingers laid on the pad and not moved hold the page —
+    /// `mayBegin`, or a `began` with no distance — and a cancel ends it like a
+    /// lift.
+    func testTwoFingersLaidDownHoldThePage() {
+        var gate = LyricFollowGate()
+        XCTAssertEqual(gate.handle(vertical(0, phase: .mayBegin), overStage: true, following: true, at: 0), .held)
+        XCTAssertTrue(live(gate, at: 2), "held, however long")
+        XCTAssertEqual(gate.travelled, 0, "no distance added")
+        XCTAssertFalse(LyricsStage.centresOnLineChange(following: true, gestureIsLive: live(gate, at: 2)))
+        XCTAssertEqual(settle(gate, following: true, at: 2), .wait(LyricFollowGate.liveRecheck))
+        // Lifted without moving: a cancel, the same as an end.
+        _ = gate.handle(vertical(0, phase: .cancelled), overStage: true, following: true, at: 3)
+        XCTAssertFalse(live(gate, at: 3))
+        XCTAssertEqual(settle(gate, following: true, at: 3.5), .recentre)
+
+        var began = LyricFollowGate()
+        XCTAssertEqual(began.handle(vertical(0, phase: .began), overStage: true, following: true, at: 0), .held)
+        XCTAssertTrue(live(began, at: 1))
+        _ = began.handle(vertical(0, phase: .ended), overStage: true, following: true, at: 1)
+        XCTAssertFalse(live(began, at: 1))
+    }
+
+    /// Laying fingers elsewhere holds nothing, and a stray end with nothing live
+    /// creates no state.
+    func testHoldsElsewhereAndStrayEndsDoNothing() {
+        var gate = LyricFollowGate()
+        XCTAssertEqual(gate.handle(vertical(0, phase: .mayBegin), overStage: false, following: true, at: 0), .ignored)
+        XCTAssertEqual(gate.handle(vertical(0, phase: .ended), overStage: true, following: true, at: 1), .ignored)
+        XCTAssertEqual(gate, LyricFollowGate())
+    }
+
     // MARK: - Coming back
 
     func testItFollowsAgainFourSecondsAfterTheLastScroll() throws {
         XCTAssertEqual(LyricFollowGate.resumeDelay, 4)
         var gate = LyricFollowGate()
         XCTAssertEqual(gate.handle(vertical(20, phase: .began), overStage: true, following: true, at: 10), .stoppedFollowing)
-        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 10.1)
+        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 10)
         XCTAssertEqual(settle(gate, following: false, at: 10), .wait(4))
         XCTAssertEqual(settle(gate, following: false, at: 13.5), .wait(0.5))
         XCTAssertEqual(settle(gate, following: false, at: 14), .resume, "due at 14 s with the pointer away")
@@ -237,7 +337,7 @@ final class LyricFollowGateTests: XCTestCase {
     func testResumeWaitsWhileThePointerIsOverTheStageAndFiresWhenItLeaves() {
         var gate = LyricFollowGate()
         _ = gate.handle(vertical(20, phase: .began), overStage: true, following: true, at: 0)
-        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 0.1)
+        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 0)
         XCTAssertEqual(settle(gate, following: false, over: true, at: 4), .wait(LyricFollowGate.pointerRecheck))
         XCTAssertEqual(settle(gate, following: false, over: true, at: 30), .wait(LyricFollowGate.pointerRecheck),
                        "however long the pointer rests there")
@@ -253,20 +353,20 @@ final class LyricFollowGateTests: XCTestCase {
     func testMomentumPostponesTheResume() {
         var gate = LyricFollowGate()
         _ = gate.handle(vertical(20, phase: .began), overStage: true, following: true, at: 0)
-        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 0.1)
-        XCTAssertEqual(gate.handle(vertical(15, phase: .none, momentum: .changed), overStage: true, following: false, at: 1.2), .kept)
-        _ = gate.handle(vertical(0, phase: .none, momentum: .ended), overStage: true, following: false, at: 1.5)
-        XCTAssertEqual(settle(gate, following: false, at: 1.5), .wait(3.7), "from the glide's last counted event at 1.2")
+        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 0)
+        XCTAssertEqual(gate.handle(vertical(15, phase: .none, momentum: .changed), overStage: true, following: false, at: 1.25), .kept)
+        _ = gate.handle(vertical(0, phase: .none, momentum: .ended), overStage: true, following: false, at: 1.25)
+        XCTAssertEqual(settle(gate, following: false, at: 1.25), .wait(4), "from the glide, not from the lift before it")
     }
 
     func testANewScrollPostponesTheResume() {
         var gate = LyricFollowGate()
         _ = gate.handle(vertical(20, phase: .began), overStage: true, following: true, at: 0)
-        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 0.1)
+        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 0)
         XCTAssertEqual(settle(gate, following: false, at: 3), .wait(1))
         XCTAssertEqual(gate.handle(vertical(1, phase: .began), overStage: true, following: false, at: 3), .kept)
-        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 3.05)
-        XCTAssertEqual(settle(gate, following: false, at: 3.05), .wait(3.95), "four seconds from the new scroll")
+        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 3)
+        XCTAssertEqual(settle(gate, following: false, at: 3), .wait(4), "four seconds from the new scroll")
         XCTAssertEqual(settle(gate, following: false, at: 7), .resume)
     }
 
@@ -275,7 +375,7 @@ final class LyricFollowGateTests: XCTestCase {
     func testIgnoredEventsDoNotPostponeTheResume() {
         var gate = LyricFollowGate()
         _ = gate.handle(vertical(20, phase: .began), overStage: true, following: true, at: 0)
-        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 0.1)
+        _ = gate.handle(vertical(0, phase: .ended), overStage: true, following: false, at: 0)
         XCTAssertEqual(gate.handle(vertical(30), overStage: false, following: false, at: 3), .ignored)
         XCTAssertEqual(gate.handle(vertical(2, dx: 50), overStage: true, following: false, at: 3), .ignored)
         XCTAssertEqual(settle(gate, following: false, at: 3), .wait(1))
@@ -288,7 +388,7 @@ final class LyricFollowGateTests: XCTestCase {
         _ = gate.handle(vertical(20, phase: .began), overStage: true, following: true, at: 0)
         gate.reset()
         XCTAssertEqual(gate, LyricFollowGate())
-        XCTAssertFalse(gate.isLive(at: 0))
+        XCTAssertFalse(live(gate, at: 0))
         XCTAssertEqual(settle(gate, following: false, at: 1), .none)
         XCTAssertEqual(gate.handle(vertical(5), overStage: true, following: true, at: 2), .nudged, "from nothing again")
     }

@@ -564,7 +564,13 @@ mismatch notice, editor) move with it.
 >   is live (resting fingers send no events), the stage does not centre on a
 >   turning line under it, and a brush too short to stop following is put back
 >   only 0.5 s after it is over. A mouse wheel has no phases and keeps the
->   0.5 s silence rule.
+>   0.5 s silence rule; so does any scroll with no phase (a smooth-scroll
+>   utility, a mouse driver), which holds the page for 0.5 s after each event.
+>   Two fingers laid on the pad (`mayBegin`, or `began` with no distance)
+>   hold the page before they move. A silent gesture is let go of after 15 s
+>   only once the pointer has left the stage, and every wait is timed from
+>   the lift or the glide's end, not from the last movement. A new song
+>   resets the stage to following.
 > - Once not following, the page **follows again by itself once 4 s have
 >   passed since the last scroll event**, momentum included, the gesture is
 >   over **and the pointer is no longer over the stage** (asked again every
