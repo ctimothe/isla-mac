@@ -25,7 +25,7 @@ Isla is an independent project and is not affiliated with Apple.
 Isla has no Dock icon, menu bar item or window: it lives in the notch. Click the
 notch to open it. **Settings** in the panel has Launch at Login, About and Quit.
 
-To update, repeat the steps with the new release. **Settings → Check for Updates**
+To update, repeat the steps with the new release. **Settings → Application → Check for Updates**
 says whether there is one.
 
 ## Features
@@ -37,7 +37,8 @@ says whether there is one.
   and optionally from [LRCLIB](https://lrclib.net). Click a line to jump to it.
   The island's one-line lyric can turn to the next line a beat early, so you
   can read it before you sing it, and Lyric Delay lines the words up with
-  speakers or headphones that run late.
+  speakers or headphones that run late. See
+  [Your own lyrics files](docs/local-lyrics.md).
 - **Lock screen.** While the Mac is locked, a player card with lyrics, volume
   and audio output.
 - **Shelf.** Drop files onto the notch to keep them at hand and drag them out
@@ -49,8 +50,8 @@ says whether there is one.
 - **Clipboard.** The last 40 items copied while Isla runs. Click one to copy
   it again. It can be turned off in Settings.
 - **Translate.** Sixteen languages, translated on the Mac by Apple's
-  Translation framework or Apple Intelligence (macOS 26 or later). Uzbek and
-  Kazakh need Translate Online.
+  Translation framework or Apple Intelligence (macOS 26 or later). Languages
+  your Mac can't translate itself, such as Uzbek and Kazakh, need Translate Online.
 - **Shortcuts.** ⌃⌥⌘I opens Isla, ⌃⌥⌘L opens the lyrics, ⌃⌥⌘T translates the
   clipboard. Each can be changed or cleared in Settings. Shortcuts, Spotlight and
   Siri can read the current track and lyric. Escape closes a panel opened
@@ -83,7 +84,7 @@ fallback used when Now Playing is unavailable.
   app. Run the `xattr` command from Install, then **Settings → Music → Try Again**.
 - **A shortcut does nothing.** Another app may own it. Settings → Keyboard
   Shortcuts says so and lets you pick another.
-- **Anything else.** **Settings → Copy Diagnostics**, then **Report a Problem…**
+- **Anything else.** **Settings → Application → Copy Diagnostics**, then **Report a Problem…**
   and paste it into the form. The report lists versions, settings and Isla's own
   log, and nothing you played, copied or translated.
 
@@ -112,6 +113,11 @@ ordinary apps. The App Store does not allow this, so Isla is distributed here.
 Quit Isla from Settings, then delete `/Applications/Isla.app` and
 `~/Library/Application Support/Isla`. If you turned on screenshot saving, also
 delete `~/Pictures/Isla`.
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

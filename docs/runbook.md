@@ -234,7 +234,7 @@ bash Scripts/build-reference.sh
 bash Scripts/measure-performance.sh \
   "build/reference/Cyclop.app" \
   "build/app.noindex/Isla.app" \
-  "docs/performance/2026-08-18-cyclop-0.6.5-baseline.md"
+  "docs/development/performance/2026-08-18-cyclop-0.6.5-baseline.md"
 ```
 
 The report uses three 60-second runs per app. Closed CPU must remain `0.0%`;

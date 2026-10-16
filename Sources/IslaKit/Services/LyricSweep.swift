@@ -585,7 +585,7 @@ struct LyricLeadModel: Equatable, Sendable {
     /// do not cover — player-side buffering, catalogue stamps set early. It
     /// is a placeholder, about 67 ms, chosen only so the built-in route keeps
     /// the shipped 0.20 s. The acoustic loopback probe, or the owner's S-LEAD
-    /// session (docs/audits/2026-10-11-live-validation-script.md), must
+    /// session (docs/development/audits/2026-10-11-live-validation-script.md), must
     /// replace it with a number; until then it is the honest name for the
     /// part of the 0.20 s nobody can account for.
     var unmeasuredPlayerDelay: TimeInterval

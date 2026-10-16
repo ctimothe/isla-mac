@@ -6,7 +6,7 @@ import CoreGraphics
 /// Before this the island existed only while music played. The category's
 /// name comes from the iPhone's Live Activities, and the two moments people
 /// look for first on a Mac are these two (see the 2026-09-23 market notes in
-/// `docs/plans/2026-09-23-for-strangers.md`). Both come from public APIs, IOKit
+/// `docs/development/plans/2026-09-23-for-strangers.md`). Both come from public APIs, IOKit
 /// power sources and the CoreAudio device list, and neither needs a
 /// permission.
 enum AmbientActivity: Equatable {

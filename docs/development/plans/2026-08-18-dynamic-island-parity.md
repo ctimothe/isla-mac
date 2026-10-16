@@ -20,7 +20,7 @@
 
 **Tech Stack:** Swift 6 toolchain in Swift 5 language mode, Swift Package Manager, AppKit, SwiftUI, Combine, EventKit, Translation, QuickLookThumbnailing, Objective-C MediaRemote helper hosted by `/usr/bin/perl`, XCTest, Bash, Python 3, codesign, and hdiutil.
 
-**Spec:** `docs/plans/2026-08-18-dynamic-island-parity-design.md`
+**Spec:** `docs/development/plans/2026-08-18-dynamic-island-parity-design.md`
 
 ## Global Constraints
 
@@ -67,7 +67,7 @@ UPSTREAM_CYCLOP_VERSION                    pinned provenance record
 THIRD_PARTY_NOTICES.md                     upstream copyright and MIT notice
 docs/runbook.md                            build, permission, UI, and release procedure
 docs/release-checklist.md                  human release gates
-docs/performance/                          generated comparison evidence
+docs/development/performance/                          generated comparison evidence
 ```
 
 The imported feature files retain their focused upstream responsibilities. Do
@@ -1474,7 +1474,7 @@ git commit -m "feat: complete localized settings and permissions"
 - Create or replace: `checklist.md`
 - Create or replace: `docs/runbook.md`
 - Create: `docs/release-checklist.md`
-- Modify: `docs/specs/shell-music-mvp.md`
+- Modify: `docs/development/specs/shell-music-mvp.md`
 
 **Interfaces:**
 - Consumes: Version, executable, helper, resources, identity, tests, and notices.
@@ -1556,7 +1556,7 @@ hardware-notch, synthetic-notch, permissions, every-tab, performance, signing,
 notarization, and clean-account flows. Create `docs/release-checklist.md` from
 the eleven release gates in the design.
 
-Keep `docs/specs/shell-music-mvp.md` only as a clearly marked historical
+Keep `docs/development/specs/shell-music-mvp.md` only as a clearly marked historical
 prototype spec that points to the current parity design and cannot be mistaken
 for a binding contract.
 
@@ -1590,7 +1590,7 @@ git commit -m "build: make Dynamic Island release-ready"
 - Create: `Scripts/measure-performance.sh`
 - Create: `Scripts/test-lifecycle.sh`
 - Create: `Scripts/build-reference.sh`
-- Create: `docs/performance/2026-08-18-cyclop-0.6.5-baseline.md`
+- Create: `docs/development/performance/2026-08-18-cyclop-0.6.5-baseline.md`
 - Modify: `checklist.md`
 - Modify: `docs/release-checklist.md`
 
@@ -1788,7 +1788,7 @@ Dynamic Island bundle payload is approximately 2.1 MB; original icon variance is
 ```
 
 Write exact measured values, Mac model, macOS version, commit hashes, commands,
-and pass/fail results to `docs/performance/2026-08-18-cyclop-0.6.5-baseline.md`.
+and pass/fail results to `docs/development/performance/2026-08-18-cyclop-0.6.5-baseline.md`.
 
 - [ ] **Step 4: Build the pinned reference and run all automated gates**
 
@@ -1824,7 +1824,7 @@ bash Scripts/dmg.sh
 bash Scripts/measure-performance.sh \
   "build/reference/Cyclop.app" \
   "build/Dynamic Island.app" \
-  "docs/performance/2026-08-18-cyclop-0.6.5-baseline.md"
+  "docs/development/performance/2026-08-18-cyclop-0.6.5-baseline.md"
 git diff --check
 ```
 

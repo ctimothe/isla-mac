@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Spec: `docs/superpowers/specs/2026-08-20-seek-preview-scrubbing-design.md` is binding.
+- Spec: `docs/development/specs/2026-08-20-seek-preview-scrubbing-design.md` is binding.
 - Working directory: the `.worktrees/dynamic-island-parity` worktree — run all commands from its root.
 - A live concurrent session shares this worktree. `git add` exact paths only; commit with an explicit pathspec (`git commit -m "…" -- <paths>`). Never `git add -A`, `git add .`, bare `git commit`, checkout, reset, stash, or clean.
 - Do not modify: `NotchViewModel.swift`, `NotchGeometry.swift`, `NotchMetrics.swift`, `Skeleton.swift`, `Theme.swift`, `CompactMediaActivity.swift`, `NotchContentView.swift` (concurrent WIP).

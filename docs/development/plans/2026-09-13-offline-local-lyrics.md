@@ -15,7 +15,7 @@
 - Word sweep requires valid enhanced-LRC word timestamps and MediaController.precisionSync; every other timeline is line-level.
 - Auto-match only one unambiguous candidate using the thresholds below. Ambiguity is an actionable local-file state, never a guessed match.
 - Preserve the existing no-blank-caption, lock-card, Reduce Motion, VoiceOver, English, and Russian contracts.
-- Do not touch the user-owned untracked file docs/research/2026-09-12-latent-failure-audit.md.
+- Do not touch the user-owned untracked file docs/development/research/2026-09-12-latent-failure-audit.md.
 - Every code task starts with a failing focused test and ends with ../../scripts/check; use apply_patch for edits.
 - No source under Sources/IslaKit/Services may retain a lyric URLSession request when this plan finishes.
 
@@ -35,7 +35,7 @@
 | Tests/IslaKitTests/LocalLyricsLibraryTests.swift | Index, matching, binding, folder refresh, and migration. |
 | Tests/IslaKitTests/LocalLyricsEditorTests.swift | Draft edits, owned-copy save, and export. |
 | Tests/IslaKitTests/OfflineLyricsIsolationTests.swift | The lyric source path is entirely local. |
-| docs/contributing-local-lyrics.md | LRC format, validator, fixture, and explicit-user-import contribution workflow. |
+| docs/local-lyrics.md | LRC format, validator, fixture, and explicit-user-import contribution workflow. |
 
 ## Task 1: Establish local LRC documents
 
@@ -631,7 +631,7 @@ git commit -m "feat: manage local lyrics in settings"
 - Modify: Tests/IslaKitTests/LyricsStageRenderTests.swift
 - Modify: Tests/IslaKitTests/LockCardRenderTests.swift
 - Modify: Tests/IslaKitTests/LockScreenCardRenderTests.swift
-- Modify: README.md, checklist.md, docs/plans/2026-08-18-dynamic-island-parity-design.md
+- Modify: README.md, checklist.md, docs/development/plans/2026-08-18-dynamic-island-parity-design.md
 - Create: Tests/IslaKitTests/OfflineLyricsIsolationTests.swift
 
 **Interfaces:**
@@ -714,7 +714,7 @@ git commit -m "refactor: make lyrics fully offline"
 **Files:**
 - Modify: Resources/en.lproj/Localizable.strings
 - Modify: Resources/ru.lproj/Localizable.strings
-- Create: docs/contributing-local-lyrics.md
+- Create: docs/local-lyrics.md
 - Create: Scripts/validate-lrc.swift
 - Create: Scripts/validate-lrc.sh
 - Create: Tests/Fixtures/local-word-timed.lrc
@@ -793,7 +793,7 @@ Run Spotify and Apple Music probes separately with the same selected local enhan
 - [ ] **Step 7: Commit.**
 
 ~~~bash
-git add Resources/en.lproj/Localizable.strings Resources/ru.lproj/Localizable.strings docs/contributing-local-lyrics.md Scripts/validate-lrc.swift Scripts/validate-lrc.sh Scripts/measure-sync.sh Scripts/sync-probe/SyncProbe.swift Tests/IslaKitTests/LocalLyricsDocumentTests.swift Tests/IslaKitTests/FirstRunTests.swift Tests/Fixtures/local-word-timed.lrc docs/verification
+git add Resources/en.lproj/Localizable.strings Resources/ru.lproj/Localizable.strings docs/local-lyrics.md Scripts/validate-lrc.swift Scripts/validate-lrc.sh Scripts/measure-sync.sh Scripts/sync-probe/SyncProbe.swift Tests/IslaKitTests/LocalLyricsDocumentTests.swift Tests/IslaKitTests/FirstRunTests.swift Tests/Fixtures/local-word-timed.lrc docs/verification
 git commit -m "docs: support offline local lyric contributions"
 ~~~
 
@@ -804,4 +804,4 @@ git commit -m "docs: support offline local lyric contributions"
 - [ ] Run swift test --filter OfflineLyricsIsolationTests and show the no-network result.
 - [ ] Run bash Scripts/bundle.sh release plus codesign --verify --deep --strict build/Isla.app.
 - [ ] Inspect git status --short; the user-owned audit document must remain untracked and unstaged.
-- [ ] Review the complete diff against docs/superpowers/specs/2026-09-13-offline-local-lyrics-design.md and confirm every removal, local-library behavior, migration, UI, localization, and release gate is represented.
+- [ ] Review the complete diff against docs/development/specs/2026-09-13-offline-local-lyrics-design.md and confirm every removal, local-library behavior, migration, UI, localization, and release gate is represented.
