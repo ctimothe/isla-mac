@@ -12,6 +12,12 @@ path.
 - Full Xcode 26 or later only to change the app icon: `Scripts/make-app-icon.sh`
   compiles `Resources/AppIcon.icon` with `actool`, which the Command Line Tools
   lack. A build never needs it, because the compiled icon is committed.
+- Optional, once per build Mac: `bash Scripts/make-signing-identity.sh` adds the
+  self-signed "Isla Code Signing" identity to the login keychain, and
+  `Scripts/bundle.sh` signs with it whenever no Developer ID is given. Without
+  it builds are ad-hoc, and macOS forgets Isla's Accessibility permission (the
+  Volume and Brightness pop-up) after every rebuild or update while System
+  Settings still shows Isla switched on. `ISLA_ADHOC=1` forces ad-hoc.
 - A physical-notch MacBook for the hardware pass and a non-notch/external display
   for the synthetic pass.
 - Cyclop 0.6.5 built from pinned commit
