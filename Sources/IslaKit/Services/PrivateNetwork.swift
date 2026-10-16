@@ -23,7 +23,12 @@ import Foundation
 /// Each caller still sets its own headers (LRCLIB's User-Agent, the update
 /// check's Accept); the session adds none of its own.
 enum PrivateNetwork {
-    static let session: URLSession = {
+    static let session = URLSession(configuration: makeConfiguration())
+
+    /// The configuration `session` is made from, fresh each time. A download
+    /// that wants progress needs a delegate, which only a session of its own
+    /// can have; it takes this so it keeps every one of these rules.
+    static func makeConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -31,8 +36,8 @@ enum PrivateNetwork {
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
         configuration.urlCredentialStorage = nil
-        return URLSession(configuration: configuration)
-    }()
+        return configuration
+    }
 
     /// Set once the shared cache and cookie jar that earlier builds filled
     /// have been emptied. Versioned, so a later change that needs another
