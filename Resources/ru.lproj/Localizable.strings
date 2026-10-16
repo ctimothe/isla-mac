@@ -232,6 +232,7 @@
 "Check for Updates Automatically" = "Проверять обновления автоматически";
 "Asks GitHub once a day for the latest version. It sends nothing about you." = "Раз в день спрашивает у GitHub последнюю версию. О вас ничего не отправляется.";
 "Update available" = "Доступно обновление";
+"Rehearsal: update from a local folder" = "Репетиция: обновление из локальной папки";
 "Software Update" = "Обновление ПО";
 "Isla is up to date" = "Установлена последняя версия Isla";
 "Checking for updates…" = "Поиск обновлений…";

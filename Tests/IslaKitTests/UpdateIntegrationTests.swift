@@ -196,6 +196,54 @@ final class UpdateIntegrationTests: XCTestCase {
         XCTAssertEqual(mountedImages(), [], "no volume stays mounted")
     }
 
+    /// The rehearsal, end to end over real files: a release.json and the image
+    /// and signature in a folder, found by a real check, downloaded by the real
+    /// downloader's file path, and installed by everything else unchanged.
+    func testARehearsalInstallsFromALocalFolder() async throws {
+        _ = try makeRelease()
+        let dmg = folder.appendingPathComponent("Isla-1.1.dmg")
+        let bytes = try Data(contentsOf: dmg)
+        let rehearsal = folder.appendingPathComponent("Rehearsal", isDirectory: true)
+        try FileManager.default.createDirectory(at: rehearsal, withIntermediateDirectories: true)
+        let folderURL = rehearsal.resolvingSymlinksInPath()
+        let sig = Data((key.sign(bytes) + "\n").utf8)
+        try bytes.write(to: folderURL.appendingPathComponent("Isla-1.1.dmg"))
+        try sig.write(to: folderURL.appendingPathComponent("Isla-1.1.dmg.sig"))
+        let object: [String: Any] = [
+            "tag_name": "v1.1", "html_url": "https://github.com/ctimothe/isla-mac/releases/tag/v1.1",
+            "body": "Rehearsal build made by Scripts/rehearse-update.sh.",
+            "assets": [
+                ["name": "Isla-1.1.dmg", "size": bytes.count, "browser_download_url": "file://\(folderURL.path)/Isla-1.1.dmg"],
+                ["name": "Isla-1.1.dmg.sig", "size": sig.count, "browser_download_url": "file://\(folderURL.path)/Isla-1.1.dmg.sig"],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: object).write(to: folderURL.appendingPathComponent("release.json"))
+        StubGitHub.clear()          // nothing may be fetched: the wire is empty
+
+        let check = UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) }, currentVersion: { "1.0" }, rehearsal: folderURL)
+        check.check()
+        await wait(UpdateInstaller(environment: .neverInstalls)) { check.lastAvailable != nil }
+        let release = try XCTUnwrap(check.lastAvailable)
+
+        var environment = UpdateEnvironment.live()
+        environment.installedURL = installed
+        environment.publicKey = key.publicBase64
+        environment.rehearsal = folderURL
+        let relauncher = FakeRelauncher(log: Recorder())
+        let installer = UpdateInstaller(
+            environment: environment,
+            validator: BundleUpdateValidator(runningVersion: "1.0", runningBuild: "1"),
+            relauncher: relauncher
+        )
+        XCTAssertNil(installer.manualReason(for: release))
+        installer.install(release)
+        await wait(installer) { !relauncher.calls.isEmpty || { if case .failed = installer.phase { return true } else { return false } }() }
+        XCTAssertEqual(installer.phase, .relaunching)
+        XCTAssertEqual(version(of: installed), "1.1")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: apps.path), ["Isla.app"])
+        XCTAssertEqual(mountedImages(), [])
+    }
+
     /// An image that mounts two volumes is not an Isla update: both are detached,
     /// nothing is copied, the app is untouched and no volume is left behind.
     func testAnImageWithTwoVolumesIsRefusedAndBothAreDetached() async throws {

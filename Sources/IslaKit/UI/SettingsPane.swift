@@ -429,7 +429,8 @@ struct SettingsPane: View {
             phase: installer.phase,
             installerRelease: installer.release,
             manualReason: updates.lastAvailable.flatMap { installer.manualReason(for: $0) },
-            runningVersion: updates.runningVersion
+            runningVersion: updates.runningVersion,
+            rehearsal: updates.isRehearsal
         )
     }
 

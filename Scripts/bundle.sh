@@ -1,6 +1,13 @@
 #!/bin/bash
 # Builds Isla.app without Xcode: SwiftPM produces the binary, this script
 # assembles the bundle around it and ad-hoc signs it.
+#
+# ISLA_VERSION_OVERRIDE and ISLA_BUILD_OVERRIDE are for Scripts/rehearse-update.sh
+# ONLY: they build the bundle as a later version than Scripts/version says, so
+# an update can be rehearsed on a real Mac. Both must be set together, the
+# version as dotted numbers and the build as a whole number. Nothing else sets
+# them; a release (Scripts/release.sh) never does, and Scripts/version stays the
+# truth.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,6 +32,22 @@ BUILD="$(sed -n 's/^BUILD=//p' "$ROOT/Scripts/version" 2>/dev/null || true)"
 case "$BUILD" in
     ''|*[!0-9]*) echo "Scripts/version needs BUILD= and a whole number" >&2; exit 1 ;;
 esac
+
+# The rehearsal override (see the header): both or neither, and well formed.
+if [ -n "${ISLA_VERSION_OVERRIDE:-}" ] || [ -n "${ISLA_BUILD_OVERRIDE:-}" ]; then
+    [ -n "${ISLA_VERSION_OVERRIDE:-}" ] && [ -n "${ISLA_BUILD_OVERRIDE:-}" ] || {
+        echo "ISLA_VERSION_OVERRIDE and ISLA_BUILD_OVERRIDE must be set together" >&2; exit 1
+    }
+    case "$ISLA_VERSION_OVERRIDE" in
+        ''|*[!0-9.]*|.*|*.|*..*) echo "ISLA_VERSION_OVERRIDE must be dotted numbers, got '$ISLA_VERSION_OVERRIDE'" >&2; exit 1 ;;
+    esac
+    case "$ISLA_BUILD_OVERRIDE" in
+        ''|*[!0-9]*) echo "ISLA_BUILD_OVERRIDE must be a whole number, got '$ISLA_BUILD_OVERRIDE'" >&2; exit 1 ;;
+    esac
+    VERSION="$ISLA_VERSION_OVERRIDE"
+    BUILD="$ISLA_BUILD_OVERRIDE"
+    echo "==> REHEARSAL BUILD: version $VERSION build $BUILD (not Scripts/version)" >&2
+fi
 
 # The app icon is two tracked assets, copied verbatim into the bundle:
 # Resources/Assets.car, the layered Icon Composer icon that macOS 26 draws in

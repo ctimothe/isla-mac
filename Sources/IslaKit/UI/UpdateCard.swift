@@ -27,6 +27,12 @@ struct UpdateCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            if let note = presentation.rehearsalNote {
+                Text(verbatim: note)
+                    .islandFont(.caption, weight: .regular)
+                    .foregroundStyle(Theme.tertiary)
+                    .padding(.top, 4)
+            }
             if presentation.progress != .none && presentation.progress != .spinner {
                 bar
                     .padding(.top, 8)

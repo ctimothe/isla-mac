@@ -89,6 +89,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.servicesProvider = self
         // Nothing, unless the user turned the daily check on in Settings.
         UpdateCheck.shared.startAutomaticIfEnabled()
+        if let folder = DebugTrail.updateRehearsal {
+            // Loud on purpose: in this mode Update Now takes its release from a
+            // folder, not from GitHub, and nobody should forget it is on.
+            Log.updates.notice("UPDATE REHEARSAL MODE IS ON: releases come from \(folder.path, privacy: .public), not from GitHub")
+        }
         // A failed or refused install belongs to the release it tried: a check
         // that finds Isla current, or a different release, ends it.
         UpdateInstaller.shared.observe(UpdateCheck.shared)

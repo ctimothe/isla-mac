@@ -35,12 +35,24 @@ struct URLSessionUpdateDownloader: UpdateDownloading {
     var makeSession: @Sendable (URLSessionDelegate) -> URLSession = {
         PrivateNetwork.makeSession(delegate: $0, requestTimeout: 30, resourceTimeout: 15 * 60)
     }
+    /// The rehearsal folder (`DI_UPDATE_REHEARSAL`), the only place a file URL
+    /// is accepted from; nil, which is every normal run, accepts none.
+    var rehearsal: URL?
+
+    init(rehearsal: URL? = DebugTrail.updateRehearsal) { self.rehearsal = rehearsal }
 
     func download(
         from url: URL, into folder: URL, as fileName: String, expectedBytes: Int64,
         progress: @escaping @Sendable (Int64) -> Void
     ) async throws -> URL {
         let destination = folder.appendingPathComponent(fileName)
+        if url.isFileURL {
+            // A file URL is a rehearsal's, and only inside the rehearsal folder.
+            guard let rehearsal, UpdateCheck.isRehearsalFile(url, named: url.lastPathComponent, in: rehearsal) else {
+                throw UpdateDownloadError.badResponse
+            }
+            return try await copy(url, to: destination, expectedBytes: expectedBytes, progress: progress)
+        }
         let transfer = Transfer(destination: destination, expectedBytes: expectedBytes, progress: progress)
         let session = makeSession(transfer)
         defer { session.finishTasksAndInvalidate() }
@@ -53,6 +65,40 @@ struct URLSessionUpdateDownloader: UpdateDownloading {
             }
         } onCancel: {
             transfer.cancel()
+        }
+    }
+
+    /// The copy that stands in for a download of a local file: URLSession answers
+    /// a file URL with no HTTP status to check, so the file is copied here, in
+    /// pieces, through the same rules — over the advertised size is `tooLarge`,
+    /// progress is the bytes copied so far, cancelling stops it, and a partial
+    /// file is deleted on every failure.
+    private func copy(
+        _ source: URL, to destination: URL, expectedBytes: Int64, progress: @Sendable (Int64) -> Void
+    ) async throws -> URL {
+        let fm = FileManager.default
+        let size = (try? fm.attributesOfItem(atPath: source.path))?[.size] as? Int64 ?? -1
+        guard size >= 0 else { throw UpdateDownloadError.badResponse }
+        guard size <= expectedBytes else { throw UpdateDownloadError.tooLarge }
+        try? fm.removeItem(at: destination)
+        guard fm.createFile(atPath: destination.path, contents: nil) else { throw UpdateDownloadError.badResponse }
+        do {
+            let input = try FileHandle(forReadingFrom: source)
+            let output = try FileHandle(forWritingTo: destination)
+            defer { try? input.close(); try? output.close() }
+            var copied: Int64 = 0
+            while let chunk = try input.read(upToCount: 256 * 1024), !chunk.isEmpty {
+                try Task.checkCancellation()
+                copied += Int64(chunk.count)
+                if copied > expectedBytes { throw UpdateDownloadError.tooLarge }
+                try output.write(contentsOf: chunk)
+                progress(copied)
+                await Task.yield()
+            }
+            return destination
+        } catch {
+            try? fm.removeItem(at: destination)
+            throw error
         }
     }
 

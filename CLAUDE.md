@@ -95,7 +95,7 @@ Two harnesses are run by hand, never as gates:
 `Scripts/build-reference.sh`) and `Scripts/measure-sync.sh` (position accuracy
 against a live Spotify, using `Scripts/sync-probe/`).
 
-Verification-only environment hooks, all off unless set to `1` — a normal run
+Verification-only environment hooks, all off unless set (to `1`, or for `DI_UPDATE_REHEARSAL` to a folder) — a normal run
 never touches disk for them. `DebugTrail` reads each one once, at launch; ask it
 (`DebugTrail.geometry`, …) rather than the environment:
 
@@ -105,6 +105,7 @@ never touches disk for them. `DebugTrail` reads each one once, at launch; ask it
 - `DI_OPEN_PANEL=1` — open the panel on the player without a pointer, to film a skip.
 - `DI_MEDIA=1` — the media trail alone: every snapshot and hold decision, nothing drawn.
 - `DI_TEST_CLICK=next` — drive a lyric click from a test.
+- `DI_UPDATE_REHEARSAL=<folder>` — Update Now takes its release from `<folder>/release.json` and that folder's files, not GitHub; made by `Scripts/rehearse-update.sh`.
 
 ## After each change
 

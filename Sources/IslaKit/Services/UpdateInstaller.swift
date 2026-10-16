@@ -88,6 +88,8 @@ struct UpdateEnvironment {
     var scratchRoot: URL
     /// A fresh private folder under `scratchRoot` for one run's download and mount.
     var makeScratchFolder: () throws -> URL
+    /// The rehearsal folder (`DI_UPDATE_REHEARSAL`), whose files the assets may be.
+    var rehearsal: URL? = nil
 
     static func live() -> UpdateEnvironment {
         let scratch = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -113,7 +115,8 @@ struct UpdateEnvironment {
                 let folder = scratch.appendingPathComponent("isla-update-\(UUID().uuidString)", isDirectory: true)
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
                 return folder
-            }
+            },
+            rehearsal: DebugTrail.updateRehearsal
         )
     }
 }
@@ -243,7 +246,7 @@ final class UpdateInstaller: ObservableObject {
 
     init(
         environment: UpdateEnvironment = .live(),
-        downloader: UpdateDownloading = URLSessionUpdateDownloader(),
+        downloader: UpdateDownloading? = nil,
         verifier: UpdateVerifying? = nil,
         diskImage: UpdateDiskImaging = HdiutilDiskImage(),
         stager: UpdateStaging = DittoUpdateStager(),
@@ -253,7 +256,7 @@ final class UpdateInstaller: ObservableObject {
         installTimeout: TimeInterval = UpdateInstaller.defaultInstallTimeout
     ) {
         self.environment = environment
-        self.downloader = downloader
+        self.downloader = downloader ?? URLSessionUpdateDownloader(rehearsal: environment.rehearsal)
         self.verifier = verifier ?? Ed25519UpdateVerifier(publicKey: environment.publicKey ?? "")
         self.diskImage = diskImage
         self.stager = stager
@@ -280,10 +283,10 @@ final class UpdateInstaller: ObservableObject {
         if !environment.canReplace(installed) { return .notOwned }
         if !UpdateSignature.isUsablePublicKey(environment.publicKey) { return .noPublicKey }
         guard let image = release.dmg,
-              UpdateCheck.trustedAsset(name: image.name, url: image.url, size: image.size, version: release.version, kind: .dmg) != nil
+              UpdateCheck.trustedAsset(name: image.name, url: image.url, size: image.size, version: release.version, kind: .dmg, rehearsal: environment.rehearsal) != nil
         else { return .noImage }
         guard let signature = release.signature,
-              UpdateCheck.trustedAsset(name: signature.name, url: signature.url, size: signature.size, version: release.version, kind: .signature) != nil
+              UpdateCheck.trustedAsset(name: signature.name, url: signature.url, size: signature.size, version: release.version, kind: .signature, rehearsal: environment.rehearsal) != nil
         else { return .noSignature }
         return nil
     }

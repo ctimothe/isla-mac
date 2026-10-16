@@ -226,6 +226,7 @@
 "Check for Updates Automatically" = "Check for Updates Automatically";
 "Asks GitHub once a day for the latest version. It sends nothing about you." = "Asks GitHub once a day for the latest version. It sends nothing about you.";
 "Update available" = "Update available";
+"Rehearsal: update from a local folder" = "Rehearsal: update from a local folder";
 "Software Update" = "Software Update";
 "Isla is up to date" = "Isla is up to date";
 "Checking for updates…" = "Checking for updates…";

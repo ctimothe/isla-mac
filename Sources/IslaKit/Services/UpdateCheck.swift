@@ -88,15 +88,24 @@ final class UpdateCheck: ObservableObject {
 
     private let fetch: Fetch
     private let currentVersion: () -> String
+    /// The rehearsal folder (`DI_UPDATE_REHEARSAL`), or nil, which is every
+    /// normal run. Given, never read from the environment here.
+    private let rehearsal: URL?
     private var timer: Timer?
 
     init(
         fetch: @escaping Fetch = { try await PrivateNetwork.session.data(for: $0) },
-        currentVersion: @escaping () -> String = { ProductIdentity.version }
+        currentVersion: @escaping () -> String = { ProductIdentity.version },
+        rehearsal: URL? = DebugTrail.updateRehearsal
     ) {
         self.fetch = fetch
         self.currentVersion = currentVersion
+        self.rehearsal = rehearsal
     }
+
+    /// Whether this is a rehearsal: the release comes from a local folder, and
+    /// the card says so.
+    var isRehearsal: Bool { rehearsal != nil }
 
     // MARK: - Checking
 
@@ -107,7 +116,15 @@ final class UpdateCheck: ObservableObject {
         var request = URLRequest(url: Self.latestReleaseURL, timeoutInterval: 15)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("Isla/\(local)", forHTTPHeaderField: "User-Agent")
-        let fetch = fetch
+        let rehearsal = rehearsal
+        // In a rehearsal the answer is a file in the folder, shaped like
+        // GitHub's, and nothing is requested from anywhere.
+        let fetch: Fetch = rehearsal.map { folder in
+            { request in
+                let data = try Data(contentsOf: folder.appendingPathComponent("release.json"))
+                return (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+        } ?? self.fetch
         Task { [weak self] in
             let outcome: State
             do {
@@ -116,7 +133,7 @@ final class UpdateCheck: ObservableObject {
                     Log.updates.error("update check failed: \(String(describing: reason), privacy: .public)")
                     outcome = .failed(reason)
                 } else {
-                    outcome = Self.state(forRelease: data, localVersion: local)
+                    outcome = Self.state(forRelease: data, localVersion: local, rehearsal: rehearsal)
                 }
             } catch {
                 Log.updates.error("update check failed: \(error.localizedDescription, privacy: .public)")
@@ -149,7 +166,7 @@ final class UpdateCheck: ObservableObject {
     }
 
     /// What a `releases/latest` answer means for the running version.
-    nonisolated static func state(forRelease data: Data, localVersion: String) -> State {
+    nonisolated static func state(forRelease data: Data, localVersion: String, rehearsal: URL? = nil) -> State {
         // Assets are decoded one by one and every field is optional, so a
         // malformed asset costs only itself and never the release around it.
         struct RawAsset: Decodable {
@@ -189,7 +206,7 @@ final class UpdateCheck: ObservableObject {
         func asset(_ kind: AssetKind) -> Release.Asset? {
             for raw in release.assets ?? [] {
                 guard let name = raw.name, let url = raw.browser_download_url.flatMap(URL.init(string:)), let size = raw.size,
-                      let trusted = trustedAsset(name: name, url: url, size: size, version: remote, kind: kind)
+                      let trusted = trustedAsset(name: name, url: url, size: size, version: remote, kind: kind, rehearsal: rehearsal)
                 else { continue }
                 return trusted
             }
@@ -242,10 +259,20 @@ final class UpdateCheck: ObservableObject {
     /// which is what keeps a wrong file out. These rules keep a tampered answer
     /// from choosing what is *fetched* at all, and keep the first request on
     /// Isla's own repository.
+    ///
+    /// **In a rehearsal** (`rehearsal` is the folder) the rule changes in one
+    /// way: the URL must be exactly `file://<folder>/<file name>`, with no `..`
+    /// in it, no link anywhere along it that leads out, and nothing but the
+    /// folder's own file; an https URL is then refused, as is any other file.
     nonisolated static func trustedAsset(
-        name: String, url: URL, size: Int64, version: String, kind: AssetKind
+        name: String, url: URL, size: Int64, version: String, kind: AssetKind, rehearsal: URL? = nil
     ) -> Release.Asset? {
         let fileName = kind.fileName(version: version)
+        if let rehearsal {
+            guard name == fileName, size > 0, size <= kind.sizeLimit, isRehearsalFile(url, named: fileName, in: rehearsal)
+            else { return nil }
+            return Release.Asset(name: name, url: url, size: size)
+        }
         guard name == fileName, size > 0, size <= kind.sizeLimit,
               let repository = repositoryPath,
               let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -255,6 +282,20 @@ final class UpdateCheck: ObservableObject {
               parts.percentEncodedPath == "\(repository)/releases/download/v\(version)/\(fileName)"
         else { return nil }
         return Release.Asset(name: name, url: url, size: size)
+    }
+
+    /// Whether `url` is `file://<folder>/<fileName>`, exactly: a file URL with no
+    /// host, query or fragment and no `..`, whose path with every link resolved
+    /// is the folder's own resolved path and that file name. A link named
+    /// `<fileName>` that points out of the folder resolves elsewhere and fails.
+    nonisolated static func isRehearsalFile(_ url: URL, named fileName: String, in folder: URL) -> Bool {
+        guard url.isFileURL, url.host == nil || url.host == "",
+              let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parts.query == nil, parts.fragment == nil, parts.user == nil, parts.port == nil,
+              !url.pathComponents.contains("..")
+        else { return false }
+        let expected = folder.resolvingSymlinksInPath().appendingPathComponent(fileName).path
+        return url.resolvingSymlinksInPath().path == expected
     }
 
     /// `/<owner>/<repo>`, read from `latestReleaseURL` so the API request, the

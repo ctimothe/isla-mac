@@ -144,7 +144,12 @@ are the exception the design did not anticipate:
   check `hdiutil info` shows nothing mounted and no `.Isla-update-*` folder
   beside it; Cancel mid-download; the same from a copy run off the DMG (must
   offer only the download page); with the network off (Try Again); and that
-  Accessibility, Spotify and the Settings choices survive it.
+  Accessibility, Spotify and the Settings choices survive it. The first pass is
+  the rehearsal (`Scripts/rehearse-update.sh`, `docs/runbook.md` §7a), which
+  runs the real code path from a local folder:
+  - [ ] Rehearsal run on <Mac model, macOS version>: swapped, relaunched,
+    permission kept, nothing left behind (no `.Isla-update-*` beside the app, no
+    image in `hdiutil info`), and what macOS said about App Management.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain. Since 2026-10-11 the heart asks `GET /me/library/contains` and
