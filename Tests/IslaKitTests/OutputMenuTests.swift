@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CoreAudio
 import XCTest
 @testable import IslaKit
@@ -159,6 +160,33 @@ final class OutputMenuTests: XCTestCase {
         machineCurrent = nil
         watch.systemAudioChanged()
         XCTAssertEqual(glyph(), "speaker.wave.2", "nothing is the default")
+    }
+
+    /// The button's face is derived from the watch and republished only when it
+    /// differs, so a volume step does not redraw it (it used to observe the whole
+    /// watch, which also publishes the volume).
+    func testTheButtonStateFollowsTheDeviceAndIgnoresTheVolume() {
+        var volume: Float? = 0.4
+        let watch = AudioWatch(
+            read: { [unowned self] in (Self.outputs, self.machineCurrent, volume) },
+            readMuted: { false }, installListeners: {}, removeListeners: {}
+        )
+        watch.start()
+        let state = OutputButtonState(audio: watch)
+        XCTAssertEqual(state.value, .init(symbol: "airpods.pro", name: "AirPods Pro"))
+        var changes = 0
+        let subscription = state.$value.dropFirst().sink { _ in changes += 1 }
+        defer { subscription.cancel() }
+
+        volume = 0.7
+        watch.volumeChanged()
+        XCTAssertEqual(watch.volume, 0.7)
+        XCTAssertEqual(changes, 0, "a volume step is not a change of face")
+
+        machineCurrent = 41
+        watch.systemAudioChanged()
+        XCTAssertEqual(state.value, .init(symbol: "laptopcomputer", name: "MacBook Pro Speakers"))
+        XCTAssertEqual(changes, 1, "a new device is")
     }
 
     // MARK: - Nothing moves until a row is chosen

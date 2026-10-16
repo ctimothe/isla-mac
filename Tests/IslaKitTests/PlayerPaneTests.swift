@@ -105,7 +105,7 @@ final class PlayerPaneTests: XCTestCase {
         try assertFrame(try node(s.root, "Previous Track"), near: CGRect(origin: l.inPane(l.transport).origin, size: CGSize(width: 28, height: 28)), "previous")
         try assertFrame(try node(s.root, "Next Track"),
                         near: CGRect(x: l.inPane(l.transport).minX + 72, y: l.inPane(l.transport).minY, width: 28, height: 28), "next")
-        try assertFrame(try node(s.root, "Output"), near: l.inPane(try XCTUnwrap(l.output)), "output")
+        try assertFrame(try node(s.root, "Sound Output"), near: l.inPane(try XCTUnwrap(l.output)), "output")
         let lyricsButton = try XCTUnwrap(s.root.all { $0.label == "Lyrics" && $0.role == "AXButton" && $0.frame?.width == 26 }.first, s.root.dump)
         try assertFrame(lyricsButton, near: l.inPane(l.lyrics), "lyrics")
 
@@ -184,7 +184,7 @@ final class PlayerPaneTests: XCTestCase {
     /// trailing edge.
     func testAt480TheEdgeHolds() async throws {
         let s = await scene(width: 480)
-        try assertFrame(try node(s.root, "Output"), near: s.layout.inPane(try XCTUnwrap(s.layout.output)), "output at 480")
+        try assertFrame(try node(s.root, "Sound Output"), near: s.layout.inPane(try XCTUnwrap(s.layout.output)), "output at 480")
         let lyricsButton = try XCTUnwrap(s.root.all { $0.label == "Lyrics" && $0.frame?.width == 26 }.first)
         try assertFrame(lyricsButton, near: s.layout.inPane(s.layout.lyrics), "lyrics at 480")
         XCTAssertEqual(try XCTUnwrap(lyricsButton.frame).maxX, s.layout.paneSize.width, accuracy: 1)
@@ -202,7 +202,7 @@ final class PlayerPaneTests: XCTestCase {
     func testOutputButtonOffRemovesIt() async throws {
         let s = await scene(outputButton: false)
         XCTAssertNil(s.root.all { $0.label == "Volume" }.first, s.root.dump)
-        XCTAssertNil(s.root.all { $0.label == "Output" }.first, s.root.dump)
+        XCTAssertNil(s.root.all { $0.label == "Sound Output" }.first, s.root.dump)
         let band = try XCTUnwrap(s.root.all { $0.value == "Third line" }.first, "the band keeps its place")
         try assertFrame(band, near: s.layout.inPane(s.layout.sungLine), "band")
     }
@@ -212,14 +212,14 @@ final class PlayerPaneTests: XCTestCase {
     func testNoVolumeToGiveKeepsTheButton() async throws {
         let s = await scene(volume: nil)
         XCTAssertNil(s.root.all { $0.label == "Volume" }.first, s.root.dump)
-        XCTAssertNotNil(s.root.all { $0.label == "Output" }.first, s.root.dump)
+        XCTAssertNotNil(s.root.all { $0.label == "Sound Output" }.first, s.root.dump)
     }
 
     /// The button says where the sound goes: its value is the current device's
     /// name, and its glyph follows the current device (`PlayerOutputButton.symbol`).
     func testTheOutputButtonNamesTheCurrentDevice() async throws {
         let s = await scene()
-        let button = try node(s.root, "Output")
+        let button = try node(s.root, "Sound Output")
         XCTAssertEqual(button.value, "MacBook Pro Speakers", s.root.dump)
     }
 
@@ -331,7 +331,7 @@ final class PlayerPaneTests: XCTestCase {
                 .defaultAppStorage(isolated.suite),
             size: layout.paneSize
         )
-        for label in ["Pause", "Play", "Previous Track", "Next Track", "Shuffle", "Repeat", "Volume", "Output", "Playback Position"] {
+        for label in ["Pause", "Play", "Previous Track", "Next Track", "Shuffle", "Repeat", "Volume", "Sound Output", "Playback Position"] {
             XCTAssertNil(root.all { $0.label == label }.first, "\"\(label)\" on an empty player\n\(root.dump)")
         }
         XCTAssertTrue(root.dump.contains(localized("Nothing is playing.")), root.dump)

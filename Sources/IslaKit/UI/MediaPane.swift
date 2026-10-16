@@ -1,3 +1,4 @@
+import Combine
 import CoreAudio
 import SwiftUI
 
@@ -1174,13 +1175,18 @@ private extension View {
 /// `audio` is observed, so a device picked here, plugged in or unplugged
 /// redraws it without anything asking.
 struct PlayerOutputButton: View {
-    @ObservedObject var audio: AudioWatch
+    let audio: AudioWatch
+    /// What the button draws, derived from the watch and published only when it
+    /// changes. The button used to observe the whole watch, which also
+    /// publishes the volume, and redrew on every step of the volume keys.
+    @StateObject private var state: OutputButtonState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var holder: BuiltOnce<OutputMenuPresenter>
     private var presenter: OutputMenuPresenter { holder.value }
 
     init(audio: AudioWatch) {
         self.audio = audio
+        _state = StateObject(wrappedValue: OutputButtonState(audio: audio))
         // Built once (`BuiltOnce`): this runs on every body pass of the pane.
         _holder = StateObject(wrappedValue: BuiltOnce {
             OutputMenuPresenter(controller: OutputMenuController(audio: audio))
@@ -1194,8 +1200,8 @@ struct PlayerOutputButton: View {
     }
 
     var body: some View {
-        let symbol = Self.symbol(outputs: audio.outputs, current: audio.current)
-        let device = LockScreenCard.outputName(outputs: audio.outputs, current: audio.current)
+        let symbol = state.value.symbol
+        let device = state.value.name
         Button { presenter.present() } label: {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .medium))
@@ -1209,9 +1215,41 @@ struct PlayerOutputButton: View {
         }
         .buttonStyle(PanelButtonStyle())
         .background(OutputMenuAnchor(presenter: presenter))
-        .help(device ?? localized("Output"))
-        .accessibilityLabel(localized("Output"))
+        .help(device ?? localized("Sound Output"))
+        // The lock card's name for the same control.
+        .accessibilityLabel(localized("Sound Output"))
         // Where the sound goes now, which the glyph alone cannot say.
         .accessibilityValue(device ?? "")
+    }
+}
+
+/// The Output button's face — the current device's glyph and name — as the
+/// watch's `outputs` and `current` give it, republished only when it differs.
+/// A volume or mute change moves neither, so the button does not redraw for it.
+@MainActor
+final class OutputButtonState: ObservableObject {
+    struct Value: Equatable {
+        var symbol: String
+        var name: String?
+    }
+
+    @Published private(set) var value: Value
+    private var subscription: AnyCancellable?
+
+    init(audio: AudioWatch) {
+        value = Self.value(outputs: audio.outputs, current: audio.current)
+        // `@Published` emits the new value as it is about to be stored, so the
+        // pair is taken from the emission, not read back from the watch.
+        subscription = audio.$outputs.combineLatest(audio.$current)
+            .map { Self.value(outputs: $0, current: $1) }
+            .removeDuplicates()
+            .sink { [weak self] in self?.value = $0 }
+    }
+
+    static func value(outputs: [AudioOutputs.Output], current: AudioDeviceID?) -> Value {
+        Value(
+            symbol: PlayerOutputButton.symbol(outputs: outputs, current: current),
+            name: LockScreenCard.outputName(outputs: outputs, current: current)
+        )
     }
 }

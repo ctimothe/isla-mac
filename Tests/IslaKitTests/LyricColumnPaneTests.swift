@@ -86,7 +86,7 @@ final class LyricColumnPaneTests: XCTestCase {
             let l = s.layout, f = s.frames
             try assertNear(try node(s.root, "Pause"), CGRect(x: l.inPane(f.transport).minX + 55, y: l.inPane(f.transport).minY, width: 28, height: 28), "pause at \(width)")
             try assertNear(try node(s.root, "Previous Track"), l.inPane(f.transport), "previous at \(width)")
-            try assertNear(try node(s.root, "Output"), l.inPane(try XCTUnwrap(f.output)), "output at \(width)")
+            try assertNear(try node(s.root, "Sound Output"), l.inPane(try XCTUnwrap(f.output)), "output at \(width)")
             let hide = try node(s.root, "Hide Lyrics", role: "AXButton")
             try assertNear(hide, l.inPane(f.lyrics), "Hide Lyrics at \(width)")
             XCTAssertTrue(hide.selected, "the open Lyrics button is the selected one")
@@ -100,7 +100,7 @@ final class LyricColumnPaneTests: XCTestCase {
             let s = await scene(.tall, width: width)
             let l = s.layout, f = s.frames
             try assertNear(try node(s.root, "Previous Track"), l.inPane(f.transport), "previous at \(width)")
-            try assertNear(try node(s.root, "Output"), l.inPane(try XCTUnwrap(f.output)), "output at \(width)")
+            try assertNear(try node(s.root, "Sound Output"), l.inPane(try XCTUnwrap(f.output)), "output at \(width)")
             try assertNear(try node(s.root, "Hide Lyrics", role: "AXButton"), l.inPane(f.lyrics), "Hide Lyrics at \(width)")
             let progress = try node(s.root, "Playback Position", role: "AXSlider")
             XCTAssertEqual(try XCTUnwrap(progress.frame).midY, l.inPane(f.progress).midY, accuracy: 1)
