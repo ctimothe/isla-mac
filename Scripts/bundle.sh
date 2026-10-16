@@ -218,19 +218,51 @@ fi
 echo "==> stripping release symbols"
 strip -x "$APP/Contents/MacOS/Isla"
 
-SIGN_IDENTITY="${DEVELOPER_ID_APPLICATION:--}"
 SIGN_KEYCHAIN=""
 KEYCHAIN_ARGS=()
-# Ad-hoc is fine here, deliberately.
+# The identity, in order: a Developer ID when one is given (releases), then the
+# fixed self-signed "Isla Code Signing" identity when this Mac has one, then
+# ad-hoc. ISLA_ADHOC=1 forces ad-hoc.
 #
-# An earlier version of this script provisioned a self-signed identity so that
-# local builds would have a stable signature, because the login keychain
-# refuses to recognise a rebuilt ad-hoc app and asks for the password again.
-# That was solving the wrong problem: it needed a trust setting, which needs an
-# authorization prompt of its own, so it traded a recurring interruption for an
-# intrusive one. `TokenStore` removed the reason instead — an unsigned build
-# keeps its credentials in an owner-only file rather than in a keychain whose
-# ACL it can never satisfy — so nothing about local signing has to be clever.
+# Why the middle step (owner, 2026-10-16): an ad-hoc signature's designated
+# requirement is the build's cdhash, so to macOS every rebuild and every update
+# is a different app. The Accessibility permission the Volume and Brightness
+# pop-up needs then stops applying while System Settings still shows Isla
+# switched on, and the only way back was to remove Isla from the list and add it
+# again, after every update. A certificate's requirement names the certificate,
+# not the build, so the permission survives. `Scripts/make-signing-identity.sh`
+# makes the identity, once, by hand; nothing here creates one.
+#
+# An earlier version of this script provisioned a self-signed identity itself
+# and was dropped because it needed a trust setting, an authorization prompt of
+# its own. This one needs none: codesign signs with an untrusted identity and
+# `codesign --verify --strict` accepts it (checked on 2026-10-16). Credentials
+# are unaffected: there is still no team, so `TokenStore` keeps the Spotify
+# tokens in its owner-only file exactly as it does for an ad-hoc build.
+#
+# Signed by the certificate's SHA-1, not its name, so two certificates that
+# share the name fail here with a clear message rather than inside codesign.
+LOCAL_IDENTITY_NAME="Isla Code Signing"
+if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
+    SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION"
+elif [ "${ISLA_ADHOC:-0}" != "1" ]; then
+    # Without -v: an untrusted self-signed identity is left out of the "valid"
+    # list, and it is the only kind this looks for.
+    LOCAL_HASHES="$(security find-identity -p codesigning 2>/dev/null \
+        | grep -F "\"$LOCAL_IDENTITY_NAME\"" | awk '{print $2}' | sort -u || true)"
+    case "$(printf '%s' "$LOCAL_HASHES" | grep -c .)" in
+        0) SIGN_IDENTITY="-" ;;
+        1) SIGN_IDENTITY="$LOCAL_HASHES" ;;
+        *)
+            echo "!!! more than one \"$LOCAL_IDENTITY_NAME\" identity in the keychain:" >&2
+            printf '%s\n' "$LOCAL_HASHES" >&2
+            echo "    delete the extra one in Keychain Access, or set ISLA_ADHOC=1" >&2
+            exit 1
+            ;;
+    esac
+else
+    SIGN_IDENTITY="-"
+fi
 
 # Entitlements are assembled per build, because one of them depends on the
 # signing identity. `keychain-access-groups` needs the team prefix — the ten
@@ -265,7 +297,11 @@ if [ "$SIGN_IDENTITY" = "-" ]; then
         --sign -
     )
 else
-    echo "==> signing: $SIGN_IDENTITY"
+    if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
+        echo "==> signing: $SIGN_IDENTITY"
+    else
+        echo "==> signing: $LOCAL_IDENTITY_NAME ($SIGN_IDENTITY)"
+    fi
     # `--timestamp` only for a real Developer ID. A self-signed local identity
     # has no business contacting Apple's timestamp server, and the request
     # fails the build when it cannot.
