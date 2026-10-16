@@ -1015,6 +1015,20 @@ until nothing uses them, then go.
 > Music Only's own footnote shortens to "Videos and films stay off the
 > island." The group is looked up only while Music is showing.
 
+> **Amended (2026-10-17, owner: a row never breaks a word).** At 480 pt the
+> General section's group label "Accessibility" was cut as "Accessibilit / y"
+> beside "Open Privacy & Security…", and the Russian label ran down the form one
+> letter to a line. A labelled row now wraps its label between words only: when
+> the label's longest word, the least gap (8 + the 8 pt spacer + 8) and the
+> trailing control do not fit on one line, the row stacks, the label on the
+> first line and the control flush right on the second (6 pt between the lines,
+> 6 pt above and below), and a control wider than the row truncates at its tail.
+> A row that fits is laid out exactly as before: the lab's 120 renders (every
+> section, 480/560/620, English and Russian, top and bottom of the form) differ
+> only in the General Accessibility row (English at 480, Russian at 480, 560
+> and 620) and Spotify's "Учётная запись" row at 480 in Russian. Decision:
+> `SettingsRowArrangement.choose`; layout: `SettingsRowLayout`.
+
 ## 11. Translate (R4)
 
 `Translate-*`.
