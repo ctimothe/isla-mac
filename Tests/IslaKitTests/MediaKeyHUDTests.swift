@@ -1744,6 +1744,177 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(ledger.lastRepairedBuild, "cdhash-b")
     }
 
+    // MARK: Review round 2 (2026-10-17)
+
+    func testSwitchingOffAndOnWhileTheToolRunsNeverStartsASecondOne() {
+        let hud = hud()
+        repair.holds = true
+        enabled = true
+        trust.trusted = false
+        hud.settingChanged(to: true)
+        XCTAssertEqual(repair.resets, 1)
+        enabled = false
+        hud.settingChanged(to: false)
+        enabled = true
+        hud.settingChanged(to: true)
+        XCTAssertEqual(repair.resets, 1, "the new switch-on waits for the run already going")
+        XCTAssertEqual(trust.prompts, 0)
+        XCTAssertTrue(hud.isRepairing)
+
+        repair.finish()
+        XCTAssertEqual(repair.resets, 1)
+        XCTAssertEqual(trust.prompts, 1, "one prompt, after the one reset")
+        XCTAssertFalse(hud.isRepairing)
+    }
+
+    func testARunThatFinishesAfterAGrantRaisesNoPromptAndTheSwitchOffOnWaitsForNothingMore() {
+        let hud = hud()
+        repair.holds = true
+        enabled = true
+        trust.trusted = false
+        hud.settingChanged(to: true)
+        enabled = false
+        hud.settingChanged(to: false)
+        enabled = true
+        hud.settingChanged(to: true)
+        trust.trusted = true
+        repair.finish()
+        XCTAssertEqual(trust.prompts, 0, "trust is read again once the run ends")
+        XCTAssertEqual(repair.resets, 1)
+        XCTAssertEqual(ledger.lastRepairedBuild, "100", "granted: nothing left to retry")
+    }
+
+    func testAFinishedRunWhoseSwitchWentOffForGoodRaisesNothing() {
+        let hud = hud()
+        repair.holds = true
+        enabled = true
+        trust.trusted = false
+        hud.settingChanged(to: true)
+        enabled = false
+        hud.settingChanged(to: false)
+        repair.finish()
+        XCTAssertEqual(trust.prompts, 0)
+        // And a later switch-on may start a tool again: none is in flight now.
+        repair.holds = false
+        enabled = true
+        hud.settingChanged(to: true)
+        XCTAssertEqual(repair.resets, 2)
+        XCTAssertEqual(trust.prompts, 1)
+    }
+
+    func testTheLedgerIsWrittenOnlyWhenThePromptIsRaised() {
+        let hud = hud()
+        repair.holds = true
+        enabled = true
+        trust.trusted = false
+        hud.settingChanged(to: true)
+        XCTAssertNil(ledger.lastRepairedBuild, "a run still going has spent nothing")
+        repair.finish()
+        XCTAssertEqual(trust.prompts, 1)
+        XCTAssertEqual(ledger.lastRepairedBuild, "100")
+    }
+
+    func testARepairInterruptedBeforeCompletionIsRetriedByTheNextLaunch() {
+        enabled = true
+        trust.trusted = false
+        repair.holds = true
+        hud().launched()   // Isla quits here: the completion never arrives
+        XCTAssertEqual(repair.resets, 1)
+        XCTAssertNil(ledger.lastRepairedBuild)
+
+        let next = hud()   // a fresh HUD on the same ledger and identity
+        next.launched()
+        XCTAssertEqual(repair.resets, 2, "the one try was never spent")
+        XCTAssertFalse(next.suspectsStaleEntry)
+    }
+
+    func testASwitchOnAlwaysAsksEvenWhenTheSessionReadsUnavailable() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        sessionAvailable = false   // CG misreporting, e.g. a dark main display under Screen Sharing
+        hud.settingChanged(to: true)
+        XCTAssertEqual(repair.resets, 1, "the click proves someone is there")
+        XCTAssertEqual(trust.prompts, 1)
+    }
+
+    func testASwitchOnStillWaitsOutARealLockOrSleep() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        locked = true
+        hud.settingChanged(to: true)
+        XCTAssertEqual(repair.resets, 0)
+        XCTAssertEqual(trust.prompts, 0)
+    }
+
+    func testADeferredSwitchOnInterruptedByALockIsNotTurnedIntoSpent() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        ledger.lastRepairedBuild = "100"   // this identity already had its launch repair
+        hud.refresh()
+        grants.post()
+        hud.settingChanged(to: true)   // deferred
+        locked = true
+        hud.suspend()
+        moment += 1.5
+        clock.fire(interval: 1.5)
+        XCTAssertEqual(repair.resets, 0)
+        XCTAssertFalse(hud.suspectsStaleEntry, "not the manual route: this switch-on has not had its try")
+
+        locked = false
+        hud.resume()
+        XCTAssertEqual(repair.resets, 1)
+        XCTAssertEqual(trust.prompts, 1)
+        hud.resume()
+        hud.refresh()
+        XCTAssertEqual(repair.resets, 1, "once")
+    }
+
+    func testAPendingSwitchOnIsDroppedWhenTrustedOrSwitchedOff() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        locked = true
+        hud.settingChanged(to: true)
+        trust.trusted = true
+        locked = false
+        hud.refresh()
+        trust.trusted = false
+        hud.refresh()
+        XCTAssertEqual(repair.resets, 0)
+
+        enabled = true
+        locked = true
+        hud.settingChanged(to: true)
+        enabled = false
+        hud.settingChanged(to: false)
+        enabled = true
+        locked = false
+        hud.refresh()
+        XCTAssertEqual(repair.resets, 0)
+    }
+
+    func testTheSessionIsUnavailableWhenLockedAsleepOrOffTheConsole() {
+        XCTAssertTrue(CodeIdentity.sessionIsAvailable(session: nil, displayAsleep: false))
+        XCTAssertTrue(CodeIdentity.sessionIsAvailable(session: [:], displayAsleep: false), "absent keys mean available")
+        XCTAssertFalse(CodeIdentity.sessionIsAvailable(session: ["CGSSessionScreenIsLocked": true], displayAsleep: false))
+        XCTAssertTrue(CodeIdentity.sessionIsAvailable(session: ["CGSSessionScreenIsLocked": false], displayAsleep: false))
+        XCTAssertFalse(CodeIdentity.sessionIsAvailable(session: [:], displayAsleep: true))
+        XCTAssertFalse(
+            CodeIdentity.sessionIsAvailable(session: [CodeIdentity.onConsoleKey: false], displayAsleep: false),
+            "fast user switching: another user has the screen"
+        )
+        XCTAssertTrue(CodeIdentity.sessionIsAvailable(session: [CodeIdentity.onConsoleKey: true], displayAsleep: false))
+    }
+
+    func testTheRunningCodesUniqueHashIsReadWithoutTheSigningInformationFlag() {
+        let hash = CodeIdentity.runningUniqueHash()
+        XCTAssertNotNil(hash, "the test host is signed, and the default flags carry the unique hash")
+        XCTAssertEqual(CodeIdentity.running.count, (hash?.count ?? 0) * 2)
+    }
+
     // MARK: Trusted, but the tap never starts (2026-10-16, owner)
 
     func testATapThatNeverStartsSlowsTheRetryAndSaysSoAfterThirtySeconds() {

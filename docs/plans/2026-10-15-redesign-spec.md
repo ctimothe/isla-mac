@@ -1234,15 +1234,27 @@ until nothing uses them, then go.
 >   launch repair stays pending, and `resume()` and `refresh()` (the poll
 >   included) fire it, only while it is pending, the session is available, the
 >   setting is on and Isla is still not trusted; the pending flag is spent the
->   moment it fires, so it is never more than once per identity. A person who
->   declines is not asked again at the next launch of the same code. Never when
->   trusted, never with the setting off, and no look repairs anything but a
+>   moment it fires. "Once per identity" means once the prompt has been asked:
+>   the ledger is written when the prompt is raised (or when a run ends with
+>   Isla already trusted), so a run cut off by a lock, a sleep or a quit is
+>   retried. A switch-on is its own proof that someone is there, so it asks
+>   only for an unlocked, awake Mac by Isla's own checks and not macOS's; one
+>   that a lock or sleep cut off before the tool started is re-armed with its
+>   own pending flag, which skips the ledger. A person who declines is not
+>   asked again at the next launch of the same code. The session must also be
+>   on the console (`kCGSSessionOnConsoleKey`, absent meaning yes), so another
+>   user's fast-switched session never prompts. Never when trusted, never with the setting off, and no look repairs anything but a
 >   pending launch repair. After a repair the existing looks, poll and tap retry
 >   take over unchanged.
-> - **Never wipe a fresh grant.** The reset is skipped when the system announced
->   an Accessibility-list change in the last 5 s: the repair looks again 1.5 s
->   later and, if Isla is still untrusted, goes ahead as normal. Trust is read
->   again immediately before the tool runs, after any deferral. While the tool
+> - **Never wipe a fresh grant.** When the system announced an
+>   Accessibility-list change in the last 5 s the reset is deferred 1.5 s, then
+>   trust is read again and, if Isla is still untrusted, it goes ahead as
+>   normal. Announcements are recorded only while the setting is on and the HUD
+>   is watching the list; when someone grants with the setting off, the only
+>   guard is the trust read made immediately before the tool runs. Only one
+>   tool runs at a time: a switch-on that comes back while one is running waits
+>   for it, and follows its post-repair path (trust read again, then the prompt
+>   once if still untrusted). While the tool
 >   runs "Open Privacy & Security…" is greyed (not hidden, so the row does not
 >   jump). The tool is bounded: SIGTERM at 5 s, SIGKILL 2 s later, and a
 >   process neither reaches is given up on after one more second and reported

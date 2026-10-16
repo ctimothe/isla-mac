@@ -254,9 +254,10 @@ are the exception the design did not anticipate:
   app's, never `All`), only when Volume and Brightness is on and Isla is not
   trusted and the session available (Mac unlocked, display awake, by macOS's
   own account): when the switch goes on and once per code identity (the running
-  code's cdhash, so a development rebuild counts) at launch, never within 5 s
-  of an Accessibility-list announcement and never over a grant read just
-  before, so a stale entry left by an older ad-hoc build no longer hides the
+  code's cdhash, so a development rebuild counts) at launch, deferred 1.5 s
+  after a recent Accessibility-list announcement and then re-reading trust, one
+  tool at a time, and written to the ledger only once the prompt is raised (so
+  a run cut off by a lock, a sleep or a quit is retried), so a stale entry left by an older ad-hoc build no longer hides the
   system prompt. The
   feature stays off by default and the tool is never run otherwise. Held by
   `AccessibilityRepairTests` and `MediaKeyHUDTests`; spec §12 carries the

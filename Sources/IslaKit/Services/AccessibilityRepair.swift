@@ -313,24 +313,37 @@ enum CodeIdentity {
         return bundleVersion() ?? "dev"
     }
 
-    private static func runningUniqueHash() -> Data? {
+    /// `kSecCodeInfoUnique` is in the dictionary `SecCodeCopySigningInformation`
+    /// returns with the default flags, so the heavier `kSecCSSigningInformation`
+    /// (certificates, timestamps) is not asked for.
+    static func runningUniqueHash() -> Data? {
         var code: SecCode?
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
         var staticCode: SecStaticCode?
         guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
         var information: CFDictionary?
-        guard SecCodeCopySigningInformation(
-            staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information
-        ) == errSecSuccess, let dictionary = information as? [String: Any] else { return nil }
+        guard SecCodeCopySigningInformation(staticCode, [], &information) == errSecSuccess,
+              let dictionary = information as? [String: Any] else { return nil }
         return dictionary[kSecCodeInfoUnique as String] as? Data
     }
 
+    /// The session dictionary's key for "this session owns the console".
+    static let onConsoleKey = kCGSessionOnConsoleKey as String
+
     /// Whether anybody could answer a prompt right now, by macOS's own account:
-    /// the screen is not locked and the main display is awake. Absent or false
-    /// `CGSSessionScreenIsLocked` means unlocked.
+    /// the screen is not locked, this user's session is the one on the console
+    /// (not another user's, after fast user switching) and the main display is
+    /// awake. An absent key means unlocked and on the console.
     static var sessionIsAvailable: Bool {
-        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
-        if let locked = (session?["CGSSessionScreenIsLocked"] as? NSNumber)?.boolValue, locked { return false }
-        return CGDisplayIsAsleep(CGMainDisplayID()) == 0
+        sessionIsAvailable(
+            session: CGSessionCopyCurrentDictionary() as? [String: Any],
+            displayAsleep: CGDisplayIsAsleep(CGMainDisplayID()) != 0
+        )
+    }
+
+    static func sessionIsAvailable(session: [String: Any]?, displayAsleep: Bool) -> Bool {
+        if (session?["CGSSessionScreenIsLocked"] as? NSNumber)?.boolValue == true { return false }
+        if (session?[onConsoleKey] as? NSNumber)?.boolValue == false { return false }
+        return !displayAsleep
     }
 }
