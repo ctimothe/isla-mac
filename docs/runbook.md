@@ -23,6 +23,15 @@ path.
   and `ISLA_ADHOC=1 Scripts/release.sh` refuses a bundle not signed with the
   pinned one. Keep the `.p12` backup it writes; on a new Mac, import that
   rather than making a new identity, or every user re-grants the permission.
+- Once, on the Mac that publishes releases: `bash Scripts/make-update-key.sh`
+  makes the Ed25519 key that in-app updates trust. The private half stays in
+  the login keychain ("Isla Update Signing" / `ed25519`) and goes into a
+  password manager; the public half is `Resources/update-public-key.txt`
+  (commit it), which `bundle.sh` writes into Info.plist as
+  `IslaUpdatePublicKey`. `Scripts/release.sh` refuses to run without both, and
+  uploads `Isla-<version>.dmg.sig` beside the image. Losing the private key
+  means every installed copy refuses the next update and users download it by
+  hand once.
 - A physical-notch MacBook for the hardware pass and a non-notch/external display
   for the synthetic pass.
 - Cyclop 0.6.5 built from pinned commit

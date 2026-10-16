@@ -36,6 +36,14 @@ command -v gh >/dev/null || fail "GitHub CLI is required: brew install gh"
 gh auth status >/dev/null 2>&1 || fail "GitHub CLI is not authenticated: gh auth login"
 command -v xcrun >/dev/null || fail "Xcode command-line tools are required"
 
+# Every release carries a signature that in-app updates check. Refused before
+# anything is built or tagged, because a release without one cannot be
+# installed by Update Now in any copy of Isla that knows the key.
+UPDATE_KEY_FILE="$ROOT/Resources/update-public-key.txt"
+[ -s "$UPDATE_KEY_FILE" ] || fail "Resources/update-public-key.txt is missing; run Scripts/make-update-key.sh"
+security find-generic-password -s "Isla Update Signing" -a ed25519 >/dev/null 2>&1 \
+    || fail "the update signing key is not in the login keychain; run Scripts/make-update-key.sh or restore it from your backup"
+
 if [ "$ADHOC" != "1" ]; then
     require_env DEVELOPER_ID_APPLICATION
     require_env APPLE_ID
@@ -151,6 +159,15 @@ else
     xcrun stapler validate "$DMG"
 fi
 
+# Signed last, over the exact bytes that are uploaded: stapling rewrites the
+# image, so a signature made before it would match nothing users download.
+SIG="$DMG.sig"
+echo "==> update signature"
+swift "$ROOT/Scripts/update-signing.swift" sign "$DMG" > "$SIG" \
+    || fail "could not sign $DMG with the update key"
+swift "$ROOT/Scripts/update-signing.swift" verify "$UPDATE_KEY_FILE" "$DMG" "$SIG" >/dev/null \
+    || fail "the update signature does not match Resources/update-public-key.txt"
+
 echo "==> tag $TAG"
 # Tagged here rather than before notarization. The tag used to be pushed first,
 # with minutes of notarization and an asset upload still ahead of it, so any
@@ -199,7 +216,7 @@ printf '\n\n**SHA-256** `%s`\n\nVerify with `shasum -a 256 Isla-%s.dmg`.\n' \
     "$SUM" "$VERSION" >> "$BODY"
 [ -n "$GENERATED" ] && printf '\n\n---\n\n%s\n' "$GENERATED" >> "$BODY"
 
-gh release create "$TAG" "$DMG" \
+gh release create "$TAG" "$DMG" "$SIG" \
     --repo "$REPO" \
     --title "Isla $VERSION" \
     --notes-file "$BODY" \

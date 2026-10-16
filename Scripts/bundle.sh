@@ -106,6 +106,24 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# The public half of the update signing key (Scripts/make-update-key.sh). Update
+# Now installs only a disk image signed by its private half, so a build without
+# it can still find an update but only offers the download page. Checked here
+# rather than trusted: a key that is not 32 bytes of base64 would make every
+# update fail its signature check, and that is better found by the build.
+UPDATE_KEY_FILE="$ROOT/Resources/update-public-key.txt"
+if [ -s "$UPDATE_KEY_FILE" ]; then
+    UPDATE_KEY="$(tr -d '[:space:]' < "$UPDATE_KEY_FILE")"
+    [ "$(printf '%s' "$UPDATE_KEY" | base64 -D 2>/dev/null | wc -c | tr -d ' ')" = 32 ] || {
+        echo "!!! $UPDATE_KEY_FILE is not a 32-byte base64 Ed25519 public key" >&2
+        exit 1
+    }
+    /usr/libexec/PlistBuddy -c "Add :IslaUpdatePublicKey string $UPDATE_KEY" "$APP/Contents/Info.plist" >/dev/null
+    echo "==> update key: $UPDATE_KEY"
+else
+    echo "==> no update key (Resources/update-public-key.txt): Update Now offers only the download page" >&2
+fi
+
 for asset in "$ICON" "$ICON_CATALOG"; do
     if [ ! -f "$asset" ]; then
         echo "missing app icon: $asset (rebuild it with Scripts/make-app-icon.sh)" >&2
