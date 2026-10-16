@@ -17,7 +17,12 @@ path.
   `Scripts/bundle.sh` signs with it whenever no Developer ID is given. Without
   it builds are ad-hoc, and macOS forgets Isla's Accessibility permission (the
   Volume and Brightness pop-up) after every rebuild or update while System
-  Settings still shows Isla switched on. `ISLA_ADHOC=1` forces ad-hoc.
+  Settings still shows Isla switched on. `ISLA_SIGN_ADHOC=1` forces ad-hoc.
+  The script pins the certificate's SHA-1 in `Scripts/signing-identity.sha1`
+  (commit it): `bundle.sh` refuses a same-named certificate with another hash,
+  and `ISLA_ADHOC=1 Scripts/release.sh` refuses a bundle not signed with the
+  pinned one. Keep the `.p12` backup it writes; on a new Mac, import that
+  rather than making a new identity, or every user re-grants the permission.
 - A physical-notch MacBook for the hardware pass and a non-notch/external display
   for the synthetic pass.
 - Cyclop 0.6.5 built from pinned commit

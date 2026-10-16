@@ -21,30 +21,64 @@
 # its own; this one does not.
 #
 # What it changes: one identity (certificate and private key) is added to the
-# login keychain, codesign is allowed to use the key, and an encrypted backup is
-# written. Gatekeeper treats the app exactly as before: unidentified
-# developer, no Team ID. Only a Developer ID changes that.
+# login keychain, codesign is allowed to use the key, an encrypted backup is
+# written, and the certificate's SHA-1 goes to Scripts/signing-identity.sha1.
+# That file is committed: it is public (every signed build carries the same hash
+# in its requirement), and bundle.sh signs only with the certificate it names,
+# so a second "Isla Code Signing" made by mistake stops the build instead of
+# quietly becoming a different app. Gatekeeper treats the app exactly as
+# before: unidentified developer, no Team ID. Only a Developer ID changes that.
 #
 # The backup matters. A release signed with a different certificate is a
 # different app to macOS again, so losing this one costs every user one more
 # re-grant. Keep the .p12 and its passphrase in a password manager.
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAME="Isla Code Signing"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 BACKUP="${1:-$HOME/$NAME.p12}"
+PIN_FILE="$ROOT/Scripts/signing-identity.sha1"
 
 fail() { echo "make-signing-identity: $*" >&2; exit 1; }
 
+# The backup is the private key, encrypted. Inside the repository one `git add
+# -A` would publish it; .gitignore also ignores *.p12 for the same reason.
+case "$(cd "$(dirname "$BACKUP")" 2>/dev/null && pwd)/" in
+    "$ROOT"/*) fail "write the backup outside the repository, not $BACKUP" ;;
+esac
+
 # Listed without -v on purpose: an untrusted self-signed identity is left out of
-# the "valid" list, and that is the only kind this script makes.
-if security find-identity -p codesigning "$KEYCHAIN" | grep -qF "\"$NAME\""; then
-    echo "\"$NAME\" is already in the login keychain:"
-    security find-identity -p codesigning "$KEYCHAIN" | grep -F "\"$NAME\""
+# the "valid" list, and that is the only kind this script makes. The whole
+# keychain search list, as bundle.sh searches it: an identity restored into
+# another keychain is still the one builds sign with, and must not be made again.
+EXISTING="$(security find-identity -p codesigning \
+    | grep -F "\"$NAME\"" | awk '{print $2}' | sort -u || true)"
+if [ -n "$EXISTING" ]; then
+    echo "\"$NAME\" is already in the keychain: $EXISTING"
+    # A rerun after a restore from the backup, or on a checkout without the pin:
+    # write it from the one identity there is, never guess between two.
+    if [ ! -s "$PIN_FILE" ]; then
+        [ "$(printf '%s\n' "$EXISTING" | grep -c .)" = 1 ] \
+            || fail "more than one \"$NAME\" in the keychain; delete the ones not in your backup"
+        printf '%s\n' "$EXISTING" > "$PIN_FILE"
+        echo "==> pinned it in $PIN_FILE; commit that file"
+    elif ! printf '%s\n' "$EXISTING" | grep -qix "$(tr -d '[:space:]' < "$PIN_FILE")"; then
+        fail "$PIN_FILE pins $(cat "$PIN_FILE"), which is not in this keychain; restore that certificate from its backup"
+    fi
     exit 0
 fi
 [ -t 0 ] || fail "run this in a terminal: it asks for a passphrase for the backup"
-[ -e "$BACKUP" ] && fail "a backup already exists at $BACKUP; move it away first"
+# A backup with no identity is usually an import that failed after the backup
+# was written: restoring it is the way on, a second certificate is not.
+[ -e "$BACKUP" ] && fail "a backup already exists at $BACKUP, and the keychain has no \"$NAME\". Import it, then run this again to pin it:
+    security import \"$BACKUP\" -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign
+  (or move it away first if it is a stale backup you mean to replace)"
+# A pin with no identity behind it means the certificate releases are signed
+# with exists somewhere else: restoring it keeps users' permissions, a new one
+# would not.
+[ -s "$PIN_FILE" ] && fail "$PIN_FILE pins $(cat "$PIN_FILE"), but the keychain has no \"$NAME\"; restore it from the backup (see below) instead of making a new one:
+    security import \"$NAME.p12\" -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign"
 
 printf 'Passphrase for the backup file (%s): ' "$BACKUP"
 read -rs PASSPHRASE; echo
@@ -77,7 +111,11 @@ EOF
     -config "$WORK/identity.cnf" -keyout "$WORK/key.pem" -out "$WORK/cert.pem" 2>/dev/null \
     || fail "openssl could not make the certificate"
 
-# Passwords travel in the environment, never on a command line that `ps` shows.
+# The backup's passphrase travels in the environment, never on a command line
+# that `ps` shows. The import file's passphrase does reach a command line,
+# because `security import` takes it only as -P (or from a prompt): it is random,
+# made for this one temporary file, and protects nothing once the file is
+# deleted on exit.
 export ISLA_IMPORT_PASS ISLA_BACKUP_PASS
 ISLA_IMPORT_PASS="$(/usr/bin/openssl rand -hex 24)"
 ISLA_BACKUP_PASS="$PASSPHRASE"
@@ -88,15 +126,27 @@ ISLA_BACKUP_PASS="$PASSPHRASE"
     -passout env:ISLA_BACKUP_PASS -out "$WORK/backup.p12" 2>/dev/null \
     || fail "openssl could not write the backup"
 
+# Same SHA-1 that `security find-identity` prints and that the requirement's
+# `certificate leaf = H"…"` names.
+PIN="$(/usr/bin/openssl x509 -in "$WORK/cert.pem" -noout -fingerprint -sha1 \
+    | sed 's/.*=//; s/://g' | tr '[:lower:]' '[:upper:]')"
+[ "${#PIN}" = 40 ] || fail "could not read the certificate's SHA-1"
+
+# The backup is written first: an identity in the keychain with no backup is
+# the one state that cannot be recovered from, and the import is the step that
+# can fail halfway (a locked keychain, a refused prompt).
+install -m 600 "$WORK/backup.p12" "$BACKUP"
+
 # -T lets codesign use the key. macOS may still ask once, on the first build,
 # whether codesign may use it: answer Always Allow.
 security import "$WORK/import.p12" -k "$KEYCHAIN" -P "$ISLA_IMPORT_PASS" -T /usr/bin/codesign >/dev/null \
-    || fail "security could not import the identity into the login keychain"
+    || fail "security could not import the identity; the backup at $BACKUP holds it, import that instead"
 
-install -m 600 "$WORK/backup.p12" "$BACKUP"
+printf '%s\n' "$PIN" > "$PIN_FILE"
 
 echo "==> \"$NAME\" is in the login keychain:"
 security find-identity -p codesigning "$KEYCHAIN" | grep -F "\"$NAME\""
+echo "==> pinned: $PIN_FILE ($PIN); commit it"
 cat <<EOF
 
 Backup: $BACKUP (encrypted with the passphrase you typed).

@@ -414,9 +414,9 @@
 "Videos and films stay off the island." = "Видео и фильмы на острове не показываются.";
 "Settings › Music says why, with Try Again." = "Причина — в Настройках › Музыка, там же кнопка «Повторить».";
 "In the player" = "В плеере";
-"Volume and Output" = "Громкость и выход";
+"Output Button" = "Кнопка выхода звука";
 "Lyric Band" = "Строка текста";
-"Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title." = "«Громкость и выход» добавляют в плеер системную громкость и меню AirPlay. «Строка текста» — исполняемая и следующая строки под названием.";
+"Output Button puts the sound output menu in the player. Lyric Band is the sung line and the next one, under the title." = "«Кнопка выхода звука» добавляет в плеер меню выбора выхода звука. «Строка текста» — исполняемая и следующая строки под названием.";
 
 /* The lyric column, the tall page and the header's tools (spec 5, 6, 15) */
 "Expand" = "Развернуть";

@@ -3,8 +3,12 @@
 #
 # ISLA_ADHOC=1 publishes the same gated build without Developer ID signing or
 # notarization, for as long as there is no Developer ID to sign with: every
-# gate still runs, the app keeps its ad-hoc signature, and the release notes
-# carry the one command a downloaded unnotarized app needs.
+# gate still runs, the app is signed with the pinned "Isla Code Signing"
+# certificate (Scripts/signing-identity.sha1; the name is older than that
+# certificate and stays for the scripts that set it), and the release notes
+# carry the one command a downloaded unnotarized app needs. A release that came
+# out ad-hoc or under another certificate is refused: macOS would treat it as a
+# different app and every user would lose Isla's Accessibility permission.
 #
 # ISLA_RELEASE_REMOTE names the git remote the tag goes to (default origin).
 # On a machine where origin is a local mirror, point it at the GitHub remote.
@@ -97,7 +101,18 @@ APP="$ROOT/build/app.noindex/Isla.app"
 [ -d "$APP" ] || fail "bundle was not built: $APP"
 
 if [ "$ADHOC" = "1" ]; then
-    echo "==> ad-hoc release: no Developer ID signature, no notarization"
+    echo "==> release without Developer ID: no notarization"
+    # Read from the bundle itself rather than trusted from bundle.sh's choice,
+    # which falls back to ad-hoc on a Mac without the identity.
+    PINNED="$(tr -d '[:space:]' < "$ROOT/Scripts/signing-identity.sha1" 2>/dev/null \
+        | tr '[:lower:]' '[:upper:]' || true)"
+    [ -n "$PINNED" ] || fail "Scripts/signing-identity.sha1 is missing; run Scripts/make-signing-identity.sh"
+    # `|| true`: an unsigned bundle makes codesign fail, and pipefail would end
+    # the script here without saying why; the comparison below says it.
+    LEAF="$(codesign -d -r- "$APP" 2>&1 | sed -n 's/.*certificate leaf = H"\([0-9a-fA-F]*\)".*/\1/p' \
+        | tr '[:lower:]' '[:upper:]' || true)"
+    [ "$LEAF" = "$PINNED" ] || fail "the bundle is not signed with the pinned certificate (leaf ${LEAF:-none}, pinned $PINNED); restore \"Isla Code Signing\" from its backup and rebuild"
+    echo "==> signed with the pinned certificate $PINNED"
     SKIP_BUNDLE=1 bash Scripts/dmg.sh
     [ -f "$DMG" ] || fail "disk image was not built: $DMG"
 else

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CoreAudio
 import XCTest
 @testable import IslaKit
@@ -57,10 +58,9 @@ final class OutputMenuTests: XCTestCase {
     // MARK: - What it lists
 
     /// "Output", the devices with the one playing first, a separator and Sound
-    /// Settings — and with no slider row at a width that has the slider on the
-    /// player.
-    func testTheEntriesWithoutTheVolumeRow() {
-        let entries = OutputMenuModel.entries(outputs: Self.outputs, current: 42, includesVolume: false)
+    /// Settings — and no volume row, ever.
+    func testTheEntries() {
+        let entries = OutputMenuModel.entries(outputs: Self.outputs, current: 42)
         XCTAssertEqual(entries, [
             .header("Output"),
             .device(Self.outputs[1], isCurrent: true),
@@ -70,44 +70,13 @@ final class OutputMenuTests: XCTestCase {
             .separator,
             .soundSettings,
         ])
-    }
-
-    /// Below 540 the menu gains a "Volume" header and the slider row above
-    /// "Output", with a separator between them.
-    func testTheEntriesWithTheVolumeRow() {
-        let entries = OutputMenuModel.entries(outputs: Self.outputs, current: 41, includesVolume: true)
-        XCTAssertEqual(Array(entries.prefix(5)), [
-            .header("Volume"), .volume, .separator, .header("Output"),
-            .device(Self.outputs[0], isCurrent: true),
-        ])
-        XCTAssertEqual(entries.last, .soundSettings)
-        XCTAssertEqual(entries.filter { $0 == .volume }.count, 1)
-    }
-
-    /// An output with a fixed volume has no level to set. The player and the lock
-    /// card omit their sliders for it, and so does the folded menu — it used to
-    /// add one that read 0 % and moved nothing (review 2026-10-15).
-    func testTheFoldedMenuHasNoSliderForAnOutputWithNoVolume() {
-        let entries = OutputMenuModel.entries(
-            outputs: Self.outputs, current: 41, includesVolume: true, hasVolume: false
-        )
-        XCTAssertFalse(entries.contains(.volume))
-        XCTAssertFalse(entries.contains(.header("Volume")))
-        XCTAssertEqual(entries.first, .header("Output"))
-
-        let fixed = AudioWatch(
-            read: { (Self.outputs, 41, nil) }, readMuted: { false }, installListeners: {}, removeListeners: {}
-        )
-        fixed.start()
-        let menu = controller(fixed).makeMenu(includesVolume: true)
-        XCTAssertTrue(menu.items.allSatisfy { $0.view == nil }, "no slider row in the NSMenu either")
-        XCTAssertEqual(menu.items.first?.title, "Output")
+        XCTAssertFalse(entries.contains(.header("Volume")), "volume left the island (owner, 2026-10-16)")
     }
 
     /// With no known default nothing is marked playing, and the list is the
     /// system's.
     func testNoDefaultMarksNothing() {
-        let entries = OutputMenuModel.entries(outputs: Self.outputs, current: nil, includesVolume: false)
+        let entries = OutputMenuModel.entries(outputs: Self.outputs, current: nil)
         let devices = entries.compactMap { entry -> (AudioDeviceID, Bool)? in
             if case .device(let device, let current) = entry { return (device.id, current) }
             return nil
@@ -119,7 +88,7 @@ final class OutputMenuTests: XCTestCase {
     // MARK: - The NSMenu
 
     func testTheMenuHasHeadersRowsAndACheckmarkOnTheCurrentDevice() {
-        let menu = controller(audio()).makeMenu(includesVolume: false)
+        let menu = controller(audio()).makeMenu()
         let items = menu.items
         XCTAssertEqual(items.map(\.title), [
             "Output", "AirPods Pro", "MacBook Pro Speakers", "Studio Display Speakers", "Living Room", "", "Sound Settings…",
@@ -133,17 +102,91 @@ final class OutputMenuTests: XCTestCase {
             XCTAssertFalse(item.image?.isTemplate ?? true, "drawn in white on its own fill, not tinted by the menu")
         }
         XCTAssertGreaterThanOrEqual(menu.minimumWidth, OutputMenuController.menuWidth)
-        XCTAssertTrue(items.allSatisfy { $0.view == nil }, "no slider row where the player has the slider")
     }
 
-    func testTheFoldedMenuCarriesTheSliderRow() {
-        let menu = controller(audio()).makeMenu(includesVolume: true)
-        XCTAssertEqual(Array(menu.items.prefix(4)).map(\.title), ["Volume", "Volume", "", "Output"])
-        let slider = menu.items[1]
-        XCTAssertNotNil(slider.view, "the slider is a view in the menu")
-        XCTAssertEqual(slider.view?.frame.size, NSSize(width: OutputMenuController.menuWidth, height: OutputMenuController.sliderRowHeight))
-        XCTAssertTrue(menu.items[0].isSectionHeader)
-        XCTAssertTrue(menu.items[2].isSeparatorItem)
+    /// No island menu has a Volume row, at any width and for any device,
+    /// including one with a volume to give (the watch reads 0.62 here): neither
+    /// a header, nor a titled row, nor a view in the menu.
+    func testNoMenuHasAVolumeRow() {
+        for current: AudioDeviceID? in [41, 42, 43, 44, nil] {
+            machineCurrent = current
+            let menu = controller(audio()).makeMenu()
+            XCTAssertFalse(menu.items.contains { $0.title == "Volume" }, "a Volume row for \(String(describing: current))")
+            XCTAssertTrue(menu.items.allSatisfy { $0.view == nil }, "a view row in the menu")
+            XCTAssertEqual(menu.items.first?.title, "Output")
+        }
+    }
+
+    // MARK: - The button's glyph follows the device now playing
+
+    /// The island's Output button draws the current device's own symbol, and a
+    /// plain speaker until it knows (no list, no default, a device that is gone).
+    func testTheButtonsGlyphIsTheCurrentDevices() {
+        let symbol = { (current: AudioDeviceID?) in
+            PlayerOutputButton.symbol(outputs: Self.outputs, current: current)
+        }
+        XCTAssertEqual(symbol(41), "laptopcomputer")
+        XCTAssertEqual(symbol(42), "airpods.pro")
+        XCTAssertEqual(symbol(43), "display")
+        XCTAssertEqual(symbol(44), "airplayaudio")
+        XCTAssertEqual(symbol(nil), "speaker.wave.2", "no default known")
+        XCTAssertEqual(symbol(99), "speaker.wave.2", "a device the list does not hold")
+        XCTAssertEqual(PlayerOutputButton.symbol(outputs: [], current: 41), "speaker.wave.2", "nothing read yet")
+        XCTAssertEqual(AudioOutputs.outputFallbackSymbol, "speaker.wave.2")
+    }
+
+    /// The lock card's foot rail and the island's button share one mapping and
+    /// differ only in the fallback each passes — the card's AirPlay glyph is
+    /// unchanged.
+    func testTheLockCardAndTheButtonShareOneMapping() {
+        for current in [AudioDeviceID(41), 42, 43, 44] {
+            XCTAssertEqual(
+                AudioOutputs.symbol(outputs: Self.outputs, current: current, fallback: "airplayaudio"),
+                PlayerOutputButton.symbol(outputs: Self.outputs, current: current)
+            )
+        }
+        XCTAssertEqual(AudioOutputs.symbol(outputs: Self.outputs, current: nil, fallback: "airplayaudio"), "airplayaudio")
+    }
+
+    /// The glyph updates live: the watch republishes when the output changes
+    /// (a row chosen, a device unplugged), and the button reads the watch.
+    func testTheGlyphFollowsTheWatchWhenTheOutputChanges() {
+        let watch = audio()
+        let glyph = { PlayerOutputButton.symbol(outputs: watch.outputs, current: watch.current) }
+        XCTAssertEqual(glyph(), "airpods.pro")
+        machineCurrent = 41
+        watch.systemAudioChanged()
+        XCTAssertEqual(glyph(), "laptopcomputer", "the speakers took over")
+        machineCurrent = nil
+        watch.systemAudioChanged()
+        XCTAssertEqual(glyph(), "speaker.wave.2", "nothing is the default")
+    }
+
+    /// The button's face is derived from the watch and republished only when it
+    /// differs, so a volume step does not redraw it (it used to observe the whole
+    /// watch, which also publishes the volume).
+    func testTheButtonStateFollowsTheDeviceAndIgnoresTheVolume() {
+        var volume: Float? = 0.4
+        let watch = AudioWatch(
+            read: { [unowned self] in (Self.outputs, self.machineCurrent, volume) },
+            readMuted: { false }, installListeners: {}, removeListeners: {}
+        )
+        watch.start()
+        let state = OutputButtonState(audio: watch)
+        XCTAssertEqual(state.value, .init(symbol: "airpods.pro", name: "AirPods Pro"))
+        var changes = 0
+        let subscription = state.$value.dropFirst().sink { _ in changes += 1 }
+        defer { subscription.cancel() }
+
+        volume = 0.7
+        watch.volumeChanged()
+        XCTAssertEqual(watch.volume, 0.7)
+        XCTAssertEqual(changes, 0, "a volume step is not a change of face")
+
+        machineCurrent = 41
+        watch.systemAudioChanged()
+        XCTAssertEqual(state.value, .init(symbol: "laptopcomputer", name: "MacBook Pro Speakers"))
+        XCTAssertEqual(changes, 1, "a new device is")
     }
 
     // MARK: - Nothing moves until a row is chosen
@@ -151,8 +194,7 @@ final class OutputMenuTests: XCTestCase {
     func testBuildingTheMenuSelectsAndOpensNothing() {
         let watch = audio()
         let controller = controller(watch)
-        _ = controller.makeMenu(includesVolume: false)
-        _ = controller.makeMenu(includesVolume: true)
+        _ = controller.makeMenu()
         XCTAssertTrue(selected.isEmpty, "no output was chosen by building the menu")
         XCTAssertTrue(opened.isEmpty)
         XCTAssertEqual(haptics, 0)
@@ -164,14 +206,14 @@ final class OutputMenuTests: XCTestCase {
     func testChoosingADeviceSelectsItAndRereads() {
         let watch = audio()
         let controller = controller(watch)
-        let menu = controller.makeMenu(includesVolume: false)
+        let menu = controller.makeMenu()
         // The row's own target, action and the device it carries are the wiring
         // being held.
         fire(try! XCTUnwrap(menu.items.first { $0.title == "Living Room" }))
         XCTAssertEqual(selected, [44])
         XCTAssertEqual(haptics, 1)
         XCTAssertEqual(watch.current, 44, "the watch re-read the machine")
-        let rebuilt = controller.makeMenu(includesVolume: false)
+        let rebuilt = controller.makeMenu()
         XCTAssertEqual(rebuilt.items.filter { $0.state == .on }.map(\.title), ["Living Room"])
         XCTAssertEqual(rebuilt.items[1].title, "Living Room", "and the one playing leads the list")
     }
@@ -182,7 +224,7 @@ final class OutputMenuTests: XCTestCase {
         selectSucceeds = false
         let watch = audio()
         let controller = controller(watch)
-        let menu = controller.makeMenu(includesVolume: false)
+        let menu = controller.makeMenu()
         fire(try! XCTUnwrap(menu.items.first { $0.title == "Living Room" }))
         XCTAssertEqual(selected, [44], "it was asked")
         XCTAssertEqual(haptics, 0)
@@ -191,7 +233,7 @@ final class OutputMenuTests: XCTestCase {
 
     func testSoundSettingsOpensSystemSettingsAtSound() {
         let controller = controller(audio())
-        let menu = controller.makeMenu(includesVolume: false)
+        let menu = controller.makeMenu()
         XCTAssertEqual(menu.items.last?.title, "Sound Settings…")
         fire(try! XCTUnwrap(menu.items.last))
         XCTAssertEqual(opened, [URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension")!])

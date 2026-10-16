@@ -22,10 +22,11 @@ final class PlayerSettingsTests: XCTestCase {
         XCTAssertEqual(NotchViewModel.lyricBandKey, "player.lyricBand")
     }
 
-    /// An absent value is the spec's default: **on** for both. Volume and Output
-    /// being on out of the box is the owner-waived exception to the default-off
-    /// rule for system-wide settings (decision 8); the controls only read until a
-    /// person drags the slider or picks an output.
+    /// An absent value is the spec's default: **on** for both. The Output button
+    /// (stored as `player.volumeAndOutput`, its name before 2026-10-16) being on
+    /// out of the box is the owner-waived exception to the default-off rule for
+    /// system-wide settings (decision 8); the button only reads until a person
+    /// picks an output.
     func testBothDefaultToOn() {
         let defaults = suite()
         XCTAssertTrue(NotchViewModel.volumeAndOutputEnabled(in: defaults))
@@ -67,9 +68,9 @@ final class PlayerSettingsTests: XCTestCase {
         let labels = root.flattened.map { $0.label.isEmpty ? $0.value : $0.label }
         let musicOnly = try XCTUnwrap(labels.firstIndex(of: "Music Only"), root.dump)
         let header = try XCTUnwrap(labels.firstIndex(of: "In the player"), root.dump)
-        let volume = try XCTUnwrap(labels.firstIndex(of: "Volume and Output"), root.dump)
+        let volume = try XCTUnwrap(labels.firstIndex(of: "Output Button"), root.dump)
         let band = try XCTUnwrap(labels.firstIndex(of: "Lyric Band"), root.dump)
-        let note = try XCTUnwrap(labels.firstIndex(where: { $0.hasPrefix("Volume and Output put the system volume") }), root.dump)
+        let note = try XCTUnwrap(labels.firstIndex(where: { $0.hasPrefix("Output Button puts the sound output menu") }), root.dump)
         XCTAssertLessThan(musicOnly, header)
         XCTAssertLessThan(header, volume)
         XCTAssertLessThan(volume, band)
@@ -77,7 +78,7 @@ final class PlayerSettingsTests: XCTestCase {
         XCTAssertNil(labels.firstIndex(of: "Peek at New Tracks"), "the renamed row is not here")
         XCTAssertEqual(
             labels[note],
-            "Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title."
+            "Output Button puts the sound output menu in the player. Lyric Band is the sung line and the next one, under the title."
         )
     }
 }

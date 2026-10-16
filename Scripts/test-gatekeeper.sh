@@ -23,7 +23,7 @@ fail() { echo "!!! $1" >&2; exit 1; }
 [ -f "$DYLIB" ] || fail "в бандле нет helper dylib: $DYLIB"
 
 if [ -z "${DEVELOPER_ID_APPLICATION:-}" ]; then
-    echo "  ~ DEVELOPER_ID_APPLICATION не задан: ad-hoc сборка."
+    echo "  ~ DEVELOPER_ID_APPLICATION не задан: сборка без Developer ID (ad-hoc или \"Isla Code Signing\")."
     echo "  ~ Gatekeeper ЗАБЛОКИРУЕТ такую сборку у пользователя:"
     echo "    dlopen хелпера в /usr/bin/perl будет отклонён системной политикой."
     echo "  ~ Гейт пропущен. release.sh вызывает его после test-package.sh,"

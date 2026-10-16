@@ -105,8 +105,7 @@ final class LyricColumnPaneTests: XCTestCase {
             let progress = try node(s.root, "Playback Position", role: "AXSlider")
             XCTAssertEqual(try XCTUnwrap(progress.frame).midY, l.inPane(f.progress).midY, accuracy: 1)
             XCTAssertEqual(try XCTUnwrap(progress.frame).maxX, l.inPane(f.progress).maxX - MediaPane.timeWidths(duration: 238).remaining - 6, accuracy: 1.5)
-            let volume = try node(s.root, "Volume", role: "AXSlider")
-            XCTAssertEqual(try XCTUnwrap(volume.frame).maxX, l.inPane(try XCTUnwrap(f.volume)).maxX, accuracy: 1.5)
+            XCTAssertNil(s.root.all { $0.label == "Volume" }.first, "no volume on the tall page at \(width)")
         }
     }
 

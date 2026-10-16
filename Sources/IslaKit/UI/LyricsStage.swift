@@ -21,8 +21,11 @@ import SwiftUI
 /// worked, because eyes stay still while singing.
 ///
 /// Every line is a button: tapping one seeks the song there; a right-click
-/// copies or syncs it. A hand on the scroll wheel stops the page following the
-/// song, and the Sync pill brings it back.
+/// copies or syncs it. A reader's scroll over the stage — a real one, not a
+/// brush or a sideways swipe (`LyricFollowGate`) — stops the page following the
+/// song; the Sync pill, a tap on a line or Sync Here brings it back at once, and
+/// left alone it comes back by itself four seconds after the last scroll — once
+/// the pointer has left the stage.
 struct LyricsStage: View {
     /// Which of the player's two lyric states the area is in: the column beside
     /// the controls (13 pt, 23 pt apart) or the tall page above them (17 pt,
@@ -104,10 +107,27 @@ struct LyricsStage: View {
     @ObservedObject var translation: LyricTranslation = .idle
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// False once the reader has scrolled away under their own hand: the stage
-    /// then stays where it was put, and the song moving on no longer drags the
-    /// page out from under the eye. The sync pill puts it back.
+    /// False once the reader has scrolled away under their own hand — a
+    /// vertical scroll over the stage that went far enough to mean it
+    /// (`LyricFollowGate`): the stage then stays where it was put, and the song
+    /// moving on no longer drags the page out from under the eye. The sync pill,
+    /// a tap on a line and Sync Here put it back at once; otherwise it comes back
+    /// by itself four seconds after the last scroll event, momentum included,
+    /// once the pointer is no longer over the stage.
     @State private var following = true
+    /// What counts as a reader's scroll, and when the page is due back.
+    @State private var gate = LyricFollowGate()
+    /// The one task that waits for that moment: armed by a scroll, cancelled the
+    /// moment the stage follows again or goes.
+    @State private var settleTask: Task<Void, Never>?
+    /// Where the pointer is against the stage, for the scroll events and for
+    /// the resume's "not while the pointer is still on the verse".
+    @State private var pointer = StagePointer()
+    /// Bumped when a brush that did not stop following should be put back: the
+    /// body's `onChange` below re-centres on the anchor *as it is then* — the
+    /// task alone would hold the one from the pass that armed it, and the song
+    /// may have moved on since.
+    @State private var recentreTick = 0
     /// The `LyricTranslation.demandEpoch` this stage raised its demand under.
     @State private var demandEpoch = 0
     /// The row sitting at the reading centre, as the scroll view itself
@@ -244,6 +264,17 @@ struct LyricsStage: View {
         // Lowered under the epoch it was raised in: after a rebuild reset the
         // demand, this view's late lowering must not cancel the new panel's.
         .onDisappear { translation.setDemand(.lyricArea, false, epoch: demandEpoch) }
+        // A new song follows from the top. The stage is not always rebuilt for
+        // one — a cached lyric can go resolving → ready in a single turn, so the
+        // synced branch never leaves the view tree — and a pointer parked on the
+        // old song's verse would otherwise leave the new one unfollowed at an
+        // arbitrary row.
+        .onChange(of: media.track?.key) { _, _ in
+            settleTask?.cancel()
+            settleTask = nil
+            gate.reset()
+            following = true
+        }
         // Verification hook, environment-gated like the open hook: replays the
         // row button's exact statement on the line after the current one, then
         // samples the position for the backward yank this hook exists to catch.
@@ -426,11 +457,29 @@ struct LyricsStage: View {
                             currentIndex ?? -1, now,
                             slots.count, geo.size.height, following ? 1 : 0, strayed))
                     }
-                    guard following else { return }
+                    // Not while a gesture is live: a line turning under a hand
+                    // that is moving the page scrolled it a second time. The
+                    // settle that ends the gesture puts the page on the sung
+                    // line (`LyricFollowGate.settle` → `.recentre`).
+                    guard Self.centresOnLineChange(
+                        following: following,
+                        gestureIsLive: gate.isLive(at: Self.clockNow(), pointerOverStage: { pointer.isOver() })
+                    ) else { return }
                     center(on: to)
                 }
                 .onChange(of: following) { _, resumed in
                     guard resumed else { return }
+                    // Followed again for any reason — the pill, a tap, Sync
+                    // Here, or the wait running out: nothing is waiting now, and
+                    // the page goes to the sung line on the scroll's own curve
+                    // (`Theme.lyricScroll`, which Reduce Motion cuts down).
+                    settleTask?.cancel()
+                    settleTask = nil
+                    gate.reset()
+                    center(on: anchor)
+                }
+                .onChange(of: recentreTick) { _, _ in
+                    guard following else { return }
                     center(on: anchor)
                 }
                 .onAppear { reading = anchor }
@@ -438,13 +487,34 @@ struct LyricsStage: View {
                     // unambiguous statement of "I am reading, not watching":
                     // taken straight from the event stream rather than inferred
                     // from where the scroll view ended up, which cannot tell a
-                    // hand from our own animation.
-                .onScrollWheel {
-                    guard following else { return }
-                    following = false
-                    if DebugTrail.openLyrics {
-                        DebugTrail.note("STAGE reader took over")
+                    // hand from our own animation. But only a *reader's* one:
+                    // `LyricFollowGate` ignores a pointer that is elsewhere and
+                    // a sideways swipe, and waits for a gesture to go twelve
+                    // points before it takes the song away.
+                .onScrollWheel(pointer: pointer) { sample, overStage in
+                    let decision = gate.handle(
+                        sample, overStage: overStage, following: following, at: Self.clockNow()
+                    )
+                    switch decision {
+                    case .ignored:
+                        return
+                    case .stoppedFollowing:
+                        following = false
+                        if DebugTrail.openLyrics {
+                            DebugTrail.note("STAGE reader took over")
+                        }
+                    case .nudged, .kept, .held:
+                        break
                     }
+                    armSettle()
+                }
+                .onDisappear {
+                    settleTask?.cancel()
+                    settleTask = nil
+                    gate.reset()
+                    // A stage reopened later follows the song: it must not come
+                    // back stranded where a hand left it, with no gate waiting.
+                    following = true
                 }
                 // Only once the sung line has actually left the stage. A pill
                 // that appears the instant the page moves is an alarm about
@@ -529,6 +599,50 @@ struct LyricsStage: View {
     /// at all, which is the same answer `Theme.open(reduceMotion:)` gives.
     private func center(on id: LyricSlot) {
         withAnimation(Theme.lyricScroll(reduceMotion: reduceMotion)) { reading = id }
+    }
+
+    /// The monotonic clock the gate is given: uptime, not the wall clock, so a
+    /// change of the Mac's time cannot make the wait come early or never.
+    private static func clockNow() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    /// Whether a line turning moves the page: while the stage follows, and not
+    /// while a trackpad gesture is live under it.
+    static func centresOnLineChange(following: Bool, gestureIsLive: Bool) -> Bool {
+        following && !gestureIsLive
+    }
+
+    /// Waits for the moment the gate says the page is due back, and puts it
+    /// there: following again when the reader had taken over and gone quiet with
+    /// the pointer away, a plain re-centre when a brush moved the page a few
+    /// points and is over. One task serves every scroll; the gate answers "ask
+    /// again in so long" while a gesture is live, the 4 s have not run out or
+    /// the pointer is still on the stage, so a reader who keeps scrolling or
+    /// keeps resting is never interrupted.
+    private func armSettle() {
+        guard settleTask == nil else { return }
+        let pointer = pointer
+        settleTask = Task { @MainActor in
+            loop: while !Task.isCancelled {
+                switch gate.settle(
+                    following: following, pointerOverStage: { pointer.isOver() }, at: Self.clockNow()
+                ) {
+                case .none:
+                    break loop
+                case .wait(let seconds):
+                    try? await Task.sleep(for: .seconds(seconds))
+                case .recentre:
+                    recentreTick += 1
+                    gate.reset()
+                    break loop
+                case .resume:
+                    following = true   // the `onChange` above centres and resets
+                    break loop
+                }
+            }
+            // A cancelled task has already been replaced or cleared by whoever
+            // cancelled it; clearing here would drop a newer task's handle.
+            if !Task.isCancelled { settleTask = nil }
+        }
     }
 
     /// The song as somebody would paste it: the sung lines, in order, one per

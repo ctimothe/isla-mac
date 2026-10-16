@@ -55,11 +55,6 @@ struct PlayerLayout: Equatable {
 
     // MARK: - Thresholds
 
-    /// Below this body width the slider is not drawn in the player — it would be
-    /// narrower than its knob — and the Output menu carries it instead
-    /// (spec §4.5, `Stress-Music-480`).
-    static let volumeFoldWidth: CGFloat = 540
-
     /// How far the progress row, the transport and the controls rise when the
     /// lyric band folds away (spec §4.1 last paragraph). The metadata does the
     /// opposite — the title steps *down* 18, from 52 to 70, so the two lines of
@@ -73,37 +68,28 @@ struct PlayerLayout: Equatable {
     let headerHeight: CGFloat
     /// Whether the two-line lyric band is drawn (spec §4.3).
     let hasLyricBand: Bool
-    /// Whether the person has Volume and Output on *and* the default device has
-    /// a volume to give. Off, both controls are absent and the band keeps its
-    /// place (spec §4.5).
-    let hasVolumeAndOutput: Bool
+    /// Whether the person has the Output button on (Settings › Music, stored
+    /// under `NotchViewModel.volumeAndOutputKey`). Off, the button is absent
+    /// and the band keeps its place (spec §4.5). There is no volume bar to
+    /// count here: volume left the island on 2026-10-16 — it is the Mac's, not
+    /// the player's — and only the lock card still draws it.
+    let hasOutputButton: Bool
 
     init(
         bodyWidth: CGFloat,
         headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight,
         hasLyricBand: Bool = true,
-        hasVolumeAndOutput: Bool = true
+        hasOutputButton: Bool = true
     ) {
         self.bodyWidth = bodyWidth
         self.headerHeight = headerHeight
         self.hasLyricBand = hasLyricBand
-        self.hasVolumeAndOutput = hasVolumeAndOutput
+        self.hasOutputButton = hasOutputButton
     }
 
     /// The body is wider than 560 by this much; everything against the trailing
-    /// edge moves by it, and the title column and the slider take it.
+    /// edge moves by it, and the title column takes it.
     var widthDelta: CGFloat { bodyWidth - NotchMetrics.defaultBodyWidth }
-
-    /// Whether the slider is drawn in the player (the Output menu carries it
-    /// below `volumeFoldWidth`).
-    var showsVolumeSlider: Bool {
-        hasVolumeAndOutput && bodyWidth >= Self.volumeFoldWidth
-    }
-
-    /// Whether the Output menu has to carry the slider.
-    var volumeFoldsIntoMenu: Bool {
-        hasVolumeAndOutput && bodyWidth < Self.volumeFoldWidth
-    }
 
     // MARK: - The conversion
 
@@ -160,17 +146,11 @@ struct PlayerLayout: Equatable {
     var transport: CGRect { CGRect(x: 236, y: 158 - rise, width: 100, height: 28) }
     var repeatButton: CGRect { CGRect(x: 342, y: transport.minY + 2, width: 24, height: 24) }
 
-    /// `96 + (bw − 560)` wide, 12 tall; nil where it is not drawn.
-    var volume: CGRect? {
-        guard showsVolumeSlider else { return nil }
-        return CGRect(x: 384, y: 166 - rise, width: 96 + widthDelta, height: 12)
-    }
-
     /// The trailing pair rides the edge: Output at `bw − 68`, Lyrics at
     /// `bw − 40`, each 26 × 26 — the last one ends at `bw − 14`, which is the
     /// pane's own right edge.
     var output: CGRect? {
-        guard hasVolumeAndOutput else { return nil }
+        guard hasOutputButton else { return nil }
         return CGRect(x: bodyWidth - 68, y: 159 - rise, width: 26, height: 26)
     }
 
@@ -333,7 +313,7 @@ struct PlayerLayout: Equatable {
 /// tall lyric page `T` (spec §5.1).
 ///
 /// They are not three panes swapped by a transition. The cover, the title, the
-/// progress row, the transport, the volume bar and the two buttons are the very
+/// progress row, the transport and the two buttons are the very
 /// same views in all three, and what changes with the state is only the frame
 /// each is placed in — so a state change is an animation of frames, and every
 /// element *travels* to its next place instead of fading out where it was and
@@ -390,7 +370,6 @@ extension PlayerLayout {
         var shuffle: CGRect
         var repeatButton: CGRect
         var showsModes: Bool
-        var volume: CGRect?
         var output: CGRect?
         var lyrics: CGRect
         /// The lyric lines' region — the page the lines scroll in. The player
@@ -486,7 +465,7 @@ extension PlayerLayout {
                 subtitle: subtitle, subtitleSize: Theme.TypeRole.reading.size, subtitleIsArtistOnly: false,
                 progress: progress, transport: transport,
                 shuffle: shuffle, repeatButton: repeatButton, showsModes: true,
-                volume: volume, output: output, lyrics: lyrics,
+                output: output, lyrics: lyrics,
                 lyricArea: nil, sungLine: hasLyricBand ? sungLine : nil, lyricPitch: nil, lyricSize: nil
             )
         case .column:
@@ -501,8 +480,7 @@ extension PlayerLayout {
                 transport: CGRect(x: 84, y: 136, width: 138, height: 28),
                 shuffle: CGRect(x: 84, y: 138, width: 24, height: 24),
                 repeatButton: CGRect(x: 200, y: 138, width: 24, height: 24), showsModes: false,
-                volume: hasVolumeAndOutput ? CGRect(x: Self.paneLeading, y: 176, width: 128, height: 12) : nil,
-                output: hasVolumeAndOutput ? CGRect(x: 197, y: 169, width: 26, height: 26) : nil,
+                output: hasOutputButton ? CGRect(x: 197, y: 169, width: 26, height: 26) : nil,
                 lyrics: CGRect(x: 225, y: 169, width: 26, height: 26),
                 // From the header's foot to the pane's bottom, `bw − 282` wide:
                 // 268 is where the lines start, the pane's own edge `bw − 14`
@@ -517,11 +495,12 @@ extension PlayerLayout {
             )
         case .tall:
             // The footer row, right to left, from the trailing edge: Lyrics at
-            // `bw − 45`, Output at `bw − 75`, the volume bar's right end 19
-            // before Output, the progress row's 12 before the volume bar. At
-            // 560 that is the board's 515 / 485 / 388 and 158 + 218.
+            // `bw − 45`, Output at `bw − 75`, the progress row's right end 12
+            // before Output. At 560 that is the board's 515 / 485 and a bar
+            // 315 wide. It used to stop at a volume bar of 78 sitting 19 before
+            // Output (218 wide); the volume left the island on 2026-10-16, and
+            // the bar takes the room instead of leaving a hole there.
             let outputX = bodyWidth - 75
-            let volumeX = outputX - 19 - 78
             return StateFrames(
                 bodyHeight: state.bodyHeight,
                 cover: CGRect(x: Self.paneLeading, y: 46, width: 34, height: 34), coverRadius: 7,
@@ -529,12 +508,11 @@ extension PlayerLayout {
                 titleSize: Theme.TypeRole.subhead.size,
                 subtitle: CGRect(x: 102, y: 63, width: bodyWidth - 102 - Self.paneTrailing, height: 14),
                 subtitleSize: Theme.TypeRole.body.size, subtitleIsArtistOnly: true,
-                progress: CGRect(x: 158, y: 358, width: volumeX - 12 - 158, height: 12),
+                progress: CGRect(x: 158, y: 358, width: outputX - 12 - 158, height: 12),
                 transport: CGRect(x: 60, y: 350, width: 92, height: 28),
                 shuffle: CGRect(x: 60, y: 352, width: 24, height: 24),
                 repeatButton: CGRect(x: 128, y: 352, width: 24, height: 24), showsModes: false,
-                volume: hasVolumeAndOutput ? CGRect(x: volumeX, y: 358, width: 78, height: 12) : nil,
-                output: hasVolumeAndOutput ? CGRect(x: outputX, y: 351, width: 26, height: 26) : nil,
+                output: hasOutputButton ? CGRect(x: outputX, y: 351, width: 26, height: 26) : nil,
                 lyrics: CGRect(x: bodyWidth - 45, y: 351, width: 26, height: 26),
                 // The page between the cover row and the footer: the lines run
                 // the pane's width from the cover's own left edge.
@@ -553,9 +531,9 @@ extension PlayerLayout {
     /// has only a width.
     static func frames(
         for state: State, bodyWidth: CGFloat, headerHeight: CGFloat = referenceHeaderHeight,
-        hasVolumeAndOutput: Bool = true, translated: Bool = false
+        hasOutputButton: Bool = true, translated: Bool = false
     ) -> StateFrames {
-        PlayerLayout(bodyWidth: bodyWidth, headerHeight: headerHeight, hasVolumeAndOutput: hasVolumeAndOutput)
+        PlayerLayout(bodyWidth: bodyWidth, headerHeight: headerHeight, hasOutputButton: hasOutputButton)
             .frames(for: state, translated: translated)
     }
 

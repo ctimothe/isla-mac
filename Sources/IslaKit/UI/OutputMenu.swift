@@ -6,36 +6,23 @@ import SwiftUI
 /// order and the content of the menu are something a test reads.
 enum OutputMenuEntry: Equatable {
     case header(String)
-    /// The volume slider's row — present only when the player has no room for
-    /// the slider (a body narrower than `PlayerLayout.volumeFoldWidth`).
-    case volume
     case device(AudioOutputs.Output, isCurrent: Bool)
     case separator
     case soundSettings
 }
 
 enum OutputMenuModel {
-    /// The menu, top to bottom: an optional "Volume" header and slider row, then
-    /// "Output", one row per device, a separator and "Sound Settings…".
+    /// The menu, top to bottom: "Output", one row per device, a separator and
+    /// "Sound Settings…". Never a volume row: the volume is the Mac's, not the
+    /// island's (owner, 2026-10-16), and a slider folded into this menu below
+    /// 540 pt was the last place the island still drew one.
     ///
     /// The devices are in the lock card's order — the one playing first, the
     /// rest as the system lists them (`LockScreenCard.orderedOutputs`, F-032):
     /// a Mac with more devices than rows must still show the one that answers
     /// "where is this going".
-    ///
-    /// `hasVolume` is whether the default output has a level to set. An output
-    /// with a fixed volume (many HDMI and DisplayPort sinks) reads nil, and the
-    /// player and the lock card omit their sliders for it; a folded menu that
-    /// still added one drew a bar at 0 % that moved nothing (review 2026-10-15).
-    static func entries(
-        outputs: [AudioOutputs.Output], current: AudioDeviceID?, includesVolume: Bool, hasVolume: Bool = true
-    ) -> [OutputMenuEntry] {
+    static func entries(outputs: [AudioOutputs.Output], current: AudioDeviceID?) -> [OutputMenuEntry] {
         var entries: [OutputMenuEntry] = []
-        if includesVolume && hasVolume {
-            entries.append(.header(localized("Volume")))
-            entries.append(.volume)
-            entries.append(.separator)
-        }
         entries.append(.header(localized("Output")))
         for device in LockScreenCard.orderedOutputs(outputs, current: current) {
             entries.append(.device(device, isCurrent: device.id == current))
@@ -49,8 +36,7 @@ enum OutputMenuModel {
 /// Builds the Output menu and acts on it.
 ///
 /// An `NSMenu` and not a SwiftUI `Menu`, because the menu has rows a SwiftUI
-/// `Menu` cannot draw — a symbol in a 26 pt circle beside the name, and a slider
-/// row when the volume has folded into it — and because it has to be popped up
+/// `Menu` cannot draw — a symbol in a 26 pt circle beside the name — and because it has to be popped up
 /// *under the button, right-aligned to it* (the board puts the menu's right edge
 /// on the button's). The panel is a non-activating `NSPanel`, which an NSMenu
 /// pops up from like any other window; `MenuTracking` already listens for every
@@ -69,16 +55,11 @@ final class OutputMenuController: NSObject {
     /// The menu's least width — the board's 262 — so a short device list does
     /// not draw a narrow menu under a wide button.
     static let menuWidth: CGFloat = 262
-    /// The slider row's height inside the menu.
-    static let sliderRowHeight: CGFloat = 28
 
     private let audio: AudioWatch
     private let select: (AudioDeviceID) -> Bool
     private let openURL: (URL) -> Void
     private let haptic: @MainActor () -> Void
-    /// Made when the menu is first built with its slider row, and kept: the row
-    /// is a view in a menu that outlives the call that built it.
-    private lazy var sliderModel = VolumeSliderModel(audio: audio)
 
     init(
         audio: AudioWatch,
@@ -93,26 +74,16 @@ final class OutputMenuController: NSObject {
     }
 
     /// The menu for the machine as the watch last read it.
-    func makeMenu(includesVolume: Bool) -> NSMenu {
+    func makeMenu() -> NSMenu {
         let menu = NSMenu(title: localized("Output"))
         // The system's own appearance, which is what the spec asks of every
         // menu (§13 "Menus follow the system appearance"): nothing is forced.
         menu.minimumWidth = Self.menuWidth
         menu.autoenablesItems = false
-        for entry in OutputMenuModel.entries(
-            outputs: audio.outputs, current: audio.current, includesVolume: includesVolume,
-            hasVolume: audio.volume != nil
-        ) {
+        for entry in OutputMenuModel.entries(outputs: audio.outputs, current: audio.current) {
             switch entry {
             case .header(let title):
                 menu.addItem(NSMenuItem.sectionHeader(title: title))
-            case .volume:
-                let item = NSMenuItem()
-                // Named for what it is: a menu item with a view is otherwise
-                // "NSMenuItem" to anything that reads titles.
-                item.title = localized("Volume")
-                item.view = sliderView()
-                menu.addItem(item)
             case .device(let device, let isCurrent):
                 let item = NSMenuItem(title: device.name, action: #selector(choose(_:)), keyEquivalent: "")
                 item.target = self
@@ -136,17 +107,8 @@ final class OutputMenuController: NSObject {
         return menu
     }
 
-    private func sliderView() -> NSView {
-        let content = SystemVolumeSlider(model: sliderModel, look: .menu)
-            .padding(.horizontal, 14)
-            .frame(width: Self.menuWidth, height: Self.sliderRowHeight)
-        let host = NSHostingView(rootView: content)
-        host.frame = NSRect(x: 0, y: 0, width: Self.menuWidth, height: Self.sliderRowHeight)
-        return host
-    }
-
     /// A device row was chosen: make it the default, and re-read so the list's
-    /// checkmark, the level and the slider all follow the machine in one pass.
+    /// checkmark and the button's glyph follow the machine in one pass.
     @objc func choose(_ item: NSMenuItem) {
         guard let id = (item.representedObject as? NSNumber)?.uint32Value else { return }
         guard select(id) else { return }
@@ -206,9 +168,9 @@ final class OutputMenuPresenter {
         NSPoint(x: anchorSize.width - menuWidth, y: anchorSize.height + 2)
     }
 
-    func present(includesVolume: Bool) {
+    func present() {
         guard let anchor else { return }
-        let menu = controller.makeMenu(includesVolume: includesVolume)
+        let menu = controller.makeMenu()
         let width = max(menu.size.width, OutputMenuController.menuWidth)
         _ = menu.popUp(
             positioning: nil,

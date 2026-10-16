@@ -408,9 +408,9 @@
 "Videos and films stay off the island." = "Videos and films stay off the island.";
 "Settings › Music says why, with Try Again." = "Settings › Music says why, with Try Again.";
 "In the player" = "In the player";
-"Volume and Output" = "Volume and Output";
+"Output Button" = "Output Button";
 "Lyric Band" = "Lyric Band";
-"Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title." = "Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title.";
+"Output Button puts the sound output menu in the player. Lyric Band is the sung line and the next one, under the title." = "Output Button puts the sound output menu in the player. Lyric Band is the sung line and the next one, under the title.";
 
 /* The lyric column, the tall page and the header's tools (spec 5, 6, 15) */
 "Expand" = "Expand";

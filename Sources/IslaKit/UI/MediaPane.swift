@@ -1,3 +1,5 @@
+import Combine
+import CoreAudio
 import SwiftUI
 
 struct MediaPane: View {
@@ -51,7 +53,7 @@ struct MediaPane: View {
     /// the conversion between the two needs (`PlayerLayout.inPane`). Defaults to
     /// the boards' own 38 for a pane rendered with no notch around it.
     var headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight
-    /// The machine's audio state, for the volume slider and the Output menu. The
+    /// The machine's audio state, for the Output button and its menu. The
     /// default reads nothing and installs nothing: a pane built anywhere but the
     /// panel — a test, a render — must not reach the owner's output devices, even
     /// to read them. The panel hands in `NotchViewModel.playerAudio`.
@@ -63,12 +65,14 @@ struct MediaPane: View {
     @ObservedObject var translation: LyricTranslation = .idle
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Volume and Output, and Lyric Band: Settings › Music (spec §14). Read
+    /// Output Button, and Lyric Band: Settings › Music (spec §14). Read
     /// through `@AppStorage` so the switch in Settings redraws the player while
     /// it is on screen. Absent means the spec's default — **on** for both, and
-    /// Volume and Output is the owner-waived exception to the default-off rule
-    /// for system-wide settings (`NotchViewModel.volumeAndOutputEnabled`).
-    @AppStorage(NotchViewModel.volumeAndOutputKey) private var volumeAndOutputOn = true
+    /// the Output button is the owner-waived exception to the default-off rule
+    /// for system-wide settings (`NotchViewModel.volumeAndOutputEnabled`; the
+    /// stored key keeps its old name, "Volume and Output", so the owner's
+    /// choice survives the 2026-10-16 relabel).
+    @AppStorage(NotchViewModel.volumeAndOutputKey) private var outputButtonOn = true
     @AppStorage(NotchViewModel.lyricBandKey) private var lyricBandOn = true
 
     /// A watch that reads an empty machine and installs nothing.
@@ -201,15 +205,15 @@ struct MediaPane: View {
             .onAppear {
                 settledPage = page
                 media.refreshPlaybackModes()
-                if volumeAndOutputOn { audio.start() }
+                if outputButtonOn { audio.start() }
                 if DebugTrail.openLyrics {
                     DebugTrail.note("MediaPane track=\(track.title) showingLyrics=\(showingLyrics.wrappedValue)")
                 }
             }
-            // The watch follows the machine only while there is a slider or a menu
+            // The watch follows the machine only while there is a button or a menu
             // to show it in, and only while the pane is on screen: it reads, and
             // installs CoreAudio listeners, and writes nothing.
-            .onChange(of: volumeAndOutputOn) { _, on in
+            .onChange(of: outputButtonOn) { _, on in
                 if on { audio.start() } else { audio.stop() }
             }
             .onDisappear { audio.stop() }
@@ -261,7 +265,7 @@ struct MediaPane: View {
             bodyWidth: PlayerLayout.bodyWidth(paneWidth: paneWidth),
             headerHeight: headerHeight,
             hasLyricBand: drawsLyricBand,
-            hasVolumeAndOutput: volumeAndOutputOn
+            hasOutputButton: outputButtonOn
         )
     }
 
@@ -345,15 +349,9 @@ struct MediaPane: View {
                 transport
                     .placed(layout.inPane(frames.transport))
 
-                if let volume = frames.volume {
-                    PlayerVolumeSlider(audio: audio, trackKey: track.key)
-                        .placed(layout.inPane(volume))
-                }
                 if let output = frames.output {
-                    PlayerOutputButton(
-                        audio: audio, includesVolume: layout.volumeFoldsIntoMenu && page == .player
-                    )
-                    .placed(layout.inPane(output))
+                    PlayerOutputButton(audio: audio)
+                        .placed(layout.inPane(output))
                 }
                 lyricsButton(isOpen: page != .player)
                     .placed(layout.inPane(frames.lyrics))
@@ -1164,62 +1162,94 @@ private extension View {
     }
 }
 
-// MARK: - Volume and Output
+// MARK: - Output
 
-/// The player's volume bar: the shared slider in the player's dress, with a
-/// model of its own over the pane's `AudioWatch`. Absent for a device with no
-/// volume to give, rather than a bar that moves and changes nothing.
-private struct PlayerVolumeSlider: View {
-    @StateObject private var model: VolumeSliderModel
-    let trackKey: String?
-
-    init(audio: AudioWatch, trackKey: String?) {
-        _model = StateObject(wrappedValue: VolumeSliderModel(audio: audio))
-        self.trackKey = trackKey
-    }
-
-    var body: some View {
-        Group {
-            if model.volume != nil {
-                SystemVolumeSlider(model: model, look: .player)
-            }
-        }
-        // A drag a new song cut short lets go here (K-017), as on the lock card.
-        .onChange(of: trackKey) { _, _ in model.endForTrackChange() }
-    }
-}
-
-/// The Output button: `airplay.audio` in a 26 pt target, opening the NSMenu
-/// of devices under it. Nothing is chosen, and nothing changes on the Mac,
-/// until a row is picked.
-private struct PlayerOutputButton: View {
-    @ObservedObject var audio: AudioWatch
-    let includesVolume: Bool
+/// The Output button: the glyph of the device the sound goes to now in a 26 pt
+/// target, opening the NSMenu of devices under it. Nothing is chosen, and
+/// nothing changes on the Mac, until a row is picked.
+///
+/// It was `airplay.audio`, which the owner read as AirDrop (2026-10-16). The
+/// glyph is now the current device's own — AirPods, the laptop, a display — the
+/// way the Now Playing route button on iOS shows the AirPods it is routed to,
+/// so the button says "output" by showing *which* output. It follows the watch:
+/// `audio` is observed, so a device picked here, plugged in or unplugged
+/// redraws it without anything asking.
+struct PlayerOutputButton: View {
+    let audio: AudioWatch
+    /// What the button draws, derived from the watch and published only when it
+    /// changes. The button used to observe the whole watch, which also
+    /// publishes the volume, and redrew on every step of the volume keys.
+    @StateObject private var state: OutputButtonState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var holder: BuiltOnce<OutputMenuPresenter>
     private var presenter: OutputMenuPresenter { holder.value }
 
-    init(audio: AudioWatch, includesVolume: Bool) {
+    init(audio: AudioWatch) {
         self.audio = audio
-        self.includesVolume = includesVolume
+        _state = StateObject(wrappedValue: OutputButtonState(audio: audio))
         // Built once (`BuiltOnce`): this runs on every body pass of the pane.
         _holder = StateObject(wrappedValue: BuiltOnce {
             OutputMenuPresenter(controller: OutputMenuController(audio: audio))
         })
     }
 
+    /// The glyph for the device now playing; a plain speaker until the watch
+    /// has read the machine, or for a device the list does not hold.
+    static func symbol(outputs: [AudioOutputs.Output], current: AudioDeviceID?) -> String {
+        AudioOutputs.symbol(outputs: outputs, current: current, fallback: AudioOutputs.outputFallbackSymbol)
+    }
+
     var body: some View {
-        Button { presenter.present(includesVolume: includesVolume) } label: {
-            Image(systemName: "airplay.audio")
+        let symbol = state.value.symbol
+        let device = state.value.name
+        Button { presenter.present() } label: {
+            Image(systemName: symbol)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.white)
+                // A route changes when a device is picked or unplugged; the
+                // glyph swaps the way the lock card's does (Reduce Motion: a
+                // plain change).
+                .symbolSwap(value: symbol, reduceMotion: reduceMotion)
                 .frame(width: 26, height: 26)
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(PanelButtonStyle())
         .background(OutputMenuAnchor(presenter: presenter))
-        .help(localized("Sound Output"))
+        .help(device ?? localized("Sound Output"))
+        // The lock card's name for the same control.
         .accessibilityLabel(localized("Sound Output"))
-        // Where the sound goes now, which the glyph cannot say.
-        .accessibilityValue(LockScreenCard.outputName(outputs: audio.outputs, current: audio.current) ?? "")
+        // Where the sound goes now, which the glyph alone cannot say.
+        .accessibilityValue(device ?? "")
+    }
+}
+
+/// The Output button's face — the current device's glyph and name — as the
+/// watch's `outputs` and `current` give it, republished only when it differs.
+/// A volume or mute change moves neither, so the button does not redraw for it.
+@MainActor
+final class OutputButtonState: ObservableObject {
+    struct Value: Equatable {
+        var symbol: String
+        var name: String?
+    }
+
+    @Published private(set) var value: Value
+    private var subscription: AnyCancellable?
+
+    init(audio: AudioWatch) {
+        value = Self.value(outputs: audio.outputs, current: audio.current)
+        // `@Published` emits the new value as it is about to be stored, so the
+        // pair is taken from the emission, not read back from the watch.
+        subscription = audio.$outputs.combineLatest(audio.$current)
+            .map { Self.value(outputs: $0, current: $1) }
+            .removeDuplicates()
+            .sink { [weak self] in self?.value = $0 }
+    }
+
+    static func value(outputs: [AudioOutputs.Output], current: AudioDeviceID?) -> Value {
+        Value(
+            symbol: PlayerOutputButton.symbol(outputs: outputs, current: current),
+            name: LockScreenCard.outputName(outputs: outputs, current: current)
+        )
     }
 }

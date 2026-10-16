@@ -314,8 +314,8 @@ bottom edge.
 | Shuffle | (206, 160), 24 × 24 | see 4.4 |
 | Transport | (236, 158), 100 × 28: previous 16 pt, play/pause 20 pt, next 16 pt | |
 | Repeat | (342, 160), 24 × 24 | |
-| Volume | (384, 166), width `96 + (bw − 560)`, 12 tall: `speaker.fill` 10 pt secondary, a 4 pt track with a 12 pt knob | hidden below 540, see 4.5 |
-| Output | (`bw − 68`, 159), 26 × 26, `airplay.audio` 14 pt | opens the Output menu |
+| Volume | (384, 166), width `96 + (bw − 560)`, 12 tall: `speaker.fill` 10 pt secondary, a 4 pt track with a 12 pt knob | hidden below 540, see 4.5. **Withdrawn 2026-10-16 (owner), see the §4.5 amendment.** |
+| Output | (`bw − 68`, 159), 26 × 26, `airplay.audio` 14 pt | opens the Output menu. **Amended 2026-10-16 (owner):** the glyph is the current output device's own symbol, see §4.5. |
 | Lyrics | (`bw − 40`, 159), 26 × 26, `quote.bubble` 14 pt | opens the lyric column (§5); `quote.bubble.fill` on selectedFill when open |
 
 With **no lyric** for the song (`Music-NoLyrics`) the band folds away and the
@@ -363,6 +363,30 @@ Track" (the value strings exist; the "Repeat: %@" format is new).
   gains a "Volume" header and a slider row above "Output".
 - At 620 (`Stress-Music-620`) the trailing controls ride the edge and the
   slider takes the extra 60.
+
+> **Amended 2026-10-16 (owner).** Volume left the island. The system volume
+> is the Mac's, not the player's, and a slider in the Music tab read as the
+> player's own level; the volume keys and the Mac's own menu already do the
+> job. So, in place of the bullets above about the slider:
+>
+> - The player, the column and the tall page draw **no volume bar**, and the
+>   Output menu never gains a "Volume" header or slider row at any width (the
+>   fold below 540 is gone with it). The width the bar reserved goes back:
+>   on the tall page the progress row now ends 12 pt before Output (315 wide
+>   at 560, where it was 218).
+> - **The lock card keeps its slider** (§7), unchanged: there it is the only
+>   way to change the sound while the Mac is locked.
+> - The Output button no longer draws `airplay.audio`, which the owner read
+>   as AirDrop. Its glyph is the **current default output device's own
+>   symbol** (`AudioOutputs.symbol(outputs:current:fallback:)`, the one
+>   mapping the lock card's foot rail also uses), the way iOS's Now Playing
+>   route button shows AirPods when it is routed to them, and it follows the
+>   output live. A plain `speaker.wave.2` shows until the device is known.
+>   Accessibility: label "Sound Output" (the lock card's name for the same
+>   control), value the device's name; the tooltip is the device's name.
+> - The setting is relabelled **Output Button** («Кнопка выхода звука»); the
+>   stored key stays `player.volumeAndOutput` so the owner's choice survives.
+>   Off hides the button and the band keeps its place, as before.
 
 ### 4.6 Live stream
 
@@ -422,7 +446,7 @@ mismatch notice, editor) move with it.
 | Progress | (206, 141) `bw − 220` | (58, 116) 190 | (158, 358) 218 |
 | Transport | (236, 158) 100 | (84, 136) 138 | (60, 350) 92 |
 | Shuffle, Repeat | flanking | hidden | hidden |
-| Volume | (384, 166) | (58, 176) 128 | (388, 358) 78 |
+| Volume | (384, 166) | (58, 176) 128 | (388, 358) 78 | **Withdrawn 2026-10-16 (owner), see the §4.5 amendment; the tall page's progress now ends 12 before Output, 315 wide at 560.** |
 | Output | (`bw − 68`, 159) | (197, 169) | (`bw − 75`, 351) |
 | Lyrics button | (`bw − 40`, 159) off | (225, 169) on | (`bw − 45`, 351) on |
 | Header right | source tag | Show Translation, More (`bw − 91`, 8); Expand (`bw − 39`, 8) | the same; Collapse in place of Expand |
@@ -519,6 +543,42 @@ mismatch notice, editor) move with it.
 | Line menu | `Lyrics-Line-Menu` | Copy Line ⌘C · Copy All Lyrics · separator · Sync Here (existing) |
 | Version mismatch | `Lyrics-Version-Mismatch` | one notice above the lines, 488 wide × 40, radius 9, fill 0.07, hairline 0.10, `clock.arrow.circlepath` 12 pt, existing text (11 pt, wraps) |
 | Unreadable local file | `Lyrics-Invalid-File` | `exclamationmark.bubble` 22 pt, "Line %d of this file has a time Isla can’t read." (new, from the parser's line number; falls back to the existing "Can't read the lyrics file for this song."), buttons Edit Lyrics… · Import LRC… |
+
+> **Amended 2026-10-16 (owner).** The "Read ahead" row's "the page stays
+> where the person scrolled" was too eager: any scroll event over the panel
+> — a sideways swipe, a one-pixel brush — stopped the page following for
+> good, until the Sync pill (which only appears once the sung line has left
+> the stage) or a tap on a line brought it back. The owner lost the track
+> on a slip of the hand ("make it clean and comfortable, but do not force
+> it by overriding"). Now (`LyricFollowGate`):
+>
+> - A scroll counts only while the pointer is **over the lyric stage**
+>   (decided from the event's own location against the stage's frame, not from
+>   hover, which a non-activating panel delivers unreliably); a mostly
+>   horizontal event (`|dx| > |dy|`) is ignored.
+> - Vertical travel adds up **per gesture** (a new one starts on the
+>   trackpad's `began` phase or after 0.5 s of silence; the momentum tail is
+>   the same gesture), and the page stops following only once a gesture has
+>   gone **12 pt**. A trackpad gesture is live from `began` until the
+>   fingers lift and any momentum has ended: its tally never resets while it
+>   is live (resting fingers send no events), the stage does not centre on a
+>   turning line under it, and a brush too short to stop following is put back
+>   only 0.5 s after it is over. A mouse wheel has no phases and keeps the
+>   0.5 s silence rule; so does any scroll with no phase (a smooth-scroll
+>   utility, a mouse driver), which holds the page for 0.5 s after each event.
+>   Two fingers laid on the pad (`mayBegin`, or `began` with no distance)
+>   hold the page before they move. A silent gesture is let go of after 15 s
+>   only once the pointer has left the stage, and every wait is timed from
+>   the lift or the glide's end, not from the last movement. A new song
+>   resets the stage to following.
+> - Once not following, the page **follows again by itself once 4 s have
+>   passed since the last scroll event**, momentum included, the gesture is
+>   over **and the pointer is no longer over the stage** (asked again every
+>   second while it is); each new scroll starts the wait again. The return uses the same scroll curve as any other recentring
+>   (`Theme.lyricScroll`; Reduce Motion cuts it down), and nothing moves the
+>   page while a hand is on it.
+> - A tap on a line, the Sync pill and Sync Here still resume at once, as
+>   before.
 
 ### 5.5 Edit Lyrics sheet
 
@@ -689,6 +749,14 @@ panel, two drop targets name their action: **Keep on Shelf**
 under the pointer lights (accent ring 2 pt, fill accent α 0.18) and its
 caption becomes "Release to add to the Shelf" / "Release to send with
 AirDrop". AirDrop sends without keeping (the existing `ShelfSharing`).
+
+> **Amended 2026-10-16 (owner).** AirDrop wears Apple's own icon. The
+> lookalike symbol (`dot.radiowaves.up.forward`) is gone from the AirDrop
+> well and from the AirDrop verb in the action bar's More menu; both draw
+> `NSSharingService(named: .sendViaAirDrop)?.image`, the full-colour picture
+> macOS's share menus show (there is no public SF Symbol for AirDrop), left
+> untinted. A Mac without the service keeps the old symbol. The tile context
+> menu's items carry no icons, so its "AirDrop" stays text. (`ShelfIcon`.)
 
 ### 8.4 Other states
 
@@ -861,7 +929,7 @@ before controls, and sliders shrink first (`Stress-Settings-RU-480`).
 | General | `gearshape` (`#8E8E93`) | Launch at Login · Open on Hover [off] · Panel Width (slider, "560 pt") · *The island shows:* Charging [on] · Headphones Connecting [on] · New Tracks [on] · **Volume and Brightness** [off] (R5; hidden until R5 ships) |
 | Privacy | `hand.raised` (`#0A84FF`) | *Clipboard:* Clipboard History [on] · **Include Images** [on] · **Keep Pinned Items** [off] · *Cover:* Cover Clipboard Rows · Cover Translate Text · Hide from Screen Recording [on] |
 | Shortcuts | `keyboard` (`#8E8E93`) | the three shortcut recorders (96 pt fields) · Restore Default Shortcuts |
-| Music | `music.note` (`#FF375F`) | Music Only [on] · *In the player:* **Volume and Output** [on] · **Lyric Band** [on] · *Automation* (only when a player is not allowed) · *Now Playing* (only when the reader is down) |
+| Music | `music.note` (`#FF375F`) | Music Only [on] · *In the player:* **Volume and Output** [on] (**relabelled Output Button 2026-10-16**, §4.5 amendment) · **Lyric Band** [on] · *Automation* (only when a player is not allowed) · *Now Playing* (only when the reader is down) |
 | Lyrics | `quote.bubble.fill` (`#FF9F0A`) | Show Lyrics · Word Karaoke · Show next line early (Off · Auto · 0.3 s · 0.5 s) · Lyric Delay (slider, "+0.00 s" in 52 pt) · *Translation:* **Translate Lyrics** [off] · **Translate To** · *Online:* Look Up Lyrics Online [off] · *Local Lyrics Library:* push buttons |
 | Lock Screen | `lock.display` (`#5E5CE6`) | Show on Lock Screen [on] · *Card Style:* four real previews (Automatic · Transparent · Tinted · Solid), the chosen one ringed in accent · **Rest as Banner** [on] · Card Size (Standard · Compact) |
 | Translate | `translate` (`#0A84FF`) | Translate Online [off] · **Keep History** [off] · **Speak Button** [on] · Translation Languages… |
@@ -1059,8 +1127,8 @@ until nothing uses them, then go.
 
 | Rule | Board |
 |---|---|
-| Below 540 the player's volume folds into the Output menu; a long title truncates with its tooltip | `Stress-Music-480` |
-| At 620 the trailing controls ride the edge and the slider takes the extra width | `Stress-Music-620` |
+| Below 540 the player's volume folds into the Output menu; a long title truncates with its tooltip (**the fold withdrawn 2026-10-16**, §4.5 amendment; the truncation stays) | `Stress-Music-480` |
+| At 620 the trailing controls ride the edge and the slider takes the extra width (**the slider withdrawn 2026-10-16**; the edge rule stays) | `Stress-Music-620` |
 | Below 540 the Shelf bar keeps Quick Look and Remove, the rest go into More | `Stress-Shelf-RU-480` |
 | Below 540 the Clipboard filter becomes symbols with tooltips; ages shorten | `Stress-Clip-RU-480` |
 | Below 540 the Settings sidebar truncates, labels wrap before controls, sliders shrink first | `Stress-Settings-RU-480` |
@@ -1223,6 +1291,13 @@ order in Russian.
 
 Each release adds only the rows it uses, in both tables, with
 `test-localizations.sh` green.
+
+> **Amended 2026-10-16 (owner).** The two rows "Volume and Output" and its
+> footnote above are replaced by "Output Button" / «Кнопка выхода звука» and
+> "Output Button puts the sound output menu in the player. Lyric Band is the
+> sung line and the next one, under the title." / «Кнопка выхода звука»
+> добавляет в плеер меню выбора выхода звука. «Строка текста» — исполняемая и
+> следующая строки под названием. (§4.5 amendment.)
 
 ## 16. Releases
 

@@ -637,9 +637,11 @@ struct SettingsPane: View {
             // island at all; everything below it is about the music that does.
             switchRow(row, isOn: flagBinding(row))
         case .volumeAndOutput:
-            // On out of the box: it only reads until a person drags the slider
-            // or picks an output, and the owner waived the default-off rule for
-            // it (decision 8, checklist.md §"Scope divergence").
+            // On out of the box: it only reads until a person picks an output,
+            // and the owner waived the default-off rule for it (decision 8,
+            // checklist.md §"Scope divergence"). Labelled "Output Button" since
+            // 2026-10-16, when the volume left the island; the row id and the
+            // stored key keep their old names so the owner's choice survives.
             switchRow(row, isOn: flagBinding(row))
         case .lyricBand:
             switchRow(row, isOn: flagBinding(row), disabledReason: lyricsOffReason)

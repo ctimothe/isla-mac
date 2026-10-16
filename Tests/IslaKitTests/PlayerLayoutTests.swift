@@ -8,9 +8,9 @@ import XCTest
 @MainActor
 final class PlayerLayoutTests: XCTestCase {
     private func layout(
-        _ width: CGFloat = 560, header: CGFloat = 38, band: Bool = true, volume: Bool = true
+        _ width: CGFloat = 560, header: CGFloat = 38, band: Bool = true, output: Bool = true
     ) -> PlayerLayout {
-        PlayerLayout(bodyWidth: width, headerHeight: header, hasLyricBand: band, hasVolumeAndOutput: volume)
+        PlayerLayout(bodyWidth: width, headerHeight: header, hasLyricBand: band, hasOutputButton: output)
     }
 
     // MARK: - Body to pane: the one conversion
@@ -72,7 +72,6 @@ final class PlayerLayoutTests: XCTestCase {
         XCTAssertEqual(l.shuffle, CGRect(x: 206, y: 160, width: 24, height: 24))
         XCTAssertEqual(l.transport, CGRect(x: 236, y: 158, width: 100, height: 28))
         XCTAssertEqual(l.repeatButton, CGRect(x: 342, y: 160, width: 24, height: 24))
-        XCTAssertEqual(l.volume, CGRect(x: 384, y: 166, width: 96, height: 12))
         XCTAssertEqual(l.output, CGRect(x: 492, y: 159, width: 26, height: 26))
         XCTAssertEqual(l.lyrics, CGRect(x: 520, y: 159, width: 26, height: 26))
     }
@@ -88,7 +87,6 @@ final class PlayerLayoutTests: XCTestCase {
         XCTAssertEqual(l.transport.minY, 138)
         XCTAssertEqual(l.shuffle.minY, 140)
         XCTAssertEqual(l.repeatButton.minY, 140)
-        XCTAssertEqual(l.volume?.minY, 146)
         XCTAssertEqual(l.output?.minY, 139)
         XCTAssertEqual(l.lyrics.minY, 139)
         XCTAssertEqual(layout().progress.minY - l.progress.minY, PlayerLayout.noLyricRise)
@@ -107,27 +105,17 @@ final class PlayerLayoutTests: XCTestCase {
 
     // MARK: - Width: 480, 540, 560, 620 (§4.5, §13)
 
-    /// Below 540 the slider is not drawn — it would be narrower than its knob —
-    /// and the Output menu carries it; at 540 and over it is drawn.
-    func testTheVolumeFoldsIntoTheMenuBelow540() {
-        XCTAssertEqual(PlayerLayout.volumeFoldWidth, 540)
-        for width in [CGFloat(480), 500, 539.5] {
-            let l = layout(width)
-            XCTAssertNil(l.volume, "no slider at \(width)")
-            XCTAssertTrue(l.volumeFoldsIntoMenu, "the menu carries it at \(width)")
-            XCTAssertNotNil(l.output, "the Output button stays at \(width)")
+    /// The Output button is there at every width the panel can be. There is no
+    /// slider to fold into its menu below 540 any more: the volume left the
+    /// island on 2026-10-16, so the width decides nothing about the button.
+    func testTheOutputButtonIsThereAtEveryWidth() {
+        for width in [CGFloat(480), 500, 539.5, 540, 560, 620] {
+            XCTAssertNotNil(layout(width).output, "the Output button at \(width)")
         }
-        for width in [CGFloat(540), 560, 620] {
-            let l = layout(width)
-            XCTAssertNotNil(l.volume, "the slider is drawn at \(width)")
-            XCTAssertFalse(l.volumeFoldsIntoMenu)
-        }
-        // And the slider is never narrower than its knob where it is drawn.
-        XCTAssertGreaterThanOrEqual(layout(540).volume!.width, SystemVolumeSlider.knobDiameter * 4)
     }
 
     /// `Stress-Music-620`: the trailing pair rides the edge — the last control ends
-    /// at `bw − 14`, the pane's own right edge — and the slider takes the extra 60.
+    /// at `bw − 14`, the pane's own right edge.
     func testTheTrailingControlsRideTheEdge() {
         for width in [CGFloat(480), 540, 560, 620] {
             let l = layout(width)
@@ -138,19 +126,16 @@ final class PlayerLayoutTests: XCTestCase {
             XCTAssertEqual(l.progress.maxX, width - 14, "the progress row ends at the same edge")
             XCTAssertEqual(l.title.width, width - 220)
         }
-        XCTAssertEqual(layout(620).volume?.width, 156, "96 + (620 − 560)")
-        XCTAssertEqual(layout(620).volume?.minX, 384, "the slider stays where it starts")
         XCTAssertEqual(layout(480).title.width, 260)
     }
 
-    /// Nothing in the controls row overlaps its neighbour, and the slider keeps
-    /// clear of the Output button, at every width the panel can be.
+    /// Nothing in the controls row overlaps its neighbour at every width the
+    /// panel can be.
     func testTheControlsRowNeverOverlaps() {
         for width in stride(from: CGFloat(480), through: 620, by: 20) {
             for band in [true, false] {
                 let l = layout(width, band: band)
                 var row = [l.shuffle, l.transport, l.repeatButton]
-                if let volume = l.volume { row.append(volume) }
                 if let output = l.output { row.append(output) }
                 row.append(l.lyrics)
                 for (a, b) in zip(row, row.dropFirst()) {
@@ -171,7 +156,6 @@ final class PlayerLayoutTests: XCTestCase {
                     var frames = [l.cover, l.title, l.subtitle, l.progress, l.shuffle, l.transport,
                                   l.repeatButton, l.lyrics]
                     if band { frames += [l.sungLine, l.nextLine] }
-                    if let volume = l.volume { frames.append(volume) }
                     if let output = l.output { frames.append(output) }
                     for frame in frames {
                         let local = l.inPane(frame)
@@ -182,15 +166,13 @@ final class PlayerLayoutTests: XCTestCase {
         }
     }
 
-    // MARK: - Volume and Output off (§4.5)
+    // MARK: - Output Button off (§4.5)
 
-    /// Off hides both controls and the band keeps its place.
-    func testVolumeAndOutputOffHidesBothAndTheBandKeepsItsPlace() {
+    /// Off hides the button and the band keeps its place.
+    func testOutputButtonOffHidesItAndTheBandKeepsItsPlace() {
         let on = layout()
-        let off = layout(volume: false)
-        XCTAssertNil(off.volume)
+        let off = layout(output: false)
         XCTAssertNil(off.output)
-        XCTAssertFalse(off.volumeFoldsIntoMenu, "no menu to fold it into")
         XCTAssertEqual(off.sungLine, on.sungLine)
         XCTAssertEqual(off.nextLine, on.nextLine)
         XCTAssertEqual(off.progress, on.progress)

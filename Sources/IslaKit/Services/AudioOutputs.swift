@@ -167,6 +167,21 @@ enum AudioOutputs {
         }
     }
 
+    /// The glyph for the device the sound goes to now, or `fallback` when the
+    /// list does not hold it (nothing read yet, no default, a device that has
+    /// just gone). The one place that turns "which device is current" into a
+    /// symbol, so the lock card's foot rail and the island's Output button name
+    /// the same device the same way; each passes the fallback that suits it —
+    /// the card's AirPlay glyph, the island's plain speaker.
+    static func symbol(outputs: [Output], current: AudioDeviceID?, fallback: String) -> String {
+        guard let current, let device = outputs.first(where: { $0.id == current }) else { return fallback }
+        return device.symbol
+    }
+
+    /// What the island's Output button draws before it knows where the sound
+    /// goes: a speaker says "output" without naming a device it has not seen.
+    static let outputFallbackSymbol = "speaker.wave.2"
+
     // MARK: - Output latency
 
     /// What CoreAudio says a device adds between a sample being handed to it

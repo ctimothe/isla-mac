@@ -44,14 +44,14 @@ final class PlayerPaneTests: XCTestCase {
     /// The pane at a body width, hosted at exactly the size the shell gives it.
     private func scene(
         width: CGFloat = 560, header: CGFloat = 38,
-        lyrics: Bool = true, lyricBand: Bool = true, volumeAndOutput: Bool = true,
+        lyrics: Bool = true, lyricBand: Bool = true, outputButton: Bool = true,
         duration: TimeInterval = 238, playing: Bool = true, volume: Float? = 0.62,
         title: String = "Waiting Room", cover: Bool = false
     ) async -> Scene {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         isolated.suite.set(lyricBand, forKey: NotchViewModel.lyricBandKey)
-        isolated.suite.set(volumeAndOutput, forKey: NotchViewModel.volumeAndOutputKey)
+        isolated.suite.set(outputButton, forKey: NotchViewModel.volumeAndOutputKey)
         let media = isolated.stores.media
         let track = LabFixtures.Track(
             title: title, duration: duration, elapsed: 9, playing: playing,
@@ -69,7 +69,7 @@ final class PlayerPaneTests: XCTestCase {
         .defaultAppStorage(isolated.suite)
         let layout = PlayerLayout(
             bodyWidth: width, headerHeight: header,
-            hasLyricBand: lyrics && lyricBand, hasVolumeAndOutput: volumeAndOutput
+            hasLyricBand: lyrics && lyricBand, hasOutputButton: outputButton
         )
         let root = await AXProbe.tree(of: pane, size: layout.paneSize)
         return Scene(root: root, layout: layout)
@@ -119,12 +119,8 @@ final class PlayerPaneTests: XCTestCase {
         XCTAssertEqual(frame.minX, l.inPane(l.progress).minX + widths.elapsed + 6, accuracy: 1)
         XCTAssertEqual(frame.maxX, l.inPane(l.progress).maxX - widths.remaining - 6, accuracy: 1)
 
-        // The volume strip ends at the slider's right edge, 22 tall.
-        let volume = try node(s.root, "Volume", role: "AXSlider")
-        let volumeFrame = try XCTUnwrap(volume.frame)
-        XCTAssertEqual(volumeFrame.maxX, l.inPane(try XCTUnwrap(l.volume)).maxX, accuracy: 1)
-        XCTAssertEqual(volumeFrame.midY, l.inPane(try XCTUnwrap(l.volume)).midY, accuracy: 1)
-        XCTAssertGreaterThanOrEqual(volumeFrame.height, 22)
+        // The volume left the island (owner, 2026-10-16): no slider anywhere.
+        XCTAssertNil(s.root.all { $0.label == "Volume" }.first, "no volume on the island\n\(s.root.dump)")
     }
 
     /// The sung line is the one button in the band, saying what is sung; the next
@@ -184,46 +180,47 @@ final class PlayerPaneTests: XCTestCase {
 
     // MARK: - Width (§4.5, §13)
 
-    /// `Stress-Music-480`: no slider on the player, the Output button and the
-    /// Lyrics button still on the trailing edge.
-    func testAt480TheSliderIsNotDrawnAndTheEdgeHolds() async throws {
+    /// `Stress-Music-480`: the Output button and the Lyrics button still on the
+    /// trailing edge.
+    func testAt480TheEdgeHolds() async throws {
         let s = await scene(width: 480)
-        XCTAssertNil(s.root.all { $0.label == "Volume" && $0.role == "AXSlider" }.first, "the menu carries it:\n\(s.root.dump)")
         try assertFrame(try node(s.root, "Sound Output"), near: s.layout.inPane(try XCTUnwrap(s.layout.output)), "output at 480")
         let lyricsButton = try XCTUnwrap(s.root.all { $0.label == "Lyrics" && $0.frame?.width == 26 }.first)
         try assertFrame(lyricsButton, near: s.layout.inPane(s.layout.lyrics), "lyrics at 480")
         XCTAssertEqual(try XCTUnwrap(lyricsButton.frame).maxX, s.layout.paneSize.width, accuracy: 1)
     }
 
-    /// `Stress-Music-620`: the trailing controls ride the edge and the slider
-    /// takes the extra 60.
-    func testAt620TheControlsRideTheEdgeAndTheSliderGrows() async throws {
-        let narrow = await scene(width: 560)
+    /// `Stress-Music-620`: the trailing controls ride the edge.
+    func testAt620TheControlsRideTheEdge() async throws {
         let wide = await scene(width: 620)
         let lyricsButton = try XCTUnwrap(wide.root.all { $0.label == "Lyrics" && $0.frame?.width == 26 }.first)
         XCTAssertEqual(try XCTUnwrap(lyricsButton.frame).maxX, wide.layout.paneSize.width, accuracy: 1)
-        let a = try XCTUnwrap(try node(narrow.root, "Volume", role: "AXSlider").frame)
-        let b = try XCTUnwrap(try node(wide.root, "Volume", role: "AXSlider").frame)
-        XCTAssertEqual(b.width - a.width, 60, accuracy: 1, "the slider takes the extra 60")
-        XCTAssertEqual(b.minX, a.minX, accuracy: 1, "and starts where it did")
     }
 
-    /// Volume and Output off: neither control exists, and the band keeps its
+    /// Output Button off: the button does not exist, and the band keeps its
     /// place.
-    func testVolumeAndOutputOffRemovesBoth() async throws {
-        let s = await scene(volumeAndOutput: false)
+    func testOutputButtonOffRemovesIt() async throws {
+        let s = await scene(outputButton: false)
         XCTAssertNil(s.root.all { $0.label == "Volume" }.first, s.root.dump)
         XCTAssertNil(s.root.all { $0.label == "Sound Output" }.first, s.root.dump)
         let band = try XCTUnwrap(s.root.all { $0.value == "Third line" }.first, "the band keeps its place")
         try assertFrame(band, near: s.layout.inPane(s.layout.sungLine), "band")
     }
 
-    /// A device with no volume to give has no bar, but the Output button is
-    /// still there: choosing where the sound goes does not need a level.
-    func testNoVolumeToGiveDrawsNoBarButKeepsTheButton() async throws {
+    /// A device with no volume to give still has the Output button: choosing
+    /// where the sound goes does not need a level, and the button never did.
+    func testNoVolumeToGiveKeepsTheButton() async throws {
         let s = await scene(volume: nil)
         XCTAssertNil(s.root.all { $0.label == "Volume" }.first, s.root.dump)
         XCTAssertNotNil(s.root.all { $0.label == "Sound Output" }.first, s.root.dump)
+    }
+
+    /// The button says where the sound goes: its value is the current device's
+    /// name, and its glyph follows the current device (`PlayerOutputButton.symbol`).
+    func testTheOutputButtonNamesTheCurrentDevice() async throws {
+        let s = await scene()
+        let button = try node(s.root, "Sound Output")
+        XCTAssertEqual(button.value, "MacBook Pro Speakers", s.root.dump)
     }
 
     /// Everything the player draws is a control a person can hit at the widths

@@ -4,3 +4,6 @@ build/
 .parity/
 .check-logs/
 .DS_Store
+
+# The signing identity's encrypted backup (Scripts/make-signing-identity.sh).
+*.p12

@@ -205,7 +205,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .musicOnly: return localized("Music Only")
         // The group's header, and what VoiceOver calls the list of players.
         case .installedPlayers: return localized("Players on This Mac")
-        case .volumeAndOutput: return localized("Volume and Output")
+        case .volumeAndOutput: return localized("Output Button")
         case .lyricBand: return localized("Lyric Band")
         case .showLyrics: return localized("Show Lyrics")
         case .wordKaraoke: return localized("Word Karaoke")
@@ -585,7 +585,7 @@ enum SettingsTable {
         blocks += [
             .header(localized("In the player")),
             .group([.volumeAndOutput, .lyricBand]),
-            .footnote(localized("Volume and Output put the system volume and the AirPlay menu in the player. Lyric Band is the sung line and the next one, under the title.")),
+            .footnote(localized("Output Button puts the sound output menu in the player. Lyric Band is the sung line and the next one, under the title.")),
         ]
         return blocks
     }

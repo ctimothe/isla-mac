@@ -2,15 +2,15 @@ import Combine
 import CoreAudio
 import SwiftUI
 
-/// The system output volume's bar, shared by the lock card and the player.
+/// The system output volume's bar, on the lock card.
 ///
 /// It lived inside `LockScreenCard` — the drag, the paced writes, the latch on
 /// the device a drag began on, the mute handling, VoiceOver's steps — until the
-/// redesign (2026-10-15, spec §4.5) put the same bar in the Music player. Two
-/// copies of that logic would have drifted the first time one of them learnt a
-/// lesson (K-008 and F-045 and G-023 each taught the card one), so the logic is
-/// here once, in `VolumeSliderModel`, and the two surfaces differ only in how
-/// `SystemVolumeSlider` is dressed (`Look`).
+/// redesign (2026-10-15, spec §4.5) put the same bar in the Music player and in
+/// the Output menu. Those two went on 2026-10-16 (the volume is the Mac's, not
+/// the player's; the lock card keeps it), but the split stayed: the logic is in
+/// `VolumeSliderModel`, and the card's two bars — its foot rail and its Sound
+/// pane — differ only in how `SystemVolumeSlider` is dressed (`Look`).
 ///
 /// **Nothing here writes the machine until a person drags or steps it.** The
 /// model reads — the level, the mute, the default device, all through the
@@ -190,20 +190,13 @@ final class VolumeSliderModel: ObservableObject {
     }
 }
 
-/// The bar itself: a speaker glyph, a track, and — for the player and the menu
-/// — a knob.
+/// The bar itself: a speaker glyph, a track, and — on the Sound pane — a knob.
 struct SystemVolumeSlider: View {
     /// How the bar is dressed. The behaviour is the model's and does not vary.
     enum Look {
         /// The lock card's: a 4 pt track in the card's own greys, no knob, a
         /// quiet speaker at each end.
         case card
-        /// The player's (spec §4.5): a 4 pt track with a 12 pt knob, a 10 pt
-        /// `speaker.fill` at the leading end only — the row has no room for two.
-        case player
-        /// The Output menu's slider row (below 540): the player's bar with the
-        /// loud speaker at the far end too, as the system's own sound menu has.
-        case menu
         /// The lock card's Output pane (spec §7.3), the macOS Sound module's
         /// slider: an 8 pt track with a knob, a quiet speaker and a loud one at
         /// the ends in slots of their own, so the bar between them is the 380
@@ -214,9 +207,8 @@ struct SystemVolumeSlider: View {
     @ObservedObject var model: VolumeSliderModel
     var look: Look
 
-    /// 4 pt track, 12 pt knob (spec §4.5); the card keeps its bare 4 pt bar.
+    /// The card's bare 4 pt bar.
     static let trackHeight: CGFloat = 4
-    static let knobDiameter: CGFloat = 12
     /// The Sound pane's own: a thicker track wants a bigger knob.
     static let soundTrackHeight: CGFloat = 8
     static let soundKnobDiameter: CGFloat = 14
@@ -225,11 +217,9 @@ struct SystemVolumeSlider: View {
     static let soundSpacing: CGFloat = 8
 
     private var trackHeight: CGFloat { look == .sound ? Self.soundTrackHeight : Self.trackHeight }
-    private var knobDiameter: CGFloat { look == .sound ? Self.soundKnobDiameter : Self.knobDiameter }
+    private var knobDiameter: CGFloat { Self.soundKnobDiameter }
     /// The strip a pointer has to land on: 22 pt, as the scrubber's, so a near
-    /// miss still lands (F-014). The row it sits in is 12 pt (player) or 22 pt
-    /// (card), and the strip's extra height is given back with negative padding
-    /// so the neighbours stay where the type rhythm put them.
+    /// miss still lands (F-014).
     static let gripHeight: CGFloat = 22
 
     var body: some View {
@@ -257,13 +247,9 @@ struct SystemVolumeSlider: View {
                 // element's frame is the strip a pointer lands on, not the
                 // 12 pt row the strip is laid out in.
                 .volumeAccessibility(level: model.level, muted: model.muted) { model.step(to: $0) }
-                // The player's row is 12 pt tall; the card's is the strip's own 22.
-                .padding(.vertical, look == .card || look == .sound ? 0 : -5)
-            if look != .player {
-                Image(systemName: "speaker.wave.3.fill")
-                    .islandFont(look == .sound ? .body : .caption, weight: .regular)
-                    .frame(width: look == .sound ? Self.soundGlyphSlot : nil, alignment: .trailing)
-            }
+            Image(systemName: "speaker.wave.3.fill")
+                .islandFont(look == .sound ? .body : .caption, weight: .regular)
+                .frame(width: look == .sound ? Self.soundGlyphSlot : nil, alignment: .trailing)
         }
         .foregroundStyle(palette.glyph)
     }
@@ -281,8 +267,6 @@ struct SystemVolumeSlider: View {
             return Palette(track: Theme.cardTrack, fill: .white.opacity(0.8), glyph: Theme.cardSecondary)
         case .sound:
             return Palette(track: Theme.cardTrack, fill: .white, glyph: Theme.cardSecondary)
-        case .player, .menu:
-            return Palette(track: Theme.surface, fill: .white.opacity(0.9), glyph: Theme.secondary)
         }
     }
 
