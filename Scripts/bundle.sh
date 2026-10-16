@@ -222,7 +222,9 @@ SIGN_KEYCHAIN=""
 KEYCHAIN_ARGS=()
 # The identity, in order: a Developer ID when one is given (releases), then the
 # fixed self-signed "Isla Code Signing" identity when this Mac has one, then
-# ad-hoc. ISLA_ADHOC=1 forces ad-hoc.
+# ad-hoc. ISLA_SIGN_ADHOC=1 forces ad-hoc. Not ISLA_ADHOC: release.sh already uses
+# that to mean "publish without a Developer ID", and such a release is exactly
+# the build that should carry the fixed identity.
 #
 # Why the middle step (owner, 2026-10-16): an ad-hoc signature's designated
 # requirement is the build's cdhash, so to macOS every rebuild and every update
@@ -245,7 +247,7 @@ KEYCHAIN_ARGS=()
 LOCAL_IDENTITY_NAME="Isla Code Signing"
 if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
     SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION"
-elif [ "${ISLA_ADHOC:-0}" != "1" ]; then
+elif [ "${ISLA_SIGN_ADHOC:-0}" != "1" ]; then
     # Without -v: an untrusted self-signed identity is left out of the "valid"
     # list, and it is the only kind this looks for.
     LOCAL_HASHES="$(security find-identity -p codesigning 2>/dev/null \
@@ -256,7 +258,7 @@ elif [ "${ISLA_ADHOC:-0}" != "1" ]; then
         *)
             echo "!!! more than one \"$LOCAL_IDENTITY_NAME\" identity in the keychain:" >&2
             printf '%s\n' "$LOCAL_HASHES" >&2
-            echo "    delete the extra one in Keychain Access, or set ISLA_ADHOC=1" >&2
+            echo "    delete the extra one in Keychain Access, or set ISLA_SIGN_ADHOC=1" >&2
             exit 1
             ;;
     esac

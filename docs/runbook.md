@@ -17,7 +17,7 @@ path.
   `Scripts/bundle.sh` signs with it whenever no Developer ID is given. Without
   it builds are ad-hoc, and macOS forgets Isla's Accessibility permission (the
   Volume and Brightness pop-up) after every rebuild or update while System
-  Settings still shows Isla switched on. `ISLA_ADHOC=1` forces ad-hoc.
+  Settings still shows Isla switched on. `ISLA_SIGN_ADHOC=1` forces ad-hoc.
 - A physical-notch MacBook for the hardware pass and a non-notch/external display
   for the synthetic pass.
 - Cyclop 0.6.5 built from pinned commit
