@@ -242,9 +242,22 @@ KEYCHAIN_ARGS=()
 # are unaffected: there is still no team, so `TokenStore` keeps the Spotify
 # tokens in its owner-only file exactly as it does for an ad-hoc build.
 #
-# Signed by the certificate's SHA-1, not its name, so two certificates that
-# share the name fail here with a clear message rather than inside codesign.
+# Pinned, not merely named (review, 2026-10-16). Any certificate called "Isla
+# Code Signing" would satisfy a name match, and a second one, made after a lost
+# backup or on another Mac, is a different designated requirement: every user
+# would lose the permission again, which is the one thing this exists to stop.
+# Scripts/signing-identity.sha1 holds the SHA-1 of the one certificate releases
+# are signed with (make-signing-identity.sh writes it), and only that one is
+# used. A same-named certificate with another hash stops the build. Signing is
+# by that hash, so codesign can never pick between two by name.
+#
+# With no pinned identity in the keychain the build is ad-hoc, loudly: fine for
+# a clone of the repository or for CI, never for a release, which release.sh
+# checks against the pin itself.
 LOCAL_IDENTITY_NAME="Isla Code Signing"
+PIN_FILE="$ROOT/Scripts/signing-identity.sha1"
+PINNED_HASH=""
+[ -f "$PIN_FILE" ] && PINNED_HASH="$(tr -d '[:space:]' < "$PIN_FILE" | tr '[:lower:]' '[:upper:]')"
 if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
     SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION"
 elif [ "${ISLA_SIGN_ADHOC:-0}" != "1" ]; then
@@ -252,16 +265,25 @@ elif [ "${ISLA_SIGN_ADHOC:-0}" != "1" ]; then
     # list, and it is the only kind this looks for.
     LOCAL_HASHES="$(security find-identity -p codesigning 2>/dev/null \
         | grep -F "\"$LOCAL_IDENTITY_NAME\"" | awk '{print $2}' | sort -u || true)"
-    case "$(printf '%s' "$LOCAL_HASHES" | grep -c .)" in
-        0) SIGN_IDENTITY="-" ;;
-        1) SIGN_IDENTITY="$LOCAL_HASHES" ;;
-        *)
-            echo "!!! more than one \"$LOCAL_IDENTITY_NAME\" identity in the keychain:" >&2
-            printf '%s\n' "$LOCAL_HASHES" >&2
-            echo "    delete the extra one in Keychain Access, or set ISLA_SIGN_ADHOC=1" >&2
-            exit 1
-            ;;
-    esac
+    if [ -z "$LOCAL_HASHES" ]; then
+        SIGN_IDENTITY="-"
+        echo "==> no \"$LOCAL_IDENTITY_NAME\" identity on this Mac: signing ad-hoc," >&2
+        echo "    so macOS forgets Isla's Accessibility permission on every install." >&2
+        echo "    Once per build Mac: bash Scripts/make-signing-identity.sh" >&2
+    elif [ -z "$PINNED_HASH" ]; then
+        echo "!!! \"$LOCAL_IDENTITY_NAME\" is in the keychain but $PIN_FILE is missing;" >&2
+        echo "    rerun Scripts/make-signing-identity.sh to write it, or set ISLA_SIGN_ADHOC=1" >&2
+        exit 1
+    elif printf '%s\n' "$LOCAL_HASHES" | grep -qx "$PINNED_HASH"; then
+        SIGN_IDENTITY="$PINNED_HASH"
+    else
+        echo "!!! the keychain's \"$LOCAL_IDENTITY_NAME\" is not the pinned certificate:" >&2
+        printf '      keychain %s\n' $LOCAL_HASHES >&2
+        echo "      pinned   $PINNED_HASH ($PIN_FILE)" >&2
+        echo "    Restore the pinned one from its backup; a different certificate makes" >&2
+        echo "    every installed Isla lose its permissions. ISLA_SIGN_ADHOC=1 builds anyway." >&2
+        exit 1
+    fi
 else
     SIGN_IDENTITY="-"
 fi
@@ -347,6 +369,13 @@ if [ -f "$APP/Contents/Resources/libislamedia.dylib" ]; then
 fi
 codesign "${SIGN_ARGS[@]}" "$APP" || {
     echo "!!! codesign не смог подписать бандл — см. вывод выше" >&2
+    if [ "$SIGN_IDENTITY" != "-" ] && [ -z "${DEVELOPER_ID_APPLICATION:-}" ]; then
+        # The usual causes with the local identity: the login keychain is
+        # locked (an SSH session), or codesign was refused the key at its
+        # first-use prompt. errSecInternalComponent is how both look.
+        echo "    with \"$LOCAL_IDENTITY_NAME\": unlock the login keychain and answer" >&2
+        echo "    codesign's prompt with Always Allow, or build ad-hoc: ISLA_SIGN_ADHOC=1" >&2
+    fi
     exit 1
 }
 codesign --verify --strict "$APP" || {
