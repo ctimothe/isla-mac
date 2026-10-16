@@ -79,6 +79,8 @@ struct SettingsPane: View {
     var accessibilityMissing: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
     /// True once it has stayed missing past `MediaKeyHUD.staleEntryAfter`.
     var accessibilityEntrySuspectedStale: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
+    /// True while Isla resets its own Accessibility entry.
+    var accessibilityRepairing: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
     /// True once the permission is granted and macOS still passes no keys.
     var volumeKeysRefused: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
     /// The section on screen: a binding to `NotchViewModel.settingsSection`, which
@@ -121,6 +123,7 @@ struct SettingsPane: View {
     @State private var fallbackReason: NowPlayingRouteFailure?
     /// `accessibilityMissing`, received on its own, like `fallbackReason`.
     @State private var needsAccessibility = false
+    @State private var repairingAccessibility = false
     /// `accessibilityEntrySuspectedStale`, received the same way.
     @State private var staleAccessibilityEntry = false
     /// `volumeKeysRefused`, received the same way.
@@ -349,6 +352,7 @@ struct SettingsPane: View {
         }
         .onReceive(media.$fallbackReason) { fallbackReason = $0 }
         .onReceive(accessibilityMissing) { needsAccessibility = $0 }
+        .onReceive(accessibilityRepairing) { repairingAccessibility = $0 }
         .onReceive(accessibilityEntrySuspectedStale) { staleAccessibilityEntry = $0 }
         .onReceive(volumeKeysRefused) { keysRefused = $0 }
     }
@@ -942,7 +946,12 @@ struct SettingsPane: View {
             push(localized("Try Again")) { media.retryNowPlaying(userAsked: true) }
         case .accessibilityPermission:
             // The same open, for the same reason: no activation needed.
-            push(localized("Open Privacy & Security…")) { NSWorkspace.shared.open(SystemAccessibilityTrust.settingsURL) }
+            // Greyed, not hidden, while Isla resets its own entry: a grant made
+            // now would be wiped when the reset finishes, and the row must not
+            // jump.
+            push(localized("Open Privacy & Security…"), disabled: repairingAccessibility) {
+                NSWorkspace.shared.open(SystemAccessibilityTrust.settingsURL)
+            }
         case .automationPermission:
             // NSWorkspace needs no activation, so this works from a panel that
             // never becomes key; System Settings comes forward on its own.
@@ -1358,10 +1367,13 @@ enum SettingsRowArrangement: Equatable {
     static let stackedInset: CGFloat = 6
 
     /// Side by side when the leading icon, the label's longest word, the least
-    /// gap and the control all fit in `available`.
+    /// gap and the control all fit in `available`. Measured widths are rounded
+    /// up and there is no tolerance: a label proposed even a hair less than its
+    /// longest word breaks inside it, which is the very bug.
     static func choose(available: CGFloat, leading: CGFloat, longestWord: CGFloat, trailing: CGFloat) -> Self {
+        let leading = ceil(leading), longestWord = ceil(longestWord), trailing = ceil(trailing)
         let lead = leading > 0 ? leading + spacing : 0
-        return lead + longestWord + gap(trailing: trailing) + trailing <= available + 0.5 ? .sideBySide : .stacked
+        return lead + longestWord + gap(trailing: trailing) + trailing <= available ? .sideBySide : .stacked
     }
 }
 
@@ -1387,11 +1399,14 @@ struct SettingsRowLayout: Layout {
 
     private func measures(_ subviews: Subviews) -> Measures {
         let p = parts(subviews)
+        // Widths round up, as `SettingsRowArrangement.choose` does, so the
+        // width the label is proposed is never below the word it must not break.
+        func up(_ size: CGSize) -> CGSize { CGSize(width: ceil(size.width), height: size.height) }
         return Measures(
-            leading: p.leading?.sizeThatFits(.unspecified) ?? .zero,
-            labelIdeal: p.label.sizeThatFits(.unspecified),
-            labelLongestWord: p.probes.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0,
-            trailing: p.trailing.sizeThatFits(.unspecified)
+            leading: up(p.leading?.sizeThatFits(.unspecified) ?? .zero),
+            labelIdeal: up(p.label.sizeThatFits(.unspecified)),
+            labelLongestWord: ceil(p.probes.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0),
+            trailing: up(p.trailing.sizeThatFits(.unspecified))
         )
     }
 

@@ -33,6 +33,17 @@ final class SettingsRowChromeTests: XCTestCase {
         )
     }
 
+    /// Measured widths are rounded up and there is no tolerance: a label that is
+    /// proposed even a hair less than its longest word breaks inside it.
+    func testTheBoundaryIsExactAndMeasuredWidthsRoundUp() {
+        // 50.2 rounds up to 51: 51 + 24 + 30 = 105.
+        XCTAssertEqual(SettingsRowArrangement.choose(available: 105, leading: 0, longestWord: 50.2, trailing: 30), .sideBySide)
+        XCTAssertEqual(SettingsRowArrangement.choose(available: 104.9, leading: 0, longestWord: 50.2, trailing: 30), .stacked)
+        // The control's 29.2 rounds up to 30: 50 + 24 + 30 = 104.
+        XCTAssertEqual(SettingsRowArrangement.choose(available: 104, leading: 0, longestWord: 50, trailing: 29.2), .sideBySide)
+        XCTAssertEqual(SettingsRowArrangement.choose(available: 103.9, leading: 0, longestWord: 50, trailing: 29.2), .stacked)
+    }
+
     func testTheLeadingIconCountsWithItsGap() {
         XCTAssertEqual(
             SettingsRowArrangement.choose(available: 130, leading: 18, longestWord: 50, trailing: 30),

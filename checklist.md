@@ -252,8 +252,12 @@ are the exception the design did not anticipate:
   *2026-10-17 (owner):* Isla resets its **own** Accessibility decision with
   Apple's `tccutil` (`reset Accessibility com.ctimothe.isla`, never another
   app's, never `All`), only when Volume and Brightness is on and Isla is not
-  trusted: when the switch goes on and once per build at launch, so a stale
-  entry left by an older ad-hoc build no longer hides the system prompt. The
+  trusted and the session available (Mac unlocked, display awake, by macOS's
+  own account): when the switch goes on and once per code identity (the running
+  code's cdhash, so a development rebuild counts) at launch, never within 5 s
+  of an Accessibility-list announcement and never over a grant read just
+  before, so a stale entry left by an older ad-hoc build no longer hides the
+  system prompt. The
   feature stays off by default and the tool is never run otherwise. Held by
   `AccessibilityRepairTests` and `MediaKeyHUDTests`; spec §12 carries the
   amendment.
@@ -1672,9 +1676,17 @@ scroll the lyrics for real, let go and count four seconds.
     and the keys work after granting, with nothing removed by hand.
   - [ ] **R5-H1b** The same after an update (Update Now, or installing the next
     build over the old) with the setting already on: the first launch of the new
-    build shows the prompt once.
+    build shows the prompt once. Also after a development reinstall that keeps
+    the same build number (the cdhash is what counts).
   - [ ] **R5-H1c** A person who declines is not asked again at the next launch
-    of the same build; switching the setting off and on asks again.
+    of the same code, but the fallback footnote is there at once; switching the
+    setting off and on asks again.
+  - [ ] **R5-H1d** On a Mac where Isla has never had an Accessibility entry:
+    switching the setting on shows the macOS prompt, the fallback footnote does
+    not appear if the user grants within 30 s, and the keys work.
+  - [ ] **R5-H1e** Relaunch onto a locked Mac and onto a dark display with the
+    setting on and a stale entry: nothing is reset and no prompt appears behind
+    the lock; the first awake, unlocked moment repairs and prompts once.
 - [ ] **R5-H2** Mute keeps the level, dimmed; unmute restores it.
 - [ ] **R5-H3** Display and keyboard brightness keys on the MacBook Pro.
 - [ ] **R5-H4** Turning it off gives the keys back at once.

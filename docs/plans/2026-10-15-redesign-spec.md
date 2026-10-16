@@ -1219,21 +1219,41 @@ until nothing uses them, then go.
 >   not setuid and carries Apple's own TCC-management entitlement, so no
 >   administrator password is involved; there is no public API that resets a TCC
 >   decision.
-> - **When.** Only while Volume and Brightness is on, the display is awake, the
->   Mac is unlocked and Isla is not trusted: (a) when the person switches it on
->   (repair, then the prompt once, after the repair has finished whether or not
->   it worked); (b) at launch, once per build (`CFBundleVersion` against
->   `lastAccessibilityRepairBuild`, an internal key and not a Settings row), so
->   an update repairs once and a person who declines is not asked again at the
->   next launch of the same build; a locked or sleeping Mac waits for the first
->   awake, unlocked resume. Never when trusted, never with the setting off,
->   never from a timer, a poll or a grant look. After a repair the existing
->   looks, poll and tap retry take over unchanged.
-> - **Footnote.** The 30 s "Already switched on in the list? …" line is now the
->   fallback: it shows when a repair was attempted and failed (non-zero exit or
->   timeout), or 30 s after a successful repair and prompt while Isla is still
->   not trusted (an announcement restarts that wait). Its text is unchanged and
->   there is no new button.
+> - **When.** Only while Volume and Brightness is on, the session is
+>   available and Isla is not trusted. "Available" is macOS's own account, not
+>   `LockScreenPresence`'s (which has not started when launch runs, and may
+>   never see a lock that began before Isla did): `CGSSessionScreenIsLocked`
+>   absent or false, the main display awake, and the existing suspend and lock
+>   checks passing. (a) When the person switches it on: repair, then the prompt
+>   once, after the repair has finished whether or not it worked. (b) At launch,
+>   once per **code identity**: the running code's unique hash
+>   (`kSecCodeInfoUnique`, the cdhash, as hex; `CFBundleVersion` when it cannot
+>   be read), kept in `lastAccessibilityRepairBuild` (an internal key, not a
+>   Settings row), because a development rebuild or re-sign keeps the bundle
+>   version and is a new TCC identity. If the session is not available the
+>   launch repair stays pending, and `resume()` and `refresh()` (the poll
+>   included) fire it, only while it is pending, the session is available, the
+>   setting is on and Isla is still not trusted; the pending flag is spent the
+>   moment it fires, so it is never more than once per identity. A person who
+>   declines is not asked again at the next launch of the same code. Never when
+>   trusted, never with the setting off, and no look repairs anything but a
+>   pending launch repair. After a repair the existing looks, poll and tap retry
+>   take over unchanged.
+> - **Never wipe a fresh grant.** The reset is skipped when the system announced
+>   an Accessibility-list change in the last 5 s: the repair looks again 1.5 s
+>   later and, if Isla is still untrusted, goes ahead as normal. Trust is read
+>   again immediately before the tool runs, after any deferral. While the tool
+>   runs "Open Privacy & Security…" is greyed (not hidden, so the row does not
+>   jump). The tool is bounded: SIGTERM at 5 s, SIGKILL 2 s later, and a
+>   process neither reaches is given up on after one more second and reported
+>   as timed out, so the prompt still follows.
+> - **Footnote.** The 30 s "Already switched on in the list? …" line is the
+>   fallback, and its text is unchanged and there is no new button. It shows
+>   when Isla is still untrusted 30 s after the post-repair prompt, whatever the
+>   reset returned (a Mac with no entry at all can make it fail and needs no
+>   hint at once; an announcement restarts the wait), and immediately at launch
+>   when the ledger says this code identity already had its one repair and Isla
+>   is still untrusted with the setting on. Never while trusted.
 
 ## 13. Stress rules
 

@@ -174,6 +174,7 @@ final class MediaKeyHUDTests: XCTestCase {
     private let ledger = MemoryRepairLedger()
     private var build = "100"
     private var locked = false
+    private var sessionAvailable = true
     private var readings: [HUDReading] = []
     /// Every device the glyph lookup was asked about: the enumerator, counted.
     private var glyphLookups: [AudioDeviceID] = []
@@ -195,7 +196,8 @@ final class MediaKeyHUDTests: XCTestCase {
             grantNotifier: grants,
             repairer: repair,
             ledger: ledger,
-            currentBuild: { [unowned self] in self.build }
+            currentBuildIdentity: { [unowned self] in self.build },
+            sessionIsAvailable: { [unowned self] in self.sessionAvailable }
         )
         hud.isLocked = { [unowned self] in self.locked }
         hud.onReading = { [unowned self] in self.readings.append($0) }
@@ -1242,15 +1244,32 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(repair.resets, 1)
     }
 
-    func testAFailedRepairStillPromptsAndShowsTheFootnoteAtOnce() {
+    func testAFailedRepairStillPromptsAndTheFootnoteWaitsThirtySecondsLikeAnyOther() {
         let hud = hud()
         repair.result = false
         enabled = true
         trust.trusted = false
         hud.settingChanged(to: true)
         XCTAssertEqual(trust.prompts, 1, "it costs nothing to ask")
-        XCTAssertTrue(hud.suspectsStaleEntry, "the by-hand footnote is the fallback")
+        XCTAssertFalse(hud.suspectsStaleEntry, "a Mac with no entry at all may fail the reset, and needs no hint yet")
+        moment += 31
+        hud.refresh()
+        XCTAssertTrue(hud.suspectsStaleEntry, "still untrusted thirty seconds after the prompt, whatever the reset said")
         trust.trusted = true
+        hud.refresh()
+        XCTAssertFalse(hud.suspectsStaleEntry)
+    }
+
+    func testAGrantWithinThirtySecondsOfAFailedRepairNeverShowsTheFootnote() {
+        let hud = hud()
+        repair.result = false
+        enabled = true
+        trust.trusted = false
+        hud.settingChanged(to: true)
+        moment += 20
+        trust.trusted = true
+        hud.refresh()
+        moment += 20
         hud.refresh()
         XCTAssertFalse(hud.suspectsStaleEntry)
     }
@@ -1523,6 +1542,206 @@ final class MediaKeyHUDTests: XCTestCase {
         hud.settingChanged(to: true)   // would run tccutil if the default were real
         hud.launched()
         hud.stop()
+    }
+
+    // MARK: Review round 1 (2026-10-17)
+
+    func testALaunchOntoAnUnavailableSessionWaitsAndThePollFiresItOnce() {
+        enabled = true
+        trust.trusted = false
+        sessionAvailable = false   // locked behind our back, or a dark display
+        let hud = hud()
+        hud.launched()
+        XCTAssertEqual(repair.resets, 0)
+        XCTAssertNil(ledger.lastRepairedBuild, "the one try is not spent")
+        XCTAssertTrue(hud.isPolling)
+
+        clock.fire()   // the poll, still locked
+        XCTAssertEqual(repair.resets, 0)
+
+        sessionAvailable = true
+        clock.fire()
+        XCTAssertEqual(repair.resets, 1)
+        XCTAssertEqual(trust.prompts, 1)
+        XCTAssertEqual(ledger.lastRepairedBuild, "100")
+        clock.fire()
+        hud.refresh()
+        XCTAssertEqual(repair.resets, 1, "once per build: the pending flag is spent")
+    }
+
+    func testAPendingRepairIsNotFiredByARefreshOnceTrustedOrOff() {
+        enabled = true
+        trust.trusted = false
+        sessionAvailable = false
+        let hud = hud()
+        hud.launched()
+        trust.trusted = true
+        sessionAvailable = true
+        hud.refresh()
+        trust.trusted = false
+        hud.refresh()
+        XCTAssertEqual(repair.resets, 0, "granted in the meantime: nothing was pending any more")
+
+        let off = self.hud()
+        enabled = false
+        sessionAvailable = false
+        off.launched()
+        enabled = true
+        sessionAvailable = true
+        off.refresh()
+        XCTAssertEqual(repair.resets, 0)
+    }
+
+    func testResumeFiresAPendingRepairEvenWhenTheHUDWasNeverSuspended() {
+        enabled = true
+        trust.trusted = false
+        locked = true
+        let hud = hud()
+        hud.launched()
+        hud.suspend()
+        // The wake plan resumes the stores while the Mac still reads as locked,
+        // then replays the unlock: two resumes, the first clearing the suspend.
+        hud.resume()
+        XCTAssertEqual(repair.resets, 0)
+        locked = false
+        hud.resume()   // no longer suspended: the guard used to return here
+        XCTAssertEqual(repair.resets, 1)
+        XCTAssertEqual(trust.prompts, 1)
+    }
+
+    func testAnAnnouncementJustBeforeASwitchOnDefersTheResetAndAGrantCancelsIt() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        hud.refresh()   // watching
+        grants.post()
+        moment += 1
+        hud.settingChanged(to: true)
+        XCTAssertEqual(repair.resets, 0, "tccd may be about to say yes")
+        XCTAssertEqual(trust.prompts, 0)
+
+        trust.trusted = true   // the grant landed
+        clock.fire(interval: 1.5)
+        XCTAssertEqual(repair.resets, 0, "a fresh grant is never wiped")
+        XCTAssertEqual(trust.prompts, 0)
+        XCTAssertNil(ledger.lastRepairedBuild)
+    }
+
+    func testAnAnnouncementJustBeforeASwitchOnStillRepairsIfNothingChangesAtOnePointFive() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        hud.refresh()
+        grants.post()
+        hud.settingChanged(to: true)
+        XCTAssertEqual(repair.resets, 0)
+        moment += 1.5
+        clock.fire(interval: 1.5)
+        XCTAssertEqual(repair.resets, 1)
+        XCTAssertEqual(trust.prompts, 1)
+    }
+
+    func testAnOldAnnouncementDoesNotDefer() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        hud.refresh()
+        grants.post()
+        moment += 5
+        hud.settingChanged(to: true)
+        XCTAssertEqual(repair.resets, 1, "five seconds on, the quiet period is over")
+    }
+
+    func testTrustIsReadAgainRightBeforeTheReset() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        hud.refresh()
+        grants.post()
+        hud.settingChanged(to: true)   // deferred
+        trust.trusted = true
+        moment += 1.5
+        clock.fire()
+        XCTAssertEqual(repair.resets, 0)
+    }
+
+    func testSwitchingOffCancelsADeferredRepair() {
+        let hud = hud()
+        enabled = true
+        trust.trusted = false
+        hud.refresh()
+        grants.post()
+        hud.settingChanged(to: true)
+        enabled = false
+        hud.settingChanged(to: false)
+        moment += 2
+        clock.fire()
+        XCTAssertEqual(repair.resets, 0)
+    }
+
+    func testTheHUDSaysItIsRepairingOnlyWhileTheToolRuns() {
+        let hud = hud()
+        repair.holds = true
+        enabled = true
+        trust.trusted = false
+        XCTAssertFalse(hud.isRepairing)
+        hud.settingChanged(to: true)
+        XCTAssertTrue(hud.isRepairing, "Settings greys Open Privacy & Security… meanwhile")
+        repair.finish()
+        XCTAssertFalse(hud.isRepairing)
+
+        repair.holds = true
+        enabled = false
+        hud.settingChanged(to: false)
+        enabled = true
+        hud.settingChanged(to: true)
+        XCTAssertTrue(hud.isRepairing)
+        enabled = false
+        hud.settingChanged(to: false)
+        XCTAssertFalse(hud.isRepairing, "switching off ends it")
+    }
+
+    func testALaunchWhoseBuildAlreadyHadItsRepairShowsTheFootnoteAtOnceWhileUntrusted() {
+        enabled = true
+        trust.trusted = false
+        ledger.lastRepairedBuild = "100"
+        let hud = hud()
+        hud.launched()
+        XCTAssertEqual(repair.resets, 0, "the one try is spent")
+        XCTAssertTrue(hud.suspectsStaleEntry, "the manual route is the only one left")
+        trust.trusted = true
+        hud.refresh()
+        XCTAssertFalse(hud.suspectsStaleEntry, "never while trusted")
+    }
+
+    func testTheSpentTryFootnoteNeedsTheSettingOnAndAnAvailableSession() {
+        trust.trusted = false
+        ledger.lastRepairedBuild = "100"
+        enabled = false
+        let off = hud()
+        off.launched()
+        XCTAssertFalse(off.suspectsStaleEntry)
+
+        enabled = true
+        sessionAvailable = false
+        let dark = hud()
+        dark.launched()
+        XCTAssertFalse(dark.suspectsStaleEntry, "not judged while nobody can see it")
+        sessionAvailable = true
+        dark.refresh()
+        XCTAssertTrue(dark.suspectsStaleEntry)
+    }
+
+    func testANewCodeIdentityWithTheSameBundleVersionRepairsAgain() {
+        enabled = true
+        trust.trusted = false
+        build = "cdhash-a"
+        hud().launched()
+        XCTAssertEqual(repair.resets, 1)
+        build = "cdhash-b"   // a rebuild or a re-sign: same CFBundleVersion, new TCC identity
+        hud().launched()
+        XCTAssertEqual(repair.resets, 2)
+        XCTAssertEqual(ledger.lastRepairedBuild, "cdhash-b")
     }
 
     // MARK: Trusted, but the tap never starts (2026-10-16, owner)

@@ -61,12 +61,25 @@ final class AccessibilityRepairTests: XCTestCase {
         XCTAssertFalse(timedOut)
     }
 
-    func testTheDefaultRepairUnderXCTestIsInert() async {
+    func testTheDefaultRepairUnderXCTestIsInert() {
         XCTAssertTrue(InertAccessibilityRepair.live is InertAccessibilityRepair)
-        // And even the production runner refuses the real tool under test.
-        let outcome = await ToolRun.live(SystemAccessibilityRepair.tool, ["reset", "Accessibility", "com.ctimothe.isla"], 5)
-        XCTAssertFalse(outcome.succeeded)
-        XCTAssertNil(outcome.exitStatus)
+    }
+
+    /// The refusal is a predicate, so no test ever hands the real runner the
+    /// real tool to see it refuse.
+    func testTheRunnerRefusesTccutilUnderTestInAnyDress() {
+        for path in ["/usr/bin/tccutil", "/usr/local/bin/tccutil", "tccutil", "/tmp/../usr/bin/tccutil"] {
+            XCTAssertTrue(ToolRun.refusesUnderTest(URL(fileURLWithPath: path), isTesting: true), path)
+            XCTAssertFalse(ToolRun.refusesUnderTest(URL(fileURLWithPath: path), isTesting: false), "outside a test it runs: \(path)")
+        }
+        for path in ["/bin/sleep", "/usr/bin/true", "/bin/sh"] {
+            XCTAssertFalse(ToolRun.refusesUnderTest(URL(fileURLWithPath: path), isTesting: true), path)
+        }
+        XCTAssertTrue(SystemAccessibilityRepair.tool.lastPathComponent == "tccutil")
+        // This very process is a test, by both of the two ways of knowing.
+        XCTAssertTrue(PlayerBridge.isRunningTests)
+        XCTAssertNotNil(NSClassFromString("XCTestCase"))
+        XCTAssertTrue(ToolRun.refusesUnderTest(SystemAccessibilityRepair.tool))
     }
 
     // MARK: The runner itself, on harmless tools
@@ -99,6 +112,30 @@ final class AccessibilityRepairTests: XCTestCase {
         XCTAssertTrue(outcome.timedOut)
         XCTAssertFalse(outcome.succeeded)
         XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+    }
+
+    func testAToolNoSignalReachesIsReportedTimedOutAndDoesNotHangTheRepair() async {
+        // `terminate` and `kill` that do nothing: the stand-in for a process in
+        // the kernel that SIGKILL cannot end. It exits by itself after three
+        // seconds, long after the bound.
+        let inert = ToolRun.Ending(terminate: { _ in }, kill: { _ in })
+        let started = Date()
+        let outcome = await ToolRun.run(
+            URL(fileURLWithPath: "/bin/sleep"), ["3"], timeout: 0.2, killGrace: 0.2, slack: 0.3, ending: inert
+        )
+        XCTAssertTrue(outcome.timedOut)
+        XCTAssertNil(outcome.exitStatus)
+        XCTAssertFalse(outcome.succeeded)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2.0, "bounded by timeout + grace + slack, not by the tool")
+        XCTAssertEqual(ToolRun.wedgeSlack, 1.0)
+    }
+
+    func testTheCodeIdentityIsTheUniqueHashAsHexAndFallsBackToTheBundleVersion() {
+        XCTAssertEqual(CodeIdentity.identity(unique: { Data([0x4d, 0x93, 0x0a]) }, bundleVersion: { "7" }), "4d930a")
+        XCTAssertEqual(CodeIdentity.identity(unique: { nil }, bundleVersion: { "7" }), "7")
+        XCTAssertEqual(CodeIdentity.identity(unique: { Data() }, bundleVersion: { "7" }), "7")
+        XCTAssertEqual(CodeIdentity.identity(unique: { nil }, bundleVersion: { nil }), "dev")
+        XCTAssertFalse(CodeIdentity.running.isEmpty)
     }
 
     func testAToolThatCannotStartIsAFailureNotACrash() async {

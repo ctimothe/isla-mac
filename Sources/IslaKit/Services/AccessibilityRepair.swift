@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import Security
 
 /// What a finished external tool run said.
 struct ToolOutcome: Equatable, Sendable {
@@ -22,15 +24,43 @@ enum ToolRun {
     /// How long a run that was asked to end may ignore it before SIGKILL.
     static let killGrace: TimeInterval = 2.0
 
+    /// Whether `executable` is the privacy tool and this is a test process.
+    /// Pure, so the refusal is a test of its own and no test ever has to hand
+    /// the real runner the real tool to see it refuse: the suite runs on the
+    /// owner's Mac, and `tccutil` edits that Mac's real privacy database. Two
+    /// independent ways of knowing it is a test (the app's own flag and the
+    /// presence of XCTest) so that either one failing leaves the other.
+    static func refusesUnderTest(
+        _ executable: URL,
+        isTesting: Bool = PlayerBridge.isRunningTests || NSClassFromString("XCTestCase") != nil
+    ) -> Bool {
+        guard isTesting else { return false }
+        let names = [executable.lastPathComponent, executable.resolvingSymlinksInPath().lastPathComponent]
+        return names.contains("tccutil")
+    }
+
     /// The production runner. Under XCTest it refuses to start `tccutil`
-    /// whatever it is asked: the suite runs on the owner's Mac, and the tool
-    /// edits that Mac's real privacy database.
+    /// whatever it is asked.
     static let live: ToolRunner = { executable, arguments, timeout in
-        if PlayerBridge.isRunningTests, executable.path == SystemAccessibilityRepair.tool.path {
+        if refusesUnderTest(executable) {
             return ToolOutcome(exitStatus: nil, timedOut: false, output: "refused under test")
         }
         return await run(executable, arguments, timeout: timeout, killGrace: killGrace)
     }
+
+    /// How the runner ends a tool that ran out of time. Injectable so a test can
+    /// play a tool that no signal reaches.
+    struct Ending: Sendable {
+        // `@Sendable` so a closure written in a main-actor test is not
+        // main-actor-isolated: these run on a global queue.
+        var terminate: @Sendable (Process) -> Void = { $0.terminate() }
+        var kill: @Sendable (Process) -> Void = { process in
+            if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
+        }
+    }
+    /// How long past `timeout + killGrace` the runner waits for the process
+    /// before it gives up on it and reports it timed out.
+    static let wedgeSlack: TimeInterval = 1.0
 
     /// Starts `executable`, waits for it on a background queue, asks it to end
     /// at `timeout` (SIGTERM) and kills it `killGrace` later if it is still
@@ -41,11 +71,15 @@ enum ToolRun {
         _ executable: URL,
         _ arguments: [String],
         timeout: TimeInterval,
-        killGrace: TimeInterval
+        killGrace: TimeInterval,
+        slack: TimeInterval = wedgeSlack,
+        ending: Ending = Ending()
     ) async -> ToolOutcome {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: runBlocking(executable, arguments, timeout: timeout, killGrace: killGrace))
+                continuation.resume(returning: runBlocking(
+                    executable, arguments, timeout: timeout, killGrace: killGrace, slack: slack, ending: ending
+                ))
             }
         }
     }
@@ -68,7 +102,9 @@ enum ToolRun {
         _ executable: URL,
         _ arguments: [String],
         timeout: TimeInterval,
-        killGrace: TimeInterval
+        killGrace: TimeInterval,
+        slack: TimeInterval,
+        ending: Ending
     ) -> ToolOutcome {
         let process = Process()
         process.executableURL = executable
@@ -103,16 +139,33 @@ enum ToolRun {
         let stop = DispatchWorkItem {
             guard process.isRunning else { return }
             timedOut.set()
-            process.terminate()
-            let kill = DispatchWorkItem {
-                if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
-            }
+            ending.terminate(process)
+            let kill = DispatchWorkItem { ending.kill(process) }
             DispatchQueue.global().asyncAfter(deadline: .now() + killGrace, execute: kill)
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: stop)
 
-        finished.wait()
+        // Bounded: a process that SIGKILL cannot end (uninterruptible, in the
+        // kernel) would otherwise leave the repair "running" for ever and the
+        // prompt that follows it never raised. Past the limit it is reported as
+        // timed out, and whatever it is doing is left to the system.
+        let ended = finished.wait(timeout: .now() + timeout + killGrace + slack) == .success
         stop.cancel()
+        if !ended {
+            // The process and its pipe must outlive this function: closing the
+            // read end under an armed readability handler traps in libdispatch,
+            // and a `Process` released while its child runs traps in Foundation.
+            // One parked background thread sees both through to the process's
+            // end, which for a tool nothing can kill may be never.
+            let output = collected.text
+            DispatchQueue.global(qos: .utility).async {
+                finished.wait()
+                _ = endOfOutput.wait(timeout: .now() + 2)
+                pipe.fileHandleForReading.readabilityHandler = nil
+                withExtendedLifetime((process, pipe)) {}
+            }
+            return ToolOutcome(exitStatus: nil, timedOut: true, output: output)
+        }
         // The last bytes arrive on the handler's own queue; give them a moment,
         // but never wait on a pipe somebody else still holds open.
         _ = endOfOutput.wait(timeout: .now() + 0.5)
@@ -234,5 +287,50 @@ final class MemoryRepairLedger: AccessibilityRepairLedger {
     var lastRepairedBuild: String?
     static var live: AccessibilityRepairLedger {
         PlayerBridge.isRunningTests ? MemoryRepairLedger() : DefaultsRepairLedger()
+    }
+}
+
+
+/// Which build of the code is running, for the once-per-identity repair, and
+/// what macOS says about the session.
+enum CodeIdentity {
+    /// The running code's unique hash (`kSecCodeInfoUnique`, the cdhash) as hex,
+    /// read once. TCC keys an ad-hoc build's grant on exactly this, so it
+    /// changes with every rebuild and every re-sign while `CFBundleVersion`
+    /// does not — and the owner reinstalls a development build after every
+    /// change. Under a pinned certificate a new hash only matters while Isla is
+    /// untrusted, which is when a repair is right, so it cannot nag a granted
+    /// person. Falls back to `CFBundleVersion` when the hash cannot be read.
+    static let running: String = identity(
+        unique: runningUniqueHash,
+        bundleVersion: { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
+    )
+
+    static func identity(unique: () -> Data?, bundleVersion: () -> String?) -> String {
+        if let data = unique(), !data.isEmpty {
+            return data.map { String(format: "%02x", $0) }.joined()
+        }
+        return bundleVersion() ?? "dev"
+    }
+
+    private static func runningUniqueHash() -> Data? {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information
+        ) == errSecSuccess, let dictionary = information as? [String: Any] else { return nil }
+        return dictionary[kSecCodeInfoUnique as String] as? Data
+    }
+
+    /// Whether anybody could answer a prompt right now, by macOS's own account:
+    /// the screen is not locked and the main display is awake. Absent or false
+    /// `CGSSessionScreenIsLocked` means unlocked.
+    static var sessionIsAvailable: Bool {
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        if let locked = (session?["CGSSessionScreenIsLocked"] as? NSNumber)?.boolValue, locked { return false }
+        return CGDisplayIsAsleep(CGMainDisplayID()) == 0
     }
 }
