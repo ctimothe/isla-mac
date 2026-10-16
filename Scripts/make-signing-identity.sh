@@ -155,7 +155,7 @@ Backup: $BACKUP (encrypted with the passphrase you typed).
     security import "$NAME.p12" -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign
 
 Next: rebuild (bash Scripts/bundle.sh release) and install. macOS sees the
-newly signed Isla as a new app one last time: grant Accessibility once more
-(remove the old Isla entry from the list first), and it then survives every
-later build signed with this identity.
+newly signed Isla as a new app one last time. With Volume and Brightness on,
+Isla clears its own old Accessibility entry and macOS asks again: grant it
+once, and it then survives every later build signed with this identity.
 EOF
