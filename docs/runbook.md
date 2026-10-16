@@ -23,6 +23,15 @@ path.
   and `ISLA_ADHOC=1 Scripts/release.sh` refuses a bundle not signed with the
   pinned one. Keep the `.p12` backup it writes; on a new Mac, import that
   rather than making a new identity, or every user re-grants the permission.
+- Once, on the Mac that publishes releases: `bash Scripts/make-update-key.sh`
+  makes the Ed25519 key that in-app updates trust. The private half stays in
+  the login keychain ("Isla Update Signing" / `ed25519`) and goes into a
+  password manager; the public half is `Resources/update-public-key.txt`
+  (commit it), which `bundle.sh` writes into Info.plist as
+  `IslaUpdatePublicKey`. `Scripts/release.sh` refuses to run without both, and
+  uploads `Isla-<version>.dmg.sig` beside the image. Losing the private key
+  means every installed copy refuses the next update and users download it by
+  hand once.
 - A physical-notch MacBook for the hardware pass and a non-notch/external display
   for the synthetic pass.
 - Cyclop 0.6.5 built from pinned commit
@@ -255,6 +264,23 @@ The report uses three 60-second runs per app. Closed CPU must remain `0.0%`;
 product application/helper RSS must be no higher than the reference median; no
 helper may survive its parent. Record any unavoidable original-icon bundle-size
 variance.
+
+## 7a. Rehearse an update
+
+Update Now has only replaced an app in a test folder. Before merging it, run it
+once on real hardware: `bash Scripts/rehearse-update.sh` builds the next patch
+version of the *installed* Isla (`ISLA_VERSION_OVERRIDE` /
+`ISLA_BUILD_OVERRIDE` in `Scripts/bundle.sh` and `Scripts/dmg.sh`, rehearsal
+only; `Scripts/release.sh` refuses to run with them set), packs it with
+`Scripts/dmg.sh` like a release image, signs it with the update key, and writes a `release.json` into a fresh `$TMPDIR/isla-rehearsal-<version>` folder.
+It then prints the steps: start the installed Isla with
+`open --env DI_UPDATE_REHEARSAL=<folder> /Applications/Isla.app`, press Check for
+Updates and Update Now, and watch for the restart, any App Management message,
+and whether Accessibility survives. It needs the update key in the login keychain
+and an installed Isla built with the same `IslaUpdatePublicKey`; it never
+launches, quits or installs anything, and it removes its fake-version build from
+`build/` even when it fails. Go back to the real build with
+`bash Scripts/bundle.sh release && bash Scripts/install.sh`.
 
 ## 8. Developer ID and notarized release
 

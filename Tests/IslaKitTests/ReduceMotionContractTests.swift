@@ -61,6 +61,15 @@ final class ReduceMotionContractTests: XCTestCase {
                 + "knob is simply on the other side."
         ),
         Allowed(
+            file: "UpdateCard.swift",
+            line: ".animation(reduceMotion ? nil : .linear(duration: 0.15), value: fraction)",
+            count: 1,
+            reason: "the update card's download bar, whose fill grows with the bytes received "
+                + "(Settings > About, Update Now). That is geometry that travels, so with Reduce "
+                + "Motion the fill steps to each new length instead of gliding; the card's own "
+                + "change of state is the 0.24 s crossfade."
+        ),
+        Allowed(
             file: "Theme.swift",
             line: "reduceMotion ? nil : hudLevel",
             count: 1,

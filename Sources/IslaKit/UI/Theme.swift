@@ -1335,6 +1335,38 @@ struct ToolbarPushButtonStyle: ButtonStyle {
     }
 }
 
+/// The default button of a form: the toolbar push button's shape in the system
+/// blue with white type, the one control a card offers when there is one thing
+/// to do (Update Now). Same height, radius and padding as `ToolbarPushButtonStyle`
+/// so the two sit on one line; dims on press and steps back when disabled, as
+/// every panel button does.
+struct ProminentPushButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        PlateLabel(configuration: configuration)
+    }
+
+    private struct PlateLabel: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .islandFont(.body, weight: .semibold)
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+                .padding(.horizontal, ToolbarPushButtonStyle.horizontalPadding)
+                .frame(height: ToolbarPushButtonStyle.height)
+                .background(
+                    RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous)
+                        .fill(Theme.SettingsTint.blue.color)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous))
+                .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.4)
+                .animation(Theme.contentAnimation, value: configuration.isPressed)
+        }
+    }
+}
+
 /// The panel's one-action pill: a word in a capsule of `Theme.surface` edged
 /// with the hairline, dimmed on press the way `PanelButtonStyle` dims.
 ///

@@ -45,6 +45,9 @@ struct SettingsPane: View {
     var wantsKeyboard: Binding<Bool> = .constant(false)
     @ObservedObject var hotKeys: HotKeyCenter = .shared
     @ObservedObject var updates: UpdateCheck = .shared
+    /// Update Now. Observed with the check: the card between "Update available"
+    /// and "Restarting Isla…" is this object's phase.
+    @ObservedObject var installer: UpdateInstaller = .shared
     /// Observed so the "Following your Mac" line appears and goes with the
     /// System Settings switches it names.
     @ObservedObject private var appearance: SystemAppearance = .shared
@@ -395,8 +398,9 @@ struct SettingsPane: View {
         c.hasUnassignedCorrections = !lyrics.unassignedLegacyOffsets.isEmpty
         c.showOnLockScreen = flag(.showOnLockScreen)
         c.spotify = spotifyRows
-        c.offersDownload = updates.lastAvailable != nil
-        c.updateNotes = updateNotes
+        // Only About draws it, and `manualReason` looks at the disk: not work
+        // for a section that is not on screen.
+        if selection.wrappedValue == .about { c.update = updatePresentation }
         c.automaticUpdates = flag(.checkForUpdatesAutomatically)
         c.diagnosticsCopied = diagnosticsCopied != nil
         return c
@@ -415,29 +419,19 @@ struct SettingsPane: View {
         )
     }
 
-    /// The lines under About's update row: a check in flight, or why one failed.
-    /// "Latest version" is the row's own label, and a newer version is the
-    /// Download button's.
-    private var updateNotes: [String] {
-        var notes: [String] = []
-        switch updates.state {
-        case .idle, .upToDate, .available:
-            break
-        case .checking:
-            notes.append(localized("Checking…"))
-        case .failed(let reason):
-            switch reason {
-            case .offline: notes.append(localized("Could not reach GitHub. Try again later."))
-            case .rateLimited: notes.append(localized("GitHub is limiting checks right now. Try again in an hour."))
-            case .server: notes.append(localized("GitHub did not answer properly. Try again later."))
-            }
-        }
-        // Outside the switch on purpose: a known update stays on offer through
-        // a later failed or in-flight check (J-019).
-        if updates.lastAvailable != nil {
-            notes.append(localized("Quit Isla, then replace it in Applications with the new version."))
-        }
-        return notes
+    /// The update card and its buttons: what the last check found, what the
+    /// installer is doing, and whether this copy may replace itself — decided in
+    /// `UpdatePresentation`, so every state is a test with no view.
+    private var updatePresentation: UpdatePresentation {
+        UpdatePresentation.make(
+            check: updates.state,
+            known: updates.lastAvailable,
+            phase: installer.phase,
+            installerRelease: installer.release,
+            manualReason: updates.lastAvailable.flatMap { installer.manualReason(for: $0) },
+            runningVersion: updates.runningVersion,
+            rehearsal: updates.isRehearsal
+        )
     }
 
     private func form(width: CGFloat, narrow: Bool) -> some View {
@@ -765,13 +759,11 @@ struct SettingsPane: View {
             switchRow(row, isOn: flagBinding(row))
 
         // About
-        case .updateStatus:
-            // Whether a newer Isla is out. Pressing the button is the consent
-            // for its one request; the switch under it, which asks daily, is off
-            // until turned on.
-            SettingsRowChrome(label: updateLabel) { pushButton(row) }
-        case .downloadUpdate:
-            SettingsRowChrome(label: nil) { pushButton(row) }
+        case .updatePanel, .updateStatus, .updateNow, .updateMoreInfo, .updateCancel, .updateRetry, .updateQuit,
+             .downloadUpdate:
+            // The card is a free view and its buttons sit under it
+            // (`SettingsTable.about`): nothing of the update is a card row.
+            EmptyView()
         case .checkForUpdatesAutomatically:
             switchRow(row, isOn: flagBinding(row, persists: false) { updates.setAutomatic($0) })
         case .copyDiagnostics:
@@ -793,15 +785,6 @@ struct SettingsPane: View {
              .cardStyle, .spotifyHead, .aboutHead:
             EmptyView()
         }
-    }
-
-    /// The label of the update row: what the last check found, or the version
-    /// running.
-    private var updateLabel: String {
-        if case .upToDate(let version) = updates.state {
-            return localized("Isla %@ is the latest version.", version)
-        }
-        return localized("Isla %@", ProductIdentity.version)
     }
 
     /// A row that sits outside a card: the style previews, the two heads, Quit.
@@ -850,7 +833,7 @@ struct SettingsPane: View {
                         Text(verbatim: ProductIdentity.displayName)
                             .islandFont(.title, weight: .semibold)
                             .foregroundStyle(.white)
-                        Text(localized("Version %@", ProductIdentity.version))
+                        Text(localized("Version %@", updates.runningVersion))
                             .islandFont(.reading, weight: .regular)
                             .foregroundStyle(Theme.secondary)
                     }
@@ -862,6 +845,9 @@ struct SettingsPane: View {
             }
             .buttonStyle(PanelButtonStyle())
             .accessibilityLabel(row.title)
+        case .updatePanel:
+            UpdateCard(presentation: updatePresentation)
+                .padding(.bottom, 8)
         case .quit:
             // Quit is the only way out of an app that Force Quit does not list,
             // so it is a button in the last section of the pane the welcome page
@@ -1001,10 +987,34 @@ struct SettingsPane: View {
                 clearScreenshots()
             }
         case .updateStatus:
+            // Whether a newer Isla is out. Pressing the button is the consent
+            // for its one request; the switch under it, which asks daily, is off
+            // until turned on.
             push(row.title, disabled: updates.state == .checking) { updates.check() }
+        case .updateNow:
+            // The one thing that starts a download, and so the consent for
+            // everything Update Now then does.
+            Button(row.title) {
+                if let release = updatePresentation.release { installer.install(release) }
+            }
+            .buttonStyle(ProminentPushButtonStyle())
+        case .updateMoreInfo:
+            push(row.title) {
+                if let release = updatePresentation.release { NSWorkspace.shared.open(release.page) }
+            }
+        case .updateCancel:
+            push(row.title) { installer.cancel() }
+        case .updateRetry:
+            push(row.title) {
+                if let release = updatePresentation.release { installer.install(release) }
+            }
+        case .updateQuit:
+            // Installed, but Isla could not start its own replacement: the one
+            // thing left is for the person to quit it and open it again.
+            push(row.title) { NSApp.terminate(nil) }
         case .downloadUpdate:
-            if let known = updates.lastAvailable {
-                push(localized("Download Isla %@", known.version)) { NSWorkspace.shared.open(known.page) }
+            if let release = updatePresentation.release {
+                push(localized("Download Isla %@", release.version)) { NSWorkspace.shared.open(release.page) }
             }
         case .quit:
             push(row.title) { NSApp.terminate(nil) }

@@ -20,6 +20,7 @@ enum SettingsFixture {
         lyrics: LyricsStore? = nil,
         automation: AutomationAccess? = nil,
         updates: UpdateCheck? = nil,
+        installer: UpdateInstaller? = nil,
         icons: AppIcons? = nil,
         headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight
     ) -> SettingsPane {
@@ -33,6 +34,8 @@ enum SettingsFixture {
             media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
             hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
             updates: updates ?? UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) }),
+            // Never the live one: a button a test presses must not start a download.
+            installer: installer ?? UpdateInstaller(environment: .neverInstalls),
             automation: automation ?? AutomationAccess(),
             icons: icons ?? Self.macWithApps([:]),
             selection: .constant(section),
@@ -63,10 +66,10 @@ enum SettingsFixture {
     static func tree(
         _ isolated: ProbeStores, section: SettingsSection, bodyWidth: CGFloat = 560, height: CGFloat = 1400,
         lyrics: LyricsStore? = nil, automation: AutomationAccess? = nil, updates: UpdateCheck? = nil,
-        icons: AppIcons? = nil
+        installer: UpdateInstaller? = nil, icons: AppIcons? = nil
     ) async -> AXNode {
         await AXProbe.tree(
-            of: pane(isolated, section: section, lyrics: lyrics, automation: automation, updates: updates, icons: icons),
+            of: pane(isolated, section: section, lyrics: lyrics, automation: automation, updates: updates, installer: installer, icons: icons),
             size: paneSize(bodyWidth: bodyWidth, height: height)
         )
     }
