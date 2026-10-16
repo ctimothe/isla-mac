@@ -1915,6 +1915,66 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(CodeIdentity.running.count, (hash?.count ?? 0) * 2)
     }
 
+    // MARK: Review round 3 (2026-10-17)
+
+    func testAGrantSeenWhileTheToolRunsDoesNotLoseTheRunAndAWipedGrantIsAskedForOnce() {
+        let hud = hud()
+        repair.holds = true
+        enabled = true
+        trust.trusted = false
+        hud.settingChanged(to: true)
+        trust.trusted = true   // granted from a System Settings window that was already open
+        hud.refresh()
+        XCTAssertTrue(hud.isRepairing, "the run is still going")
+        XCTAssertEqual(trust.prompts, 0)
+
+        trust.trusted = false   // the reset finished and wiped it
+        repair.finish()
+        XCTAssertEqual(trust.prompts, 1, "exactly one prompt, after the run")
+        XCTAssertEqual(ledger.lastRepairedBuild, "100")
+        XCTAssertFalse(hud.isRepairing)
+        hud.refresh()
+        XCTAssertEqual(trust.prompts, 1)
+        XCTAssertEqual(repair.resets, 1)
+    }
+
+    func testAGrantSeenWhileTheToolRunsAndStillThereAfterwardsRaisesNoPrompt() {
+        let hud = hud()
+        repair.holds = true
+        enabled = true
+        trust.trusted = false
+        hud.settingChanged(to: true)
+        trust.trusted = true
+        hud.refresh()
+        repair.finish()
+        XCTAssertEqual(trust.prompts, 0)
+        XCTAssertEqual(ledger.lastRepairedBuild, "100")
+        XCTAssertFalse(hud.isRepairing)
+        XCTAssertFalse(hud.suspectsStaleEntry)
+    }
+
+    func testSwitchingOffWhileAGrantAndTheToolOverlapRaisesNothingAndClearsIsRepairing() {
+        let hud = hud()
+        repair.holds = true
+        enabled = true
+        trust.trusted = false
+        hud.settingChanged(to: true)
+        trust.trusted = true
+        hud.refresh()
+        enabled = false
+        hud.settingChanged(to: false)
+        XCTAssertFalse(hud.isRepairing)
+        trust.trusted = false
+        repair.finish()
+        XCTAssertEqual(trust.prompts, 0)
+        // Off by a look alone, without the switch's own call.
+        enabled = true
+        hud.settingChanged(to: true)
+        enabled = false
+        hud.refresh()
+        XCTAssertFalse(hud.isRepairing)
+    }
+
     // MARK: Trusted, but the tap never starts (2026-10-16, owner)
 
     func testATapThatNeverStartsSlowsTheRetryAndSaysSoAfterThirtySeconds() {

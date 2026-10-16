@@ -278,7 +278,14 @@ final class MediaKeyHUD: ObservableObject {
         if isTrusted != trusted { isTrusted = trusted }
         let missing = on && !trusted
         if needsAccessibility != missing { needsAccessibility = missing }
-        if !missing { forgetRepair() }
+        if !missing {
+            // A grant that arrives while the tool still runs (from a System
+            // Settings window that was open already) must not discard the run:
+            // the tool is about to finish and may clear that very grant, and
+            // `toolFinished` re-reads trust to decide what to ask. Only the
+            // setting going off ends it early.
+            if on, toolInFlight, case .running = repair { } else { forgetRepair() }
+        }
         let stale: Bool
         switch repair {
         case .prompted(let at): stale = now() - at > Self.staleEntryAfter
