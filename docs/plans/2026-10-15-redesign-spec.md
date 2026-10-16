@@ -1123,6 +1123,33 @@ until nothing uses them, then go.
 >   permission is missing, and not while the display sleeps. A tap macOS
 >   switched off is rebuilt at the next look, at most every 5 s.
 
+> **Amended (2026-10-16, owner).** Turning it on must just work: the owner
+> granted the permission and the keys still showed the Mac's own pop-up until
+> they removed Isla from the Accessibility list and added it back.
+> - A tap that fails to start while the setting is on and Accessibility is
+>   trusted is retried by the same 2 s poll until one starts; the poll then
+>   stops. Never while the setting is off, the display sleeps or the Mac is
+>   locked, and the retries never raise the permission prompt (once, by the
+>   switch).
+> - Isla watches the system's `com.apple.accessibility.api` announcement (the
+>   Accessibility list changed) only while the permission is missing or a tap
+>   is pending, and looks again 0.3 s and 1.5 s after each one, because tccd
+>   can lag it. The 2 s poll stays as the fallback.
+> - Thirty silent seconds after the setting went on with the permission still
+>   missing (an announcement above restarts the wait: the person is acting;
+>   ten seconds flashed the line mid-grant), the "Accessibility" group adds one
+>   footnote: "Already switched on in the
+>   list? macOS may be holding a permission from an older copy of Isla. Select
+>   Isla, remove it with −, then switch Volume and Brightness off and on
+>   again." The 30 s is judged by the looks above; no timer exists for it.
+> - Trusted and on but with no tap for 30 s, the retry slows from 2 s to 10 s
+>   and the General section adds one footnote: "Isla has the permission but
+>   macOS isn’t passing it the volume and brightness keys yet. Switch Volume
+>   and Brightness off and on again; if that doesn’t help, restart the Mac."
+>   It clears the moment a tap starts or the setting goes off. The two looks an
+>   announcement queues run even if the first one ends the watch; they die
+>   only with the setting, a sleep or a lock, or `stop()`.
+
 ## 13. Stress rules
 
 | Rule | Board |

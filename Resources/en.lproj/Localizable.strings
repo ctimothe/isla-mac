@@ -520,6 +520,8 @@
 "Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission." = "Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission.";
 "Accessibility" = "Accessibility";
 "Open Privacy & Security…" = "Open Privacy & Security…";
+"Already switched on in the list? macOS may be holding a permission from an older copy of Isla. Select Isla, remove it with −, then switch Volume and Brightness off and on again." = "Already switched on in the list? macOS may be holding a permission from an older copy of Isla. Select Isla, remove it with −, then switch Volume and Brightness off and on again.";
+"Isla has the permission but macOS isn’t passing it the volume and brightness keys yet. Switch Volume and Brightness off and on again; if that doesn’t help, restart the Mac." = "Isla has the permission but macOS isn’t passing it the volume and brightness keys yet. Switch Volume and Brightness off and on again; if that doesn’t help, restart the Mac.";
 "Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up." = "Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up.";
 "Volume %@" = "Volume %@";
 "Brightness %@" = "Brightness %@";

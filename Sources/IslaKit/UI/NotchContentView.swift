@@ -1281,6 +1281,8 @@ struct NotchContentView: View {
                 setTranslateSpeakButton: vm.setTranslateSpeakButton,
                 setVolumeAndBrightness: vm.setVolumeAndBrightness,
                 accessibilityMissing: vm.accessibilityMissing,
+                accessibilityEntrySuspectedStale: vm.accessibilityEntrySuspectedStale,
+                volumeKeysRefused: vm.volumeKeysRefused,
                 selection: $vm.settingsSection,
                 headerHeight: vm.geometry.notchSize.height
             )

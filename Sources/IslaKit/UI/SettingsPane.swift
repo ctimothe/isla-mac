@@ -74,6 +74,10 @@ struct SettingsPane: View {
     /// controller sees it. A publisher rather than a snapshot: the permission
     /// is granted in another app, long after this pane drew.
     var accessibilityMissing: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
+    /// True once it has stayed missing past `MediaKeyHUD.staleEntryAfter`.
+    var accessibilityEntrySuspectedStale: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
+    /// True once the permission is granted and macOS still passes no keys.
+    var volumeKeysRefused: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
     /// The section on screen: a binding to `NotchViewModel.settingsSection`, which
     /// is also what the next open restores. Constant in the tests and the lab,
     /// where a test names the section it wants to look at.
@@ -114,6 +118,10 @@ struct SettingsPane: View {
     @State private var fallbackReason: NowPlayingRouteFailure?
     /// `accessibilityMissing`, received on its own, like `fallbackReason`.
     @State private var needsAccessibility = false
+    /// `accessibilityEntrySuspectedStale`, received the same way.
+    @State private var staleAccessibilityEntry = false
+    /// `volumeKeysRefused`, received the same way.
+    @State private var keysRefused = false
 
     static let localLyricsPrivacyCopyKey = "Lyrics stay on this Mac."
 
@@ -338,6 +346,8 @@ struct SettingsPane: View {
         }
         .onReceive(media.$fallbackReason) { fallbackReason = $0 }
         .onReceive(accessibilityMissing) { needsAccessibility = $0 }
+        .onReceive(accessibilityEntrySuspectedStale) { staleAccessibilityEntry = $0 }
+        .onReceive(volumeKeysRefused) { keysRefused = $0 }
     }
 
     // MARK: - The form
@@ -348,6 +358,8 @@ struct SettingsPane: View {
         var c = SettingsContext()
         c.hasBattery = AmbientWatch.hasBattery
         c.needsAccessibility = needsAccessibility && flag(.volumeAndBrightness)
+        c.staleAccessibilityEntry = staleAccessibilityEntry && c.needsAccessibility
+        c.volumeKeysRefused = keysRefused && flag(.volumeAndBrightness)
         c.opensOnHover = flag(.openOnHover)
         c.launchNote = LaunchAtLogin.note(launchAtLogin)
         c.offersLoginItems = launchAtLogin.offersLoginItems

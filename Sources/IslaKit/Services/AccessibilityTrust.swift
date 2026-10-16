@@ -38,3 +38,48 @@ struct SystemAccessibilityTrust: AccessibilityTrust {
         _ = AXIsProcessTrustedWithOptions(options)
     }
 }
+
+/// The system's announcement that the Accessibility trust list changed (a grant,
+/// a removal, a switch flipped in System Settings). A seam, so a test posts a
+/// fake of its own: the real notification is the whole machine's, and a test
+/// must never post it into the owner's other apps.
+///
+/// It exists because the permission is granted in another app and nothing else
+/// tells Isla. Waiting for the two-second poll alone made turning Volume and
+/// Brightness on feel broken: the owner granted the permission, the keys kept
+/// showing the Mac's own pop-up for up to two more seconds, and a tap made in the
+/// moment right after the grant could fail (tccd lags the notification), so the
+/// first press after "it worked" still went to macOS.
+@MainActor
+protocol AccessibilityGrantNotifying {
+    /// Calls `handler` on the main actor each time the trust list changes, until
+    /// the returned closure is called.
+    func observe(_ handler: @escaping @MainActor @Sendable () -> Void) -> () -> Void
+}
+
+/// What a HUD built with defaults gets: the system's notifier, except under
+/// XCTest, where it is inert for the same reason `EventMediaKeyTap.live` becomes
+/// an `InertMediaKeyTap` there. A test that forgets to inject a fake can then
+/// never register a real distributed observer on the owner's Mac.
+@MainActor
+struct InertAccessibilityGrantNotifier: AccessibilityGrantNotifying {
+    func observe(_ handler: @escaping @MainActor @Sendable () -> Void) -> () -> Void { {} }
+
+    static var live: AccessibilityGrantNotifying {
+        PlayerBridge.isRunningTests ? InertAccessibilityGrantNotifier() : SystemAccessibilityGrantNotifier()
+    }
+}
+
+struct SystemAccessibilityGrantNotifier: AccessibilityGrantNotifying {
+    /// What the system posts to the distributed centre when the list changes.
+    static let name = Notification.Name("com.apple.accessibility.api")
+
+    func observe(_ handler: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
+        let token = DistributedNotificationCenter.default().addObserver(
+            forName: Self.name, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { handler() }
+        }
+        return { DistributedNotificationCenter.default().removeObserver(token) }
+    }
+}
