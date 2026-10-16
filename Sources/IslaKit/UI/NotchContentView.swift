@@ -1282,6 +1282,7 @@ struct NotchContentView: View {
                 setVolumeAndBrightness: vm.setVolumeAndBrightness,
                 accessibilityMissing: vm.accessibilityMissing,
                 accessibilityEntrySuspectedStale: vm.accessibilityEntrySuspectedStale,
+                accessibilityRepairing: vm.accessibilityRepairing,
                 volumeKeysRefused: vm.volumeKeysRefused,
                 selection: $vm.settingsSection,
                 headerHeight: vm.geometry.notchSize.height

@@ -419,9 +419,10 @@ struct SettingsContext: Equatable {
     /// exists for, as the Music section's failure groups exist for theirs. Never
     /// true while the setting is off or the permission is granted.
     var needsAccessibility = false
-    /// `needsAccessibility` has held past `MediaKeyHUD.staleEntryAfter`: the
-    /// likeliest cause is an entry macOS keeps for an older copy of Isla, and the
-    /// group says how to clear it. Never true unless `needsAccessibility` is.
+    /// Isla's own repair of a stale entry failed, or `MediaKeyHUD.staleEntryAfter`
+    /// passed after it and the prompt with the permission still missing: the
+    /// group then says how to clear the entry by hand. Never true unless
+    /// `needsAccessibility` is.
     var staleAccessibilityEntry = false
     /// The permission is granted, the setting is on and macOS still passes the
     /// island no keys (`MediaKeyHUD.tapRefusedAfter`). The group above is for a
@@ -534,8 +535,10 @@ enum SettingsTable {
             ]
             // Ad-hoc signing ties a grant to one build, so a list entry can
             // outlive the copy it was made for and read "on" while macOS
-            // refuses this one. The owner's fix was removing the entry and
-            // adding it back; this says so before they have to find out.
+            // refuses this one. Isla now clears its own entry first
+            // (`AccessibilityRepairing`, 2026-10-17); this by-hand line is the
+            // fallback for a repair that failed or a prompt that brought
+            // nothing.
             if c.staleAccessibilityEntry {
                 blocks.append(.footnote(localized(
                     "Already switched on in the list? macOS may be holding a permission from an older copy of Isla. Select Isla, remove it with −, then switch Volume and Brightness off and on again."

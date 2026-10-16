@@ -472,7 +472,7 @@ final class SettingsTableTests: XCTestCase {
         }
         LabLocalization.use("ru")
         XCTAssertEqual(localized("Accessibility"), "Универсальный доступ")
-        XCTAssertEqual(localized("Open Privacy & Security…"), "Открыть «Конфиденциальность и безопасность»…")
+        XCTAssertEqual(localized("Open Privacy & Security…"), "Открыть «Универсальный доступ»…")
         XCTAssertEqual(
             localized("Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up."),
             "Isla пока не видит клавиши громкости. До тех пор Mac показывает своё окно."

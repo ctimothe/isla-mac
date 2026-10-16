@@ -79,6 +79,8 @@ struct SettingsPane: View {
     var accessibilityMissing: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
     /// True once it has stayed missing past `MediaKeyHUD.staleEntryAfter`.
     var accessibilityEntrySuspectedStale: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
+    /// True while Isla resets its own Accessibility entry.
+    var accessibilityRepairing: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
     /// True once the permission is granted and macOS still passes no keys.
     var volumeKeysRefused: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher()
     /// The section on screen: a binding to `NotchViewModel.settingsSection`, which
@@ -121,6 +123,7 @@ struct SettingsPane: View {
     @State private var fallbackReason: NowPlayingRouteFailure?
     /// `accessibilityMissing`, received on its own, like `fallbackReason`.
     @State private var needsAccessibility = false
+    @State private var repairingAccessibility = false
     /// `accessibilityEntrySuspectedStale`, received the same way.
     @State private var staleAccessibilityEntry = false
     /// `volumeKeysRefused`, received the same way.
@@ -349,6 +352,7 @@ struct SettingsPane: View {
         }
         .onReceive(media.$fallbackReason) { fallbackReason = $0 }
         .onReceive(accessibilityMissing) { needsAccessibility = $0 }
+        .onReceive(accessibilityRepairing) { repairingAccessibility = $0 }
         .onReceive(accessibilityEntrySuspectedStale) { staleAccessibilityEntry = $0 }
         .onReceive(volumeKeysRefused) { keysRefused = $0 }
     }
@@ -942,7 +946,12 @@ struct SettingsPane: View {
             push(localized("Try Again")) { media.retryNowPlaying(userAsked: true) }
         case .accessibilityPermission:
             // The same open, for the same reason: no activation needed.
-            push(localized("Open Privacy & Security…")) { NSWorkspace.shared.open(SystemAccessibilityTrust.settingsURL) }
+            // Greyed, not hidden, while Isla resets its own entry: a grant made
+            // now would be wiped when the reset finishes, and the row must not
+            // jump.
+            push(localized("Open Privacy & Security…"), disabled: repairingAccessibility) {
+                NSWorkspace.shared.open(SystemAccessibilityTrust.settingsURL)
+            }
         case .automationPermission:
             // NSWorkspace needs no activation, so this works from a panel that
             // never becomes key; System Settings comes forward on its own.
@@ -1262,6 +1271,14 @@ struct SettingsPane: View {
 /// The chrome every labelled row shares: an optional label that wraps before a
 /// control gives way, and a trailing control that never does (spec §10, "labels
 /// wrap before controls"). 28 tall at the least, inset 10 either side.
+///
+/// A label wraps between words, never inside one. When the label's longest word
+/// and the trailing control cannot share a line, the row stacks (2026-10-17,
+/// owner): the label on the first line, the control flush right on the second.
+/// The `HStack` this replaced gave the label whatever width the fixed-size
+/// control left, and SwiftUI broke "Accessibility" as "Accessibilit / y" beside
+/// "Open Privacy & Security…" at 480 pt. A row that fits side by side is laid
+/// out exactly as before.
 struct SettingsRowChrome<Trailing: View>: View {
     var label: String?
     var icon: String? = nil
@@ -1270,22 +1287,207 @@ struct SettingsRowChrome<Trailing: View>: View {
     var appIcon: NSImage? = nil
     @ViewBuilder var trailing: () -> Trailing
 
+    private var hasLeading: Bool { icon != nil || appIcon != nil }
+
+    private func labelText(_ text: String) -> some View {
+        Text(text)
+            .islandFont(.reading, weight: .regular)
+            .foregroundStyle(.white)
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
-            if let icon { RowIcon(symbol: icon) }
-            if let appIcon { AppIconImage(image: appIcon, side: SettingsLayout.rowAppIconSide) }
-            if let label {
-                Text(label)
-                    .islandFont(.reading, weight: .regular)
-                    .foregroundStyle(.white)
+        content
+            .padding(.horizontal, SettingsLayout.rowInset)
+            .frame(minHeight: SettingsLayout.rowHeight)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let label {
+            SettingsRowLayout(hasLeading: hasLeading) {
+                if hasLeading {
+                    HStack(spacing: 8) {
+                        if let icon { RowIcon(symbol: icon) }
+                        if let appIcon { AppIconImage(image: appIcon, side: SettingsLayout.rowAppIconSide) }
+                    }
+                }
+                labelText(label)
                     .fixedSize(horizontal: false, vertical: true)
+                // One subview whatever the caller gave: an `EmptyView` or several
+                // views would otherwise change how many children the layout
+                // is handed.
+                //
+                // Not `.fixedSize()` here: the layout proposes the control's own
+                // size when it sits beside the label, and no more than the row
+                // when it has a line to itself, so a control wider than the row
+                // (a Russian push button at 480 pt) truncates and does not run
+                // off the end.
+                HStack(spacing: 8) { trailing() }
+                // One hidden probe per word: the layout reads the width of the
+                // longest, because SwiftUI cannot be asked for it. A zero-width
+                // proposal to the label answers with a single character, which
+                // is the very break being avoided.
+                ForEach(Array(Set(label.split(whereSeparator: \.isWhitespace).map(String.init))).sorted(), id: \.self) { word in
+                    labelText(word)
+                        .fixedSize()
+                        .hidden()
+                        .accessibilityHidden(true)
+                }
             }
-            Spacer(minLength: 8)
-            trailing()
-                .fixedSize()
+        } else {
+            HStack(spacing: 8) {
+                if let icon { RowIcon(symbol: icon) }
+                if let appIcon { AppIconImage(image: appIcon, side: SettingsLayout.rowAppIconSide) }
+                Spacer(minLength: 8)
+                trailing()
+                    .fixedSize()
+            }
         }
-        .padding(.horizontal, SettingsLayout.rowInset)
-        .frame(minHeight: SettingsLayout.rowHeight)
+    }
+}
+
+/// How a labelled row is arranged, decided from four widths and nothing else, so
+/// the decision is a test and not a render.
+enum SettingsRowArrangement: Equatable {
+    case sideBySide
+    case stacked
+
+    /// The row's gaps as the `HStack` had them: 8 between neighbours, and a
+    /// `Spacer(minLength: 8)` between label and control.
+    static let spacing: CGFloat = 8
+    static let leastGap: CGFloat = spacing + 8 + spacing
+    /// Label to control, or to the row's end when there is no control: the
+    /// `Spacer(minLength: 8)` between them, and the spacing on either side only
+    /// where there is a control to be spaced from.
+    static func gap(trailing: CGFloat) -> CGFloat { trailing > 0 ? leastGap : spacing + 8 }
+    /// The distance between the two lines of a stacked row.
+    static let lineSpacing: CGFloat = 6
+    /// Air above the label and below the control of a stacked row: a one-line
+    /// row is 28 tall and centres its content, a two-line one has no such slack.
+    static let stackedInset: CGFloat = 6
+
+    /// Side by side when the leading icon, the label's longest word, the least
+    /// gap and the control all fit in `available`. Measured widths are rounded
+    /// up and there is no tolerance: a label proposed even a hair less than its
+    /// longest word breaks inside it, which is the very bug.
+    static func choose(available: CGFloat, leading: CGFloat, longestWord: CGFloat, trailing: CGFloat) -> Self {
+        let leading = ceil(leading), longestWord = ceil(longestWord), trailing = ceil(trailing)
+        let lead = leading > 0 ? leading + spacing : 0
+        return lead + longestWord + gap(trailing: trailing) + trailing <= available ? .sideBySide : .stacked
+    }
+}
+
+/// `SettingsRowChrome`'s layout: subviews are the leading icon (only when
+/// `hasLeading`), the label, the trailing control, and then one hidden probe
+/// per distinct word of the label, whose widest is the label's longest word.
+struct SettingsRowLayout: Layout {
+    var hasLeading: Bool
+
+    private struct Measures {
+        var leading: CGSize
+        var labelIdeal: CGSize
+        var labelLongestWord: CGFloat
+        var trailing: CGSize
+    }
+
+    private func parts(
+        _ subviews: Subviews
+    ) -> (leading: LayoutSubview?, label: LayoutSubview, trailing: LayoutSubview, probes: [LayoutSubview]) {
+        let first = hasLeading ? 1 : 0
+        return (hasLeading ? subviews[0] : nil, subviews[first], subviews[first + 1], Array(subviews.dropFirst(first + 2)))
+    }
+
+    private func measures(_ subviews: Subviews) -> Measures {
+        let p = parts(subviews)
+        // Widths round up, as `SettingsRowArrangement.choose` does, so the
+        // width the label is proposed is never below the word it must not break.
+        func up(_ size: CGSize) -> CGSize { CGSize(width: ceil(size.width), height: size.height) }
+        return Measures(
+            leading: up(p.leading?.sizeThatFits(.unspecified) ?? .zero),
+            labelIdeal: up(p.label.sizeThatFits(.unspecified)),
+            labelLongestWord: ceil(p.probes.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0),
+            trailing: up(p.trailing.sizeThatFits(.unspecified))
+        )
+    }
+
+    private func arrangement(_ m: Measures, width: CGFloat) -> SettingsRowArrangement {
+        SettingsRowArrangement.choose(
+            available: width, leading: m.leading.width, longestWord: min(m.labelLongestWord, m.labelIdeal.width),
+            trailing: m.trailing.width
+        )
+    }
+
+    private func labelWidth(_ m: Measures, width: CGFloat, _ arrangement: SettingsRowArrangement) -> CGFloat {
+        let spacing = SettingsRowArrangement.spacing
+        let lead = m.leading.width > 0 ? m.leading.width + spacing : 0
+        switch arrangement {
+        case .sideBySide:
+            let gap = SettingsRowArrangement.gap(trailing: m.trailing.width)
+            return min(m.labelIdeal.width, max(0, width - lead - gap - m.trailing.width))
+        case .stacked:
+            return min(m.labelIdeal.width, max(0, width - lead))
+        }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let m = measures(subviews)
+        let lead = m.leading.width > 0 ? m.leading.width + SettingsRowArrangement.spacing : 0
+        guard let width = proposal.width, width.isFinite else {
+            // Ideal: everything on one line, as the `HStack` reported.
+            let w = lead + m.labelIdeal.width + SettingsRowArrangement.gap(trailing: m.trailing.width) + m.trailing.width
+            return CGSize(width: w, height: max(m.leading.height, m.labelIdeal.height, m.trailing.height))
+        }
+        let p = parts(subviews)
+        let mode = arrangement(m, width: width)
+        let labelW = labelWidth(m, width: width, mode)
+        let labelH = p.label.sizeThatFits(ProposedViewSize(width: labelW, height: nil)).height
+        switch mode {
+        case .sideBySide:
+            return CGSize(width: width, height: max(m.leading.height, labelH, m.trailing.height))
+        case .stacked:
+            let first = max(m.leading.height, labelH)
+            let inset = SettingsRowArrangement.stackedInset
+            return CGSize(width: width, height: inset + first + SettingsRowArrangement.lineSpacing + m.trailing.height + inset)
+        }
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let m = measures(subviews)
+        let p = parts(subviews)
+        let spacing = SettingsRowArrangement.spacing
+        let mode = arrangement(m, width: bounds.width)
+        let labelW = labelWidth(m, width: bounds.width, mode)
+        let labelH = p.label.sizeThatFits(ProposedViewSize(width: labelW, height: nil)).height
+        let lead = m.leading.width > 0 ? m.leading.width + spacing : 0
+
+        // The probes are measured and never seen.
+        for probe in p.probes { probe.place(at: bounds.origin, proposal: .zero) }
+
+        switch mode {
+        case .sideBySide:
+            let midY = bounds.midY
+            p.leading?.place(at: CGPoint(x: bounds.minX, y: midY), anchor: .leading, proposal: ProposedViewSize(m.leading))
+            p.label.place(
+                at: CGPoint(x: bounds.minX + lead, y: midY), anchor: .leading,
+                proposal: ProposedViewSize(width: labelW, height: labelH)
+            )
+            p.trailing.place(at: CGPoint(x: bounds.maxX, y: midY), anchor: .trailing, proposal: ProposedViewSize(m.trailing))
+        case .stacked:
+            let first = max(m.leading.height, labelH)
+            let top = bounds.minY + SettingsRowArrangement.stackedInset
+            let firstMid = top + first / 2
+            p.leading?.place(at: CGPoint(x: bounds.minX, y: firstMid), anchor: .leading, proposal: ProposedViewSize(m.leading))
+            p.label.place(
+                at: CGPoint(x: bounds.minX + lead, y: firstMid), anchor: .leading,
+                proposal: ProposedViewSize(width: labelW, height: labelH)
+            )
+            let secondMid = top + first + SettingsRowArrangement.lineSpacing + m.trailing.height / 2
+            let trailingWidth = min(m.trailing.width, bounds.width)
+            p.trailing.place(
+                at: CGPoint(x: bounds.maxX, y: secondMid), anchor: .trailing,
+                proposal: ProposedViewSize(width: trailingWidth, height: m.trailing.height)
+            )
+        }
     }
 }
 

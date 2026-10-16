@@ -22,4 +22,5 @@ enum Log {
     static let storage = Logger(subsystem: subsystem, category: "storage")
     static let shelf = Logger(subsystem: subsystem, category: "shelf")
     static let updates = Logger(subsystem: subsystem, category: "updates")
+    static let permissions = Logger(subsystem: subsystem, category: "permissions")
 }

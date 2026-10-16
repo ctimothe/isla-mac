@@ -43,10 +43,11 @@ class VisualLabCase: XCTestCase {
         _ session: LabSession, tab: NotchViewModel.Tab = .media, physical: Bool = true,
         track: LabFixtures.Track? = nil,
         lyrics: LyricsAvailability? = nil,
+        hud: MediaKeyHUD? = nil,
         prepare: (NotchStores) async throws -> Void = { _ in },
         configure: (NotchViewModel) -> Void = { _ in }
     ) async throws -> NotchViewModel {
-        let stores = session.makeStores()
+        let stores = session.makeStores(hud: hud)
         labTrace("stores made")
         if let track { await LabFixtures.play(track, on: stores.media) }
         if let lyrics { stores.lyrics.present(lyrics) }

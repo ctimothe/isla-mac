@@ -270,6 +270,12 @@ final class NotchViewModel: ObservableObject {
         stores.hud.$tapRefused.removeDuplicates().eraseToAnyPublisher()
     }
 
+    /// Whether Isla is resetting its own Accessibility entry right now: Settings
+    /// greys "Open Privacy & Security…" meanwhile.
+    var accessibilityRepairing: AnyPublisher<Bool, Never> {
+        stores.hud.$isRepairing.removeDuplicates().eraseToAnyPublisher()
+    }
+
     var accessibilityEntrySuspectedStale: AnyPublisher<Bool, Never> {
         stores.hud.$suspectsStaleEntry.removeDuplicates().eraseToAnyPublisher()
     }

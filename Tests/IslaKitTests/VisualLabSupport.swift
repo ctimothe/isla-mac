@@ -433,7 +433,7 @@ final class LabSession {
 
     /// A fresh set of session stores, every one pointed at the lab's own
     /// suite, pasteboard and temporary folder.
-    func makeStores() -> NotchStores {
+    func makeStores(hud: MediaKeyHUD? = nil) -> NotchStores {
         labTrace("makeStores")
         // Each state starts from an empty suite: a privacy switch or a
         // translation target set for one state must not leak into the next.
@@ -448,7 +448,8 @@ final class LabSession {
             clipboard: clipboard,
             screenshotVault: ScreenshotVault(paths: paths),
             translator: Translator(defaults: suite, preferredLanguages: ["ru"]),
-            privacy: PrivacyMode(defaults: suite)
+            privacy: PrivacyMode(defaults: suite),
+            hud: hud
         )
         labTrace("isolate")
         stores.media.isolateFromPlayers()

@@ -1015,6 +1015,20 @@ until nothing uses them, then go.
 > Music Only's own footnote shortens to "Videos and films stay off the
 > island." The group is looked up only while Music is showing.
 
+> **Amended (2026-10-17, owner: a row never breaks a word).** At 480 pt the
+> General section's group label "Accessibility" was cut as "Accessibilit / y"
+> beside "Open Privacy & Security…", and the Russian label ran down the form one
+> letter to a line. A labelled row now wraps its label between words only: when
+> the label's longest word, the least gap (8 + the 8 pt spacer + 8) and the
+> trailing control do not fit on one line, the row stacks, the label on the
+> first line and the control flush right on the second (6 pt between the lines,
+> 6 pt above and below), and a control wider than the row truncates at its tail.
+> A row that fits is laid out exactly as before: the lab's 120 renders (every
+> section, 480/560/620, English and Russian, top and bottom of the form) differ
+> only in the General Accessibility row (English at 480, Russian at 480, 560
+> and 620) and Spotify's "Учётная запись" row at 480 in Russian. Decision:
+> `SettingsRowArrangement.choose`; layout: `SettingsRowLayout`.
+
 ## 11. Translate (R4)
 
 `Translate-*`.
@@ -1178,6 +1192,80 @@ until nothing uses them, then go.
 >   It clears the moment a tap starts or the setting goes off. The two looks an
 >   announcement queues run even if the first one ends the watch; they die
 >   only with the setting, a sleep or a lock, or `stop()`.
+
+> **Amended (2026-10-17, owner).** "Even in normal, when I turn it on the first
+> time it still doesn't work": the cause was found in macOS's own log, and it is
+> not Isla's switch.
+> - **Cause.** tccd logs `Failed to match existing code requirement for subject
+>   com.ctimothe.isla and service kTCCServiceAccessibility`, with the
+>   requirement stored when an older build was granted (a pair of cdhashes) and
+>   the build now running (another pair). TCC stores a grant against the app's
+>   designated requirement; an ad-hoc signed build's requirement is its cdhash,
+>   so every release is a different app to TCC. The old entry stays in System
+>   Settings' list, switched on, so macOS neither applies it nor asks again, and
+>   `AXIsProcessTrustedWithOptions(prompt: true)` shows nothing for as long as it
+>   exists. Every user who updates Isla meets it. The release side is fixed
+>   separately (a pinned certificate gives every release the same requirement);
+>   this amendment is the app's side, for whatever stale entry a user has — from
+>   an ad-hoc release, a development build, or a later change of certificate.
+> - **Self-repair.** When Isla is not trusted it clears its own entry with
+>   Apple's `/usr/bin/tccutil reset Accessibility com.ctimothe.isla`
+>   (`AccessibilityRepair`), and only then raises the prompt, so the system
+>   prompt always appears and a grant applies to the running build. The tool is
+>   run with an arguments array, off the main actor, with a 5 s limit (SIGTERM,
+>   SIGKILL 2 s later). It names only Accessibility and only Isla's own bundle
+>   identifier: never `All`, never another service or app, and nothing at all
+>   when the running bundle is not `com.ctimothe.isla`. It runs as the user, is
+>   not setuid and carries Apple's own TCC-management entitlement, so no
+>   administrator password is involved; there is no public API that resets a TCC
+>   decision.
+> - **When.** Only while Volume and Brightness is on, the session is
+>   available and Isla is not trusted. "Available" is macOS's own account, not
+>   `LockScreenPresence`'s (which has not started when launch runs, and may
+>   never see a lock that began before Isla did): `CGSSessionScreenIsLocked`
+>   absent or false, the main display awake, and the existing suspend and lock
+>   checks passing. (a) When the person switches it on: repair, then the prompt
+>   once, after the repair has finished whether or not it worked. (b) At launch,
+>   once per **code identity**: the running code's unique hash
+>   (`kSecCodeInfoUnique`, the cdhash, as hex; `CFBundleVersion` when it cannot
+>   be read), kept in `lastAccessibilityRepairBuild` (an internal key, not a
+>   Settings row), because a development rebuild or re-sign keeps the bundle
+>   version and is a new TCC identity. If the session is not available the
+>   launch repair stays pending, and `resume()` and `refresh()` (the poll
+>   included) fire it, only while it is pending, the session is available, the
+>   setting is on and Isla is still not trusted; the pending flag is spent the
+>   moment it fires. "Once per identity" means once the prompt has been asked:
+>   the ledger is written when the prompt is raised (or when a run ends with
+>   Isla already trusted), so a run cut off by a lock, a sleep or a quit is
+>   retried. A switch-on is its own proof that someone is there, so it asks
+>   only for an unlocked, awake Mac by Isla's own checks and not macOS's; one
+>   that a lock or sleep cut off before the tool started is re-armed with its
+>   own pending flag, which skips the ledger. A person who declines is not
+>   asked again at the next launch of the same code. The session must also be
+>   on the console (`kCGSSessionOnConsoleKey`, absent meaning yes), so another
+>   user's fast-switched session never prompts. Never when trusted, never with the setting off, and no look repairs anything but a
+>   pending launch repair. After a repair the existing looks, poll and tap retry
+>   take over unchanged.
+> - **Never wipe a fresh grant.** When the system announced an
+>   Accessibility-list change in the last 5 s the reset is deferred 1.5 s, then
+>   trust is read again and, if Isla is still untrusted, it goes ahead as
+>   normal. Announcements are recorded only while the setting is on and the HUD
+>   is watching the list; when someone grants with the setting off, the only
+>   guard is the trust read made immediately before the tool runs. Only one
+>   tool runs at a time: a switch-on that comes back while one is running waits
+>   for it, and follows its post-repair path (trust read again, then the prompt
+>   once if still untrusted). While the tool
+>   runs "Open Privacy & Security…" is greyed (not hidden, so the row does not
+>   jump). The tool is bounded: SIGTERM at 5 s, SIGKILL 2 s later, and a
+>   process neither reaches is given up on after one more second and reported
+>   as timed out, so the prompt still follows.
+> - **Footnote.** The 30 s "Already switched on in the list? …" line is the
+>   fallback, and its text is unchanged and there is no new button. It shows
+>   when Isla is still untrusted 30 s after the post-repair prompt, whatever the
+>   reset returned (a Mac with no entry at all can make it fail and needs no
+>   hint at once; an announcement restarts the wait), and immediately at launch
+>   when the ledger says this code identity already had its one repair and Isla
+>   is still untrusted with the setting on. Never while trusted.
 
 ## 13. Stress rules
 
