@@ -544,6 +544,30 @@ mismatch notice, editor) move with it.
 | Version mismatch | `Lyrics-Version-Mismatch` | one notice above the lines, 488 wide × 40, radius 9, fill 0.07, hairline 0.10, `clock.arrow.circlepath` 12 pt, existing text (11 pt, wraps) |
 | Unreadable local file | `Lyrics-Invalid-File` | `exclamationmark.bubble` 22 pt, "Line %d of this file has a time Isla can’t read." (new, from the parser's line number; falls back to the existing "Can't read the lyrics file for this song."), buttons Edit Lyrics… · Import LRC… |
 
+> **Amended 2026-10-16 (owner).** The "Read ahead" row's "the page stays
+> where the person scrolled" was too eager: any scroll event over the panel
+> — a sideways swipe, a one-pixel brush — stopped the page following for
+> good, until the Sync pill (which only appears once the sung line has left
+> the stage) or a tap on a line brought it back. The owner lost the track
+> on a slip of the hand ("make it clean and comfortable, but do not force
+> it by overriding"). Now (`LyricFollowGate`):
+>
+> - A scroll counts only while the pointer is **over the lyric stage**
+>   (decided from the event's own location against the stage's frame, not from
+>   hover, which a non-activating panel delivers unreliably); a mostly
+>   horizontal event (`|dx| > |dy|`) is ignored.
+> - Vertical travel adds up **per gesture** (a new one starts on the
+>   trackpad's `began` phase or after 0.5 s of silence; the momentum tail is
+>   the same gesture), and the page stops following only once a gesture has
+>   gone **12 pt**. A shorter brush is put back 0.5 s after the hand leaves.
+> - Once not following, the page **follows again by itself 4 s after the
+>   last scroll event**, momentum included; each new scroll starts the wait
+>   again. The return uses the same scroll curve as any other recentring
+>   (`Theme.lyricScroll`; Reduce Motion cuts it down), and nothing moves the
+>   page while a hand is on it.
+> - A tap on a line, the Sync pill and Sync Here still resume at once, as
+>   before.
+
 ### 5.5 Edit Lyrics sheet
 
 `Lyrics-Editor`. The existing `LocalLyricsEditorView`, laid out as a Mac form

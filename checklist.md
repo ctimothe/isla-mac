@@ -1454,6 +1454,13 @@ changes to the AirPods and back when they connect and disconnect, and the menu
 switches output. The row "Music › Volume and Output" in the table above is now
 "Music › Output Button", default still **on**.
 
+**Amended 2026-10-16 (owner): a slip of the hand no longer loses the lyrics.**
+Spec §5.4 carries the rule: only a vertical scroll over the stage that goes 12 pt
+in one gesture stops the page following, and it follows again by itself 4 s after
+the last scroll. Held by `LyricFollowGateTests`. Owed on hardware: brush the
+trackpad over the lyrics, swipe sideways, scroll the rest of the panel, then
+scroll the lyrics for real, let go and count four seconds.
+
 ### R1 — Island, Music, Lyrics (`feat/redesign-r1-island-music-lyrics`)
 
 - [x] Built, `./scripts/check` green, Codex and Opus reviews answered,
