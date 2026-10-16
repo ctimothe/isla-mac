@@ -103,8 +103,9 @@ final class NotchController {
         stores.start()
         // After `start()` and never inside it: the tap exists only once the
         // setting and the permission are both true, and this is where the app
-        // first asks.
-        stores.hud.refresh()
+        // first asks. `launched()` also gives a stale Accessibility entry its
+        // once-per-build repair when the setting is already on.
+        stores.hud.launched()
         build()
         observerTokens.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,

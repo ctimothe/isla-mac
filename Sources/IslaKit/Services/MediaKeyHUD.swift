@@ -42,16 +42,18 @@ final class MediaKeyHUD: ObservableObject {
     /// moment.
     static let grantLookDelays: [TimeInterval] = [0.3, 1.5]
 
-    /// How long the setting may stay on with the permission missing, and in
-    /// silence, before Settings suspects a stale entry. Reading the prompt,
-    /// opening System Settings and authenticating with Touch ID routinely takes
-    /// more than 10 s, and the first version of this hint (10 s) flashed
-    /// "remove it with −" in the middle of a slow, correct grant. 30 s is past
-    /// that, and any announcement from the system restarts the wait
+    /// How long, after Isla repaired its own entry and raised the prompt, the
+    /// permission may stay missing in silence before Settings falls back to the
+    /// by-hand footnote. Reading the prompt, opening System Settings and
+    /// authenticating with Touch ID routinely takes more than 10 s, and the
+    /// first version of this hint (10 s) flashed "remove it with −" in the
+    /// middle of a slow, correct grant. 30 s is past that, and any
+    /// announcement from the system restarts the wait
     /// (`accessibilityListChanged`): the person is acting, and the hint is for
-    /// the silent case, an entry macOS keeps for an older copy of Isla
-    /// (ad-hoc signing ties a grant to one build) that only removing it and
-    /// switching the setting off and on again clears.
+    /// the silent case. Since 2026-10-17 it is only the fallback: Isla clears
+    /// its own stale entry first (`AccessibilityRepairing`), so the footnote
+    /// shows only when that failed, or when the prompt it made possible still
+    /// brought no grant.
     static let staleEntryAfter: TimeInterval = 30.0
 
     /// How long "on, trusted, and still no tap" may hold before the retry slows
@@ -77,11 +79,12 @@ final class MediaKeyHUD: ObservableObject {
     /// True while the setting is on and the permission is missing: what
     /// Settings shows the "Accessibility" group for.
     @Published private(set) var needsAccessibility = false
-    /// True once `needsAccessibility` has held for `staleEntryAfter`: Settings
-    /// then adds the line that says what to do about an entry for an older copy.
-    /// Evaluated by the looks that already happen (the poll, the notification,
-    /// the panel opening), so no timer exists for it and none runs once the
-    /// permission is granted.
+    /// True when Isla's own repair of the stale entry did not work (non-zero
+    /// exit, timeout) or, `staleEntryAfter` after a repair and its prompt, the
+    /// permission is still missing: Settings then adds the line that says what
+    /// to do by hand. Evaluated by the looks that already happen (the poll, the
+    /// notification, the panel opening), so no timer exists for it and none
+    /// runs once the permission is granted.
     @Published private(set) var suspectsStaleEntry = false
     /// True once the setting has been on, the permission granted and no tap
     /// running for `tapRefusedAfter`: Settings says macOS is not passing the
@@ -120,9 +123,30 @@ final class MediaKeyHUD: ObservableObject {
     private let deviceSymbol: DeviceSymbol
     private let now: Clock
     private let grantNotifier: AccessibilityGrantNotifying
+    private let repairer: AccessibilityRepairing
+    private let ledger: AccessibilityRepairLedger
+    private let currentBuild: () -> String
 
-    /// When `needsAccessibility` last became true, for `staleEntryAfter`.
-    private var missingSince: TimeInterval?
+    /// What Isla's own repair of its Accessibility entry has done since the
+    /// setting went on, for the fallback footnote.
+    private enum Repair {
+        /// Not attempted, or finished and forgotten (granted, setting off).
+        case none
+        /// The reset is running; the prompt waits for it.
+        case running
+        /// The reset failed (non-zero exit, timeout).
+        case failed
+        /// The reset worked and the prompt was raised at this moment (restarted
+        /// by any announcement from the system).
+        case prompted(at: TimeInterval)
+    }
+    private var repair = Repair.none
+    /// Bumped whenever a running repair stops mattering (setting off, a newer
+    /// repair), so its late completion neither prompts nor reports.
+    private var repairGeneration = 0
+    /// Launch has not yet had its once-per-build look: waiting for the display
+    /// to wake and the Mac to unlock, if either was not true at launch.
+    private var launchRepairPending = false
     /// When "on, trusted, no tap" began, for `tapRefusedAfter`.
     private var tapMissingSince: TimeInterval?
     /// Ends the watch on the Accessibility list; non-nil while watching.
@@ -170,7 +194,10 @@ final class MediaKeyHUD: ObservableObject {
         schedule: Scheduler? = nil,
         deviceSymbol: DeviceSymbol? = nil,
         now: Clock? = nil,
-        grantNotifier: AccessibilityGrantNotifying? = nil
+        grantNotifier: AccessibilityGrantNotifying? = nil,
+        repairer: AccessibilityRepairing? = nil,
+        ledger: AccessibilityRepairLedger? = nil,
+        currentBuild: (() -> String)? = nil
     ) {
         self.isEnabled = isEnabled ?? { NotchViewModel.volumeAndBrightnessEnabled }
         self.trust = trust ?? SystemAccessibilityTrust()
@@ -180,6 +207,11 @@ final class MediaKeyHUD: ObservableObject {
         self.deviceSymbol = deviceSymbol ?? { AudioOutputs.output(id: $0)?.symbol }
         self.now = now ?? { ProcessInfo.processInfo.systemUptime }
         self.grantNotifier = grantNotifier ?? InertAccessibilityGrantNotifier.live
+        self.repairer = repairer ?? InertAccessibilityRepair.live
+        self.ledger = ledger ?? MemoryRepairLedger.live
+        self.currentBuild = currentBuild ?? {
+            (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "dev"
+        }
     }
 
     /// Whether a tap is up right now.
@@ -201,12 +233,13 @@ final class MediaKeyHUD: ObservableObject {
         if isTrusted != trusted { isTrusted = trusted }
         let missing = on && !trusted
         if needsAccessibility != missing { needsAccessibility = missing }
-        if missing {
-            if missingSince == nil { missingSince = now() }
-        } else {
-            missingSince = nil
+        if !missing { forgetRepair() }
+        let stale: Bool
+        switch repair {
+        case .failed: stale = true
+        case .prompted(let at): stale = now() - at > Self.staleEntryAfter
+        case .none, .running: stale = false
         }
-        let stale = missingSince.map { now() - $0 > Self.staleEntryAfter } ?? false
         if suspectsStaleEntry != stale { suspectsStaleEntry = stale }
 
         if on && trusted {
@@ -296,17 +329,94 @@ final class MediaKeyHUD: ObservableObject {
         isSuspended = false
         // The wait for a permission starts again: the time the screen was dark
         // is not time the person spent looking at a missing grant.
-        if missingSince != nil { missingSince = now() }
+        if case .prompted = repair { repair = .prompted(at: now()) }
         if tapMissingSince != nil { tapMissingSince = now() }
+        refresh()
+        repairIfDueAtLaunch()
+    }
+
+    /// The setting was just changed in Settings. Turning it on, with the
+    /// permission missing, clears Isla's own Accessibility entry and then asks
+    /// macOS for the permission (the prompt, once) before deciding; turning it
+    /// off ends any repair in flight and needs no question.
+    func settingChanged(to isOn: Bool) {
+        if isOn {
+            if !trust.isTrusted() { beginRepair() }
+        } else {
+            forgetRepair()
+        }
         refresh()
     }
 
-    /// The setting was just changed in Settings. Turning it on asks macOS for
-    /// the permission (the prompt, once) before deciding; turning it off needs
-    /// no question.
-    func settingChanged(to isOn: Bool) {
-        if isOn, !trust.isTrusted() { trust.requestPrompt() }
+    /// Launch: the once-per-build look at a stale entry, for a person who
+    /// updated Isla with the setting already on. Called after the first
+    /// `refresh()`. If the display is asleep or the Mac locked it waits for
+    /// the first resume that is awake and unlocked.
+    func launched() {
+        launchRepairPending = true
         refresh()
+        repairIfDueAtLaunch()
+    }
+
+    // MARK: Repairing Isla's own Accessibility entry
+
+    /// Repairs at most once per build, and only while the setting is on, the
+    /// display awake, the Mac unlocked and the permission missing. Never from a
+    /// timer, a poll or a grant look: those call `refresh()` and nothing here.
+    private func repairIfDueAtLaunch() {
+        guard launchRepairPending else { return }
+        guard isEnabled() else { launchRepairPending = false; return }
+        guard !isSuspended, !isLocked() else { return }
+        launchRepairPending = false
+        guard !trust.isTrusted() else { return }
+        guard ledger.lastRepairedBuild != currentBuild() else { return }
+        beginRepair()
+        refresh()
+    }
+
+    /// Resets Isla's entry, then, after it has finished whether or not it
+    /// worked, raises the prompt once. The prompt must come after: while the
+    /// stale entry exists macOS shows nothing. The build is recorded at the
+    /// start, so a person who declines is not asked again by the next launch of
+    /// the same build.
+    private func beginRepair() {
+        if case .running = repair { return }
+        ledger.lastRepairedBuild = currentBuild()
+        repairGeneration += 1
+        let generation = repairGeneration
+        repair = .running
+        repairer.reset { [weak self] worked in
+            self?.repairFinished(worked, generation: generation)
+        }
+    }
+
+    private func repairFinished(_ worked: Bool, generation: Int) {
+        guard generation == repairGeneration, case .running = repair else { return }
+        // The setting went off or the permission arrived while the tool ran:
+        // there is nothing left to ask.
+        guard isEnabled(), !trust.isTrusted() else { forgetRepair(); refresh(); return }
+        // The display went dark or the Mac locked while it ran: nobody can
+        // answer a prompt. Forget this attempt and let the first awake,
+        // unlocked resume make it again, as launch does.
+        guard !isSuspended, !isLocked() else {
+            ledger.lastRepairedBuild = nil
+            launchRepairPending = true
+            forgetRepair()
+            refresh()
+            return
+        }
+        // Success or not, the prompt comes after the reset: while a stale entry
+        // exists macOS shows nothing, and when the reset failed it costs
+        // nothing to ask.
+        repair = worked ? .prompted(at: now()) : .failed
+        trust.requestPrompt()
+        refresh()
+    }
+
+    private func forgetRepair() {
+        if case .none = repair { return }
+        repairGeneration += 1
+        repair = .none
     }
 
     /// The app is going away, or its session is: nothing may outlive it.
@@ -516,7 +626,7 @@ final class MediaKeyHUD: ObservableObject {
     /// the silent case those hints are for.
     private func accessibilityListChanged() {
         guard stopObserving != nil else { return }
-        if missingSince != nil { missingSince = now() }
+        if case .prompted = repair { repair = .prompted(at: now()) }
         if tapMissingSince != nil { tapMissingSince = now() }
         cancelLooks()
         cancelGrantLooks = Self.grantLookDelays.map { delay in

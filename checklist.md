@@ -249,6 +249,14 @@ are the exception the design did not anticipate:
   resolved with `dlsym`, which degrade to the system's own handling when
   absent. No entitlement is added. The battle plan's "no full HUD
   replacement" line carries the dated reversal.
+  *2026-10-17 (owner):* Isla resets its **own** Accessibility decision with
+  Apple's `tccutil` (`reset Accessibility com.ctimothe.isla`, never another
+  app's, never `All`), only when Volume and Brightness is on and Isla is not
+  trusted: when the switch goes on and once per build at launch, so a stale
+  entry left by an older ad-hoc build no longer hides the system prompt. The
+  feature stays off by default and the tool is never run otherwise. Held by
+  `AccessibilityRepairTests` and `MediaKeyHUDTests`; spec §12 carries the
+  amendment.
 - **Keep Pinned Items** (Settings › Privacy, default off, redesign R3) writes
   pinned clipboard text and file entries — never images — to one file in
   `~/Library/Application Support/Isla/`, mode 0600, so pins survive a quit.
@@ -1656,6 +1664,17 @@ scroll the lyrics for real, let go and count four seconds.
   `MediaKeyHUDTests` and `SettingsTableTests`; the build-to-build grant itself
   is `fix/stable-signing`'s. Still owed on hardware: grant, and the keys work
   without removing and re-adding Isla.
+  *2026-10-17 (owner):* the cause was a stale entry for an older build
+  (tccd: "Failed to match existing code requirement"), and Isla now clears its
+  own entry and asks again. Owed on hardware:
+  - [ ] **R5-H1a** With a build whose entry is stale in the list (granted to an
+    older build), switching Volume and Brightness on shows the macOS prompt,
+    and the keys work after granting, with nothing removed by hand.
+  - [ ] **R5-H1b** The same after an update (Update Now, or installing the next
+    build over the old) with the setting already on: the first launch of the new
+    build shows the prompt once.
+  - [ ] **R5-H1c** A person who declines is not asked again at the next launch
+    of the same build; switching the setting off and on asks again.
 - [ ] **R5-H2** Mute keeps the level, dimmed; unmute restores it.
 - [ ] **R5-H3** Display and keyboard brightness keys on the MacBook Pro.
 - [ ] **R5-H4** Turning it off gives the keys back at once.

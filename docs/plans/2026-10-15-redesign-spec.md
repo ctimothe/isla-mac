@@ -1179,6 +1179,48 @@ until nothing uses them, then go.
 >   announcement queues run even if the first one ends the watch; they die
 >   only with the setting, a sleep or a lock, or `stop()`.
 
+> **Amended (2026-10-17, owner).** "Even in normal, when I turn it on the first
+> time it still doesn't work": the cause was found in macOS's own log, and it is
+> not Isla's switch.
+> - **Cause.** tccd logs `Failed to match existing code requirement for subject
+>   com.ctimothe.isla and service kTCCServiceAccessibility`, with the
+>   requirement stored when an older build was granted (a pair of cdhashes) and
+>   the build now running (another pair). TCC stores a grant against the app's
+>   designated requirement; an ad-hoc signed build's requirement is its cdhash,
+>   so every release is a different app to TCC. The old entry stays in System
+>   Settings' list, switched on, so macOS neither applies it nor asks again, and
+>   `AXIsProcessTrustedWithOptions(prompt: true)` shows nothing for as long as it
+>   exists. Every user who updates Isla meets it. The release side is fixed
+>   separately (a pinned certificate gives every release the same requirement);
+>   this amendment is the app's side, for whatever stale entry a user has — from
+>   an ad-hoc release, a development build, or a later change of certificate.
+> - **Self-repair.** When Isla is not trusted it clears its own entry with
+>   Apple's `/usr/bin/tccutil reset Accessibility com.ctimothe.isla`
+>   (`AccessibilityRepair`), and only then raises the prompt, so the system
+>   prompt always appears and a grant applies to the running build. The tool is
+>   run with an arguments array, off the main actor, with a 5 s limit (SIGTERM,
+>   SIGKILL 2 s later). It names only Accessibility and only Isla's own bundle
+>   identifier: never `All`, never another service or app, and nothing at all
+>   when the running bundle is not `com.ctimothe.isla`. It runs as the user, is
+>   not setuid and carries Apple's own TCC-management entitlement, so no
+>   administrator password is involved; there is no public API that resets a TCC
+>   decision.
+> - **When.** Only while Volume and Brightness is on, the display is awake, the
+>   Mac is unlocked and Isla is not trusted: (a) when the person switches it on
+>   (repair, then the prompt once, after the repair has finished whether or not
+>   it worked); (b) at launch, once per build (`CFBundleVersion` against
+>   `lastAccessibilityRepairBuild`, an internal key and not a Settings row), so
+>   an update repairs once and a person who declines is not asked again at the
+>   next launch of the same build; a locked or sleeping Mac waits for the first
+>   awake, unlocked resume. Never when trusted, never with the setting off,
+>   never from a timer, a poll or a grant look. After a repair the existing
+>   looks, poll and tap retry take over unchanged.
+> - **Footnote.** The 30 s "Already switched on in the list? …" line is now the
+>   fallback: it shows when a repair was attempted and failed (non-zero exit or
+>   timeout), or 30 s after a successful repair and prompt while Isla is still
+>   not trusted (an announcement restarts that wait). Its text is unchanged and
+>   there is no new button.
+
 ## 13. Stress rules
 
 | Rule | Board |
