@@ -672,8 +672,9 @@ private struct ShelfDropWell: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Theme.shelfDropWellRadius, style: .continuous)
         VStack(spacing: 6) {
-            Image(systemName: target.symbol)
-                .font(.system(size: 26, weight: .regular))
+            // The symbol takes the well's grey or white; AirDrop's real icon
+            // is full-colour and is left as macOS draws it.
+            ShelfIconView(icon: target.icon, size: 26)
                 .foregroundStyle(isLit ? Color.white : Theme.secondary)
                 .accessibilityHidden(true)
                 .padding(.bottom, 4)
@@ -757,7 +758,7 @@ final class ShelfMoreMenuPresenter: NSObject, ObservableObject {
             if Self.keyEquivalent(for: verb) != nil { item.keyEquivalentModifierMask = .command }
             item.target = self
             item.tag = ShelfVerb.allCases.firstIndex(of: verb) ?? 0
-            item.image = NSImage(systemSymbolName: verb.symbol, accessibilityDescription: nil)
+            item.image = verb.icon.nsImage
             menu.addItem(item)
         }
         _ = menu.popUp(

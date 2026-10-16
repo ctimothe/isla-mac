@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import XCTest
 @testable import IslaKit
@@ -416,6 +417,53 @@ final class ShelfLayoutTests: XCTestCase {
             ShelfDropTarget.bodyPoint(windowPoint: CGPoint(x: 140, y: 444 - 100), contentRect: rect),
             CGPoint(x: 100, y: 100)
         )
+    }
+
+    // MARK: - AirDrop wears Apple's icon
+
+    /// The AirDrop verb and the AirDrop well draw the image macOS shows in its
+    /// share menus — `NSSharingService(named: .sendViaAirDrop)?.image`, full
+    /// colour — and the old symbol only where the service is missing.
+    func testAirDropResolvesToTheSharingServicesImage() throws {
+        guard let service = NSSharingService(named: .sendViaAirDrop) else {
+            throw XCTSkip("this Mac has no AirDrop sharing service")
+        }
+        let served = service.image
+        guard case .image(let image) = ShelfIcon.airDrop(service: service) else {
+            return XCTFail("the service has an image, so the icon is that image")
+        }
+        XCTAssertFalse(image.isTemplate, "full colour, never tinted")
+        XCTAssertEqual(image.size, served.size, "the service's own size")
+
+        // And the two call sites resolve to it on this Mac.
+        for icon in [ShelfVerb.airDrop.icon, ShelfDropTarget.airDrop.icon] {
+            guard case .image(let drawn) = icon else { return XCTFail("AirDrop drew a symbol") }
+            XCTAssertFalse(drawn.isTemplate)
+            XCTAssertEqual(drawn.size, served.size)
+        }
+        XCTAssertNotNil(ShelfVerb.airDrop.icon.nsImage)
+    }
+
+    /// No service, or a service with no image: the symbol the Shelf used before.
+    func testAirDropFallsBackToTheSymbolWithoutAService() {
+        guard case .symbol(let name) = ShelfIcon.airDrop(service: nil) else {
+            return XCTFail("no service should give the symbol")
+        }
+        XCTAssertEqual(name, "dot.radiowaves.up.forward")
+        XCTAssertEqual(ShelfVerb.airDrop.symbol, name)
+        XCTAssertEqual(ShelfDropTarget.airDrop.symbol, name)
+    }
+
+    /// Only AirDrop changes: every other verb and the Keep well keep their
+    /// symbols.
+    func testEveryOtherVerbKeepsItsSymbol() {
+        for verb in ShelfVerb.allCases where verb != .airDrop {
+            guard case .symbol(let name) = verb.icon else { return XCTFail("\(verb) lost its symbol") }
+            XCTAssertEqual(name, verb.symbol)
+            XCTAssertNotNil(verb.icon.nsImage, "\(name) is a real symbol")
+        }
+        guard case .symbol(let keep) = ShelfDropTarget.keep.icon else { return XCTFail("Keep lost its symbol") }
+        XCTAssertEqual(keep, "tray.and.arrow.down")
     }
 
     func testTheWellsNameTheirActions() {

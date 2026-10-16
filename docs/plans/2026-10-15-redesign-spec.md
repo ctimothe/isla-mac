@@ -738,6 +738,14 @@ under the pointer lights (accent ring 2 pt, fill accent α 0.18) and its
 caption becomes "Release to add to the Shelf" / "Release to send with
 AirDrop". AirDrop sends without keeping (the existing `ShelfSharing`).
 
+> **Amended 2026-10-16 (owner).** AirDrop wears Apple's own icon. The
+> lookalike symbol (`dot.radiowaves.up.forward`) is gone from the AirDrop
+> well and from the AirDrop verb in the action bar's More menu; both draw
+> `NSSharingService(named: .sendViaAirDrop)?.image`, the full-colour picture
+> macOS's share menus show (there is no public SF Symbol for AirDrop), left
+> untinted. A Mac without the service keeps the old symbol. The tile context
+> menu's items carry no icons, so its "AirDrop" stays text. (`ShelfIcon`.)
+
 ### 8.4 Other states
 
 | State | Board | What shows |

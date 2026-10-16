@@ -369,6 +369,70 @@ enum ShelfTileName {
 
 // MARK: - The bar (§8.2, §13)
 
+/// What a Shelf verb or well draws as its picture: an SF Symbol, or — for
+/// AirDrop alone — the genuine image macOS shows for it.
+///
+/// There is no public SF Symbol for AirDrop (Apple's `airdrop` glyph is
+/// private), and `dot.radiowaves.up.forward`, the lookalike the Shelf used,
+/// read as a generic broadcast mark (owner, 2026-10-16). The icon every macOS
+/// share menu shows is `NSSharingService(named: .sendViaAirDrop)?.image`: a
+/// full-colour picture, not a template, so a caller that draws it must not tint
+/// it. A Mac with no such service falls back to the old symbol.
+enum ShelfIcon {
+    case symbol(String)
+    case image(NSImage)
+
+    /// The symbol the Shelf used before the real icon, and still the fallback.
+    static let airDropFallbackSymbol = "dot.radiowaves.up.forward"
+
+    /// AirDrop's icon from `service` (injected, so a test names the service it
+    /// means), or the fallback symbol when there is none or it has no image.
+    /// The image is copied and marked non-template: the service hands back a
+    /// shared instance, which is not ours to change.
+    static func airDrop(service: NSSharingService?) -> ShelfIcon {
+        guard let shared = service?.image, let image = shared.copy() as? NSImage else {
+            return .symbol(airDropFallbackSymbol)
+        }
+        image.isTemplate = false
+        return .image(image)
+    }
+
+    /// AirDrop's icon on this Mac, resolved once: the well redraws as it lights
+    /// and the service is the same every time, so there is no reason to build
+    /// one and copy its picture on every pass.
+    static let airDropOnThisMac: ShelfIcon = airDrop(service: NSSharingService(named: .sendViaAirDrop))
+
+    /// The menu-item form: the image as is, or the symbol.
+    var nsImage: NSImage? {
+        switch self {
+        case .symbol(let name): return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        case .image(let image): return image
+        }
+    }
+}
+
+/// Draws a `ShelfIcon` at `size`: a symbol in the font a symbol is drawn in,
+/// an image as it is — original colours, never tinted.
+struct ShelfIconView: View {
+    let icon: ShelfIcon
+    let size: CGFloat
+    var weight: Font.Weight = .regular
+
+    var body: some View {
+        switch icon {
+        case .symbol(let name):
+            Image(systemName: name).font(.system(size: size, weight: weight))
+        case .image(let image):
+            Image(nsImage: image)
+                .renderingMode(.original)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: size, height: size)
+        }
+    }
+}
+
 /// Whether a verb belongs to the bar's selection group.
 enum ShelfVerb: CaseIterable, Equatable {
     case quickLook, airDrop, copy, showInFinder, remove
@@ -386,11 +450,17 @@ enum ShelfVerb: CaseIterable, Equatable {
     var symbol: String {
         switch self {
         case .quickLook: return "eye"
-        case .airDrop: return "dot.radiowaves.up.forward"
+        case .airDrop: return ShelfIcon.airDropFallbackSymbol
         case .copy: return "doc.on.doc"
         case .showInFinder: return "folder"
         case .remove: return "trash"
         }
+    }
+
+    /// What the overflow menu draws beside the verb: AirDrop wears the real
+    /// icon, every other verb its symbol.
+    var icon: ShelfIcon {
+        self == .airDrop ? ShelfIcon.airDropOnThisMac : .symbol(symbol)
     }
 }
 
@@ -504,8 +574,13 @@ enum ShelfDropTarget: Equatable {
     var symbol: String {
         switch self {
         case .keep: return "tray.and.arrow.down"
-        case .airDrop: return "dot.radiowaves.up.forward"
+        case .airDrop: return ShelfIcon.airDropFallbackSymbol
         }
+    }
+
+    /// What the well draws: AirDrop's well wears the real icon.
+    var icon: ShelfIcon {
+        self == .airDrop ? ShelfIcon.airDropOnThisMac : .symbol(symbol)
     }
 
     // MARK: Geometry
