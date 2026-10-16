@@ -107,8 +107,10 @@ if [ "$ADHOC" = "1" ]; then
     PINNED="$(tr -d '[:space:]' < "$ROOT/Scripts/signing-identity.sha1" 2>/dev/null \
         | tr '[:lower:]' '[:upper:]' || true)"
     [ -n "$PINNED" ] || fail "Scripts/signing-identity.sha1 is missing; run Scripts/make-signing-identity.sh"
+    # `|| true`: an unsigned bundle makes codesign fail, and pipefail would end
+    # the script here without saying why; the comparison below says it.
     LEAF="$(codesign -d -r- "$APP" 2>&1 | sed -n 's/.*certificate leaf = H"\([0-9a-fA-F]*\)".*/\1/p' \
-        | tr '[:lower:]' '[:upper:]')"
+        | tr '[:lower:]' '[:upper:]' || true)"
     [ "$LEAF" = "$PINNED" ] || fail "the bundle is not signed with the pinned certificate (leaf ${LEAF:-none}, pinned $PINNED); restore \"Isla Code Signing\" from its backup and rebuild"
     echo "==> signed with the pinned certificate $PINNED"
     SKIP_BUNDLE=1 bash Scripts/dmg.sh

@@ -42,12 +42,20 @@ PIN_FILE="$ROOT/Scripts/signing-identity.sha1"
 
 fail() { echo "make-signing-identity: $*" >&2; exit 1; }
 
+# The backup is the private key, encrypted. Inside the repository one `git add
+# -A` would publish it; .gitignore also ignores *.p12 for the same reason.
+case "$(cd "$(dirname "$BACKUP")" 2>/dev/null && pwd)/" in
+    "$ROOT"/*) fail "write the backup outside the repository, not $BACKUP" ;;
+esac
+
 # Listed without -v on purpose: an untrusted self-signed identity is left out of
-# the "valid" list, and that is the only kind this script makes.
-EXISTING="$(security find-identity -p codesigning "$KEYCHAIN" \
+# the "valid" list, and that is the only kind this script makes. The whole
+# keychain search list, as bundle.sh searches it: an identity restored into
+# another keychain is still the one builds sign with, and must not be made again.
+EXISTING="$(security find-identity -p codesigning \
     | grep -F "\"$NAME\"" | awk '{print $2}' | sort -u || true)"
 if [ -n "$EXISTING" ]; then
-    echo "\"$NAME\" is already in the login keychain: $EXISTING"
+    echo "\"$NAME\" is already in the keychain: $EXISTING"
     # A rerun after a restore from the backup, or on a checkout without the pin:
     # write it from the one identity there is, never guess between two.
     if [ ! -s "$PIN_FILE" ]; then
@@ -61,7 +69,11 @@ if [ -n "$EXISTING" ]; then
     exit 0
 fi
 [ -t 0 ] || fail "run this in a terminal: it asks for a passphrase for the backup"
-[ -e "$BACKUP" ] && fail "a backup already exists at $BACKUP; move it away first"
+# A backup with no identity is usually an import that failed after the backup
+# was written: restoring it is the way on, a second certificate is not.
+[ -e "$BACKUP" ] && fail "a backup already exists at $BACKUP, and the keychain has no \"$NAME\". Import it, then run this again to pin it:
+    security import \"$BACKUP\" -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign
+  (or move it away first if it is a stale backup you mean to replace)"
 # A pin with no identity behind it means the certificate releases are signed
 # with exists somewhere else: restoring it keeps users' permissions, a new one
 # would not.

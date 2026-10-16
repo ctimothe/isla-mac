@@ -374,7 +374,8 @@ codesign "${SIGN_ARGS[@]}" "$APP" || {
         # locked (an SSH session), or codesign was refused the key at its
         # first-use prompt. errSecInternalComponent is how both look.
         echo "    with \"$LOCAL_IDENTITY_NAME\": unlock the login keychain and answer" >&2
-        echo "    codesign's prompt with Always Allow, or build ad-hoc: ISLA_SIGN_ADHOC=1" >&2
+        echo "    codesign's prompt with Always Allow, or build ad-hoc: ISLA_SIGN_ADHOC=1." >&2
+        echo "    \"ambiguous\" means the same identity is in two keychains; delete one." >&2
     fi
     exit 1
 }
