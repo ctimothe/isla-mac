@@ -230,6 +230,27 @@ transitions.
 > (no screen capture, no permission); under Increase Contrast it is always
 > drawn. While the lock banner or card shows, the island has no wings.
 
+> **Amended 2026-10-17 — the tabs move into the notch's wings.** The rail is
+> withdrawn. The owner judged a vertical column of tabs on the body's left
+> edge an app sidebar hung under a camera, and chose to put the tabs where the
+> notch already divides the header row: Music and Shelf left of the camera,
+> Clipboard and Translate right of it, Settings at the far right edge. The
+> five tabs and their order are unchanged, and a click still changes the tab
+> (the 2026-09-21 rule); a two-finger horizontal swipe on the body moves
+> between the four content tabs, and ⌘1…⌘4 and ⌘, do so while the pointer
+> is on the open panel. The header's title is gone — the lit tab names the pane — and the
+> per-tab tools (Search, History, the lyric tools, the Shelf's count) move
+> down into their panes; Expand / Collapse moves to the header's top-left
+> corner. Only the notch's own span of the header closes the panel now; the
+> rest of the row is tabs. The row lies on the menu bar, where utilities such
+> as Ice see every click; keeping it free of controls for them is given up
+> here and owed a hardware check. Content gains 44 pt of width on every tab. The
+> 2026-08-22 amendment's "one rail carries Music, Shelf, Clipboard and
+> Translate, with Settings held at its foot" and the 2026-10-11 welcome
+> amendment's "one line level with each rail icon" are superseded: the
+> welcome lists one line per tab, each led by its tab's glyph. Binding detail:
+> `docs/plans/2026-10-15-redesign-spec.md` §18 (release R6).
+
 ## Feature parity contract
 
 > **Amended 2026-08-20.** The Snippets and Calendar sections below are

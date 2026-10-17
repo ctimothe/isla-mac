@@ -34,6 +34,7 @@ Upstream of this document:
 | 11 | Translated lyrics are off by default; the switch is Settings › Lyrics. |
 | 12 | Clipboard gets the same Expand/Collapse button as Lyrics, Shelf and Translate. |
 | 13 | Volume and brightness pop-up in the island: a full replacement of the Mac's pop-up (volume, mute, display and keyboard brightness), opt-in, off by default, needs Accessibility; its own release (R5). |
+| 14 | *(17 Oct 2026)* The tabs leave the rail for the notch's wings: Music and Shelf left of the camera, Clipboard and Translate right of it, Settings at the far right edge (§18, release R6). |
 
 ## 1. Conventions
 
@@ -121,6 +122,10 @@ The sung lyric line is never larger than its neighbours (decision 6): it is
 weight 700 at full white; the others are weight 600 (column) or 700 (tall)
 at lower opacity.
 
+> **Amended 2026-10-17 (owner: tabs in the notch's wings, §18).** selectedFill now
+> marks the lit tab in the header row rather than the selected rail item. The
+> "Panel header title" row is withdrawn with the title itself (§18.1).
+
 ### 2.3 Radii
 
 | Shape | Radius |
@@ -171,6 +176,11 @@ board that motivated them, as the file does today.
 | Refusal shake (locked) | three swings in 0.5 s, decaying from 11 pt | content dims to 0.45 and back in 0.36 s | `RefusalShake` |
 | Copied, Already on the Shelf | easeOut 0.16; holds 1.2 s | same, no scale | `contentAnimation` |
 | Menus, sheets, tooltips | system | system | — |
+
+> **Amended 2026-10-17 (owner: tabs in the notch's wings, §18).** The "Tab
+> switch" row gains a direction: going to a tab further right, the old pane
+> leaves 12 pt to the left and the new one arrives from 12 pt on the right
+> (mirrored going left), no scale; Reduce Motion unchanged (§18.4). Two-finger swipe and ⌘1…⌘4, ⌘, switch tabs as well as a click.
 
 ## 3. The compact island
 
@@ -321,6 +331,12 @@ bottom edge.
 With **no lyric** for the song (`Music-NoLyrics`) the band folds away and the
 block below moves up by 20: title 70, subtitle 91, progress 121, transport
 138, volume 146, buttons 139.
+
+> **Amended 2026-10-17 (owner: tabs in the notch's wings, §18).** The "Header
+> title" and "Rail" rows are withdrawn. The source tag is the player's app
+> icon alone, in the header's leading slot at x 14; its equalizer is
+> withdrawn (§18.3). Every leading coordinate in this table moves left by 44
+> and the widths measured from them grow by 44; §18.6 restates them.
 
 ### 4.2 Paused
 
@@ -498,6 +514,12 @@ mismatch notice, editor) move with it.
   plus the current one with a check, separator, "Translated on this Mac"
   (disabled) — or "Translated online by MyMemory" when that is where it went.
 
+> **Amended 2026-10-17 (owner: tabs in the notch's wings, §18).** In §5.1's table
+> the "Header right" row is withdrawn: Show Translation and More join Output
+> and Lyrics in the pane's own tool row (C at y 169, T at y 351), and Expand /
+> Collapse moves to the header's leading slot. §5.2's tools, menus and
+> behaviour are otherwise unchanged. New coordinates in §18.6.
+
 ### 5.3 Lyric translation (decision 11)
 
 - **Translate Lyrics**, Settings › Lyrics, **off** by default, with
@@ -615,6 +637,12 @@ trailing edge. Behaviour and strings are today's; only the layout changes.
 - Escape and a pointer leaving close the panel as today; they do not
   collapse it. A tab change keeps each tab's own expansion.
 - No bottom-edge drag, no grabber (decision 7).
+
+> **Amended 2026-10-17 (owner: tabs in the notch's wings, §18).** The Expand /
+> Collapse button keeps its size, glyphs and labels and moves from
+> (`bw − 39`, 8) to the header's leading slot, (14, 0) 26 × `H` (§18.3). The
+> rail bullet is withdrawn: there is no rail, and the header row does not
+> change with the body's height.
 
 ## 7. Lock screen (R2)
 
@@ -741,6 +769,11 @@ nudges the resting notch (+8 / +3, surface `#1C1C1E`); a click shakes it
 - Below 540 (`Stress-Shelf-RU-480`) the bar keeps Quick Look and Remove and
   moves the rest into a "…" More menu (`ellipsis`, 22 × 22).
 
+> **Amended 2026-10-17 (owner: tabs in the notch's wings, §18).** The grid starts
+> at (14, 44) and spreads its columns to fill the width; the count leaves the
+> header for the bar at the foot (`h − 37`), which reads "%d items" while nothing is
+> selected; Expand is in the header's leading slot (§18.6).
+
 ### 8.3 Dragging in
 
 `Shelf-Drag-Keep`, `Shelf-Drag-AirDrop`. While files are dragged over the
@@ -853,6 +886,11 @@ caret in accent, a Clear Search ⓧ. Matches are highlighted in
 keyboard focus: the panel becomes key while the search field is focused, the
 way it does for Translate, and gives it back when the field closes.
 
+> **Amended 2026-10-17 (owner: tabs in the notch's wings, §18).** Search leaves
+> the header for the trailing end of the filter row, (`bw − 36`, 44); the
+> filter row runs from x 14 to `bw − 44`, the list from (14, 74) at `bw − 28`
+> wide; Expand is in the header's leading slot (§18.6).
+
 ### 9.4 Persistence and privacy (decision 10)
 
 - History stays **in memory** and empties at quit (today's behaviour; the
@@ -893,7 +931,8 @@ way it does for Translate, and gives it back when the field closes.
 >   covers its middle, where §9.3 put the 270 pt filter and the 294 pt field.
 >   Both now sit in a filter row at (58, 44), 22 tall, the list 30 pt lower;
 >   Search and Expand stay in the header's trailing corner, and Expand stays
->   while searching. The segmented control shows words where they fit the
+>   while searching. *(Superseded 2026-10-17, §18: Search moves to the filter
+>   row's end and Expand to the header's leading slot.)* The segmented control shows words where they fit the
 >   row and the symbols otherwise.
 > - "Paste as Plain Text ⌥⇧⌘V" is **Copy as Plain Text**: Isla has no
 >   Accessibility permission to press ⌘V in another app, so it puts the plain
@@ -1029,6 +1068,11 @@ until nothing uses them, then go.
 > and 620) and Spotify's "Учётная запись" row at 480 in Russian. Decision:
 > `SettingsRowArrangement.choose`; layout: `SettingsRowLayout`.
 
+> **Amended 2026-10-17 (owner: tabs in the notch's wings, §18).** The sidebar is at
+> (14, 46) and the form at (148, 46), `bw − 162` wide from 540 up and 318
+> below it (§18.6). Settings is the gear at the header's far right edge; it
+> is not in the swipe run (§18.4).
+
 ## 11. Translate (R4)
 
 `Translate-*`.
@@ -1101,6 +1145,11 @@ until nothing uses them, then go.
 >   warning, and Detect Language when the source had been detected. Covered,
 >   its rows are dust too.
 > - Copy Translation stays while covered, as before; Speak is hidden.
+
+> **Amended 2026-10-17 (owner: tabs in the notch's wings, §18).** "Header
+> trailing" is withdrawn: History moves to the trailing end of the pair bar,
+> (`bw − 36`, 46), and Expand to the header's leading slot. The pair bar
+> starts at x 14; the card and the result split the width (§18.6).
 
 ## 12. Volume and brightness pop-up (R5, decision 13)
 
@@ -1286,6 +1335,12 @@ Every layout in this spec must hold at 480 and 620 and in Russian; tests
 render each new view at both widths with the Russian table loaded and assert
 no truncation of controls (text truncation is allowed where this spec says
 so).
+
+> **Amended 2026-10-17 (owner: tabs in the notch's wings, §18).** Added rule: the
+> header row holds at 480, 560 and 620 against notch widths 180–240 and
+> header heights 24–38 in both languages, with only §18.2's fallback (tabs
+> narrow to 26) allowed to change it (`Stress-Wings-480` = canvas board
+> `A-Stress-480`).
 
 ## 14. Settings keys and defaults
 
@@ -1517,6 +1572,29 @@ Isla's pop-up and never the Mac's; R5-H2 mute keeps the level; R5-H3 display
 and keyboard brightness on a MacBook Pro; R5-H4 turning it off gives the keys
 back at once; R5-H5 an external keyboard's volume keys.
 
+### R6 — Tabs in the notch's wings (`feat/redesign-wings`)
+
+Added 2026-10-17 (owner). Cut from R5. In: §18. No new strings: the tooltips
+are the tabs' existing names; "%d items", "Expand", "Collapse" and "Tabs"
+exist. Tests: wing frames for every width, notch width and header height in
+§18.5, the fallback, and nothing in the notch span; the header's close
+region is the notch span alone; tab order and grouping
+(`TabContractTests`); the leading slot's content per tab and page; pane
+coordinates in §18.6 at 480/560/620 in Russian; the swipe recogniser's
+thresholds, axis lock, one switch per gesture, no wrap, wheel and momentum
+ignored, and every refusal case; the tab keys' claim and their release on
+every road out, with a fake registrar (a real one would take ⌘1 from the
+developer's Mac); the pane swap's direction and its Reduce Motion form; the
+welcome's legend lines.
+Owed on hardware: R6-H1 the tabs clear the camera on a 14-inch and a 16-inch
+MacBook Pro at Default and More Space; R6-H2 a swipe on the lyric column, the
+Clipboard list and the Shelf grid switches only when meant to and never
+stops a vertical scroll; R6-H3 ⌘1 reaches Safari again the moment the
+pointer leaves the panel or it closes; R6-H4 an external display without a
+notch; R6-H5 VoiceOver reads the tabs in order with the lit one selected;
+R6-H6 tab clicks with Ice and with Bartender running toggle nothing of
+theirs.
+
 ## 17. Calls made in this spec
 
 Decided here without asking, as the conventional Apple answer; reverse any
@@ -1536,3 +1614,210 @@ of them by amending this section.
 - Rest as Banner is on by default: display only.
 - Include Images is on by default: memory only, empties at quit like the
   rest of the history.
+
+- *(2026-10-17, R6)* The tab keys are ⌘1…⌘4 and ⌘, held only while the
+  pointer is on the open panel, not session-wide chords; Settings is out of the swipe
+  run; the swipe threshold (24 pt, 2:1) and the 12 pt directional swap; the
+  open header's equalizer withdrawn rather than moved across the camera.
+
+
+## 18. Tabs in the notch's wings (2026-10-17, owner)
+
+> **Added 2026-10-17 (owner).** The owner judged the vertical rail on the
+> body's left edge an app sidebar hung under a camera, not something Apple
+> would ship for the notch, and chose direction **A** of the navigation canvas
+> (private artifact `8dfB3WZszjMw7Gmjw587NZ`, boards `A1`, `A-Tall`,
+> `A-Stress-480`): the tabs move up into the header row, two each side of the
+> camera, Settings at the far right edge. This section is the contract; the
+> dated notes in §2, §4.1, §5, §6, §8, §9.3, §10, §11, §13 and §16 point here
+> instead of restating it. Where they disagree with the older text of their
+> section, this section wins. Release **R6** (§16).
+
+### 18.1 What moves
+
+- The **rail is withdrawn**: no vertical column of tabs on any tab, at any
+  height. The header row (`notchSize.height`, 38 on a 14-inch MacBook Pro)
+  carries all five tabs instead.
+- The **header title** ("Music", "Shelf", … at (17, 11)) is withdrawn. The lit
+  tab names the pane; each tab's name is its tooltip and its accessibility
+  label.
+- **Per-tab header tools leave the header.** Expand / Collapse moves to the
+  header's leading slot (18.3). Search, History, Show Translation, More and
+  the Shelf's count move down into their panes (18.6).
+- The **content starts at x 14**, not 58: every body coordinate this spec
+  writes as a plain leading number of 58 or more moves left by **44**, every
+  `bw − n` coordinate stays where it is, and every width that ran from a
+  leading coordinate to a `bw − n` edge grows by 44 — except where 18.6
+  restates a frame, which wins.
+- The five tabs and their order do not change (`TabContractTests`).
+
+### 18.2 The header row
+
+Body coordinates; `bw` the body width (480…620), `nw` the notch's width (real,
+or the synthetic 200), `H` the header's height (`notchSize.height`: 38 on the
+14-inch, 24 or more on a display Isla draws the notch for).
+
+| Element | Frame | Notes |
+|---|---|---|
+| Notch span | x `(bw − nw) / 2` to `(bw + nw) / 2`, full `H` | nothing is drawn or placed in it; the only part of the row a click closes the panel from |
+| Leading slot | (14, 0), 26 × `H` | 18.3 |
+| Music, Shelf | right-aligned **8** before the notch span | left wing, Music outermost |
+| Clipboard, Translate | left-aligned **8** after the notch span | right wing, Clipboard innermost |
+| Settings | ends at `bw − 14` (x `bw − 44` at 30 wide, `bw − 40` at 26) | the far right edge, apart from the run |
+| A tab | 30 × `min(26, H − 4)`, centred in `H` (y 6 at 38), **4** apart | the rail's chip, unchanged: radius 7, selectedFill and its 1.5 pt edge when lit, the filled glyph when lit, a hover well, `subhead` glyph |
+
+- **Fallback when a wing is short.** Each wing needs, at the standard sizes,
+  `14 + 26 + 8 + 64 + 8 = 120` on the left and `8 + 64 + 8 + 30 + 14 = 124`
+  on the right. When either does not fit, every tab narrows to 26 (112 a
+  side). The tightest real case, 480 on a 220 notch, leaves 130 a side and
+  needs nothing; 480 on a 240 notch, wider than any Mac's in points, narrows
+  and still fits. The leading slot never hides for room. Nothing ever
+  overlaps the notch span.
+- **Clicks.** A tab answers on press-down (`PanelButtonStyle`) and changes the
+  tab on release, as the rail did. Each tab's hit area is its column of the
+  row, full `H` tall, widened into half of each 4 pt gap it shares with a
+  neighbour (never on a run's outer ends, which would reach into the 8 pt
+  clearance), so a click between two tabs lands on one of them. The notch span closes the panel (the 2026-08
+  rule that the island closes what it opened). The rest of a wing is inert:
+  a near-miss on a tab must not shut the panel.
+- **The menu bar under the row.** The header row lies on the menu bar, and
+  menu-bar utilities that watch clicks there with a global monitor (Ice,
+  Bartender) see every click in it whichever window takes it. The rail
+  existed partly to keep this row free of controls for that reason
+  (`NotchContentView`'s header note). Putting the tabs here accepts that a
+  tab click may also reach such a utility; R6 owes the check on hardware
+  (R6-H6), and if it misbehaves the fix belongs to this section.
+- **Badges** (a newer Isla on Settings, a screenshot that arrived on the
+  Shelf) keep their 5 pt dot at the chip's top-trailing corner.
+- **The welcome** shows the five tabs, none lit (H-020 still holds), and an
+  empty leading slot.
+- **Open and close.** The tabs are content, and Shelf and Clipboard sit
+  where the compact island's cover and equalizer were. Opening, the tabs
+  start on `paneIn` only once the compact content has gone (0.20 s, its
+  out-curve), so the two never share the spot; closing, they leave on
+  `paneOut` (0.10 s), done while the returning compact content (0.07 s
+  delay, 0.36 s in) is still under a tenth in. Nothing in the header
+  travels across the notch.
+- **Accessibility.** The five tabs are one group, "Tabs", read Music, Shelf,
+  Clipboard, Translate, Settings — in that order, whatever their x — before
+  the pane, with the selected trait on the lit one. The Isla close element
+  stays first, as today, and its frame narrows to the notch span, the same
+  region a click closes from. The tabs are laid over the header after the
+  Isla element, as the header tools are today: inside it they would be
+  hidden, because that element ignores its children.
+
+### 18.3 The leading slot
+
+One control or none, centred in (14, 0) 26 × `H`, crossfading on the tab's
+own curve when its content changes:
+
+| Where | Content |
+|---|---|
+| Music, the player (P) | the player's app icon, 18 × 18, the source tag (§4.1) |
+| Music, the lyric column (C) and the tall page (T) | Expand / Collapse |
+| Shelf (with items, or already tall), Clipboard, Translate | Expand / Collapse |
+| Settings, the welcome, Music with nothing playing | empty |
+
+Expand / Collapse is §6's button unchanged (22 × 22,
+`rectangle.expand.vertical` / `rectangle.compress.vertical` 12 pt, secondary,
+the tooltip and label "Expand" / "Collapse"); only its place moves, from
+(`bw − 39`, 8) to the slot. It sits where a Mac's own zoom button sits on a
+window, the top-left corner.
+
+The **open header's equalizer is withdrawn.** Its travel from the compact
+island's right wing to the header's right end made sense while the source tag
+was on the right; on the left it would cross the camera, which is the
+"two equalizers for one piece of music" the travel was built to avoid. The
+compact equalizer now leaves with the compact island's content
+(`pillContentOut`) instead of travelling, and the compact cover still travels
+to the player's cover. The play state stays on screen as the transport's
+play/pause.
+
+### 18.4 Moving between tabs
+
+- **Click** a tab (18.2).
+- **Swipe** with two fingers across the open body (not the header):
+  - only trackpad gestures with a phase count; a scroll wheel, and the
+    momentum that follows a lift, never switch;
+  - the gesture is decided once, at the first sample where `|Σdx| ≥ 24` or
+    `|Σdy| ≥ 10` (sums since `began`, in `ScrollSample`'s points): it is
+    horizontal if then `|Σdx| ≥ 24` and `|Σdx| > 2·|Σdy|`, and vertical
+    otherwise, for its whole life — a vertical one is left to the pane (lists,
+    the grid, the form, the lyric column's read-ahead);
+  - one switch per gesture, to the neighbour in the direction a horizontal
+    scroll view would move under the same fingers (`scrollingDeltaX`, which
+    already honours Natural Scrolling);
+  - the run is **Music, Shelf, Clipboard, Translate**; Settings is not in it,
+    and a swipe on Settings does nothing. The ends do not wrap: the pane gives
+    a **6 pt** resisted nudge toward the gesture and settles back on
+    `openAnimation`; Reduce Motion, no nudge;
+  - never while locked, on the welcome, while a press is held (scrubbing,
+    the width slider, a drag out of the Shelf), or while a menu or sheet is
+    up. No pane scrolls horizontally today; one that ever does opts out;
+  - until the gesture is decided its events pass on to the pane. Once it is
+    decided horizontal, the rest of it — momentum included — is swallowed, so
+    neither the pane it left nor the pane it switched to scrolls on its
+    leftovers. Before the decision `|Σdy|` is under 10, below
+    `LyricFollowGate`'s 12 pt stop distance, so a swipe that starts on the
+    lyric column cannot stop the follow even through mostly vertical
+    samples.
+- **Keyboard**: **⌘1** Music, **⌘2** Shelf, **⌘3** Clipboard, **⌘4**
+  Translate, **⌘,** Settings (the Mac's own Settings key). The panel is not
+  key outside Translate, so these are Carbon hot keys, held only while the
+  pointer is on the open panel: open, pointer on it, the panel without the
+  keyboard, Isla not the active app (Quick Look, AirDrop), not locked —
+  the terms of `claimsDelete`. A pinned panel with the pointer elsewhere
+  does not hold them: the pin can stand for minutes over another app, and a
+  Carbon hot key wins over the app in front (the 2026-09-23 lesson), so ⌘1
+  in Safari and ⌘, anywhere would quietly turn Isla's tabs instead. While the
+  panel has the keyboard they are read in `NotchPanel.sendEvent`. A key
+  goes through `chooseTab`, so on the welcome it answers it, as a click on a
+  tab does. One holder registers and releases the five
+  together, idempotently, and every road out — close, lock, rebuild, quit,
+  another app coming forward — releases them, as `ShelfDeleteKeyHolder`
+  does for Delete. *Deviation from the canvas note,* which proposed ⌃⌥⌘1…4
+  held for the whole session: four more global chords taken from every app
+  all day is a cost the tabs do not earn when the panel is shut.
+- **The pane swap now has a direction.** The tabs read left to right across
+  the notch, so a swap is spatial, the way pages move under a swipe: going
+  to a tab further right, the old pane leaves 12 pt to the **left** on
+  `paneOut` and the new one arrives from 12 pt on the **right** on `paneIn`;
+  going left, mirrored. Both carry their opacity; the 0.98 scale is dropped.
+  Settings counts as the rightmost. The direction is set before the tab
+  changes, so the leaving pane's transition carries this switch's direction
+  and not the last one's. Reduce Motion: the plain 0.24 crossfade,
+  no offset (F-017 still holds). A switch during a switch starts from where
+  the panes are.
+- Each tab keeps its own expansion (§6); a switch to a tab of another height
+  springs the body as today.
+
+### 18.5 Displays and stress
+
+- Wings are computed from the real cutout (`auxiliaryTopLeftArea` /
+  `auxiliaryTopRightArea`) or the synthetic 200 pt notch — never from
+  `NSScreen.main`, and recomputed on `didChangeScreenParametersNotification`
+  with the rest of the geometry.
+- At `H` 24 (a display Isla draws the notch for) a tab is 30 × 20.
+- Every header layout holds at 480, 560 and 620 against notch widths 180,
+  185 (the 14-inch at Default), 200, 220 and 240 and header heights 24, 32 and 38, in English and Russian;
+  only the fallback in 18.2 may change what shows.
+
+### 18.6 Pane coordinates that change
+
+At 560 unless a formula is given.
+
+| Pane | Was | Now |
+|---|---|---|
+| Player (§4.1) | cover (58, 54); text column x 206; title and progress width `bw − 220`; Shuffle 206, transport 236, Repeat 342 | cover (14, 54); text column x 162; title and progress width `bw − 176`; Shuffle 162, transport 192, Repeat 298; Output and Lyrics unchanged |
+| No lyric (§4.1) | the block moves up 20 | unchanged |
+| Lyric column C (§5.1) | cover (58, 50); title, subtitle x 122; progress (58, 116) 190; transport (84, 136); Output (197, 169), Lyrics (225, 169); lines x 268 | cover (14, 50); title, subtitle x 78; progress (14, 116) 190; transport (40, 136); a tool row at y 169, 26 wide, 2 apart, the visible tools packed right to end at x 204 in the order **Show Translation**, **More**, Output, Lyrics (with all four: 94, 122, 150, 178; a hidden one closes up); lines x 224 |
+| Tall page T (§5.1) | cover (58, 46); title x 102; lines x 58; progress (158, 358); transport (60, 350) | cover (14, 46); title x 58; lines x 14; progress (114, 358) ending 12 before the leftmost visible tool; transport (16, 350); tools at y 351, 26 wide on a 30 pitch, the visible ones packed right to end at `bw − 19` in the order **Show Translation**, **More**, Output, Lyrics (with all four: `bw − 135`, `bw − 105`, `bw − 75`, `bw − 45`) |
+| Shelf grid (§8.1) | from (58, 44), `(bw − 72) / 82` columns, 4 apart | from (14, 44), still 4 apart on the fixed 82 pitch that hover, selection and the ⓧ hit-test against; `floor((bw − 24) / 82)` columns (5 at 480, 6 at 560, 7 at 620), the spare width left at the trailing end |
+| Shelf bar (§8.2) | y 171 (`h − 37`); without a selection, the hint and Clear | y `h − 37`, x 14 to `bw − 14`; without a selection, **"%d items"** (11.5 / medium, secondary), then the hint in tertiary from 540 up, and Clear |
+| Clipboard (§9.2, §9.3 R3) | filter row (58, 44); list from (58, 74), `bw − 72` wide | filter row (14, 44) to `bw − 44`, **Search** 22 × 22 at (`bw − 36`, 44); the search field takes the same row; list from (14, 74), `bw − 28` wide |
+| Translate (§11) | pair bar from x 58; source card (58, 76) 240; result (318, 85) wrapping at 212 | pair bar from x 14 to `bw − 44` with **History** 22 × 22 at (`bw − 36`, `H + 8`) while Keep History is on (to `bw − 14` while it is off); the card and the result share `bw − 28` by today's rule (`TranslateLayout`: the card takes half less the 20 pt gutter, plus `sourceBonus` 6), so at 560 the card is 262 wide at 14 and the result column runs from 296 to `bw − 14`, 250 wide; their inner insets are unchanged |
+| Settings (§10) | sidebar (58, 46) 122; form (192, 46), `bw − 206`, 274 below 540 | sidebar (14, 46) 122; form (148, 46), `bw − 162`, **318** below 540 |
+| Welcome (2026-10-11 parity amendment) | legend lines level with each rail icon | one legend line per tab, each led by its tab's own glyph (14 pt, tertiary), Settings last after the footer gap; the right column unchanged |
+
+The lock card, its foot rail (§4.5), the compact island, the peek and the
+volume pop-up do not change.
