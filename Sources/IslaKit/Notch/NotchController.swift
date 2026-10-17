@@ -1522,6 +1522,12 @@ final class NotchController {
             return true
         }
 
+        // ⌃Tab and ⌃⇧Tab turn the page while the panel has the keyboard (spec
+        // §19.16), and keep it there; see `NotchViewModel.turnPageByKey`.
+        panel.pageKeyHandled = { [weak self] step in
+            self?.viewModel?.turnPageByKey(step, reduceMotion: SystemAppearance.shared.reduceMotion) ?? false
+        }
+
         // A right-click on the island, its bubble or an open surface's header
         // row opens the island's menu (spec §19.9); over the lock it shakes.
         panel.secondaryClickHandled = { [weak self] point in

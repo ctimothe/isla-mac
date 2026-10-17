@@ -224,6 +224,37 @@ final class PanelKeyRoutingTests: XCTestCase {
         XCTAssertNil(probe.pasteboard.string(forType: .string))
         XCTAssertEqual(translator.outputCopies, 1)
     }
+
+    // MARK: ⌃Tab and ⌃⇧Tab (spec §19.16)
+
+    /// Tab is key code 48 on every layout, so only the modifiers decide: ⌃
+    /// alone is the next page, ⌃⇧ the previous one, Caps Lock aside.
+    func testControlTabIsThePageKey() {
+        XCTAssertEqual(NotchPanel.pageStep(keyCode: 48, flags: .control), 1)
+        XCTAssertEqual(NotchPanel.pageStep(keyCode: 48, flags: [.control, .shift]), -1)
+        XCTAssertEqual(NotchPanel.pageStep(keyCode: 48, flags: [.control, .capsLock]), 1)
+        for flags: NSEvent.ModifierFlags in [[], .shift, .command, .option, [.control, .option], [.control, .command]] {
+            XCTAssertNil(NotchPanel.pageStep(keyCode: 48, flags: flags), "\(flags)")
+        }
+        XCTAssertNil(NotchPanel.pageStep(keyCode: 0, flags: .control), "⌃A goes to the field's line start")
+    }
+
+    /// A real ⌃Tab and ⌃⇧Tab reach the pages' seam ahead of the field, which
+    /// would take ⌃Tab as a move to the next key view.
+    func testARealControlTabReachesTheSeamAndNotTheField() throws {
+        let panel = NotchPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100))
+        defer { panel.close() }
+        var steps: [Int] = []
+        panel.pageKeyHandled = { steps.append($0); return true }
+        for flags: NSEvent.ModifierFlags in [.control, [.control, .shift]] {
+            panel.sendEvent(try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                windowNumber: panel.windowNumber, context: nil,
+                characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48
+            )))
+        }
+        XCTAssertEqual(steps, [1, -1])
+    }
 }
 
 /// A first responder that records the editing actions it receives.

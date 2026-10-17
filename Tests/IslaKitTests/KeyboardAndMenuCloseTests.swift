@@ -194,6 +194,44 @@ final class KeyboardAndMenuCloseTests: XCTestCase {
         vm.isPinnedOpen = false
         XCTAssertEqual(live, 0, "the pin ending gives it up")
     }
+
+    // MARK: - The pages (spec §19.16)
+
+    /// The panel becomes key only when asked. A swipe or a dot to Clipboard
+    /// or Translate leaves it as it was, so looking through the pages never
+    /// takes typing from the app in front; ⌃⌥⌘V or a click into the field
+    /// makes it key; leaving the page by the pointer gives the keyboard back,
+    /// and ⌃⇧Tab, which is the keyboard, keeps it.
+    func testOnlyAskingMakesThePanelKeyAndLeavingThePageLowersIt() throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        vm.pageTravel.clock = ManualPageClock()
+        vm.isOpen = true
+        let panel = NotchPanel(contentRect: CGRect(x: 0, y: 0, width: 200, height: 40))
+        defer { panel.close() }
+        // The controller's one sink, replayed as `ClipboardBrowseTests` does.
+        let sink = vm.$wantsKeyboard.removeDuplicates().sink { panel.acceptsKeyboard = $0 }
+        defer { sink.cancel() }
+
+        vm.travel(to: .clipboard, reduceMotion: false)
+        XCTAssertFalse(panel.canBecomeKey, "a dot to Clipboard")
+        vm.travel(to: .translate, reduceMotion: false)
+        XCTAssertFalse(panel.canBecomeKey, "a dot to Translate")
+
+        vm.open(.clipboard)
+        XCTAssertTrue(panel.canBecomeKey, "⌃⌥⌘V")
+        vm.travel(to: .tray, reduceMotion: false)
+        XCTAssertFalse(panel.canBecomeKey, "leaving the page gives it back")
+
+        vm.travel(to: .translate, reduceMotion: false)
+        // What a click into the field raises (`TranslatePane`, `ClipboardSearchField`).
+        vm.wantsKeyboard = true
+        XCTAssertTrue(panel.canBecomeKey, "a click into the field")
+        XCTAssertTrue(vm.turnPageByKey(-1, reduceMotion: false))
+        XCTAssertEqual(vm.surface, .clipboard)
+        XCTAssertTrue(panel.canBecomeKey, "⌃⇧Tab keeps it")
+    }
 }
 
 private final class FakeEscapeRegistration: HotKeyRegistration {

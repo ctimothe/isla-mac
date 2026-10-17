@@ -291,8 +291,10 @@ final class NotchViewModel: ObservableObject {
             // the selection does.
             if surface != .tray { shelfClear.cancel() }
             if surface != .clipboard { clipboardClear.cancel() }
-            // Leaving a surface that types gives the keyboard straight back.
-            if !surface.takesKeyboard { wantsKeyboard = false }
+            // Leaving a surface that types gives the keyboard straight back —
+            // unless ⌃Tab is what left it, which carries the keyboard with it
+            // (`turnPageByKey`).
+            if !surface.takesKeyboard, !isTurningByKey { wantsKeyboard = false }
         }
     }
 
@@ -307,6 +309,9 @@ final class NotchViewModel: ObservableObject {
     /// Set while the pages turn `surface` themselves, so their own turn does
     /// not end their travel.
     private var isTurningByTravel = false
+    /// Set while ⌃Tab turns the page, which keeps the keyboard where a swipe
+    /// or a dot gives it back.
+    private var isTurningByKey = false
     /// How far the tray's strip is scrolled: it scrolls first, and a swipe
     /// pages from the tray only when it began at the strip's end.
     let shelfStrip = ShelfStripPosition()
@@ -846,7 +851,8 @@ final class NotchViewModel: ObservableObject {
     /// the surface, so the text one was typing survives and the panel is free
     /// to collapse. Landing on a surface that types always raises it again —
     /// there is no such thing as a panel that shows a field but cannot receive
-    /// a key.
+    /// a key. The one way it outlives a surface that types is ⌃Tab, which
+    /// carries it onto the Shelf and Music (`turnPageByKey`).
     @Published var wantsKeyboard = false
 
     let geometry: NotchGeometry
@@ -1944,12 +1950,13 @@ final class NotchViewModel: ObservableObject {
     /// it never takes the keyboard: looking through the pages must not take
     /// typing away from the app in front, so Clipboard and Translate wait for
     /// a click into their field. Leaving a page that held the keyboard gives
-    /// it back, Clipboard to Translate included. Refuses anything that is not
-    /// a page.
+    /// it back, Clipboard to Translate included — except by ⌃Tab, which only
+    /// a panel holding the keyboard hears, and which keeps it
+    /// (`turnPageByKey`). Refuses anything that is not a page.
     func turnPage(to page: Surface) {
         guard page.isPage else { return }
         surface = page
-        wantsKeyboard = false
+        if !isTurningByKey { wantsKeyboard = false }
     }
 
     // MARK: - Swiping between pages (§19.16)
@@ -2058,6 +2065,27 @@ final class NotchViewModel: ObservableObject {
     func adjustPage(by step: Int, reduceMotion: Bool) {
         guard let page = page(by: step) else { return }
         travel(to: page, reduceMotion: reduceMotion)
+    }
+
+    /// ⌃Tab and ⌃⇧Tab (§19.16): one page along while the panel has the
+    /// keyboard, on the same travel a dot starts. Whether the press was the
+    /// pages': false lets it through to whatever else has a use for it — a
+    /// shortcut being recorded in Settings.
+    ///
+    /// Unlike a swipe or a dot, the turn keeps the keyboard, onto a page with
+    /// no field too. The keyboard is what is turning the pages: a Shelf that
+    /// gave it back would send the next ⌃⇧Tab to the app in front, to switch
+    /// that app's tabs instead of the island's pages. Escape still folds the
+    /// panel from there. Past either end the press is swallowed and nothing
+    /// turns: the pages do not wrap, and ⌃Tab let through to a field would
+    /// move its caret to a key view nobody can see.
+    func turnPageByKey(_ step: Int, reduceMotion: Bool) -> Bool {
+        guard wantsKeyboard, isOpen, !isLockedPresentation, presented.isPage else { return false }
+        guard let page = page(by: step) else { return true }
+        isTurningByKey = true
+        travel(to: page, reduceMotion: reduceMotion)
+        isTurningByKey = false
+        return true
     }
 
     /// The page `step` places along from the one presented, or nil past

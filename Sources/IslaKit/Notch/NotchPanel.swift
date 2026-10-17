@@ -177,6 +177,25 @@ final class NotchPanel: NSPanel {
     /// opened and the field with the caret never hears of it.
     var settingsKeyHandled: (() -> Bool)?
 
+    /// The page a press turns to (spec §19.16): ⌃Tab one page on, ⌃⇧Tab one
+    /// back, as they move between tabs in Safari and Finder; nil for every
+    /// other press. Tab is key code 48 on every layout, so only the modifiers
+    /// decide, Caps Lock aside.
+    static func pageStep(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> Int? {
+        guard keyCode == 48 else { return nil }
+        switch flags.intersection([.command, .control, .option, .shift]) {
+        case .control: return 1
+        case [.control, .shift]: return -1
+        default: return nil
+        }
+    }
+
+    /// Asked on ⌃Tab and ⌃⇧Tab while the panel is key, with the step. True
+    /// means the pages took it; false lets it through — to a shortcut being
+    /// recorded in Settings, say. Ahead of the field, which would take ⌃Tab
+    /// as a move to the next key view, one nobody can see in this panel.
+    var pageKeyHandled: ((Int) -> Bool)?
+
     /// Raised on ⇧⌘C, before the source field hears of it. Returns true when
     /// a translation was there to copy (or was there, but answers text since
     /// edited, which nothing should copy). False — not on Translate, or no
@@ -266,6 +285,11 @@ final class NotchPanel: NSPanel {
            Self.isSettingsKey(keyCode: event.keyCode, characters: event.characters, flags: event.modifierFlags),
            settingsKeyHandled?() == true {
             return
+        }
+        if event.type == .keyDown, let step = Self.pageStep(keyCode: event.keyCode, flags: event.modifierFlags) {
+            // A composition owns its keys, as it owns Escape and the arrows.
+            let composing = (firstResponder as? NSTextView)?.hasMarkedText() == true
+            if !composing, pageKeyHandled?(step) == true { return }
         }
         if let command = Self.editingCommand(for: event) {
             if command == .copyTranslation, onCopyTranslation?() == true { return }

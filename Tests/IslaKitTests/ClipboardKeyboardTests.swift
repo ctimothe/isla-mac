@@ -215,4 +215,74 @@ final class ClipboardKeyboardTests: XCTestCase {
         vm.open(.settings)
         XCTAssertFalse(vm.clipboardClear.isAsking)
     }
+
+    // MARK: ⌃Tab and ⌃⇧Tab (spec §19.16)
+
+    private func openOnAHandTurnedClock() {
+        vm.pageTravel.clock = ManualPageClock()
+        vm.isOpen = true
+    }
+
+    /// While the panel has the keyboard, ⌃Tab and ⌃⇧Tab turn the page as
+    /// they move between tabs in Safari, and the keyboard goes with them —
+    /// onto the Shelf and Music too, which have no field: given back there,
+    /// the next ⌃⇧Tab would go to the app in front and switch its tabs.
+    func testControlTabTurnsThePageAndKeepsTheKeyboard() {
+        openOnAHandTurnedClock()
+        vm.open(.clipboard)
+        XCTAssertTrue(vm.turnPageByKey(1, reduceMotion: false))
+        XCTAssertEqual(vm.surface, .translate)
+        XCTAssertTrue(vm.wantsKeyboard)
+        XCTAssertTrue(vm.turnPageByKey(-1, reduceMotion: false))
+        XCTAssertTrue(vm.turnPageByKey(-1, reduceMotion: false))
+        XCTAssertEqual(vm.surface, .tray)
+        XCTAssertTrue(vm.wantsKeyboard, "the Shelf keeps it, so the next ⌃⇧Tab still reaches the panel")
+        XCTAssertTrue(vm.turnPageByKey(-1, reduceMotion: true))
+        XCTAssertEqual(vm.surface, .player)
+        XCTAssertTrue(vm.wantsKeyboard, "under Reduce Motion too")
+    }
+
+    /// Past either end the press is swallowed and nothing turns: the pages do
+    /// not wrap, and ⌃Tab let through to a field would move its caret to a
+    /// key view nobody can see.
+    func testControlTabStopsAtTheEnds() {
+        openOnAHandTurnedClock()
+        vm.open(.translate)
+        XCTAssertTrue(vm.turnPageByKey(1, reduceMotion: false))
+        XCTAssertEqual(vm.surface, .translate)
+        XCTAssertNil(vm.pageTravel.leg)
+    }
+
+    /// Without the keyboard ⌃Tab is not the island's to take — the panel is
+    /// not key then and never sees it, but the model holds the rule too — and
+    /// in Settings or over the lock it is left for whatever else wants it, a
+    /// shortcut being recorded among them.
+    func testControlTabNeedsTheKeyboardAndAPage() {
+        openOnAHandTurnedClock()
+        vm.turnPage(to: .tray)
+        XCTAssertFalse(vm.wantsKeyboard)
+        XCTAssertFalse(vm.turnPageByKey(1, reduceMotion: false))
+        XCTAssertEqual(vm.surface, .tray)
+
+        vm.open(.settings)
+        vm.wantsKeyboard = true // a shortcut being recorded
+        XCTAssertFalse(vm.turnPageByKey(1, reduceMotion: false))
+        XCTAssertEqual(vm.surface, .settings)
+
+        vm.open(.clipboard)
+        vm.isLockedPresentation = true
+        XCTAssertFalse(vm.turnPageByKey(1, reduceMotion: false))
+        XCTAssertEqual(vm.surface, .clipboard)
+    }
+
+    /// A swipe or a dot after ⌃Tab gives the keyboard back, as it does from
+    /// a page the keyboard summoned: the pointer is driving now.
+    func testADotAfterControlTabGivesTheKeyboardBack() {
+        openOnAHandTurnedClock()
+        vm.open(.clipboard)
+        XCTAssertTrue(vm.turnPageByKey(-1, reduceMotion: false))
+        XCTAssertTrue(vm.wantsKeyboard)
+        vm.travel(to: .player, reduceMotion: false)
+        XCTAssertFalse(vm.wantsKeyboard)
+    }
 }

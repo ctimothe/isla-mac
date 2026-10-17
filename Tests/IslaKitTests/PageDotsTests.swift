@@ -8,7 +8,18 @@ import XCTest
 final class PageDotsTests: XCTestCase {
     typealias Surface = NotchViewModel.Surface
 
+    /// Stores of the suite's own: the default ones read the owner's Shelf
+    /// folder and general pasteboard, and a dot to the tray refreshes it.
+    private var isolated: ProbeStores!
+
+    override func setUp() {
+        super.setUp()
+        isolated = ProbeFixtures.isolatedStores()
+    }
+
     override func tearDown() {
+        isolated.release()
+        isolated = nil
         LabLocalization.use("en")
         super.tearDown()
     }
@@ -68,7 +79,7 @@ final class PageDotsTests: XCTestCase {
     /// The row is inside the clickable region on every page: the open rects
     /// are cut from the outline, and the row is in the outline.
     func testTheRowIsInsideTheClickableRegion() throws {
-        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
         let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
         let controller = NotchController()
         controller.attachForTesting(viewModel: vm, rootView: root)
@@ -158,7 +169,7 @@ final class PageDotsTests: XCTestCase {
     // MARK: Turning by a dot
 
     private func openModel(on page: Surface, clock: ManualPageClock) throws -> NotchViewModel {
-        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
         vm.pageTravel.clock = clock
         vm.isOpen = true
         vm.open(page)

@@ -2934,6 +2934,15 @@ the Translated alert) or when their field is clicked, and leaving the page
 gives it back. While the panel has the keyboard, ⌃Tab and ⌃⇧Tab turn the
 page, as they move between tabs in Safari and Finder.
 
+*Amended 2026-10-18 (R8b build):* a ⌃Tab turn keeps the keyboard, onto the
+Shelf and Music as well, where there is no field. The keyboard is what is
+turning the pages; a Shelf that handed it back would send the next ⌃⇧Tab to
+the app in front, switching that app's tabs instead of the island's pages.
+Escape still folds the panel from there, and a swipe or a dot afterwards gives
+the keyboard back as it does from any page. Past either end ⌃Tab is swallowed
+and nothing turns. Over the lock, in Settings and on the stage it is not the
+pages' to take.
+
 **Opening.** A click on the island opens the page of what it shows, as §19.1
 says: Music for a song, playing or paused (§19.6's amendment), the Shelf for
 its activity or bubble. The bare notch with no song, and ⌃⌥⌘I with nothing
