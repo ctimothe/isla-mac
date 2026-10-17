@@ -107,6 +107,31 @@ final class NotchControllerRectTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(Theme.expandSettle, Theme.expandResponse, "the spring has stopped by then")
     }
 
+    /// The body shrinks on the outline's spring (spec §19.3), which overshoots
+    /// — inward, on a shrink: past its first crossing the shape is smaller than
+    /// the body it is going to, so inside the rect cut for it, and the swing
+    /// back out is a tenth of a point. Held from the closed form over the
+    /// 192 pt fold from 400 to 208: from the hold on, no drawn point lies more
+    /// than half a point outside the smaller rect.
+    func testTheShrinkHoldOutlastsTheIslandSpring() {
+        let omega = 2 * Double.pi / Theme.islandResponse
+        let zeta = Theme.islandDamping
+        let damped = omega * (1 - zeta * zeta).squareRoot()
+        func progress(_ t: Double) -> Double {
+            1 - exp(-zeta * omega * t) * (cos(damped * t) + (zeta * omega / damped) * sin(damped * t))
+        }
+        let travel = 192.0
+        for t in stride(from: Theme.expandSettle, through: 3, by: 0.001) {
+            // Progress short of 1 is a body still taller than its end.
+            let outside = (1 - progress(t)) * travel
+            XCTAssertLessThan(outside, 0.5, "at \(t) s the body is \(outside) pt outside its rect")
+        }
+        XCTAssertLessThan(
+            Theme.springRiseTime(response: Theme.islandResponse, damping: zeta, level: 1), Theme.expandSettle,
+            "it has crossed its end before the hold ends"
+        )
+    }
+
     /// How long a shrink waits for the drawn body (review 2026-10-15).
     func testTheShrinkHoldFollowsTheMotionTheBodyActuallyMakes() {
         XCTAssertEqual(NotchController.shrinkHold(reduceMotion: false, animated: true), Theme.expandSettle)

@@ -291,7 +291,7 @@ struct NotchContentView: View {
         // unless the banner or the card holds the song, when the pointer's
         // hover and click are the two answers the board asks for.
         .allowsHitTesting(shown || answers)
-        .animation(Theme.pill(appearing: shown, reduceMotion: reduceMotion), value: compactActivity)
+        .animation(Theme.pill(reduceMotion: reduceMotion), value: compactActivity)
     }
 
     /// The part of the shell gesture that acts: the drawn collapsed island,
@@ -469,23 +469,24 @@ struct NotchContentView: View {
         // A press deepens nothing now — it is the same `#1C1C1E` as the hover —
         // but it still arrives on a quick ease rather than a cut.
         .animation(Theme.contentAnimation, value: isPressed)
-        // Out of the notch and back into it, by direction — see `Theme.pill`.
-        // The peek is the same gesture made wider, so it rides the same pair.
-        .animation(Theme.pill(appearing: compactActivity.isVisible, reduceMotion: reduceMotion),
-                   value: compactActivity)
-        .animation(Theme.pill(appearing: vm.isPeeking, reduceMotion: reduceMotion), value: vm.isPeeking)
-        .animation(Theme.pill(appearing: vm.ambient != nil, reduceMotion: reduceMotion), value: vm.ambient)
-        // The pop-up widens on its own spring and folds on the pill's fold
-        // (spec §2.4). Keyed to whether it is up, not to its level: a press only
-        // moves the bar, which has a curve of its own.
-        .animation(Theme.hud(appearing: vm.hud != nil, reduceMotion: reduceMotion), value: vm.hud != nil)
+        // Out of the notch and back into it, on the outline's spring both ways
+        // (spec §19.3) — see `Theme.pill`. The peek and the charger are the same
+        // gesture made wider, so they ride it too.
+        .animation(Theme.pill(reduceMotion: reduceMotion), value: compactActivity)
+        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.isPeeking)
+        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.ambient)
+        // The pop-up widens and folds on the outline's spring (spec §19.3).
+        // Keyed to whether it is up, not to its level: a press only moves the
+        // bar, which has a curve of its own.
+        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.hud != nil)
         .animation(Theme.paneAnimation, value: vm.tab)
         // The body growing or folding (spec §6): its height, its bottom radius
         // and — through the same value — the stroke that follows them, on the
-        // expand spring, or the 0.24 crossfade under Reduce Motion. Keyed to the
+        // outline's spring (spec §19.3), or the 0.24 crossfade under Reduce
+        // Motion. Keyed to the
         // *open* body's height, which opening and closing do not change, so this
         // never answers the open spring's own change of size.
-        .animation(Theme.expand(reduceMotion: reduceMotion), value: vm.openBodySize.height)
+        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.openBodySize.height)
         // The welcome ending is a pane change like any other, and it arrives
         // from a `Button` — which animates nothing by itself, so without this
         // the crossfade above would be a cut.
@@ -722,7 +723,7 @@ struct NotchContentView: View {
                 isExpanded: Binding(
                     get: { vm.expandedTabs.contains(.shelf) },
                     set: { wants in
-                        withAnimation(Theme.expand(reduceMotion: reduceMotion)) {
+                        withAnimation(Theme.island(reduceMotion: reduceMotion)) {
                             vm.setExpanded(wants, for: .shelf)
                         }
                     }
@@ -738,7 +739,7 @@ struct NotchContentView: View {
                 isExpanded: Binding(
                     get: { vm.expandedTabs.contains(.clipboard) },
                     set: { wants in
-                        withAnimation(Theme.expand(reduceMotion: reduceMotion)) {
+                        withAnimation(Theme.island(reduceMotion: reduceMotion)) {
                             vm.setExpanded(wants, for: .clipboard)
                         }
                     }
@@ -755,7 +756,7 @@ struct NotchContentView: View {
                 isExpanded: Binding(
                     get: { vm.expandedTabs.contains(.translate) },
                     set: { wants in
-                        withAnimation(Theme.expand(reduceMotion: reduceMotion)) {
+                        withAnimation(Theme.island(reduceMotion: reduceMotion)) {
                             vm.setExpanded(wants, for: .translate)
                         }
                     }
@@ -772,7 +773,7 @@ struct NotchContentView: View {
                 isExpanded: Binding(
                     get: { vm.expandedTabs.contains(.media) },
                     set: { wants in
-                        withAnimation(Theme.expand(reduceMotion: reduceMotion)) {
+                        withAnimation(Theme.island(reduceMotion: reduceMotion)) {
                             vm.setExpanded(wants, for: .media)
                         }
                     }
@@ -1473,38 +1474,25 @@ private struct IslandAccessibility: ViewModifier {
 /// The pill's content arriving out of the notch and leaving back into it.
 ///
 /// Blur, scale and opacity together — the way the system's own island
-/// dissolves what it shows — rather than a flat fade, and on a curve of its
-/// own (`Theme.pillContent`), scoped to these three effects. The frame the
-/// content sits in is left to the shape's spring; only how present it is
-/// moves on this one, which is what lets the content leave ahead of the edge.
+/// dissolves what it shows — rather than a flat fade, on the outline's spring
+/// (spec §19.3): from blur 15 and 0.8 of its width, with the shape, and back the
+/// same way (`IslandArrival.compact`). The content is pinned to the island's
+/// edges (`CompactIslandLayout`), so it travels with them and no edge ever
+/// crosses it; only how present it is moves here.
 struct PillPresence: ViewModifier {
     let shown: Bool
     let reduceMotion: Bool
 
     /// How the content looks at either end. Pure, so "folded means nothing
     /// drawn" is a test rather than a hope — `PillFoldTests`.
-    struct Appearance: Equatable {
-        var blur: CGFloat
-        var scale: CGFloat
-        var opacity: Double
-    }
-
-    nonisolated static func appearance(shown: Bool, reduceMotion: Bool) -> Appearance {
-        if shown { return Appearance(blur: 0, scale: 1, opacity: 1) }
-        // Reduce Motion keeps the change and drops the travel: a fade, with no
-        // shrinking and no softening.
-        return reduceMotion
-            ? Appearance(blur: 0, scale: 1, opacity: 0)
-            : Appearance(blur: 5, scale: 0.72, opacity: 0)
+    nonisolated static func appearance(shown: Bool, reduceMotion: Bool) -> IslandArrival {
+        shown ? .arrived() : .compact(reduceMotion: reduceMotion)
     }
 
     func body(content: Content) -> some View {
         let look = Self.appearance(shown: shown, reduceMotion: reduceMotion)
-        return content.animation(Theme.pillContent(shown: shown, reduceMotion: reduceMotion)) { view in
-            view
-                .blur(radius: look.blur)
-                .scaleEffect(look.scale)
-                .opacity(look.opacity)
+        return content.animation(Theme.pill(reduceMotion: reduceMotion)) { view in
+            view.modifier(IslandArrivalEffect(look: look))
         }
     }
 }

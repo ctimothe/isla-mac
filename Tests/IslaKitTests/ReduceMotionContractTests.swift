@@ -1,4 +1,6 @@
+import SwiftUI
 import XCTest
+@testable import IslaKit
 
 /// Reduce Motion asks for travel to stop, not for change to stop being shown.
 ///
@@ -112,5 +114,22 @@ final class ReduceMotionContractTests: XCTestCase {
         for (site, count) in expected where found[site] == nil {
             XCTFail("\(site) is allowed \(count) cut(s) but no longer cuts; take it off the list")
         }
+    }
+
+    /// The island's arrivals under Reduce Motion are a 0.24 crossfade: no blur
+    /// and no scale, on the reduced curve rather than the outline's spring
+    /// (spec §19.3).
+    func testTheIslandsArrivalsOnlyFadeUnderReduceMotion() {
+        for (name, look) in [
+            ("expanded", IslandArrival.expanded(reduceMotion: true)),
+            ("compact", IslandArrival.compact(reduceMotion: true)),
+        ] {
+            XCTAssertEqual(look.opacity, 0, name)
+            XCTAssertEqual(look.blur, 0, "\(name): no blur")
+            XCTAssertEqual(look.scale, CGSize(width: 1, height: 1), "\(name): no scale")
+        }
+        XCTAssertEqual(Theme.island(reduceMotion: true), Theme.reducedMotion)
+        XCTAssertEqual(Theme.reducedMotionDuration, 0.24)
+        XCTAssertEqual(PillPresence.appearance(shown: false, reduceMotion: true), .compact(reduceMotion: true))
     }
 }

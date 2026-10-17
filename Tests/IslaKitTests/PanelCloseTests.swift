@@ -41,8 +41,8 @@ final class PanelCloseTests: XCTestCase {
 
         // The curves that ship are the ones the constants name.
         XCTAssertEqual(shape.kind, .spring)
-        XCTAssertEqual(shape.response, Theme.openResponse, accuracy: 1e-9)
-        XCTAssertEqual(shape.damping, 1, accuracy: 1e-9, "a close is not thrown either")
+        XCTAssertEqual(shape.response, Theme.islandResponse, accuracy: 1e-9, "the outline's spring (spec §19.3)")
+        XCTAssertEqual(shape.damping, Theme.islandDamping, accuracy: 1e-9)
         XCTAssertEqual(shape.delay, Theme.closeShapeDelay, accuracy: 1e-9)
         XCTAssertEqual(body.kind, .bezier)
         XCTAssertEqual(body.duration, Theme.paneOutDuration, accuracy: 1e-9)
@@ -51,7 +51,7 @@ final class PanelCloseTests: XCTestCase {
         // The first instant the clip reaches drawn content, from the spring's
         // own closed form, after the shape's delay.
         let reach = Theme.closeShapeDelay + Theme.springRiseTime(
-            response: Theme.openResponse, damping: 1,
+            response: Theme.islandResponse, damping: Theme.islandDamping,
             level: Double(NotchGeometry.bodyBottomPadding) / shapeTravel
         )
         let opacity = 1 - body.sample(reach).value
@@ -88,8 +88,9 @@ final class PanelCloseTests: XCTestCase {
 
     /// The open is the same spring the close is, so the two still mirror.
     func testTheOpenIsTheNamedResponse() throws {
-        let open = try parsed(Theme.openAnimation, "open")
-        XCTAssertEqual(open.response, Theme.openResponse, accuracy: 1e-9)
+        let open = try parsed(Theme.open(reduceMotion: false), "open")
+        XCTAssertEqual(open.response, Theme.islandResponse, accuracy: 1e-9)
+        XCTAssertEqual(open.damping, Theme.islandDamping, accuracy: 1e-9)
         XCTAssertEqual(open.delay, 0, "an open must never wait")
     }
 
@@ -97,9 +98,14 @@ final class PanelCloseTests: XCTestCase {
     /// The delay moved the shape's settle later by `closeShapeDelay`, and a
     /// rect that shrank before the panel was gone would let clicks through a
     /// panel still on screen.
+    ///
+    /// The outline's spring overshoots, and on a close it overshoots *inward*:
+    /// once it has crossed its end the shape is smaller than what it is going
+    /// to, so inside the rect cut for that, and its swing back out is under a
+    /// tenth of a percent. Its first crossing is the moment that matters.
     func testTheHitAreaOutlastsTheDelayedClose() {
         let settle = Theme.closeShapeDelay
-            + Theme.springRiseTime(response: Theme.openResponse, damping: 1, level: 0.99)
+            + Theme.springRiseTime(response: Theme.islandResponse, damping: Theme.islandDamping, level: 1)
         XCTAssertGreaterThanOrEqual(NotchMetrics.collapseRectShrinkDelay, settle)
     }
 

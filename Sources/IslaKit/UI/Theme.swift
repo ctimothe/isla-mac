@@ -1,6 +1,39 @@
 import SwiftUI
 
 enum Theme {
+    // MARK: - The island's outline (spec §19.3)
+
+    /// The island's outline springs on response 0.5, damping 0.75 for every
+    /// change of its size: an activity growing out of the notch, one activity
+    /// turning into another, opening into a surface, the body growing or
+    /// folding, closing, and folding back into the notch.
+    ///
+    /// The one place Isla overshoots, about 3 % once, and a deliberate
+    /// exception to the rule under it. That rule is about momentum — nothing a
+    /// click opened should wobble at you — and it still holds for everything
+    /// *inside* a surface. The outline is not something inside the interface:
+    /// it is the object, a black shape growing out of the bezel, and the
+    /// reference the owner chose on 2026-10-17 (spec §19, decision 15) draws
+    /// it with exactly this overshoot. Drawn critically damped beside it, the
+    /// same shape read as painted on rather than as a thing that arrived. 0.75
+    /// keeps it to one swing: the return is under a tenth of a percent, so the
+    /// eye sees the island arrive, not bounce.
+    ///
+    /// It is quicker off the mark than the 0.34 critically damped open it
+    /// replaced — 99 % of the way in 0.28 s against 0.36 — crosses its end at
+    /// 0.29 s, and is within half a point of it over the widest travel by
+    /// 0.63 s. `MotionValuesTests` holds the values, the overshoot and every
+    /// entry point that rides it; the content that arrives with it is
+    /// `IslandArrival`.
+    static let islandResponse: Double = 0.5
+    static let islandDamping: Double = 0.75
+    static let islandSpring = Animation.spring(response: islandResponse, dampingFraction: islandDamping)
+
+    /// The outline under Reduce Motion: the 0.24 ease-in-out, no overshoot.
+    static func island(reduceMotion: Bool) -> Animation {
+        reduceMotion ? reducedMotion : islandSpring
+    }
+
     /// Critically damped, on purpose.
     ///
     /// Apple's own rule, from *Designing Fluid Interfaces*: start at a damping
@@ -14,10 +47,14 @@ enum Theme {
     /// at the end of every open. Response is the time to reach the target, not
     /// a duration — Apple ships 0.4 for a move and 0.3 for a sheet, and this
     /// sits between them.
+    ///
+    /// Since 2026-10-17 the outline opens on `islandSpring` (spec §19.3), and
+    /// this curve is left to what moves inside a surface: the player changing
+    /// between two layouts of one height (`PlayerLayout.animation`).
     static let openResponse: Double = 0.34
     static let openAnimation = Animation.spring(response: openResponse, dampingFraction: 1.0)
 
-    /// The panel folding shut: the open's own spring, started a beat late.
+    /// The panel folding shut: the outline's own spring, started a beat late.
     ///
     /// The open's rule is that the panel has height before the body has alpha;
     /// the close has to be the same rule backwards, the body gone before the
@@ -45,7 +82,12 @@ enum Theme {
     /// `testTheHitAreaOutlastsTheDelayedClose` that the hit area still
     /// shrinks only after the later settle.
     static let closeShapeDelay: Double = 0.03
-    static let closeAnimation = openAnimation.delay(closeShapeDelay)
+    static let closeAnimation = islandSpring.delay(closeShapeDelay)
+
+    /// The outline opening (spec §19.3). Reduce Motion: the 0.24 crossfade.
+    static func open(reduceMotion: Bool) -> Animation {
+        island(reduceMotion: reduceMotion)
+    }
 
     /// Reduce Motion gets the reduced open with no delay: the delay is
     /// choreography between two moving things, and that is what was refused.
@@ -57,64 +99,26 @@ enum Theme {
     /// threw, so also critically damped.
     static let compactAnimation = Animation.spring(response: 0.28, dampingFraction: 1.0)
 
-    /// The pill growing out of the notch, and folding back into it.
+    /// The pill growing out of the notch, and folding back into it, and its
+    /// content arriving and leaving with it: the outline's spring, both ways
+    /// (spec §19.3).
     ///
-    /// These used to be `compactAnimation` too, and on the lock screen they
-    /// were not animations at all: a pause folded the pill away in a single
-    /// frame, filmed on 2026-09-21 — "too intense, too raw". A fold is the
-    /// island's largest idle motion, 52 pt of wing on each side going into a
-    /// hole in the display, and at 0.28 s it read as a snap even where it did
-    /// animate. Apple's own reposition is 0.4, and both sit just past it.
+    /// The fold and the unfold were 0.42 critically damped springs, and the
+    /// content rode a pair of its own — out at 0.20, in at 0.36 behind a 70 ms
+    /// delay — so that it left before the contracting edge could slice through
+    /// it and arrived after there was a wing under it (2026-09-21, H-013). The
+    /// content has been pinned to the island's edges since the 2026-10-15
+    /// redesign, so no edge crosses it any more, and the reference arrives its
+    /// content on the shape's own curve: from blur and a narrower scale, with
+    /// the shape, and leaves the same way reversed (`IslandArrival.compact`).
+    /// One curve also ends the bare wing H-013 was about — the content is gone
+    /// in the frame the shape is. `PillFoldTests` holds both.
     ///
-    /// The fold used to sit further out, at 0.5, on the argument that a fold
-    /// nobody asked for should not pull the eye. It pulled it anyway, the
-    /// wrong way: its content leaves on its own faster curve, so for about
-    /// 300 ms after the cover was gone an empty black wing still hung past
-    /// the notch (H-013, settled at 529 ms against the content's 233 ms).
-    /// Leaving took longer than arriving. The fold now matches the unfold,
-    /// which leaves about 230 ms of bare wing and keeps it above the 0.4
-    /// floor that guards the 2026-09-21 "not a snap". Going further — the
-    /// audit's 0.32 — lands within 0.04 s of the 0.28 that was the snap.
-    /// `PillFoldTests` holds the order, the floor and the bare-wing time.
-    /// Both critically damped — neither was thrown. The peek's end rides the
-    /// fold too, so it got quicker by the same amount.
-    static let pillUnfoldResponse: Double = 0.42
-    static let pillFoldResponse: Double = 0.42
-    static let pillUnfold = Animation.spring(response: pillUnfoldResponse, dampingFraction: 1.0)
-    static let pillFold = Animation.spring(response: pillFoldResponse, dampingFraction: 1.0)
-
-    /// The fold or the unfold, by where the pill is going.
-    static func pill(appearing: Bool, reduceMotion: Bool) -> Animation {
-        guard !reduceMotion else { return reducedMotion }
-        return appearing ? pillUnfold : pillFold
-    }
-
-    /// The pill's own content — the cover and the equalizer — arriving and
-    /// leaving, on a curve of its own rather than the shape's.
-    ///
-    /// Out faster than the wing it sits on: the content has to be gone before
-    /// the contracting edge reaches it, or the edge slices through the cover
-    /// on its way into the notch. In behind a short delay, so there is a wing
-    /// under it before it materializes — content drawn ahead of its surface is
-    /// content floating on the wallpaper. `PillFoldTests` holds both halves
-    /// against the shape's own springs.
-    ///
-    /// Out is tied to the fold: when the fold quickened to 0.42 its edge
-    /// reached the 22 pt cover sooner (130 ms instead of 154), and at the old
-    /// 0.22 the cover was still 12 % opaque there. 0.20 is the largest
-    /// hundredth that keeps it under a tenth (about 0.09) when the edge
-    /// arrives; 0.21 misses by a hair. Any slower and the edge slices the
-    /// cover, any faster and the cover blinks out rather than leaves.
-    static let pillContentOutResponse: Double = 0.20
-    static let pillContentInResponse: Double = 0.36
-    static let pillContentInDelay: Double = 0.07
-    static let pillContentOut = Animation.spring(response: pillContentOutResponse, dampingFraction: 1.0)
-    static let pillContentIn = Animation.spring(response: pillContentInResponse, dampingFraction: 1.0)
-        .delay(pillContentInDelay)
-
-    static func pillContent(shown: Bool, reduceMotion: Bool) -> Animation {
-        guard !reduceMotion else { return reducedMotion }
-        return shown ? pillContentIn : pillContentOut
+    /// A lock-screen pause still folds as a motion and not a cut — the
+    /// 2026-09-21 film — because the locked pill declares this curve beneath
+    /// the lock's own refusal (`NotchContentView.lockedPill`).
+    static func pill(reduceMotion: Bool) -> Animation {
+        island(reduceMotion: reduceMotion)
     }
 
     static let contentAnimation = Animation.easeOut(duration: 0.16)
@@ -140,20 +144,19 @@ enum Theme {
     /// Listed rather than inferred so the guard is a list somebody has to
     /// deliberately edit. It used to be hardcoded inside the test, which meant
     /// a fourth spring at 0.7 would have passed it without anyone noticing.
+    ///
+    /// The outline's curves left it on 2026-10-17 — the close, the pill's fold
+    /// and unfold and its content, the pop-up's — because they are all
+    /// `islandSpring` now (spec §19.3); what is left is every curve that moves
+    /// something inside a surface.
     static let criticallyDampedSprings: [Animation] = [
-        openAnimation, closeAnimation, compactAnimation, pillUnfold, pillFold, pillContentOut, pillContentIn,
-        captionTurnOut, captionTurnIn, expandAnimation, lockCardMorph, hudAnimation,
+        openAnimation, compactAnimation, captionTurnOut, captionTurnIn, expandAnimation, lockCardMorph,
     ]
 
-    /// The volume and brightness pop-up (redesign 2026-10-15, spec §2.4, §12).
-    ///
-    /// Opens on a spring of 0.28 / 1.0 — the same beat as the new-track peek,
-    /// since both are the island saying "something just happened" and both
-    /// widen the pill; critically damped, because a key press is not a throw.
-    /// The wings widening 52 pt each side on this spring is the pop-up's whole
-    /// entrance.
-    static let hudResponse: Double = 0.28
-    static let hudAnimation = Animation.spring(response: hudResponse, dampingFraction: 1.0)
+    /// The volume and brightness pop-up (redesign 2026-10-15, spec §2.4, §12)
+    /// widens and folds on the outline's spring (spec §19.3), like every
+    /// change of the island's size. It had a 0.28 critically damped spring of
+    /// its own on the way in and folded on the pill's fold.
 
     /// The level bar following each press: an ease-out of 0.12 s (spec §2.4).
     /// Short, because a held key presses again every few tens of milliseconds
@@ -163,17 +166,9 @@ enum Theme {
     static let hudLevel = Animation.easeOut(duration: 0.12)
 
     /// How long the pop-up stays after the *last* press (spec §2.4: 1.5 s idle)
-    /// before it folds on the existing pill fold (`pillFold`). Each press
+    /// before it folds on the outline's spring. Each press
     /// restarts it.
     static let hudLinger: TimeInterval = 1.5
-
-    /// The pop-up arriving or folding: the spring on the way in, the existing
-    /// fold on the way out. Reduce Motion: it appears and folds by crossfade,
-    /// with no growth travel (spec §2.4).
-    static func hud(appearing: Bool, reduceMotion: Bool) -> Animation {
-        guard !reduceMotion else { return reducedMotion }
-        return appearing ? hudAnimation : pillFold
-    }
 
     /// The bar's step. Reduce Motion: it steps — a bar that glides is travel,
     /// and the number of presses is what a person is counting.
@@ -189,13 +184,25 @@ enum Theme {
     /// tall body that rebounded would show the tail of its own cut (the
     /// window is never resized, so the clip is the edge). `Lyrics-Frames` is the
     /// board.
+    ///
+    /// Since 2026-10-17 the island's body grows and folds on `islandSpring`
+    /// (spec §19.3) — `island(reduceMotion:)` at every site that moves it — and
+    /// this spring is left to the one block inside a surface that still grows:
+    /// the Settings update card changing stage (`UpdateCard`).
     static let expandResponse: Double = 0.40
     static let expandAnimation = Animation.spring(response: expandResponse, dampingFraction: 1.0)
 
-    /// When the expand spring has, for a pointer, stopped: a critically damped
-    /// spring of response 0.40 is within a pixel of its end a little after
-    /// 0.45 s. What may only shrink once the body has stopped (the active and
-    /// close rects, `NotchController.openRectHeight`) waits this long.
+    /// When a shrinking body has, for a pointer, stopped: what may only shrink
+    /// once the body has (the active and close rects,
+    /// `NotchController.openRectHeight`) waits this long.
+    ///
+    /// The body shrinks on `islandSpring` now. It crosses its end at 0.29 s and
+    /// overshoots *inward* — smaller than the body it is going to, so inside
+    /// the rect cut for it — and the swing back out is under a tenth of a
+    /// percent of the travel, 0.15 pt on the 192 pt fold. So from 0.29 s on no
+    /// drawn point lies outside the smaller rect; 0.5 s, chosen for the
+    /// critically damped 0.40 it replaced, still holds with room.
+    /// `NotchControllerTests` checks it against the spring's closed form.
     static let expandSettle: TimeInterval = 0.5
 
     /// Reduce Motion: no travel, the 0.24 crossfade the rest of the panel uses.
@@ -355,10 +362,8 @@ enum Theme {
     /// `reducedMotion`, which carries nothing past its end and starts and
     /// stops at rest, and scale transitions become plain opacity, rather
     /// than the panel snapping between states with no transition at all.
-    static func open(reduceMotion: Bool) -> Animation {
-        reduceMotion ? reducedMotion : openAnimation
-    }
-
+    /// (`open(reduceMotion:)`, `pill(reduceMotion:)` and `island(reduceMotion:)`
+    /// are the outline's, at the top of this file.)
     static func compact(reduceMotion: Bool) -> Animation {
         reduceMotion ? reducedMotion : compactAnimation
     }

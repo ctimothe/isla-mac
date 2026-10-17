@@ -244,11 +244,12 @@ final class PlayerStatesLayoutTests: XCTestCase {
     func testTheStatesAnimateOnTheSpringsTheSpecNames() {
         XCTAssertEqual(PlayerLayout.animation(from: .player, to: .column, reduceMotion: false), Theme.openAnimation)
         XCTAssertEqual(PlayerLayout.animation(from: .column, to: .player, reduceMotion: false), Theme.openAnimation)
-        XCTAssertEqual(PlayerLayout.animation(from: .column, to: .tall, reduceMotion: false), Theme.expandAnimation)
-        XCTAssertEqual(PlayerLayout.animation(from: .tall, to: .column, reduceMotion: false), Theme.expandAnimation)
+        // The body moves, so the outline's spring (spec §19.3).
+        XCTAssertEqual(PlayerLayout.animation(from: .column, to: .tall, reduceMotion: false), Theme.islandSpring)
+        XCTAssertEqual(PlayerLayout.animation(from: .tall, to: .column, reduceMotion: false), Theme.islandSpring)
         // The tall state remembered across a visit to the player: the body moves,
         // so the spring that moves it.
-        XCTAssertEqual(PlayerLayout.animation(from: .player, to: .tall, reduceMotion: false), Theme.expandAnimation)
+        XCTAssertEqual(PlayerLayout.animation(from: .player, to: .tall, reduceMotion: false), Theme.islandSpring)
         for from in PlayerLayout.State.allCases {
             for to in PlayerLayout.State.allCases {
                 XCTAssertEqual(PlayerLayout.animation(from: from, to: to, reduceMotion: true), Theme.reducedMotion)

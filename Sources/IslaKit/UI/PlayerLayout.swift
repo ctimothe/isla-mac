@@ -587,14 +587,14 @@ extension PlayerLayout {
     // MARK: Animation (spec §2.4)
 
     /// How a change of state is animated: P ↔ C on `openAnimation` (the body
-    /// keeps its height), C ↔ T on `expandAnimation` (the body grows or shrinks
-    /// and everything travels with it), and a straight P ↔ T — the tall state
-    /// remembered across a visit to the player — on the one that moves the
-    /// body. Reduce Motion takes the travel away from all three: the 0.24
-    /// crossfade (`Theme.reducedMotion`).
+    /// keeps its height, so only the content moves, critically damped), and
+    /// C ↔ T — and a straight P ↔ T, the tall state remembered across a visit
+    /// to the player — on the outline's spring, because the body grows or
+    /// shrinks and everything travels with it (spec §19.3). Reduce Motion takes
+    /// the travel away from all three: the 0.24 crossfade (`Theme.reducedMotion`).
     static func animation(from: State, to: State, reduceMotion: Bool) -> Animation {
         if reduceMotion { return Theme.reducedMotion }
-        return from.bodyHeight == to.bodyHeight ? Theme.openAnimation : Theme.expandAnimation
+        return from.bodyHeight == to.bodyHeight ? Theme.openAnimation : Theme.islandSpring
     }
 
     // MARK: A new track (spec §5.1)

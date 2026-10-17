@@ -178,15 +178,13 @@ final class HUDMomentTests: XCTestCase {
     // MARK: Motion (spec §2.4)
 
     func testTheMotionValuesAreTheSpecs() {
-        XCTAssertEqual(Theme.hudAnimation, Animation.spring(response: 0.28, dampingFraction: 1.0))
         XCTAssertEqual(Theme.hudLevel, Animation.easeOut(duration: 0.12))
         XCTAssertEqual(Theme.hudLinger, 1.5)
-        XCTAssertTrue(Theme.criticallyDampedSprings.contains(Theme.hudAnimation), "a key press is not a throw")
-        XCTAssertEqual(Theme.hud(appearing: true, reduceMotion: false), Theme.hudAnimation)
-        XCTAssertEqual(Theme.hud(appearing: false, reduceMotion: false), Theme.pillFold, "folds on the existing pill fold")
-        // Reduce Motion: crossfade in and out, and the bar steps.
-        XCTAssertEqual(Theme.hud(appearing: true, reduceMotion: true), Theme.reducedMotion)
-        XCTAssertEqual(Theme.hud(appearing: false, reduceMotion: true), Theme.reducedMotion)
+        // The pop-up widens and folds on the outline's spring (spec §19.3), in
+        // the controller and in the shell alike; Reduce Motion crossfades it,
+        // and the bar steps.
+        XCTAssertEqual(Theme.island(reduceMotion: false), Theme.islandSpring)
+        XCTAssertEqual(Theme.island(reduceMotion: true), Theme.reducedMotion)
         XCTAssertEqual(Theme.hudLevel(reduceMotion: false), Theme.hudLevel)
         XCTAssertNil(Theme.hudLevel(reduceMotion: true), "no glide")
     }

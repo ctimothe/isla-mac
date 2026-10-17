@@ -6,9 +6,9 @@ import XCTest
 final class MotionValuesTests: XCTestCase {
 
     /// From *Designing Fluid Interfaces*: damping starts at 1.0, and overshoot
-    /// is added **only** when the gesture carried momentum. Nothing the island
-    /// does is thrown — it opens from a click and the pill resizes because a
-    /// track changed — so nothing here should bounce.
+    /// is added **only** when the gesture carried momentum. Nothing inside a
+    /// surface is thrown, so nothing listed here should bounce. The island's
+    /// outline is the one named exception (spec §19.3), held below.
     ///
     /// Asserted as the description string because `Animation` exposes no
     /// parameters to read back. Crude, and still the only thing standing
@@ -21,6 +21,97 @@ final class MotionValuesTests: XCTestCase {
                 "critically damped, per Apple's default: \(described)"
             )
         }
+    }
+
+    // MARK: The island's outline (spec §19.3)
+
+    /// Response 0.5, damping 0.75: about 3 % past its end, once.
+    func testTheOutlineSpringsOnPointFiveAndPointSevenFive() throws {
+        XCTAssertEqual(Theme.islandResponse, 0.5)
+        XCTAssertEqual(Theme.islandDamping, 0.75)
+        XCTAssertEqual(Theme.islandSpring, Animation.spring(response: 0.5, dampingFraction: 0.75))
+
+        let curve = try XCTUnwrap(LabCurve.parse(Theme.islandSpring, name: "island", usedFor: "", source: ""))
+        XCTAssertEqual(curve.kind, .spring)
+        XCTAssertEqual(curve.response, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(curve.damping, 0.75, accuracy: 1e-9)
+        let samples = stride(from: 0.0, through: 2.0, by: 0.001).map { curve.sample($0).value }
+        let peak = samples.max() ?? 0
+        XCTAssertEqual(peak - 1, 0.028, accuracy: 0.002, "about 3 % past its end")
+        // One swing: after the first return, nothing visible.
+        let firstReturn = try XCTUnwrap(samples.indices.first { $0 > 400 && samples[$0] <= 1 })
+        let laterExcess = samples[firstReturn...].map { abs($0 - 1) }.max() ?? 0
+        XCTAssertLessThan(laterExcess, 0.001, "the return swing is under a tenth of a percent")
+        // Quicker off the mark than the 0.34 critically damped open it replaced.
+        XCTAssertLessThan(
+            Theme.springRiseTime(response: Theme.islandResponse, damping: Theme.islandDamping, level: 0.99),
+            Theme.springRiseTime(response: Theme.openResponse, damping: 1, level: 0.99)
+        )
+    }
+
+    /// Every change of the outline's size rides it: opening, closing a beat
+    /// late, the pill's fold and unfold and its content, the pop-up, and the
+    /// body growing or folding — and none of them under Reduce Motion.
+    func testEveryChangeOfTheOutlinesSizeRidesTheIslandSpring() throws {
+        XCTAssertEqual(Theme.island(reduceMotion: false), Theme.islandSpring)
+        XCTAssertEqual(Theme.open(reduceMotion: false), Theme.islandSpring)
+        XCTAssertEqual(Theme.pill(reduceMotion: false), Theme.islandSpring)
+        XCTAssertEqual(
+            String(describing: Theme.close(reduceMotion: false)),
+            String(describing: Theme.islandSpring.delay(Theme.closeShapeDelay))
+        )
+        XCTAssertEqual(PlayerLayout.animation(from: .column, to: .tall, reduceMotion: false), Theme.islandSpring)
+        XCTAssertEqual(Theme.island(reduceMotion: true), Theme.reducedMotion)
+
+        // The shell's own sites, read from the source because the curve a
+        // transaction carries cannot be observed from outside a render.
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let shell = try String(
+            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        let controller = try String(
+            contentsOf: root.appendingPathComponent("Sources/IslaKit/Notch/NotchController.swift"), encoding: .utf8)
+        XCTAssertTrue(shell.contains(".animation(Theme.island(reduceMotion: reduceMotion), value: vm.openBodySize.height)"))
+        XCTAssertTrue(shell.contains(".animation(Theme.island(reduceMotion: reduceMotion), value: vm.hud != nil)"))
+        XCTAssertFalse(shell.contains("withAnimation(Theme.expand("), "the body's Expand moves the outline")
+        XCTAssertTrue(controller.contains("withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.hud = moment }"))
+    }
+
+    /// The outline's curves left the critically damped list; every curve that
+    /// moves something inside a surface is still on it.
+    func testOnlyTheOutlineLeftTheCriticallyDampedList() {
+        let listed = Theme.criticallyDampedSprings.map { String(describing: $0) }
+        XCTAssertFalse(listed.contains(String(describing: Theme.islandSpring)))
+        XCTAssertFalse(listed.contains(String(describing: Theme.closeAnimation)), "the close is the outline's spring, late")
+        for (name, curve) in [
+            ("open, inside a surface", Theme.openAnimation), ("compact", Theme.compactAnimation),
+            ("caption out", Theme.captionTurnOut), ("caption in", Theme.captionTurnIn),
+            ("update card", Theme.expandAnimation), ("lock card", Theme.lockCardMorph),
+        ] {
+            XCTAssertTrue(listed.contains(String(describing: curve)), name)
+        }
+        XCTAssertEqual(listed.count, 6)
+    }
+
+    // MARK: Content arriving (spec §19.3)
+
+    func testExpandedContentArrivesFromBlurThirtyAndAPoint() {
+        XCTAssertEqual(
+            IslandArrival.expanded(reduceMotion: false),
+            IslandArrival(opacity: 0, blur: 30, scale: CGSize(width: 0.6, height: 0.2), anchor: UnitPoint(x: 0.5, y: 0.4))
+        )
+        XCTAssertEqual(IslandArrival.arrived(anchor: IslandArrival.expandedAnchor).anchor, UnitPoint(x: 0.5, y: 0.4),
+                       "both ends scale about one point")
+    }
+
+    func testCompactContentArrivesFromBlurFifteenAndFourFifthsOfItsWidth() {
+        XCTAssertEqual(
+            IslandArrival.compact(reduceMotion: false),
+            IslandArrival(opacity: 0, blur: 15, scale: CGSize(width: 0.8, height: 1), anchor: .center)
+        )
+        XCTAssertEqual(IslandArrival.arrived(), IslandArrival(opacity: 1, blur: 0, scale: CGSize(width: 1, height: 1), anchor: .center))
+        XCTAssertEqual(PillPresence.appearance(shown: false, reduceMotion: false), .compact(reduceMotion: false),
+                       "the pill's content is a compact activity's")
     }
 
     /// Reduce Motion still means no spring at all, which no damping value fixes.
@@ -49,10 +140,8 @@ final class MotionValuesTests: XCTestCase {
             ("open", Theme.open(reduceMotion: true)),
             ("close", Theme.close(reduceMotion: true)),
             ("compact", Theme.compact(reduceMotion: true)),
-            ("pill unfold", Theme.pill(appearing: true, reduceMotion: true)),
-            ("pill fold", Theme.pill(appearing: false, reduceMotion: true)),
-            ("pill content in", Theme.pillContent(shown: true, reduceMotion: true)),
-            ("pill content out", Theme.pillContent(shown: false, reduceMotion: true)),
+            ("pill fold and unfold", Theme.pill(reduceMotion: true)),
+            ("the outline", Theme.island(reduceMotion: true)),
             ("lyric page", Theme.lyricScroll(reduceMotion: true)),
             ("hover nudge", Theme.hoverNudge(reduceMotion: true)),
         ]

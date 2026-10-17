@@ -2064,7 +2064,7 @@ final class NotchController {
             // takes some 200 pt of title back in, and at that speed it read as
             // the pill snapping shut. The shell declares the same curve for
             // `isPeeking`; stating it here keeps the two from drifting apart.
-            withAnimation(Theme.pill(appearing: false, reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
                 vm.isPeeking = false
             }
         }
@@ -2111,7 +2111,7 @@ final class NotchController {
         if vm.hud == nil {
             // Unfolding: the spring, and every moment under it left standing
             // with its own timer (`IslandMoment`).
-            withAnimation(Theme.hud(appearing: true, reduceMotion: reduceMotion)) { vm.hud = moment }
+            withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.hud = moment }
         } else {
             // Already up: the bar follows on its own curve; the shape has
             // nothing to do.
@@ -2123,7 +2123,7 @@ final class NotchController {
             self.hudFoldWork = nil
             // The existing pill fold, so what was under it comes back on the
             // curve it would have used to arrive.
-            withAnimation(Theme.hud(appearing: false, reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            withAnimation(Theme.island(reduceMotion: SystemAppearance.shared.reduceMotion)) {
                 vm.hud = nil
             }
         }
@@ -2187,7 +2187,7 @@ final class NotchController {
         let reduceMotion = SystemAppearance.shared.reduceMotion
         peekWork?.cancel()
         ambientWork?.cancel()
-        withAnimation(Theme.pill(appearing: true, reduceMotion: reduceMotion)) {
+        withAnimation(Theme.pill(reduceMotion: reduceMotion)) {
             vm.isPeeking = false
             vm.ambient = activity
         }
@@ -2209,7 +2209,7 @@ final class NotchController {
                 self.scheduleAmbientFold(after: wait)
                 return
             }
-            withAnimation(Theme.pill(appearing: false, reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
                 vm.ambient = nil
             }
         }
