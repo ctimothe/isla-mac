@@ -1848,3 +1848,45 @@ done once. The expected result of every check is its line above.
    more letter, also with a Japanese input method.
 9. **Lyrics translation, about 5 minutes** — R1-H6. Settings › Lyrics ›
    Translate Lyrics on; play a Russian song and an English one.
+
+## Redesign, round two: activities first — 2026-10-17
+
+Binding spec: `docs/plans/2026-10-15-redesign-spec.md` §19 (decisions 15–17,
+from the navigation canvas's version 16), which withdraws §18 and release R6
+(the wings, never built). Plan: `docs/plans/2026-10-17-activities-build-plan.md`.
+Four releases, R7–R10, each cut from the previous one; none is merged to
+`main` without the owner. The island and its alerts are measured from
+DynamicNotch's published screenshots and redrawn from scratch: no DynamicNotch
+code, image or text enters the repository (it is GPL-3.0).
+
+New settings and their defaults (spec §19.13):
+
+| Setting | Default | Why that default |
+|---|---|---|
+| General › Low Battery Warning | on | display only |
+| General › Fully Charged | on | display only |
+| Shortcuts › Show Clipboard | ⌃⌥⌘V | a fourth global hot key, rebindable like the others |
+| Lock Screen › Layout | Full Screen | display only; the 2026-10-15 card stays as Card |
+
+Behaviour that reaches past the island, recorded here as the hard constraints
+ask:
+
+- **⌃⌥⌘T puts the translation on the clipboard** (the alert says "Copied"),
+  where today it opened the Translate tab. The original stays in the Clipboard
+  history when that is on. Nothing new leaves the Mac: Translate Online's
+  existing consent still governs the network.
+- **Favourite in Spotify touches the account.** It needs the
+  `user-library-modify` scope, which Isla never asks for unprompted: the star
+  shows for Spotify only after the person reconnects and grants it. Off until
+  then. Music's Favourite goes through the existing Apple Events entitlement.
+- **Clipboard takes the keyboard when summoned**, as Translate does; the panel
+  is key for no other surface.
+- **The lock's Full Screen layout covers the lock screen** except its bottom
+  18 %, where macOS keeps the user picture and the password field; its clock
+  replaces the system's while it shows. R10-H1 is checked on hardware before
+  R10 merges.
+
+Owed on hardware, by release (spec §16, plan §"Hardware checks"): R7-H1…H5,
+R8-H1…H6, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
+when it is built, and records the tested Mac model and macOS version when they
+are run.

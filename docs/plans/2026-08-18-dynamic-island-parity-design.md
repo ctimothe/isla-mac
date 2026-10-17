@@ -251,6 +251,31 @@ transitions.
 > welcome lists one line per tab, each led by its tab's glyph. Binding detail:
 > `docs/plans/2026-10-15-redesign-spec.md` §18 (release R6).
 
+> **Amended 2026-10-17 — activities first; the wings are withdrawn.** The
+> amendment above is withdrawn before it was built: the owner chose a second
+> direction. The island shows the one thing that is happening and opens on it,
+> and the tools are summoned, not tabbed. There is no rail and no tab bar. A
+> click on the music opens the player; files dragged to the notch open the
+> Shelf; ⌃⌥⌘V opens Clipboard (a fourth global hot key, rebindable like the
+> others); ⌃⌥⌘T translates the clipboard into a short alert and copies the
+> result; a right-click on the island lists Clipboard, Translate Clipboard,
+> Shelf, Lyrics, Settings… and Quit Isla; with nothing live, a click opens a
+> small Tools surface. The island and its alerts — charging, low and full
+> battery, headphones, volume, a finished translation, an update — take the
+> iPhone's compact and expanded forms, measured from DynamicNotch's published
+> screenshots and redrawn from scratch with SF Symbols and Isla's own words
+> (DynamicNotch is GPL-3.0: ideas and measurements only, never its code,
+> images or text). The island's outline springs with a slight overshoot, the
+> one place Isla's motion does. The five-tab contract of 2026-08-22 gives way
+> to a surface contract that still keeps the removed features removed. The
+> panel width setting (480…620, default 560) now sizes the summoned surfaces;
+> the compact island's width follows the notch. Clipboard takes the keyboard
+> when summoned, as Translate does. On the lock screen a full-screen layout —
+> the cover, the lyrics and a glass player, with the unlock controls left
+> clear — becomes the default, and the 2026-10-15 card stays as a choice.
+> Binding detail: `docs/plans/2026-10-15-redesign-spec.md` §19 (releases
+> R7–R10).
+
 ## Feature parity contract
 
 > **Amended 2026-08-20.** The Snippets and Calendar sections below are

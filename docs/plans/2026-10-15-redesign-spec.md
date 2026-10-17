@@ -6,6 +6,10 @@ approved design canvas (private artifact `JxichKoJQFvMpZ71fSdgqb`, version 33,
 can be held to. Where this spec and a board disagree, this spec wins; where this
 spec is silent, the board is the reference.
 
+> **Amended 2026-10-17 (owner).** Binding also for releases R7–R10, which
+> build §19 (activities first) from the private navigation canvas
+> `8dfB3WZszjMw7Gmjw587NZ`, version 16. §18 and release R6 are withdrawn.
+
 Upstream of this document:
 
 - the parity design, `docs/plans/2026-08-18-dynamic-island-parity-design.md`,
@@ -22,19 +26,22 @@ Upstream of this document:
 | # | Decision |
 |---|---|
 | 1 | The island's wings hide while the lock banner or card is showing. One surface per activity. |
-| 2 | Compact island 300 pt wide: the notch plus two 40 pt wings, even margins. |
+| 2 | Compact island 300 pt wide: the notch plus two 40 pt wings, even margins. *Superseded 17 Oct 2026 by §19.4's measured widths (decision 16).* |
 | 3 | The new-track peek grows the island to 50 pt tall, two lines. |
 | 4 | Lock banner is a rounded rectangle, radius 22, cover radius 10 (concentric), not a capsule. |
 | 5 | Automatic lock-card material is mostly solid: opacity floor 0.84. |
 | 6 | The current lyric line is the same size as the others; weight 700 and full brightness set it apart. |
-| 7 | A tab grows taller by an Expand/Collapse button only; no bottom-edge drag. |
+| 7 | A tab grows taller by an Expand/Collapse button only; no bottom-edge drag. *Withdrawn 17 Oct 2026 with the tabs: every surface has one size (§19).* |
 | 8 | Volume and Output in the player are **on** by default — an owner-waived exception to the default-off rule for system-wide settings. Nothing changes until the person moves the slider or picks an output. |
 | 9 | Shelf removal: a normal (not red) Remove button, the right-click menu, the Delete key, **and** the hover ⓧ badge. |
 | 10 | Clipboard history empties at quit (as today). Keep Pinned Items saves pins to this Mac; off by default. |
 | 11 | Translated lyrics are off by default; the switch is Settings › Lyrics. |
-| 12 | Clipboard gets the same Expand/Collapse button as Lyrics, Shelf and Translate. |
+| 12 | Clipboard gets the same Expand/Collapse button as Lyrics, Shelf and Translate. *Withdrawn 17 Oct 2026 with decision 7.* |
 | 13 | Volume and brightness pop-up in the island: a full replacement of the Mac's pop-up (volume, mute, display and keyboard brightness), opt-in, off by default, needs Accessibility; its own release (R5). |
-| 14 | *(17 Oct 2026)* The tabs leave the rail for the notch's wings: Music and Shelf left of the camera, Clipboard and Translate right of it, Settings at the far right edge (§18, release R6). |
+| 14 | *(17 Oct 2026)* The tabs leave the rail for the notch's wings: Music and Shelf left of the camera, Clipboard and Translate right of it, Settings at the far right edge (§18, release R6). **Withdrawn 17 Oct 2026** by decision 15. |
+| 15 | *(17 Oct 2026)* Activities first. The island shows the one thing happening — an alert, the music, the Shelf's files — and a click opens it; Clipboard, Translate and Settings are summoned (a shortcut, the right-click menu, Tools), never tabs. The wings (decision 14, §18, R6) are withdrawn. §19. |
+| 16 | *(17 Oct 2026)* The island and its activities are drawn exactly as in DynamicNotch's published screenshots — sizes, quadratic corners, the 2 pt tinted stroke, the overshooting spring, content arriving from a blur — rebuilt from scratch with Apple's SF Symbols and Isla's own words. No DynamicNotch code, image or text (GPL-3.0). §19.2–§19.5. |
+| 17 | *(17 Oct 2026)* Music and its lyrics are the main activity; the Shelf appears when files are dragged to the notch; a second live activity waits as a bubble beside the island. §19.1, §19.6, §19.7. |
 
 ## 1. Conventions
 
@@ -126,7 +133,16 @@ at lower opacity.
 > marks the lit tab in the header row rather than the selected rail item. The
 > "Panel header title" row is withdrawn with the title itself (§18.1).
 
+> **Withdrawn 2026-10-17 (owner: activities first, §19).** The wings note
+> above no longer applies; §2.1's tokens stand without it, and §19.2 adds the
+> activity tints.
+
 ### 2.3 Radii
+
+> **Amended 2026-10-17 (owner: activities first, §19).** The island's and
+> every surface's shape is §19.2's quadratic outline with the radius pairs §19
+> gives; the rows for the compact island, the peek and the open body give way
+> to them. The covers' radii stand where §19 does not restate them.
 
 | Shape | Radius |
 |---|---|
@@ -182,7 +198,16 @@ board that motivated them, as the file does today.
 > leaves 12 pt to the left and the new one arrives from 12 pt on the right
 > (mirrored going left), no scale; Reduce Motion unchanged (§18.4). Two-finger swipe and ⌘1…⌘4, ⌘, switch tabs as well as a click.
 
+> **Withdrawn 2026-10-17 (owner: activities first, §19).** The wings note
+> above no longer applies; the island's shape moves on §19.3's spring (0.5 /
+> 0.75), which overshoots; the content curves in this table stand.
+
 ## 3. The compact island
+
+> **Amended 2026-10-17 (owner: activities first, §19).** §19.4 replaces §3.1,
+> §3.3 and §3.6. §3.2's paused and no-artwork states and §3.4's tint stand at
+> §19.4's sizes; §3.5's peek stands on §19's outline; §3.7 is joined by the
+> Locked activity (§19.10); §3.8 stands.
 
 ### 3.1 Geometry (decision 2)
 
@@ -304,6 +329,11 @@ bottom edge.
 
 ## 4. The Music player (208 tall)
 
+> **Amended 2026-10-17 (owner: activities first, §19).** The player is §19.6:
+> 425.4 × 198 at the reference notch. §4.3's lyric band becomes its subtitle
+> line, §4.4's Shuffle and Repeat move to the lyrics stage's More menu, §4.5's
+> Output button and §4.6–§4.8's states stand in the new frame.
+
 `Music-Playing`, `Music-Paused`, `Music-NoLyrics`, `Music-Output`,
 `Music-Shuffle-Repeat`, `Music-Long-Title`, `Music-NoArtwork`,
 `Music-Live-Stream`.
@@ -337,6 +367,9 @@ block below moves up by 20: title 70, subtitle 91, progress 121, transport
 > icon alone, in the header's leading slot at x 14; its equalizer is
 > withdrawn (§18.3). Every leading coordinate in this table moves left by 44
 > and the widths measured from them grow by 44; §18.6 restates them.
+
+> **Withdrawn 2026-10-17 (owner: activities first, §19).** The wings note
+> above no longer applies; the player is §19.6.
 
 ### 4.2 Paused
 
@@ -444,6 +477,10 @@ nowhere else — one failure surface.
 
 ## 5. Lyrics
 
+> **Amended 2026-10-17 (owner: activities first, §19).** The three views
+> become two: the player and the lyrics stage (§19.6). §5.2's tools sit in the
+> stage's foot; §5.3–§5.5 stand.
+
 ### 5.1 Three views of one model
 
 The player, the lyric column and the tall page are **one view whose elements
@@ -519,6 +556,10 @@ mismatch notice, editor) move with it.
 > and Lyrics in the pane's own tool row (C at y 169, T at y 351), and Expand /
 > Collapse moves to the header's leading slot. §5.2's tools, menus and
 > behaviour are otherwise unchanged. New coordinates in §18.6.
+
+> **Withdrawn 2026-10-17 (owner: activities first, §19).** The wings note
+> above no longer applies; the column and tall page give way to the lyrics
+> stage, §19.6.
 
 ### 5.3 Lyric translation (decision 11)
 
@@ -644,7 +685,15 @@ trailing edge. Behaviour and strings are today's; only the layout changes.
 > rail bullet is withdrawn: there is no rail, and the header row does not
 > change with the body's height.
 
+> **Withdrawn 2026-10-17 (owner: activities first, §19).** The wings note
+> above no longer applies; Expand / Collapse and the tall body per tab are
+> withdrawn (decisions 7 and 12): every surface has one size, §19.
+
 ## 7. Lock screen (R2)
+
+> **Amended 2026-10-17 (owner: activities first, §19).** §19.10's Full Screen
+> layout is the default; this section is the Card layout, kept as Lock Screen
+> › Layout › Card, and Rest as Banner applies to it alone.
 
 ### 7.1 The banner (new) and the card, one object
 
@@ -725,6 +774,10 @@ nudges the resting notch (+8 / +3, surface `#1C1C1E`); a click shakes it
 
 ## 8. Shelf (R3)
 
+> **Amended 2026-10-17 (owner: activities first, §19).** Files dragged in open
+> §19.7's drop surface; a click opens the tray. §8.2's removal, keys and menu,
+> §8.3's targets and §8.4's states hold on the tray's tiles.
+
 `Shelf-Icons`, `Shelf-Hover`, `Shelf-One-Selected`, `Shelf-Two-Selected`,
 `Shelf-Context-Menu`, `Shelf-Drag-Keep`, `Shelf-Drag-AirDrop`, `Shelf-Empty`,
 `Shelf-Confirm-Clear`, `Shelf-Disk-Missing`, `Shelf-Full`, `Shelf-Already`,
@@ -773,6 +826,10 @@ nudges the resting notch (+8 / +3, surface `#1C1C1E`); a click shakes it
 > at (14, 44) and spreads its columns to fill the width; the count leaves the
 > header for the bar at the foot (`h − 37`), which reads "%d items" while nothing is
 > selected; Expand is in the header's leading slot (§18.6).
+
+> **Withdrawn 2026-10-17 (owner: activities first, §19).** The wings note
+> above no longer applies; the grid and the selection bar give way to the
+> tray, §19.7.
 
 ### 8.3 Dragging in
 
@@ -827,6 +884,10 @@ AirDrop". AirDrop sends without keeping (the existing `ShelfSharing`).
 >   instead, so the AirDrop sheet never opens unasked.
 
 ## 9. Clipboard (R3)
+
+> **Amended 2026-10-17 (owner: activities first, §19).** Summoned by ⌃⌥⌘V, the
+> menu or Tools (§19.8), and it takes the keyboard. §9.1, §9.2's rows and
+> menus and §9.4 stand.
 
 `Clip-All`, `Clip-All-Tall`, `Clip-Text`, `Clip-Links`, `Clip-Images`,
 `Clip-Files`, `Clip-Hover`, `Clip-Copied`, `Clip-Context`, `Clip-Search`,
@@ -891,6 +952,9 @@ way it does for Translate, and gives it back when the field closes.
 > filter row runs from x 14 to `bw − 44`, the list from (14, 74) at `bw − 28`
 > wide; Expand is in the header's leading slot (§18.6).
 
+> **Withdrawn 2026-10-17 (owner: activities first, §19).** The wings note
+> above no longer applies; the Clipboard surface is §19.8.
+
 ### 9.4 Persistence and privacy (decision 10)
 
 - History stays **in memory** and empties at quit (today's behaviour; the
@@ -951,6 +1015,10 @@ way it does for Translate, and gives it back when the field closes.
 >   that is not plugged in loses nothing.
 
 ## 10. Settings (R4): the tall body with a sidebar
+
+> **Amended 2026-10-17 (owner: activities first, §19).** Reached by the gear
+> on Tools and the menu's Settings… (§19.8); its leading edge moves from 58 to
+> 16.
 
 `Settings-*`. Settings always opens 400 tall. A sidebar of ten sections
 (122 wide at (58, 46), rows 26 apart, 18 pt rounded-square icons in the
@@ -1073,7 +1141,15 @@ until nothing uses them, then go.
 > below it (§18.6). Settings is the gear at the header's far right edge; it
 > is not in the swipe run (§18.4).
 
+> **Withdrawn 2026-10-17 (owner: activities first, §19).** The wings note
+> above no longer applies; Settings is reached by the gear and the menu,
+> §19.8.
+
 ## 11. Translate (R4)
+
+> **Amended 2026-10-17 (owner: activities first, §19).** Reached from the
+> Translated alert and Tools; ⌃⌥⌘T now translates the clipboard into an alert
+> (§19.5 e, §19.8).
 
 `Translate-*`.
 
@@ -1151,7 +1227,14 @@ until nothing uses them, then go.
 > (`bw − 36`, 46), and Expand to the header's leading slot. The pair bar
 > starts at x 14; the card and the result split the width (§18.6).
 
+> **Withdrawn 2026-10-17 (owner: activities first, §19).** The wings note
+> above no longer applies; the Translate surface is §19.8.
+
 ## 12. Volume and brightness pop-up (R5, decision 13)
+
+> **Amended 2026-10-17 (owner: activities first, §19).** The pop-up's look is
+> §19.5 d (245.4 × 103 with the level as a number); everything this section
+> says about behaviour stands.
 
 `Island-HUD-*`, `Settings-General-HUD`, `Motion-HUD`.
 
@@ -1342,7 +1425,14 @@ so).
 > narrow to 26) allowed to change it (`Stress-Wings-480` = canvas board
 > `A-Stress-480`).
 
+> **Withdrawn 2026-10-17 (owner: activities first, §19).** The wings note
+> above no longer applies; §19.12 gives this section's added rules.
+
 ## 14. Settings keys and defaults
+
+> **Amended 2026-10-17 (owner: activities first, §19).** §19.13 adds
+> `island.lowBattery`, `island.fullBattery`, the Show Clipboard binding and
+> `lock.layout`.
 
 | Key | Default | Section | Release | Leaves the Mac / system-wide? |
 |---|---|---|---|---|
@@ -1369,6 +1459,9 @@ so).
 > rows' keys (§10).
 
 ## 15. New strings
+
+> **Amended 2026-10-17 (owner: activities first, §19).** §19.14 adds round
+> two's rows and changes "Charging" to «Зарядка».
 
 Existing keys reused by this spec are not listed. Format specifiers keep their
 order in Russian.
@@ -1574,6 +1667,9 @@ back at once; R5-H5 an external keyboard's volume keys.
 
 ### R6 — Tabs in the notch's wings (`feat/redesign-wings`)
 
+> **Withdrawn 2026-10-17 (owner: activities first, decision 15).** Never
+> built. The branch keeps the spec and the plan as a record; R7 builds on it.
+
 Added 2026-10-17 (owner). Cut from R5. In: §18. No new strings: the tooltips
 are the tabs' existing names; "%d items", "Expand", "Collapse" and "Tabs"
 exist. Tests: wing frames for every width, notch width and header height in
@@ -1594,6 +1690,85 @@ pointer leaves the panel or it closes; R6-H4 an external display without a
 notch; R6-H5 VoiceOver reads the tabs in order with the lit one selected;
 R6-H6 tab clicks with Ice and with Bartender running toggle nothing of
 theirs.
+
+> **Added 2026-10-17 (owner, decisions 15–17).** Round two, §19, ships in four
+> releases, each cut from the previous one; R7 is cut from
+> `feat/redesign-activities` (the redesign chain through R5 and its release
+> keys, plus this spec). The plan is
+> `docs/plans/2026-10-17-activities-build-plan.md`.
+
+### R7 — The island and its activities (`feat/redesign-r7-island`)
+
+In: §19.1's ranks and the bubble (Music and the Shelf only), §19.2, §19.3,
+§19.4 (Music, Shelf, Charging; Locked waits for R10), §19.5 c and d (the
+headphones and volume restyles, both on today's data), §19.12. Tests: the
+outline path's control points for every reference shape; widths `nw + ΔW` at
+every `nw` in §19.12 and the `nw + 20` floor; the stroke's colour, alpha and
+Increase Contrast values, never on the top edge, never on the bare notch; the
+shadow threshold; `islandSpring` values and the narrowed
+`criticallyDampedSprings` list; the arrival transitions and their Reduce
+Motion forms; the rank table as a pure function — every pair of activities,
+replacement, the 1 s drop rule and its exceptions; the bubble's frame, its
+absence during alerts, surfaces and the lock; `activeRect` covering the bubble;
+compact layouts at `H` 24 and 38.
+Owed on hardware: R7-H1 the outline against the 14-inch notch at Default and
+More Space — shoulders flush with the bezel, no seam; R7-H2 the overshoot reads
+as the island and not a bounce, Reduce Motion as calm; R7-H3 the stroke on
+Aerial, Sonoma and a white wallpaper; R7-H4 Music with the Shelf as a bubble,
+and the bubble's click; R7-H5 AirPods connecting, and the volume keys with
+Volume and Brightness on.
+
+### R8 — Surfaces without tabs (`feat/redesign-r8-surfaces`)
+
+In: §19.6, §19.7, §19.8, §19.9, §19.11; ⌃⌥⌘V; the welcome; `CLAUDE.md`'s
+shell, interaction and UI paragraphs. Tests: the surface contract that replaces
+`TabContractTests` (every surface reachable by every road in §19.1's table,
+the removed features absent); what a click opens for every rank; the player's
+frames at the reference and at `nw` 180 and 240; the sung line replacing the
+subtitle and the title's "Title · Artist" form; Favourite present only where
+it can act, with a fake bridge; the stage's frames at 480, 560 and 620 in
+Russian, its More menu with Shuffle and Repeat; the drop surface's targets and
+lit state; the tray's tiles, its sideways scroll past four, Remove All's
+confirmation; the bubble opening the tray; Tools' cards and previews (the
+clip behind `PrivacyMode`); Clipboard taking the keyboard, ↑ ↓ ↩ and Escape,
+and `canBecomeKey` false everywhere else; Translate's and Settings' frames;
+the menu's items, enabled states and shown keys, and that it registers no key;
+the menu refused over the lock; the hot key for Clipboard registered,
+rebindable and released at quit, with a fake registrar.
+Owed on hardware: R8-H1 every surface at 480 and 620 in Russian; R8-H2 a
+Finder drag into Keep on Shelf and onto AirDrop; R8-H3 ⌃⌥⌘V from Safari, type,
+↩, paste back into Safari; R8-H4 the right-click menu over a full-screen app
+and with Ice running; R8-H5 the player's sung line on a synced song; R8-H6
+Favourite in Music.
+
+### R9 — New alerts (`feat/redesign-r9-alerts`)
+
+In: §19.5 a, b, e and f; the headphone battery ring (§19.5 c) if §19.15
+allows it; the Settings rows. Tests: the battery thresholds as a pure function
+over a discharge (20 %, 10 %, once each, reset on power) and Low Power Mode's
+line; Fully Charged once per charge, not at an optimised 80 %, reset below 95 %;
+the MagSafe stage only for an adapter the detector names, with fixture
+dictionaries; the Translated alert copying only on success and keeping the
+original in history, the failure form copying nothing, refusal over the lock;
+the update choice once per version, at an idle moment, Later and the 20 s
+timeout both remembering the version, Install calling the installer (a fake).
+Owed on hardware: R9-H1 Battery Low at 20 % on a MacBook; R9-H2 Full Battery
+on MagSafe and on USB-C; R9-H3 the MagSafe light turning green; R9-H4 ⌃⌥⌘T
+from Mail, then ⌘V; R9-H5 the update choice from a rehearsed release.
+
+### R10 — The lock screen, full screen (`feat/redesign-r10-lock`)
+
+In: §19.10; the Locked compact activity; Lock Screen › Layout. Tests: every
+frame as a fraction of 1512 × 982 and 1728 × 1117; nothing inside the unlock
+band; the clock row's format in en, ru, 12- and 24-hour; the lyric ramp; the
+centred cover without lyrics; only the player's controls hit-test; Card when
+`lock.layout` is `card`, Full Screen when unset; Reduce Transparency and
+Reduce Motion forms; decision 1 (no music in the island while locked).
+Owed on hardware: R10-H1 the password field, the user picture and a long name
+fully visible and usable with Full Screen on, on a 14- and a 16-inch MacBook
+Pro; R10-H2 Touch ID unlock with the layout up; R10-H3 the backdrop with a
+bright and a dark cover; R10-H4 the output pane from the glass player; R10-H5
+notifications on the lock screen while the layout is up.
 
 ## 17. Calls made in this spec
 
@@ -1619,9 +1794,46 @@ of them by amending this section.
   pointer is on the open panel, not session-wide chords; Settings is out of the swipe
   run; the swipe threshold (24 pt, 2:1) and the 12 pt directional swap; the
   open header's equalizer withdrawn rather than moved across the camera.
+  *Withdrawn 2026-10-17 with R6.*
+- *(2026-10-17, round two, §19)* Expanded shapes keep their measured width
+  (floored at `nw + 20`) while compact ones grow from the notch: the
+  reference lays its expanded content out at fixed positions, which a
+  narrower width would collide.
+- The surfaces the reference does not show (Tools, Clipboard, Translate,
+  Settings, the stage, the drop surface) take the player's radii 34 / 44,
+  or the tray's 24 / 34 below 190 tall; the stage is 400 tall, not the
+  board's 404, so the window keeps its single cut.
+- The ranks and durations in §19.1 (Battery Low 5 s, Translated 3 s,
+  headphones 4 s, Charging 3 s, Full Battery 5 s, the update choice until
+  answered or 20 s), and the 1 s drop rule.
+- The player's subtitle carries the sung line, and the title reads "Title ·
+  Artist", so the round's caption "the player, with the line being sung"
+  holds inside the measured player; the cover opens the stage.
+- Shuffle and Repeat move to the stage's More menu rather than leaving the
+  island.
+- Favourite only where Isla can act, and for Spotify only after the person
+  grants the library scope by reconnecting.
+- The lyrics stage keeps decision 6 (one size for every line) although the
+  board drew the sung line larger.
+- ⌃⌥⌘T puts the translation on the clipboard, as the board's "Copied"
+  says; the original stays in the history.
+- Clipboard takes the keyboard when summoned, as a clipboard history is used
+  from the keys.
+- The lock's Full Screen layout leaves the bottom 18 % clear for the unlock
+  controls, draws its own clock because its backdrop hides the system's, and
+  turns its backdrop once a minute instead of the board's ten seconds
+  (a faster full-screen turn is the motion the Reduce Motion guidance warns
+  about); the Card stays as a layout.
+- Battery Low at 20 % and 10 %; Full Battery not at an optimised 80 %.
+- The Settings row "Charging" is renamed "Charger Connected" so the island
+  can say «Зарядка».
 
 
 ## 18. Tabs in the notch's wings (2026-10-17, owner)
+
+> **Withdrawn 2026-10-17 (owner: activities first, decision 15).** The owner
+> chose the activities-first round (§19): "Yes, that's the style." Nothing in
+> this section binds; it stands as the record of the wings direction.
 
 > **Paused 2026-10-17 (owner).** Not to be built. After comparing Isla with an
 > event-driven notch app, the owner asked for a second canvas round on an
@@ -1827,3 +2039,645 @@ At 560 unless a formula is given.
 
 The lock card, its foot rail (§4.5), the compact island, the peek and the
 volume pop-up do not change.
+
+## 19. Activities first (2026-10-17, owner)
+
+> **Added 2026-10-17 (owner, decisions 15–17).** The owner compared Isla with
+> an event-driven notch app, paused the wings (§18), asked for an
+> activities-first canvas round, and accepted it: "Yes, that's the style."
+> The round is the private navigation canvas `8dfB3WZszjMw7Gmjw587NZ`, version
+> 16, boards `R2-*`. Its island and activities were measured from
+> DynamicNotch's own published screenshots (2× crops, so 1 pt = 2 px) and drawn
+> again from scratch: the sizes, corner curves, strokes, type and motion below
+> are those measurements; every glyph is Apple's SF Symbols, every word is
+> Isla's. DynamicNotch is GPL-3.0 and Isla is MIT: **no DynamicNotch code,
+> image, icon or text enters this repository**, and nobody building this
+> section reads its source to do so. This section is the contract for releases
+> R7–R10 (§16). Where it disagrees with an older section, this section wins;
+> the dated notes in §0, §2–§15 point here rather than restate it. Where it is
+> silent, the board is the reference.
+
+### 19.1 The model
+
+**One thing at a time.** The island shows exactly one activity, chosen by
+rank, and a click opens that activity, never a tab. There are no tabs and no
+rail on any surface.
+
+| Rank | Activity | Kind | Holds | A click |
+|---|---|---|---|---|
+| 1 | Locked (§19.10) | compact | while locked | shakes (`RefusalShake`), as today |
+| 2 | Files dragged toward the notch (§19.7) | drop surface | while the drag is over the drop rect | — (release drops) |
+| 3 | Volume or brightness (§19.5 d) | alert | 1.5 s after the last press | folds it |
+| 4 | Battery Low (§19.5 a) | alert | 5 s | folds it |
+| 5 | Translated (§19.5 e) | alert | 3 s | opens Translate with both texts |
+| 6 | Headphones connected (§19.5 c) | alert | 4 s | folds it |
+| 7 | Charging (§19.4) | compact alert | 3 s | folds it |
+| 8 | Full Battery (§19.5 b) | alert | 5 s | folds it |
+| 9 | Isla update ready (§19.5 f) | alert with a choice | until answered, at most 20 s | its buttons |
+| 10 | New-track peek (§3.5, kept) | compact alert | `sneakPeekDuration` | opens the player |
+| 11 | Music (§19.4, §19.6) | live | while `CompactMediaActivity` is not `hidden` | opens the player |
+| 12 | Shelf holding files (§19.4, §19.7) | live | while the Shelf has items | opens the tray |
+| — | Nothing | the bare notch | — | opens Tools (§19.8) |
+
+- **Alerts.** A higher alert replaces a lower one at once; an equal one
+  replaces the older. A replaced alert is dropped, except the update choice,
+  which waits for the next idle moment. An alert that cannot show within
+  **1 s** of its cause (a surface is open, the Mac is locked, a higher alert
+  holds) is dropped, except Battery Low and the update choice, which wait
+  until the surface closes. Volume and brightness are never queued (R5: while
+  a surface is open the key applies and nothing is drawn).
+- **Live activities.** When an alert folds, the island returns to the highest
+  live activity. When two are live, the second **waits as a bubble** (19.7)
+  beside the island; only Music and the Shelf are live, so only the Shelf can
+  be the bubble. The bubble shows only beside a compact live activity: never
+  during an alert, while a surface is open, or while locked.
+- **Opening.** A click opens what the island shows (the table). ⌃⌥⌘I opens
+  what a click would. A right-click anywhere on the island or on an open
+  surface's header row opens the menu (19.9). Dragging files to the notch opens
+  the drop surface (19.7). ⌃⌥⌘V opens Clipboard, ⌃⌥⌘T translates the clipboard
+  (19.5 e), ⌃⌥⌘L opens the lyrics stage. Open on Hover (off by default) opens
+  what a click would.
+- **Closing.** As today: a click outside, Escape while the panel has the
+  keyboard or is pinned, the pointer leaving a hover-opened surface after
+  `closeDelay`, and a click on the notch's own span of an open surface's header
+  row (the island closes what it opened).
+
+The surfaces, and every way to reach each:
+
+| Surface | Reached by |
+|---|---|
+| Player (19.6) | a click on the Music activity, ⌃⌥⌘I, Hide Lyrics on the stage |
+| Lyrics stage (19.6) | ⌃⌥⌘L, the menu's Lyrics, a click on the player's cover or title |
+| Tray (19.7) | a click on the Shelf activity or its bubble, the menu's Shelf, the Tools card |
+| Tools (19.8) | a click on the bare notch, ⌃⌥⌘I with nothing live, the Tools button on every summoned surface |
+| Clipboard (19.8) | ⌃⌥⌘V (new, rebindable), the menu, the Tools card |
+| Translate (19.8) | a click on the Translated alert, the Tools card; the Services item "Translate in Isla" as today |
+| Settings (19.8) | the gear on Tools, the menu's Settings…, ⌘, while a surface has the keyboard |
+
+### 19.2 The outline
+
+Every activity and surface is one black shape hung from the top of the screen.
+
+- **Construction.** Width `W`, height `h`, shoulder radius `rt`, bottom radius
+  `rb`, origin at the shape's top-left: `M 0 0 Q rt 0 rt rt L rt h−rb Q rt h
+  rt+rb h L W−rt−rb h Q W−rt h W−rt h−rb L W−rt rt Q W−rt 0 W 0 Z`. Both
+  corners are **quadratic** Béziers — the shoulder's control point on the top
+  edge, the bottom corner's on the corner — not circular arcs: a circular
+  corner of the same radius reads heavier, and the measured outlines do not
+  fit one. `NotchShape` is rebuilt on this path; `topRadius` and
+  `bottomRadius` stay its animatable pair.
+- **Sizes.** The reference screenshots' resting notch is **225.4 × 38**, radii
+  **8.67 / 12.67**. Isla's resting island is its own `notchSize` (`nw` × `H`:
+  the real cutout, or the synthetic 200 × 24). A **compact** activity is
+  `nw + ΔW` wide and `H` tall — its wings grow, the camera's span does not. An
+  **expanded** activity or surface keeps its measured width, never narrower
+  than `nw + 20`, and is `H + ΔH` tall. Positions inside a shape are written
+  from its left edge, or as `right n` from its right edge; a shape wider than
+  its reference keeps its leading content where it was and moves its trailing
+  content with the edge.
+- **Stroke.** 2 pt, centred on the outline, along both shoulders, both sides
+  and the bottom — never the top edge, which is the bezel. Colour: the
+  activity's tint at **0.21**, or white **0.14** where the activity has none.
+  Increase Contrast raises them to 0.42 and 0.30. It is drawn on every
+  wallpaper whenever the shape is wider or taller than the resting notch, and
+  never on the bare notch. It replaces §3.3's key line; `WallpaperTone` stays
+  for the lock card's Automatic material only.
+- **Shadow.** A shape taller than **68** casts black 0.22, radius 14, no
+  offset, so a surface separates from a busy window under it.
+- **Fill.** Black. Content sits on it directly; `glassSurface` stays for menus
+  and the lock's glass player, never the island.
+- **Hover.** As today: the surface turns `islandHover`, and the resting notch
+  nudges on `hoverNudge`.
+
+| Tint | Value | Used by |
+|---|---|---|
+| green | `#30D158` (48, 209, 88) | Charging, Full Battery, a headphone battery at or above 20 % |
+| red | `#FF453A` (255, 69, 58) | Battery Low, a headphone battery below 20 % |
+| blue | `#0A84FF` (10, 132, 255) | the update glyph, the Shelf's drop target and its bubble's count |
+| indigo | (94, 92, 230), labels `#7D7AFF` | Translated |
+| amber | (250, 167, 35) | the volume and brightness level |
+| cyan | (100, 210, 255) | the Clipboard card's glyph well on Tools |
+
+A tinted glyph or level is drawn as SwiftUI's `Color.gradient` of its tint
+(the colour, 16 % lighter at the top); the stroke is the flat tint.
+
+### 19.3 Motion
+
+- **The outline** springs on **response 0.5, damping 0.75** for every change of
+  its size: an activity appearing out of the resting notch, one activity
+  turning into another, opening into a surface, a surface turning into another,
+  closing, and the bubble arriving or leaving. This is the one place Isla
+  overshoots (about 3 %): the island is a physical object that grows out of the
+  bezel, and the reference does so. Everything inside a surface keeps §2.4's
+  critically damped curves; `Theme.criticallyDampedSprings` loses the outline's
+  curves and keeps the rest. New `Theme.islandSpring`.
+- **Content arriving.** An expanded activity's or surface's content arrives
+  from opacity 0, **blur 30** and **scale (0.6, 0.2)** anchored at (0.5, 0.4) of
+  its frame; a compact activity's from opacity 0, **blur 15** and **scale x
+  0.8**. Both ride the outline's spring and leave by the same path reversed.
+  When one activity turns into another, the old content leaves while the
+  outline moves and the new arrives on the same spring; they are never both at
+  full opacity. New `Theme.expandedArrival`, `Theme.compactArrival`.
+- **Living details.** The equalizer's bars move as today. Battery Low's level
+  pulses opacity 1 ↔ 0.3 on a 1 s ease-in-out repeat and its ring breathes on
+  the same beat; Full Battery's level pulses the same way. A marquee waits
+  1.2 s, then scrolls at a constant speed (one loop in 9 s for the Translated
+  line), with 4 pt and 16 pt fades at its ends.
+- **Reduce Motion.** The outline changes size on ease-in-out 0.24 with no
+  overshoot; content crossfades in 0.24 with no blur and no scale; pulses,
+  rings and marquees stand still (a marquee truncates at its tail).
+- The rows of §2.4 that moved the island's shape (Panel opens and closes, Tab
+  switch, Expand / Collapse, Island appears / folds, New-track peek, Charging
+  and headphones, Volume pop-up) now move it on `islandSpring`; their content
+  curves stand.
+
+### 19.4 Compact activities
+
+`H` tall. Shoulders 8.67, bottom corners 12.67. Board `R2-Alerts` (top row)
+and `R2-Music-Rest`.
+
+| Activity | Width | Stroke | Left wing | Right wing | Label |
+|---|---|---|---|---|---|
+| Music | `nw + 70` | white 0.14 | the cover, 22 × 22, radius 5, at (17.3, 8) | the equalizer, 18 × 18, six bars 2.2 wide in the cover's tint (§3.4) as a gradient, top 10, ending right 19.3 | "Now playing: %@ by %@" |
+| Shelf | `nw + 75` | white 0.14 | `tray.full.fill`, 26 × 20, white, at (17.3, 9) | the item count, SF Pro Rounded 16, tabular, white, ending right 18.3 | "Shelf, %d items" |
+| Charging (3 s) | `nw + 180` | green 0.21 | "Charging", 14 regular, white 0.88, from 18.5 | the level "67%", 14 regular, green gradient, then 6 pt, then a drawn battery: body 28 × 16 radius 6 (track green 0.30, the level filled in the green gradient), 1.5 pt, cap 2 × 6 radius 1.5 green 0.30 — ending right 19.3 | "Charging, %d percent" |
+| Locked (§19.10) | `nw + 43` | white 0.14 | `lock.fill`, 13 × 14, white, centred in the wing | — | "Locked" |
+
+- Text and glyphs are vertically centred in `H`. On a display Isla draws the
+  notch for (`H` 24), the cover is 16 and glyphs are 0.75 of these sizes.
+- Music paused and Music with no artwork keep §3.2's states at the new sizes:
+  the cover at brightness 0.55 with a 9 pt `play.fill`, the bars at rest 3 tall
+  in tertiary; the 22 × 22 well, white 0.14, radius 5, `music.note` 10.
+- A Mac with no battery shows no Charging activity.
+- The new-track peek (decision 3, §3.5) keeps its content and its 50 pt height,
+  on this section's outline (shoulders 8.67, bottom corners 16) and motion.
+
+### 19.5 Alerts
+
+Expanded, one at a time (§19.1). Board `R2-Alerts`, middle and bottom rows;
+click to replay. Sizes are the reference; the width floor is `nw + 20`.
+
+**a. Battery Low** — 325.4 × 113, radii 22 / 40, stroke red 0.21.
+
+- At (45, 47.4): "Battery Low", 14 semibold, white 0.86, then 8 pt and the
+  level "%d%%", 13 regular, red. 3 pt below, 11 medium, white 0.45, wrapping
+  before the indicator: "Connect a charger soon, or turn on Low Power Mode." —
+  or, when Low Power Mode is already on (`ProcessInfo.isLowPowerModeEnabled`),
+  "Connect a charger soon."
+- Indicator, 70 × 40 at right 44.8, top 50.4: a capsule, red 0.20; inside it a
+  battery body 40 × 23 radius 10 at (9.6, 8.5) and a cap 2.5 × 7.5 radius 1.5
+  at (52.1, 16.25), both red 0.45; the level, a pill 8 × 14 at (15.8, 13) in
+  the red gradient, pulsing; round the pill a 1.5 pt red 0.90 ring breathing
+  from 30 × 32 to 8 × 14.
+- When: on battery power, the level crossing **20 %** and again **10 %** —
+  each once per discharge; plugging in resets both. Setting: General › The
+  island shows › **Low Battery Warning**, on.
+
+**b. Full Battery** — 305.5 × 108, radii 18 / 36, stroke green 0.21.
+
+- At (40, 51.6): "Full Battery", 14 semibold, white 0.86, then 8 pt and
+  "100%", 13 regular, green; 3 pt below, 11 medium, white 0.45: "You can unplug
+  the charger."
+- Indicator, 75 × 45 at right 34.5, top 45.5: a capsule, green 0.20; a body
+  44 × 24 radius 10 at (13, 10.5) and a cap 3 × 8 at (59, 18.5), green 0.40;
+  the level 34 × 14 radius 4 at (18, 15.5) in the green gradient, pulsing.
+- **MagSafe.** When the adapter is MagSafe (19.15, owed R9-H3), after 2 s the
+  battery leaves the way compact content does and a drawn MagSafe connector
+  arrives in 0.45 s, 63.4 × 40 at right 39.8, top 48: a cable 30.4 × 5 at y
+  17.5, grey (142, 142, 147) 0.20; the plug 29.6 × 40 radius 2 at x 30.4, the
+  grey from 0.27 to 0.22; its light, a 5 pt circle at (42.5, 17.3), amber
+  `#FF9F0A` with a 5 pt glow, turning green `#30D158` 3 s after it arrives; the
+  Mac's edge, 3.4 × 32.2 white 0.45 at (60, 4). Any other adapter keeps the
+  battery for the whole 5 s.
+- When: on power and fully charged, once per charge (unplugging or falling
+  below 95 % resets it). Optimised charging holding at 80 % is not full and
+  shows nothing. Setting: **Fully Charged**, on.
+
+**c. Headphones connected** — 370.3 × 95, radii 20 / 38, stroke white 0.14.
+Replaces §3.6's 428 pt headphones moment; same detection (`AmbientWatch`),
+same setting (`island.headphones`).
+
+- The device's own symbol (`airpods.pro`, `airpods`, `airpodsmax`,
+  `beats.headphones`, `headphones`, by `AmbientWatch`'s existing rule),
+  hierarchical, white, 43 × 34 at (40.6, 38.75), opacity 0.85.
+- At x 102.4: "Connected", 13 regular, white 0.40, baseline 54; the device's
+  name, 15 regular, white 0.82, baseline 75, truncating at its tail before the
+  ring.
+- The battery: a ring 40 × 40 at right 37.7, top 35, line 4.5, track the tint
+  at 0.20, the level an arc from twelve o'clock clockwise with round caps in
+  the tint's gradient and a 5 pt glow at 0.35; inside it the level, SF Pro
+  Rounded 14, tabular, in the tint. Tint green, red below 20 %. **Only when a
+  level is readable** without any new permission or entitlement (19.15); with
+  none, no ring, and the name takes its width.
+
+**d. Volume and brightness** — 245.4 × 103, radii 18.67 / 22.67, stroke white
+0.14. §12's behaviour is unchanged (opt-in, Accessibility, the keys it takes,
+1.5 s after the last press, never over the lock, not drawn while a surface is
+open); only its look is replaced.
+
+- At x 34, baseline 58: the output's name ("MacBook Pro Speakers"), or
+  "Display Brightness", or "Keyboard Brightness" — 15 regular, white 0.90,
+  truncating at its tail at right 34.
+- The symbol, 22 × 16 at (35.5, 72.5), white: `speaker.wave.1.fill` …
+  `speaker.wave.3.fill` by level, `speaker.slash.fill` muted, the output's own
+  symbol for headphones (R5's rule), `sun.max.fill`, `light.max`.
+- The bar, 107 × 8 radius 4 at (69.5, 76.5), white 0.18; the level filled in
+  amber, from 0.82 to 1.0 left to right, with a 5 pt amber glow at 0.80; muted,
+  the fill is white 0.32 at the level it will return to and has no glow. It
+  moves on `hudLevel` per press.
+- The level as a number, 0–100, SF Pro Rounded 14, tabular, white 0.80,
+  ending right 34.5, centred on the bar.
+
+**e. Translated** — 355.3 × 103, radii 24 / 34, stroke white 0.14.
+
+- `translate`, 41.25 × 30 at (42.5, 45), in the indigo gradient.
+- At x 92.9: the translation, 15 semibold, white 0.82, baseline 56, ending
+  right 108.9, a marquee when longer; under it the pair "%@ → %@", 13 regular,
+  white 0.40, baseline 75.
+- Ending right 40: the target language's code ("EN"), 16 bold, `#7D7AFF`,
+  baseline 57; "Copied", 12 semibold, `#7D7AFF`, baseline 75.
+- When: ⌃⌥⌘T, or the menu's Translate Clipboard. The clipboard's text is
+  translated by the existing engine (on this Mac; online only through
+  Translate Online's existing consent), and **the translation is put on the
+  clipboard**; the original stays in the Clipboard history when that is on. A
+  click opens Translate with both texts. Refused over the lock exactly as
+  `translateCommanded` refuses today. With nothing to translate, or a pair
+  this Mac cannot do, the same shape shows the symbol in white 0.50, the
+  reason Translate already gives in place of the translation, nothing on the
+  right, and nothing is copied; a click opens Translate.
+
+**f. Isla update ready** — 335.4 × 158, radii 24 / 36, stroke white 0.14; an
+alert dialog to accessibility.
+
+- `arrow.down.circle.fill`, 38 × 38 at (45.5, 56), in the blue gradient.
+- At x 105: "Isla %@ is ready", 14 semibold, white, baseline 64; below, 11
+  medium, white 0.55, line height 14, from baseline 81.5: the release's
+  one-line summary (the first sentence of its notes, truncated at its tail;
+  omitted when there is none), then "Isla restarts when it is done."
+- Buttons 35 tall, capsules, at y 113: **Later**, 128 wide at x 35, grey 0.22,
+  white 14 semibold; **Install**, 127.4 wide at x 173, blue 0.22, `#3E8EF7` 14
+  semibold, the default button.
+- When: `UpdateCheck` finds a version (its automatic checks are already opt-in),
+  once per version, at the first idle moment (nothing open, no alert, not
+  locked). Install runs `UpdateInstaller` as Settings' Update Now does. Later,
+  or 20 s without an answer, folds it; that version is not offered here again
+  and the gear on Tools keeps its badge.
+
+### 19.6 The player and the lyrics stage
+
+**The player** — 425.4 × 198, radii 34 / 44, stroke white 0.14, shadow. Board
+`R2-Music-Open`. `m` is the shape's centre.
+
+| Element | Frame | Style |
+|---|---|---|
+| Cover | (54, 38), 60 × 60, radius 10 | a button: opens the stage when the song has lyrics, else brings the player app forward |
+| Title | x 129.2, baseline 65 | 16 medium, white 0.80, tail truncation before the equalizer |
+| Subtitle | x 129.2, baseline 84.5 | the artist, 14 regular, white 0.50 |
+| Equalizer | 23 × 18 at top 49, ending right 54.2 | six bars 2.7 wide in the cover's tint; the compact equalizer travels here |
+| Elapsed | (53.5, 114) | SF Pro Rounded 11 medium, tabular, white 0.40 |
+| Progress | (96.7, 117.4), 231.3 × 7, radius 3.5 | track white 0.15, fill white 0.50; scrubs as today |
+| Remaining | top 114, ending right 54.2 | as Elapsed |
+| Favourite | centred at `m − 133`, y 164.6 | `star` / `star.fill`, 28 × 27, white 0.50 |
+| Previous, Play / Pause, Next | `m − 69`, `m`, `m + 69` | `backward.fill` 35 × 22, `pause.fill` / `play.fill` 29 × 34, `forward.fill` 35 × 22, white 0.90 |
+| Output | `m + 133` | the output's own symbol, 28 × 27, white 0.50; opens §4.5's menu |
+
+- Every control is a 42 × 42 hit target, answering on press as
+  `PanelButtonStyle` does.
+- **The sung line.** While the song has synced lyrics and Lyric Band
+  (`player.lyricBand`) is on, the subtitle carries the line being sung — 14
+  semibold, swept: sung white 0.82, unsung white 0.45 — and the title line
+  reads "Title · Artist", the artist in white 0.50 and truncated first. It
+  turns on §2.4's `captionTurnOut` / `captionTurnIn`. Between lines and before
+  the first, the subtitle is the artist.
+- **Favourite** shows where Isla can set it: Music, through the scripting
+  bridge it already uses for the fallback (the Apple Events entitlement it
+  already has); Spotify, only when the Spotify account is connected **and**
+  has granted saving to the library (a new scope the person grants by
+  reconnecting — never asked for unprompted). Elsewhere the star is absent and
+  the other four controls keep their places.
+- **Live, no artwork, nothing playing** keep §4.6–§4.8's states in this frame:
+  a live stream shows "LIVE" in place of the times and progress; with nothing
+  playing there is no player and a click opens Tools.
+- Shuffle and Repeat (§4.4) leave the player for the stage's More menu.
+
+**The lyrics stage** — `bw` × **400**, radii 34 / 44, stroke white 0.14,
+shadow. Board `R2-Lyrics` (drawn at 404; 400 keeps the window's single cut,
+§17). One timeline and one renderer, as everywhere: `LyricSweep` and
+`LyricRow`.
+
+- Header row: the playing app's icon, 16 × 16 at (20, 11); **Tools**, 26 × 26
+  at (`bw − 46`, 6).
+- Lines: from x 24, `bw − 48` wide, six visible, all **22 bold** (decision 6:
+  the sung line is never larger), line height 28, 10 apart, the sung line's
+  top at y 138 (lines after a wrapped one move down). The sung line is swept,
+  white over white 0.45; lines already sung are white 0.34 and 0.20 by
+  distance, lines to come 0.50, 0.32 and 0.18. They scroll on `lyricScroll`.
+  The column fades over its top and bottom 24 pt. Translation (§5.3), when
+  on, sits under each line, 13 regular, white 0.45 (the sung line's 0.66).
+- Foot: a hairline at (20, 314), `bw − 40` × 0.5, white 0.12; the cover 40 ×
+  40 radius 8 at (24, 330); the title, 13 semibold, at (76, 332) and the
+  artist, 12 regular, white 0.55, at (76, 350), both truncating before the
+  transport; the transport — Previous 32, Play / Pause 34, Next 32, each 30
+  tall, 6 apart, filled white 0.10, radius 8 — centred on `bw / 2` at y 334;
+  at y 336, 28 × 28 each, 6 apart, ending at `bw − 26`: **Show Translation**
+  (when a translation is possible), **More**, **Output**, **Hide Lyrics** (lit:
+  white 0.18, radius 7); the progress at (24, 384), `bw − 48` × 3, radius 1.5,
+  track white 0.18, fill the cover's tint.
+- More holds §5.2's menu (Lyric Timing, Edit Lyrics…, Search Again, Search
+  Online, Import LRC File…, Remove Local Binding, Lyrics Settings…) and, new,
+  Shuffle and Repeat (§4.4's states).
+- §5.4's states (looking, none, the reader down, an overrun timeline and Sync
+  Here) and §5.5's Edit Lyrics sheet hold, in the stage's frame.
+- Hide Lyrics turns the stage back into the player.
+
+The lyric column (C) and the tall page (T) of §5.1 are withdrawn; the stage
+is the one lyric surface in the island.
+
+### 19.7 The Shelf: drag, tray, bubble
+
+**Dragging in** — `R2-Shelf-Drag`. A file drag entering the drop rect (the
+island grown by its hover margins, as today) opens the drop surface: `bw` ×
+176, radii 24 / 34, stroke white 0.14.
+
+- Two targets at y 46, each `(bw − 48) / 2` × 114, 16 apart from x 16, radius
+  14: **Keep on Shelf** — `tray.full`, 22; "Keep on Shelf", 15 semibold;
+  "Release to add to the Shelf", 12 regular — and **AirDrop** — the AirDrop
+  glyph the Shelf uses today; "AirDrop"; "Send to a nearby device".
+- The target under the pointer is lit: blue 0.18 with a 2 pt blue inner ring,
+  its second line white 0.75; the other is white 0.07, white 0.55.
+- Release, the targets' choice and promised files are §8.3 and today's
+  `ShelfDropTarget` unchanged. Leaving without a drop folds the surface back.
+  After a drop the Shelf is live: compact, or the bubble when Music is.
+
+**The tray** — 433.3 × 158, radii 24 / 34, stroke white 0.14, shadow.
+`R2-Shelf-Open`.
+
+- Header row, left of the notch: `tray.full.fill` 26 × 20 at (52.6, 10.3) and
+  the count, SF Pro Rounded 15, tabular, at (82, 11). Right of it, ending right
+  44: **Remove All** — `trash` 18 × 20, 5 pt, "All" 15 regular — which asks
+  §8's "Remove all %d items? Files are untouched." first.
+- Tiles 80 × 94, radius 16, white 0.10, from (41.9, 47.5) on a 90 pitch: the
+  file's thumbnail or icon, 42 × 42 at (19, 9); its name, 11.5 semibold, white
+  0.86, centred, two lines, truncated in the middle, at (4, 60.4), 72 wide;
+  the remove badge, `xmark.circle.fill` 17, white 0.62 over a 14 pt black 0.28
+  disc, at (57.75, 5.5), shown on the hovered and the selected tile (decision
+  9).
+- **More than four items scroll** sideways inside the tray (a trackpad's
+  horizontal scroll, a wheel with ⇧), with 16 pt fades at a clipped end. The
+  tray never widens; the Shelf's limit of 60 stands.
+- Selection, Space for Quick Look, Delete (§8.2 and `ShelfDeleteKeyHolder`),
+  the right-click menu, dragging out, AirDrop and the screenshot badge hold on
+  the tiles. §8.2's selection bar and §8.1's grid are withdrawn.
+- An empty Shelf opened from Tools or the menu shows one line, centred, 13
+  regular, white 0.55: "Drag files to the notch to keep them here."
+
+**The bubble** — `R2-Shelf-Bubble`. 58 × `H`, shoulders 8.67, bottom corners
+14, stroke white 0.14, its left edge 16 right of the island's outline. Centred
+in it, 5 apart: `tray.full.fill` 18 × 14, white, and the count, 13 semibold,
+tabular, blue. It arrives and leaves as compact content does, on the island's
+spring. A click opens the tray; its label is "Shelf, %d items". It lies inside
+the window's single cut (`NotchMetrics.maximumWindow`) and inside `activeRect`.
+
+### 19.8 Tools and the summoned surfaces
+
+**Tools** — 480 × 204, radii 34 / 44, stroke white 0.14, shadow. `R2-Tools`.
+
+- **Settings**, `gearshape`, 26 × 26 at (434, 6), with the update badge, a 5 pt
+  dot at its top-trailing corner.
+- Three cards, 142 × 140 at y 46 from x 16 on a 153 pitch, radius 16, white
+  0.07 (hover 0.10, pressed 0.14), each a button with the tool's name as its
+  label: a 30 pt circle at (12, 12) holding the tool's glyph (Shelf
+  `tray.full` in blue 0.22, Clipboard `doc.on.clipboard` in cyan 0.20,
+  Translate `translate` in indigo 0.24); the name, 13 semibold, white, at
+  (12, 52); a preview, 12 regular, white 0.55, one line, tail truncation —
+  "%d items" or "Empty", the newest clip (behind `PrivacyMode`'s cover when
+  that is on), the last language pair; a hint at the card's foot, 11 regular,
+  white 0.35 — "or drag files here", and the current Clipboard and Translate
+  shortcuts as `HotKeyCenter` holds them.
+
+**Clipboard** — `bw` × 300, radii 34 / 44. `R2-Clipboard`.
+
+- Header row: `doc.on.clipboard` 14 and "Clipboard" 13 semibold at (20, 11);
+  **Tools** at (`bw − 46`, 6).
+- Search field at (16, 46), 270 × 28, radius 8, white 0.10, placeholder
+  "Search", 13; it has the keyboard when the surface opens, with a 1.5 pt blue
+  0.70 ring. The Kind filter (All, Text, Links, Images) at (298, 48); files
+  show under All.
+- Rows from y 84 on a 34 pitch, x 16 to `bw − 16`, radius 7: the kind's glyph
+  (a colour's swatch, a file's icon) 14–16; the text, 13 regular (code and
+  colours monospaced 12.5); on the right, 11 regular, white 0.40, the age, or
+  "Pinned"; the selected row white 0.10, its right side "↩ Copy".
+- **Keyboard.** Summoned, Clipboard takes the keyboard as Translate does:
+  typing searches, ↑ ↓ select, ↩ copies the selection and closes, Escape
+  clears the search, then closes. `NotchPanel.canBecomeKey` is true while
+  Clipboard or Translate asks for it, and never otherwise.
+- §9.1's kinds and detection, §9.2's row menus (Pin, Paste, Paste as Plain
+  Text, Clear Everything…), §9.4's persistence and privacy hold.
+
+**Translate** — `bw` × 268, radii 34 / 44. `R2-Translate`.
+
+- Header row: `translate` 14 and "Translate" 13 semibold at (20, 11);
+  **History** 26 × 26 at (`bw − 76`, 6) while Keep History is on; **Tools** at
+  (`bw − 46`, 6).
+- At y 46, 26 tall: the From pop-up from x 16 to `bw / 2 − 24`; **Swap**, 28
+  wide, at `bw / 2 − 14`; the To pop-up from `bw / 2 + 30` to `bw − 16`.
+- The source card at (16, 84), `bw / 2 − 24` × 160, radius 14, white 0.07,
+  inset 12 / 14: the text, 15 medium, line height 1.35, editable; the count
+  "%d / 20,000", 10 regular, white 0.35, tabular, 10 from its bottom.
+- The result from (`bw / 2 + 10`, 84) to `bw − 16`, 160 tall, inset 12 / 4: the
+  translation, 15 semibold; at its foot Speak and Copy Translation, 26 × 24, and
+  on the right `lock.fill` 9 and "On this Mac" (or "Online"), 10.5 regular,
+  white 0.45.
+- §11's engine, history, Speak and errors hold.
+
+**Settings** — §10, `bw` × 400, radii 34 / 44. Header row: `gearshape` 14 and
+"Settings" 13 semibold at (20, 11); **Tools** at (`bw − 46`, 6). Every leading
+coordinate §10 placed at 58 for the rail moves to 16; every width running from
+it to a `bw − n` edge grows by 42 (the form is 316 wide below 540). Settings ›
+Shortcuts gains **Show Clipboard** (⌃⌥⌘V); General › The island shows gains
+Low Battery Warning and Fully Charged, and its "Charging" row is renamed
+**Charger Connected** (19.14).
+
+**Tools button.** On Clipboard, Translate, Settings and the stage, `square.grid.2x2`
+14 in a 26 × 26 well at (`bw − 46`, 6): the surface turns into Tools on the
+island's spring. Its label is "Tools".
+
+**The welcome** keeps its place and its right column; its legend becomes four
+lines, each led by a glyph (14, tertiary): "Click the island to open what’s
+playing." / "Right-click it for everything else." / "Drag files to the notch
+to keep them." / "⌃⌥⌘V Clipboard · ⌃⌥⌘T Translate · ⌃⌥⌘L Lyrics", the keys
+drawn from `HotKeyCenter`.
+
+### 19.9 The right-click menu
+
+`R2-Menu`. An `NSMenu` at the click, in the system's appearance:
+
+| Item | Shown key |
+|---|---|
+| Clipboard | ⌃⌥⌘V |
+| Translate Clipboard | ⌃⌥⌘T |
+| Shelf | — |
+| Lyrics | ⌃⌥⌘L |
+| — | |
+| Settings… | — |
+| Quit Isla | — |
+
+- It opens from the island in any state — the resting notch, a compact
+  activity, the bubble, an alert — and from an open surface's header row.
+  Over the lock it does not open; the right-click shakes as a click does.
+- The keys are the current bindings, shown with `keyEquivalent` and
+  `keyEquivalentModifierMask`; the global hot keys do the work, so the menu
+  never claims a key of its own.
+- Lyrics is enabled while a song plays. About stays in Settings › About.
+- With Tools, the menu is how everything is reached when nothing is live.
+
+### 19.10 Lock screen
+
+`R2-Lock`. A **Full Screen** layout becomes the default lock presentation;
+§7's banner and card stay as the **Card** layout (Lock Screen › Layout, 19.13).
+It is shown on the lock's own space (`LockScreenPresence`), on the island's
+display only, while something plays. Positions are fractions of the display
+`w` × `h`, measured on the board's 16-inch display (1728 × 1117 pt); pixel
+sizes are the board's divided by its 0.81 scale.
+
+- **Backdrop.** The cover, aspect-filled, blurred 148, saturation 1.45,
+  brightness 0.62, turning once every **60 s** (still under Reduce Motion),
+  under a field of the cover's own colours. It covers the display **except
+  the unlock band**: the bottom **18 %** is never covered, and the backdrop
+  fades to clear over the 6 % above it, so macOS's user picture, name and
+  password field stay visible and usable. Isla receives no keys while locked.
+- **Clock row.** Because the backdrop hides the system's clock, the time and
+  the date are drawn in one row, centred, baseline at 13 % of `h`: SF Pro 38
+  semibold, the time white 0.96, the date white 0.82, 60 apart, in the
+  person's locale and 12/24-hour setting, updated on the minute.
+- **Cover.** A square 44.8 % of `h`, radius 30, shadow black 0.42 radius 49
+  offset 16 down, left edge at 17.6 % of `w`, top at 23.7 % of `h`.
+- **Lyrics.** A column from 52.1 % of `w`, 30.1 % wide, over the cover's
+  height, fading over its top and bottom 12 %. SF Pro Rounded 35 bold, line
+  height 39.5, every line the same size (decision 6); the sung line white, the
+  others white 0.90 at opacity 0.52, 0.36 and 0.20 by distance, blurred 1.7,
+  2.7 and 4.7, scaled 0.965, 0.945 and 0.92. It scrolls on `lyricScroll`. With
+  no lyrics the column is absent and the cover centres.
+- **Glass player.** 342 × 162, radius 28, centred, top at 76.6 % of `h`; §7.2's
+  material (Automatic, Solid, Transparent) with a 1 pt white 0.15 inner edge
+  and a black 0.24 shadow, radius 52, 14 down. Title 15.5 medium white 0.85 and
+  artist 13 white 0.55 at x 18.5; a white 0.75 equalizer 22 × 15 at the top
+  right; times SF Pro Rounded 11 medium white 0.55 either side of a 220 × 5
+  progress (track white 0.18, fill 0.60); one row of Favourite, Previous, Play
+  / Pause, Next and Output, as the player's. Output opens §7.3's output pane.
+  It is the only part that answers clicks; the rest passes them through.
+- **The island** shows the Locked compact activity (19.4). Decision 1 holds:
+  no music in the island while the lock shows the player.
+- Reduce Transparency: the backdrop is opaque and the player Solid. Reduce
+  Motion: nothing turns; lines crossfade.
+
+### 19.11 What this section withdraws
+
+The rail and the five-tab list (the parity design's 2026-08-22 contract and
+`TabContractTests`' tab assertions); the panel header's titles; Expand /
+Collapse and the tall body per tab (decisions 7 and 12); the 300 pt compact
+island and its 40 pt wings (decision 2); §3.3's key line; §3.6's 300 pt
+charging and 428 pt headphones moments; §12's 428 pt pop-up look; the lyric
+column and the tall page (§5.1 C and T); the Shelf's grid and selection bar
+(§8.1, §8.2). **Removed features stay removed:** the surface contract that
+replaces `TabContractTests` asserts, as it did, that Snippets, Calendar,
+Notes and the Teleprompter are absent.
+
+### 19.12 Displays, accessibility and stress
+
+- Sizes come from the real cutout (`auxiliaryTopLeftArea` /
+  `auxiliaryTopRightArea`) or the synthetic 200 × 24 notch, never
+  `NSScreen.main`, and are recomputed on `didChangeScreenParametersNotification`.
+- Every compact activity holds at `nw` 180, 185, 200, 220 and 240 and `H` 24,
+  32 and 38; every expanded shape and surface at `bw` 480, 560 and 620; all in
+  English and Russian, with text truncating only where this section says.
+- The window is still cut once (`NotchMetrics.maximumWindow`) and never
+  resized; the island, the bubble and every surface fit inside it, and
+  `activeRect` follows the shape on screen, the bubble included.
+- Each activity is one accessibility element with the label given; an alert
+  posts its label as an announcement (volume at most every 0.25 s, R5). The
+  island reads first, then the bubble, then the open surface.
+
+### 19.13 Settings keys
+
+| Key | Default | Section | Release | Leaves the Mac / system-wide? |
+|---|---|---|---|---|
+| `island.lowBattery` | true | General | R9 | no |
+| `island.fullBattery` | true | General | R9 | no |
+| `hotkey.showClipboard` (as `HotKeyCenter` stores bindings) | ⌃⌥⌘V | Shortcuts | R8 | no |
+| `lock.layout` | `fullScreen` when unset | Lock Screen | R10 | no |
+
+`island.charging`, `island.headphones`, `island.newTracks` and
+`player.lyricBand` are reused with their defaults. `lock.restAsBanner` applies
+to the Card layout only. Spotify's library scope is no key: it is granted, or
+not, on reconnecting the account.
+
+### 19.14 Strings
+
+New rows only; existing keys ("Connected", "Copied", "Later", "Lyrics",
+"Shelf", "Clipboard", "Translate", "Quit Isla", "Hide Lyrics", "%@ → %@",
+"Keep on Shelf", "Send to a nearby device", "AirDrop", "Remove All", …) are
+reused. One existing row changes: **"Charging"** becomes the island's word,
+«Зарядка», and the Settings row it named becomes "Charger Connected" (the
+collision `AmbientActivity` notes).
+
+| English (key) | Russian |
+|---|---|
+| Charging | Зарядка *(changed from «Зарядку»)* |
+| Charger Connected | Подключение зарядки |
+| Charging, %d percent | Зарядка, %d%% |
+| Battery Low | Низкий заряд |
+| Battery low, %d percent | Низкий заряд, %d%% |
+| Connect a charger soon, or turn on Low Power Mode. | Скоро подключите зарядку или включите режим энергосбережения. |
+| Connect a charger soon. | Скоро подключите зарядку. |
+| Low Battery Warning | Предупреждение о низком заряде |
+| Full Battery | Аккумулятор заряжен |
+| You can unplug the charger. | Зарядку можно отключить. |
+| Fully Charged | Полный заряд |
+| %@ connected, battery %d percent | %@ подключены, заряд %d%% |
+| Display Brightness | Яркость дисплея |
+| Keyboard Brightness | Подсветка клавиатуры |
+| Volume %d, %@ | Громкость %d, %@ |
+| Translated to %@ and copied | Переведено на %@ и скопировано |
+| Isla %@ is ready | Isla %@ готова к установке |
+| Isla restarts when it is done. | По завершении Isla перезапустится. |
+| Install | Установить |
+| Now playing: %@ by %@ | Сейчас играет: %@ — %@ |
+| Shelf, %d items | Полка, объектов: %d |
+| Locked | Заблокировано |
+| Favorite | В избранное |
+| Remove from Favorites | Убрать из избранного |
+| Release to add to the Shelf | Отпустите, чтобы добавить на полку |
+| Drag files to the notch to keep them here. | Перетащите файлы к вырезу, чтобы они хранились здесь. |
+| Empty | Пусто |
+| or drag files here | или перетащите файлы сюда |
+| Tools | Инструменты |
+| Translate Clipboard | Перевести буфер обмена |
+| Show Clipboard | Показать буфер обмена |
+| Settings… | Настройки… |
+| Click the island to open what’s playing. | Нажмите на остров, чтобы открыть то, что играет. |
+| Right-click it for everything else. | Всё остальное — по правому щелчку. |
+| Drag files to the notch to keep them. | Перетащите файлы к вырезу, чтобы сохранить их. |
+| Layout | Вид |
+| Full Screen | Во весь экран |
+| Card | Карточка |
+| Full Screen shows the cover, the lyrics and the player over the Lock Screen and leaves the password field clear. Card is the smaller card under the clock. | «Во весь экран» показывает обложку, текст и плеер поверх экрана блокировки, не закрывая поле пароля. «Карточка» — небольшая карточка под часами. |
+
+A row that turns out to exist already is reused, not duplicated; each release
+adds only the rows it uses, in both tables, with `test-localizations.sh`
+green.
+
+### 19.15 Open technical questions (answered in the release, before its UI)
+
+- **MagSafe** (R9): whether `IOPSCopyExternalPowerAdapterDetails` names a
+  MagSafe adapter reliably on macOS 15 and later. If it does not, the MagSafe
+  stage is not shown — the battery holds the 5 s — and the finding is recorded
+  here.
+- **Headphone battery** (R9): whether a connected Apple headphone's level is
+  readable through a public API or a read-only system source, without a new
+  permission, entitlement or private framework. If not, the ring is not drawn.
+  `system_profiler` is not run on the main actor, if at all.
+- **Spotify Favourite** (R8): the scope `user-library-modify` and the
+  reconnect flow; until a person has granted it, no star for Spotify.
+- **The unlock band** (R10): 18 % is measured on the 14- and 16-inch lock
+  screens with a picture and a long name before the layout ships (R10-H1).

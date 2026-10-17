@@ -1,5 +1,12 @@
 # Tabs in the notch's wings — implementation plan (R6)
 
+> **Withdrawn 2026-10-17 (owner).** Not to be built. The owner chose the
+> activities-first round — "Yes, that's the style" — and the spec withdrew §18
+> and R6 the same day. Round two is specified in
+> `docs/plans/2026-10-15-redesign-spec.md` §19 and planned in
+> `docs/plans/2026-10-17-activities-build-plan.md`. This plan stays as the
+> record of the wings direction.
+
 > **Paused 2026-10-17 (owner).** Not to be built. After comparing Isla with an
 > event-driven notch app, the owner asked for a second canvas round on an
 > activities-first model (the island shows what is happening; tools are
