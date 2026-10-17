@@ -289,8 +289,10 @@
 "Isla is still starting up. Try again in a moment." = "Isla ещё запускается. Попробуйте через мгновение.";
 
 /* Зарядка и наушники */
-"Charging" = "Зарядку";
-"Charging, %d percent" = "Заряжается: %d %%";
+"Charging" = "Зарядка";
+"Charger Connected" = "Подключение зарядки";
+"Charging, %d percent" = "Зарядка, %d %%";
+"Shelf, %d items" = "Полка, объектов: %d";
 "%@ connected" = "%@: подключено";
 "%d%%" = "%d %%";
 

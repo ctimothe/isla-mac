@@ -503,8 +503,10 @@ enum Theme {
     /// The resting island's bottom corners, larger than the hardware notch's
     /// own so the curve stays inside the cutout rather than poking a black nub
     /// past it at each corner. Inside the cutout nothing is visible, which is
-    /// the point: at rest the island *is* the notch.
-    static let restingNotchBottomRadius: CGFloat = 12
+    /// the point: at rest the island *is* the notch. 12.67 since spec §19.2 —
+    /// the reference's resting notch, and never less than the compact
+    /// island's corner, so folding into the notch never gains one.
+    static let restingNotchBottomRadius: CGFloat = 12.67
 
     /// The island waking under the pointer when it rests hidden in the notch.
     ///
@@ -528,14 +530,15 @@ enum Theme {
         reduceMotion ? reducedMotion : hoverNudge
     }
 
-    static let collapsedTopRadius: CGFloat = 6
-    /// 12 since 2026-10-15 (spec §2.3; it was 9): the 24 pt cover's 6 pt corner
-    /// sits 8 pt in, and a bottom corner of 12 is what keeps the two
-    /// concentric. Still no rounder than `restingNotchBottomRadius`, so the
-    /// island folding into the notch never gains a corner.
-    static let collapsedBottomRadius: CGFloat = 12
-    /// The peek island's bottom corners (spec §2.3): 16, concentric with the
-    /// 34 pt cover's 8 pt corner inset 8.
+    /// The compact island's shoulders and bottom corners, the reference's
+    /// 8.67 and 12.67 (spec §19.2, §19.4; they were 6 and 12). Quadratic
+    /// corners (`NotchShape`), so 12.67 reads lighter than a circular 12 did.
+    /// Still no rounder than `restingNotchBottomRadius`, so the island folding
+    /// into the notch never gains a corner.
+    static let collapsedTopRadius: CGFloat = 8.67
+    static let collapsedBottomRadius: CGFloat = 12.67
+    /// The peek island's bottom corners (spec §2.3, kept by §19.4): 16, round
+    /// the 34 pt cover's 8 pt corner.
     static let peekBottomRadius: CGFloat = 16
     static let openTopRadius: CGFloat = 12
     static let openBottomRadius: CGFloat = 22
@@ -600,16 +603,17 @@ enum Theme {
     /// at this size, so each end keeps the value it actually wants and the
     /// morph interpolates the frame between them.
     ///
-    /// The compact end is 24 pt at radius 6 since 2026-10-15 (spec §3.1; it was
-    /// 22): the wing is 40 pt wide with the cover 8 pt in from the island's
-    /// edge, and the 6 pt corner is concentric with the island's 12.
+    /// The compact end is 22 pt at radius 5 since spec §19.4 (2026-10-17; it
+    /// was 24 at 6 from 2026-10-15, and 22 at 6 before that): the reference's
+    /// cover, at (17.3, 8) on a 38 pt island. On the 24 pt island Isla draws
+    /// for a display without a notch it is 16 (`CompactIslandLayout`).
     ///
     /// The open end is 132 pt since 2026-10-15 (spec §4.1; it was 118): the
     /// board's player is a 132 pt cover at (58, 54) with the text column to its
     /// right. The radius stays 14, which is still a picture and not a chip
     /// (`ArtworkMorphTests`).
     static func artworkMetrics(isOpen: Bool) -> (side: CGFloat, cornerRadius: CGFloat) {
-        isOpen ? (132, 14) : (24, 6)
+        isOpen ? (132, 14) : (22, 5)
     }
 
     /// The cover while a new track peeks (spec §3.5): 34 pt at radius 8,

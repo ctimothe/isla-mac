@@ -28,26 +28,22 @@ enum NotchMetrics {
     /// stretch. Shrinking it is a geometry change, not a cleanup.
     static let tallestBody = CGSize(width: 620, height: 400)
     static let maximumWindow = CGSize(width: 700, height: 444)
-    /// Extra room split equally between the two sides of a collapsed notch:
-    /// artwork on the left, playback state on the right.
+    /// Each compact activity is the notch plus its own delta, split equally
+    /// between the wings: the camera's span never grows, its wings do (spec
+    /// §19.2, §19.4). The deltas are the reference's, measured.
     ///
-    /// 104 until 2026-10-15, 52 pt a wing, with a 22 pt cover floating in the
-    /// middle of each. The redesign (spec §3.1, owner decision 2) makes the
-    /// island 300 pt on a 14-inch MacBook Pro — the notch plus two 40 pt wings —
-    /// because a 24 pt cover with 8 pt either side is what a wing needs and the
-    /// HIG asks compact content to sit snug against the camera. On a notch of
-    /// another width the wings stay 40; the island is `notch.width + 80`.
-    static let compactMediaExtension: CGFloat = 80
+    /// Music: the cover in the left wing, the equalizer in the right. 104 until
+    /// 2026-10-15, 80 (two 40 pt wings round a 24 pt cover) until 2026-10-17;
+    /// 70 since §19.4, two 35 pt wings round a 22 pt cover.
+    static let compactMediaExtension: CGFloat = 70
     /// The Shelf holding files, as the island's live activity when nothing
-    /// plays (spec §19.4): the notch plus 75 — `tray.full.fill` in the left
-    /// wing, the count in the right.
+    /// plays: `tray.full.fill` in the left wing, the count in the right.
     static let compactShelfExtension: CGFloat = 75
-    /// One wing of the compact island: half of `compactMediaExtension`.
+    /// The charger: "Charging" in the left wing, the level and a drawn battery
+    /// in the right — words, where Music has a picture, so wider.
+    static let compactChargingExtension: CGFloat = 180
+    /// One wing of the Music island: half of `compactMediaExtension`.
     static let compactWing: CGFloat = compactMediaExtension / 2
-    /// How far the cover sits from the island's left edge and the equalizer's
-    /// last bar from its right edge (spec §3.1): even margins, so the cover's
-    /// 6 pt corner is concentric with the island's 12.
-    static let compactEdgeInset: CGFloat = 8
     static let openDelay: TimeInterval = 0.05
     static let closeDelay: TimeInterval = 0.32
     static let fastPointerInterval: TimeInterval = 1.0 / 60.0

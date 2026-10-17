@@ -2267,7 +2267,8 @@ final class NotchController {
     /// screen gives way to either, because the Mac did something and the song
     /// has not changed.
     private func presentAmbient(_ activity: AmbientActivity) {
-        guard let vm = viewModel else { return }
+        // A Mac that reports no battery level shows no Charging (spec §19.4).
+        guard let vm = viewModel, activity.showsOnIsland else { return }
         let switchOn: Bool
         switch activity {
         case .charging: switchOn = NotchViewModel.chargingEnabled

@@ -25,9 +25,9 @@ final class CompactMediaActivityTests: XCTestCase {
         XCTAssertFalse(activity.animatesEqualizer)
         XCTAssertEqual(
             activity.bodySize(notchSize: CGSize(width: 180, height: 32)),
-            // 180 + 80: redesign 2026-10-15, spec §3.1 — two 40 pt wings, it was
-            // 180 + 104 = 284.
-            CGSize(width: 260, height: 32)
+            // 180 + 70: spec §19.4 — two 35 pt wings. It was 180 + 104 = 284
+            // before 2026-10-15 and 180 + 80 until 2026-10-17.
+            CGSize(width: 250, height: 32)
         )
     }
 
@@ -38,8 +38,8 @@ final class CompactMediaActivityTests: XCTestCase {
 
         XCTAssertEqual(playing, .playing)
         XCTAssertTrue(playing.isVisible)
-        // 210 + 80: redesign 2026-10-15, spec §3.1; it was 210 + 104 = 314.
-        XCTAssertEqual(playing.bodySize(notchSize: notch), CGSize(width: 290, height: 38))
+        // 210 + 70: spec §19.4; it was 210 + 104 = 314, then 210 + 80.
+        XCTAssertEqual(playing.bodySize(notchSize: notch), CGSize(width: 280, height: 38))
         XCTAssertEqual(playing.bodySize(notchSize: notch), paused.bodySize(notchSize: notch))
     }
 

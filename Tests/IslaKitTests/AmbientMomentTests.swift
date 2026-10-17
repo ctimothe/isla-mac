@@ -167,7 +167,7 @@ final class AmbientMomentTests: XCTestCase {
         let notch = CGSize(width: 200, height: 32)
         let folded = notch
         let charging = NotchViewModel.ambientBodySize(.charging(level: 80, isCharging: true), media: folded, notchSize: notch, bodyWidth: 560)
-        XCTAssertEqual(charging.width, 200 + NotchMetrics.compactMediaExtension)
+        XCTAssertEqual(charging.width, 200 + NotchMetrics.compactChargingExtension, "spec §19.4: the notch plus 180")
         let pods = NotchViewModel.ambientBodySize(
             .headphones(name: "AirPods Pro", symbol: "airpodspro"), media: folded, notchSize: notch, bodyWidth: 560
         )

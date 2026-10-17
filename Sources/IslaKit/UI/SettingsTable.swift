@@ -187,7 +187,10 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .openOnHover: return localized("Open on Hover")
         case .hoverDelay: return localized("Hover Delay")
         case .panelWidth: return localized("Panel Width")
-        case .charging: return localized("Charging")
+        // Not "Charging": that is the island's word since spec §19.14
+        // («Зарядка»), and the row's Russian was an accusative («Зарядку»)
+        // no status line could use. One key cannot be both.
+        case .charging: return localized("Charger Connected")
         case .headphones: return localized("Headphones Connecting")
         case .newTracks: return localized("New Tracks")
         case .volumeAndBrightness: return localized("Volume and Brightness")

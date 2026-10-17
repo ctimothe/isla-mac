@@ -101,11 +101,11 @@ final class SettingsPaneTests: XCTestCase {
         let stores = isolated.stores
 
         // Every switch the table draws, by section, with the defaults the
-        // isolated suite reads. "Charging" is drawn only on a Mac with a battery to
+        // isolated suite reads. "Charger Connected" is drawn only on a Mac with a battery to
         // report on (`AmbientWatch.hasBattery`), and a CI virtual machine has none:
         // the row is not there to count, which is correct and not a missing switch.
         let expected: [SettingsSection: [String]] = [
-            .general: ["Launch at Login", "Open on Hover"] + (AmbientWatch.hasBattery ? ["Charging"] : [])
+            .general: ["Launch at Login", "Open on Hover"] + (AmbientWatch.hasBattery ? ["Charger Connected"] : [])
                 // Volume and Brightness joined in R5 (spec §12), off by default.
                 + ["Headphones Connecting", "New Tracks", "Volume and Brightness"],
             .privacy: ["Clipboard History", "Include Images", "Keep Pinned Items",

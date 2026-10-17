@@ -18,16 +18,23 @@ enum AmbientActivity: Equatable {
     /// A Bluetooth audio output appeared.
     case headphones(name: String, symbol: String)
 
-    /// How much wider than the notch the pill grows for it. The charge fits
-    /// the resting pill — the same 300 pt as the music island since the
-    /// redesign (spec §3.6). A device name needs a wider right wing: two 104 pt
-    /// wings, 208 in all, but not the peek's whole title-and-artist width, which
-    /// drawn with one short name left half the pill empty.
+    /// How much wider than the notch the pill grows for it. The charger is
+    /// §19.4's compact activity, the notch plus 180 for its word, its level and
+    /// its battery. A device name needs a wider right wing: two 104 pt wings,
+    /// 208 in all, until §19.5 c makes headphones an expanded alert.
     var extensionWidth: CGFloat {
         switch self {
-        case .charging: return NotchMetrics.compactMediaExtension
+        case .charging: return NotchMetrics.compactChargingExtension
         case .headphones: return NotchMetrics.ambientNameExtension
         }
+    }
+
+    /// Whether the island can show it at all. A Mac with no battery shows no
+    /// Charging activity (spec §19.4): it reports no level, and the level and
+    /// the battery drawn round it are the activity.
+    var showsOnIsland: Bool {
+        if case .charging(nil, _) = self { return false }
+        return true
     }
 
     /// How long it holds the island (spec §19.1): the charger 3 s, headphones
@@ -40,8 +47,10 @@ enum AmbientActivity: Equatable {
         }
     }
 
-    /// The left wing's glyph for the charger: the bolt while charging, the
-    /// plug while it only holds, as the battery menu draws them.
+    /// The glyph for a charge: the bolt while charging, the plug while it only
+    /// holds, as the battery menu draws them. On the island the bolt's place is
+    /// the word "Charging" (§19.4); the plug still stands in for it while the
+    /// battery holds, because "Charging" would not be true.
     var chargeSymbol: String {
         if case .charging(_, false) = self { return "powerplug.fill" }
         return "bolt.fill"
@@ -64,9 +73,7 @@ enum AmbientActivity: Equatable {
                 return localized("Power adapter connected, %d percent", level)
             }
             // No level: a Mac with no battery, which can only say the adapter is
-            // in. "Charging" used to say it, but that key is now the Settings row
-            // "Charging" under "The island shows" (spec §10, §15: "Зарядку", an
-            // accusative no status line can use), and one key cannot be both.
+            // in — and which shows no Charging activity at all (`showsOnIsland`).
             guard let level else { return localized("Power adapter connected") }
             return localized("Charging, %d percent", level)
         case .headphones(let name, _):

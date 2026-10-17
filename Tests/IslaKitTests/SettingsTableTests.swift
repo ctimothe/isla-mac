@@ -675,7 +675,7 @@ final class SettingsTableTests: XCTestCase {
     // MARK: - Labels: the renamed rows, and the old strings gone
 
     func testTheRenamedRowsReadTheirNewLabelsUnderTheirHeader() {
-        XCTAssertEqual(SettingsRowID.charging.title, "Charging")
+        XCTAssertEqual(SettingsRowID.charging.title, "Charger Connected")
         XCTAssertEqual(SettingsRowID.headphones.title, "Headphones Connecting")
         XCTAssertEqual(SettingsRowID.newTracks.title, "New Tracks")
         let blocks = SettingsTable.blocks(for: .general)
@@ -683,7 +683,7 @@ final class SettingsTableTests: XCTestCase {
         // R5 added Volume and Brightness to the group (spec §12).
         XCTAssertTrue(blocks.contains(.group([.charging, .headphones, .newTracks, .volumeAndBrightness])))
         LabLocalization.use("ru")
-        XCTAssertEqual(SettingsRowID.charging.title, "Зарядку")
+        XCTAssertEqual(SettingsRowID.charging.title, "Подключение зарядки", "spec §19.14")
         XCTAssertEqual(SettingsRowID.headphones.title, "Подключение наушников")
         XCTAssertEqual(SettingsRowID.newTracks.title, "Новые треки")
     }

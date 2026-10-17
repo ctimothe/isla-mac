@@ -284,7 +284,9 @@
 
 /* Charging and headphones */
 "Charging" = "Charging";
+"Charger Connected" = "Charger Connected";
 "Charging, %d percent" = "Charging, %d percent";
+"Shelf, %d items" = "Shelf, %d items";
 "%@ connected" = "%@ connected";
 "%d%%" = "%d%%";
 

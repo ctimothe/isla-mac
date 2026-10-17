@@ -1,38 +1,62 @@
 import CoreGraphics
 
-/// Where everything sits inside the compact island (spec §3.1, §3.5, §3.6).
+/// Where everything sits inside the compact island (spec §19.4; the peek is
+/// §3.5's, kept).
 ///
 /// Island-local coordinates: the origin is the top-left of the island's *body* —
 /// the shoulders' slack outside it is not counted — and y grows downward, the
-/// way SwiftUI measures. Pure, so the margins the owner settled on 2026-10-15
-/// are tests rather than numbers read off a board, and so the view that draws
-/// them and the test that holds them cannot describe two islands.
+/// way SwiftUI measures. The spec writes its positions from the *shape's* edge,
+/// shoulders included, because that is how the reference screenshots were
+/// measured; each constant below is stated in the spec's terms and turned into
+/// the body's by subtracting `shoulder`, so the number in the code is the
+/// number in the spec. Pure, so the view that draws them and the test that
+/// holds them cannot describe two islands.
 ///
-/// Everything is vertically centred in the island's height, and that is the
-/// whole of the "7 from the bottom" rule: on the 38 pt notch of a 14-inch
-/// MacBook Pro a 24 pt cover centred is 7 from the top and 7 from the bottom;
-/// the peek's 34 pt cover centred in 50 pt is 8 from both. Stating *centred*
-/// rather than 7 keeps the cover on its row on a notch of another height
-/// (32 pt at some display scalings), where a fixed 7 from the bottom would
-/// have pushed it into the menu bar's top edge.
+/// Everything is vertically centred in the island's height `H`. That keeps the
+/// reference's rows — the cover 8 from the top of a 38 pt island, the bars 10 —
+/// on the notch of another height (32 pt at some display scalings), where a
+/// fixed offset would push the cover into the menu bar's top edge. Below 32 —
+/// the 24 pt notch Isla draws on a display without one — the cover is 16 and
+/// every glyph is three quarters of its size, or a 22 pt cover would leave one
+/// point above and below.
 enum CompactIslandLayout {
+    /// The outline's shoulder, which the spec's positions include and this
+    /// layout's do not.
+    static var shoulder: CGFloat { Theme.collapsedTopRadius }
+
+    /// Three quarters on an island shorter than 32, else full size.
+    static func glyphScale(height: CGFloat) -> CGFloat {
+        height < 32 ? 0.75 : 1
+    }
+
     // MARK: Cover
 
-    /// The cover's side and corner, from the one description the panel's
-    /// travel also reads — see `Theme.artworkMetrics`.
-    static var coverSide: CGFloat { Theme.artworkMetrics(isOpen: false).side }
-    static var coverRadius: CGFloat { Theme.artworkMetrics(isOpen: false).cornerRadius }
+    /// The cover's left edge: 17.3 from the shape's.
+    static let coverLeading: CGFloat = 17.3
+    static var coverInset: CGFloat { coverLeading - shoulder }
+
+    /// 22 pt at radius 5 — the morph's compact end, `Theme.artworkMetrics` —
+    /// or 16 at 4 on the short island.
+    static func coverSide(height: CGFloat) -> CGFloat {
+        glyphScale(height: height) < 1 ? 16 : Theme.artworkMetrics(isOpen: false).side
+    }
+
+    static func coverRadius(height: CGFloat) -> CGFloat {
+        glyphScale(height: height) < 1 ? 4 : Theme.artworkMetrics(isOpen: false).cornerRadius
+    }
 
     /// The cover while a new track is peeking: 34 pt, radius 8, concentric with
     /// the peek's 16.
     static var peekCoverSide: CGFloat { Theme.peekArtworkMetrics.side }
 
     static func coverFrame(height: CGFloat) -> CGRect {
-        centred(side: coverSide, height: height, x: NotchMetrics.compactEdgeInset)
+        centred(side: coverSide(height: height), height: height, x: coverInset)
     }
 
+    /// On the resting cover's own left edge, so a peek grows the cover in place
+    /// rather than nudging it sideways as the island widens.
     static func peekCoverFrame(height: CGFloat) -> CGRect {
-        centred(side: peekCoverSide, height: height, x: NotchMetrics.compactEdgeInset)
+        centred(side: peekCoverSide, height: height, x: coverInset)
     }
 
     private static func centred(side: CGFloat, height: CGFloat, x: CGFloat) -> CGRect {
@@ -41,38 +65,39 @@ enum CompactIslandLayout {
 
     // MARK: Equalizer
 
-    /// Four bars, 2.5 wide with 2 between them: 16 in all. (The spec writes
-    /// "16.5 in all"; 4 × 2.5 + 3 × 2 is 16. Its rule — the last bar ends 8 from
-    /// the island's right edge — is the one kept exactly.)
-    static let equalizerBarCount = 4
-    static let equalizerBarWidth: CGFloat = 2.5
-    static let equalizerBarSpacing: CGFloat = 2
-    /// The box the bars move in. The tallest bar is 16, so a box of exactly
-    /// that never clips and never claims more of the wing than it draws.
-    static let equalizerHeight: CGFloat = 16
-    static var equalizerWidth: CGFloat {
-        CGFloat(equalizerBarCount) * equalizerBarWidth
-            + CGFloat(equalizerBarCount - 1) * equalizerBarSpacing
+    /// Six bars 2.2 wide across an 18 pt box, ending 19.3 from the shape's
+    /// right edge. The spec gives the box and the bars; the gap is what is
+    /// left, 0.96.
+    static let equalizerBarCount = 6
+    static let equalizerBarWidth: CGFloat = 2.2
+    static let equalizerSide: CGFloat = 18
+    static var equalizerBarSpacing: CGFloat {
+        (equalizerSide - CGFloat(equalizerBarCount) * equalizerBarWidth) / CGFloat(equalizerBarCount - 1)
     }
+    static let equalizerTrailing: CGFloat = 19.3
+    static var equalizerTrailingInset: CGFloat { equalizerTrailing - shoulder }
 
-    /// Its last bar ends `compactEdgeInset` from the island's right edge,
-    /// centred on the cover's row — also the peek's, at y 25 of 50.
+    /// Centred on the cover's row — also the peek's, at y 25 of 50.
     static func equalizerFrame(islandWidth: CGFloat, height: CGFloat) -> CGRect {
-        CGRect(
-            x: islandWidth - NotchMetrics.compactEdgeInset - equalizerWidth,
-            y: (height - equalizerHeight) / 2,
-            width: equalizerWidth,
-            height: equalizerHeight
+        let side = equalizerSide * glyphScale(height: height)
+        return CGRect(
+            x: islandWidth - equalizerTrailingInset - side,
+            y: (height - side) / 2,
+            width: side,
+            height: side
         )
     }
 
     // MARK: Peek text
 
-    /// Where a peek's title and artist begin: 8 inset, a 34 pt cover and 10 pt
-    /// of air, which is the board's x of 52.
+    /// Where a peek's title and artist begin: the cover's edge, a 34 pt cover
+    /// and 10 pt of air.
     static var peekTextLeading: CGFloat {
-        NotchMetrics.compactEdgeInset + peekCoverSide + 10
+        coverInset + peekCoverSide + 10
     }
+
+    /// How far a wing's text stays from the camera's cutout.
+    static let cutoutClearance: CGFloat = 8
 
     /// How wide the peek's two lines may run before they truncate at the tail.
     ///
@@ -86,31 +111,87 @@ enum CompactIslandLayout {
     static func peekTextWidth(islandWidth: CGFloat, notchWidth: CGFloat, isPhysical: Bool) -> CGFloat {
         if isPhysical {
             let wing = (islandWidth - notchWidth) / 2
-            return max(0, wing - NotchMetrics.compactEdgeInset - peekTextLeading)
+            return max(0, wing - cutoutClearance - peekTextLeading)
         }
         return max(0, islandWidth - peekTextLeading - 34)
     }
 
-    // MARK: Moments
+    // MARK: The Shelf (spec §19.4)
 
-    /// The centre of the glyph in the left wing — where the cover sits, so a
-    /// bolt or a pair of headphones replaces the cover rather than sitting
-    /// beside it. Fixed at 20 from the left edge in both moments: in the
-    /// headphones' 104 pt wing it does not drift towards the notch.
-    static var momentGlyphCentreX: CGFloat {
-        NotchMetrics.compactEdgeInset + coverSide / 2
+    /// `tray.full.fill`, 26 × 20 at (17.3, 9).
+    static let shelfGlyphSize = CGSize(width: 26, height: 20)
+
+    static func shelfGlyphFrame(height: CGFloat) -> CGRect {
+        let scale = glyphScale(height: height)
+        let size = CGSize(width: shelfGlyphSize.width * scale, height: shelfGlyphSize.height * scale)
+        return CGRect(x: coverInset, y: (height - size.height) / 2, width: size.width, height: size.height)
     }
 
-    /// The charge level's box: right-aligned, 8 from the edge, wide enough for
-    /// "100%" at 12 pt semibold with tabular digits. It reaches 4 pt into the
-    /// notch's zone on the 14-inch, which the text itself, right-aligned and
-    /// about 26 pt long at "82%", never does.
-    static let chargeLevelWidth: CGFloat = 44
+    /// The count, SF Pro Rounded 16, tabular, ending 18.3 from the shape's
+    /// right edge.
+    static let shelfCountFontSize: CGFloat = 16
+    static let shelfCountTrailing: CGFloat = 18.3
+    static var shelfCountTrailingInset: CGFloat { shelfCountTrailing - shoulder }
+
+    // MARK: Charging (spec §19.4)
+
+    /// "Charging", 14 regular, white 0.88, from 18.5.
+    static let chargingTextLeading: CGFloat = 18.5
+    static var chargingTextInset: CGFloat { chargingTextLeading - shoulder }
+    static let chargingTextSize: CGFloat = 14
+    static let chargingTextOpacity: Double = 0.88
+
+    /// The level, then 6 pt, then the battery.
+    static let levelToBatteryGap: CGFloat = 6
+
+    /// A drawn battery, not `battery.100`: the symbol's fill steps in quarters,
+    /// and the level is the thing this activity exists to show. Body 28 × 16,
+    /// radius 6; 1.5 pt; a cap 2 × 6, radius 1.5; ending 19.3 from the shape's
+    /// right edge.
+    static let batteryBodySize = CGSize(width: 28, height: 16)
+    static let batteryRadius: CGFloat = 6
+    static let batteryCapGap: CGFloat = 1.5
+    static let batteryCapSize = CGSize(width: 2, height: 6)
+    static let batteryCapRadius: CGFloat = 1.5
+    static let batteryTrailing: CGFloat = 19.3
+    /// The body's and the cap's track, in the tint.
+    static let batteryTrackOpacity: Double = 0.30
+
+    static func batteryFrame(islandWidth: CGFloat, height: CGFloat) -> (body: CGRect, cap: CGRect) {
+        let scale = glyphScale(height: height)
+        let capSize = CGSize(width: batteryCapSize.width * scale, height: batteryCapSize.height * scale)
+        let bodySize = CGSize(width: batteryBodySize.width * scale, height: batteryBodySize.height * scale)
+        let cap = CGRect(
+            x: islandWidth - (batteryTrailing - shoulder) - capSize.width,
+            y: (height - capSize.height) / 2,
+            width: capSize.width, height: capSize.height
+        )
+        let body = CGRect(
+            x: cap.minX - batteryCapGap * scale - bodySize.width,
+            y: (height - bodySize.height) / 2,
+            width: bodySize.width, height: bodySize.height
+        )
+        return (body, cap)
+    }
+
+    /// The level's share of the body, never past either end of it.
+    static func batteryFillWidth(level: Int, bodyWidth: CGFloat) -> CGFloat {
+        bodyWidth * CGFloat(min(max(level, 0), 100)) / 100
+    }
+
+    // MARK: Headphones and the pop-up (§3.6, §12 — restyled by §19.5)
+
+    /// The centre of the glyph in the left wing: where the cover sits, so a
+    /// pair of headphones or a speaker replaces the cover rather than sitting
+    /// beside it.
+    static var momentGlyphCentreX: CGFloat {
+        coverInset + Theme.artworkMetrics(isOpen: false).side / 2
+    }
 
     /// The device name's box in the right wing: from 6 pt past the notch to
-    /// 8 pt short of the island's edge — 90 pt of a 104 pt wing — right-aligned
-    /// and truncating at its tail.
+    /// the cover's margin short of the island's edge, right-aligned and
+    /// truncating at its tail.
     static func deviceNameWidth(wing: CGFloat) -> CGFloat {
-        max(0, wing - 6 - NotchMetrics.compactEdgeInset)
+        max(0, wing - 6 - coverInset)
     }
 }

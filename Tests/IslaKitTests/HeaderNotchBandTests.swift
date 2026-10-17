@@ -202,8 +202,8 @@ final class HeaderNotchBandTests: XCTestCase {
             let iconRight = width - 16 - 1
             let icon = CGRect(x: iconRight - NotchContentView.sourceIconSide, y: 10, width: NotchContentView.sourceIconSide, height: NotchContentView.sourceIconSide)
             let equalizer = CGRect(
-                x: icon.minX - 8 - CompactIslandLayout.equalizerWidth, y: 12,
-                width: CompactIslandLayout.equalizerWidth, height: CompactIslandLayout.equalizerHeight
+                x: icon.minX - 8 - CompactIslandLayout.equalizerSide, y: 12,
+                width: CompactIslandLayout.equalizerSide, height: CompactIslandLayout.equalizerSide
             )
             assertClear(at: width, [("Source icon", icon), ("Equalizer", equalizer)])
         }

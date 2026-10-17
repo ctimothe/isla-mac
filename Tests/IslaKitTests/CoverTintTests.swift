@@ -159,18 +159,28 @@ final class CoverTintTests: XCTestCase {
 
     // MARK: Colour
 
+    /// Playing, the bars are the tint at their foot and the tint lifted 16 %
+    /// at their top (spec §19.4); paused, flat tertiary white.
     func testThePlayingEqualizerIsTheTintAndThePausedOneIsTertiaryWhite() throws {
         let tint = CoverTint(red: 1, green: 0.54, blue: 0.45)
-        let playing = try XCTUnwrap(CompactEqualizerMotion.color(isPlaying: true, tint: tint, increaseContrast: false).usingColorSpace(.sRGB))
-        XCTAssertEqual(playing.greenComponent, 0.54, accuracy: 0.005)
-        XCTAssertEqual(playing.alphaComponent, 1)
-        let paused = try XCTUnwrap(CompactEqualizerMotion.color(isPlaying: false, tint: tint, increaseContrast: false).usingColorSpace(.sRGB))
-        XCTAssertEqual(paused.redComponent, 1, accuracy: 0.005, "white")
-        XCTAssertEqual(paused.blueComponent, 1, accuracy: 0.005)
-        XCTAssertEqual(paused.alphaComponent, Theme.tertiaryOpacity(increaseContrast: false), accuracy: 0.005)
-        let held = try XCTUnwrap(CompactEqualizerMotion.color(isPlaying: false, tint: tint, increaseContrast: true).usingColorSpace(.sRGB))
+        let playing = CompactEqualizerMotion.colors(isPlaying: true, tint: tint.nsColor, increaseContrast: false)
+        let foot = try XCTUnwrap(playing.bottom.usingColorSpace(.sRGB))
+        XCTAssertEqual(foot.greenComponent, 0.54, accuracy: 0.005)
+        XCTAssertEqual(foot.alphaComponent, 1)
+        let top = try XCTUnwrap(playing.top.usingColorSpace(.sRGB))
+        XCTAssertEqual(top.greenComponent, 0.54 + 0.46 * 0.16, accuracy: 0.005, "lifted toward white")
+        let paused = CompactEqualizerMotion.colors(isPlaying: false, tint: tint.nsColor, increaseContrast: false)
+        XCTAssertEqual(paused.top, paused.bottom, "flat at rest")
+        let rest = try XCTUnwrap(paused.bottom.usingColorSpace(.sRGB))
+        XCTAssertEqual(rest.redComponent, 1, accuracy: 0.005, "white")
+        XCTAssertEqual(rest.blueComponent, 1, accuracy: 0.005)
+        XCTAssertEqual(rest.alphaComponent, Theme.tertiaryOpacity(increaseContrast: false), accuracy: 0.005)
+        let held = try XCTUnwrap(
+            CompactEqualizerMotion.colors(isPlaying: false, tint: tint.nsColor, increaseContrast: true)
+                .bottom.usingColorSpace(.sRGB)
+        )
         XCTAssertEqual(held.alphaComponent, Theme.tertiaryOpacity(increaseContrast: true), accuracy: 0.005, "Increase Contrast steps it up")
-        XCTAssertEqual(CompactEqualizerMotion.stillHeights(isPlaying: false), [3, 3, 3, 3])
+        XCTAssertEqual(CompactEqualizerMotion.stillHeights(isPlaying: false), Array(repeating: 3, count: 6))
         XCTAssertEqual(CompactEqualizerMotion.stillHeights(isPlaying: true), CompactEqualizerMotion.playingHeights)
     }
 

@@ -479,6 +479,9 @@ struct NotchContentView: View {
         // Keyed to whether it is up, not to its level: a press only moves the
         // bar, which has a curve of its own.
         .animation(Theme.island(reduceMotion: reduceMotion), value: vm.hud != nil)
+        // The Shelf as the live activity coming and going, and its count
+        // changing (spec §19.4) — a file kept with the panel shut.
+        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.shelf.items.count)
         .animation(Theme.paneAnimation, value: vm.tab)
         // The body growing or folding (spec §6): its height, its bottom radius
         // and — through the same value — the stroke that follows them, on the
@@ -537,8 +540,11 @@ struct NotchContentView: View {
                         .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
                 case .ambient(let ambient):
                     ambientHeader(ambient)
-                        .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
-                case .peek, .music, .shelf, .none:
+                        .transition(ambientArrival(ambient))
+                case .shelf(let count):
+                    shelfHeader(count: count)
+                        .transition(Theme.compactArrival(reduceMotion: reduceMotion))
+                case .peek, .music, .none:
                     EmptyView()
                 }
             }
@@ -548,6 +554,13 @@ struct NotchContentView: View {
             .modifier(islandAccessibility(open: false))
             .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
         }
+    }
+
+    /// The charger is a compact activity and arrives as one (spec §19.3);
+    /// headphones keep their blur-replace until §19.5 c makes them expanded.
+    private func ambientArrival(_ ambient: AmbientActivity) -> AnyTransition {
+        if case .charging = ambient { return Theme.compactArrival(reduceMotion: reduceMotion) }
+        return reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace)
     }
 
     /// What the island is to VoiceOver and Switch Control: one button called
@@ -595,6 +608,7 @@ struct NotchContentView: View {
     private var closedIslandValue: String {
         if !vm.isLockedPresentation, let hud = vm.hud { return hud.accessibilityLabel }
         if !vm.isLockedPresentation, let ambient = vm.ambient { return ambient.accessibilityLabel }
+        if !vm.isLockedPresentation, case .shelf(let count) = vm.activity { return localized("Shelf, %d items", count) }
         return vm.media.track == nil ? localized("Nothing is playing.") : compactAccessibilityLabel
     }
 
@@ -614,60 +628,111 @@ struct NotchContentView: View {
         return "\(vm.tab.title), \(detail)"
     }
 
-    /// The charger or headphones, in the pill's two wings (spec §3.6).
-    ///
-    /// One grammar for both: a glyph in the left wing where the cover sits,
-    /// and what it is about in the right wing where the equalizer sits. Laid on
-    /// the same margins as the music island — 8 from either edge — so a moment
-    /// arriving over a song moves nothing but what it says.
-    ///
-    /// Charging is green, as the system draws a charging battery: the bolt and
-    /// its level, at 13 pt and 12 pt. A Mac with no battery reports no level and
-    /// gets a white bolt alone; the plug that says a battery is holding is white
-    /// too, because green is "charging" and a held charge is not. Headphones are
-    /// white, the device's own symbol at left and its name at right, truncating
-    /// at the tail — never into the camera. "Connected" is left to the
-    /// accessibility label: the glyph arriving already says it.
+    /// The charger or the headphones on the island.
+    @ViewBuilder
     private func ambientHeader(_ ambient: AmbientActivity) -> some View {
-        let wing = max(0, (size.width - vm.geometry.notchSize.width) / 2)
-        let symbol: String
-        let value: String?
-        let boxWidth: CGFloat
         switch ambient {
         case .charging(let level, _):
-            symbol = ambient.chargeSymbol
-            value = level.map { localized("%d%%", $0) }
-            boxWidth = CompactIslandLayout.chargeLevelWidth
-        case .headphones(let name, let deviceSymbol):
-            symbol = deviceSymbol
-            value = name
-            boxWidth = CompactIslandLayout.deviceNameWidth(wing: wing)
+            // `showsOnIsland` keeps a Mac with no level off the island; the
+            // guard is for the type, not a state that is drawn.
+            if let level { chargingHeader(ambient, level: level) }
+        case .headphones(let name, let symbol):
+            headphonesHeader(name: name, symbol: symbol)
         }
-        let tone: Color = ambient.usesChargingGreen ? Theme.chargingGreen : .white
+    }
+
+    /// Charging (spec §19.4): "Charging" in the left wing, 14 regular, white
+    /// 0.88, from 18.5; in the right the level, 14 regular in the green
+    /// gradient, 6 pt, and a drawn battery ending 19.3 from the edge. A battery
+    /// that only holds is not charging, so it says nothing it would have to
+    /// take back: the plug in the word's place, and the level and battery in
+    /// white — as its stroke is white (`IslandStroke.tint`).
+    private func chargingHeader(_ ambient: AmbientActivity, level: Int) -> some View {
+        let charging = ambient.usesChargingGreen
+        let scale = CompactIslandLayout.glyphScale(height: size.height)
+        let tone: AnyShapeStyle = charging ? AnyShapeStyle(Theme.chargingGreen.gradient) : AnyShapeStyle(Color.white)
+        let track = (charging ? Theme.chargingGreen : Color.white).opacity(CompactIslandLayout.batteryTrackOpacity)
         return HStack(spacing: 0) {
-            Image(systemName: symbol)
-                .islandFont(.subhead, weight: .semibold)
-                .foregroundStyle(tone)
-                // Centred on the cover's own column — 20 from the edge — so the
-                // glyph takes the cover's place rather than sitting beside it.
-                .frame(width: CompactIslandLayout.coverSide, height: CompactIslandLayout.coverSide)
-                .padding(.leading, NotchMetrics.compactEdgeInset)
-
-            Spacer(minLength: 0)
-
-            if let value {
-                Text(value)
-                    .font(Theme.TypeRole.reading.font(weight: .semibold).monospacedDigit())
-                    .foregroundStyle(tone)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(width: boxWidth, alignment: .trailing)
-                    .padding(.trailing, NotchMetrics.compactEdgeInset)
+            Group {
+                if charging {
+                    Text(localized("Charging"))
+                        .islandFont(CompactIslandLayout.chargingTextSize)
+                        .foregroundStyle(Color.white.opacity(CompactIslandLayout.chargingTextOpacity))
+                        .lineLimit(1)
+                } else {
+                    Image(systemName: ambient.chargeSymbol)
+                        .font(.system(size: CompactIslandLayout.chargingTextSize * scale, weight: .semibold))
+                        .foregroundStyle(Color.white)
+                }
             }
+            .padding(.leading, CompactIslandLayout.chargingTextInset)
+            Spacer(minLength: 0)
+            Text(localized("%d%%", level))
+                .font(.system(size: CompactIslandLayout.chargingTextSize).monospacedDigit())
+                .tracking(Theme.tracking(forSize: CompactIslandLayout.chargingTextSize))
+                .foregroundStyle(tone)
+                .lineLimit(1)
+                .fixedSize()
+            IslandBattery(level: level, fill: tone, track: track, scale: scale)
+                .padding(.leading, CompactIslandLayout.levelToBatteryGap)
+                .padding(.trailing, CompactIslandLayout.batteryTrailing - CompactIslandLayout.shoulder)
         }
         .frame(width: size.width, height: size.height)
         // No element of its own: the moment is the island's value, set on the
         // stack above it — see `islandAccessibility(open:)`.
+    }
+
+    /// Headphones, white, the device's own symbol at left and its name at
+    /// right, truncating at the tail — never into the camera. "Connected" is
+    /// left to the accessibility label: the glyph arriving already says it.
+    /// §3.6's form, until §19.5 c makes it an expanded alert.
+    private func headphonesHeader(name: String, symbol: String) -> some View {
+        let wing = max(0, (size.width - vm.geometry.notchSize.width) / 2)
+        return HStack(spacing: 0) {
+            Image(systemName: symbol)
+                .islandFont(.subhead, weight: .semibold)
+                .foregroundStyle(Color.white)
+                // Centred on the cover's own column, so the glyph takes the
+                // cover's place rather than sitting beside it.
+                .frame(width: CompactIslandLayout.coverSide(height: size.height),
+                       height: CompactIslandLayout.coverSide(height: size.height))
+                .padding(.leading, CompactIslandLayout.coverInset)
+
+            Spacer(minLength: 0)
+
+            Text(name)
+                .font(Theme.TypeRole.reading.font(weight: .semibold))
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: CompactIslandLayout.deviceNameWidth(wing: wing), alignment: .trailing)
+                .padding(.trailing, CompactIslandLayout.coverInset)
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    /// The Shelf holding files (spec §19.4): `tray.full.fill`, white, 26 × 20
+    /// at (17.3, 9); the count in SF Pro Rounded 16, tabular, white, ending
+    /// 18.3 from the edge. The live activity when nothing plays.
+    private func shelfHeader(count: Int) -> some View {
+        let tray = CompactIslandLayout.shelfGlyphFrame(height: size.height)
+        return HStack(spacing: 0) {
+            Image(systemName: "tray.full.fill")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(Color.white)
+                .frame(width: tray.width, height: tray.height)
+                .padding(.leading, tray.minX)
+            Spacer(minLength: 0)
+            Text(count, format: .number)
+                .font(.system(size: CompactIslandLayout.shelfCountFontSize, design: .rounded).monospacedDigit())
+                .foregroundStyle(Color.white)
+                .contentTransition(.numericText(value: Double(count)))
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.trailing, CompactIslandLayout.shelfCountTrailingInset)
+        }
+        .frame(width: size.width, height: size.height)
     }
 
     /// The volume or brightness pop-up, in the pill's two wings (spec §12;
@@ -683,7 +748,8 @@ struct NotchContentView: View {
                 .font(.system(size: hud.symbolPointSize, weight: .semibold))
                 // Secondary while muted, as the board draws the slash.
                 .foregroundStyle(hud.muted ? Theme.secondary : Color.white)
-                .frame(width: CompactIslandLayout.coverSide, height: CompactIslandLayout.coverSide)
+                .frame(width: CompactIslandLayout.coverSide(height: size.height),
+                       height: CompactIslandLayout.coverSide(height: size.height))
                 .position(
                     x: CompactIslandLayout.momentGlyphCentreX,
                     y: size.height / 2
@@ -871,7 +937,7 @@ struct NotchContentView: View {
         return HStack(spacing: 0) {
             compactArtwork(morph: morph)
                 .pillPresence(shown, reduceMotion: reduceMotion)
-                .padding(.leading, NotchMetrics.compactEdgeInset)
+                .padding(.leading, CompactIslandLayout.coverInset)
             // Only while peeking, and only in the left wing on a real notch
             // (see `CompactIslandLayout.peekTextWidth`): the title is what the
             // peek exists to show, and the right wing keeps the equalizer so
@@ -907,7 +973,7 @@ struct NotchContentView: View {
             Spacer(minLength: 0)
             compactPlaybackState(morph: morph)
                 .pillPresence(shown, reduceMotion: reduceMotion)
-                .padding(.trailing, NotchMetrics.compactEdgeInset)
+                .padding(.trailing, CompactIslandLayout.equalizerTrailingInset)
                 // No gesture here, deliberately.
                 //
                 // The equalizer wing used to toggle playback, from when a hover
@@ -956,12 +1022,13 @@ struct NotchContentView: View {
     ///   morph's clothes, and the default transition already crossfades one
     ///   album into the next when the track changes.
     private func compactArtwork(morph: Namespace.ID?) -> some View {
-        // 24 pt at radius 6 resting, 34 at 8 while a track peeks: one cover in
-        // two sizes, and the frame interpolates between them on the same curve
-        // the island grows on.
+        // 22 pt at radius 5 resting (16 at 4 on the short island), 34 at 8
+        // while a track peeks: one cover in three sizes, and the frame
+        // interpolates between them on the same curve the island grows on.
         let metrics = vm.isPeeking && compactActivity.isVisible
             ? Theme.peekArtworkMetrics
-            : Theme.artworkMetrics(isOpen: false)
+            : (side: CompactIslandLayout.coverSide(height: size.height),
+               cornerRadius: CompactIslandLayout.coverRadius(height: size.height))
         return Color.clear
             .overlay {
                 Group {
@@ -1032,17 +1099,23 @@ struct NotchContentView: View {
     /// one side of the notch and reappear on the other — which reads as two
     /// equalizers for one piece of music.
     ///
-    /// Four bars in the cover's tint while music plays; at rest, 3 pt tall in
-    /// tertiary, when it is paused (spec §3.2).
+    /// Six bars in the cover's tint as a gradient while music plays; at rest,
+    /// 3 pt tall in tertiary, when it is paused (spec §19.4, §3.2). Three
+    /// quarters of its size on the short island, scaled rather than re-laid,
+    /// so the far end of the morph is the same view at the same proportions.
     private func compactPlaybackState(morph: Namespace.ID?) -> some View {
-        CompactEqualizer(
+        let scale = CompactIslandLayout.glyphScale(height: size.height)
+        let side = CompactIslandLayout.equalizerSide * scale
+        return CompactEqualizer(
             isAnimating: compactActivity.animatesEqualizer,
-            color: CompactEqualizerMotion.color(
+            colors: CompactEqualizerMotion.colors(
                 isPlaying: compactActivity.tintsEqualizer,
-                tint: vm.coverTint,
+                tint: vm.coverTint.nsColor,
                 increaseContrast: appearance.increaseContrast
             )
         )
+        .scaleEffect(scale)
+        .frame(width: side, height: side)
         .morph(MorphID.compact(MorphID.equalizer, folded: !compactActivity.isVisible), in: morph)
     }
 
@@ -1078,9 +1151,9 @@ struct NotchContentView: View {
                     // not (spec §3.2): one equalizer, drawn in both places.
                     CompactEqualizer(
                         isAnimating: vm.media.isPlaying,
-                        color: CompactEqualizerMotion.color(
+                        colors: CompactEqualizerMotion.colors(
                             isPlaying: vm.media.isPlaying,
-                            tint: vm.coverTint,
+                            tint: vm.coverTint.nsColor,
                             increaseContrast: appearance.increaseContrast
                         )
                     )
