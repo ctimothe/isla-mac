@@ -1890,3 +1890,42 @@ Owed on hardware, by release (spec §16, plan §"Hardware checks"): R7-H1…H5,
 R8-H1…H6, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
 when it is built, and records the tested Mac model and macOS version when they
 are run.
+
+### R7 — The island and its activities (`feat/redesign-r7-island`)
+
+- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed — *filled in when the gate and the reviews close.*
+
+Deliberate differences from spec §19, kept on purpose:
+
+- **Music's label stays "Playing: title, artist"** (or "Paused: …"), not
+  §19.4's "Now playing: %@ by %@". The island shows Music through a pause
+  too, and "Now playing" would be false for a paused song; the existing label
+  says which, and is already localized and tested.
+- **A battery that only holds shows the plug, in white**, in the word
+  "Charging"'s place, with the level and battery white and a white stroke. It
+  is not charging, so the island does not say so (§19.4 draws only the
+  charging state).
+- **Russian puts a space before the percent sign** ("Зарядка, 67 %"), as
+  Russian typography does; English keeps "67%".
+- **A click on the island showing the Shelf opens the Shelf tab**, and so does
+  the bubble, until R8 gives the Shelf its tray (§19.1's table says "opens the
+  tray").
+- **Headphones draw no battery ring.** §19.5 c draws it only when a level is
+  readable without a new permission, and §19.15 answers that in R9; until
+  then the name takes the ring's width, as the spec says for "none".
+
+Owed on hardware (record the Mac model and macOS version when run):
+
+- [ ] **R7-H1** The outline flush with the 14-inch notch at Default and More
+  Space: shoulders meet the bezel with no seam, compact and expanded.
+- [ ] **R7-H2** The overshoot reads as the island growing, not a bounce;
+  with Reduce Motion on it changes size calmly and content only crossfades.
+- [ ] **R7-H3** The stroke on Aerial, Sonoma and a white wallpaper: visible
+  on each, never on the bare notch, never along the top edge.
+- [ ] **R7-H4** Music with files on the Shelf: the bubble sits beside the
+  island, the gap between them passes clicks to the menu bar, and a click on
+  the bubble opens the Shelf.
+- [ ] **R7-H5** AirPods connecting (the expanded headphones alert), and the
+  volume keys with Volume and Brightness on (the expanded pop-up: the output's
+  name, the amber bar, the number).

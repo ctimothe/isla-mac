@@ -232,13 +232,21 @@ Animation curves and the collapsed/open corner radii live in `Theme`, including
 Reduce Motion variants and `tracking(forSize:)` — SwiftUI applies Apple's
 tracking table to semantic text styles and not to `.system(size:)`, which fixed
 panels have to use. Springs are critically damped: overshoot is for gestures
-that carried momentum, and nothing here is thrown.
+that carried momentum, and nothing here is thrown — except the island's
+outline (spec §19.3), which grows out of the bezel on `Theme.islandSpring`
+(response 0.5, damping 0.75) as the reference's does; the content inside it
+keeps the critically damped curves. The shut island carries a 2 pt stroke,
+tinted by its activity, on every wallpaper and never on the bare notch
+(`IslandStroke`).
 
 **Interaction.** A click opens the panel; a hover only brightens the island's
 surface. Every point of the compact island opens it, and the compact island has
 no controls — that hit region is cut from `bodySize.width` plus the corner
-radius, so it follows the width setting. Hover-to-open survives as **Open on
-Hover** in Settings, off by default. Over the lock screen nothing opens: a hover
+radius, so it follows the width setting. The island shows one activity at a
+time, by rank (`IslandActivity`, spec §19.1); while Music holds it, files on
+the Shelf wait as a bubble beside it, which has a hit region of its own
+(`NotchRootView.bubbleRect`) so the gap between the two stays click-through.
+Hover-to-open survives as **Open on Hover** in Settings, off by default. Over the lock screen nothing opens: a hover
 brightens, a click shakes (`RefusalShake`). `PrivacyMode` covers per-section
 content (clipboard, translate) behind drifting dots. Haptics are sparing:
 `Haptics` fires `NSHapticFeedbackManager`'s `.alignment` when a lyric click lands
