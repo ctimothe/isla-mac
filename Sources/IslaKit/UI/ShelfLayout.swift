@@ -77,7 +77,7 @@ enum ShelfLayout {
     /// header item keeps from the notch.
     static func headerSideRoom() -> CGFloat {
         let left = headerCountX + maximumCountWidth() + SurfaceHeaderLayout.notchClearance
-        let right = (44 - shoulder) + removeAllWidth() + SurfaceHeaderLayout.notchClearance
+        let right = removeAllRightRoom + removeAllWidth() + SurfaceHeaderLayout.notchClearance
         return ceil(max(left, right))
     }
 
@@ -141,8 +141,11 @@ enum ShelfLayout {
     static let headerGlyphX: CGFloat = 52.6 - shoulder
     static let headerCountX: CGFloat = 82 - shoulder
     static let headerCountSize: CGFloat = 15
-    /// Remove All ends 44 from the board's right edge, which is the shape's.
-    static func removeAllTrailing(bodyWidth: CGFloat) -> CGFloat { bodyWidth - (44 - shoulder) }
+    /// Remove All ends `gearClearance` before the gear's well (§19.16). The
+    /// board ended it 44 from the shape's right edge, which is where the gear
+    /// now stands.
+    static let removeAllRightRoom: CGFloat = 46 + SurfaceHeaderLayout.gearClearance
+    static func removeAllTrailing(bodyWidth: CGFloat) -> CGFloat { bodyWidth - removeAllRightRoom }
 
     /// The empty tray's line: "Drag files to the notch to keep them here."
     static let emptyLineSize: CGFloat = 13

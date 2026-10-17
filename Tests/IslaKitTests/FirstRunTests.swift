@@ -52,7 +52,7 @@ final class FirstRunTests: XCTestCase {
             XCTAssertFalse(vm.isShowingWelcome)
             XCTAssertTrue(NotchViewModel.hasCompletedFirstRun)
             XCTAssertEqual(vm.surface, vm.openTarget)
-            XCTAssertEqual(vm.surface, .tools, "nothing is playing: the bare notch opens Tools")
+            XCTAssertEqual(vm.surface, .player, "nothing is playing: the bare notch at launch opens Music, the first page")
         }
     }
 
@@ -392,7 +392,7 @@ final class FirstRunTests: XCTestCase {
 
         // And it names its four lines, each readable as one element.
         for text in [
-            WelcomePane.Copy.english.click, WelcomePane.Copy.english.rightClick, WelcomePane.Copy.english.drag,
+            WelcomePane.Copy.english.click, WelcomePane.Copy.english.swipe, WelcomePane.Copy.english.drag,
         ] {
             XCTAssertFalse(
                 welcome.all(where: { $0.label == text || $0.value == text || $0.title == text }).isEmpty,

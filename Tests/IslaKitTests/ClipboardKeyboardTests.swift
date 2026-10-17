@@ -70,11 +70,11 @@ final class ClipboardKeyboardTests: XCTestCase {
     }
 
     func testOpeningClipboardAsksForTheKeyboard() {
-        vm.open(.tools)
+        vm.open(.settings)
         XCTAssertFalse(vm.wantsKeyboard)
         vm.open(.clipboard)
         XCTAssertTrue(vm.wantsKeyboard)
-        vm.open(.tools)
+        vm.open(.settings)
         XCTAssertFalse(vm.wantsKeyboard, "leaving a surface that types gives the keyboard back")
     }
 
@@ -143,7 +143,7 @@ final class ClipboardKeyboardTests: XCTestCase {
     /// caret with them, and the rest have nothing to select.
     func testOtherSurfacesLetTheKeysThrough() {
         fill()
-        for surface in [NotchViewModel.Surface.translate, .tools, .settings, .tray, .player] {
+        for surface in [NotchViewModel.Surface.translate, .settings, .tray, .player] {
             vm.open(surface)
             for key in [NotchPanel.ListKey.up, .down, .enter] {
                 XCTAssertEqual(vm.consumeListKey(key), .ignored, "\(surface) took \(key)")

@@ -35,11 +35,12 @@ final class PlayerLayoutTests: XCTestCase {
     }
 
     /// The content is 160 tall on every notch: the body moves with the notch
-    /// (`SurfaceLayout.y`), and the content starts under the header row.
+    /// (`SurfaceLayout.y`), the content starts under the header row, and the
+    /// dots have their own 16 under it (§19.16).
     func testTheContentIs160TallOnEveryNotch() {
         for height in [CGFloat(24), 32, 38, 44] {
             let body = SurfaceLayout.bodySize(for: .player, bodyWidth: 560, notch: CGSize(width: 185, height: height))
-            XCTAssertEqual(body.height - height, 160, accuracy: 0.0001, "notch \(height)")
+            XCTAssertEqual(body.height - height - SurfaceLayout.pageDotsBand, 160, accuracy: 0.0001, "notch \(height)")
         }
     }
 

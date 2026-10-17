@@ -666,7 +666,7 @@ final class TranslateReviewFixTests: XCTestCase {
 
         let off = await AXProbe.tree(of: NotchContentView(vm: vm), size: size)
         XCTAssertNil(off.first(label: "History"), off.dump)
-        XCTAssertNotNil(off.first(label: "Tools"), "the control that is always there, so the probe can see the strip\n\(off.dump)")
+        XCTAssertNotNil(off.first(label: "Settings"), "the gear, always there, so the probe can see the strip\n\(off.dump)")
 
         rig.defaults.set(true, forKey: NotchViewModel.translateKeepHistoryKey)
         vm.open(.settings)

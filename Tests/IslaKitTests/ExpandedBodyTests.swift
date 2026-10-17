@@ -27,15 +27,16 @@ final class ExpandedBodyTests: XCTestCase {
 
     /// Every surface starts at the size it is drawn for, whichever was open
     /// before: nothing is remembered per surface, so there is nothing to
-    /// collapse. The summoned surfaces run the panel's width; the player, the
-    /// tray and Tools their own.
+    /// collapse. The summoned surfaces run the panel's width; the player and
+    /// the tray their own. A page is 16 taller than its board, for its dots
+    /// (§19.16).
     func testEverySurfaceOpensAtItsOneSize() async throws {
         let (vm, isolated) = try await playingModel()
         defer { isolated.release() }
         let notch = vm.geometry.notchSize
         let width = vm.geometry.expandedSize.width
         let heights: [NotchViewModel.Surface: CGFloat] = [
-            .player: 198, .stage: 400, .tray: 158, .tools: 204, .clipboard: 300, .translate: 268, .settings: 400,
+            .player: 198 + 16, .stage: 400, .tray: 158 + 16, .clipboard: 300 + 16, .translate: 268 + 16, .settings: 400,
         ]
         for surface in NotchViewModel.Surface.reachable + NotchViewModel.Surface.reachable.reversed() {
             vm.open(surface)
@@ -50,8 +51,10 @@ final class ExpandedBodyTests: XCTestCase {
         }
         vm.open(.stage)
         XCTAssertEqual(vm.openBodySize.width, vm.geometry.expandedSize.width, "the width is the setting's")
-        vm.open(.tools)
-        XCTAssertEqual(vm.openBodySize.width, 480, "Tools is 480 whatever the setting says")
+        vm.open(.player)
+        let player = vm.openBodySize.width
+        XCTAssertEqual(player, SurfaceLayout.bodySize(for: .player, bodyWidth: 620, notch: notch).width, accuracy: 0.001,
+                       "the player keeps its measured width whatever the setting says")
     }
 
     /// §19.8: Settings is 400 at every width the body can be (480…620): the
@@ -81,7 +84,7 @@ final class ExpandedBodyTests: XCTestCase {
     }
 
     /// ⌃⌥⌘L on a silent Mac: the stage was asked for and there is no song, so
-    /// what is drawn is the empty player — 198 tall, not 400 for nothing, with no
+    /// what is drawn is the empty player — 198 tall and its dots' 16, not 400 for nothing, with no
     /// lyric tools over it. The choice is kept: a song arriving puts the stage up.
     func testTheStageNeedsASongToBeOn() async throws {
         let vm = try model()
@@ -93,7 +96,7 @@ final class ExpandedBodyTests: XCTestCase {
         XCTAssertEqual(
             vm.openBodySize, SurfaceLayout.bodySize(for: .player, bodyWidth: vm.geometry.expandedSize.width, notch: notch)
         )
-        XCTAssertEqual(vm.openBodySize.height, 198 - 38 + notch.height, accuracy: 0.001)
+        XCTAssertEqual(vm.openBodySize.height, 198 + 16 - 38 + notch.height, accuracy: 0.001)
         XCTAssertEqual(vm.openTopRadius, 34)
         XCTAssertEqual(vm.openBottomRadius, 44)
     }
@@ -118,7 +121,7 @@ final class ExpandedBodyTests: XCTestCase {
 
     /// The rects the controller cuts: the hover rect — which is also the close
     /// area and the open rect while the panel is up — and the content rect the
-    /// active rect is made of, for Clipboard (300) and Settings (400), which run
+    /// active rect is made of, for Clipboard (300, and the 16 its dots take) and Settings (400), which run
     /// the same width. The window is cut once for 620 × 444 and never resized, so
     /// the taller body fits inside it.
     func testTheRectsFollowTheBodyHeight() throws {
@@ -129,7 +132,7 @@ final class ExpandedBodyTests: XCTestCase {
         vm.open(.settings)
         let taller = vm.openBodySize
         let difference = taller.height - shorter.height
-        XCTAssertEqual(difference, 100, accuracy: 0.001)
+        XCTAssertEqual(difference, 400 - (300 + 16), accuracy: 0.001)
         XCTAssertEqual(taller.width, shorter.width)
 
         XCTAssertEqual(geometry.hoverRect(for: taller).height - geometry.hoverRect(for: shorter).height, difference, accuracy: 0.001)
@@ -155,7 +158,7 @@ final class ExpandedBodyTests: XCTestCase {
         vm.open(.translate)
         vm.isOpen = true
         XCTAssertEqual(vm.bodySize, vm.openBodySize)
-        XCTAssertEqual(vm.bodySize.height, 268 - 38 + vm.geometry.notchSize.height, accuracy: 0.001)
+        XCTAssertEqual(vm.bodySize.height, 268 + 16 - 38 + vm.geometry.notchSize.height, accuracy: 0.001)
     }
 
     /// The drop surface is drawn over whatever is chosen, at its own size

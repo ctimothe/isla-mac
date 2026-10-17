@@ -64,7 +64,7 @@ struct WelcomePane: View {
         var comeBackUnbound: String
         var staysOnMac: String
         var click: String
-        var rightClick: String
+        var swipe: String
         var drag: String
         var clipboard: String
         var translate: String
@@ -84,7 +84,7 @@ struct WelcomePane: View {
             comeBackUnbound: "No Dock or menu-bar icon. Click the notch to come back.",
             staysOnMac: "Nothing leaves your Mac unless you turn it on.",
             click: "Click the island to open what’s playing.",
-            rightClick: "Right-click it for everything else.",
+            swipe: "Swipe sideways for the Shelf, Clipboard and Translate.",
             drag: "Drag files to the notch to keep them.",
             clipboard: "Clipboard",
             translate: "Translate",
@@ -105,7 +105,7 @@ struct WelcomePane: View {
                 comeBackUnbound: try look(comeBackUnbound),
                 staysOnMac: try look(staysOnMac),
                 click: try look(click),
-                rightClick: try look(rightClick),
+                swipe: try look(swipe),
                 drag: try look(drag),
                 clipboard: try look(clipboard),
                 translate: try look(translate),
@@ -117,7 +117,7 @@ struct WelcomePane: View {
         var all: [String] {
             [
                 running, comeBack, comeBackUnbound, staysOnMac,
-                click, rightClick, drag, clipboard, translate, lyrics, action,
+                click, swipe, drag, clipboard, translate, lyrics, action,
             ]
         }
     }
@@ -172,7 +172,10 @@ struct WelcomePane: View {
     var legend: [LegendLine] {
         var lines = [
             LegendLine(symbol: "cursorarrow.click", text: copy.click),
-            LegendLine(symbol: "contextualmenu.and.cursorarrow", text: copy.rightClick),
+            // The pages are the one thing on the open panel a person has to be
+            // told about: nothing on a page says another lies beside it until
+            // the dots are noticed (§19.16).
+            LegendLine(symbol: "arrow.left.and.right", text: copy.swipe),
             LegendLine(symbol: "tray.and.arrow.down", text: copy.drag),
         ]
         if !shortcuts.isEmpty { lines.append(LegendLine(symbol: "keyboard", text: keysLine)) }

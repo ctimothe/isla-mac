@@ -194,7 +194,7 @@ final class ClipboardSearchKeyboardTests: XCTestCase {
         let (vm, isolated) = try rig()
         defer { isolated.release() }
         for surface in NotchViewModel.Surface.reachable {
-            vm.open(.tools)
+            vm.open(.settings)
             XCTAssertFalse(vm.wantsKeyboard)
             vm.open(surface)
             XCTAssertEqual(vm.wantsKeyboard, surface == .translate || surface == .clipboard, "\(surface)")
@@ -203,7 +203,7 @@ final class ClipboardSearchKeyboardTests: XCTestCase {
         // Assigning the surface is not a road in: only `open` and `choose`
         // ask for the keyboard, so a surface restored without one (a rebuild,
         // a test) does not grab it.
-        vm.open(.tools)
+        vm.open(.settings)
         vm.surface = .clipboard
         XCTAssertFalse(vm.wantsKeyboard, "choosing a surface by assignment alone asks for nothing: only a road in does")
     }
@@ -211,14 +211,14 @@ final class ClipboardSearchKeyboardTests: XCTestCase {
     func testOpeningClipboardTakesTheKeyboardAndLeavingGivesItBack() throws {
         let (vm, isolated) = try rig()
         defer { isolated.release() }
-        vm.open(.tools)
-        XCTAssertFalse(vm.wantsKeyboard, "Tools asks for nothing")
+        vm.open(.settings)
+        XCTAssertFalse(vm.wantsKeyboard, "Settings asks for nothing")
 
         vm.open(.clipboard)
         XCTAssertTrue(vm.wantsKeyboard)
 
         vm.clipboardBrowser.query = "north"
-        vm.open(.tools)
+        vm.open(.settings)
         XCTAssertEqual(vm.clipboardBrowser.query, "")
         XCTAssertFalse(vm.wantsKeyboard)
     }
@@ -226,7 +226,7 @@ final class ClipboardSearchKeyboardTests: XCTestCase {
     func testChangingSurfaceEndsTheSearchAndGivesTheKeyboardBack() throws {
         let (vm, isolated) = try rig()
         defer { isolated.release() }
-        for destination in [NotchViewModel.Surface.player, .tray, .settings, .tools] {
+        for destination in [NotchViewModel.Surface.player, .tray, .settings] {
             vm.open(.clipboard)
             vm.clipboardBrowser.query = "x"
             vm.open(destination)
@@ -358,11 +358,11 @@ final class ClipboardSearchKeyboardTests: XCTestCase {
         let sink = vm.$wantsKeyboard.removeDuplicates().sink { panel.acceptsKeyboard = $0 }
         defer { sink.cancel() }
 
-        vm.open(.tools)
+        vm.open(.settings)
         XCTAssertFalse(panel.canBecomeKey)
         vm.open(.clipboard)
         XCTAssertTrue(panel.canBecomeKey)
-        vm.open(.tools)
+        vm.open(.settings)
         XCTAssertFalse(panel.canBecomeKey, "surface change: given back")
         vm.open(.clipboard)
         vm.open(.player)

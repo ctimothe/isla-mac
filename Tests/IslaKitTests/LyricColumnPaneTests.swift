@@ -164,15 +164,17 @@ final class LyricColumnPaneTests: XCTestCase {
         try XCTUnwrap(node.frame).offsetBy(dx: -shell.origin.x, dy: -shell.origin.y)
     }
 
-    /// Spec §19.6, §19.8: the stage's header carries Tools at (`bw − 46`, 6),
-    /// 26 × 26, and the playing app's icon — and not the old More and Expand
-    /// pair at `bw − 65` and `bw − 39`. More is in the foot now.
-    func testTheStagesHeaderCarriesToolsAndTheFootCarriesMore() async throws {
+    /// Spec §19.6, §19.16: the stage's header carries the gear at
+    /// (`bw − 46`, 6), 26 × 26, where Tools stood, and the playing app's icon —
+    /// and not the old More and Expand pair at `bw − 65` and `bw − 39`. More is
+    /// in the foot now.
+    func testTheStagesHeaderCarriesTheGearAndTheFootCarriesMore() async throws {
         let s = try await shell(.stage)
         XCTAssertEqual(s.vm.presented, .stage)
-        let toolsButton = try XCTUnwrap(s.root.all { $0.role == "AXButton" && $0.label == "Tools" }.first, s.root.dump)
-        let tools = try body(toolsButton, in: s)
-        XCTAssertEqual(tools, SurfaceHeaderLayout.tools(bodyWidth: s.bodyWidth, notchHeight: s.header), accuracy: 1)
+        let gearButton = try XCTUnwrap(s.root.all { $0.role == "AXButton" && $0.label == "Settings" }.first, s.root.dump)
+        let tools = try body(gearButton, in: s)
+        XCTAssertEqual(tools, SurfaceHeaderLayout.gear(bodyWidth: s.bodyWidth, notchHeight: s.header), accuracy: 1)
+        XCTAssertNil(s.root.first(label: "Tools"), "Tools is withdrawn (§19.16)")
         XCTAssertEqual(tools.minX, s.bodyWidth - 46, accuracy: 1)
         XCTAssertNil(s.root.first(label: "Expand"))
         XCTAssertNil(s.root.first(label: "Collapse"))
@@ -183,23 +185,28 @@ final class LyricColumnPaneTests: XCTestCase {
         XCTAssertEqual(s.vm.openBodySize.height, 400 - 38 + s.header, accuracy: 0.001)
     }
 
-    /// The player has neither Tools nor lyric tools in its header: its click
-    /// target is the island's, and there is nothing to turn it into.
-    func testThePlayersHeaderHasNoTools() async throws {
+    /// The player's header carries the gear and nothing else: no lyric tools,
+    /// no Expand (§19.16).
+    func testThePlayersHeaderCarriesOnlyTheGear() async throws {
         let s = try await shell(.player)
-        XCTAssertNil(s.root.all { $0.role == "AXButton" && $0.label == "Tools" }.first, s.root.dump)
+        let gear = try body(try XCTUnwrap(
+            s.root.all { $0.role == "AXButton" && $0.label == "Settings" }.first, s.root.dump
+        ), in: s)
+        XCTAssertEqual(gear.minX, s.bodyWidth - 46, accuracy: 1)
+        XCTAssertNil(s.root.first(label: "Tools"))
         XCTAssertNil(s.root.first(label: "More Lyrics Options"))
         XCTAssertNil(s.root.first(label: "Expand"))
     }
 
-    /// Clipboard, Translate and Settings each carry Tools at (`bw − 46`, 6) and
-    /// never an Expand: their bodies have one size (§19.8, §19.11). The tray and
-    /// Tools themselves carry none — Tools has the gear instead.
-    func testTheSummonedSurfacesCarryToolsAndNoExpand() async throws {
-        for surface in [NotchViewModel.Surface.clipboard, .translate, .settings] {
+    /// Every page and Settings carry the gear at (`bw − 46`, 6) and never an
+    /// Expand: their bodies have one size (§19.8, §19.11, §19.16). No surface
+    /// carries a Tools button any more.
+    func testEveryPageAndSettingsCarryTheGearAndNoExpand() async throws {
+        for surface in [NotchViewModel.Surface.tray, .clipboard, .translate, .settings] {
             let s = try await shell(surface)
+            XCTAssertNil(s.root.first(label: "Tools"), "\(surface)")
             let button = try XCTUnwrap(
-                s.root.all { $0.role == "AXButton" && $0.label == "Tools" }.first, "\(surface)\n\(s.root.dump)"
+                s.root.all { $0.role == "AXButton" && $0.label == "Settings" }.first, "\(surface)\n\(s.root.dump)"
             )
             let tools = try body(button, in: s)
             XCTAssertEqual(tools.minX, s.bodyWidth - 46, accuracy: 1, "\(surface)")
@@ -208,12 +215,6 @@ final class LyricColumnPaneTests: XCTestCase {
             XCTAssertNil(s.root.first(label: "Expand"), "\(surface)")
             XCTAssertNil(s.root.first(label: "Collapse"), "\(surface)")
         }
-        let tray = try await shell(.tray)
-        XCTAssertNil(tray.root.all { $0.role == "AXButton" && $0.label == "Tools" }.first, tray.root.dump)
-        let tools = try await shell(.tools)
-        XCTAssertNil(tools.root.all { $0.role == "AXButton" && $0.label == "Tools" }.first, "Tools has no Tools button")
-        let gear = try body(try XCTUnwrap(tools.root.first(label: "Settings"), tools.root.dump), in: tools)
-        XCTAssertEqual(gear.minX, tools.bodyWidth - 46, accuracy: 1, "the gear is at (bw − 46, 6)")
     }
 }
 

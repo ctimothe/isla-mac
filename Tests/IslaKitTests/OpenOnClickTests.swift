@@ -98,7 +98,7 @@ final class OpenOnClickTests: XCTestCase {
                 "with hover-to-open off the pointer still takes the panel back"
             )
             XCTAssertEqual(vm.surface, vm.openTarget, "arriving at the shut island opens what a click would")
-            XCTAssertEqual(vm.surface, .tools, "nothing is playing: the bare notch opens Tools")
+            XCTAssertEqual(vm.surface, .player, "nothing is playing: the bare notch at launch opens Music, the first page")
         }
     }
 
@@ -178,7 +178,7 @@ final class OpenOnClickTests: XCTestCase {
                 vm.holdsOpen,
                 "a click the pointer made needs no pin — the pointer is already holding it"
             )
-            XCTAssertEqual(vm.surface, .tools, "a click on the bare notch opens Tools (§19.1)")
+            XCTAssertEqual(vm.surface, .player, "a click on the bare notch at launch opens Music (§19.16)")
 
             // Walking away.
             XCTAssertEqual(
@@ -237,7 +237,7 @@ final class OpenOnClickTests: XCTestCase {
             // The same arrival without a file in hand is an ordinary hover, and
             // a hover on the shut island lands on what a click would open.
             XCTAssertEqual(vm.pointerCrossed(inside: true, dragging: false), .standsAsItIs)
-            XCTAssertEqual(vm.surface, .tools)
+            XCTAssertEqual(vm.surface, .tray, "the page last shown (§19.16)")
         }
     }
 }

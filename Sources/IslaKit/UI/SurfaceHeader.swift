@@ -11,11 +11,15 @@ enum SurfaceHeaderLayout {
     /// What a header item keeps clear of the notch on each side.
     static let notchClearance: CGFloat = 8
 
-    /// The Tools button, and Tools' own Settings: 26 × 26 at (`bw − 46`, 6).
+    /// The gear, 26 × 26 at (`bw − 46`, 6) on every page, the stage and
+    /// Settings (§19.16) — where the Tools button stood.
     static let toolSide: CGFloat = 26
-    static func tools(bodyWidth: CGFloat, notchHeight: CGFloat) -> CGRect {
-        centred(x: bodyWidth - 46, size: CGSize(width: toolSide, height: toolSide), notchHeight: notchHeight)
+    static func gear(bodyWidth: CGFloat, notchHeight: CGFloat) -> CGRect {
+        centred(x: SurfaceLayout.gearX(bodyWidth: bodyWidth), size: CGSize(width: toolSide, height: toolSide), notchHeight: notchHeight)
     }
+
+    /// What a header item to the gear's left keeps clear of its well.
+    static let gearClearance: CGFloat = 8
 
     /// Translate's History, 26 × 26 at (`bw − 76`, 6), while Keep History is on.
     static func history(bodyWidth: CGFloat, notchHeight: CGFloat) -> CGRect {
@@ -75,7 +79,7 @@ enum SurfaceHeaderLayout {
 
 /// A header tool (spec §19.8): a glyph at 14 in a 26 × 26 well, white 0.08
 /// (0.14 under the pointer, white 0.18 behind the filled glyph while it is
-/// on). The Tools button, Tools' Settings and Translate's History.
+/// on). The gear and Translate's History.
 struct HeaderToolButton: View {
     let symbol: String
     let label: String

@@ -237,11 +237,17 @@ final class NotchViewModel: ObservableObject {
         stores.hud.$suspectsStaleEntry.removeDuplicates().eraseToAnyPublisher()
     }
 
-    /// The surface chosen (spec §19.1): what a click, a key or a card asked
-    /// for. What is drawn is `presented`, which lays the drop surface and the
-    /// welcome over it.
-    @Published var surface: Surface = .tools {
+    /// The surface chosen (spec §19.1): what a click, a key, a swipe or a dot
+    /// asked for. What is drawn is `presented`, which lays the drop surface and
+    /// the welcome over it. Music until something else is chosen: it is the
+    /// first page, and the one the bare notch opens at launch (§19.16).
+    @Published var surface: Surface = .player {
         didSet {
+            // The page the bare notch opens next (§19.16), and the place the
+            // lit gear goes back to. The stage and Settings are a level below a
+            // page and leave the page they came from standing.
+            if surface.isPage { lastPage = surface }
+            if surface == .settings, oldValue != .settings { settingsReturn = oldValue }
             if surface == .translate, isOpen { translator.speaker.refreshVoices() }
             if surface != .translate {
                 textInputRect = .zero
@@ -275,6 +281,15 @@ final class NotchViewModel: ObservableObject {
             if !surface.takesKeyboard { wantsKeyboard = false }
         }
     }
+
+    /// The page last shown since launch: what the bare notch with no song, and
+    /// ⌃⌥⌘I with nothing live, open (§19.16). Held for the launch only — a
+    /// page somebody looked at yesterday is not where they are now.
+    @Published private(set) var lastPage: Surface = .player
+
+    /// Where the lit gear on Settings goes back to: the page or the stage
+    /// Settings was opened from, by the gear or by the menu.
+    private(set) var settingsReturn: Surface?
 
     /// What the open island draws: the drop surface while files are dragged
     /// to the notch, the welcome for one launch, and otherwise the surface
@@ -785,14 +800,14 @@ final class NotchViewModel: ObservableObject {
     /// What a click on the island does: open what it shows, or fold an alert
     /// (spec §19.1's first table).
     var islandClick: IslandClick {
-        Self.click(on: activity, live: liveActivity, hasTrack: media.track != nil)
+        Self.click(on: activity, live: liveActivity, hasTrack: media.track != nil, lastPage: lastPage)
     }
 
     /// What ⌃⌥⌘I, Open on Hover and a click open: the player for the song, the
-    /// tray for the Shelf, Tools on the bare notch — over an alert, what the
-    /// click would open once it folds.
+    /// tray for the Shelf, the page last shown on the bare notch — over an
+    /// alert, what the click would open once it folds.
     var openTarget: Surface {
-        Self.openTarget(live: liveActivity, hasTrack: media.track != nil)
+        Self.openTarget(live: liveActivity, hasTrack: media.track != nil, lastPage: lastPage)
     }
 
     /// Whether the panel currently holds the keyboard.
@@ -1852,9 +1867,47 @@ final class NotchViewModel: ObservableObject {
         if surface.takesKeyboard, !isLockedPresentation { wantsKeyboard = true }
     }
 
+    /// A page reached by a swipe, a dot or ⌃Tab (§19.16). Unlike `open(_:)`
+    /// it never takes the keyboard: looking through the pages must not take
+    /// typing away from the app in front, so Clipboard and Translate wait for
+    /// a click into their field. Leaving a page that held the keyboard gives
+    /// it back, Clipboard to Translate included. Refuses anything that is not
+    /// a page.
+    func turnPage(to page: Surface) {
+        guard page.isPage else { return }
+        surface = page
+        wantsKeyboard = false
+    }
+
+    /// The page `step` places along from the one presented, or nil past
+    /// either end — the pages do not wrap — or when what is presented is not
+    /// a page (the stage, Settings, the drop surface, the welcome).
+    func page(by step: Int) -> Surface? {
+        guard let index = presented.pageIndex else { return nil }
+        let next = index + step
+        guard Surface.pages.indices.contains(next) else { return nil }
+        return Surface.pages[next]
+    }
+
+    /// The gear (§19.16): Settings from a page or the stage, and from Settings
+    /// — where it stands lit — back to where Settings was opened from. Going
+    /// back to a page is a page turn, so it does not take the keyboard.
+    func pressGear() {
+        guard surface == .settings else {
+            open(.settings)
+            return
+        }
+        let back = settingsReturn ?? lastPage
+        if back == .stage {
+            surface = .stage
+        } else {
+            turnPage(to: back.isPage ? back : lastPage)
+        }
+    }
+
     /// Settings, on `section`. The section goes first so the pane that appears
     /// for the change finds it already selected; every route in — the player's
-    /// remedy, the lyric menu's "Lyrics Settings…", the gear on Tools — is this.
+    /// remedy, the lyric menu's "Lyrics Settings…", the menu — is this.
     func openSettings(at section: SettingsSection) {
         settingsSection = section
         open(.settings)

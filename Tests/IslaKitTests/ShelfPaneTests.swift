@@ -621,7 +621,7 @@ final class ShelfPaneTests: XCTestCase {
         XCTAssertFalse(vm.shelfClear.isAsking)
 
         vm.askToRemoveAll()
-        vm.open(.tools)
+        vm.open(.settings)
         XCTAssertFalse(vm.shelfClear.isAsking, "leaving the tray takes the question back")
         vm.open(.tray)
         XCTAssertFalse(vm.shelfClear.isAsking, "and coming back does not find it waiting")

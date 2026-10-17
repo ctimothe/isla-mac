@@ -552,12 +552,9 @@
 /* Activities first: the surfaces that replaced the tabs (spec §19.6–§19.8). */
 "Favorite" = "В избранное";
 "Remove from Favorites" = "Убрать из избранного";
-"Tools" = "Инструменты";
-"Empty" = "Пусто";
-"or drag files here" = "или перетащите файлы сюда";
 "Drag files to the notch to keep them here." = "Перетащите файлы к вырезу, чтобы они хранились здесь.";
 "Click the island to open what’s playing." = "Нажмите на остров, чтобы открыть то, что играет.";
-"Right-click it for everything else." = "Всё остальное — по правому щелчку.";
+"Swipe sideways for the Shelf, Clipboard and Translate." = "Смахните в сторону, чтобы открыть полку, буфер обмена и перевод.";
 "Drag files to the notch to keep them." = "Перетащите файлы к вырезу, чтобы сохранить их.";
 "Pinned" = "Закреплено";
 "↩ Copy" = "↩ Скопировать";

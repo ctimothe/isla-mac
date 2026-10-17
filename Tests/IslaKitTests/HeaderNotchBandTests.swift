@@ -87,32 +87,56 @@ final class HeaderNotchBandTests: XCTestCase {
         }
     }
 
-    // MARK: Tools and History
+    // MARK: The gear and History
 
-    /// The Tools button at (`bw − 46`, 6) and Translate's History at
-    /// (`bw − 76`, 6), both 26 × 26 and centred on the row (§19.8): right of the
-    /// notch at every width and clear of each other.
-    func testTheToolsAndHistoryButtonsStayRightOfTheNotch() {
+    /// The gear at (`bw − 46`, 6), where the Tools button stood (§19.16), and
+    /// Translate's History at (`bw − 76`, 6), both 26 × 26 and centred on the
+    /// row: right of the notch at every width and clear of each other.
+    func testTheGearAndHistoryButtonsStayRightOfTheNotch() {
         for height in notchHeights {
             for width in widths {
-                let tools = SurfaceHeaderLayout.tools(bodyWidth: width, notchHeight: height)
+                let tools = SurfaceHeaderLayout.gear(bodyWidth: width, notchHeight: height)
                 let history = SurfaceHeaderLayout.history(bodyWidth: width, notchHeight: height)
                 XCTAssertEqual(tools.size, CGSize(width: 26, height: 26))
                 XCTAssertEqual(history.size, CGSize(width: 26, height: 26))
                 XCTAssertEqual(tools.minX, width - 46)
                 XCTAssertEqual(history.minX, width - 76)
                 XCTAssertEqual(tools.midY, height / 2, "centred on the row")
-                XCTAssertFalse(history.intersects(tools), "History and Tools at \(width)")
-                XCTAssertEqual(tools.maxX, width - 20, "Tools ends 20 from the right edge")
+                XCTAssertFalse(history.intersects(tools), "History and the gear at \(width)")
+                XCTAssertEqual(tools.maxX, width - 20, "the gear ends 20 from the right edge")
             }
         }
         // On the reference's 38 the board's y 6 falls out of the centring.
-        XCTAssertEqual(SurfaceHeaderLayout.tools(bodyWidth: 560, notchHeight: 38).minY, 6)
+        XCTAssertEqual(SurfaceHeaderLayout.gear(bodyWidth: 560, notchHeight: 38).minY, 6)
         for width in widths {
             assertClear(at: width) { _, height in [
-                ("Tools", SurfaceHeaderLayout.tools(bodyWidth: width, notchHeight: height)),
+                ("Settings", SurfaceHeaderLayout.gear(bodyWidth: width, notchHeight: height)),
                 ("History", SurfaceHeaderLayout.history(bodyWidth: width, notchHeight: height)),
             ] }
+        }
+    }
+
+    /// The tray carries the gear too, so Remove All moves left to end 8
+    /// before its well, and the tray's minimum width counts the gear: Remove
+    /// All never reaches the notch under any notch §19.12 names, in either
+    /// language (§19.16).
+    func testRemoveAllStaysClearOfTheGearAndTheNotch() {
+        for notchWidth: CGFloat in [180, 185, 200, 220, 240] {
+            for height in notchHeights {
+                let body = SurfaceLayout.bodySize(
+                    for: .tray, bodyWidth: 560, notch: CGSize(width: notchWidth, height: height)
+                ).width
+                let gear = SurfaceHeaderLayout.gear(bodyWidth: body, notchHeight: height)
+                let removeAll = SurfaceHeaderLayout.removeAll(
+                    bodyWidth: body, width: ShelfLayout.removeAllWidth(), notchHeight: height
+                )
+                XCTAssertEqual(removeAll.maxX, gear.minX - 8, accuracy: 0.001, "notch \(notchWidth)")
+                let notchRight = (body + notchWidth) / 2
+                XCTAssertGreaterThanOrEqual(
+                    removeAll.minX, notchRight + SurfaceHeaderLayout.notchClearance - 0.001,
+                    "Remove All keeps 8 from the notch \(notchWidth) with the gear beside it"
+                )
+            }
         }
     }
 
@@ -189,15 +213,20 @@ final class HeaderNotchBandTests: XCTestCase {
                     XCTAssertLessThanOrEqual(count.maxX, band.minX, "the count ends before the notch, \(at)")
                     XCTAssertGreaterThanOrEqual(remove.minX, band.maxX, "Remove All starts after the notch, \(at)")
                     XCTAssertLessThanOrEqual(digits, count.width, "the count has room for 60, \(at)")
-                    XCTAssertEqual(remove.maxX, width - 20, accuracy: 0.0001, "44 from the shape's edge, \(at)")
+                    XCTAssertEqual(
+                        remove.maxX, SurfaceHeaderLayout.gear(bodyWidth: width, notchHeight: notchHeight).minX - 8,
+                        accuracy: 0.0001, "8 before the gear's well (§19.16), \(at)"
+                    )
                 }
             }
         }
     }
 
-    /// Under the board's own notch the tray is the board's 385.3; only a notch
-    /// the header cannot clear widens it, and then by exactly what the wider
-    /// side needs, on both sides.
+    /// The tray is never narrower than the board's 385.3, and is otherwise
+    /// exactly what the header's wider side needs, on both sides. Since the
+    /// gear joined the tray's header (§19.16) that side is wider than the
+    /// board left it, so every notch widens the tray a little; the four tiles
+    /// keep the board's margins, centred.
     func testTheTrayWidensOnlyForAWideNotch() {
         for language in ["en", "ru"] {
             LabLocalization.use(language)
@@ -211,9 +240,12 @@ final class HeaderNotchBandTests: XCTestCase {
                     "\(language), notch \(notchWidth)"
                 )
             }
-            XCTAssertEqual(
+            // With the gear on the tray (§19.16) the header's right side needs
+            // more than the board left it, so even the board's own notch
+            // widens the tray past 385.3; the tiles stay the board's, centred.
+            XCTAssertGreaterThan(
                 SurfaceLayout.bodySize(for: .tray, bodyWidth: 560, notch: CGSize(width: 185, height: 38)).width,
-                385.3, accuracy: 0.0001, "the board's tray under the board's notch (\(language))"
+                385.3, "the gear's room under the board's notch (\(language))"
             )
         }
         // A widened tray keeps its four tiles on the board's margins, centred.
@@ -263,8 +295,9 @@ final class HeaderNotchBandTests: XCTestCase {
         for height in notchHeights {
             let body = SurfaceLayout.bodySize(for: .clipboard, bodyWidth: 560, notch: CGSize(width: 185, height: height))
             // The content under the row is 262 tall on every notch: the body
-            // moves with the notch, so the list keeps its room.
-            XCTAssertEqual(body.height - height, ClipboardLayout.contentHeight, accuracy: 0.001)
+            // moves with the notch, so the list keeps its room, and the dots
+            // have their own band under it (§19.16).
+            XCTAssertEqual(body.height - height - SurfaceLayout.pageDotsBand, ClipboardLayout.contentHeight, accuracy: 0.001)
         }
     }
 }

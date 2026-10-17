@@ -1120,22 +1120,13 @@ enum Theme {
     /// The empty tray's line, white 0.55.
     static let shelfEmptyLineOpacity: Double = 0.55
 
-    // MARK: - Tools (spec §19.8)
+    // MARK: - Pages (spec §19.16)
 
-    /// A card's preview line, white 0.55, and its hint, white 0.35.
-    static let toolsPreviewOpacity: Double = 0.55
-    static let toolsHintOpacity: Double = 0.35
-
-    /// The circle behind a card's glyph: Shelf in blue at 0.22, Clipboard in
-    /// cyan at 0.20, Translate in indigo at 0.24 — the system's dark-mode
-    /// blue, cyan (`#64D2FF`) and indigo.
-    static func toolsCircle(_ tool: ToolsCard.Tool) -> Color {
-        switch tool {
-        case .shelf: return SettingsTint.blue.color.opacity(0.22)
-        case .clipboard: return Color(red: 100.0 / 255, green: 210.0 / 255, blue: 255.0 / 255).opacity(0.20)
-        case .translate: return SettingsTint.indigo.color.opacity(0.24)
-        }
-    }
+    /// The row of dots under a page: the current page's dot white 0.90, the
+    /// others white 0.30, and 0.45 while the pointer is over the row.
+    static let pageDotCurrent: Double = 0.90
+    static let pageDotOther: Double = 0.30
+    static let pageDotOtherHovered: Double = 0.45
 
     /// How far a list fades into an edge that cuts it (`scrollEdgeFade`,
     /// H-017). Ten points: enough to read as "continues" at a 26 pt row, and

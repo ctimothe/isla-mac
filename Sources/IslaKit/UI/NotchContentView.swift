@@ -674,7 +674,7 @@ struct NotchContentView: View {
         case .player, .stage: detail = vm.media.sourceName
         case .tray: detail = vm.shelf.items.isEmpty ? nil : "\(vm.shelf.items.count)"
         case .clipboard: detail = nil
-        case .drop, .tools, .translate, .settings, .welcome: detail = nil
+        case .drop, .translate, .settings, .welcome: detail = nil
         }
         guard let detail, !detail.isEmpty else { return surface.title }
         return "\(surface.title), \(detail)"
@@ -923,21 +923,15 @@ struct NotchContentView: View {
                     .accessibilityLabel(ShelfHeader.countText(count))
                     .transition(.opacity)
             }
-        case .player, .drop, .tools, .welcome:
+        case .player, .drop, .welcome:
             EmptyView()
         }
     }
 
     @ViewBuilder
     private func headerTrailing(notch: CGSize) -> some View {
-        let tools = SurfaceHeaderLayout.tools(bodyWidth: size.width, notchHeight: notch.height)
+        let gear = SurfaceHeaderLayout.gear(bodyWidth: size.width, notchHeight: notch.height)
         switch vm.presented {
-        case .tools:
-            HeaderToolButton(symbol: "gearshape", label: localized("Settings"), badge: updates.hasUpdate) {
-                withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.open(.settings) }
-            }
-            .placedAt(tools)
-            .transition(.opacity)
         case .tray:
             if ShelfHeader.showsRemoveAll(itemCount: vm.shelf.items.count) {
                 let width = ShelfRemoveAllButton.width()
@@ -945,6 +939,7 @@ struct NotchContentView: View {
                     .placedAt(SurfaceHeaderLayout.removeAll(bodyWidth: size.width, width: width, notchHeight: notch.height))
                     .transition(.opacity)
             }
+            gearButton.placedAt(gear)
         case .translate:
             if translateKeepsHistory {
                 HeaderToolButton(
@@ -953,19 +948,24 @@ struct NotchContentView: View {
                 .placedAt(SurfaceHeaderLayout.history(bodyWidth: size.width, notchHeight: notch.height))
                 .transition(.opacity)
             }
-            toolsButton.placedAt(tools)
-        case .stage, .clipboard, .settings:
-            toolsButton.placedAt(tools)
-        case .player, .drop, .welcome:
+            gearButton.placedAt(gear)
+        case .player, .stage, .clipboard, .settings:
+            gearButton.placedAt(gear)
+        case .drop, .welcome:
             EmptyView()
         }
     }
 
-    /// The Tools button (spec §19.8): the surface turns into Tools on the
-    /// island's spring.
-    private var toolsButton: some View {
-        HeaderToolButton(symbol: "square.grid.2x2", label: localized("Tools")) {
-            withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.open(.tools) }
+    /// The gear (spec §19.16), where the Tools button stood: Settings from a
+    /// page or the stage on the island's spring, and on Settings, lit, the way
+    /// back. It carries the update badge Tools' own gear carried, so an update
+    /// waiting shows on every page.
+    private var gearButton: some View {
+        HeaderToolButton(
+            symbol: "gearshape", label: localized("Settings"),
+            isOn: vm.presented == .settings, badge: updates.hasUpdate
+        ) {
+            withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.pressGear() }
         }
         .transition(.opacity)
     }
@@ -1183,9 +1183,13 @@ struct NotchContentView: View {
     private var content: some View {
         panes
             .frame(
-                width: size.width, height: max(0, size.height - vm.geometry.notchSize.height),
+                width: size.width,
+                // A page's dots have their own band under it (§19.16): the
+                // pane ends above the band, so no list or card runs under them.
+                height: max(0, size.height - vm.geometry.notchSize.height - SurfaceLayout.dotsBand(for: vm.presented)),
                 alignment: .topLeading
             )
+            .frame(height: max(0, size.height - vm.geometry.notchSize.height), alignment: .top)
             // VO-Escape, or Switch Control's Escape, anywhere in the body closes
             // the panel, as the header does. A panel opened from assistive tech is
             // pinned open, and the pin ends only on a real mouse-down in another
@@ -1216,22 +1220,6 @@ struct NotchContentView: View {
         // One group, named for what it holds.
         .accessibilityElement(children: .contain)
         .accessibilityLabel(vm.presented.title)
-    }
-
-    /// The Tools cards, read from the model when the surface draws.
-    private var toolsCards: [ToolsCard] {
-        [
-            .shelf(itemCount: vm.shelf.items.count),
-            .clipboard(
-                newest: vm.clipboard.items.first,
-                covered: vm.privacy.covers(.clipboard),
-                shortcut: hotKeys.bindings[.showClipboard]?.displayString
-            ),
-            .translate(
-                source: vm.translator.source?.name, target: vm.translator.target.name,
-                shortcut: hotKeys.bindings[.translateClipboard]?.displayString
-            ),
-        ]
     }
 
     @ViewBuilder
@@ -1282,10 +1270,6 @@ struct NotchContentView: View {
             ShelfPane(shelf: vm.shelf, clear: vm.shelfClear, bodyWidth: bodyWidth)
         case .drop:
             ShelfDropSurface(bodyWidth: bodyWidth, dropTarget: vm.shelfDropTarget)
-        case .tools:
-            ToolsSurface(cards: toolsCards) { surface in
-                withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.open(surface) }
-            }
         case .clipboard:
             ClipboardPane(
                 clipboard: vm.clipboard, privacy: vm.privacy, browser: vm.clipboardBrowser,

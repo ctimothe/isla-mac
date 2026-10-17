@@ -36,7 +36,7 @@ final class NotchControllerRectTests: XCTestCase {
         let controller = NotchController()
         controller.attachForTesting(viewModel: vm, rootView: root)
         vm.isOpen = true
-        vm.open(.tools)
+        vm.open(.player)
         return (controller, vm, root)
     }
 
@@ -109,13 +109,13 @@ final class NotchControllerRectTests: XCTestCase {
 
     func testTheOpenRectsFollowASurfaceChangeAtOnceAndShrinkOnceTheBodyHasSettled() throws {
         let (controller, vm, root) = try rig()
-        let tools = bodySize(vm, .tools)
+        let player = bodySize(vm, .player)
         let settings = bodySize(vm, .settings)
-        XCTAssertLessThan(tools.height, settings.height, "the two surfaces differ in height")
+        XCTAssertLessThan(player.height, settings.height, "the two surfaces differ in height")
         controller.refreshOpenRects(bodySettled: true)
-        XCTAssertEqual(vm.openBodySize, tools)
-        XCTAssertEqual(root.activeRect.size, expected(vm, size: tools).active, "open at Tools")
-        XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: tools).close)
+        XCTAssertEqual(vm.openBodySize, player)
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: player).active, "open at the player")
+        XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: player).close)
 
         // Settings, the taller: the rects reach it on the turn the surface changes.
         vm.open(.settings)
@@ -124,37 +124,37 @@ final class NotchControllerRectTests: XCTestCase {
         XCTAssertEqual(root.activeRect.size, expected(vm, size: settings).active, "growing is immediate")
         XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: settings).close)
 
-        // Back to Tools: the body springs for 0.5 s, and the rects keep Settings'
+        // Back to the player: the body springs for 0.5 s, and the rects keep Settings'
         // size meanwhile.
-        vm.open(.tools)
+        vm.open(.player)
         controller.refreshOpenRects()
         XCTAssertEqual(root.activeRect.size, expected(vm, size: settings).active,
                        "the still-drawn lower half keeps its clicks, and the pointer on it its panel")
         XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: settings).close)
 
-        // …and Tools' once it has stopped.
+        // …and the player's once it has stopped.
         controller.refreshOpenRects(bodySettled: true)
-        XCTAssertEqual(root.activeRect.size, expected(vm, size: tools).active)
-        XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: tools).close)
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: player).active)
+        XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: player).close)
     }
 
     /// The shrink arrives on its own after the spring, and a newer change in
     /// the meantime outdates it.
     func testTheShrinkIsScheduledForTheEndOfTheSpringAndOutdatedByANewerRefresh() async throws {
         let (controller, vm, root) = try rig()
-        let tools = bodySize(vm, .tools)
+        let player = bodySize(vm, .player)
         let settings = bodySize(vm, .settings)
         vm.open(.settings)
         controller.refreshOpenRects()
-        vm.open(.tools)
+        vm.open(.player)
         controller.refreshOpenRects()
         XCTAssertEqual(root.activeRect.size, expected(vm, size: settings).active)
         try await Task.sleep(for: .seconds(Theme.expandSettle + 0.25))
-        XCTAssertEqual(root.activeRect.size, expected(vm, size: tools).active, "the pass after the spring shrank it")
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: player).active, "the pass after the spring shrank it")
 
         vm.open(.settings)
         controller.refreshOpenRects()
-        vm.open(.tools)
+        vm.open(.player)
         controller.refreshOpenRects()
         vm.open(.settings)
         controller.refreshOpenRects()

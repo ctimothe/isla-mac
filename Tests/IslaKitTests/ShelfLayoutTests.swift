@@ -37,9 +37,12 @@ final class ShelfLayoutTests: XCTestCase {
     /// header strip, and the tiles and the notice line under them fit in it.
     func testFourTilesFitAndAFifthScrolls() {
         let body = SurfaceLayout.bodySize(for: .tray, bodyWidth: 560, notch: CGSize(width: 185, height: 38))
-        XCTAssertEqual(body.width, 433.3 - 48, accuracy: 0.0001)
+        XCTAssertEqual(body.width, ShelfLayout.bodyWidth(notchWidth: 185), accuracy: 0.0001, "the gear's room widens it (§19.16)")
         let viewport = ShelfLayout.viewport(bodyWidth: body.width)
-        XCTAssertEqual(viewport, CGRect(x: 0, y: 0, width: body.width, height: 120))
+        XCTAssertEqual(
+            viewport, CGRect(x: ((body.width - (433.3 - 48)) / 2).rounded(), y: 0, width: 433.3 - 48, height: 120),
+            "the board's four tiles, centred on a whole point in the wider tray"
+        )
         XCTAssertLessThanOrEqual(ShelfLayout.tileFrame(index: ShelfLayout.visibleTiles - 1).maxX, viewport.width)
         XCTAssertFalse(ShelfLayout.scrolls(count: 4))
         XCTAssertTrue(ShelfLayout.scrolls(count: 5))
@@ -51,7 +54,7 @@ final class ShelfLayoutTests: XCTestCase {
         // Tiles end 16.5 above the foot; the notice line takes 14 under them.
         XCTAssertLessThanOrEqual(ShelfLayout.tileFrame(index: 0).maxY + 1 + 14, viewport.height)
         // The tray's one size and its shoulders (§19.2).
-        XCTAssertEqual(body.height, 158)
+        XCTAssertEqual(body.height, 158 + 16, "and the dots' band (§19.16)")
         XCTAssertEqual(NotchViewModel.Surface.tray.topRadius, 24)
         XCTAssertEqual(NotchViewModel.Surface.tray.bottomRadius, 34)
     }
@@ -233,13 +236,14 @@ final class ShelfLayoutTests: XCTestCase {
     }
 
     /// The glyph (26 × 20 at the board's 52.6) and the count (SF Pro Rounded 15
-    /// at 82) lead the strip; Remove All ends 44 from the shape's right edge.
+    /// at 82) lead the strip; Remove All ends 8 before the gear's well, which
+    /// stands where the board ended Remove All (§19.16).
     func testTheHeaderIsTheBoards() {
         XCTAssertEqual(ShelfLayout.headerGlyph, CGSize(width: 26, height: 20))
         XCTAssertEqual(ShelfLayout.headerGlyphX, 28.6, accuracy: 0.0001)
         XCTAssertEqual(ShelfLayout.headerCountX, 58, accuracy: 0.0001)
         XCTAssertEqual(ShelfLayout.headerCountSize, 15)
-        XCTAssertEqual(ShelfLayout.removeAllTrailing(bodyWidth: 385.3), 385.3 - 20, accuracy: 0.0001)
+        XCTAssertEqual(ShelfLayout.removeAllTrailing(bodyWidth: 385.3), 385.3 - 46 - 8, accuracy: 0.0001)
         XCTAssertEqual(ShelfLayout.emptyLineSize, 13)
     }
 
@@ -248,8 +252,8 @@ final class ShelfLayoutTests: XCTestCase {
     func testTheTrayIsOneSize() throws {
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
         vm.open(.tray)
-        XCTAssertEqual(vm.openBodySize.height, 158 - 38 + vm.geometry.notchSize.height, accuracy: 0.001)
-        XCTAssertEqual(vm.openBodySize.width, 433.3 - 48, accuracy: 0.001)
+        XCTAssertEqual(vm.openBodySize.height, 158 + 16 - 38 + vm.geometry.notchSize.height, accuracy: 0.001)
+        XCTAssertEqual(vm.openBodySize.width, ShelfLayout.bodyWidth(notchWidth: vm.geometry.notchSize.width), accuracy: 0.001)
         XCTAssertEqual(vm.openTopRadius, 24)
         XCTAssertEqual(vm.openBottomRadius, 34)
     }

@@ -546,12 +546,9 @@
 /* Activities first: the surfaces that replaced the tabs (spec §19.6–§19.8). */
 "Favorite" = "Favorite";
 "Remove from Favorites" = "Remove from Favorites";
-"Tools" = "Tools";
-"Empty" = "Empty";
-"or drag files here" = "or drag files here";
 "Drag files to the notch to keep them here." = "Drag files to the notch to keep them here.";
 "Click the island to open what’s playing." = "Click the island to open what’s playing.";
-"Right-click it for everything else." = "Right-click it for everything else.";
+"Swipe sideways for the Shelf, Clipboard and Translate." = "Swipe sideways for the Shelf, Clipboard and Translate.";
 "Drag files to the notch to keep them." = "Drag files to the notch to keep them.";
 "Pinned" = "Pinned";
 "↩ Copy" = "↩ Copy";
