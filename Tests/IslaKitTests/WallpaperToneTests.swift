@@ -4,14 +4,15 @@ import UniformTypeIdentifiers
 import XCTest
 @testable import IslaKit
 
-/// Whether the wallpaper behind the island is dark (redesign spec §3.3), on
-/// fixture pictures this file draws — never on the desk of whoever runs it.
+/// How dark the wallpaper is behind a part of the screen, on fixture pictures
+/// this file draws — never on the desk of whoever runs it.
 ///
-/// The key line is gated on this, so what these hold is: dark below a mean
-/// luma of 0.20 and not above it, only the strip behind the island counts, the
-/// picture is laid on the screen aspect-fill, the answer is cached by file and
-/// date, and every failure is "not dark" — a missing flourish rather than a
-/// stroke on a light desktop.
+/// The lock card's Automatic material reads this measurement over its own
+/// region; the island stopped asking on 2026-10-17 (spec §19.2). What these
+/// hold: dark below a mean luma of 0.20 and not above it, only the region asked
+/// about counts, the picture is laid on the screen aspect-fill, the answer is
+/// cached by file and date, a gated file is never opened, and every failure is
+/// "not dark".
 final class WallpaperToneTests: XCTestCase {
     private var directory: URL!
 
@@ -210,7 +211,6 @@ final class WallpaperToneTests: XCTestCase {
         try Data("not a picture at all".utf8).write(to: corrupt)
         XCTAssertEqual(reading(of: corrupt), .unknown, "an unreadable file")
         XCTAssertEqual(WallpaperTone.reading(forMeanLuminance: nil), .unknown)
-        XCTAssertFalse(KeyLine.isShown(tone: reading(of: nil), increaseContrast: false), "so no key line")
     }
 
     // MARK: Only the strip behind the island counts
@@ -323,39 +323,5 @@ final class WallpaperToneTests: XCTestCase {
         )
         let fresh = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre, mayRead: { _ in true }))
         XCTAssertGreaterThan(fresh, 0.5, "a new modification date is read again")
-    }
-
-    // MARK: The model
-
-    /// The model answers off the main actor, lands on it, and a failure is
-    /// `unknown`. Injected: it reads the fixture, not this Mac's desktop.
-    @MainActor
-    func testTheModelPublishesWhatItFoundOffTheMainActor() async throws {
-        let screens = NSScreen.screens
-        try XCTSkipIf(screens.isEmpty, "needs a display to describe")
-        let dark = try write(solid(grey: 0.02), as: "model-dark")
-        var url: URL? = dark
-        let model = WallpaperToneModel(
-            target: { (screens[0], screens[0].frame.midX) },
-            wallpaperURL: { _ in url },
-            mayRead: { _ in true }
-        )
-        XCTAssertEqual(model.reading, .unknown, "nothing is known before the first look")
-
-        model.refresh()
-        try await waitFor { model.reading == .dark }
-
-        url = nil
-        model.refresh()
-        try await waitFor { model.reading == .unknown }
-    }
-
-    @MainActor
-    private func waitFor(_ condition: () -> Bool, timeout: TimeInterval = 5) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition() {
-            if Date() > deadline { return XCTFail("timed out waiting for the wallpaper answer") }
-            try await Task.sleep(for: .milliseconds(20))
-        }
     }
 }

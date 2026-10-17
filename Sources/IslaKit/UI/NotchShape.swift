@@ -1,8 +1,15 @@
 import SwiftUI
 
-/// The panel silhouette: concave shoulders that melt into the top edge of the
-/// display, straight sides, rounded bottom. The body is inset by `topRadius`
-/// on both sides, so the containing frame must be that much wider.
+/// The island's outline (redesign spec §19.2): concave shoulders that melt into
+/// the top edge of the display, straight sides, rounded bottom. The body is
+/// inset by `topRadius` on both sides, so the containing frame must be that
+/// much wider.
+///
+/// Both corners are quadratic Béziers — the shoulder's control point on the
+/// top edge, the bottom corner's on the corner — not circular arcs: a circular
+/// corner of the same radius reads heavier, and the outlines measured from the
+/// reference do not fit one. `IslandOutlineTests` pins the control points for
+/// the resting notch, the player and an alert.
 struct NotchShape: Shape {
     var topRadius: CGFloat
     var bottomRadius: CGFloat
@@ -22,8 +29,8 @@ struct NotchShape: Shape {
     }
 
     /// The outline from the left shoulder round to the right one, left open
-    /// along the top edge. The fill closes it; the key line strokes it as it is
-    /// (`KeyLineShape`), which is how it never touches the bezel.
+    /// along the top edge. The fill closes it; the stroke draws it as it is
+    /// (`IslandStrokeShape`), which is how it never touches the bezel.
     func openPath(in rect: CGRect) -> Path {
         let tr = max(0, min(topRadius, rect.width / 2))
         let br = max(0, min(bottomRadius, rect.width / 2 - tr, rect.height))

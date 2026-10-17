@@ -1215,12 +1215,6 @@ final class NotchController {
         guard let geometry = NotchGeometry.current() else { return }
         buildGeneration += 1
         let vm = NotchViewModel(geometry: geometry, stores: stores)
-        // The key line's wallpaper answer, ready before the island first shows
-        // and kept current on a new Space, a display change and a wake. Here
-        // rather than in the view model's `init`, so a model made in a test
-        // neither reads the desktop picture nor listens to the system.
-        vm.wallpaper.startObserving()
-        vm.wallpaper.refresh()
         // Before any rect is cut. The tab decides how far down the panel
         // reaches, and restoring it afterwards left every rect cut for the
         // default media body — so a restored teleprompter opened to its full

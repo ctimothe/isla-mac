@@ -122,27 +122,21 @@ struct NotchContentView: View {
         !isOpen && isAwake ? Theme.islandHover : Color.black
     }
 
-    // MARK: - Key line (spec §3.3)
+    // MARK: - Stroke (spec §19.2)
 
-    /// Whether the island has a key line to draw: it must be showing
-    /// something — the pill out of the notch, or the panel open; a resting
-    /// notch is the notch — and the wallpaper dark, or Increase Contrast on.
-    private var keyLineShown: Bool {
-        guard isOpen || pillShown else { return false }
-        return KeyLine.isShown(tone: vm.wallpaper.reading, increaseContrast: appearance.increaseContrast)
+    /// Whether the island draws its stroke: whenever the shape is out of the
+    /// notch, on every wallpaper — never on the bare notch.
+    private var strokeShown: Bool {
+        IslandStroke.isShown(isOpen: isOpen, activityShowing: pillShown, notchAwake: restsInNotch && isAwake)
     }
 
-    /// Music while the island or panel shows a song, neutral for anything else.
-    private var keyLineColor: Color {
-        let style = KeyLine.style(
-            isOpen: isOpen,
-            onMusicTab: vm.tab == .media && !vm.isShowingWelcome,
-            hasTrack: vm.media.track != nil,
-            pillShowsMusic: compactActivity.isVisible,
-            // The pop-up is a moment like the charger: neutral (spec §12).
-            momentShowing: vm.ambient != nil || vm.hud != nil
+    /// The activity's tint at 0.21, or white at 0.14 (0.42 and 0.30 under
+    /// Increase Contrast).
+    private var strokeColor: Color {
+        IslandStroke.color(
+            tint: IslandStroke.tint(for: vm.moment, isOpen: isOpen),
+            increaseContrast: appearance.increaseContrast
         )
-        return KeyLine.color(for: style, tint: vm.coverTint)
     }
 
     private var shapeSize: CGSize {
@@ -321,28 +315,30 @@ struct NotchContentView: View {
         // The shape is wider than the body by `topRadius` on each side: that
         // slack is where the concave shoulders live, so it must not be clipped.
         ZStack(alignment: .top) {
-            // Under the black, where only the outer half of a stroke twice the
-            // width wanted shows: that is what makes it "just outside" the
-            // island. Always mounted and faded, never inserted, so it folds
-            // and unfolds with the shape instead of arriving after it. Open,
-            // the same line follows the body's height as it springs, because
-            // it is built from the same radii and the same frame.
-            KeyLineShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
-                .stroke(keyLineColor, lineWidth: 2 * Theme.keyLineWidth)
-                .frame(width: shapeSize.width, height: shapeSize.height)
-                .opacity(keyLineShown ? 1 : 0)
-                .allowsHitTesting(false)
-
             NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
             .fill(shapeFill)
             .frame(width: shapeSize.width, height: shapeSize.height)
+            // A surface or an alert separates from a busy window under it; a
+            // compact activity sits on the menu bar's strip and casts nothing
+            // (spec §19.2). Faded rather than switched, so it grows with the
+            // shape instead of arriving after it.
             .shadow(
                 color: .black.opacity(
-                    isOpen ? 0.5 : (pillShown || (restsInNotch && isAwake) ? 0.28 : 0)
+                    IslandStroke.castsShadow(height: shapeSize.height) ? Theme.islandShadowOpacity : 0
                 ),
-                radius: isOpen ? 18 : 5,
-                y: isOpen ? 8 : 2
+                radius: Theme.islandShadowRadius
             )
+
+            // Over the black and centred on its edge, so half the line lies
+            // outside the shape and half inside. Always mounted and faded,
+            // never inserted, so it folds and unfolds with the shape instead
+            // of arriving after it, and built from the same radii and the same
+            // frame, so it follows the outline through every spring.
+            IslandStrokeShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
+                .stroke(strokeColor, lineWidth: Theme.islandStrokeWidth)
+                .frame(width: shapeSize.width, height: shapeSize.height)
+                .opacity(strokeShown ? 1 : 0)
+                .allowsHitTesting(false)
 
             // The shape is the only black. A second black layer used to sit
             // over the wings, faded out on its own 0.12 s while the shape
@@ -485,7 +481,7 @@ struct NotchContentView: View {
         .animation(Theme.hud(appearing: vm.hud != nil, reduceMotion: reduceMotion), value: vm.hud != nil)
         .animation(Theme.paneAnimation, value: vm.tab)
         // The body growing or folding (spec §6): its height, its bottom radius
-        // and — through the same value — the key line that follows them, on the
+        // and — through the same value — the stroke that follows them, on the
         // expand spring, or the 0.24 crossfade under Reduce Motion. Keyed to the
         // *open* body's height, which opening and closing do not change, so this
         // never answers the open spring's own change of size.
@@ -494,11 +490,6 @@ struct NotchContentView: View {
         // from a `Button` — which animates nothing by itself, so without this
         // the crossfade above would be a cut.
         .animation(Theme.paneAnimation, value: vm.isShowingWelcome)
-        // The island asking the wallpaper again as it unfolds, from the notch
-        // or open (spec §3.3): a Space change or a wake would have said so, and
-        // this catches whatever did not. A cache hit costs nothing.
-        .onChange(of: pillShown) { _, shown in if shown { vm.wallpaper.refresh() } }
-        .onChange(of: isOpen) { _, open in if open { vm.wallpaper.refresh() } }
     }
 
     // MARK: - Header

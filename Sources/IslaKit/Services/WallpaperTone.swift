@@ -1,9 +1,16 @@
 import AppKit
-import Combine
 import ImageIO
 
-/// Whether the wallpaper behind the island is dark (spec §3.3), which decides
-/// whether the island draws its key line.
+/// How bright the desktop picture is behind a part of the screen.
+///
+/// Since 2026-10-17 (spec §19.2) only the lock card asks — its Automatic
+/// material picks an opacity from the wallpaper behind it
+/// (`LockCardToneModel`, `cardRegion`). The island used to ask too, to draw
+/// §3.3's key line only on a dark wallpaper; its stroke is now drawn on every
+/// wallpaper, so nothing watches the desktop for it any more. The island's
+/// strip (`islandRegion`) and the dark/light `Reading` stay as the measured
+/// reference this file's tests hold the measurement to. What follows is the
+/// reasoning as it was written for the key line, and it still binds the card.
 ///
 /// A black island disappears on a black wallpaper — the owner's Aerial measures
 /// a mean of 8/255 behind the notch — and Apple's answer for the iPhone's island
@@ -317,85 +324,5 @@ enum WallpaperTone {
             ofWallpaperAt: url, screenSize: screenSize, notchCenterX: notchCenterX,
             mayRead: mayRead, thumbnail: read
         ))
-    }
-}
-
-/// The wallpaper's tone for the island's screen, kept current.
-///
-/// Recomputed on the four things that can change what is behind the island: a
-/// different Space (each can wear its own picture), a change of display
-/// parameters (the notch may have moved or another display arrived), the Mac
-/// waking (a wallpaper that rotates or follows the appearance has moved on),
-/// and the island unfolding — the caller's `refresh()`, free when the cache
-/// already knows the file. The work is done off the main actor; a stale answer
-/// for a screen that has since changed never lands.
-@MainActor
-final class WallpaperToneModel: ObservableObject {
-    @Published private(set) var reading: WallpaperTone.Reading = .unknown
-
-    /// How the island's screen and notch are found, and how a screen's picture
-    /// is named — both replaceable, so a test can describe a Mac that has no
-    /// wallpaper, or a dark one, without owning one.
-    private let target: @MainActor () -> (screen: NSScreen, notchCenterX: CGFloat)?
-    private let wallpaperURL: @MainActor (NSScreen) -> URL?
-    /// Whether a picture may be opened at all (`WallpaperTone.isReadableWithoutPrompt`);
-    /// replaceable so a test's fixture in a temporary folder can be read.
-    private let mayRead: @Sendable (URL) -> Bool
-    private var generation = 0
-    private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
-
-    init(
-        target: @escaping @MainActor () -> (screen: NSScreen, notchCenterX: CGFloat)?,
-        wallpaperURL: @escaping @MainActor (NSScreen) -> URL? = { NSWorkspace.shared.desktopImageURL(for: $0) },
-        mayRead: @escaping @Sendable (URL) -> Bool = { WallpaperTone.isReadableWithoutPrompt($0) }
-    ) {
-        self.target = target
-        self.wallpaperURL = wallpaperURL
-        self.mayRead = mayRead
-    }
-
-    deinit {
-        for observer in observers { observer.center.removeObserver(observer.token) }
-    }
-
-    /// Starts watching the system for changes that move what is behind the
-    /// island. Separate from `init` so a model built in a test listens to
-    /// nothing.
-    func startObserving() {
-        guard observers.isEmpty else { return }
-        let workspace = NSWorkspace.shared.notificationCenter
-        let center = NotificationCenter.default
-        let names: [(NotificationCenter, Notification.Name)] = [
-            (workspace, NSWorkspace.activeSpaceDidChangeNotification),
-            (workspace, NSWorkspace.didWakeNotification),
-            (center, NSApplication.didChangeScreenParametersNotification),
-        ]
-        for (source, name) in names {
-            let token = source.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
-            }
-            observers.append((source, token))
-        }
-    }
-
-    /// Looks again. A cache hit settles on the next turn of the run loop.
-    func refresh() {
-        generation += 1
-        let mine = generation
-        guard let found = target() else {
-            reading = .unknown
-            return
-        }
-        let url = wallpaperURL(found.screen)
-        let size = found.screen.frame.size
-        let centre = found.notchCenterX - found.screen.frame.minX
-        let mayRead = mayRead
-        Task { [weak self] in
-            let answer = await Task.detached(priority: .utility) {
-                WallpaperTone.reading(ofWallpaperAt: url, screenSize: size, notchCenterX: centre, mayRead: mayRead)
-            }.value
-            guard let self, self.generation == mine, self.reading != answer else { return }
-            self.reading = answer
-        }
     }
 }

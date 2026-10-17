@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 /// The one colour a cover lends the compact island (spec §3.4): the equalizer
-/// draws in it while music plays, and the key line round a music island or
-/// panel is it at half strength.
+/// draws in it while music plays. The island's stroke no longer borrows it
+/// (spec §19.2): a music island is outlined in white like every other.
 ///
 /// Chosen as "the most saturated of the cover's bright colours, lifted to at
 /// least 0.65 HSB brightness so it reads on black, falling back to white 0.82

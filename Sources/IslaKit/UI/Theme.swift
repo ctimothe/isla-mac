@@ -715,12 +715,23 @@ enum Theme {
     /// The system green, `#30D158`: the charging bolt and its level.
     static let chargingGreen = Color(red: 48.0 / 255, green: 209.0 / 255, blue: 88.0 / 255)
 
-    /// The key line's strengths (spec §3.1 board, §3.3): the cover's tint at
-    /// half strength round a music island or panel, white at 0.26 round every
-    /// other. To be confirmed on hardware, owed check R1-H2.
-    static let keyLineMusicOpacity: Double = 0.50
-    static let keyLineNeutralOpacity: Double = 0.26
-    static let keyLineWidth: CGFloat = 1
+    /// The island's stroke (spec §19.2), which replaced §3.3's key line: 2 pt
+    /// centred on the outline, the activity's tint at 0.21 or white at 0.14,
+    /// raised to 0.42 and 0.30 under Increase Contrast. Measured from the
+    /// reference screenshots; to be confirmed on Aerial, Sonoma and a white
+    /// wallpaper, owed check R7-H3.
+    static let islandStrokeWidth: CGFloat = 2
+    static let islandStrokeTintOpacity: Double = 0.21
+    static let islandStrokeWhiteOpacity: Double = 0.14
+    static let islandStrokeTintContrastOpacity: Double = 0.42
+    static let islandStrokeWhiteContrastOpacity: Double = 0.30
+
+    /// The shadow a tall shape casts (spec §19.2): black 0.22, radius 14, no
+    /// offset, on a shape taller than 68 — a surface or an alert, never a
+    /// compact activity or the peek.
+    static let islandShadowThreshold: CGFloat = 68
+    static let islandShadowOpacity: Double = 0.22
+    static let islandShadowRadius: CGFloat = 14
 
     // MARK: - Contrast ramp
     //

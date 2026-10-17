@@ -166,19 +166,13 @@ final class HUDMomentTests: XCTestCase {
         XCTAssertEqual(vm.bodySize, vm.openBodySize)
     }
 
-    // MARK: Key line (spec §3.3)
+    // MARK: Stroke (spec §19.2)
 
-    func testTheKeyLineIsNeutralWhileThePopUpShows() {
-        // Music underneath, a pop-up over it: neutral, as for the charger.
-        XCTAssertEqual(
-            KeyLine.style(isOpen: false, onMusicTab: false, hasTrack: true, pillShowsMusic: true, momentShowing: true),
-            .neutral
-        )
-        // And on the resting notch with nothing playing the pop-up is a pill out
-        // of the notch, so the line follows the wallpaper's rule alone.
-        XCTAssertTrue(KeyLine.isShown(tone: .dark, increaseContrast: false))
-        XCTAssertFalse(KeyLine.isShown(tone: .light, increaseContrast: false))
-        XCTAssertTrue(KeyLine.isShown(tone: .light, increaseContrast: true))
+    func testThePopUpIsOutlinedInWhite() {
+        // Music or a charger underneath, the pop-up over it: the pop-up is what
+        // is drawn, and it has no tint.
+        XCTAssertNil(IslandStroke.tint(for: .hud(HUDMoment(reading())), isOpen: false))
+        XCTAssertTrue(IslandStroke.isShown(isOpen: false, activityShowing: true, notchAwake: false))
     }
 
     // MARK: Motion (spec §2.4)

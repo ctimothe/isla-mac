@@ -846,14 +846,8 @@ final class NotchViewModel: ObservableObject {
     let lyricsCoordinator: LyricsCoordinator
     /// Shared by every pane that shows something worth not showing.
     let privacy: PrivacyMode
-    /// Whether the wallpaper behind the island is dark, for the key line
-    /// (spec §3.3). Owned here rather than by the view so the island and the
-    /// open panel read one answer, and so it is computed once per change of
-    /// wallpaper rather than once per view.
-    let wallpaper: WallpaperToneModel
-    /// The colour the cover lends the island: the equalizer's, and the key line's
-    /// while music shows (spec §3.4). The fallback until a cover has been read,
-    /// and for none.
+    /// The colour the cover lends the island's equalizer (spec §3.4). The
+    /// fallback until a cover has been read, and for none.
     @Published private(set) var coverTint = CoverTint.fallback
     /// The machine's audio state for the player's volume slider and Output
     /// menu. Started and stopped by the Music pane while it is on screen — a
@@ -883,13 +877,6 @@ final class NotchViewModel: ObservableObject {
         self.localLyricsLibrary = stores.localLyricsLibrary
         self.lyricsCoordinator = stores.lyricsCoordinator
         self.privacy = stores.privacy
-        self.wallpaper = WallpaperToneModel(target: { [geometry] in
-            // No screen to ask is no answer: the labs and a process with no
-            // window-server session stand a bare screen in for the real one,
-            // which reads as an empty frame and must never be asked for a
-            // wallpaper.
-            geometry.screen.frame.isEmpty ? nil : (geometry.screen, geometry.notchCenterX)
-        })
 
         // The panel header reads through to the stores — counters, the source
         // name, the equalizer. Nested ObservableObjects do not propagate on
@@ -945,12 +932,6 @@ final class NotchViewModel: ObservableObject {
         // The stamp on the Shelf's selection (`shelfSelectionIsCurrent`).
         stores.shelf.$selection
             .sink { [weak self] selection in self?.shelfSelectionChanged(to: selection) }
-            .store(in: &cancellables)
-
-        // The key line's wallpaper answer arrives off the main actor and the
-        // island redraws when it lands.
-        wallpaper.$reading.removeDuplicates()
-            .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
         // One tint per artwork. A cover already read, and no cover at all, are
