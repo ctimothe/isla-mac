@@ -69,7 +69,7 @@ final class NotchViewModel: ObservableObject {
         }
     }
     @Published var isDropTargeted = false {
-        didSet { if isDropTargeted { endPageGestureUnderOverlay() } }
+        didSet { if isDropTargeted { endPageGesture() } }
     }
     /// Which of the Shelf's two wells a drag in flight is over (spec §8.3): the
     /// one the drop will use, and the one that lights. Meaningful only while
@@ -735,7 +735,7 @@ final class NotchViewModel: ObservableObject {
     /// the welcome is shown once per account *until it is answered*, not once
     /// per account full stop.
     @Published var isShowingWelcome = false {
-        didSet { if isShowingWelcome { endPageGestureUnderOverlay() } }
+        didSet { if isShowingWelcome { endPageGesture() } }
     }
 
     /// The welcome has been read. Sets the flag that keeps it from ever coming
@@ -746,12 +746,12 @@ final class NotchViewModel: ObservableObject {
         land(on: openTarget)
     }
 
-    /// A surface somebody asked for — by shortcut, by the menu, by a Tools
-    /// card.
+    /// A surface somebody asked for — by shortcut, by the menu.
     ///
-    /// Distinct from `open` because `open` is also how the *machinery* moves
-    /// the panel — the pointer arriving, a click on the island — and none of
-    /// those is an answer to anything. A hot key used to count as machinery
+    /// Distinct from the roads the *machinery* moves the panel by — the
+    /// pointer arriving, a click on the island, which land without the
+    /// keyboard (`land(on:)`) — because none of those is an answer to
+    /// anything. A hot key used to count as machinery
     /// too, and its surface opened invisibly behind the welcome (J-018). The
     /// pointer arrives by definition on the way to the Get Started button, so
     /// dismissing the welcome from `open` would have wiped it out from under
@@ -850,13 +850,16 @@ final class NotchViewModel: ObservableObject {
 
     /// Whether the panel currently holds the keyboard.
     ///
-    /// Tracked apart from `surface` because the two come apart in one
-    /// direction: clicking into another app drops the claim without changing
-    /// the surface, so the text one was typing survives and the panel is free
-    /// to collapse. Landing on a surface that types always raises it again —
-    /// there is no such thing as a panel that shows a field but cannot receive
-    /// a key. The one way it outlives a surface that types is ⌃Tab, which
-    /// carries it onto the Shelf and Music (`turnPageByKey`).
+    /// Tracked apart from `surface` because the two come apart both ways.
+    /// Clicking into another app drops the claim without changing the
+    /// surface, so the text one was typing survives and the panel is free to
+    /// collapse. And Clipboard or Translate reached by a swipe, a dot, the
+    /// pointer or a click on the bare notch shows its field without it: only
+    /// a summons (`open(_:)`) or a press into the field raises it
+    /// (`pressClaimsKeyboard`), so looking through the pages never takes
+    /// typing from the app in front (§19.16, R8b review F1). The one way it
+    /// outlives a surface that types is ⌃Tab, which carries it onto the Shelf
+    /// and Music (`turnPageByKey`).
     @Published var wantsKeyboard = false
 
     let geometry: NotchGeometry
@@ -948,6 +951,17 @@ final class NotchViewModel: ObservableObject {
         )
         .sink { [weak self] _ in self?.objectWillChange.send() }
         .store(in: &cancellables)
+
+        // The stage with no song is drawn as Music's page and pages like it;
+        // a song arriving makes it the stage again, which is not a page, and
+        // takes the page from under a swipe (R8b re-review R3). The value is
+        // read from the publisher: `media.track` has not taken it yet.
+        media.$track.map { $0 != nil }.removeDuplicates()
+            .sink { [weak self] hasSong in
+                guard let self, hasSong, surface == .stage else { return }
+                endPageGesture()
+            }
+            .store(in: &cancellables)
 
         // A Use Online press ends when Translate goes under its cover: the card
         // must not be left holding a permission to send text the person can no
@@ -1935,9 +1949,11 @@ final class NotchViewModel: ObservableObject {
     /// to photograph their island turns it off and takes the picture.
     static var hideFromCaptureEnabled: Bool { SettingsRowID.hideFromRecording.isOn(in: .standard) }
 
-    /// Every way to a surface lands here. A surface that types takes the
-    /// keyboard: showing a field one cannot type into is worse than briefly
-    /// dimming the caret of the window underneath. The drop surface and the
+    /// Every summons to a surface lands here — ⌃⌥⌘V, ⌃⌥⌘T, the menu, the
+    /// gear. A surface that types takes the keyboard: asked for by name, a
+    /// field one cannot type into is worse than briefly dimming the caret of
+    /// the window underneath. The machinery's roads (`land(on:)`) and the
+    /// pages' (`turnPage(to:)`) do not take it. The drop surface and the
     /// welcome are presented, never chosen, and are refused.
     ///
     /// Never the keyboard over the lock: typing there belongs to the password
@@ -1964,22 +1980,44 @@ final class NotchViewModel: ObservableObject {
     }
 
     /// Whether a press at `point` — body coordinates, down from the open
-    /// body's top-left — asks for the keyboard (`NotchPanel.onPress`). Only a
-    /// surface that types asks, never over the lock, and never from the
-    /// header strip or the dots: those are ways somewhere, and a press there
-    /// on a Clipboard reached by a swipe made the panel key on mouse-down —
-    /// and kept it key when the dot was the current one or the press was
-    /// dragged off it (R8b review F2). Anywhere else it still asks, so the
-    /// window is key by the time the click reaches the field.
+    /// body's top-left — asks for the keyboard (`NotchPanel.onPress`): only a
+    /// press into the field of a surface that types, with the pages at rest,
+    /// and never over the lock (§19.16: "or when their field is clicked").
+    ///
+    /// The field and nothing else. A row pressed to copy it, a dot, the gear,
+    /// Swap or a language menu is an action or a way somewhere, not a request
+    /// to type: with every press off the header and the dots asking, a row
+    /// copied on a Clipboard the bare notch opened made the panel key on
+    /// mouse-down, and a pinned panel kept it, so a ⌘V meant for the app
+    /// underneath went into the search field (R8b review F2, re-review R2).
+    /// At rest only: while the pages move, the dots ride the moving outline
+    /// and the field slides with its page, so nothing is where the layout
+    /// puts it, and a dot pressed on the way onto Clipboard asked
+    /// (re-review R1).
     func pressClaimsKeyboard(atBodyPoint point: CGPoint) -> Bool {
-        guard presented.takesKeyboard, !isLockedPresentation else { return false }
-        if point.y < geometry.notchSize.height { return false }
-        if presented.isPage {
-            let body = openBodySize
-            if point.y >= body.height - SurfaceLayout.pageDotsBand { return false }
-            if PageDotsLayout.rowFrame(bodySize: body).contains(point) { return false }
+        guard presented.takesKeyboard, !isLockedPresentation, pageTravel.leg == nil,
+              let field = fieldFrame(of: presented) else { return false }
+        return field.contains(point)
+    }
+
+    /// Where a surface's text field is, in body coordinates: Clipboard's
+    /// search field, Translate's source card — the plate the text is typed
+    /// on, its Clear and Paste included, both of which want the keyboard
+    /// anyway. Nil for every other surface, and for Translate while its
+    /// History list stands in place of the cards.
+    func fieldFrame(of surface: Surface) -> CGRect? {
+        // The panes are laid out in the content, which starts under the
+        // header row, a notch tall.
+        let header = geometry.notchSize.height
+        switch surface {
+        case .clipboard:
+            return ClipboardHeader.searchField.offsetBy(dx: 0, dy: header)
+        case .translate:
+            guard !translateShowsHistory else { return nil }
+            return TranslateLayout.sourceCard(bodyWidth: openSize(of: .translate).width).offsetBy(dx: 0, dy: header)
+        default:
+            return nil
         }
-        return true
     }
 
     /// A page reached by a swipe, a dot or ⌃Tab (§19.16). Unlike `open(_:)`
@@ -2088,6 +2126,16 @@ final class NotchViewModel: ObservableObject {
         guard let target = row.pages.firstIndex(of: page) else { return }
         if let leg = pageTravel.leg, let index = leg.strip.pages.firstIndex(of: page) {
             pageTravel.aim(strip: leg.strip, from: leg.position, to: index, reduceMotion: false)
+        } else if let leg = pageTravel.leg {
+            // A second dot during a straight leg, for a page the leg does not
+            // pass: the page joins the leg at one end and the pages carry on
+            // from where they are. Ending the first leg put the outline at the
+            // first dot's page in one frame (R8b review F5).
+            let joined = leg.strip.adding(
+                page, width: openSize(of: page).width, row: row.pages, nearer: leg.position
+            )
+            guard let index = joined.strip.pages.firstIndex(of: page) else { return }
+            pageTravel.aim(onto: joined.strip, shift: joined.shift, to: index, reduceMotion: false)
         } else {
             pageTravel.finish()
             let start = presented.pageIndex ?? 0
@@ -2132,12 +2180,14 @@ final class NotchViewModel: ObservableObject {
         return true
     }
 
-    /// Files dragged to the notch, or the welcome, laid over the pages while
-    /// they move: the gesture under them ends and the pages go to rest, so
-    /// they are not found half way, with the clickable region cut over them,
-    /// once the overlay goes (R8b review F6). The swipe monitor is removed
-    /// with the pages, so the release that would have ended it never comes.
-    private func endPageGestureUnderOverlay() {
+    /// The pages taken from under a gesture — files dragged to the notch or
+    /// the welcome laid over them, or a song arriving on the stage drawn as
+    /// Music's page: the gesture ends and the pages go to rest, so they are
+    /// not found half way, with the clickable region cut over them, once the
+    /// page is back (R8b review F6, re-review R3). The swipe monitor is
+    /// removed with the pages, so the release that would have ended it never
+    /// comes.
+    private func endPageGesture() {
         pageSwipe = PageSwipe()
         pageTravel.finish()
     }

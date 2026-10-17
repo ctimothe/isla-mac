@@ -2074,21 +2074,27 @@ Owed on hardware (record the Mac model and macOS version when run):
   one page and never two, the ends rubber-band, and nothing stutters at 120 Hz
   on a ProMotion display with Clipboard's list and the player's artwork on
   screen — the per-frame cost of re-rendering the shell is not measured off
-  hardware (§19.15).
+  hardware (§19.15). Two dots pressed in quick succession (Music, then
+  Translate, then the Shelf) carry the pages on without a jump.
 - [ ] **R8b-H2** The same on a Magic Mouse.
 - [ ] **R8b-H3** A wheel mouse: the wheel scrolls the page under it and never
   turns one; the dots turn them.
 - [ ] **R8b-H4** The tray with eight files: a swipe scrolls the strip first,
-  and turns the page only once it began at the strip's end.
+  and turns the page only once it began at the strip's end. With nine, a dot
+  pressed mid-swipe over the strip leaves the strip able to scroll on the
+  next gesture (a swallowed `.ended`, R8b review P3).
 - [ ] **R8b-H5** VoiceOver: the dots read after the page as "Pages, Page n of
   4, name", and VO-⇧-↑/↓ (increment, decrement) turn one page and stop at the
-  ends.
+  ends. Opened by VoiceOver onto Translate, moving into the editor takes the
+  keyboard and typing lands there (R8b re-review Q1).
 - [ ] **R8b-H6** Reduce Motion: a dot and ⌃Tab crossfade in place; a swipe
   still follows the fingers and settles without the spring's overshoot.
 - [ ] **R8b-H7** Typing in Safari, swipe to Clipboard: Safari keeps the
   keyboard and its caret keeps blinking. ⌃⌥⌘V then ⌃Tab: Translate takes the
   caret; ⌃⇧Tab twice reaches the Shelf and the next ⌃⇧Tab turns to Music
-  rather than switching Safari's tab; Escape folds the panel.
+  rather than switching Safari's tab; Escape folds the panel. On a Clipboard
+  the bare notch opened, a row clicked to copy it leaves Safari's caret
+  blinking, and a click into the search field takes it.
 - [ ] **R8b-H8** Every page in Russian at Panel Width 480 and 620: the dots
   and the gear clear the content, and the tooltips read Музыка, Полка, Буфер
   обмена, Перевод.

@@ -283,4 +283,60 @@ final class PageDotsTests: XCTestCase {
         for _ in 0..<600 where clock.isRunning { clock.advance(1.0 / 120) }
         XCTAssertNil(vm.pageTravel.leg)
     }
+
+    /// A second dot during a straight leg, for a page the leg does not pass,
+    /// carries the pages on from where they are on screen at the speed they
+    /// have: the same two pages in the same places, the outline the size it
+    /// was, the new page added at one end. Ending the first leg put the outline
+    /// at the first dot's page in one frame, on the ordinary double press
+    /// across the row (R8b review F5).
+    func testASecondDotOffAStraightLegCarriesThePagesOn() throws {
+        let clock = ManualPageClock()
+        let vm = try openModel(on: .player, clock: clock)
+        vm.travel(to: .translate, reduceMotion: false)
+        clock.advance(0.06)
+        let before = try XCTUnwrap(vm.travellingLeg)
+        let drawn = vm.drawnOpenBodySize
+        let speed = try XCTUnwrap(vm.pageTravel.settle?.velocity(at: clock.now))
+        func x(of page: Surface, on leg: PageTravel.Leg) throws -> CGFloat {
+            let index = try XCTUnwrap(leg.strip.pages.firstIndex(of: page))
+            return leg.strip.x(ofPage: index, at: leg.position, outlineWidth: drawn.width)
+        }
+
+        vm.travel(to: .tray, reduceMotion: false)
+        XCTAssertEqual(vm.surface, .tray)
+        let after = try XCTUnwrap(vm.travellingLeg)
+        XCTAssertEqual(after.mounted, before.mounted, "the same two pages on screen")
+        for page in before.mounted {
+            XCTAssertEqual(try x(of: page, on: after), try x(of: page, on: before), accuracy: 0.0001, "\(page) where it was")
+        }
+        XCTAssertEqual(vm.drawnOpenBodySize.width, drawn.width, accuracy: 0.0001)
+        XCTAssertEqual(vm.drawnOpenBodySize.height, drawn.height, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(vm.pageTravel.settle?.velocity(at: clock.now)), speed, accuracy: 0.0001)
+        XCTAssertTrue(after.reachable.contains(.tray), "the clickable region covers the page it is going to")
+        for _ in 0..<600 where clock.isRunning { clock.advance(1.0 / 120) }
+        XCTAssertNil(vm.pageTravel.leg)
+        XCTAssertEqual(vm.presented, .tray)
+    }
+
+    /// Where a page joins a straight leg: beyond either end of the leg in the
+    /// row's order, at that end; between them, at the end nearer where the
+    /// pages are, so they turn the shorter way. `shift` is how far the pages
+    /// already on the strip moved along it.
+    func testAPageJoinsAStraightLegOnItsSideOfTheRow() {
+        let row = Surface.pages
+        let early = PageStrip(pages: [.player, .clipboard], widths: [492, 560])
+        let onward = early.adding(.translate, width: 560, row: row, nearer: 0.3)
+        XCTAssertEqual(onward.strip, PageStrip(pages: [.player, .clipboard, .translate], widths: [492, 560, 560]))
+        XCTAssertEqual(onward.shift, 0)
+        let late = PageStrip(pages: [.tray, .translate], widths: [413, 560])
+        let back = late.adding(.player, width: 492, row: row, nearer: 0.8)
+        XCTAssertEqual(back.strip, PageStrip(pages: [.player, .tray, .translate], widths: [492, 413, 560]))
+        XCTAssertEqual(back.shift, 1)
+        let wide = PageStrip(pages: [.player, .translate], widths: [492, 560])
+        XCTAssertEqual(wide.adding(.tray, width: 413, row: row, nearer: 0.3).strip.pages, [.tray, .player, .translate])
+        XCTAssertEqual(wide.adding(.tray, width: 413, row: row, nearer: 0.3).shift, 1)
+        XCTAssertEqual(wide.adding(.tray, width: 413, row: row, nearer: 0.7).strip.pages, [.player, .translate, .tray])
+        XCTAssertEqual(wide.adding(.tray, width: 413, row: row, nearer: 0.7).shift, 0)
+    }
 }

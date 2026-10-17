@@ -255,6 +255,22 @@ final class PanelKeyRoutingTests: XCTestCase {
         }
         XCTAssertEqual(steps, [1, -1])
     }
+
+    /// A real mouse-down reaches `onPress` with where it landed in the
+    /// window, the point the controller reads into the body (R8b review F10).
+    func testARealPressReachesThePressSeam() throws {
+        let panel = NotchPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100))
+        defer { panel.close() }
+        var pressed: [NSPoint] = []
+        panel.onPress = { pressed.append($0) }
+        for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+            panel.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(
+                with: type, location: NSPoint(x: 40, y: 70), modifierFlags: [], timestamp: 0,
+                windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+            )))
+        }
+        XCTAssertEqual(pressed, [NSPoint(x: 40, y: 70)], "the press, once, and not its release")
+    }
 }
 
 /// A first responder that records the editing actions it receives.

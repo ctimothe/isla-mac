@@ -85,7 +85,30 @@ final class PageTravel: ObservableObject {
     /// the change of mind is a bend in its path rather than a stop and a
     /// start.
     func aim(strip: PageStrip, from position: CGFloat, to target: Int, reduceMotion: Bool) {
-        let velocity = leg?.strip == strip ? (settle?.velocity(at: clock.now) ?? 0) : 0
+        let velocity = leg?.strip == strip ? currentVelocity : 0
+        start(strip: strip, position: position, target: target, velocity: velocity, reduceMotion: reduceMotion)
+    }
+
+    /// Sends the leg under way on to a page its strip does not hold: `strip`
+    /// is that strip with the page added at one end (`PageStrip.adding`), and
+    /// `shift` how far that moved the pages already on it. They carry on from
+    /// where they are on screen at the speed they have, as a re-aim on the
+    /// same strip does (R8b review F5).
+    func aim(onto strip: PageStrip, shift: CGFloat, to target: Int, reduceMotion: Bool) {
+        guard let leg else { return }
+        start(
+            strip: strip, position: leg.position + shift, target: target, velocity: currentVelocity,
+            reduceMotion: reduceMotion
+        )
+    }
+
+    /// Pages a second the settle under way has on screen, or none at rest and
+    /// under the fingers.
+    private var currentVelocity: CGFloat { settle?.velocity(at: clock.now) ?? 0 }
+
+    private func start(
+        strip: PageStrip, position: CGFloat, target: Int, velocity: CGFloat, reduceMotion: Bool
+    ) {
         let low = min(Int(position.rounded(.down)), target)
         let high = max(Int(position.rounded(.up)), target)
         grab(strip: strip, position: position, reach: max(0, low)...min(strip.lastIndex, high))

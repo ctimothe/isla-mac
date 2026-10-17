@@ -294,32 +294,92 @@ final class ClipboardKeyboardTests: XCTestCase {
         }
     }
 
-    /// A press on the header strip or the dots is a way somewhere, not a
-    /// click into the field: it leaves the keyboard where it was. Anywhere
-    /// else on Clipboard or Translate it asks, as before, so the window is
-    /// key by the time the click reaches the field. A dot pressed on a
-    /// Clipboard reached by a swipe made the panel key on mouse-down, and the
-    /// current dot or a press dragged off one left it key (R8b review F2).
-    func testOnlyAPressOffTheHeaderAndTheDotsAsksForTheKeyboard() {
+    /// Only a press into the field asks for the keyboard (§19.16): Clipboard's
+    /// search field, Translate's source card. A row pressed to copy it, a dot,
+    /// the gear, Swap or the translation is a way somewhere or an action, not a
+    /// request to type. Excluding the header and the dots alone left every
+    /// other press asking, so a row copied on a Clipboard the bare notch
+    /// opened made the panel key on mouse-down, and a pinned panel kept it: a
+    /// ⌘V meant for the app underneath landed in the search field (R8b review
+    /// F2, re-review R2). That also covers the gear's last point below a
+    /// 24 pt header strip (re-review R5).
+    func testOnlyAPressIntoTheFieldAsksForTheKeyboard() {
         vm.isOpen = true
         vm.turnPage(to: .clipboard)
         let body = vm.openBodySize
         let header = vm.geometry.notchSize.height
+        func press(_ x: CGFloat, _ y: CGFloat) -> Bool { vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: x, y: y)) }
         for centre in PageDotsLayout.centres(bodySize: body) {
-            XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: centre), "a dot")
+            XCTAssertFalse(press(centre.x, centre.y), "a dot")
         }
         let gear = SurfaceHeaderLayout.gear(bodyWidth: body.width, notchHeight: header)
-        XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: gear.midX, y: gear.midY)), "the gear")
+        XCTAssertFalse(press(gear.midX, gear.midY), "the gear")
+        XCTAssertFalse(press(gear.midX, gear.maxY - 0.5), "the gear's last point")
         // The field is placed in the content, which starts under the header.
         let field = ClipboardHeader.searchField.offsetBy(dx: 0, dy: header)
-        XCTAssertTrue(vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: field.midX, y: field.midY)), "the search field")
-        XCTAssertTrue(vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: body.width / 2, y: body.height / 2)), "a row")
+        XCTAssertTrue(press(field.midX, field.midY), "the search field")
+        XCTAssertFalse(press(body.width / 2, body.height / 2), "a row, pressed to copy it")
+
+        vm.turnPage(to: .translate)
+        let width = vm.openBodySize.width
+        let card = TranslateLayout.sourceCard(bodyWidth: width).offsetBy(dx: 0, dy: header)
+        XCTAssertTrue(press(card.midX, card.midY), "the source card")
+        let result = TranslateLayout.resultCard(bodyWidth: width).offsetBy(dx: 0, dy: header)
+        XCTAssertFalse(press(result.midX, result.midY), "the translation")
+        let swap = TranslateLayout.pairBar(bodyWidth: width).swap.offsetBy(dx: 0, dy: header)
+        XCTAssertFalse(press(swap.midX, swap.midY), "Swap")
+        vm.translateShowsHistory = true
+        XCTAssertFalse(press(card.midX, card.midY), "the History list replaces the card")
+        vm.translateShowsHistory = false
 
         vm.turnPage(to: .tray)
-        XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: body.width / 2, y: body.height / 2)), "the Shelf types nothing")
+        XCTAssertFalse(press(body.width / 2, body.height / 2), "the Shelf types nothing")
         vm.turnPage(to: .translate)
         vm.isLockedPresentation = true
-        XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: body.width / 2, y: body.height / 2)), "never over the lock")
+        XCTAssertFalse(press(card.midX, card.midY), "never over the lock")
+    }
+
+    /// While the pages move, nothing is where the layout puts it at rest — the
+    /// dots ride the moving outline, the field slides in with its page — so no
+    /// press asks for the keyboard until they settle. Measured on the reach,
+    /// a dot pressed on the way onto Clipboard asked (R8b re-review R1).
+    func testNoPressAsksForTheKeyboardWhileThePagesMove() throws {
+        let clock = ManualPageClock()
+        vm.pageTravel.clock = clock
+        vm.isOpen = true
+        vm.turnPage(to: .tray)
+        vm.travel(to: .clipboard, reduceMotion: false)
+        clock.advance(0.08)
+        XCTAssertNotNil(vm.travellingLeg)
+        for centre in PageDotsLayout.centres(bodySize: vm.bodySize) {
+            XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: centre), "a dot on the moving outline")
+        }
+        let field = ClipboardHeader.searchField.offsetBy(dx: 0, dy: vm.geometry.notchSize.height)
+        let centre = CGPoint(x: field.midX, y: field.midY)
+        XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: centre), "the field on its way in")
+        for _ in 0..<600 where clock.isRunning { clock.advance(1.0 / 120) }
+        XCTAssertNil(vm.pageTravel.leg)
+        XCTAssertTrue(vm.pressClaimsKeyboard(atBodyPoint: centre), "at rest")
+    }
+
+    /// The press as the panel hands it over, in window coordinates, read into
+    /// the body by the controller: a y read the wrong way up or an x off the
+    /// body's left edge would put the field somewhere else, and no other test
+    /// drives the conversion (R8b review F10).
+    func testAPressIsReadFromTheWindowIntoTheBody() {
+        let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
+        let controller = NotchController()
+        controller.attachForTesting(viewModel: vm, rootView: root)
+        vm.isOpen = true
+        vm.turnPage(to: .clipboard)
+        let body = vm.openBodySize
+        let content = vm.geometry.contentRect(for: body)
+        func window(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: content.minX + x, y: content.maxY - y) }
+        let field = ClipboardHeader.searchField.offsetBy(dx: 0, dy: vm.geometry.notchSize.height)
+        controller.pressed(atWindowPoint: window(body.width / 2, body.height / 2))
+        XCTAssertFalse(vm.wantsKeyboard, "a row")
+        controller.pressed(atWindowPoint: window(field.midX, field.midY))
+        XCTAssertTrue(vm.wantsKeyboard, "the search field")
     }
 
     /// A swipe or a dot after ⌃Tab gives the keyboard back, as it does from

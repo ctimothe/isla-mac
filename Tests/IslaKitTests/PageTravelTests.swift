@@ -65,6 +65,20 @@ final class PageTravelTests: XCTestCase {
         vm.pageScroll(scroll(0, 0, .ended, at: 5), over: true)
     }
 
+    private func playing() -> NowPlayingFeed.Snapshot {
+        var snapshot = NowPlayingFeed.Snapshot()
+        snapshot.title = "Test Song"
+        snapshot.artist = "Test Artist"
+        snapshot.album = ""
+        snapshot.duration = 180
+        snapshot.elapsed = 9.2
+        snapshot.rate = 1
+        snapshot.isPlaying = true
+        snapshot.takenAt = Date()
+        snapshot.playerPID = 999
+        return snapshot
+    }
+
     private func settle() {
         for _ in 0..<600 where clock.isRunning { clock.advance(1.0 / 120) }
     }
@@ -214,6 +228,23 @@ final class PageTravelTests: XCTestCase {
         XCTAssertNil(vm.travellingLeg)
         XCTAssertFalse(vm.pageScroll(scroll(-30, 0), over: true), "the rest of that gesture is not the pages'")
         XCTAssertEqual(vm.surface, .player)
+    }
+
+    /// A song arriving under a swipe on the stage with no song — drawn as
+    /// Music's page — takes the page from under the fingers: the stage is not
+    /// a page. The pages go to rest, as they do under the drop surface or the
+    /// welcome. Left there, the empty player came back half turned when the
+    /// song stopped, with the clickable region still cut wide (R8b re-review R3).
+    func testASongArrivingUnderASwipeOnTheEmptyStageEndsIt() throws {
+        let vm = try openModel(on: .stage)
+        XCTAssertEqual(vm.presented, .player)
+        drag(vm, by: 100)
+        XCTAssertNotNil(vm.pageTravel.leg)
+        isolated.stores.media.apply(playing())
+        XCTAssertEqual(vm.presented, .stage)
+        XCTAssertNil(vm.pageTravel.leg)
+        XCTAssertEqual(vm.pageTravel.reachable, [], "nothing left cut wide")
+        XCTAssertFalse(vm.pageScroll(scroll(-30, 0), over: true), "the rest of that gesture is not the pages'")
     }
 
     /// A dot or ⌃Tab pressed while two fingers have the pages takes them: the

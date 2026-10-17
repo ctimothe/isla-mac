@@ -221,6 +221,12 @@ struct TranslatePane: View {
         }
         .onAppear { focused = wantsKeyboard }
         .onChange(of: wantsKeyboard) { _, wants in focused = wants }
+        // Focus that came without a press — VoiceOver moving into the editor —
+        // asks for the keyboard, as Clipboard's field does: a Translate the
+        // island landed on holds none, and the keys went to the app in front
+        // (R8b re-review Q1). Only on the page on screen, never on one drawn
+        // beside it while the pages travel.
+        .onChange(of: focused) { _, isFocused in if isFocused, isLive, !wantsKeyboard { wantsKeyboard = true } }
         // The list replaces the field; the field comes back asking for the
         // keyboard the panel still holds, one turn later so it exists to take it.
         .onChange(of: showsHistory) { _, shown in

@@ -89,6 +89,26 @@ struct PageStrip: Equatable {
     func x(ofPage index: Int, at position: CGFloat, outlineWidth: CGFloat) -> CGFloat {
         (outlineWidth - widths[index]) / 2 + offset(of: CGFloat(index)) - offset(of: position)
     }
+
+    /// The strip with `page` added at one end, for a leg under way that has
+    /// to go on to a page it does not hold — a second dot during a straight
+    /// leg. A page beyond either end in `row`'s order goes at that end; one
+    /// between them, at the end nearer `position`, so the pages turn the
+    /// shorter way. `shift` is how far the pages already on the strip moved
+    /// along it: one when the page went in front, none at the back. Nothing
+    /// already on it moves on screen.
+    func adding(
+        _ page: NotchViewModel.Surface, width: CGFloat, row: [NotchViewModel.Surface], nearer position: CGFloat
+    ) -> (strip: PageStrip, shift: CGFloat) {
+        let place = row.firstIndex(of: page) ?? 0
+        let first = pages.first.flatMap(row.firstIndex(of:)) ?? 0
+        let last = pages.last.flatMap(row.firstIndex(of:)) ?? 0
+        let inFront = place < min(first, last) ? true
+            : place > max(first, last) ? false
+            : position < CGFloat(lastIndex) / 2
+        guard inFront else { return (PageStrip(pages: pages + [page], widths: widths + [width]), 0) }
+        return (PageStrip(pages: [page] + pages, widths: [width] + widths), 1)
+    }
 }
 
 // MARK: - The gesture

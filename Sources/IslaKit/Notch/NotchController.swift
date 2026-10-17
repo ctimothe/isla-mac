@@ -1551,27 +1551,7 @@ final class NotchController {
             return vm.copyTranslationIfShowing()
         }
 
-        // Clicking away drops the keyboard but leaves the surface where it
-        // was, so a click back into the panel has to be able to ask for it
-        // again.
-        panel.onPress = { [weak self] location in
-            guard let vm = self?.viewModel, vm.presented.takesKeyboard else { return }
-            // Body coordinates run down from the open body's top-left; the
-            // window's run up from its bottom. Not the header strip, not the
-            // dots (R8b review F2).
-            let body = vm.geometry.contentRect(for: vm.openBodySize)
-            let point = CGPoint(x: location.x - body.minX, y: body.maxY - location.y)
-            guard vm.pressClaimsKeyboard(atBodyPoint: point) else { return }
-            // Never while the shield is up. The lock card takes clicks — that
-            // is how its transport works — and with the last-used tab on
-            // translate or notes, one of those clicks used to raise
-            // `wantsKeyboard`, which opens the panel and makes it key: a
-            // window the lock presentation has deliberately lifted *above* the
-            // shield, now holding the keyboard, in front of the password
-            // field. Typing on the lock screen belongs to the lock screen.
-            guard !vm.isLockedPresentation else { return }
-            vm.wantsKeyboard = true
-        }
+        panel.onPress = { [weak self] location in self?.pressed(atWindowPoint: location) }
 
         panel.contentView = root
         panel.ignoresMouseEvents = true
@@ -2276,6 +2256,31 @@ final class NotchController {
         let shape = geometry.contentScreenRect(for: body).insetBy(dx: -shoulder, dy: 0)
         let island = strip.union(shape)
         return bubble.isEmpty ? island : island.union(bubble)
+    }
+
+    /// A mouse-down on the panel, where it landed in the window
+    /// (`NotchPanel.onPress`): a press into the field of a surface that
+    /// types asks for the keyboard.
+    ///
+    /// Clicking away drops the keyboard but leaves the surface where it
+    /// was, so a click back into the field has to be able to ask for it
+    /// again.
+    func pressed(atWindowPoint location: NSPoint) {
+        guard let vm = viewModel, vm.presented.takesKeyboard else { return }
+        // Body coordinates run down from the open body's top-left; the
+        // window's run up from its bottom.
+        let body = vm.geometry.contentRect(for: vm.openBodySize)
+        let point = CGPoint(x: location.x - body.minX, y: body.maxY - location.y)
+        guard vm.pressClaimsKeyboard(atBodyPoint: point) else { return }
+        // Never while the shield is up. The lock card takes clicks — that
+        // is how its transport works — and with the last-used tab on
+        // translate or notes, one of those clicks used to raise
+        // `wantsKeyboard`, which opens the panel and makes it key: a
+        // window the lock presentation has deliberately lifted *above* the
+        // shield, now holding the keyboard, in front of the password
+        // field. Typing on the lock screen belongs to the lock screen.
+        guard !vm.isLockedPresentation else { return }
+        vm.wantsKeyboard = true
     }
 
     /// Test seam: gives the controller a model and a root view without building

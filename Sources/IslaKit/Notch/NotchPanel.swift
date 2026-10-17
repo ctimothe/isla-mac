@@ -99,9 +99,8 @@ final class NotchPanel: NSPanel {
     /// mouse down first — so the one place a click on the field can reliably
     /// be noticed is here, where every event the window receives passes.
     ///
-    /// With the press's point in the window: a press on the header strip or
-    /// the dots is a way somewhere, and asks for nothing
-    /// (`NotchViewModel.pressClaimsKeyboard`).
+    /// With the press's point in the window: only a press into the field
+    /// asks for the keyboard (`NotchViewModel.pressClaimsKeyboard`).
     var onPress: ((NSPoint) -> Void)?
 
     /// Raised on Escape, whatever has the keyboard. Collapsing is the one
