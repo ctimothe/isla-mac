@@ -723,6 +723,9 @@ enum Theme {
 
     /// The system green, `#30D158`: the charging bolt and its level.
     static let chargingGreen = Color(red: 48.0 / 255, green: 209.0 / 255, blue: 88.0 / 255)
+    /// The volume pop-up's level (spec §19.5 d): amber, filled from 0.82 to
+    /// 1.0 with a glow — the reference's colour for a level the keys move.
+    static let hudAmber = Color(red: 250.0 / 255, green: 167.0 / 255, blue: 35.0 / 255)
 
     /// The island's stroke (spec §19.2), which replaced §3.3's key line: 2 pt
     /// centred on the outline, the activity's tint at 0.21 or white at 0.14,
@@ -1631,5 +1634,12 @@ extension View {
     /// so read as regular, must keep saying `.regular` out loud.
     func islandFont(_ role: Theme.TypeRole, weight: Font.Weight? = nil) -> some View {
         islandFont(role.size, weight: weight ?? role.weight)
+    }
+
+    /// Sets a line of text on a baseline `y` below the top of a `.topLeading`
+    /// stack: the reference measures an alert's text by its baseline, and a
+    /// frame's top would move with the font's ascent.
+    func islandBaseline(_ y: CGFloat) -> some View {
+        alignmentGuide(.top) { $0[.firstTextBaseline] - y }
     }
 }

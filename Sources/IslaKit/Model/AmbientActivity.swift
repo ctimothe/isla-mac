@@ -18,17 +18,6 @@ enum AmbientActivity: Equatable {
     /// A Bluetooth audio output appeared.
     case headphones(name: String, symbol: String)
 
-    /// How much wider than the notch the pill grows for it. The charger is
-    /// §19.4's compact activity, the notch plus 180 for its word, its level and
-    /// its battery. A device name needs a wider right wing: two 104 pt wings,
-    /// 208 in all, until §19.5 c makes headphones an expanded alert.
-    var extensionWidth: CGFloat {
-        switch self {
-        case .charging: return NotchMetrics.compactChargingExtension
-        case .headphones: return NotchMetrics.ambientNameExtension
-        }
-    }
-
     /// Whether the island can show it at all. A Mac with no battery shows no
     /// Charging activity (spec §19.4): it reports no level, and the level and
     /// the battery drawn round it are the activity.

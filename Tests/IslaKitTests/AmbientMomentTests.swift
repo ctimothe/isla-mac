@@ -163,23 +163,22 @@ final class AmbientMomentTests: XCTestCase {
         XCTAssertFalse(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [], hasInternalBattery: true), "no displays reported")
     }
 
+    /// The charger is a compact activity, the notch plus 180; headphones an
+    /// expanded alert in the reference's shape. Neither widens to the music
+    /// it replaces — that pill is gone, not under it (spec §19.1) — and
+    /// neither outgrows the panel.
     func testThePillGrowsOnlyAsFarAsTheMomentNeeds() {
         let notch = CGSize(width: 200, height: 32)
-        let folded = notch
-        let charging = NotchViewModel.ambientBodySize(.charging(level: 80, isCharging: true), media: folded, notchSize: notch, bodyWidth: 560)
-        XCTAssertEqual(charging.width, 200 + NotchMetrics.compactChargingExtension, "spec §19.4: the notch plus 180")
+        let charging = NotchViewModel.ambientBodySize(.charging(level: 80, isCharging: true), notchSize: notch, bodyWidth: 560)
+        XCTAssertEqual(charging, CGSize(width: 200 + NotchMetrics.compactChargingExtension, height: 32), "spec §19.4: the notch plus 180")
         let pods = NotchViewModel.ambientBodySize(
-            .headphones(name: "AirPods Pro", symbol: "airpodspro"), media: folded, notchSize: notch, bodyWidth: 560
+            .headphones(name: "AirPods Pro", symbol: "airpodspro"), notchSize: notch, bodyWidth: 560
         )
-        XCTAssertEqual(pods.width, 200 + NotchMetrics.ambientNameExtension)
+        XCTAssertEqual(pods, ExpandedAlertShape.headphones.bodySize(notchSize: notch, bodyWidth: 560))
         let narrow = NotchViewModel.ambientBodySize(
-            .headphones(name: "AirPods Pro", symbol: "airpodspro"), media: folded, notchSize: notch, bodyWidth: 380
+            .headphones(name: "AirPods Pro", symbol: "airpodspro"), notchSize: notch, bodyWidth: 300
         )
-        XCTAssertEqual(narrow.width, 380, "never wider than the panel it would open into")
-        let overMusic = NotchViewModel.ambientBodySize(
-            .charging(level: 80, isCharging: true), media: CGSize(width: 460, height: 32), notchSize: notch, bodyWidth: 560
-        )
-        XCTAssertEqual(overMusic.width, 460, "never narrower than the music pill it stands in for")
+        XCTAssertEqual(narrow.width, 300, "never wider than the panel it would open into")
     }
 
     /// All three of "The island shows" (Charging, Headphones Connecting, New

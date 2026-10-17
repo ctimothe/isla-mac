@@ -45,13 +45,21 @@ struct HUDReading: Equatable {
     /// The device the volume was applied to, so the glyph can be looked up
     /// after the callback. Nil for the two brightnesses.
     var outputDevice: AudioDeviceID?
+    /// The output's name ("MacBook Pro Speakers"), which the pop-up shows
+    /// above its bar (spec §19.5 d). Found with the glyph, after the callback,
+    /// for the same reason; nil for the two brightnesses.
+    var deviceName: String?
 
-    init(kind: HUDKind, level: Float, muted: Bool, deviceSymbol: String?, outputDevice: AudioDeviceID? = nil) {
+    init(
+        kind: HUDKind, level: Float, muted: Bool, deviceSymbol: String?, outputDevice: AudioDeviceID? = nil,
+        deviceName: String? = nil
+    ) {
         self.kind = kind
         self.level = level
         self.muted = muted
         self.deviceSymbol = deviceSymbol
         self.outputDevice = outputDevice
+        self.deviceName = deviceName
     }
 }
 

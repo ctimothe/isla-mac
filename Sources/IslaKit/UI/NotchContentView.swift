@@ -70,7 +70,10 @@ struct NotchContentView: View {
     /// Whether the collapsed pill is out of the notch: any activity at all —
     /// an alert, the song, or the Shelf holding files (`IslandActivity`).
     private var pillShown: Bool { vm.activity != .none }
-    private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : Theme.collapsedTopRadius }
+    /// The shoulder: the open panel's, or what the shut island shows —
+    /// an expanded alert's are wider than a compact activity's
+    /// (`IslandShapeRadii`).
+    private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : vm.closedTopRadius }
 
     // MARK: - Resting in the notch
 
@@ -101,11 +104,10 @@ struct NotchContentView: View {
         // animates its radii, so it springs 22 → 26 with the body's height.
         if isOpen { return Theme.openBottomRadius(tall: vm.isCurrentTabExpanded) }
         if restsInNotch && !isAwake { return Theme.restingNotchBottomRadius }
-        // The peek is a taller island, and its corners grow with it (spec
-        // §2.3): 16 against the compact island's 12.
-        // Only while the peek is what is drawn: under the pop-up it is not.
-        if vm.activity == .peek { return Theme.peekBottomRadius }
-        return Theme.collapsedBottomRadius
+        // The peek's taller island takes 16, each expanded alert its own
+        // (§19.5), every compact activity 12.67 — whichever is drawn, since
+        // an alert replaces what it outranks.
+        return IslandShapeRadii.closed(for: vm.activity).bottom
     }
 
     /// The island's surface: black, or `#1C1C1E` while the pointer is on it
@@ -537,7 +539,7 @@ struct NotchContentView: View {
                 switch vm.activity {
                 case .hud(let hud):
                     hudHeader(hud)
-                        .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
+                        .transition(Theme.expandedArrival(reduceMotion: reduceMotion))
                 case .ambient(let ambient):
                     ambientHeader(ambient)
                         .transition(ambientArrival(ambient))
@@ -556,11 +558,13 @@ struct NotchContentView: View {
         }
     }
 
-    /// The charger is a compact activity and arrives as one (spec §19.3);
-    /// headphones keep their blur-replace until §19.5 c makes them expanded.
+    /// The charger is a compact activity and arrives as one; headphones are
+    /// an expanded alert and arrive as one (spec §19.3).
     private func ambientArrival(_ ambient: AmbientActivity) -> AnyTransition {
-        if case .charging = ambient { return Theme.compactArrival(reduceMotion: reduceMotion) }
-        return reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace)
+        switch ambient {
+        case .charging: return Theme.compactArrival(reduceMotion: reduceMotion)
+        case .headphones: return Theme.expandedArrival(reduceMotion: reduceMotion)
+        }
     }
 
     /// What the island is to VoiceOver and Switch Control: one button called
@@ -682,33 +686,38 @@ struct NotchContentView: View {
         // stack above it — see `islandAccessibility(open:)`.
     }
 
-    /// Headphones, white, the device's own symbol at left and its name at
-    /// right, truncating at the tail — never into the camera. "Connected" is
-    /// left to the accessibility label: the glyph arriving already says it.
-    /// §3.6's form, until §19.5 c makes it an expanded alert.
+    /// Headphones connected (spec §19.5 c), an expanded alert: the device's
+    /// own symbol, hierarchical, at left; "Connected" over the device's name
+    /// beside it, the name truncating at its tail. The battery ring waits for
+    /// a level Isla can read without a new permission (§19.15, R9), so the
+    /// name takes its width.
     private func headphonesHeader(name: String, symbol: String) -> some View {
-        let wing = max(0, (size.width - vm.geometry.notchSize.width) / 2)
-        return HStack(spacing: 0) {
+        let notchHeight = vm.geometry.notchSize.height
+        let glyph = HeadphonesAlertLayout.glyphFrame(notchHeight: notchHeight)
+        return ZStack(alignment: .topLeading) {
             Image(systemName: symbol)
-                .islandFont(.subhead, weight: .semibold)
-                .foregroundStyle(Color.white)
-                // Centred on the cover's own column, so the glyph takes the
-                // cover's place rather than sitting beside it.
-                .frame(width: CompactIslandLayout.coverSide(height: size.height),
-                       height: CompactIslandLayout.coverSide(height: size.height))
-                .padding(.leading, CompactIslandLayout.coverInset)
-
-            Spacer(minLength: 0)
-
+                .resizable()
+                .symbolRenderingMode(.hierarchical)
+                .scaledToFit()
+                .foregroundStyle(Color.white.opacity(HeadphonesAlertLayout.glyphOpacity))
+                .frame(width: glyph.width, height: glyph.height)
+                .offset(x: glyph.minX, y: glyph.minY)
+            Text(localized("Connected"))
+                .islandFont(HeadphonesAlertLayout.connectedSize)
+                .foregroundStyle(Color.white.opacity(HeadphonesAlertLayout.connectedOpacity))
+                .lineLimit(1)
+                .islandBaseline(HeadphonesAlertLayout.connectedBaseline(notchHeight: notchHeight))
+                .offset(x: HeadphonesAlertLayout.textLeading)
             Text(name)
-                .font(Theme.TypeRole.reading.font(weight: .semibold))
-                .foregroundStyle(Color.white)
+                .islandFont(HeadphonesAlertLayout.nameSize)
+                .foregroundStyle(Color.white.opacity(HeadphonesAlertLayout.nameOpacity))
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(width: CompactIslandLayout.deviceNameWidth(wing: wing), alignment: .trailing)
-                .padding(.trailing, CompactIslandLayout.coverInset)
+                .frame(width: HeadphonesAlertLayout.nameWidth(islandWidth: size.width), alignment: .leading)
+                .islandBaseline(HeadphonesAlertLayout.nameBaseline(notchHeight: notchHeight))
+                .offset(x: HeadphonesAlertLayout.textLeading)
         }
-        .frame(width: size.width, height: size.height)
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
 
     /// The Shelf holding files (spec §19.4): `tray.full.fill`, white, 26 × 20
@@ -735,34 +744,59 @@ struct NotchContentView: View {
         .frame(width: size.width, height: size.height)
     }
 
-    /// The volume or brightness pop-up, in the pill's two wings (spec §12;
-    /// the boards' `Island-HUD-*`): the glyph in the left wing where the cover
-    /// sits, the level as a bar in the right wing — a track 80 × 6, radius 3,
-    /// white 0.18, with a white fill (white 0.32 muted, still at the level it
-    /// will return to) and no number. The bar steps on `hudLevel`; under
-    /// Reduce Motion it steps without gliding.
+    /// The volume or brightness pop-up (spec §19.5 d), an expanded alert: the
+    /// output's name — or which brightness — over a row of the symbol, the
+    /// bar and the level as a number. The bar fills in amber with a glow;
+    /// muted, white 0.32 at the level it will return to, no glow. It steps on
+    /// `hudLevel` per press; under Reduce Motion it steps without gliding.
     private func hudHeader(_ hud: HUDMoment) -> some View {
-        let track = HUDLayout.trackFrame(islandWidth: size.width, height: size.height)
+        let notchHeight = vm.geometry.notchSize.height
+        let track = HUDLayout.trackFrame(islandWidth: size.width, notchHeight: notchHeight)
+        let symbol = HUDLayout.symbolFrame(notchHeight: notchHeight)
+        let fill: AnyShapeStyle = hud.muted
+            ? AnyShapeStyle(Color.white.opacity(HUDLayout.mutedFillOpacity))
+            : AnyShapeStyle(LinearGradient(
+                colors: [Theme.hudAmber.opacity(HUDLayout.fillStartOpacity), Theme.hudAmber],
+                startPoint: .leading, endPoint: .trailing
+            ))
         return ZStack(alignment: .topLeading) {
+            Text(hud.title)
+                .islandFont(HUDLayout.titleSize)
+                .foregroundStyle(Color.white.opacity(HUDLayout.titleOpacity))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: HUDLayout.titleWidth(islandWidth: size.width), alignment: .leading)
+                .islandBaseline(HUDLayout.titleBaseline(notchHeight: notchHeight))
+                .offset(x: HUDLayout.titleLeading)
             Image(systemName: hud.symbol)
-                .font(.system(size: hud.symbolPointSize, weight: .semibold))
-                // Secondary while muted, as the board draws the slash.
-                .foregroundStyle(hud.muted ? Theme.secondary : Color.white)
-                .frame(width: CompactIslandLayout.coverSide(height: size.height),
-                       height: CompactIslandLayout.coverSide(height: size.height))
-                .position(
-                    x: CompactIslandLayout.momentGlyphCentreX,
-                    y: size.height / 2
-                )
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(Color.white)
+                .frame(width: symbol.width, height: symbol.height)
+                .offset(x: symbol.minX, y: symbol.minY)
             RoundedRectangle(cornerRadius: HUDLayout.barRadius, style: .continuous)
                 .fill(Color.white.opacity(HUDLayout.trackOpacity))
                 .frame(width: track.width, height: track.height)
                 .offset(x: track.minX, y: track.minY)
             RoundedRectangle(cornerRadius: HUDLayout.barRadius, style: .continuous)
-                .fill(Color.white.opacity(hud.fillOpacity))
+                .fill(fill)
+                .shadow(
+                    color: hud.muted ? .clear : Theme.hudAmber.opacity(HUDLayout.glowOpacity),
+                    radius: HUDLayout.glowRadius
+                )
                 .frame(width: track.width * CGFloat(hud.level), height: track.height)
                 .offset(x: track.minX, y: track.minY)
                 .animation(Theme.hudLevel(reduceMotion: reduceMotion), value: hud.level)
+            // Centred on the bar, its right edge on the reference's 34.5.
+            Text(hud.percent, format: .number)
+                .font(.system(size: HUDLayout.numberSize, design: .rounded).monospacedDigit())
+                .foregroundStyle(Color.white.opacity(HUDLayout.numberOpacity))
+                .contentTransition(.numericText(value: Double(hud.percent)))
+                .lineLimit(1)
+                .fixedSize()
+                .frame(width: max(0, size.width - HUDLayout.numberTrailingInset), height: track.height,
+                       alignment: .trailing)
+                .offset(y: track.minY)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         // No element of its own: like the other moments, the pop-up is the

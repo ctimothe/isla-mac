@@ -118,10 +118,6 @@ enum NotchMetrics {
     /// (it is cut for 444 pt), so this is only a drawn height and an active
     /// rect.
     static let sneakPeekHeight: CGFloat = 50
-    /// The headphones moment: a glyph in the left wing and a device name in
-    /// the right, 104 pt each (spec §3.6) — the same wings the volume pop-up
-    /// takes in R5, so every "something happened" moment is one width. Enough
-    /// for "AirPods Pro Max" before the name truncates at its tail. 220 until
-    /// 2026-10-15, with 110 pt wings.
-    static let ambientNameExtension: CGFloat = 208
+    // The headphones and the volume pop-up are expanded alerts since spec
+    // §19.5 c and d, sized by `ExpandedAlertShape`, not by wings.
 }

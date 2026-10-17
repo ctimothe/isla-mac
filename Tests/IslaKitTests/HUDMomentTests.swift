@@ -16,8 +16,13 @@ final class HUDMomentTests: XCTestCase {
 
     // MARK: Glyphs
 
-    func testTheLeftWingGlyphFollowsTheKindAndTheState() {
+    /// Spec §19.5 d: `speaker.wave.1.fill` … `speaker.wave.3.fill` by level,
+    /// in thirds as the Mac's own volume does it.
+    func testTheGlyphFollowsTheKindAndTheState() {
         XCTAssertEqual(HUDMoment(reading(.volume, 0.62)).symbol, "speaker.wave.2.fill")
+        XCTAssertEqual(HUDMoment(reading(.volume, 0.2)).symbol, "speaker.wave.1.fill")
+        XCTAssertEqual(HUDMoment(reading(.volume, 1 / 3)).symbol, "speaker.wave.1.fill", "a third is still one wave")
+        XCTAssertEqual(HUDMoment(reading(.volume, 0.9)).symbol, "speaker.wave.3.fill")
         XCTAssertEqual(HUDMoment(reading(.volume, 0)).symbol, "speaker.fill", "level 0")
         XCTAssertEqual(HUDMoment(reading(.volume, 0.62, muted: true)).symbol, "speaker.slash.fill")
         XCTAssertEqual(HUDMoment(reading(.volume, 0, muted: true)).symbol, "speaker.slash.fill", "mute wins over silence")
@@ -40,63 +45,21 @@ final class HUDMomentTests: XCTestCase {
     }
 
     func testEveryGlyphResolves() {
-        let all = ["speaker.wave.2.fill", "speaker.fill", "speaker.slash.fill", "sun.max.fill", "light.max"]
+        let all = ["speaker.wave.1.fill", "speaker.wave.2.fill", "speaker.wave.3.fill", "speaker.fill",
+                   "speaker.slash.fill", "sun.max.fill", "light.max"]
             + Array(HUDSymbol.personalDevices)
         for symbol in all {
             XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), symbol)
         }
     }
 
-    func testSymbolSizeIs13AndADeviceGlyphIs12() {
-        XCTAssertEqual(HUDMoment(reading()).symbolPointSize, 13)
-        XCTAssertEqual(HUDMoment(reading(.volume, 0.4, symbol: "airpods.pro")).symbolPointSize, 12, "the AirPods board")
-    }
-
-    // MARK: The bar
-
-    func testTheBarIsATrackOf80By6AtTheRightWing() {
-        // 428 wide: a 220 notch and two 104 wings. Track x is 220 + 104 + 12.
-        let track = HUDLayout.trackFrame(islandWidth: 428, height: 38)
-        XCTAssertEqual(track.minX, 336)
-        XCTAssertEqual(track.width, 80)
-        XCTAssertEqual(track.height, 6)
-        XCTAssertEqual(track.minY, 16, "centred at 19, as the board's y of 16")
-        XCTAssertEqual(HUDLayout.barRadius, 3)
-        XCTAssertEqual(HUDLayout.trackOpacity, 0.18)
-        XCTAssertEqual(track.maxX, 428 - 12, "12 from the edge")
-        // Centred in a taller or shorter island too.
-        XCTAssertEqual(HUDLayout.trackFrame(islandWidth: 428, height: 32).midY, 16)
-    }
-
-    func testTheFillIsTheLevelOfTheTrackAndMutedKeepsTheLevel() {
-        XCTAssertEqual(HUDLayout.fillFrame(level: 0.5, islandWidth: 428, height: 38).width, 40)
-        XCTAssertEqual(HUDLayout.fillFrame(level: 0, islandWidth: 428, height: 38).width, 0)
-        XCTAssertEqual(HUDLayout.fillFrame(level: 1, islandWidth: 428, height: 38).width, 80)
-        XCTAssertEqual(HUDLayout.fillFrame(level: 1.4, islandWidth: 428, height: 38).width, 80, "clamped")
+    /// Muted keeps the level it will return to, and only the volume mutes.
+    /// The bar itself is `ExpandedAlertLayoutTests`'.
+    func testMutedKeepsTheLevel() {
         let muted = HUDMoment(reading(.volume, 0.62, muted: true))
         XCTAssertEqual(muted.level, 0.62, "muted keeps the level it will return to")
-        XCTAssertEqual(muted.fillOpacity, 0.32)
-        XCTAssertEqual(HUDMoment(reading(.volume, 0.62)).fillOpacity, 1)
-        // Only the volume mutes.
         XCTAssertFalse(HUDMoment(reading(.display, 0.62, muted: true)).muted)
-    }
-
-    func testThePopUpIsTheNotchPlusTwo104Wings() throws {
-        XCTAssertEqual(HUDLayout.wing, 104)
-        let hud = HUDMoment(reading())
-        XCTAssertEqual(hud.extensionWidth, 208)
-        let media = CGSize(width: 300, height: 38)
-        let notch = CGSize(width: 220, height: 38)
-        let size = NotchViewModel.hudBodySize(hud, media: media, notchSize: notch, bodyWidth: 560)
-        XCTAssertEqual(size, CGSize(width: 428, height: 38), "428 wide, the closed island's height")
-        // Never wider than the panel it turns into, never narrower than the pill under it.
-        XCTAssertEqual(NotchViewModel.hudBodySize(hud, media: media, notchSize: notch, bodyWidth: 400).width, 400)
-        XCTAssertEqual(
-            NotchViewModel.hudBodySize(hud, media: CGSize(width: 520, height: 50), notchSize: notch, bodyWidth: 560),
-            CGSize(width: 520, height: 38), "a peek's height is not taken, and its width is not shrunk"
-        )
-        // It is the headphones' width: one width for every "something happened" moment.
-        XCTAssertEqual(hud.extensionWidth, NotchMetrics.ambientNameExtension)
+        XCTAssertEqual(muted.percent, 62)
     }
 
     // MARK: Accessibility
@@ -150,8 +113,10 @@ final class HUDMomentTests: XCTestCase {
         let hud = HUDMoment(reading())
         vm.hud = hud
         XCTAssertEqual(vm.activity, .hud(hud), "the pop-up takes the pill")
-        let width = vm.bodySize.width
-        XCTAssertEqual(width, min(vm.geometry.notchSize.width + 208, vm.geometry.expandedSize.width))
+        XCTAssertEqual(
+            vm.bodySize,
+            ExpandedAlertShape.volume.bodySize(notchSize: vm.geometry.notchSize, bodyWidth: vm.geometry.expandedSize.width)
+        )
 
         vm.hud = nil
         vm.ambient = nil
@@ -264,8 +229,8 @@ final class HUDMomentTests: XCTestCase {
 
     // MARK: Render
 
-    /// The pop-up draws over each of the four kinds without trapping, and the
-    /// island at its width is wide enough for its track.
+    /// The pop-up draws over each of the three kinds without trapping, and the
+    /// island takes the expanded alert's shape (spec §19.5 d).
     func testThePopUpRenders() throws {
         guard let geometry = NotchGeometry.current() else { return XCTFail("a test host always has a screen") }
         for kind in [HUDKind.volume, .display, .keyboard] {
@@ -275,11 +240,16 @@ final class HUDMomentTests: XCTestCase {
                 Color(white: 0.55)
                 NotchContentView(vm: vm)
             }
-            .frame(width: vm.geometry.expandedSize.width + 80, height: vm.geometry.notchSize.height + 30)
+            .frame(width: vm.geometry.expandedSize.width + 80, height: vm.geometry.notchSize.height + 80)
             let renderer = ImageRenderer(content: view)
             renderer.scale = 2
             XCTAssertNotNil(renderer.nsImage, "\(kind)")
-            XCTAssertGreaterThan(vm.bodySize.width, vm.geometry.notchSize.width + 200)
+            XCTAssertEqual(
+                vm.bodySize,
+                ExpandedAlertShape.volume.bodySize(
+                    notchSize: vm.geometry.notchSize, bodyWidth: vm.geometry.expandedSize.width
+                )
+            )
         }
     }
 }

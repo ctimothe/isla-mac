@@ -179,6 +179,9 @@ final class MediaKeyHUDTests: XCTestCase {
     /// Every device the glyph lookup was asked about: the enumerator, counted.
     private var glyphLookups: [AudioDeviceID] = []
     private var glyphs: [AudioDeviceID: String] = [42: "airpods.pro"]
+    /// And the name lookup, counted the same way.
+    private var nameLookups: [AudioDeviceID] = []
+    private var names: [AudioDeviceID: String] = [42: "AirPods Pro"]
     private var moment: TimeInterval = 1000
 
     private func hud() -> MediaKeyHUD {
@@ -197,7 +200,11 @@ final class MediaKeyHUDTests: XCTestCase {
             repairer: repair,
             ledger: ledger,
             currentBuildIdentity: { [unowned self] in self.build },
-            sessionIsAvailable: { [unowned self] in self.sessionAvailable }
+            sessionIsAvailable: { [unowned self] in self.sessionAvailable },
+            deviceName: { [unowned self] id in
+                self.nameLookups.append(id)
+                return self.names[id]
+            }
         )
         hud.isLocked = { [unowned self] in self.locked }
         hud.onReading = { [unowned self] in self.readings.append($0) }
@@ -589,6 +596,28 @@ final class MediaKeyHUDTests: XCTestCase {
         await drain()
         XCTAssertEqual(glyphLookups.count, 2)
         XCTAssertEqual(readings.last?.deviceSymbol, "headphones")
+    }
+
+    /// The pop-up names the output it changed (spec §19.5 d). The name is
+    /// found with the glyph — after the callback, once per hold — since it is
+    /// the same CoreAudio enumeration.
+    func testThePopUpNamesTheOutputFoundOncePerHold() async {
+        let hud = hud()
+        on(hud)
+        applier.reading = HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil, outputDevice: 42)
+        _ = hud.handle(down(.volumeUp), modifiers: .none)
+        XCTAssertTrue(nameLookups.isEmpty, "zero lookups from handle(...)")
+        for _ in 0..<5 { _ = hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none) }
+        await drain()
+        XCTAssertEqual(nameLookups, [42], "one lookup for the hold")
+        XCTAssertTrue(readings.allSatisfy { $0.deviceName == "AirPods Pro" })
+
+        _ = hud.handle(up(.volumeUp), modifiers: .none)
+        names[42] = "External Headphones"
+        _ = hud.handle(down(.volumeUp), modifiers: .none)
+        await drain()
+        XCTAssertEqual(nameLookups.count, 2, "a new hold asks again")
+        XCTAssertEqual(readings.last?.deviceName, "External Headphones")
     }
 
     func testBrightnessReadingsNeedNoGlyphAndAreShownAtOnce() {

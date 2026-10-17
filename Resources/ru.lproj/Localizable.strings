@@ -564,3 +564,7 @@
 "Use Online" = "Перевести онлайн";
 "No translations yet" = "Переводов пока нет";
 "Sends this text to MyMemory over the internet." = "Отправляет этот текст в MyMemory через интернет.";
+
+/* The volume pop-up names what the brightness keys move (spec §19.5 d). */
+"Display Brightness" = "Яркость дисплея";
+"Keyboard Brightness" = "Подсветка клавиатуры";

@@ -2275,8 +2275,7 @@ final class NotchController {
         case .headphones: switchOn = NotchViewModel.headphonesEnabled
         }
         let grown = NotchViewModel.ambientBodySize(
-            activity, media: vm.bodySize, notchSize: vm.geometry.notchSize,
-            bodyWidth: vm.geometry.expandedSize.width
+            activity, notchSize: vm.geometry.notchSize, bodyWidth: vm.geometry.expandedSize.width
         )
         let blocked = Self.alertsBlocked(
             isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
@@ -2509,7 +2508,9 @@ final class NotchController {
         // island with dead ends is the worse trade, because the dead ends are
         // invisible and the menu bar's are not.
         updateShelfZone(open: open, size: size)
-        let slack = open ? Theme.openTopRadius : Theme.collapsedTopRadius
+        // The shoulders of what is drawn: an expanded alert's are wider than a
+        // compact activity's (`IslandShapeRadii`).
+        let slack = open ? Theme.openTopRadius : vm.closedTopRadius
         let rect = vm.geometry.contentRect(for: size).insetBy(dx: -slack, dy: 0)
         rootView.activeRect = NotchRootView.reachingTopEdge(rect, windowHeight: vm.geometry.windowSize.height)
         geometryTrace(String(format: "activeRect open=%d w=%.0f h=%.0f", open ? 1 : 0, rect.width, rect.height))

@@ -1367,13 +1367,9 @@ final class NotchViewModel: ObservableObject {
         )
         switch activity {
         case .hud(let hud):
-            return Self.hudBodySize(
-                hud, media: media, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
-            )
+            return Self.hudBodySize(hud, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .ambient(let ambient):
-            return Self.ambientBodySize(
-                ambient, media: media, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
-            )
+            return Self.ambientBodySize(ambient, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .shelf:
             return Self.shelfBodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .peek, .music, .none:
@@ -1387,25 +1383,34 @@ final class NotchViewModel: ObservableObject {
         CGSize(width: min(notchSize.width + NotchMetrics.compactShelfExtension, bodyWidth), height: notchSize.height)
     }
 
-    /// The pop-up: two 104 pt wings on the notch, the notch's own height, and
-    /// never wider than the panel nor narrower than the music pill it stands
-    /// over. Pure, so the arithmetic has tests.
-    nonisolated static func hudBodySize(
-        _ hud: HUDMoment, media: CGSize, notchSize: CGSize, bodyWidth: CGFloat
-    ) -> CGSize {
-        let width = min(notchSize.width + hud.extensionWidth, bodyWidth)
-        return CGSize(width: max(media.width, width), height: notchSize.height)
+    /// The pop-up: an expanded alert, the reference's 245.4 × 103 on a notch
+    /// of any size (spec §19.5 d, `ExpandedAlertShape`). It no longer widens
+    /// to the music pill it replaces: that pill is gone, not under it (§19.1).
+    /// Pure, so the arithmetic has tests.
+    nonisolated static func hudBodySize(_ hud: HUDMoment, notchSize: CGSize, bodyWidth: CGFloat) -> CGSize {
+        ExpandedAlertShape.volume.bodySize(notchSize: notchSize, bodyWidth: bodyWidth)
     }
 
-    /// At least as wide as the moment needs, never narrower than the music
-    /// pill it may be standing in for, never wider than the panel. Pure, so
-    /// the arithmetic has tests.
+    /// The charger, compact: the notch plus 180 at the notch's height (§19.4).
+    /// Headphones, expanded: the reference's 370.3 × 95 (§19.5 c). Never wider
+    /// than the panel. Pure, so the arithmetic has tests.
     nonisolated static func ambientBodySize(
-        _ ambient: AmbientActivity, media: CGSize, notchSize: CGSize, bodyWidth: CGFloat
+        _ ambient: AmbientActivity, notchSize: CGSize, bodyWidth: CGFloat
     ) -> CGSize {
-        let width = min(notchSize.width + ambient.extensionWidth, bodyWidth)
-        return CGSize(width: max(media.width, width), height: notchSize.height)
+        switch ambient {
+        case .charging:
+            return CGSize(
+                width: min(notchSize.width + NotchMetrics.compactChargingExtension, bodyWidth),
+                height: notchSize.height
+            )
+        case .headphones:
+            return ExpandedAlertShape.headphones.bodySize(notchSize: notchSize, bodyWidth: bodyWidth)
+        }
     }
+
+    /// The shut island's shoulder: the radius its shape and hit rects take
+    /// for what it shows (`IslandShapeRadii`).
+    var closedTopRadius: CGFloat { IslandShapeRadii.closed(for: activity).top }
 
     static let hasCompletedFirstRunKey = "hasCompletedFirstRun"
 

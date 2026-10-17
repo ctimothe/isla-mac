@@ -121,6 +121,8 @@ final class MediaKeyHUD: ObservableObject {
     /// The glyph for an output device. Production asks CoreAudio about that one
     /// device; a test counts the calls.
     typealias DeviceSymbol = (AudioDeviceID) -> String?
+    /// The output's name, found with its glyph; a seam like `DeviceSymbol`.
+    typealias DeviceName = (AudioDeviceID) -> String?
 
     /// Seconds on a monotonic clock. A seam: the tests move time by hand.
     typealias Clock = @MainActor () -> TimeInterval
@@ -138,6 +140,7 @@ final class MediaKeyHUD: ObservableObject {
     private let applier: MediaKeyApplying
     private let schedule: Scheduler
     private let deviceSymbol: DeviceSymbol
+    private let deviceName: DeviceName
     private let now: Clock
     private let grantNotifier: AccessibilityGrantNotifying
     private let repairer: AccessibilityRepairing
@@ -224,6 +227,8 @@ final class MediaKeyHUD: ObservableObject {
 
     /// Output-device glyphs found so far, for the repeats of a held key only.
     private var glyphs: [AudioDeviceID: String?] = [:]
+    /// And their names, found alongside.
+    private var names: [AudioDeviceID: String?] = [:]
 
     /// Every collaborator is optional and resolved in the body, where the main
     /// actor is known to be held: the real ones are main-actor values and a
@@ -240,7 +245,8 @@ final class MediaKeyHUD: ObservableObject {
         repairer: AccessibilityRepairing? = nil,
         ledger: AccessibilityRepairLedger? = nil,
         currentBuildIdentity: (() -> String)? = nil,
-        sessionIsAvailable: (() -> Bool)? = nil
+        sessionIsAvailable: (() -> Bool)? = nil,
+        deviceName: DeviceName? = nil
     ) {
         self.isEnabled = isEnabled ?? { NotchViewModel.volumeAndBrightnessEnabled }
         self.trust = trust ?? SystemAccessibilityTrust()
@@ -248,6 +254,9 @@ final class MediaKeyHUD: ObservableObject {
         self.applier = applier ?? SystemLevelApplier()
         self.schedule = schedule ?? MediaKeyHUD.mainQueueScheduler
         self.deviceSymbol = deviceSymbol ?? { AudioOutputs.output(id: $0)?.symbol }
+        // A test that gives the glyph its own seam and no name gets none, so
+        // it never reaches CoreAudio for a device it made up.
+        self.deviceName = deviceName ?? (deviceSymbol == nil ? { AudioOutputs.output(id: $0)?.name } : { _ in nil })
         self.now = now ?? { ProcessInfo.processInfo.systemUptime }
         self.grantNotifier = grantNotifier ?? InertAccessibilityGrantNotifier.live
         self.repairer = repairer ?? InertAccessibilityRepair.live
@@ -664,12 +673,16 @@ final class MediaKeyHUD: ObservableObject {
             // over the lock screen or after the feature went away is wrong.
             guard let self, !self.isLocked(), self.isTapped else { return }
             var shown = reading
-            if isRepeat, let known = self.glyphs[device] {
+            if isRepeat, let known = self.glyphs[device], let name = self.names[device] {
                 shown.deviceSymbol = known
+                shown.deviceName = name
             } else {
                 let found = self.deviceSymbol(device)
+                let name = self.deviceName(device)
                 self.glyphs[device] = .some(found)
+                self.names[device] = .some(name)
                 shown.deviceSymbol = found
+                shown.deviceName = name
             }
             self.onReading?(shown)
         }

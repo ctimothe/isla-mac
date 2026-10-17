@@ -178,20 +178,4 @@ enum CompactIslandLayout {
     static func batteryFillWidth(level: Int, bodyWidth: CGFloat) -> CGFloat {
         bodyWidth * CGFloat(min(max(level, 0), 100)) / 100
     }
-
-    // MARK: Headphones and the pop-up (§3.6, §12 — restyled by §19.5)
-
-    /// The centre of the glyph in the left wing: where the cover sits, so a
-    /// pair of headphones or a speaker replaces the cover rather than sitting
-    /// beside it.
-    static var momentGlyphCentreX: CGFloat {
-        coverInset + Theme.artworkMetrics(isOpen: false).side / 2
-    }
-
-    /// The device name's box in the right wing: from 6 pt past the notch to
-    /// the cover's margin short of the island's edge, right-aligned and
-    /// truncating at its tail.
-    static func deviceNameWidth(wing: CGFloat) -> CGFloat {
-        max(0, wing - 6 - coverInset)
-    }
 }

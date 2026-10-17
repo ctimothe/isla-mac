@@ -558,3 +558,7 @@
 "Use Online" = "Use Online";
 "No translations yet" = "No translations yet";
 "Sends this text to MyMemory over the internet." = "Sends this text to MyMemory over the internet.";
+
+/* The volume pop-up names what the brightness keys move (spec §19.5 d). */
+"Display Brightness" = "Display Brightness";
+"Keyboard Brightness" = "Keyboard Brightness";

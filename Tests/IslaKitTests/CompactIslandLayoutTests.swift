@@ -58,7 +58,7 @@ final class CompactIslandLayoutTests: XCTestCase {
                 CGSize(width: notch + 75, height: notchHeight), "the Shelf at nw \(notch)"
             )
             XCTAssertEqual(
-                NotchViewModel.ambientBodySize(charger, media: music, notchSize: notchSize, bodyWidth: 620),
+                NotchViewModel.ambientBodySize(charger, notchSize: notchSize, bodyWidth: 620),
                 CGSize(width: notch + 180, height: notchHeight), "Charging at nw \(notch)"
             )
         }
@@ -282,22 +282,6 @@ final class CompactIslandLayoutTests: XCTestCase {
             CompactIslandLayout.peekTextWidth(islandWidth: 220, notchWidth: 220, isPhysical: true), 0,
             "a folded island has no room, and never a negative width"
         )
-    }
-
-    // MARK: Headphones
-
-    /// Headphones keep §3.6's compact form until R7's Task 5 restyles them
-    /// (spec §19.5 c): two 104 pt wings.
-    func testHeadphonesStillTakeTwoHundredAndEightUntilTheyAreRestyled() {
-        let notch = CGSize(width: 220, height: 38)
-        XCTAssertEqual(NotchMetrics.ambientNameExtension, 208)
-        let pods = NotchViewModel.ambientBodySize(
-            .headphones(name: "AirPods Pro", symbol: "airpods.pro"), media: notch, notchSize: notch, bodyWidth: 560
-        )
-        XCTAssertEqual(pods.width, 428, "220 + 2 × 104")
-        XCTAssertEqual(pods.height, 38)
-        XCTAssertEqual(CompactIslandLayout.deviceNameWidth(wing: 104), 104 - 6 - CompactIslandLayout.coverFrame(height: 38).minX, accuracy: 0.001)
-        XCTAssertEqual(CompactIslandLayout.deviceNameWidth(wing: 4), 0)
     }
 
     /// Green means charging, and only a battery that says how full it is can
