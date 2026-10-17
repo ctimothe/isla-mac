@@ -1,72 +1,63 @@
 import CoreGraphics
 import Foundation
 
-/// Where everything on the Translate tab sits (redesign 2026-10-15, spec §11), as
-/// values.
+/// Where everything on the Translate surface sits (spec §19.8, board
+/// `R2-Translate`), as values.
 ///
-/// Stated in the board's body coordinates, like `ClipboardLayout` and
-/// `ShelfLayout`, and converted to the pane's by `PlayerLayout.inPane`, so a test
-/// that holds the spec's numbers holds the pixels at 480, 560 and 620 without
-/// rendering anything.
-///
-/// At the default 560 the numbers are the board's: the pair bar at y 46 with the
-/// two pop-ups 210 × 22 at x 58 and 336 and the swap at 290, the source card at
-/// (58, 76) 240 × 116, the result at 318. Wider and narrower bodies derive from
-/// `bw` rather than hard-coding the 560 positions: the pop-ups give up width
-/// below 560 (never overlapping the swap or each other), the cards share the
-/// content width in the board's 240 : 228 proportion, and the right-hand column
-/// rides the trailing edge.
+/// Stated in the content's coordinates — the body under the header row, the
+/// reference's y less 38 — like `ClipboardLayout`, so a test that holds the
+/// spec's numbers holds the pixels at 480, 560 and 620 without rendering
+/// anything. Everything derives from `bw`: the pair row and the two cards each
+/// split the body down its middle, the source a little wider than the result
+/// because the result has no plate to inset its text from.
 enum TranslateLayout {
     // MARK: - Metrics
 
-    /// The pair bar hangs 8 under the header (the board's 46 on a 38 header).
-    static let pairBarOffset: CGFloat = 8
-    static let popUpHeight: CGFloat = 22
-    static let popUpWidth: CGFloat = 210
-    /// The swap button's side (spec §11: 24 pt).
-    static let swapSide: CGFloat = 24
-    /// The least air between a pop-up and the swap, which is what sets the
-    /// pop-ups' width on a narrow body.
-    static let swapGap: CGFloat = 8
+    /// The leading and trailing margin every row keeps (§19.8: x 16 to `bw − 16`).
+    static let margin: CGFloat = 16
+    /// The surface's content: 268 tall less the 38 pt header row.
+    static let contentHeight: CGFloat = SurfaceLayout.translateHeight - SurfaceLayout.referenceNotchHeight
 
-    /// The cards start 30 under the pair bar's top: the bar's 22, and 8 of air.
-    static let cardsDrop: CGFloat = 30
-    /// The cards end 16 above the body's foot: 116 tall on 208, 308 on 400.
-    static let cardFootInset: CGFloat = 16
-    /// Between the cards.
-    static let cardGap: CGFloat = 20
-    static let cardRadius: CGFloat = 12
-    /// The source card is 6 wider than half the room between the cards, which is
-    /// how the board's 240 and 228 divide 488.
-    static let sourceBonus: CGFloat = 6
+    /// The pair row at the reference's y 46, 26 tall.
+    static let pairTop: CGFloat = 8
+    static let pairHeight: CGFloat = 26
+    /// Swap is 28 wide, its leading edge 14 left of the middle.
+    static let swapWidth: CGFloat = 28
 
-    /// Text inside the cards: 12 in from the card's leading edge, 9 down.
-    static let textInset: CGFloat = 12
-    static let textTop: CGFloat = 9
-    /// The source text's right margin leaves room for the Clear ⓧ; the result's
-    /// is 16 (212 of 228).
+    /// The cards at the reference's y 84, 160 tall, radius 14.
+    static let cardTop: CGFloat = 46
+    static let cardHeight: CGFloat = 160
+    static let cardRadius: CGFloat = 14
+
+    /// The source card's inset, 12 top and bottom and 14 at the sides; the
+    /// result, which has no plate, insets its text 12 and 4.
+    static let sourceInset = (vertical: CGFloat(12), horizontal: CGFloat(14))
+    static let resultInset = (vertical: CGFloat(12), horizontal: CGFloat(4))
+    /// The source text's right margin leaves room for the Clear ⓧ.
     static let sourceTextTrailing: CGFloat = 28
-    static let resultTextTrailing: CGFloat = 16
+    /// What the cards keep under their text for the foot: the count or Paste on
+    /// the source, Speak and Copy Translation on the result.
+    static let footRoom: CGFloat = 32
 
-    /// Type sizes: 15 on the standard body and 13.5 on the tall one (spec §11).
-    /// Raw sizes, not roles — the roles' `title` is 16 and `subhead` 13, and the
-    /// board draws these two for a text that has to fit a card of a set size.
+    /// Both cards' type, 15 pt (§19.8).
     static let textSize: CGFloat = 15
-    static let tallTextSize: CGFloat = 13.5
+    /// The source's line height, 1.35 of its size.
+    static let lineHeight: CGFloat = 1.35
 
-    /// The Clear ⓧ's hit frame, 24 square, centred where the board's 18 pt
-    /// glyph is (the glyph at the card's top right, 8 down and 24 in).
+    /// The Clear ⓧ's hit frame, 24 square, at the card's top right.
     static let clearSide: CGFloat = 24
     /// The Paste push button's height: `ToolbarPushButtonStyle`'s 22.
     static let pasteHeight: CGFloat = 22
+    /// "%d / 20,000", its foot 10 above the card's.
+    static let counterBottomInset: CGFloat = 10
+    static let counterHeight: CGFloat = 12
 
-    /// Speak and Copy Translation are 24 pt (spec §11); the footer starts 4 left
-    /// of the text so the glyphs, not their plates, line up with it.
-    static let footerButton: CGFloat = 24
-    static let footerLead: CGFloat = 4
+    /// Speak and Copy Translation, 26 × 24 (§19.8), on the same row as the
+    /// source's count so the two feet line up across the gap.
+    static let footerButton = CGSize(width: 26, height: 24)
     static let footerSpacing: CGFloat = 4
 
-    // MARK: - The pair bar
+    // MARK: - The pair row
 
     struct PairBar: Equatable {
         var from: CGRect
@@ -74,59 +65,36 @@ enum TranslateLayout {
         var to: CGRect
     }
 
-    /// The pop-ups' width at this content width: 210 where there is room for it
-    /// and the swap's slot between (560 and wider), narrower below.
-    static func popUpWidth(bodyWidth: CGFloat) -> CGFloat {
-        let content = PlayerLayout.paneWidth(bodyWidth: bodyWidth)
-        return min(popUpWidth, ((content - swapSide - 2 * swapGap) / 2).rounded(.down))
-    }
-
-    static func pairBar(bodyWidth: CGFloat, headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight) -> PairBar {
-        let content = PlayerLayout.paneWidth(bodyWidth: bodyWidth)
-        let left = PlayerLayout.paneLeading
-        let y = headerHeight + pairBarOffset
-        let width = popUpWidth(bodyWidth: bodyWidth)
+    /// From from 16 to `bw / 2 − 24`; Swap at `bw / 2 − 14`; To from
+    /// `bw / 2 + 30` to `bw − 16`.
+    static func pairBar(bodyWidth bw: CGFloat) -> PairBar {
+        let half = bw / 2
         return PairBar(
-            from: CGRect(x: left, y: y, width: width, height: popUpHeight),
-            // Centred on the content's middle — the board's 290 at 560 is its left
-            // edge (302 − 12) — so the two gaps are the same at every width.
-            swap: CGRect(x: left + content / 2 - swapSide / 2, y: y - 1, width: swapSide, height: swapSide),
-            to: CGRect(x: left + content - width, y: y, width: width, height: popUpHeight)
+            from: CGRect(x: margin, y: pairTop, width: half - 24 - margin, height: pairHeight),
+            swap: CGRect(x: half - 14, y: pairTop, width: swapWidth, height: pairHeight),
+            to: CGRect(x: half + 30, y: pairTop, width: bw - margin - (half + 30), height: pairHeight)
         )
     }
 
     // MARK: - The cards
 
-    static func cardTop(headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight) -> CGFloat {
-        headerHeight + pairBarOffset + cardsDrop
+    /// At (16, 46), `bw / 2 − 24` wide.
+    static func sourceCard(bodyWidth bw: CGFloat) -> CGRect {
+        CGRect(x: margin, y: cardTop, width: bw / 2 - 24, height: cardHeight)
     }
 
-    static func cardHeight(bodyHeight: CGFloat, headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight) -> CGFloat {
-        max(0, bodyHeight - cardFootInset - cardTop(headerHeight: headerHeight))
+    /// From `bw / 2 + 10` to `bw − 16`.
+    static func resultCard(bodyWidth bw: CGFloat) -> CGRect {
+        let left = bw / 2 + 10
+        return CGRect(x: left, y: cardTop, width: bw - margin - left, height: cardHeight)
     }
 
-    static func sourceCard(bodySize: CGSize, headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight) -> CGRect {
-        let content = PlayerLayout.paneWidth(bodyWidth: bodySize.width)
-        let width = ((content - cardGap) / 2 + sourceBonus).rounded()
-        return CGRect(
-            x: PlayerLayout.paneLeading, y: cardTop(headerHeight: headerHeight), width: width,
-            height: cardHeight(bodyHeight: bodySize.height, headerHeight: headerHeight)
-        )
-    }
-
-    static func resultCard(bodySize: CGSize, headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight) -> CGRect {
-        let source = sourceCard(bodySize: bodySize, headerHeight: headerHeight)
-        let right = PlayerLayout.paneLeading + PlayerLayout.paneWidth(bodyWidth: bodySize.width)
-        let left = source.maxX + cardGap
-        return CGRect(x: left, y: source.minY, width: right - left, height: source.height)
-    }
-
-    /// Where the source's text is laid: inside the card, above its foot (the
-    /// counter and Paste live there).
+    /// Where the source's text is laid: inside the inset, above the foot.
     static func sourceText(card: CGRect) -> CGRect {
         CGRect(
-            x: card.minX + textInset, y: card.minY + textTop,
-            width: card.width - textInset - sourceTextTrailing, height: max(0, card.height - textTop - 32)
+            x: card.minX + sourceInset.horizontal, y: card.minY + sourceInset.vertical,
+            width: card.width - sourceInset.horizontal - sourceTextTrailing,
+            height: max(0, card.height - sourceInset.vertical - footRoom)
         )
     }
 
@@ -134,49 +102,56 @@ enum TranslateLayout {
         CGRect(x: card.maxX - 27, y: card.minY + 5, width: clearSide, height: clearSide)
     }
 
-    /// "%d / 5,000", 22 above the card's foot (the board's 170 on a card ending at 192).
     static func counter(card: CGRect) -> CGRect {
-        CGRect(x: card.minX + textInset, y: card.maxY - 22, width: card.width - 2 * textInset, height: 12)
-    }
-
-    static func paste(card: CGRect, width: CGFloat = 66) -> CGRect {
-        CGRect(x: card.minX + textInset, y: card.maxY - 32, width: width, height: pasteHeight)
-    }
-
-    /// The result's text: plain, at the card's own leading edge (no plate behind
-    /// it), 9 down.
-    static func resultText(card: CGRect) -> CGRect {
         CGRect(
-            x: card.minX, y: card.minY + textTop,
-            width: card.width - resultTextTrailing, height: max(0, card.height - textTop - 34)
+            x: card.minX + sourceInset.horizontal, y: card.maxY - counterBottomInset - counterHeight,
+            width: card.width - 2 * sourceInset.horizontal, height: counterHeight
         )
     }
 
-    /// The footer's row: Speak, Copy Translation, then the origin. 24 tall,
-    /// 29 above the card's foot (the board's 163 on 192).
+    /// Paste sits where the count will, centred on the same row.
+    static func paste(card: CGRect, width: CGFloat = 66) -> CGRect {
+        let row = counter(card: card)
+        return CGRect(x: row.minX, y: row.midY - pasteHeight / 2, width: width, height: pasteHeight)
+    }
+
+    /// The result's text, inset 12 and 4.
+    static func resultText(card: CGRect) -> CGRect {
+        CGRect(
+            x: card.minX + resultInset.horizontal, y: card.minY + resultInset.vertical,
+            width: card.width - 2 * resultInset.horizontal,
+            height: max(0, card.height - resultInset.vertical - footRoom)
+        )
+    }
+
+    /// The footer's row: Speak, Copy Translation, then the origin on the right,
+    /// centred on the source count's row.
     static func footer(card: CGRect) -> CGRect {
-        CGRect(x: card.minX - footerLead, y: card.maxY - 29, width: card.width + footerLead, height: footerButton)
+        let row = counter(card: card)
+        return CGRect(
+            x: card.minX, y: row.midY - footerButton.height / 2,
+            width: card.width - resultInset.horizontal, height: footerButton.height
+        )
     }
 
     static func speakButton(card: CGRect) -> CGRect {
-        CGRect(x: footer(card: card).minX, y: footer(card: card).minY, width: footerButton, height: footerButton)
+        let row = footer(card: card)
+        return CGRect(origin: row.origin, size: footerButton)
     }
 
     static func copyButton(card: CGRect, showsSpeak: Bool) -> CGRect {
-        let first = footer(card: card)
-        let offset = showsSpeak ? footerButton + footerSpacing : 0
-        return CGRect(x: first.minX + offset, y: first.minY, width: footerButton, height: footerButton)
+        let row = footer(card: card)
+        let offset = showsSpeak ? footerButton.width + footerSpacing : 0
+        return CGRect(origin: CGPoint(x: row.minX + offset, y: row.minY), size: footerButton)
     }
 
-    /// Every control the pane draws in the pair bar and the cards, by name, for
-    /// the layout tests: each must be inside the content area, and none may
+    /// Every control the surface draws in the pair row and the cards, by name,
+    /// for the layout tests: each must be inside the content, and none may
     /// overlap another.
-    static func controlFrames(
-        bodySize: CGSize, headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight, showsSpeak: Bool = true
-    ) -> [(name: String, frame: CGRect)] {
-        let bar = pairBar(bodyWidth: bodySize.width, headerHeight: headerHeight)
-        let result = resultCard(bodySize: bodySize, headerHeight: headerHeight)
-        let source = sourceCard(bodySize: bodySize, headerHeight: headerHeight)
+    static func controlFrames(bodyWidth: CGFloat, showsSpeak: Bool = true) -> [(name: String, frame: CGRect)] {
+        let bar = pairBar(bodyWidth: bodyWidth)
+        let result = resultCard(bodyWidth: bodyWidth)
+        let source = sourceCard(bodyWidth: bodyWidth)
         var frames: [(String, CGRect)] = [
             ("Translate From", bar.from), ("Swap Languages", bar.swap), ("Translate To", bar.to),
             ("Clear", clear(card: source)),
@@ -188,36 +163,27 @@ enum TranslateLayout {
 
     // MARK: - History
 
-    /// The list's first row, 20 under the "Recent" label that sits where the cards
-    /// begin less 30 (the board's 44 and 64 on a 38 header).
-    static func historyLabelTop(headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight) -> CGFloat { headerHeight + 6 }
-    static func historyListTop(headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight) -> CGFloat { headerHeight + 26 }
+    /// The "Recent" label, then the list 20 under it, where the pair row was.
+    static let historyLabelTop: CGFloat = 6
+    static let historyListTop: CGFloat = 26
     static let historyRowHeight: CGFloat = 40
     static let historyRowInset: CGFloat = 8
 
-    /// The scroll window of the list: the content width, from the first row to
-    /// the body's foot less the shell's 14 and 4 of air.
-    static func historyViewport(bodySize: CGSize, headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight) -> CGRect {
-        let top = historyListTop(headerHeight: headerHeight)
-        return CGRect(
-            x: PlayerLayout.paneLeading, y: top,
-            width: PlayerLayout.paneWidth(bodyWidth: bodySize.width), height: max(0, bodySize.height - 18 - top)
+    /// The scroll window of the list: the body less its margins, from the
+    /// first row to 14 above the foot.
+    static func historyViewport(bodyWidth: CGFloat) -> CGRect {
+        CGRect(
+            x: margin, y: historyListTop,
+            width: bodyWidth - 2 * margin, height: max(0, contentHeight - 14 - historyListTop)
         )
     }
 }
 
-/// The header's trailing tools on the Translate tab: History, and Expand beside it
-/// (spec §11). History is the 22 pt icon button at (`bw − 67`, 8); Expand is
-/// `HeaderToolFrames.expand`, (`bw − 39`, 8), so it never moves whether History
-/// is there or not.
+/// Whether Translate's header offers History at all: only while Keep History
+/// is on, the default being off (spec §11, §14) — a person who never asked to
+/// be remembered is not offered a list of what they translated. The button
+/// itself is the shell's (`SurfaceHeaderLayout.history`).
 enum TranslateHeader {
-    static func history(bodyWidth: CGFloat) -> CGRect {
-        CGRect(x: bodyWidth - 67, y: HeaderToolFrames.top, width: HeaderToolFrames.side, height: HeaderToolFrames.side)
-    }
-
-    /// Whether the tab wears History at all: only while Keep History is on, the
-    /// default being off (spec §11, §14) — a person who never asked to be
-    /// remembered is not offered a list of what they translated.
     static func showsHistory(keepHistory: Bool) -> Bool { keepHistory }
 }
 

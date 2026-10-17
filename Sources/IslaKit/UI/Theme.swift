@@ -540,16 +540,8 @@ enum Theme {
     /// The peek island's bottom corners (spec §2.3, kept by §19.4): 16, round
     /// the 34 pt cover's 8 pt corner.
     static let peekBottomRadius: CGFloat = 16
-    static let openTopRadius: CGFloat = 12
-    static let openBottomRadius: CGFloat = 22
-    /// The tall body's bottom corners (spec §2.3): 26 against the standard
-    /// body's 22, so the corner stays in proportion with the height it closes
-    /// and the radius springs 22 → 26 with the body (`NotchShape` animates it).
-    static let tallBottomRadius: CGFloat = 26
-
-    static func openBottomRadius(tall: Bool) -> CGFloat {
-        tall ? tallBottomRadius : openBottomRadius
-    }
+    // The open radii are the surface's own (`Surface.topRadius`,
+    // `bottomRadius`, §19.2): 34 / 44, and 24 / 34 for the tray.
 
     // MARK: - Lyric column and tall page (spec §5.4)
 
@@ -608,12 +600,14 @@ enum Theme {
     /// cover, at (17.3, 8) on a 38 pt island. On the 24 pt island Isla draws
     /// for a display without a notch it is 16 (`CompactIslandLayout`).
     ///
-    /// The open end is 132 pt since 2026-10-15 (spec §4.1; it was 118): the
-    /// board's player is a 132 pt cover at (58, 54) with the text column to its
-    /// right. The radius stays 14, which is still a picture and not a chip
-    /// (`ArtworkMorphTests`).
+    /// The open end is the player's cover, 60 pt at radius 10 since R8 (spec
+    /// §19.6; it was 132 at 14 from 2026-10-15, and 118 before that): the
+    /// player is one row now, the cover at its left. Read from `PlayerLayout`
+    /// so the morph cannot end on a cover the player no longer draws — R8 left
+    /// this at 132 for a day, and the lab's keyframes grew the cover past the
+    /// row it lands in.
     static func artworkMetrics(isOpen: Bool) -> (side: CGFloat, cornerRadius: CGFloat) {
-        isOpen ? (132, 14) : (22, 5)
+        isOpen ? (PlayerLayout.coverSide, PlayerLayout.coverRadius) : (22, 5)
     }
 
     /// The cover while a new track peeks (spec §3.5): 34 pt at radius 8,
@@ -698,6 +692,37 @@ enum Theme {
     static let playerSkipGlyphSize: CGFloat = 16
     static let playerPlayGlyphSize: CGFloat = 20
     static let playerTransportTarget: CGFloat = 28
+
+    // MARK: - The player, activities first (spec §19.6)
+
+    /// The title, white 0.80 at 16 medium; the artist under it, white 0.50 at
+    /// 14 regular — and the same 0.50 for the artist after "·" while the sung
+    /// line has the subtitle.
+    static let playerTitleOpacity: Double = 0.80
+    static let playerArtistOpacity: Double = 0.50
+    /// The sung line's sweep: the part sung at 0.82, the rest at 0.45.
+    static let playerSungOpacity: Double = 0.82
+    static let playerUnsungOpacity: Double = 0.45
+    /// The times either side of the bar: SF Pro Rounded 11 medium at 0.40.
+    static let playerTimeOpacity: Double = 0.40
+    /// The progress bar's track and fill.
+    static let playerTrackOpacity: Double = 0.15
+    static let playerFillOpacity: Double = 0.50
+    /// Previous, Play / Pause and Next at 0.90; Favourite and Output, the
+    /// controls either side that are not the transport, at 0.50.
+    static let playerTransportOpacity: Double = 0.90
+    static let playerSecondaryControlOpacity: Double = 0.50
+
+    // MARK: - The lyrics stage's foot (spec §19.6)
+
+    /// The hairline over the foot, white 0.12.
+    static let stageHairline = Color.white.opacity(0.12)
+    /// The artist under the title, white 0.55.
+    static let stageArtistOpacity: Double = 0.55
+    /// The transport's wells, white 0.10.
+    static let stageTransportFill = Color.white.opacity(0.10)
+    /// The progress's track, white 0.18; its fill is the cover's tint.
+    static let stageTrack = Color.white.opacity(0.18)
 
     /// The mark on a hairline round the player's cover (spec §4.1): white 0.14.
     static let coverEdge = Color.white.opacity(0.14)
@@ -1063,26 +1088,54 @@ enum Theme {
 
     // MARK: - The Shelf (spec §8)
 
-    /// The well behind a selected tile's icon, and behind a hovered one
-    /// (`ShelfLayout.well`: 60 × 60, radius 8): white at these. Finder's icon
-    /// view lays a soft rounded square behind a picked icon, and the board
-    /// draws the pick at 0.14 and the pointer at half that.
-    static let shelfSelectedWell = Color.white.opacity(0.14)
-    static let shelfHoverWell = Color.white.opacity(0.07)
+    /// The blue of the Shelf (spec §19.7): the bubble's count, the drop target
+    /// under the pointer and a picked tile's ring. The system's own blue, the
+    /// same value as `SettingsTint.blue`.
+    static var shelfBlue: Color { SettingsTint.blue.color }
 
-    /// The ⓧ that takes a tile off the Shelf, `#505054` at 0.96 (spec §8.2): a
-    /// grey the black island makes a disc of, with a white `xmark` on it. It
-    /// overhangs the tile's corner on purpose — it is the pointer's, not part
-    /// of the picture.
-    static let shelfBadgeFill = Color(red: 80.0 / 255, green: 80.0 / 255, blue: 84.0 / 255).opacity(0.96)
+    /// A tile's plate: white 0.10, 0.14 under the pointer; picked, white 0.18
+    /// inside a 1.5 pt blue ring (§19.7).
+    static let shelfTilePlate = Color.white.opacity(0.10)
+    static let shelfHoverWell = Color.white.opacity(0.14)
+    static let shelfSelectedWell = Color.white.opacity(0.18)
+    static let shelfSelectedRingWidth: CGFloat = 1.5
+    /// A tile's name: white 0.86.
+    static let shelfTileNameOpacity: Double = 0.86
 
-    /// A drop well under the pointer (spec §8.3): the accent at 0.18 inside a
-    /// 2 pt accent ring. Resting wells are a dashed hairline on 3 % white.
-    static let shelfDropWellLit = accent.opacity(0.18)
+    /// The remove badge (§19.7): `xmark.circle.fill` at white 0.62 over a 14 pt
+    /// disc of black 0.28, so the cross reads on a bright thumbnail.
+    static let shelfBadgeGlyph = Color.white.opacity(0.62)
+    static let shelfBadgeDisc = Color.black.opacity(0.28)
+
+    /// A drop target under the pointer (spec §19.7): blue 0.18 inside a 2 pt
+    /// blue ring, its second line white 0.75; the other white 0.07, its second
+    /// line white 0.55.
+    static var shelfDropWellLit: Color { shelfBlue.opacity(0.18) }
     static let shelfDropRingWidth: CGFloat = 2
-    static let shelfDropWellResting = Color.white.opacity(0.03)
-    static let shelfDropWellEdge = Color.white.opacity(0.22)
+    static let shelfDropWellResting = Color.white.opacity(0.07)
+    static let shelfDropCaptionLit: Double = 0.75
+    static let shelfDropCaptionResting: Double = 0.55
     static let shelfDropWellRadius: CGFloat = 14
+
+    /// The empty tray's line, white 0.55.
+    static let shelfEmptyLineOpacity: Double = 0.55
+
+    // MARK: - Tools (spec §19.8)
+
+    /// A card's preview line, white 0.55, and its hint, white 0.35.
+    static let toolsPreviewOpacity: Double = 0.55
+    static let toolsHintOpacity: Double = 0.35
+
+    /// The circle behind a card's glyph: Shelf in blue at 0.22, Clipboard in
+    /// cyan at 0.20, Translate in indigo at 0.24 — the system's dark-mode
+    /// blue, cyan (`#64D2FF`) and indigo.
+    static func toolsCircle(_ tool: ToolsCard.Tool) -> Color {
+        switch tool {
+        case .shelf: return SettingsTint.blue.color.opacity(0.22)
+        case .clipboard: return Color(red: 100.0 / 255, green: 210.0 / 255, blue: 255.0 / 255).opacity(0.20)
+        case .translate: return SettingsTint.indigo.color.opacity(0.24)
+        }
+    }
 
     /// How far a list fades into an edge that cuts it (`scrollEdgeFade`,
     /// H-017). Ten points: enough to read as "continues" at a 26 pt row, and

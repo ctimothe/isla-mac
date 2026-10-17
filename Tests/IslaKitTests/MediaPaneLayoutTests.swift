@@ -50,8 +50,8 @@ final class MediaPaneLayoutTests: XCTestCase {
 
     // MARK: - Bilingual lines in the band
 
-    /// A bilingual LRC line holds its translation after a newline; the band's
-    /// 17 pt slot draws the sung row only, as the column draws the pair
+    /// A bilingual LRC line holds its translation after a newline; the player's
+    /// subtitle draws the sung row only, as the stage draws the pair
     /// (review 2026-10-15).
     func testTheBandDrawsTheFirstRowOfABilingualLine() {
         let bilingual = LyricsStore.Line(at: 4, text: "in the dark by the camera\nв темноте у камеры")
@@ -197,28 +197,13 @@ final class MediaPaneLayoutTests: XCTestCase {
             suite.removePersistentDomain(forName: suiteName)
         }
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores(localLyricsDirectory: root), defaults: suite)
-        vm.tab = .media
+        vm.surface = .player
 
         vm.openMusicOnlySetting()
-        XCTAssertEqual(vm.tab, .settings)
+        XCTAssertEqual(vm.surface, .settings)
         XCTAssertEqual(vm.settingsSection, .music)
 
-        vm.select(.media)
+        vm.open(.player)
         XCTAssertEqual(vm.settingsSection, .music, "the section is remembered, not spent: it is what the next open restores")
-    }
-
-    // MARK: - Where the transport sits
-
-    /// The transport used to sit at the same height with and without words, by a
-    /// slot held empty for the caption. The redesign trades that for the board's
-    /// rule (spec §4.1): with no lyric the band folds away and the progress row
-    /// and the transport rise by exactly 20. Held in `PlayerLayoutTests` as
-    /// arithmetic and in `PlayerPaneTests` against the drawn controls; here, that
-    /// the band is what decides it.
-    func testTheBandIsWhatMovesTheTransport() {
-        let with = PlayerLayout(bodyWidth: 560, hasLyricBand: true)
-        let without = PlayerLayout(bodyWidth: 560, hasLyricBand: false)
-        XCTAssertEqual(with.transport.minY - without.transport.minY, 20)
-        XCTAssertEqual(with.cover, without.cover, "the cover does not move for words")
     }
 }

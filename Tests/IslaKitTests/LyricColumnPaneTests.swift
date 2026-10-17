@@ -3,10 +3,11 @@ import SwiftUI
 import XCTest
 @testable import IslaKit
 
-/// The one Music view in its other two states, as drawn: where each control
-/// actually lands against the table (`PlayerLayout.frames(for:)`) in the column
-/// and on the tall page at 480, 560 and 620, and what the open panel's header
-/// carries for them (spec §5.1, §5.2, §6).
+/// The lyrics stage as drawn, where each control actually lands against the
+/// board (`StageLayout`, spec §19.6) at 480, 560 and 620, and what the open
+/// panel's header carries for it and for every other surface (§19.8). It
+/// replaces the lyric column and the tall page of §5.1, which §19.11 withdrew —
+/// with Expand / Collapse, the More button in the header and the rail.
 ///
 /// Nothing reaches the machine: the controller is cut from every real player,
 /// the audio watch reads a value and installs nothing, the settings come from a
@@ -32,34 +33,24 @@ final class LyricColumnPaneTests: XCTestCase {
 
     private struct Scene {
         let root: AXNode
-        let layout: PlayerLayout
-        let frames: PlayerLayout.StateFrames
+        let layout: StageLayout
     }
 
-    private func scene(_ state: PlayerLayout.State, width: CGFloat = 560, header: CGFloat = 38) async -> Scene {
+    /// The stage hosted at exactly the size the shell gives its content: the
+    /// body's width, and 400 less the 38 pt header row.
+    private func scene(width: CGFloat = 560) async -> Scene {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         isolated.suite.set(true, forKey: NotchViewModel.volumeAndOutputKey)
         let media = isolated.stores.media
         await LabFixtures.play(LabFixtures.Track(title: "Waiting Room", elapsed: 9), on: media)
         isolated.stores.lyrics.present(.ready(LyricTimeline(lines: Self.lines, granularity: .line)))
-        let pane = MediaPane(
-            media: media, lyrics: isolated.stores.lyrics,
-            isExpanded: state == .tall,
-            morph: nil,
-            showingLyrics: .constant(state != .player),
-            headerHeight: header, audio: Self.audio(),
-            icons: SettingsFixture.macWithApps([:])
+        let surface = LyricsStageSurface(
+            media: media, lyrics: isolated.stores.lyrics, bodyWidth: width, audio: Self.audio()
         )
         .defaultAppStorage(isolated.suite)
-        let layout = PlayerLayout(bodyWidth: width, headerHeight: header)
-        let frames = layout.frames(for: state)
-        let size = CGSize(
-            width: PlayerLayout.paneWidth(bodyWidth: width),
-            height: frames.bodyHeight - NotchGeometry.bodyBottomPadding - header
-        )
-        let root = await AXProbe.tree(of: pane, size: size)
-        return Scene(root: root, layout: layout, frames: frames)
+        let root = await AXProbe.tree(of: surface, size: CGSize(width: width, height: SurfaceLayout.stageHeight - 38))
+        return Scene(root: root, layout: StageLayout(bodyWidth: width))
     }
 
     private func node(_ root: AXNode, _ label: String, role: String? = nil) throws -> AXNode {
@@ -80,82 +71,64 @@ final class LyricColumnPaneTests: XCTestCase {
 
     // MARK: - Where the controls land
 
-    func testTheColumnPutsTheControlsWhereTheTableDoes() async throws {
+    /// The foot: the transport's three wells centred on `bw / 2`, Output and Hide
+    /// Lyrics at the right end of the tools, Hide Lyrics lit.
+    func testTheStagePutsItsFootWhereTheBoardDoes() async throws {
         for width: CGFloat in [480, 560, 620] {
-            let s = await scene(.column, width: width)
-            let l = s.layout, f = s.frames
-            try assertNear(try node(s.root, "Pause"), CGRect(x: l.inPane(f.transport).minX + 55, y: l.inPane(f.transport).minY, width: 28, height: 28), "pause at \(width)")
-            try assertNear(try node(s.root, "Previous Track"), l.inPane(f.transport), "previous at \(width)")
-            try assertNear(try node(s.root, "Sound Output"), l.inPane(try XCTUnwrap(f.output)), "output at \(width)")
+            let s = await scene(width: width)
+            let l = s.layout
+            try assertNear(try node(s.root, "Previous Track"), l.transport(.previous), "previous at \(width)")
+            try assertNear(try node(s.root, "Pause"), l.transport(.playPause), "pause at \(width)")
+            try assertNear(try node(s.root, "Next Track"), l.transport(.next), "next at \(width)")
+            try assertNear(try node(s.root, "Sound Output"), l.tool(.output), "output at \(width)")
             let hide = try node(s.root, "Hide Lyrics", role: "AXButton")
-            try assertNear(hide, l.inPane(f.lyrics), "Hide Lyrics at \(width)")
-            XCTAssertTrue(hide.selected, "the open Lyrics button is the selected one")
-            let slider = try node(s.root, "Playback Position", role: "AXSlider")
-            XCTAssertEqual(try XCTUnwrap(slider.frame).midY, l.inPane(f.progress).midY, accuracy: 1)
+            try assertNear(hide, l.tool(.hideLyrics), "Hide Lyrics at \(width)")
+            XCTAssertEqual(try XCTUnwrap(hide.frame).width, 28, accuracy: 1)
+            XCTAssertTrue(hide.selected, "the open Lyrics button is the lit one")
+            XCTAssertEqual(l.tool(.hideLyrics).maxX, width - 26, "the last tool ends 26 from the right edge")
+            XCTAssertNil(s.root.all { $0.label == "Volume" }.first, "no volume on the stage at \(width)")
         }
     }
 
-    func testTheTallPageAtThreeWidthsPutsItsFooterWhereTheTableDoes() async throws {
+    /// The sung line is where the board puts it, in the surface as drawn: its
+    /// row starts at the lines' left edge (x 24) and is centred on the sung
+    /// line's y (the line's top at 138, 28 tall).
+    func testTheSungLineLandsWhereTheBoardPutsIt() async throws {
         for width: CGFloat in [480, 560, 620] {
-            let s = await scene(.tall, width: width)
-            let l = s.layout, f = s.frames
-            try assertNear(try node(s.root, "Previous Track"), l.inPane(f.transport), "previous at \(width)")
-            try assertNear(try node(s.root, "Sound Output"), l.inPane(try XCTUnwrap(f.output)), "output at \(width)")
-            try assertNear(try node(s.root, "Hide Lyrics", role: "AXButton"), l.inPane(f.lyrics), "Hide Lyrics at \(width)")
-            let progress = try node(s.root, "Playback Position", role: "AXSlider")
-            XCTAssertEqual(try XCTUnwrap(progress.frame).midY, l.inPane(f.progress).midY, accuracy: 1)
-            XCTAssertEqual(try XCTUnwrap(progress.frame).maxX, l.inPane(f.progress).maxX - MediaPane.timeWidths(duration: 238).remaining - 6, accuracy: 1.5)
-            XCTAssertNil(s.root.all { $0.label == "Volume" }.first, "no volume on the tall page at \(width)")
-        }
-    }
-
-    /// The sung line is where the table puts it, in the pane as drawn: its row
-    /// starts at the lines' left edge (268 in the column, 58 on the tall page, in
-    /// body coordinates) and is centred on the sung line's y.
-    func testTheSungLineLandsWhereTheTablePutsIt() async throws {
-        for state in [PlayerLayout.State.column, .tall] {
-            for width: CGFloat in [480, 560, 620] {
-                let s = await scene(state, width: width)
-                let sung = try XCTUnwrap(s.frames.sungLine)
-                let expected = s.layout.inPane(sung)
-                let row = try XCTUnwrap(
-                    s.root.all { $0.label == "Third line" && $0.role == "AXButton" }.first, s.root.dump
-                )
-                let frame = try XCTUnwrap(row.frame)
-                XCTAssertEqual(frame.minX, expected.minX, accuracy: 1.5, "\(state) at \(width): \(frame)")
-                XCTAssertEqual(frame.midY, expected.midY, accuracy: 3, "\(state) at \(width): \(frame)")
-                XCTAssertTrue(row.selected, "it is the line being sung")
-            }
-        }
-    }
-
-    /// The player's own controls fold away in the other two states: no band, and
-    /// shuffle and repeat out of reach and out of the accessibility tree.
-    func testTheColumnHasNoBandAndNoModeButtons() async throws {
-        for state in [PlayerLayout.State.column, .tall] {
-            let s = await scene(state)
-            XCTAssertNil(
-                s.root.all { $0.label == "Lyrics" && $0.role == "AXButton" && $0.frame?.width != 26 }.first,
-                "the band's button is the player's, not the column's\n\(s.root.dump)"
+            let s = await scene(width: width)
+            let row = try XCTUnwrap(
+                s.root.all { $0.label == "Third line" && $0.role == "AXButton" }.first, s.root.dump
             )
-            XCTAssertNil(s.root.first(label: "Shuffle"), "folded away in \(state)")
-            XCTAssertNil(s.root.first(label: "Repeat"), "folded away in \(state)")
-            XCTAssertNotNil(s.root.first(label: state == .tall ? "Third line" : "Third line"), "the lines are the page\n\(s.root.dump)")
+            let frame = try XCTUnwrap(row.frame)
+            XCTAssertEqual(frame.minX, s.layout.lines.minX, accuracy: 1.5, "at \(width): \(frame)")
+            XCTAssertEqual(s.layout.lines.minX, 24)
+            XCTAssertEqual(frame.midY, StageLayout.readingCentre, accuracy: 3, "at \(width): \(frame)")
+            XCTAssertTrue(row.selected, "it is the line being sung")
         }
     }
 
-    /// The player keeps its own Lyrics button and its band.
-    func testThePlayerIsStillThePlayer() async throws {
-        let s = await scene(.player)
-        XCTAssertNotNil(s.root.all { $0.label == "Lyrics" && $0.role == "AXButton" && $0.frame?.width == 26 }.first, s.root.dump)
-        XCTAssertNil(s.root.first(label: "Hide Lyrics"))
+    /// Shuffle and Repeat left the player for the stage's More menu (§19.6),
+    /// and nothing of the column or the tall page is left to find: no band
+    /// button, no Expand, no rail.
+    func testTheStageHasNoModeButtonsAndNothingOfTheColumn() async throws {
+        let s = await scene()
+        for label in ["Shuffle", "Repeat", "Expand", "Collapse", "Tabs", "Lyrics"] {
+            XCTAssertNil(
+                s.root.all { $0.label == label && $0.role != "AXStaticText" }.first,
+                "\"\(label)\" on the stage\n\(s.root.dump)"
+            )
+        }
+        XCTAssertNotNil(s.root.first(label: "Third line"), "the lines are the stage\n\(s.root.dump)")
     }
 
-    /// The artist alone beside the smaller cover; the full line in the player.
-    func testTheColumnNamesTheArtistAlone() async throws {
-        let s = await scene(.column)
-        let artist = try XCTUnwrap(s.root.all { [$0.label, $0.value, $0.title].contains(LabFixtures.Track().artist) }.first, s.root.dump)
-        XCTAssertNotNil(artist.frame)
+    /// The foot names the song: the title and, under it, the artist (§19.6).
+    func testTheFootNamesTheSongAndTheArtist() async throws {
+        let s = await scene()
+        let named = { (text: String) in s.root.all { [$0.label, $0.value, $0.title].contains(text) }.first }
+        let title = try XCTUnwrap(named("Waiting Room"), s.root.dump)
+        let artist = try XCTUnwrap(named(LabFixtures.Track().artist), s.root.dump)
+        try assertNear(title, s.layout.title, "title", accuracy: 2)
+        try assertNear(artist, s.layout.artist, "artist", accuracy: 2)
     }
 
     // MARK: - The open panel
@@ -165,27 +138,25 @@ final class LyricColumnPaneTests: XCTestCase {
         let origin: CGPoint
         let vm: NotchViewModel
         let bodyWidth: CGFloat
+        let header: CGFloat
     }
 
-    private func shell(_ state: PlayerLayout.State, tab: NotchViewModel.Tab = .media) async throws -> Shell {
+    private func shell(_ surface: NotchViewModel.Surface) async throws -> Shell {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         isolated.suite.set(true, forKey: NotchViewModel.volumeAndOutputKey)
         let geometry = try LabGeometry.make()
-        let vm = NotchViewModel(geometry: geometry, stores: isolated.stores)
+        let vm = NotchViewModel(geometry: geometry, stores: isolated.stores, defaults: isolated.suite)
         await LabFixtures.play(LabFixtures.Track(elapsed: 9), on: isolated.stores.media)
         isolated.stores.lyrics.present(.ready(LyricTimeline(lines: Self.lines, granularity: .line)))
         vm.isOpen = true
-        vm.tab = tab
-        vm.isShowingLyrics = state != .player
-        if state == .tall { vm.setExpanded(true, for: .media) }
-        // Another tab, grown: the model may be tall there, and the header still
-        // has no button for it in this release.
-        if tab != .media { vm.setExpanded(true, for: tab) }
+        vm.open(surface)
         let size = CGSize(width: VisualLab.windowSize.width, height: vm.geometry.windowSize.height)
         let root = await AXProbe.tree(of: NotchContentView(vm: vm).defaultAppStorage(isolated.suite), size: size)
+        let width = vm.openBodySize.width
         return Shell(
-            root: root, origin: CGPoint(x: (size.width - vm.bodySize.width) / 2, y: 0), vm: vm, bodyWidth: vm.bodySize.width
+            root: root, origin: CGPoint(x: (size.width - width) / 2, y: 0), vm: vm, bodyWidth: width,
+            header: geometry.notchSize.height
         )
     }
 
@@ -193,89 +164,56 @@ final class LyricColumnPaneTests: XCTestCase {
         try XCTUnwrap(node.frame).offsetBy(dx: -shell.origin.x, dy: -shell.origin.y)
     }
 
-    /// Spec §5.2, §6: Expand at `(bw − 39, 8)` and More at `(bw − 65, 8)`, 22 ×
-    /// 22, in body coordinates; Show Translation hidden until the translation
-    /// release; the player's source tag out of their way.
-    func testTheColumnsHeaderCarriesMoreAndExpand() async throws {
-        let s = try await shell(.column)
-        let expand = try body(try XCTUnwrap(s.root.first(label: "Expand"), s.root.dump), in: s)
-        XCTAssertEqual(expand, CGRect(x: s.bodyWidth - 39, y: 8, width: 22, height: 22), accuracy: 1)
-        let more = try body(try XCTUnwrap(s.root.first(label: "More Lyrics Options"), s.root.dump), in: s)
-        XCTAssertEqual(more, CGRect(x: s.bodyWidth - 65, y: 8, width: 22, height: 22), accuracy: 1)
-        XCTAssertNil(s.root.first(label: "Show Translation"), "hidden until the translation release wires it\n\(s.root.dump)")
+    /// Spec §19.6, §19.8: the stage's header carries Tools at (`bw − 46`, 6),
+    /// 26 × 26, and the playing app's icon — and not the old More and Expand
+    /// pair at `bw − 65` and `bw − 39`. More is in the foot now.
+    func testTheStagesHeaderCarriesToolsAndTheFootCarriesMore() async throws {
+        let s = try await shell(.stage)
+        XCTAssertEqual(s.vm.presented, .stage)
+        let toolsButton = try XCTUnwrap(s.root.all { $0.role == "AXButton" && $0.label == "Tools" }.first, s.root.dump)
+        let tools = try body(toolsButton, in: s)
+        XCTAssertEqual(tools, SurfaceHeaderLayout.tools(bodyWidth: s.bodyWidth, notchHeight: s.header), accuracy: 1)
+        XCTAssertEqual(tools.minX, s.bodyWidth - 46, accuracy: 1)
+        XCTAssertNil(s.root.first(label: "Expand"))
         XCTAssertNil(s.root.first(label: "Collapse"))
+        let more = try body(try XCTUnwrap(s.root.first(label: "More Lyrics Options"), s.root.dump), in: s)
+        let expected = StageLayout(bodyWidth: s.bodyWidth).tool(.more).offsetBy(dx: 0, dy: s.header)
+        XCTAssertEqual(more.minX, expected.minX, accuracy: 1.5)
+        XCTAssertEqual(more.minY, expected.minY, accuracy: 1.5)
+        XCTAssertEqual(s.vm.openBodySize.height, 400 - 38 + s.header, accuracy: 0.001)
     }
 
-    func testTheTallPageSaysCollapseInThePlaceOfExpand() async throws {
-        let s = try await shell(.tall)
-        let collapse = try body(try XCTUnwrap(s.root.first(label: "Collapse"), s.root.dump), in: s)
-        XCTAssertEqual(collapse, CGRect(x: s.bodyWidth - 39, y: 8, width: 22, height: 22), accuracy: 1)
-        XCTAssertNil(s.root.first(label: "Expand"))
-        XCTAssertEqual(s.vm.openBodySize.height, 400)
-    }
-
-    /// The player does not expand: no Expand button, and no More menu — the
-    /// header is the source tag's.
-    func testThePlayersHeaderHasNoLyricTools() async throws {
+    /// The player has neither Tools nor lyric tools in its header: its click
+    /// target is the island's, and there is nothing to turn it into.
+    func testThePlayersHeaderHasNoTools() async throws {
         let s = try await shell(.player)
-        XCTAssertNil(s.root.first(label: "Expand"))
+        XCTAssertNil(s.root.all { $0.role == "AXButton" && $0.label == "Tools" }.first, s.root.dump)
         XCTAssertNil(s.root.first(label: "More Lyrics Options"))
-    }
-
-    /// Translate has the button since R4 (redesign 2026-10-15, spec §11: Expand at
-    /// `bw − 39`, beside History); Settings never does — its body is always tall
-    /// (spec §10). Before R4 this asserted Translate had none yet.
-    func testTranslateHasTheExpandButtonAndSettingsNeverDoes() async throws {
-        let translate = try await shell(.player, tab: .translate)
-        let button = try XCTUnwrap(
-            translate.root.first(label: "Expand") ?? translate.root.first(label: "Collapse"), translate.root.dump
-        )
-        XCTAssertEqual(
-            try body(button, in: translate), CGRect(x: translate.bodyWidth - 39, y: 8, width: 22, height: 22), accuracy: 1
-        )
-
-        let settings = try await shell(.player, tab: .settings)
-        XCTAssertNil(settings.root.first(label: "Expand"))
-        XCTAssertNil(settings.root.first(label: "Collapse"))
-    }
-
-    /// The Clipboard's button is the same one in the same place, beside Search
-    /// (spec §9.3): the history here is empty and grown, which is when it says
-    /// Collapse — Clear History on the tall Clipboard must leave a way back.
-    func testTheClipboardHasTheButtonWhileItIsTall() async throws {
-        let s = try await shell(.player, tab: .clipboard)
-        let collapse = try body(try XCTUnwrap(s.root.first(label: "Collapse"), s.root.dump), in: s)
-        XCTAssertEqual(collapse, CGRect(x: s.bodyWidth - 39, y: 8, width: 22, height: 22), accuracy: 1)
-        XCTAssertNil(s.root.first(label: "Expand"))
-        XCTAssertNil(s.root.first(label: "Search"), "nothing to search in an empty history")
-    }
-
-    /// The Shelf's button is the same one in the same place: here the shelf is
-    /// empty and grown, which is when it says Collapse — Clear on the tall
-    /// Shelf must leave a way back to 208.
-    func testTheShelfHasTheButtonWhileItIsTall() async throws {
-        let s = try await shell(.player, tab: .shelf)
-        let collapse = try body(try XCTUnwrap(s.root.first(label: "Collapse"), s.root.dump), in: s)
-        XCTAssertEqual(collapse, CGRect(x: s.bodyWidth - 39, y: 8, width: 22, height: 22), accuracy: 1)
         XCTAssertNil(s.root.first(label: "Expand"))
     }
 
-    /// The rail's Settings rides the foot: on the tall body its icon is as far
-    /// above the body's bottom as it is on the standard one, and the four top
-    /// items are where they were.
-    func testTheRailsFootFollowsTheBodyAndTheTopItemsStayPut() async throws {
-        let standard = try await shell(.column)
-        let tall = try await shell(.tall)
-        func rail(_ shell: Shell, _ label: String) throws -> CGRect {
-            try body(try XCTUnwrap(shell.root.first(label: label), shell.root.dump), in: shell)
+    /// Clipboard, Translate and Settings each carry Tools at (`bw − 46`, 6) and
+    /// never an Expand: their bodies have one size (§19.8, §19.11). The tray and
+    /// Tools themselves carry none — Tools has the gear instead.
+    func testTheSummonedSurfacesCarryToolsAndNoExpand() async throws {
+        for surface in [NotchViewModel.Surface.clipboard, .translate, .settings] {
+            let s = try await shell(surface)
+            let button = try XCTUnwrap(
+                s.root.all { $0.role == "AXButton" && $0.label == "Tools" }.first, "\(surface)\n\(s.root.dump)"
+            )
+            let tools = try body(button, in: s)
+            XCTAssertEqual(tools.minX, s.bodyWidth - 46, accuracy: 1, "\(surface)")
+            XCTAssertEqual(tools.size.width, 26, accuracy: 1, "\(surface)")
+            XCTAssertEqual(tools.midY, s.header / 2, accuracy: 1, "\(surface)")
+            XCTAssertNil(s.root.first(label: "Expand"), "\(surface)")
+            XCTAssertNil(s.root.first(label: "Collapse"), "\(surface)")
         }
-        for label in ["Music", "Shelf", "Clipboard", "Translate"] {
-            XCTAssertEqual(try rail(standard, label), try rail(tall, label), "\(label) never moves")
-        }
-        let standardFoot = try rail(standard, "Settings")
-        let tallFoot = try rail(tall, "Settings")
-        XCTAssertEqual(tallFoot.minY - standardFoot.minY, 192, accuracy: 1, "Settings rides the foot")
-        XCTAssertEqual(tallFoot.maxY, 400 - NotchGeometry.bodyBottomPadding, accuracy: 1)
+        let tray = try await shell(.tray)
+        XCTAssertNil(tray.root.all { $0.role == "AXButton" && $0.label == "Tools" }.first, tray.root.dump)
+        let tools = try await shell(.tools)
+        XCTAssertNil(tools.root.all { $0.role == "AXButton" && $0.label == "Tools" }.first, "Tools has no Tools button")
+        let gear = try body(try XCTUnwrap(tools.root.first(label: "Settings"), tools.root.dump), in: tools)
+        XCTAssertEqual(gear.minX, tools.bodyWidth - 46, accuracy: 1, "the gear is at (bw − 46, 6)")
     }
 }
 

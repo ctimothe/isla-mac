@@ -27,7 +27,11 @@ final class NotchController {
     /// The body height the open rects are cut for right now. It trails the
     /// body's own height on the way down (see `openRectHeight`), so it is the
     /// controller, not the model, that knows it.
-    private var appliedOpenHeight: CGFloat?
+    private var appliedOpenSize: CGSize?
+    /// Whether the drag in flight opened the panel itself, so the drop surface
+    /// folds back into the island when it ends rather than leaving a surface
+    /// nobody asked for open (spec §19.7).
+    private var dragOpenedPanel = false
     /// The pass that lets the rects shrink once the body has stopped moving.
     private var rectShrinkWork: DispatchWorkItem?
     private var collapseCheckWork: DispatchWorkItem?
@@ -328,15 +332,15 @@ final class NotchController {
     /// what is on screen.
     ///
     /// Opening the panel used to start it on any tab. A panel left open on
-    /// Shelf, Clipboard or Settings while Spotify played paid eleven wake-ups a
-    /// second to move a scrubber nobody could see (F-015). Only the Music tab
-    /// and the lock card draw a scrubber or a lyric, so only they run it. The
-    /// lock card answers for itself with the panel closed, whatever tab was
-    /// left open — the lock path starts it, and `lockKeepsMediaRunning` holds
-    /// the dark-display exception there. Pure, so `MediaClockTests` can hold
-    /// the rule without a controller.
-    static func mediaClockWanted(isOpen: Bool, tab: NotchViewModel.Tab, locked: Bool) -> Bool {
-        locked || (isOpen && tab == .media)
+    /// the Shelf, Clipboard or Settings while Spotify played paid eleven
+    /// wake-ups a second to move a scrubber nobody could see (F-015). Only the
+    /// player, the stage and the lock card draw a scrubber or a lyric, so only
+    /// they run it. The lock card answers for itself with the panel closed,
+    /// whatever surface was left open — the lock path starts it, and
+    /// `lockKeepsMediaRunning` holds the dark-display exception there. Pure, so
+    /// `MediaClockTests` can hold the rule without a controller.
+    static func mediaClockWanted(isOpen: Bool, surface: NotchViewModel.Surface, locked: Bool) -> Bool {
+        locked || (isOpen && (surface == .player || surface == .stage))
     }
 
     /// The lock screen is display-only for the panel: the compact pill keeps
@@ -732,22 +736,22 @@ final class NotchController {
         }
     }
 
-    /// Opens on the Music tab with the lyrics page already up.
+    /// Opens on the lyrics stage (spec §19.6).
     ///
     /// The same shape as `translateCommanded(_:)` and for the same reasons:
     /// refused over the shield before anything is touched, and pinned open
     /// because the pointer that asked for it is on the keyboard rather than on
     /// the notch.
-    /// Pressing it again folds the page back to the player rather than doing
-    /// nothing, so one key is the whole round trip.
+    /// Pressing it again turns the stage back into the player rather than
+    /// doing nothing, so one key is the whole round trip.
     func toggleLyrics() {
         guard let vm = viewModel else { return }
         guard admitsCommandedOpen(vm) else { return }
-        // Pressed again with the page already up, it folds the page back to
-        // the player rather than doing nothing: one key is the whole round
-        // trip, and the panel is left open on the music it was opened for.
-        if vm.isOpen, vm.tab == .media, vm.isShowingLyrics {
-            vm.isShowingLyrics = false
+        // Pressed again with the stage up, it turns back into the player: one
+        // key is the whole round trip, and the panel is left open on the music
+        // it was opened for.
+        if vm.isOpen, vm.surface == .stage {
+            vm.hideLyrics()
             return
         }
         openOnLyrics(vm)
@@ -761,9 +765,7 @@ final class NotchController {
     func showLyrics() {
         guard let vm = viewModel else { return }
         guard admitsCommandedOpen(vm) else { return }
-        guard NotchViewModel.showLyricsVerdict(
-            isOpen: vm.isOpen, tab: vm.tab, showingLyrics: vm.isShowingLyrics
-        ) == .open else { return }
+        guard NotchViewModel.showLyricsVerdict(isOpen: vm.isOpen, surface: vm.surface) == .open else { return }
         openOnLyrics(vm)
     }
 
@@ -772,12 +774,11 @@ final class NotchController {
     private func openOnLyrics(_ vm: NotchViewModel) {
         peekWork?.cancel()
         vm.isPeeking = false
-        // `chooseTab`, so a press during the first-run welcome retires it
-        // and the page shows now. Through `select` it went up behind the
+        // Through `choose`, so a press during the first-run welcome retires
+        // it and the stage shows now. Through `open` it went up behind the
         // welcome and appeared only after Get Started, a lyrics page nobody
         // remembered asking for (J-018).
-        vm.chooseTab(.media)
-        vm.isShowingLyrics = true
+        vm.openStage()
         // Pinned, like ⌃⌥⌘I and for the same reason: the hand that pressed it is
         // on the keyboard, not on the notch, and an unpinned panel nobody is
         // hovering folds a third of a second after it appears. Lyrics are read
@@ -788,15 +789,15 @@ final class NotchController {
         updatePinnedClickMonitor()
     }
 
-    /// Opens on the translate tab with this text already in it — or, with no
-    /// text (an image on the clipboard), on the tab saying so. It used to
+    /// Opens on Translate with this text already in it — or, with no text (an
+    /// image on the clipboard), on Translate saying so. It used to
     /// return without a trace on no text, which looked exactly like a shortcut
     /// that was not registered (F-040).
     func translateCommanded(_ text: String?) {
         guard let vm = viewModel else { return }
-        // Refused over the shield, before the translator, the tab or `setOpen`
-        // is touched: this route would open the panel over the password field
-        // and then make it key through `select(.translate)` — a window the lock
+        // Refused over the shield, before the translator, the surface or
+        // `setOpen` is touched: this route would open the panel over the
+        // password field and then make it key through `open(.translate)` — a window the lock
         // presentation deliberately lifted above the shield, holding the
         // keyboard in front of the password field, the exact hazard
         // `panel.onPress` refuses for the same reason. Refused quietly, too,
@@ -807,8 +808,8 @@ final class NotchController {
         // Cut to the limit before anything — the field, the pane's measuring,
         // an engine — sees it: a multi-megabyte clipboard used to stall the
         // main thread for over a second (J-017). The view model then puts it
-        // in the field, covered, and raises the keyboard through the tab
-        // change: set directly, the tab changed without ever raising
+        // in the field, covered, and raises the keyboard through the surface
+        // change: set directly, the surface changed without ever raising
         // `wantsKeyboard`, and the panel showed a text field whose keystrokes
         // went to the app underneath.
         vm.receiveCommandedTranslation(Translator.prepareCommandInput(text))
@@ -819,7 +820,7 @@ final class NotchController {
         // the grace and then scheduling a 0.6 s collapse meant the translation
         // still vanished before it could be read — just slightly later.
         pointer.setInside(true, grace: NotchMetrics.translateReadDelay)
-        // Held open by the pointer rule like any other tab, so it folds when
+        // Held open by the pointer rule like any other surface, so it folds when
         // the user moves away — a translation they walked away from is done.
         scheduleCollapseIfPointerAway(after: NotchMetrics.translateReadDelay)
     }
@@ -843,9 +844,10 @@ final class NotchController {
     /// over the shield on purpose, and a click there has to say *not here*
     /// rather than either opening over the password field or doing nothing at
     /// all, which reads as a dead app rather than a decision.
-    /// `opening` is what was clicked: the bubble opens the Shelf, the island
-    /// what it shows (`NotchViewModel.clickTarget`).
-    private func islandClicked(opening tab: NotchViewModel.Tab? = nil) {
+    /// `opening` is what was clicked: the bubble opens the tray, the island
+    /// what it shows (`NotchViewModel.islandClick`) — or, on an alert, folds
+    /// it.
+    private func islandClicked(opening surface: NotchViewModel.Surface? = nil) {
         guard let vm = viewModel else { return }
         // Diagnostic, behind DI_GEOM=1: the third line of the click trail, so
         // a gesture that fired reads here as refused, closed, or opened.
@@ -875,11 +877,18 @@ final class NotchController {
             return
         }
 
+        // An alert folds rather than opening anything (spec §19.1): the island
+        // returns to what is live, and the next click opens that.
+        if surface == nil, vm.islandClick == .foldAlert {
+            foldAlert()
+            return
+        }
+
         // Everything the hover route used to do, in the same order, so a click
         // opens the panel the way a hover did rather than by a second path that
-        // merely ends up open too. The tab, the lift and the pin are the view
-        // model's — `clickOpened` — and the panel's own machinery is here.
-        vm.clickOpened(pointerIsOnPanel: pointerIsOnOpenPanel, opening: tab)
+        // merely ends up open too. The surface, the lift and the pin are the
+        // view model's — `clickOpened` — and the panel's own machinery is here.
+        vm.clickOpened(pointerIsOnPanel: pointerIsOnOpenPanel, opening: surface)
         // Before `setOpen`, not after. Telling the watcher afterwards let it
         // re-enter `onChange` mid-expansion and re-run the open path against a
         // panel that was already opening.
@@ -1135,7 +1144,7 @@ final class NotchController {
     func refreshDeleteKey() {
         guard let vm = viewModel else { return deleteKey.teardown() }
         updateDeleteKey(
-            open: vm.isOpen, onShelf: vm.tab == .shelf && !vm.isShowingWelcome,
+            open: vm.isOpen, onShelf: vm.presented == .tray,
             pointerOnShelf: vm.isPointerOnShelf, hasSelection: vm.shelfSelectionIsCurrent,
             locked: vm.isLockedPresentation
         )
@@ -1149,19 +1158,19 @@ final class NotchController {
     func deleteKeyPressed() {
         guard let vm = viewModel else { return deleteKey.teardown() }
         guard NotchViewModel.claimsDelete(
-            panelOpen: vm.isOpen, onShelf: vm.tab == .shelf && !vm.isShowingWelcome,
+            panelOpen: vm.isOpen, onShelf: vm.presented == .tray,
             pointerOnShelf: vm.isPointerOnShelf, hasSelection: vm.shelfSelectionIsCurrent,
             appIsActive: appIsActive(), locked: vm.isLockedPresentation
         ) else { return deleteKey.teardown() }
         vm.shelf.removeSelected()
     }
 
-    /// Cuts the sampler's Shelf rect for the body on screen, or empties it.
-    /// `tab` is passed by a caller that runs inside a `$tab` sink, where the
-    /// model still holds the old one.
-    private func updateShelfZone(open: Bool, size: CGSize, tab: NotchViewModel.Tab? = nil) {
-        guard let vm = viewModel, open, (tab ?? vm.tab) == .shelf, !vm.isShowingWelcome,
-              !vm.isLockedPresentation else {
+    /// Cuts the sampler's tray rect for the body on screen, or empties it.
+    /// `surface` is passed by a caller that runs inside a `$surface` sink,
+    /// where the model still holds the old one.
+    private func updateShelfZone(open: Bool, size: CGSize, surface: NotchViewModel.Surface? = nil) {
+        guard let vm = viewModel, open, (surface ?? vm.surface) == .tray, !vm.isShowingWelcome,
+              !vm.isDropTargeted, !vm.isLockedPresentation else {
             pointer.shelfRect = .zero
             return
         }
@@ -1179,7 +1188,7 @@ final class NotchController {
         // away what the panel was showing. The stores themselves already
         // survive — they belong to the session, not the panel — so this is
         // only the panel's own state.
-        let previousTab = viewModel?.tab
+        let previousSurface = viewModel?.surface
         let wasOpen = viewModel?.isOpen ?? false
         let wasShowingWelcome = viewModel?.isShowingWelcome ?? false
         // The pin belongs to the panel being torn down; the monitor watching
@@ -1214,24 +1223,24 @@ final class NotchController {
         panel = nil
         rootView = nil
         viewModel = nil
-        build(restoring: previousTab, wasOpen: wasOpen, showingWelcome: wasShowingWelcome)
+        build(restoring: previousSurface, wasOpen: wasOpen, showingWelcome: wasShowingWelcome)
     }
 
     private func build(
-        restoring restoredTab: NotchViewModel.Tab? = nil,
+        restoring restoredSurface: NotchViewModel.Surface? = nil,
         wasOpen: Bool = false,
         showingWelcome: Bool = false
     ) {
         guard let geometry = NotchGeometry.current() else { return }
         buildGeneration += 1
         let vm = NotchViewModel(geometry: geometry, stores: stores)
-        // Before any rect is cut. The tab decides how far down the panel
-        // reaches, and restoring it afterwards left every rect cut for the
-        // default media body — so a restored teleprompter opened to its full
-        // 400 pt with a close rect drawn for 208, and folded under a pointer
-        // resting in the lower half of the pane.
-        if let restoredTab { vm.tab = restoredTab }
-        // Carried across for the same reason as the tab, and it is the more
+        // Before any rect is cut. The surface decides how far down and how
+        // wide the panel reaches, and restoring it afterwards left every rect
+        // cut for the default body — so a restored 400 pt surface opened with a
+        // close rect drawn for a shorter one, and folded under a pointer
+        // resting in its lower half.
+        if let restoredSurface { vm.surface = restoredSurface }
+        // Carried across for the same reason as the surface, and it is the more
         // fragile of the two: the welcome is shown once per account, so dropping
         // it here did not merely lose a pane — it spent the account's one moment
         // on nothing at all. Plugging in a display mid-read is the obvious way
@@ -1249,7 +1258,7 @@ final class NotchController {
         // launch rather than being silently spent.
         vm.isShowingWelcome = showingWelcome
         vm.onIslandClick = { [weak self] in self?.islandClicked() }
-        vm.onBubbleClick = { [weak self] in self?.islandClicked(opening: .shelf) }
+        vm.onBubbleClick = { [weak self] in self?.islandClicked(opening: .tray) }
         viewModel = vm
 
         let panel = NotchPanel(contentRect: geometry.windowFrame)
@@ -1273,11 +1282,15 @@ final class NotchController {
         }
         root.onDragEntered = { [weak self] in
             guard let self, let vm = self.viewModel else { return }
-            // `showShelfForDrag()`, not a bare `tab = .shelf`: the welcome is
-            // drawn over the pane switch, and `setOpen(true)` below has nothing
-            // to do on a panel the welcome already opened, so a drag during the
-            // first launch used to change nothing visible whatsoever.
-            vm.showShelfForDrag()
+            // A card dragged out of the tray crossing its own panel is not a
+            // file arriving: turning the tray into the drop surface under it
+            // would take away the place it came from (and the drop is refused,
+            // `acceptDrop`).
+            guard !ShelfDragSource.isDraggingOut else { return }
+            // The drop surface is presented over whatever is chosen — the
+            // welcome too — and comes off it when the drag ends (spec §19.7).
+            // A drag that found the island shut opened it, and shuts it again.
+            if !vm.isOpen { self.dragOpenedPanel = true }
             vm.isDropTargeted = true
             self.setOpen(true)
         }
@@ -1290,7 +1303,7 @@ final class NotchController {
             let body = vm.geometry.contentRect(for: vm.openBodySize)
             let target = ShelfDropTarget.target(
                 atBodyPoint: ShelfDropTarget.bodyPoint(windowPoint: point, contentRect: body),
-                bodySize: vm.openBodySize
+                bodyWidth: vm.openBodySize.width, notchHeight: vm.geometry.notchSize.height
             )
             if vm.shelfDropTarget != target { vm.shelfDropTarget = target }
         }
@@ -1304,8 +1317,7 @@ final class NotchController {
             guard let self, let vm = self.viewModel else { return }
             vm.isDropTargeted = false
             vm.shelfDropTarget = .keep
-            // The pointer usually is not over the panel after a drag leaves.
-            self.scheduleCollapseIfPointerAway()
+            self.endDropSurface()
         }
         root.promises = stores.promises
         root.onDrop = { [weak self] urls in
@@ -1316,26 +1328,22 @@ final class NotchController {
             vm.shelfDropTarget = .keep
             if target == .airDrop {
                 ShelfSharing.airDrop(urls, refusingOn: self.stores.shelf)
-                self.pointer.setInside(true)
-                self.setOpen(true)
-                self.scheduleCollapseIfPointerAway()
+                self.endDropSurface()
                 return true
             }
             let accepted = vm.acceptDrop(urls: urls)
-            self.pointer.setInside(true)
-            self.setOpen(true)
-            self.scheduleCollapseIfPointerAway()
+            self.endDropSurface()
             return accepted
         }
 
-        // Escape folds the panel from any tab. It used to be bound inside the
+        // Escape folds the panel from any surface. It used to be bound inside the
         // two panes that take the keyboard, which meant the teleprompter's
         // documented "ends three ways" was really one — its pane never held
         // the keyboard, so Escape never reached it and the pin outlived the
         // script.
         //
         // The panel only sees Escape while it is key, though, which outside
-        // Translate it never is — so "any tab" was still false for the panels
+        // Translate it never is — so "any surface" was still false for the panels
         // that most needed it, the ones the keyboard opened (F-004). A pinned
         // panel now also reaches here through a transient hot key; see
         // `updateEscapeHotKey`. An unpinned one has the pointer on it, and the
@@ -1344,7 +1352,7 @@ final class NotchController {
         // nothing else's. The registered hot key covers the common case of a
         // panel that is not key; see `NotchPanel.removeKeyHandled`.
         panel.removeKeyHandled = { [weak self] in
-            guard let vm = self?.viewModel, vm.tab == .shelf, !vm.isShowingWelcome,
+            guard let vm = self?.viewModel, vm.presented == .tray,
                   !vm.isLockedPresentation, !vm.shelf.selection.isEmpty else { return false }
             vm.shelf.removeSelected()
             return true
@@ -1366,6 +1374,33 @@ final class NotchController {
             return vm.consumeEscape()
         }
 
+        // ↑ ↓ move through Clipboard's list and Return copies the row and
+        // closes (spec §19.8): asked before the search field, which has the
+        // caret and would otherwise take the arrows to its own start and end.
+        panel.listKeyHandled = { [weak self] key in
+            guard let self, let vm = self.viewModel else { return false }
+            switch vm.consumeListKey(key) {
+            case .ignored:
+                return false
+            case .handled:
+                return true
+            case .handledAndClose:
+                self.setOpen(false)
+                self.pointer.setInside(false)
+                return true
+            }
+        }
+
+        // ⌘, opens Settings from Clipboard or Translate (spec §19.1). Settings
+        // takes no keyboard, so choosing it hands the keyboard back on its own
+        // (`NotchViewModel.surface`). While a shortcut field records, ⌘, is the
+        // shortcut being recorded, not a way somewhere: Settings is already up.
+        panel.settingsKeyHandled = { [weak self] in
+            guard let vm = self?.viewModel, vm.presented != .settings else { return false }
+            vm.open(.settings)
+            return true
+        }
+
         // ⇧⌘C copies the translation, which no responder owns: the caret is
         // in the source field, so ⌘C and ⇧⌘C both copied the source (H-018).
         panel.onCopyTranslation = { [weak self] in
@@ -1373,12 +1408,11 @@ final class NotchController {
             return vm.copyTranslationIfShowing()
         }
 
-        // Clicking away drops the keyboard but leaves the tab where it was, so
-        // a click back into the panel has to be able to ask for it again.
+        // Clicking away drops the keyboard but leaves the surface where it
+        // was, so a click back into the panel has to be able to ask for it
+        // again.
         panel.onPress = { [weak self] in
-            guard let vm = self?.viewModel, NotchViewModel.tabWantsKeyboard(
-                tab: vm.tab, clipboardSearching: vm.clipboardBrowser.isSearching
-            ) else { return }
+            guard let vm = self?.viewModel, vm.presented.takesKeyboard else { return }
             // Never while the shield is up. The lock card takes clicks — that
             // is how its transport works — and with the last-used tab on
             // translate or notes, one of those clicks used to raise
@@ -1405,9 +1439,8 @@ final class NotchController {
         pointer.hoverRect = geometry.collapsedIslandHoverRect(for: vm.bodySize.width)
         pointer.warmZone = geometry.warmZone
         pointer.coolZone = geometry.coolZone
-        // Cut for the tab that will be showing, not for the standard body: a
-        // rebuild restores the previous tab, and the teleprompter reaches
-        // twice as far down as the rest.
+        // Cut for the surface that will be showing: a rebuild restores the
+        // previous one, and the surfaces differ in width and height.
         pointer.closeRect = geometry.hoverRect(for: vm.openBodySize)
         // A real notch is a hole: nothing is under it, so opening the moment the
         // pointer arrives costs nothing. A synthetic one sits on a working menu
@@ -1501,37 +1534,18 @@ final class NotchController {
         // had stopped, for the rest of the night. The wake handler starts it.
         if !screensAreAsleep { pointer.start() }
 
-        // Switching tabs can change how far down the panel reaches, and both
-        // the clickable region and the region the pointer counts as "on the
-        // panel" are cut from that. Left alone, the teleprompter would open to
-        // its full height with only its top 208 pt alive.
-        vm.$tab
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    guard let vm = self.viewModel, vm.isOpen else { return }
-                    // A pass later: `bodySize` reads `tab`, and this fires
-                    // while the property is still being set.
-                    DispatchQueue.main.async { self.refreshOpenRects() }
-                }
-            }
-            .store(in: &cancellables)
-
-        // Growing or folding the body — Expand, Collapse, or the lyric page
-        // opening onto a tall state it was left in — changes how far down the
-        // panel reaches exactly as a tab change did, and the same two rects are
-        // cut from it (spec §6: the active rect, the hover rect and the close
-        // area follow `openBodySize`). Through the one path an open uses,
-        // `refreshOpenRects`; not a second place that knows how to cut them.
-        // A pass later for the reason the tab sink above gives: `@Published`
-        // announces before it stores, and `openBodySize` reads the stored value.
-        vm.$expandedTabs
-            .map { _ in () }
-            .merge(with: vm.$isShowingLyrics.removeDuplicates().map { _ in () })
-            // The lyric page is only there with a song to show it on
-            // (`NotchViewModel.showsLyricPage`), so the song going or coming
-            // changes the height too.
+        // Each surface has its own size (spec §19.6–§19.8), so changing what
+        // is presented changes how wide and how far down the panel reaches,
+        // and both the clickable region and the region the pointer counts as
+        // "on the panel" are cut from that — through the one path an open
+        // uses, `refreshOpenRects`. The presented surface moves with the
+        // surface chosen, the drop surface and the welcome laid over it, and
+        // the song: the stage with no song is the empty player. A pass later:
+        // `@Published` announces before it stores, and `openBodySize` reads the
+        // stored values.
+        vm.$surface.removeDuplicates().map { _ in () }
+            .merge(with: vm.$isDropTargeted.removeDuplicates().map { _ in () })
+            .merge(with: vm.$isShowingWelcome.removeDuplicates().map { _ in () })
             .merge(with: vm.media.$track.map { $0 == nil }.removeDuplicates().map { _ in () })
             .sink { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -1542,21 +1556,23 @@ final class NotchController {
             }
             .store(in: &cancellables)
 
-        // The media clock follows the tab while the panel is open: on for
-        // Music, off for everything else (see `mediaClockWanted`). Coming back
-        // to Music goes through `setActive(true)` exactly as an open does, so
-        // the position is recomputed from the anchor, the feed is asked again
-        // and the shuffle and repeat switches are re-read — nothing drawn from
-        // a clock that stood still while Settings was up. Reads the value the
-        // publisher hands over, not `vm.tab`: `@Published` announces before it
+        // The media clock follows the surface while the panel is open: on for
+        // the player and the stage, off for everything else (see
+        // `mediaClockWanted`). Coming back to the player goes through
+        // `setActive(true)` exactly as an open does, so the position is
+        // recomputed from the anchor, the feed is asked again and the shuffle
+        // and repeat switches are re-read — nothing drawn from a clock that
+        // stood still while Settings was up. Reads the value the publisher
+        // hands over, not `vm.surface`: `@Published` announces before it
         // stores. Closed or locked, the open and lock paths own the clock, and
-        // a tab set before an open (the translate hot key) is read by the open.
-        vm.$tab
+        // a surface set before an open (the translate hot key) is read by the
+        // open.
+        vm.$surface
             .removeDuplicates()
-            .sink { [weak self] tab in
+            .sink { [weak self] surface in
                 MainActor.assumeIsolated {
                     guard let vm = self?.viewModel, vm.isOpen, !vm.isLockedPresentation else { return }
-                    vm.media.setActive(Self.mediaClockWanted(isOpen: true, tab: tab, locked: false))
+                    vm.media.setActive(Self.mediaClockWanted(isOpen: true, surface: surface, locked: false))
                 }
             }
             .store(in: &cancellables)
@@ -1641,8 +1657,8 @@ final class NotchController {
             .store(in: &cancellables)
 
         // The I-beam over the Translate editor (PTR-02). The rect goes to zero
-        // with the tab, so the tracking area is re-cut on the same change that
-        // swaps the pane.
+        // with the surface, so the tracking area is re-cut on the same change
+        // that swaps the pane.
         vm.$textInputRect
             .removeDuplicates()
             .sink { [weak self] rect in
@@ -1654,9 +1670,9 @@ final class NotchController {
             }
             .store(in: &cancellables)
 
-        // Driven by the deliberate request, not by which tab is showing: a
-        // hover can land on the typing tab now, and that alone must not take
-        // the keyboard away from the window underneath.
+        // Driven by the deliberate request, not by which surface is showing:
+        // only a surface that types asks, and a click back into one asks again
+        // (`panel.onPress`).
         vm.$wantsKeyboard
             .removeDuplicates()
             .sink { [weak self] wants in
@@ -1803,10 +1819,11 @@ final class NotchController {
             hudFoldWork = nil
             stores.hud.panelOpened()
             withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = true }
-            // Only for the tab that draws the clock. Opening onto Settings or
-            // the Shelf leaves it off; the tab sink in `build` starts it the
-            // moment Music comes up, with the same re-anchoring an open does.
-            if Self.mediaClockWanted(isOpen: true, tab: vm.tab, locked: vm.isLockedPresentation) {
+            // Only for the surfaces that draw the clock. Opening onto Settings
+            // or the tray leaves it off; the surface sink in `build` starts it
+            // the moment the player comes up, with the same re-anchoring an
+            // open does.
+            if Self.mediaClockWanted(isOpen: true, surface: vm.surface, locked: vm.isLockedPresentation) {
                 vm.media.setActive(true)
             }
         } else {
@@ -1922,6 +1939,17 @@ final class NotchController {
         return applied
     }
 
+    /// The same for both sides: the surfaces differ in width as well as height
+    /// (spec §19.6–§19.8), and the stage turning into the player narrows the
+    /// shape by two hundred points on the island's spring. Each side grows at
+    /// once and shrinks when the body has stopped.
+    nonisolated static func openRectSize(applied: CGSize?, target: CGSize, bodySettled: Bool) -> CGSize {
+        CGSize(
+            width: openRectHeight(applied: applied?.width, target: target.width, bodySettled: bodySettled),
+            height: openRectHeight(applied: applied?.height, target: target.height, bodySettled: bodySettled)
+        )
+    }
+
     /// How long a shrink of the open rects waits for the drawn body to stop.
     ///
     /// The hold used to be `Theme.expandSettle` (0.5 s) for every shrink. That
@@ -1967,12 +1995,12 @@ final class NotchController {
         // mistake that would leave a registration standing for one change too
         // long. Any one input going false gives the keys back in this same
         // turn; there is no timer and no "later".
-        vm.$isOpen.combineLatest(vm.$tab, vm.$isShowingWelcome)
+        vm.$isOpen.combineLatest(vm.$surface, vm.$isShowingWelcome)
             .combineLatest(vm.$isPointerOnShelf, vm.$shelfSelectionIsCurrent, vm.$isLockedPresentation)
             .sink { [weak self] base, pointerOnShelf, selection, locked in
                 MainActor.assumeIsolated {
                     self?.updateDeleteKey(
-                        open: base.0, onShelf: base.1 == .shelf && !base.2,
+                        open: base.0, onShelf: base.1 == .tray && !base.2,
                         pointerOnShelf: pointerOnShelf, hasSelection: selection, locked: locked
                     )
                 }
@@ -1996,23 +2024,20 @@ final class NotchController {
                 MainActor.assumeIsolated { self?.refreshDeleteKey() }
             }
             .store(in: &cancellables)
-        // The Shelf's pointer zone follows the tab: cut for the Shelf's body
-        // while it shows, empty on every other tab, and at once (not a pass
+        // The tray's pointer zone follows the surface: cut for the tray's body
+        // while it shows, empty on every other surface, and at once (not a pass
         // later like the rects) because it is what ends the Delete claim.
-        vm.$tab
+        vm.$surface
             .removeDuplicates()
-            .sink { [weak self] tab in
+            .sink { [weak self] surface in
                 MainActor.assumeIsolated {
                     guard let self, let vm = self.viewModel else { return }
-                    // The body the *new* tab asks for: `vm.openBodySize` still
-                    // reads the old one inside this sink.
-                    let size = CGSize(
-                        width: vm.geometry.expandedSize.width,
-                        height: NotchViewModel.openBodyHeight(
-                            tab: tab, showingLyrics: vm.showsLyricPage, expandedTabs: vm.expandedTabs
-                        )
+                    // The body the *new* surface asks for: `vm.openBodySize`
+                    // still reads the old one inside this sink.
+                    let size = SurfaceLayout.bodySize(
+                        for: surface, bodyWidth: vm.geometry.expandedSize.width, notch: vm.geometry.notchSize
                     )
-                    self.updateShelfZone(open: vm.isOpen && tab == .shelf, size: size, tab: tab)
+                    self.updateShelfZone(open: vm.isOpen && surface == .tray, size: size, surface: surface)
                 }
             }
             .store(in: &cancellables)
@@ -2040,14 +2065,14 @@ final class NotchController {
         guard let vm = viewModel, vm.isOpen else { return }
         rectShrinkWork?.cancel()
         rectShrinkWork = nil
-        var size = vm.openBodySize
+        let target = vm.openBodySize
         let hold = Self.shrinkHold(
             reduceMotion: reduceMotion ?? SystemAppearance.shared.reduceMotion, animated: animated
         )
-        let height = Self.openRectHeight(
-            applied: appliedOpenHeight, target: size.height, bodySettled: bodySettled || hold == 0
+        let size = Self.openRectSize(
+            applied: appliedOpenSize, target: target, bodySettled: bodySettled || hold == 0
         )
-        if height > size.height {
+        if size.height > target.height || size.width > target.width {
             // Still shrinking: look again when the spring has settled. A newer
             // refresh cancels this one and decides afresh.
             let work = DispatchWorkItem { [weak self] in
@@ -2057,7 +2082,6 @@ final class NotchController {
             rectShrinkWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + hold, execute: work)
         }
-        size.height = height
         applyActiveRect(open: true, body: size)
         pointer.closeRect = vm.geometry.hoverRect(for: size)
     }
@@ -2156,6 +2180,43 @@ final class NotchController {
             ),
             at: Date()
         )
+    }
+
+    /// A click on an alert (spec §19.1): it folds now, on the curve it would
+    /// have folded on, and the island returns to what is live — or to an
+    /// alert still waiting inside its second. Its timer goes with it, so it
+    /// cannot fold a second time over whatever came back.
+    private func foldAlert() {
+        guard let vm = viewModel else { return }
+        hudFoldWork?.cancel()
+        hudFoldWork = nil
+        ambientWork?.cancel()
+        ambientWork = nil
+        peekWork?.cancel()
+        peekWork = nil
+        withAnimation(Theme.island(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            vm.hud = nil
+            vm.ambient = nil
+        }
+        promoteWaitingAlert()
+    }
+
+    /// The drag is over — dropped, sent to AirDrop or taken away. The drop
+    /// surface comes off what it was laid over (spec §19.7): a panel the drag
+    /// opened folds back into the island, where the Shelf now shows as live,
+    /// and one that was already open goes back to the surface it was on.
+    private func endDropSurface() {
+        guard dragOpenedPanel else {
+            // The pointer usually is not over the panel after a drag leaves.
+            scheduleCollapseIfPointerAway()
+            return
+        }
+        dragOpenedPanel = false
+        setOpen(false)
+        // The pointer let go on the island, inside the open rect that is
+        // about to shrink: counted as an arrival, Open on Hover would open the
+        // panel straight back up.
+        pointer.closedByHand()
     }
 
     /// The island is free again — an alert folded, a surface closed, the drag
@@ -2494,14 +2555,14 @@ final class NotchController {
         let size: CGSize
         if open {
             size = body ?? vm.openBodySize
-            appliedOpenHeight = size.height
+            appliedOpenSize = size
             // The way back in. `openRect` was only ever cut for the collapsed
             // strip, so once the pointer had been counted as away from an open
             // panel, moving back onto its 620×208 body registered as nothing
             // and only a trip to the notch could reopen it.
             pointer.openRect = vm.geometry.hoverRect(for: size)
         } else {
-            appliedOpenHeight = nil
+            appliedOpenSize = nil
             // The full drawn depth, and the full width of the visible compact
             // activity — the pill widens with what is playing, and every point
             // of what is drawn has to open the panel.
@@ -2538,7 +2599,7 @@ final class NotchController {
         updateShelfZone(open: open, size: size)
         // The shoulders of what is drawn: an expanded alert's are wider than a
         // compact activity's (`IslandShapeRadii`).
-        let slack = open ? Theme.openTopRadius : vm.closedTopRadius
+        let slack = open ? vm.openTopRadius : vm.closedTopRadius
         let rect = vm.geometry.contentRect(for: size).insetBy(dx: -slack, dy: 0)
         rootView.activeRect = NotchRootView.reachingTopEdge(rect, windowHeight: vm.geometry.windowSize.height)
         geometryTrace(String(format: "activeRect open=%d w=%.0f h=%.0f", open ? 1 : 0, rect.width, rect.height))

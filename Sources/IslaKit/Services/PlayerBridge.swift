@@ -225,8 +225,14 @@ enum PlayerBridge {
         case off, all, one
     }
 
-    /// Both flags in one round trip, or nil when the player refuses to answer.
-    static func playbackModes(of app: PlayerApp, completion: @escaping @MainActor ((shuffle: Bool, repeatMode: RepeatMode)?) -> Void) {
+    /// Both flags in one round trip, or nil when the player refuses to answer —
+    /// and, from Music, whether the song is a favourite (spec §19.6), in the
+    /// same trip. Spotify's scripting has no such property (its `starred` is a
+    /// corpse, see `SpotifyAccount`), so its answer carries none.
+    static func playbackModes(
+        of app: PlayerApp,
+        completion: @escaping @MainActor ((shuffle: Bool, repeatMode: RepeatMode, favorite: Bool?)?) -> Void
+    ) {
         guard app.isRunning else {
             Task { @MainActor in completion(nil) }
             return
@@ -235,7 +241,7 @@ enum PlayerBridge {
             MainActor.assumeIsolated {
                 guard let raw = result?.stringValue else { return completion(nil) }
                 let parts = raw.split(separator: "|").map(String.init)
-                guard parts.count == 2 else { return completion(nil) }
+                guard parts.count == 2 || parts.count == 3 else { return completion(nil) }
                 let shuffle = parts[0] == "true"
                 let mode: RepeatMode
                 switch parts[1] {
@@ -243,9 +249,27 @@ enum PlayerBridge {
                 case "all", "true": mode = .all
                 default: mode = .off
                 }
-                completion((shuffle, mode))
+                completion((shuffle, mode, parts.count == 3 ? Self.favorite(parts[2]) : nil))
             }
         }
+    }
+
+    /// Music's answer for the favourite: "true", "false", or "none" when there
+    /// was no current track to ask.
+    static func favorite(_ raw: String) -> Bool? {
+        switch raw {
+        case "true": return true
+        case "false": return false
+        default: return nil
+        }
+    }
+
+    /// Music's favourite, set through the scripting bridge the fallback already
+    /// uses — the one Apple Events entitlement the app has. Music only: nothing
+    /// else answers the question, and Spotify's is the Web API's.
+    static func setFavorite(_ app: PlayerApp, _ isFavorite: Bool) {
+        guard app == .music else { return }
+        send(.favorite(isFavorite), to: app)
     }
 
     static func setShuffle(_ app: PlayerApp, enabled: Bool) { send(.shuffle(enabled), to: app) }
@@ -259,6 +283,9 @@ enum PlayerBridge {
         case seek(seconds: Double)
         case shuffle(Bool)
         case repeatMode(RepeatMode)
+        /// Music only (`setFavorite`); Spotify's body is a no-op the bridge
+        /// never sends.
+        case favorite(Bool)
 
         func body(for app: PlayerApp) -> String {
             switch (self, app) {
@@ -280,13 +307,15 @@ enum PlayerBridge {
             // Scripting has only the boolean; `.one` maps to on, matching how
             // Spotify itself degrades the state over this interface.
             case let (.repeatMode(mode), .spotify): return "set repeating to \(mode != .off)"
+            case let (.favorite(isOn), .music): return "set favorited of current track to \(isOn)"
+            case (.favorite, .spotify): return "return"
             }
         }
 
         /// One of every kind, so the compile test covers each body.
         static let everyKind: [Transport] = [
             .play, .pause, .next, .previous, .seek(seconds: 0),
-            .shuffle(true), .repeatMode(.one), .repeatMode(.off),
+            .shuffle(true), .repeatMode(.one), .repeatMode(.off), .favorite(true),
         ]
     }
 
@@ -438,7 +467,11 @@ enum PlayerBridge {
                 tell application id "\(app.bundleID)"
                     set s to shuffle enabled
                     set r to song repeat
-                    return (s as text) & "|" & (r as text)
+                    set f to "none"
+                    try
+                        set f to (favorited of current track) as text
+                    end try
+                    return (s as text) & "|" & (r as text) & "|" & f
                 end tell
                 """
             case .spotify:

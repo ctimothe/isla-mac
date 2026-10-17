@@ -190,21 +190,21 @@ final class IslandBubbleTests: XCTestCase {
     // MARK: The click
 
     /// A click opens what was clicked (spec §19.1): the bubble, or the island
-    /// showing the Shelf, opens the Shelf — today's Shelf tab until R8 gives
-    /// it the tray — and the island showing Music opens Music.
+    /// showing the Shelf, opens the tray, and the island showing Music opens
+    /// the player.
     func testAClickOnTheBubbleOrTheShelfActivityOpensTheShelf() throws {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         let vm = NotchViewModel(geometry: try geometry(), stores: isolated.stores)
         keep(3, on: isolated)
-        XCTAssertEqual(vm.clickTarget, .shelf, "the island shows the Shelf")
+        XCTAssertEqual(vm.openTarget, .tray, "the island shows the Shelf")
         isolated.stores.media.apply(playing())
-        XCTAssertEqual(vm.clickTarget, .media, "the island shows Music")
+        XCTAssertEqual(vm.openTarget, .player, "the island shows Music")
 
-        vm.clickOpened(pointerIsOnPanel: true, opening: .shelf)
-        XCTAssertEqual(vm.tab, .shelf, "the bubble's click")
+        vm.clickOpened(pointerIsOnPanel: true, opening: .tray)
+        XCTAssertEqual(vm.surface, .tray, "the bubble's click")
         vm.clickOpened(pointerIsOnPanel: true)
-        XCTAssertEqual(vm.tab, .media, "the island's click")
+        XCTAssertEqual(vm.surface, .player, "the island's click")
     }
 
     // MARK: Hit region

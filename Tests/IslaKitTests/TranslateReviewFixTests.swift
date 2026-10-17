@@ -297,7 +297,7 @@ final class TranslateReviewFixTests: XCTestCase {
             stores: NotchStores(translator: rig.translator, privacy: rig.privacy),
             defaults: rig.defaults
         )
-        vm.select(.translate)
+        vm.open(.translate)
         rig.translator.useOnline()
         XCTAssertTrue(vm.consumeEscape())
         XCTAssertNil(rig.translator.onlineRequest)
@@ -328,7 +328,7 @@ final class TranslateReviewFixTests: XCTestCase {
             stores: NotchStores(translator: rig.translator, privacy: rig.privacy),
             defaults: rig.defaults
         )
-        vm.select(.translate)
+        vm.open(.translate)
         vm.isOpen = true
         rig.translator.useOnline()
         XCTAssertNotNil(rig.translator.onlineRequest)
@@ -344,7 +344,7 @@ final class TranslateReviewFixTests: XCTestCase {
             stores: NotchStores(translator: rig.translator, privacy: rig.privacy),
             defaults: rig.defaults
         )
-        vm.select(.translate)
+        vm.open(.translate)
         rig.privacy.reveal(TranslatePane.revealID)
         rig.translator.useOnline()
         rig.privacy.setCovering(.translate, true)
@@ -636,7 +636,7 @@ final class TranslateReviewFixTests: XCTestCase {
             stores: NotchStores(translator: rig.translator, privacy: rig.privacy),
             defaults: rig.defaults
         )
-        vm.select(.translate)
+        vm.open(.translate)
         let before = rig.synthesizer.refreshCount
         vm.isOpen = true
         XCTAssertEqual(rig.synthesizer.refreshCount, before + 1)
@@ -644,20 +644,42 @@ final class TranslateReviewFixTests: XCTestCase {
 
     // MARK: - The History button follows the setting
 
-    func testTheHistoryButtonFollowsKeepHistoryLive() async {
+    /// The History button is the shell's (`NotchContentView.headerTrailing`),
+    /// drawn only while Keep History is on and read from the translator's own
+    /// defaults when the header draws. Keep History is a Settings row, so the
+    /// switch can only flip while another surface is up — the header draws
+    /// again with Translate coming back, and History follows the setting at
+    /// each arrival. One hosted view throughout, re-read after each change: a
+    /// fresh view per state would pass against a header that had cached the
+    /// setting (R8 review).
+    func testTheHistoryButtonFollowsKeepHistory() async throws {
         let rig = TranslateRig(keepHistory: false)
         defer { rig.release() }
-        let view = Color.black.modifier(TranslateHeaderTools(
-            isShown: true, bodyWidth: 560, defaults: rig.defaults,
-            isHistoryOpen: .constant(false), isExpanded: .constant(false)
-        ))
-        let off = await AXProbe.tree(of: view, size: CGSize(width: 560, height: 60))
+        let vm = NotchViewModel(
+            geometry: try LabGeometry.make(),
+            stores: NotchStores(translator: rig.translator, privacy: rig.privacy),
+            defaults: rig.defaults
+        )
+        vm.isOpen = true
+        vm.open(.translate)
+        let size = CGSize(width: VisualLab.windowSize.width, height: vm.geometry.windowSize.height)
+
+        let off = await AXProbe.tree(of: NotchContentView(vm: vm), size: size)
         XCTAssertNil(off.first(label: "History"), off.dump)
+        XCTAssertNotNil(off.first(label: "Tools"), "the control that is always there, so the probe can see the strip\n\(off.dump)")
+
         rig.defaults.set(true, forKey: NotchViewModel.translateKeepHistoryKey)
-        let on = await off.reread(settle: 0.3)
-        XCTAssertNotNil(on.first(label: "History"), "turning Keep History on shows History without a rebuild\n\(on.dump)")
+        vm.open(.settings)
+        _ = await off.reread()
+        vm.open(.translate)
+        let on = await off.reread()
+        XCTAssertNotNil(on.first(label: "History"), "turning Keep History on offers History\n\(on.dump)")
+
         rig.defaults.set(false, forKey: NotchViewModel.translateKeepHistoryKey)
-        let gone = await on.reread(settle: 0.3)
+        vm.open(.settings)
+        _ = await on.reread()
+        vm.open(.translate)
+        let gone = await on.reread()
         XCTAssertNil(gone.first(label: "History"), gone.dump)
     }
 

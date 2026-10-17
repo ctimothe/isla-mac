@@ -4,8 +4,9 @@ import XCTest
 @testable import IslaKit
 
 /// The cover, drawn: paused it is 0.8 of itself, and missing it is a quiet well
-/// with a note (redesign 2026-10-15, spec §4.2, §4.7). Measured off a bitmap of
-/// the pane hosted offscreen — a never-ordered window, nothing on screen.
+/// with a note (redesign 2026-10-15, spec §4.2, §4.7, in §19.6's 60 pt cover).
+/// Measured off a bitmap of the pane hosted offscreen — a never-ordered window,
+/// nothing on screen.
 @MainActor
 final class PlayerCoverRenderTests: XCTestCase {
     /// `ImageRenderer` at 1×: it draws SwiftUI's colour multiply, which a hosting
@@ -22,13 +23,12 @@ final class PlayerCoverRenderTests: XCTestCase {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         await LabFixtures.play(LabFixtures.Track(playing: playing), on: isolated.stores.media)
-        let layout = PlayerLayout(bodyWidth: 560, hasLyricBand: false)
         return try bitmap(
             of: MediaPane(
                 media: isolated.stores.media, lyrics: isolated.stores.lyrics, morph: nil, audio: MediaPane.quietAudio(),
                 icons: SettingsFixture.macWithApps([:])
             ).defaultAppStorage(isolated.suite),
-            size: layout.paneSize
+            size: CGSize(width: PlayerLayout.referenceBodyWidth, height: 160)
         )
     }
 
@@ -43,11 +43,11 @@ final class PlayerCoverRenderTests: XCTestCase {
     func testAPausedCoverIsEightyPercentOfItself() async throws {
         let playing = try await render(playing: true)
         let paused = try await render(playing: false)
-        // Inside the cover (132 pt square at the pane's origin), clear of the
+        // Inside the cover (60 pt square at (20, 0), radius 10), clear of the
         // corners and the hairline, where the lab's gradient is bright enough to
         // measure.
         var compared = 0
-        for (x, y) in [(40, 40), (66, 30), (90, 70), (30, 100)] {
+        for (x, y) in [(40, 30), (50, 18), (65, 42), (30, 50)] {
             let a = try brightness(playing, x: x, y: y)
             let b = try brightness(paused, x: x, y: y)
             guard a > 0.2 else { continue }
@@ -57,15 +57,16 @@ final class PlayerCoverRenderTests: XCTestCase {
         XCTAssertGreaterThan(compared, 0, "the cover must be bright somewhere for this to measure anything")
     }
 
-    /// A cover that is not coming: the 132 pt well at white 0.08 — not a shimmer,
-    /// not a stretched app icon — with the note on it.
+    /// A cover that is not coming: the well at the player's cover, 60 pt at
+    /// radius 10 and white 0.08 — not a shimmer, not a stretched app icon —
+    /// with the note on it, as `MediaPane` draws it (22 pt).
     func testAMissingCoverIsAQuietWell() throws {
-        let side = Theme.artworkMetrics(isOpen: true).side
+        let side = PlayerLayout().cover.width
         let bitmap = try bitmap(
-            of: MissingCoverWell(cornerRadius: Theme.artworkMetrics(isOpen: true).cornerRadius), size: CGSize(width: side, height: side)
+            of: MissingCoverWell(cornerRadius: PlayerLayout.coverRadius, noteSize: 22), size: CGSize(width: side, height: side)
         )
-        // A corner of the well, away from the note and the rounded corner.
-        let well = try brightness(bitmap, x: 14, y: 40)
+        // The well's edge, away from the note and the rounded corner.
+        let well = try brightness(bitmap, x: 6, y: 30)
         // Against white 0.08 drawn the same way, so the colour space the bitmap
         // is read in cancels out.
         let reference = try brightness(
@@ -75,8 +76,8 @@ final class PlayerCoverRenderTests: XCTestCase {
         // The note in its middle is brighter than the well (white 0.30), and
         // nothing in the well is anywhere near white.
         var brightest: CGFloat = 0
-        for y in stride(from: 30, to: 100, by: 2) {
-            for x in stride(from: 40, to: 95, by: 2) { brightest = max(brightest, try brightness(bitmap, x: x, y: y)) }
+        for y in stride(from: 16, to: 44, by: 1) {
+            for x in stride(from: 16, to: 44, by: 1) { brightest = max(brightest, try brightness(bitmap, x: x, y: y)) }
         }
         let note = try brightness(
             try self.bitmap(of: Color.white.opacity(0.30), size: CGSize(width: 10, height: 10)), x: 5, y: 5

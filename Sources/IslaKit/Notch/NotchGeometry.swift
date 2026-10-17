@@ -11,19 +11,13 @@ struct NotchGeometry {
     /// True when the display actually has a notch cut into it.
     let isPhysical: Bool
 
-    /// Metrics of the tab rail that do not depend on the notch. `railIconHeight`
-    /// is not among them — see below.
-    static let railSpacing: CGFloat = 4
-    /// Gap between the rail and the bottom edge of the body.
-    static let bodyBottomPadding: CGFloat = 14
-
     /// Size of the fully expanded panel body. Held constant across every Mac:
     /// letting it follow the header made two people on the very same model
     /// see two different heights, just from different display-scaling
     /// settings — 38 pt against 32 for the same physical notch, an 11 pt
-    /// spread from one slider (#27). What differs between Macs lives in
-    /// `railIconHeight` instead, which is the one thing in the body actually
-    /// free to give.
+    /// spread from one slider (#27). The surfaces' heights move with the notch
+    /// instead (`SurfaceLayout.y`), so their content keeps its distance from
+    /// the header row.
     /// Read once, when the geometry is built. Settings rebuilds the panel rather
     /// than nudging it, which is the same path a display change takes and the
     /// only one known to leave every rect consistent.
@@ -40,42 +34,6 @@ struct NotchGeometry {
     /// never resized: it is transparent outside the visible panel, and what is
     /// clickable is decided separately by the active rect.
     var maxBodyHeight: CGFloat { max(expandedSize.height, Self.tallBodyHeight) }
-
-    /// What the body has left for content on an ordinary tab, once the header
-    /// and the padding beneath are taken out.
-    ///
-    /// The rails are held to this even on the tab that is taller, so the icons
-    /// stay at the same height on every tab. Centred in the body instead, they
-    /// slid down by half the difference — 96 pt — the moment the teleprompter
-    /// opened, which put the icon just clicked well below the pointer that had
-    /// clicked it.
-    var standardContentHeight: CGFloat {
-        contentHeight(forBodyHeight: expandedSize.height)
-    }
-
-    /// What a body of `height` has left for content once the header and the
-    /// padding beneath are taken out. The tall body (spec §6) hands the rail
-    /// more of it: the four top items stay where they are — they hang from the
-    /// header — and Settings rides the foot, `h − 39`, so the gap between them
-    /// is the only thing that grows.
-    func contentHeight(forBodyHeight height: CGFloat) -> CGFloat {
-        height - notchSize.height - Self.bodyBottomPadding
-    }
-
-    /// Height each rail icon gets. A ceiling, not a constant: six icons at
-    /// the full 24 pt plus the five 4 pt gaps between them is 164 pt, and
-    /// the body only has `expandedSize.height − notchSize.height −
-    /// bodyBottomPadding` left to give the rail once the header — the notch
-    /// itself — and the padding beneath are taken out of the fixed 208.
-    /// Rounded down rather than to the nearest point: a rail that asks for
-    /// more than it is given should visibly yield, not overflow by a
-    /// fraction that clips it.
-    var railIconHeight: CGFloat {
-        let icons = CGFloat(NotchViewModel.Tab.leftRail.count)
-        let available = expandedSize.height - notchSize.height - Self.bodyBottomPadding
-        let ceiling = (available - (icons - 1) * Self.railSpacing) / icons
-        return min(24, ceiling).rounded(.down)
-    }
 
     /// Slack around the panel so the concave shoulders and shadow are not clipped.
     let windowPadding = NSEdgeInsets(top: 0, left: 40, bottom: 44, right: 40)

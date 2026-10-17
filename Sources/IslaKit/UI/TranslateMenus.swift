@@ -151,7 +151,7 @@ struct TranslatePopUp: View {
             .padding(.leading, 9)
             .padding(.trailing, 6)
             .frame(maxWidth: .infinity)
-            .frame(height: TranslateLayout.popUpHeight)
+            .frame(height: TranslateLayout.pairHeight)
             .background(
                 RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous)
                     .fill(Theme.popUpFill)
@@ -186,7 +186,7 @@ struct TranslatePopUp: View {
                 // finds is the control's frame and not the bare label's 16 pt
                 // line (F-014): a `Menu` is as tall as its label.
                 Text(title)
-                    .frame(maxWidth: .infinity, minHeight: TranslateLayout.popUpHeight)
+                    .frame(maxWidth: .infinity, minHeight: TranslateLayout.pairHeight)
             }
             // The button style, not the automatic pop-up: the automatic one is
             // sized by AppKit's 16 pt control, the button one by its label.

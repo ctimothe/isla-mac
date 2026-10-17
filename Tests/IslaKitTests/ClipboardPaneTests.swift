@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import IslaKit
 
-/// The Clipboard tab as it is drawn (redesign spec §9), probed through the
+/// The Clipboard surface as it is drawn (spec §9, §19.8), probed through the
 /// accessibility tree like the rest of the pane's tests: one button per row,
 /// named by what it would copy.
 @MainActor
@@ -27,23 +27,23 @@ final class ClipboardPaneTests: XCTestCase {
         super.tearDown()
     }
 
-    private func size(_ bodyWidth: CGFloat = 560, height: CGFloat = 208) -> CGSize {
-        CGSize(width: PlayerLayout.paneWidth(bodyWidth: bodyWidth), height: height - 38 - NotchGeometry.bodyBottomPadding)
+    /// The surface's content: the body's width and 262 tall under the header row.
+    private func size(_ bodyWidth: CGFloat = 560) -> CGSize {
+        CGSize(width: bodyWidth, height: ClipboardLayout.contentHeight)
     }
 
     private func pane(
-        _ isolated: ProbeStores, browser: ClipboardBrowser = ClipboardBrowser(),
+        _ isolated: ProbeStores, browser: ClipboardBrowser = ClipboardBrowser(), bodyWidth: CGFloat = 560,
         clear: ClipboardClearConfirmation? = nil, translate: @escaping (String) -> Void = { _ in }
     ) -> ClipboardPane {
         ClipboardPane(
             clipboard: isolated.stores.clipboard, privacy: isolated.stores.privacy, browser: browser,
-            historyDefaults: isolated.suite, translate: translate, clearConfirmation: clear
+            historyDefaults: isolated.suite, bodyWidth: bodyWidth, translate: translate, clearConfirmation: clear
         )
     }
 
-    /// The rows' names. The open search field's own ⓧ is a button on the pane
-    /// now (it moved from the header strip to the filter row, review
-    /// 2026-10-15), and is not a row.
+    /// The rows' names. The search field's own ⓧ, once something is typed, is a
+    /// button on the surface, and is not a row.
     private func rowLabels(_ root: AXNode) -> [String] {
         root.all(role: "AXButton").map(\.label).filter { $0 != "Clear Search" }
     }
@@ -72,7 +72,7 @@ final class ClipboardPaneTests: XCTestCase {
             .files([URL(fileURLWithPath: "/tmp/a.key"), URL(fileURLWithPath: "/tmp/b.key")]),
         ], into: clipboard)
 
-        let root = await AXProbe.tree(of: pane(isolated), size: size(height: 400))
+        let root = await AXProbe.tree(of: pane(isolated), size: size())
         let labels = rowLabels(root)
         XCTAssertEqual(
             labels,
@@ -172,7 +172,6 @@ final class ClipboardPaneTests: XCTestCase {
         defer { isolated.release() }
         isolated.record([.text("Meet at the north entrance"), .text("south gate")], into: isolated.stores.clipboard)
         let browser = ClipboardBrowser()
-        browser.beginSearch()
         browser.query = "NORTH"
         let found = await AXProbe.tree(of: pane(isolated, browser: browser), size: size())
         XCTAssertEqual(rowLabels(found), ["Meet at the north entrance"], found.dump)
@@ -189,17 +188,17 @@ final class ClipboardPaneTests: XCTestCase {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         let browser = ClipboardBrowser()
-        browser.beginSearch()
         browser.query = "x"
         var wants = true
-        let field = ClipboardSearchField(browser: browser, wantsKeyboard: Binding(get: { wants }, set: { wants = $0 }), close: { browser.endSearch() })
-        let root = await AXProbe.tree(of: field, size: CGSize(width: 294, height: 22))
+        let field = ClipboardSearchField(browser: browser, wantsKeyboard: Binding(get: { wants }, set: { wants = $0 }))
+        let root = await AXProbe.tree(of: field, size: ClipboardHeader.searchField.size)
         XCTAssertNotNil(root.first(label: "Search"), root.dump)
         let clear = root.all(role: "AXButton").filter { $0.label == "Clear Search" }
         XCTAssertEqual(clear.count, 1, root.dump)
         XCTAssertTrue(clear.first?.press() ?? false)
-        XCTAssertFalse(browser.isSearching)
         XCTAssertEqual(browser.query, "")
+        let after = await root.reread()
+        XCTAssertTrue(after.all(role: "AXButton").filter { $0.label == "Clear Search" }.isEmpty, "nothing typed, nothing to clear\n\(after.dump)")
     }
 
     // MARK: Clear Everything, in place
@@ -314,9 +313,9 @@ final class ClipboardPaneTests: XCTestCase {
         defer { isolated.release() }
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
         vm.translateClipboardText("  bonjour  ")
-        XCTAssertEqual(vm.tab, .translate)
+        XCTAssertEqual(vm.surface, .translate)
         XCTAssertEqual(isolated.stores.translator.input, "bonjour", "prepared as ⌃⌥⌘T prepares it")
-        XCTAssertTrue(vm.wantsKeyboard, "the Translate tab takes the keyboard")
+        XCTAssertTrue(vm.wantsKeyboard, "the Translate surface takes the keyboard")
     }
 
     // MARK: Covered
@@ -346,56 +345,42 @@ final class ClipboardPaneTests: XCTestCase {
                 .files((0..<4).map { URL(fileURLWithPath: "/tmp/Квартальный отчёт \($0).pdf") }),
             ], into: isolated.stores.clipboard)
             isolated.stores.clipboard.setPinned(isolated.stores.clipboard.items[0], true)
-            let root = await AXProbe.tree(of: pane(isolated), size: size(width, height: 400))
-            let pane = CGRect(origin: .zero, size: self.size(width, height: 400))
-            let rows = root.all(role: "AXButton").filter { $0.frame != nil }
+            let root = await AXProbe.tree(of: pane(isolated, bodyWidth: width), size: size(width))
+            let content = CGRect(origin: .zero, size: self.size(width))
+            let rows = root.all(role: "AXButton").filter { $0.frame != nil && $0.label != "Clear Search" }
             XCTAssertEqual(rows.count, 5, "\(width)\n\(root.dump)")
             for row in rows {
                 let frame = try XCTUnwrap(row.frame)
-                XCTAssertTrue(pane.insetBy(dx: -1, dy: -1).contains(frame), "\(row.label) \(frame) leaves \(pane) at \(width)")
+                XCTAssertTrue(content.insetBy(dx: -1, dy: -1).contains(frame), "\(row.label) \(frame) leaves \(content) at \(width)")
                 XCTAssertEqual(frame.height, ClipboardLayout.rowHeight, accuracy: 0.5, row.label)
                 XCTAssertEqual(frame.width, ClipboardLayout.rowWidth(bodyWidth: width), accuracy: 0.5, row.label)
+                XCTAssertEqual(frame.minX, ClipboardLayout.listOrigin.x, accuracy: 0.5, row.label)
             }
-            // Rows are 2 apart (the pinned one has the hairline's 7 under it).
+            // Rows are 4 apart (the pinned one has the hairline's 7 under it).
             let ys = rows.compactMap { $0.frame?.minY }.sorted()
             XCTAssertEqual(ys.count, 5)
-            XCTAssertEqual(ys[2] - ys[1], 30, accuracy: 0.5, "28 tall, 2 apart")
+            XCTAssertEqual(ys[0], ClipboardLayout.listOrigin.y, accuracy: 0.5, "the first row at the list's origin")
+            XCTAssertEqual(ys[2] - ys[1], ClipboardLayout.pitch, accuracy: 0.5, "30 tall, 4 apart")
         }
     }
 
     /// "No truncation of controls" (spec §13): Russian's "Изображения" is wider
-    /// than a 53 pt segment, so the control grows to its natural width — and is
-    /// measured against the filter row (408 to 548 wide), not the old 53 pt
-    /// segment, so the words now fit from 540 up in Russian too. Below 540 the
-    /// spec's rule still makes them symbols.
-    func testTheRussianFilterShowsWordsOnTheRowWhereTheyFit() throws {
-        XCTAssertTrue(ClipboardHeader.wordsFit(bodyWidth: 560), "English fits")
-        XCTAssertEqual(ClipboardHeader.filterSize(bodyWidth: 560), CGSize(width: 270, height: 20))
+    /// than the room the filter has, so the segments are symbols with the names
+    /// as their tooltips and labels — at every body width, 620 included, where
+    /// English has its words. The age's short words are the Russian ones.
+    func testTheRussianFilterIsSymbolsWhereTheWordsDoNotFit() throws {
+        XCTAssertFalse(ClipboardHeader.usesSymbolSegments(bodyWidth: 560), "English fits")
         LabLocalization.use("ru")
         XCTAssertEqual(ClipFilter.allCases.map(\.title), ["Все", "Текст", "Ссылки", "Изображения", "Файлы"])
-        let natural = ClipboardHeader.wordsWidth()
-        XCTAssertGreaterThan(natural, 270, "the longest Russian name widens the control")
-        for width in [CGFloat(560), 620] {
-            XCTAssertTrue(ClipboardHeader.wordsFit(bodyWidth: width), "\(width): \(natural) fits \(ClipboardLayout.rowWidth(bodyWidth: width))")
-            XCTAssertEqual(ClipboardHeader.filterSize(bodyWidth: width), CGSize(width: natural, height: 20), "\(width)")
-            XCTAssertEqual(ClipboardHeader.filter(bodyWidth: width).minX, ClipboardHeader.filterRow(bodyWidth: width).minX)
-            XCTAssertLessThanOrEqual(ClipboardHeader.filter(bodyWidth: width).maxX, ClipboardHeader.filterRow(bodyWidth: width).maxX)
+        let natural = ClipboardHeader.segmentWidth()
+        for width in [CGFloat(480), 560, 620] {
+            let room = ClipboardHeader.filter(bodyWidth: width).width
+            XCTAssertGreaterThan(4 * natural + 4, room, "\(width): the Russian words (\(natural) a segment) do not fit \(room)")
+            XCTAssertTrue(ClipboardHeader.usesSymbolSegments(bodyWidth: width), "\(width)")
         }
-        XCTAssertEqual(ClipboardHeader.filterSize(bodyWidth: 480), CGSize(width: 150, height: 20), "below 540: symbols")
-        // The age's short words are the Russian ones.
         XCTAssertEqual(ClipboardAge.text(of: Date(timeIntervalSinceNow: -240)), "4 мин")
         LabLocalization.use("en")
-        XCTAssertEqual(ClipboardHeader.filterSize(bodyWidth: 560), CGSize(width: 270, height: 20))
-        XCTAssertEqual(ClipboardHeader.filterSize(bodyWidth: 480), CGSize(width: 150, height: 20))
-    }
-
-    func testTheFilterControlIsSymbolsOnlyWhereTheWordsDoNotFitTheRow() {
-        XCTAssertTrue(ClipboardHeader.wordsFit(bodyWidth: 560, measure: { _ in 20 }))
-        // 100 + 8 per segment × 5 + 4 is 544: past the 488 pt row at 560, inside 548 at 620.
-        XCTAssertFalse(ClipboardHeader.wordsFit(bodyWidth: 560, measure: { _ in 100 }))
-        XCTAssertTrue(ClipboardHeader.wordsFit(bodyWidth: 620, measure: { _ in 100 }))
-        XCTAssertFalse(ClipboardHeader.usesSymbolSegments(bodyWidth: 560, wordsFit: true))
-        XCTAssertTrue(ClipboardHeader.usesSymbolSegments(bodyWidth: 560, wordsFit: false))
-        XCTAssertTrue(ClipboardHeader.usesSymbolSegments(bodyWidth: 539, wordsFit: true))
+        XCTAssertFalse(ClipboardHeader.usesSymbolSegments(bodyWidth: 560))
+        XCTAssertTrue(ClipboardHeader.usesSymbolSegments(bodyWidth: 480))
     }
 }

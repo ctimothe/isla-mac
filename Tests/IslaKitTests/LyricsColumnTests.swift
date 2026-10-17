@@ -207,11 +207,11 @@ final class LyricsColumnTests: XCTestCase {
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores(), defaults: suite)
-        vm.select(.media)
+        vm.open(.player)
         vm.lyricsMoreMenu.perform(.settings)
-        XCTAssertEqual(vm.tab, .settings)
+        XCTAssertEqual(vm.surface, .settings)
         XCTAssertEqual(vm.settingsSection, .lyrics)
-        XCTAssertEqual(vm.openBodySize.height, 400, "Settings is always tall (R4)")
+        XCTAssertEqual(vm.openBodySize.height, 400 - 38 + vm.geometry.notchSize.height, "Settings is 400 on a 38 pt notch (§19.8)")
     }
 
     /// The menus' controllers can outlive the model when the panel is rebuilt
@@ -238,19 +238,15 @@ final class LyricsColumnTests: XCTestCase {
     // MARK: - The stage's geometry
 
     func testTheStageHoldsTheSungLineWhereTheBoardPutsIt() throws {
-        for (state, centreInArea) in [
-            (PlayerLayout.State.column, 104.5 - 38),
-            (.tall, 176.5 - Double(PlayerLayout.tallAreaTop)),
-        ] {
-            let f = PlayerLayout.frames(for: state, bodyWidth: 560)
-            let area = try XCTUnwrap(f.lyricArea)
-            let sung = try XCTUnwrap(f.sungLine)
-            XCTAssertEqual(sung.midY - area.minY, centreInArea, accuracy: 0.001)
-            let centre = LyricsStage.holdingCentre(centre: sung.midY - area.minY, viewport: area.height)
-            XCTAssertEqual(centre, sung.midY - area.minY, "a centre inside the viewport is held where the board has it")
+        let area = StageLayout(bodyWidth: 560).lines
+        // The sung line's top is at y 138 on the board: 100 under the header row,
+        // and its centre 14 below that (a 28 pt line).
+        XCTAssertEqual(StageLayout.readingCentre, 138 - 38 + 14)
+        let centre = LyricsStage.holdingCentre(centre: StageLayout.readingCentre, viewport: area.height)
+        XCTAssertEqual(centre, StageLayout.readingCentre, "a centre inside the viewport is held where the board has it")
 
-            // The row's centre lands on it: anchor·H − anchor·slot + slot/2.
-            let slot = try XCTUnwrap(f.lyricPitch)
+        // The row's centre lands on it: anchor·H − anchor·slot + slot/2.
+        for slot in [LyricsStage.Metrics.stage.slot(translated: false), LyricsStage.Metrics.stage.slot(translated: true)] {
             let unit = LyricsStage.anchorUnit(centre: centre, viewport: area.height, slot: slot)
             XCTAssertEqual(unit * area.height - unit * slot + slot / 2, centre, accuracy: 0.001)
             XCTAssertGreaterThan(unit, 0)
@@ -270,24 +266,27 @@ final class LyricsColumnTests: XCTestCase {
         XCTAssertEqual(LyricsStage.air(viewport: 128, slot: LyricsStage.slotHeight, centre: 64).top, LyricsStage.centeringAir(viewport: 128))
     }
 
-    func testTheModesSetTheBoardsTypeAndPitch() {
-        XCTAssertEqual(LyricsStage.Mode.column.metrics.pitch, 23)
-        XCTAssertEqual(LyricsStage.Mode.column.metrics.fontSize, 13)
-        XCTAssertEqual(LyricsStage.Mode.column.metrics.weight, .bold, "the sung line bold")
-        XCTAssertEqual(LyricsStage.Mode.column.metrics.contextWeight, .semibold, "the column's others semibold")
-        XCTAssertEqual(LyricsStage.Mode.tall.metrics.pitch, 34)
-        XCTAssertEqual(LyricsStage.Mode.tall.metrics.fontSize, 17)
-        XCTAssertEqual(LyricsStage.Mode.tall.metrics.contextWeight, .bold, "the tall page's all bold")
-        XCTAssertEqual(LyricsStage.Mode.tall.metrics.fontSize, Theme.TypeRole.lyric.size)
-        XCTAssertEqual(LyricsStage.Mode.column.metrics.fontSize, Theme.TypeRole.subhead.size)
+    /// §19.6: all lines 22 bold — the sung one is never larger (decision 6) —
+    /// a 28 pt line, 38 a slot, two lines before the tail is cut.
+    func testTheStageSetsTheBoardsTypeAndPitch() {
+        let metrics = LyricsStage.Metrics.stage
+        XCTAssertEqual(metrics.pitch, 38)
+        XCTAssertEqual(metrics.translatedPitch, 56)
+        XCTAssertEqual(metrics.fontSize, 22)
+        XCTAssertEqual(metrics.weight, .bold, "the sung line bold")
+        XCTAssertEqual(metrics.contextWeight, .bold, "and so are all the others")
+        XCTAssertEqual(metrics.lineHeight, 28)
+        XCTAssertEqual(metrics.lineLimit, 2)
+        XCTAssertEqual(LyricsStage.edgeFadeHeight, 24, "the column fades over its top and bottom 24 pt")
     }
 
     // MARK: - The stage in the accessibility tree
 
-    private static let size = CGSize(width: 278, height: 156)
+    /// The lines' own area at the default 560 body: `bw − 48` by 268.
+    private static let size = CGSize(width: 512, height: 268)
 
     private func stage(
-        lyrics: LyricsStore, media: MediaController, mode: LyricsStage.Mode = .column, online: Bool = false,
+        lyrics: LyricsStore, media: MediaController, online: Bool = false,
         lookup: LocalLyricsLookup? = nil, invalidLine: Int? = nil, notice: String? = nil,
         record: @escaping (String) -> Void = { _ in }
     ) -> LyricsStage {
@@ -296,7 +295,7 @@ final class LyricsColumnTests: XCTestCase {
             turnOnLyrics: { record("turn on lyrics") },
             turnOnOnlineLyrics: { record("search online") }, importLocalFile: { record("import") },
             notice: notice, editBlankLyrics: { record("edit") }, invalidLine: invalidLine,
-            mode: mode, onlineEnabled: { online }, readingCentre: mode == .column ? 66.5 : 90.5
+            onlineEnabled: { online }, readingCentre: StageLayout.readingCentre
         )
     }
 
@@ -400,27 +399,22 @@ final class LyricsColumnTests: XCTestCase {
         )
     }
 
-    /// The real scroll view puts the sung row's centre where the table says, in
-    /// both modes — the anchor arithmetic held against what SwiftUI lays out.
+    /// The real scroll view puts the sung row's centre where the table says —
+    /// the anchor arithmetic held against what SwiftUI lays out.
     func testTheSungRowLandsOnTheReadingCentre() async throws {
-        for (mode, size, centre, pitch) in [
-            (LyricsStage.Mode.column, CGSize(width: 278, height: 156), CGFloat(66.5), CGFloat(23)),
-            (.tall, CGSize(width: 488, height: 252), CGFloat(90.5), CGFloat(34)),
-        ] {
-            let (isolated, store) = rig()
-            defer { isolated.release() }
-            await LabFixtures.play(LabFixtures.Track(elapsed: 27), on: isolated.stores.media)
-            store.present(LabFixtures.timeline())
-            var root = await AXProbe.tree(
-                of: stage(lyrics: store, media: isolated.stores.media, mode: mode).defaultAppStorage(isolated.suite),
-                size: size
-            )
-            root = await root.reread(settle: 0.5)
-            let sung = try XCTUnwrap(root.all { $0.selected && $0.role == "AXButton" }.first, "\(mode)\n\(root.dump)")
-            let frame = try XCTUnwrap(sung.frame)
-            XCTAssertLessThanOrEqual(frame.height, pitch, "a line fits its slot in \(mode)")
-            XCTAssertEqual(frame.midY, centre, accuracy: 2.5, "the sung row at the reading centre in \(mode): \(frame)")
-        }
+        let (isolated, store) = rig()
+        defer { isolated.release() }
+        await LabFixtures.play(LabFixtures.Track(elapsed: 27), on: isolated.stores.media)
+        store.present(LabFixtures.timeline())
+        var root = await AXProbe.tree(
+            of: stage(lyrics: store, media: isolated.stores.media).defaultAppStorage(isolated.suite),
+            size: Self.size
+        )
+        root = await root.reread(settle: 0.5)
+        let sung = try XCTUnwrap(root.all { $0.selected && $0.role == "AXButton" }.first, root.dump)
+        let frame = try XCTUnwrap(sung.frame)
+        XCTAssertLessThanOrEqual(frame.height, LyricsStage.Metrics.stage.pitch, "a line fits its slot")
+        XCTAssertEqual(frame.midY, StageLayout.readingCentre, accuracy: 2.5, "the sung row at the reading centre: \(frame)")
     }
 
     // MARK: - Instrumental dots (spec §5.4)

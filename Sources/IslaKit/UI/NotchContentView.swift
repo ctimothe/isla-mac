@@ -14,6 +14,19 @@ struct NotchContentView: View {
     /// tree under it — rail, panes, and lyric lines alike.
     @ObservedObject private var appearance = SystemAppearance.shared
     private var reduceMotion: Bool { appearance.reduceMotion }
+    /// The update badge on Tools' Settings, and the shortcuts Tools' cards
+    /// name: both follow their sources while the panel is up.
+    @ObservedObject private var updates = UpdateCheck.shared
+    @ObservedObject private var hotKeys = HotKeyCenter.shared
+
+    /// Translate's History is offered only while Keep History is on (spec
+    /// §11): read from the translator's own defaults when the header draws,
+    /// which every surface change does.
+    private var translateKeepsHistory: Bool {
+        TranslateHeader.showsHistory(
+            keepHistory: vm.translator.defaults.bool(forKey: NotchViewModel.translateKeepHistoryKey)
+        )
+    }
 
     /// Geometry identities shared between the pill and the open panel.
     ///
@@ -73,7 +86,7 @@ struct NotchContentView: View {
     /// The shoulder: the open panel's, or what the shut island shows —
     /// an expanded alert's are wider than a compact activity's
     /// (`IslandShapeRadii`).
-    private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : vm.closedTopRadius }
+    private var topRadius: CGFloat { isOpen ? vm.openTopRadius : vm.closedTopRadius }
 
     // MARK: - Resting in the notch
 
@@ -100,9 +113,10 @@ struct NotchContentView: View {
     }
 
     private var shapeBottomRadius: CGFloat {
-        // 22 on the standard body, 26 on the tall one (spec §2.3); the shape
-        // animates its radii, so it springs 22 → 26 with the body's height.
-        if isOpen { return Theme.openBottomRadius(tall: vm.isCurrentTabExpanded) }
+        // The surface's own: 34 for the Shelf's two, 44 for every other
+        // (spec §19.6–§19.8). The shape animates its radii, so they spring with
+        // the body when one surface turns into another.
+        if isOpen { return vm.openBottomRadius }
         if restsInNotch && !isAwake { return Theme.restingNotchBottomRadius }
         // The peek's taller island takes 16, each expanded alert its own
         // (§19.5), every compact activity 12.67 — whichever is drawn, since
@@ -517,7 +531,9 @@ struct NotchContentView: View {
         // capture adds one card and evicts one — and the island jumped in and
         // out of the notch without its spring (R7 review).
         .animation(Theme.island(reduceMotion: reduceMotion), value: vm.liveShelfCount)
-        .animation(Theme.paneAnimation, value: vm.tab)
+        .animation(Theme.paneAnimation, value: vm.presented)
+        // The shoulders follow the surface: 24 for the Shelf's, 34 for the rest.
+        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.openTopRadius)
         // The body growing or folding (spec §6): its height, its bottom radius
         // and — through the same value — the stroke that follows them, on the
         // outline's spring (spec §19.3), or the 0.24 crossfade under Reduce
@@ -649,20 +665,19 @@ struct NotchContentView: View {
         return vm.media.track == nil ? localized("Nothing is playing.") : compactAccessibilityLabel
     }
 
-    /// The open island's value: what the header strip shows — the tab, and
-    /// the count or the player on its right end. The welcome is not a tab
-    /// (see `openHeader`), so there it names the welcome instead.
+    /// The open island's value: the surface on screen, and the count or the
+    /// player beside it where it has one.
     private var openIslandValue: String {
-        if vm.isShowingWelcome { return localized("Welcome") }
+        let surface = vm.presented
         let detail: String?
-        switch vm.tab {
-        case .media: detail = vm.media.sourceName
-        case .shelf: detail = vm.shelf.items.isEmpty ? nil : "\(vm.shelf.items.count)"
-        case .clipboard: detail = vm.clipboard.items.isEmpty ? nil : "\(vm.clipboard.items.count)"
-        case .translate, .settings: detail = nil
+        switch surface {
+        case .player, .stage: detail = vm.media.sourceName
+        case .tray: detail = vm.shelf.items.isEmpty ? nil : "\(vm.shelf.items.count)"
+        case .clipboard: detail = nil
+        case .drop, .tools, .translate, .settings, .welcome: detail = nil
         }
-        guard let detail, !detail.isEmpty else { return vm.tab.title }
-        return "\(vm.tab.title), \(detail)"
+        guard let detail, !detail.isEmpty else { return surface.title }
+        return "\(surface.title), \(detail)"
     }
 
     /// The charger or the headphones on the island.
@@ -836,149 +851,123 @@ struct NotchContentView: View {
         // island's value (`closedIslandValue`), set on the stack above it.
     }
 
+    /// The open panel's header strip (spec §19.6–§19.8): the notch's height,
+    /// with the surface's title or glyph left of the notch and its tools
+    /// right of it, each centred on the strip.
+    ///
+    /// Only the notch's own span closes the panel. The strip used to close on
+    /// a click anywhere, which was safe while nothing in it was a control; the
+    /// surfaces carry Tools, History, Remove All and Settings here now, and a
+    /// click a few points beside one must not shut the panel out from under
+    /// the pointer. The span is where the island is, so a click on the island
+    /// still answers as it always has.
     private var openHeader: some View {
-        headerRow
-            // The same close for assistive tech, as the same Isla button the shut
-            // island is — the gesture above has no trait and no action, so a panel
-            // opened from VoiceOver had no discoverable way to close (G-015).
-            .modifier(islandAccessibility(open: true))
-            // The lyric page's tools (spec §5.2) are laid over the strip *after*
-            // the accessibility element above, which ignores its children: put
-            // inside, the three buttons would be unreachable to VoiceOver. Each
-            // is placed by its own offset, so the rest of the strip keeps its
-            // click-to-close.
-            // Expand on the Shelf (spec §6, §8.1). The same button, in the same
-            // place, laid over the strip for the same reason as the lyric tools.
-            .modifier(ExpandHeaderTool(
-                isShown: showsShelfExpand,
-                bodyWidth: size.width,
-                isExpanded: Binding(
-                    get: { vm.expandedTabs.contains(.shelf) },
-                    set: { wants in
-                        withAnimation(Theme.island(reduceMotion: reduceMotion)) {
-                            vm.setExpanded(wants, for: .shelf)
-                        }
-                    }
-                )
-            ))
-            // The Clipboard's Search and Expand (spec §9.3), the same way. Its kind
-            // filter and search field are on the pane's own filter row.
-            .modifier(ClipboardHeaderTools(
-                isShown: showsClipboardTools,
-                bodyWidth: size.width,
-                itemCount: vm.clipboard.items.count,
-                browser: vm.clipboardBrowser,
-                isExpanded: Binding(
-                    get: { vm.expandedTabs.contains(.clipboard) },
-                    set: { wants in
-                        withAnimation(Theme.island(reduceMotion: reduceMotion)) {
-                            vm.setExpanded(wants, for: .clipboard)
-                        }
-                    }
-                ),
-                openSearch: { vm.openClipboardSearch() }
-            ))
-            // Translate's History and Expand (spec §11), the same way. History is
-            // there only while Keep History is on.
-            .modifier(TranslateHeaderTools(
-                isShown: showsTranslateTools,
-                bodyWidth: size.width,
-                defaults: vm.translator.defaults,
-                isHistoryOpen: $vm.translateShowsHistory,
-                isExpanded: Binding(
-                    get: { vm.expandedTabs.contains(.translate) },
-                    set: { wants in
-                        withAnimation(Theme.island(reduceMotion: reduceMotion)) {
-                            vm.setExpanded(wants, for: .translate)
-                        }
-                    }
-                )
-            ))
-            .modifier(LyricHeaderTools(
-                isShown: showsLyricTools,
-                bodyWidth: size.width,
-                showsTranslation: vm.showsTranslationTool,
-                translationShown: vm.translation.isShown,
-                toggleTranslation: { vm.translation.toggleShown() },
-                translateController: vm.lyricsTranslateMenu,
-                moreController: vm.lyricsMoreMenu,
-                isExpanded: Binding(
-                    get: { vm.expandedTabs.contains(.media) },
-                    set: { wants in
-                        withAnimation(Theme.island(reduceMotion: reduceMotion)) {
-                            vm.setExpanded(wants, for: .media)
-                        }
-                    }
-                )
-            ))
-    }
-
-    /// Whether the header carries the Shelf's Expand button: the Shelf, with
-    /// something on it or already tall (`ShelfHeader.showsExpand`), and not under
-    /// the welcome.
-    private var showsShelfExpand: Bool {
-        !vm.isShowingWelcome && vm.tab == .shelf
-            && ShelfHeader.showsExpand(itemCount: vm.shelf.items.count, isExpanded: vm.expandedTabs.contains(.shelf))
-    }
-
-    /// Whether the header carries the Clipboard's tools: the Clipboard tab, and
-    /// not under the welcome.
-    private var showsClipboardTools: Bool {
-        !vm.isShowingWelcome && vm.tab == .clipboard
-    }
-
-    /// Whether the header carries Translate's tools: the Translate tab, and not
-    /// under the welcome.
-    private var showsTranslateTools: Bool {
-        !vm.isShowingWelcome && vm.tab == .translate
-    }
-
-    /// Whether the header carries the lyric tools: the Music tab on the column
-    /// or the tall page, and not the welcome (which owns the pane for one launch).
-    private var showsLyricTools: Bool {
-        !vm.isShowingWelcome && vm.tab == .media && vm.musicPage != .player
-    }
-
-    private var headerRow: some View {
-        HStack(spacing: 0) {
-            // Both ends go quiet for the welcome. This row labels the pane below
-            // it, and the welcome is not a pane the row can name: it is not a tab
-            // (see `NotchViewModel.isShowingWelcome`), and `vm.tab` is left on
-            // Music underneath it, so the strip read "MUSIC" over a pane that had
-            // nothing to do with Music and the right end named a player for it.
-            // The pane carries its own heading; the header has nothing to add for
-            // one launch.
-            if !vm.isShowingWelcome {
-                Text(vm.tab.title.uppercased())
-                    .islandFont(.caption, weight: .semibold)
-                    .tracking(Theme.capsTracking)
-                    .foregroundStyle(Theme.tertiary)
-                    .padding(.leading, 16)
-                    .id(vm.tab)
-                    .transition(.opacity)
-            }
-            Spacer(minLength: 0)
-            Color.clear.frame(width: vm.geometry.notchSize.width, height: 1)
-            Spacer(minLength: 0)
-            if !vm.isShowingWelcome {
-                trailing
-                    .padding(.trailing, 16)
-                    .transition(.opacity)
-            }
+        let notch = vm.geometry.notchSize
+        let span = SurfaceHeaderLayout.closeSpan(bodyWidth: size.width, notchWidth: notch.width, notchHeight: notch.height)
+        return ZStack(alignment: .topLeading) {
+            Color.clear
+            // The close, and the island to assistive tech: the same Isla button
+            // the shut island is, which says it closes (G-015).
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { vm.onIslandClick?() }
+                .modifier(islandAccessibility(open: true))
+                .placedAt(span)
+            headerLeading(notch: notch)
+            headerTrailing(notch: notch)
         }
-        .frame(height: vm.geometry.notchSize.height)
-        // Clicking the island again closes the panel, and while the panel is
-        // open this strip is all of the island there is: the notch itself, at
-        // notch depth, with the body hanging below it. The close cannot be left
-        // to the gesture that opens the island — that one's shape is the whole
-        // window, so it would turn every click on a control in the panel into a
-        // click that shut the panel out from under the control just pressed.
-        //
-        // Safe to claim the full width because nothing in this row is a control
-        // on any tab: the title on the left, and a count or the source name on
-        // the right. The rail and the panes begin below it.
-        .contentShape(Rectangle())
-        .onTapGesture { vm.onIslandClick?() }
+        .frame(width: size.width, height: notch.height, alignment: .topLeading)
+        .animation(Theme.contentAnimation, value: vm.presented)
+    }
+
+    @ViewBuilder
+    private func headerLeading(notch: CGSize) -> some View {
+        switch vm.presented {
+        case .clipboard, .translate, .settings:
+            if let symbol = vm.presented.symbol {
+                SurfaceHeaderTitle(symbol: symbol, title: vm.presented.title)
+                    .placedAt(SurfaceHeaderLayout.title(
+                        bodyWidth: size.width, notchWidth: notch.width, notchHeight: notch.height
+                    ))
+                    .transition(.opacity)
+            }
+        case .stage:
+            // The playing app's icon: where the words come from, in the place
+            // the board gives it.
+            if let icon = vm.media.sourceIcon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .placedAt(SurfaceHeaderLayout.stageIcon(notchHeight: notch.height))
+                    .accessibilityLabel(vm.media.sourceName ?? "")
+                    .transition(.opacity)
+            }
+        case .tray:
+            let count = vm.shelf.items.count
+            Image(systemName: "tray.full.fill")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(Color.white)
+                .placedAt(SurfaceHeaderLayout.trayGlyph(notchHeight: notch.height))
+                .accessibilityHidden(true)
+                .transition(.opacity)
+            if ShelfHeader.showsCount(itemCount: count) {
+                Text(count, format: .number)
+                    .font(.system(size: ShelfLayout.headerCountSize, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Color.white)
+                    .contentTransition(.numericText(value: Double(count)))
+                    .lineLimit(1)
+                    .placedAt(SurfaceHeaderLayout.trayCount(
+                        bodyWidth: size.width, notchWidth: notch.width, notchHeight: notch.height
+                    ))
+                    .accessibilityLabel(ShelfHeader.countText(count))
+                    .transition(.opacity)
+            }
+        case .player, .drop, .tools, .welcome:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func headerTrailing(notch: CGSize) -> some View {
+        let tools = SurfaceHeaderLayout.tools(bodyWidth: size.width, notchHeight: notch.height)
+        switch vm.presented {
+        case .tools:
+            HeaderToolButton(symbol: "gearshape", label: localized("Settings"), badge: updates.hasUpdate) {
+                withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.open(.settings) }
+            }
+            .placedAt(tools)
+            .transition(.opacity)
+        case .tray:
+            if ShelfHeader.showsRemoveAll(itemCount: vm.shelf.items.count) {
+                let width = ShelfRemoveAllButton.width()
+                ShelfRemoveAllButton { vm.askToRemoveAll() }
+                    .placedAt(SurfaceHeaderLayout.removeAll(bodyWidth: size.width, width: width, notchHeight: notch.height))
+                    .transition(.opacity)
+            }
+        case .translate:
+            if translateKeepsHistory {
+                HeaderToolButton(
+                    symbol: "clock.arrow.circlepath", label: localized("History"), isOn: vm.translateShowsHistory
+                ) { vm.translateShowsHistory.toggle() }
+                .placedAt(SurfaceHeaderLayout.history(bodyWidth: size.width, notchHeight: notch.height))
+                .transition(.opacity)
+            }
+            toolsButton.placedAt(tools)
+        case .stage, .clipboard, .settings:
+            toolsButton.placedAt(tools)
+        case .player, .drop, .welcome:
+            EmptyView()
+        }
+    }
+
+    /// The Tools button (spec §19.8): the surface turns into Tools on the
+    /// island's spring.
+    private var toolsButton: some View {
+        HeaderToolButton(symbol: "square.grid.2x2", label: localized("Tools")) {
+            withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.open(.tools) }
+        }
+        .transition(.opacity)
     }
 
     /// - Parameter morph: the namespace the cover and the equalizer travel in,
@@ -1189,166 +1178,91 @@ struct NotchContentView: View {
     /// The view model's, because the peek announces the same sentence.
     private var compactAccessibilityLabel: String { vm.compactAccessibilityLabel }
 
-    @ViewBuilder
-    private var trailing: some View {
-        switch vm.tab {
-        case .media:
-            // The source tag (spec §4.1): the equalizer, then the player's own
-            // icon — Music's, Spotify's — in place of a second "Music" in words
-            // beside the tab's title. The bars end 8 pt before the icon, which
-            // is 18 pt and ends 17 from the body's edge; the strip's own 16 pt
-            // padding plus the 1 pt below is that 17.
-            HStack(spacing: 8) {
-                if vm.media.track != nil {
-                    // The far end of the equalizer's travel — the same bars that
-                    // were in the pill's right wing a moment ago, not a second
-                    // set switched on in their place.
-                    //
-                    // The compact end answers to this name only while the pill
-                    // shows (`MorphID.compact`); this end additionally needs a
-                    // track, the Media tab and no welcome pane, so the pair can
-                    // be half-present — open the panel on Shelf and only the
-                    // pill's bars exist. That is safe rather than accidental:
-                    // both ends are sources, so a lone member plays its own
-                    // transition instead of collapsing onto a frame that is not
-                    // there.
-                    //
-                    // The same four-bar view as the island's, in the cover's tint
-                    // while the music plays and at rest, tertiary, when it does
-                    // not (spec §3.2): one equalizer, drawn in both places.
-                    CompactEqualizer(
-                        isAnimating: vm.media.isPlaying,
-                        colors: CompactEqualizerMotion.colors(
-                            isPlaying: vm.media.isPlaying,
-                            tint: vm.coverTint.nsColor,
-                            increaseContrast: appearance.increaseContrast
-                        )
-                    )
-                    .morph(MorphID.equalizer, in: travellingMorph)
-                    if let icon = vm.media.sourceIcon {
-                        Image(nsImage: icon)
-                            .resizable()
-                            .interpolation(.high)
-                            .frame(width: Self.sourceIconSide, height: Self.sourceIconSide)
-                            .padding(.trailing, 1)
-                            .accessibilityLabel(vm.media.sourceName ?? "")
-                    }
-                }
-            }
-            // The lyric column and the tall page put their own tools where the
-            // source tag is (spec §5.1: `src` is hidden in C and T), so it gives
-            // the corner up rather than sit under them.
-            .opacity(vm.musicPage == .player ? 1 : 0)
-            .accessibilityHidden(vm.musicPage != .player)
-        case .shelf:
-            // "12 items", 8 pt before the Expand button (spec §8.1): the board
-            // right-aligns it to `bw − 47`, and the button's own 17 from the
-            // edge is placed by `ExpandHeaderTool`, so this keeps 31 pt clear
-            // of the header's 16 pt padding for the 22 pt button and the gap.
-            if ShelfHeader.showsCount(itemCount: vm.shelf.items.count) {
-                Text(ShelfHeader.countText(vm.shelf.items.count))
-                    .islandFont(.body, weight: .medium)
-                    .foregroundStyle(Theme.secondary)
-                    .lineLimit(1)
-                    .padding(.trailing, ShelfHeader.countClearance)
-            }
-        case .clipboard:
-            // The filter, Search and Expand live in `ClipboardHeaderTools`
-            // (spec §9.3). The count that used to sit here is gone with the
-            // room it took, and with it what it told a screen-share audience
-            // while the cover was on (H-026).
-            EmptyView()
-        case .translate:
-            // Nothing in the strip's own row: the pop-ups name both languages,
-            // and History and Expand are `TranslateHeaderTools` (spec §11).
-            EmptyView()
-        case .settings:
-            EmptyView()
-        }
-    }
-
-    /// The player's app icon in the header's source tag: 18 pt square
-    /// (spec §4.1).
-    static let sourceIconSide: CGFloat = 18
-
     // MARK: - Body
 
     private var content: some View {
-        HStack(spacing: PlayerLayout.railGap) {
-            Rail(vm: vm, tabs: NotchViewModel.Tab.contentTabs, footer: NotchViewModel.Tab.utilityTabs)
-            panes
-        }
-        // The pane starts at `PlayerLayout.paneLeading` = this padding + the
-        // rail + the gap; the player's board is measured from there.
-        .padding(.horizontal, PlayerLayout.bodyInset)
-        // The body's height is measured from this same number, so the two
-        // cannot drift apart into a rail that does not fit.
-        .padding(.bottom, NotchGeometry.bodyBottomPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // VO-Escape, or Switch Control's Escape, anywhere in the body closes
-        // the panel, as the header does. A panel opened from assistive tech is
-        // pinned open, and the pin ends only on a real mouse-down in another
-        // app, so without this the only way out was the global hot key —
-        // which someone who opened Isla by its button may not know (G-015).
-        .accessibilityAction(.escape) { vm.onIslandClick?() }
+        panes
+            .frame(
+                width: size.width, height: max(0, size.height - vm.geometry.notchSize.height),
+                alignment: .topLeading
+            )
+            // VO-Escape, or Switch Control's Escape, anywhere in the body closes
+            // the panel, as the header does. A panel opened from assistive tech is
+            // pinned open, and the pin ends only on a real mouse-down in another
+            // app, so without this the only way out was the global hot key —
+            // which someone who opened Isla by its button may not know (G-015).
+            .accessibilityAction(.escape) { vm.onIslandClick?() }
     }
 
     private var panes: some View {
-        // Content is replaced in place — no travel. The rail is vertical and
-        // the panes are unrelated, so a direction would only be decoration.
-        ZStack {
-            // For one launch, the welcome wins over the tab. Here rather than
-            // inside `pane` so the per-tab switch and its transitions are
-            // untouched, and so the rail — whose icons the welcome's legends sit
-            // level with, one line each, which is why its icon height goes
-            // down too — stays exactly where it is. A plain crossfade, because
-            // dismissing it is not travel between two tabs: one thing ends and
-            // the panel it was in carries on.
-            if vm.isShowingWelcome {
-                WelcomePane(onDismiss: { vm.dismissWelcome() }, railIconHeight: vm.geometry.railIconHeight)
-                    .transition(.opacity)
-            } else {
-                // The slight zoom is the only travel a swap has, and Reduce
-                // Motion takes it: the scales come from the theme, 1 under
-                // the setting, so the swap is a plain crossfade (F-017).
-                let scales = Theme.paneSwapScales(reduceMotion: reduceMotion)
-                pane
-                    .id(vm.tab)
-                    .transition(.asymmetric(
-                        insertion: .opacity
-                            .combined(with: .scale(scale: scales.insertion))
-                            .animation(Theme.paneIn),
-                        removal: .opacity
-                            .combined(with: .scale(scale: scales.removal))
-                            .animation(Theme.paneOut)
-                    ))
-            }
+        // Content is replaced in place, with the slight zoom that is the only
+        // travel a swap has; Reduce Motion takes it, and the swap is a plain
+        // crossfade (F-017). The body's own size springs on the island's curve
+        // underneath (`openBodySize`).
+        let scales = Theme.paneSwapScales(reduceMotion: reduceMotion)
+        return ZStack(alignment: .topLeading) {
+            pane
+                .id(vm.presented)
+                .transition(.asymmetric(
+                    insertion: .opacity
+                        .combined(with: .scale(scale: scales.insertion))
+                        .animation(Theme.paneIn),
+                    removal: .opacity
+                        .combined(with: .scale(scale: scales.removal))
+                        .animation(Theme.paneOut)
+                ))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
-        // One group, named for what it holds. Loose, the pane's elements were
-        // read in among the rail's by position — the Translate tab put
-        // "Translate From" between Music and Shelf.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // One group, named for what it holds.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(vm.isShowingWelcome ? localized("Welcome") : vm.tab.title)
+        .accessibilityLabel(vm.presented.title)
+    }
+
+    /// The Tools cards, read from the model when the surface draws.
+    private var toolsCards: [ToolsCard] {
+        [
+            .shelf(itemCount: vm.shelf.items.count),
+            .clipboard(
+                newest: vm.clipboard.items.first,
+                covered: vm.privacy.covers(.clipboard),
+                shortcut: nil
+            ),
+            .translate(
+                source: vm.translator.source?.name, target: vm.translator.target.name,
+                shortcut: hotKeys.bindings[.translateClipboard]?.displayString
+            ),
+        ]
     }
 
     @ViewBuilder
     private var pane: some View {
-        switch vm.tab {
-        case .media:
-            // The namespace goes down with the pane: the far end of the cover's
-            // travel is drawn inside it, and it is the one pane that has an end
-            // to offer. Open on any other tab and the compact cover is simply a
-            // lone member of the group — it leaves the way it always did.
+        let bodyWidth = vm.openBodySize.width
+        switch vm.presented {
+        case .player:
+            // The namespace goes down with the player: the far end of the
+            // cover's travel is drawn inside it, and it is the one surface that
+            // has an end to offer.
             MediaPane(
                 media: vm.media,
                 lyrics: vm.lyrics,
+                openStage: { withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.openStage() } },
+                bringPlayerForward: { vm.media.bringPlayerForward() },
+                openMusicOnlySetting: vm.openMusicOnlySetting,
+                morph: travellingMorph,
+                audio: vm.playerAudio,
+                spotify: vm.spotifyAccount,
+                coverTint: vm.coverTint.nsColor
+            )
+        case .stage:
+            LyricsStageSurface(
+                media: vm.media,
+                lyrics: vm.lyrics,
+                bodyWidth: bodyWidth,
                 localLookup: vm.lyricsCoordinator.localLookup,
                 turnOnLyrics: vm.turnOnLyrics,
                 turnOnOnlineLyrics: vm.turnOnOnlineLyrics,
                 importLocalFile: { vm.chooseLocalLyricsFile(from: .stage) },
-                lyricsNotice: vm.lyricsNotice?.origin == .stage ? vm.lyricsNotice?.text : nil,
+                notice: vm.lyricsNotice?.origin == .stage ? vm.lyricsNotice?.text : nil,
                 selectLocalCandidate: vm.lyricsCoordinator.selectLocalCandidate,
                 removeLocalBinding: vm.lyricsCoordinator.removeLocalBinding,
                 localLibrary: vm.localLyricsLibrary,
@@ -1356,33 +1270,34 @@ struct NotchContentView: View {
                 invalidLine: {
                     vm.lyricsCoordinator.currentLocalTrackIdentity.flatMap { vm.localLyricsLibrary.invalidLine(for: $0) }
                 },
-                isExpanded: vm.expandedTabs.contains(.media),
                 editingSession: $vm.lyricEditing,
-                openMusicOnlySetting: vm.openMusicOnlySetting,
-                morph: travellingMorph,
-                showingLyrics: $vm.isShowingLyrics,
-                headerHeight: vm.geometry.notchSize.height,
+                moreMenu: vm.lyricsMoreMenu,
+                translateMenu: vm.lyricsTranslateMenu,
+                hideLyrics: { withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.hideLyrics() } },
                 audio: vm.playerAudio,
-                translation: vm.translation
+                translation: vm.translation,
+                coverTint: vm.coverTint.nsColor
             )
-        case .shelf:
-            ShelfPane(
-                shelf: vm.shelf, isTargeted: vm.isDropTargeted, dropTarget: vm.shelfDropTarget,
-                headerHeight: vm.geometry.notchSize.height
-            )
+        case .tray:
+            ShelfPane(shelf: vm.shelf, clear: vm.shelfClear, bodyWidth: bodyWidth)
+        case .drop:
+            ShelfDropSurface(bodyWidth: bodyWidth, dropTarget: vm.shelfDropTarget)
+        case .tools:
+            ToolsSurface(cards: toolsCards) { surface in
+                withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.open(surface) }
+            }
         case .clipboard:
             ClipboardPane(
                 clipboard: vm.clipboard, privacy: vm.privacy, browser: vm.clipboardBrowser,
-                headerHeight: vm.geometry.notchSize.height,
+                bodyWidth: bodyWidth,
                 wantsKeyboard: $vm.wantsKeyboard,
-                closeSearch: { vm.closeClipboardSearch() },
                 translate: { vm.translateClipboardText($0) },
                 turnOnHistory: { vm.setClipboardHistory(true) }
             )
         case .translate:
             TranslatePane(
                 translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard,
-                showsHistory: $vm.translateShowsHistory, headerHeight: vm.geometry.notchSize.height
+                showsHistory: $vm.translateShowsHistory, bodyWidth: bodyWidth
             )
                 .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
         case .settings:
@@ -1415,175 +1330,11 @@ struct NotchContentView: View {
                 accessibilityEntrySuspectedStale: vm.accessibilityEntrySuspectedStale,
                 accessibilityRepairing: vm.accessibilityRepairing,
                 volumeKeysRefused: vm.volumeKeysRefused,
-                selection: $vm.settingsSection,
-                headerHeight: vm.geometry.notchSize.height
+                selection: $vm.settingsSection
             )
+        case .welcome:
+            WelcomePane(onDismiss: { vm.dismissWelcome() })
         }
-    }
-}
-
-/// Tab switcher.
-///
-/// A click changes the tab, and nothing else does. Hovering used to switch
-/// after a 150 ms dwell, which made the rail react to a pointer passing
-/// through it: moving across it on the way somewhere flipped panes, and each
-/// flip replayed the chosen glyph's fill, so a fast pass read as the rail
-/// stuttering behind the cursor (owner, 2026-09-21). macOS does not navigate
-/// on hover outside menus; a sidebar changes when it is clicked.
-///
-/// A hover draws a faint well under the glyph and nothing more, and both the
-/// well and the selection land on the frame they happen — no fade to wait
-/// out, no glyph growing, nothing to lag behind a fast pointer.
-///
-/// Internal rather than private for two readers: `WelcomePane`, whose legend
-/// column keeps this rail's rhythm, and the test that holds `isLit`.
-struct Rail: View {
-    @ObservedObject var vm: NotchViewModel
-    /// The run of content tabs people move between.
-    let tabs: [NotchViewModel.Tab]
-    /// Held to the bottom of the rail, below the gap: settings, which nobody
-    /// should have to hover past on the way to a track.
-    var footer: [NotchViewModel.Tab] = []
-
-    @State private var hovered: NotchViewModel.Tab?
-
-    /// The least room between the run of content tabs and Settings below it.
-    /// `WelcomePane` holds its Settings legend down with the same gap, so the
-    /// line stays level with the icon on a body that leaves no more than this.
-    static let footerGap: CGFloat = 10
-
-    /// Whether `tab`'s chip is drawn chosen — its fill, its filled glyph, its
-    /// edge — and carries the selected trait.
-    ///
-    /// Not while the welcome is up. The model leaves `tab` on Music underneath
-    /// it, so that Get Started lands there, and the chip used to follow `tab`
-    /// alone: the rail lit Music over a pane that was not Music, and VoiceOver
-    /// said "Music, selected" on the welcome (H-020). The welcome is not a tab,
-    /// so no tab is chosen while it shows.
-    static func isLit(_ tab: NotchViewModel.Tab, selected: NotchViewModel.Tab, welcoming: Bool) -> Bool {
-        !welcoming && tab == selected
-    }
-
-    private func isLit(_ tab: NotchViewModel.Tab) -> Bool {
-        Self.isLit(tab, selected: vm.tab, welcoming: vm.isShowingWelcome)
-    }
-
-    /// Read for one thing: whether Settings wears the mark that says a newer
-    /// Isla is out. Set only by a check the user ran or turned on.
-    @ObservedObject private var updates = UpdateCheck.shared
-
-    var body: some View {
-        VStack(spacing: NotchGeometry.railSpacing) {
-            ForEach(tabs) { icon(for: $0) }
-            if !footer.isEmpty {
-                Spacer(minLength: Self.footerGap)
-                ForEach(footer) { icon(for: $0) }
-            }
-        }
-        .frame(width: PlayerLayout.railWidth)
-        // The rail owns the body's full content height: the run of tabs at the
-        // top, settings held to the bottom by the gap between them.
-        // The open body's, not the standard one's: on the tall body (spec §6)
-        // the top items stay put and Settings rides the foot.
-        .frame(height: vm.geometry.contentHeight(forBodyHeight: vm.openBodySize.height), alignment: .center)
-        .frame(maxHeight: .infinity, alignment: .top)
-        // The five tabs together, under one name, and apart from the pane —
-        // see the pane's own group in `NotchContentView.panes`.
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(localized("Tabs"))
-    }
-
-    @ViewBuilder
-    private func icon(for tab: NotchViewModel.Tab) -> some View {
-        Button {
-            // `chooseTab`, not `select`: this is the one place a *person* picks
-            // a tab, and picking one is also how somebody answers the welcome
-            // with "not this, that" instead of pressing Get Started.
-            vm.chooseTab(tab)
-        } label: {
-            Image(systemName: tab.symbol)
-                // Filled when chosen, outlined otherwise — the tab bar's own
-                // grammar — swapped on the frame of the click. The note and the
-                // sliders have no filled form, so for Music and Settings the
-                // chip alone says which is chosen. The system's
-                // replace effect was tried and withdrawn the same day: it takes
-                // a third of a second, and a rail that answers a click a third
-                // of a second late reads as a rail catching up.
-                .symbolVariant(isLit(tab) ? .fill : .none)
-                .islandFont(.subhead)
-                .frame(width: 30, height: vm.geometry.railIconHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(fill(for: tab))
-                )
-                .overlay(
-                    // The selected chip's own edge, following `ShelfPane`'s
-                    // selected tile: a fill plus a 1.5pt border, rather than
-                    // the borrowed `surfaceHover` that made selected and
-                    // hovered the same colour with no edge on either.
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(
-                            Theme.selectedChipBorder.opacity(isLit(tab) ? 1 : 0),
-                            lineWidth: 1.5
-                        )
-                        .allowsHitTesting(false)
-                )
-                .foregroundStyle(isLit(tab) ? Color.white : Theme.tertiary)
-                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                // Nothing the shell animates reaches the glyph and its well: the
-                // pane change rides the shell's pane curve, and this would
-                // otherwise fade the chip along with it. The press dim is the
-                // button style's own and still answers on press-down.
-                .transaction { $0.animation = nil }
-        }
-        .buttonStyle(PanelButtonStyle())
-        .overlay(alignment: .topTrailing) {
-            // The app's badge, one primitive for two reasons: a newer version,
-            // found by a check the user asked for, and a screenshot that
-            // arrived while another tab was showing (it used to switch the tab
-            // under the user). A dot rather than a count, in the chrome's own
-            // white. It says "look here", and the pane says what.
-            if hasBadge(tab) {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 5, height: 5)
-                    .offset(x: -3, y: 3)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-        }
-        .help(tab.title)
-        .accessibilityLabel(tab.title)
-        .accessibilityValue(badgeValue(tab))
-        .accessibilityAddTraits(isLit(tab) ? [.isButton, .isSelected] : .isButton)
-        .onHover { inside in
-            if inside {
-                hovered = tab
-            } else if hovered == tab {
-                hovered = nil
-            }
-        }
-    }
-
-    @MainActor
-    private func hasBadge(_ tab: NotchViewModel.Tab) -> Bool {
-        switch tab {
-        case .settings: return updates.hasUpdate
-        case .shelf: return vm.shelfHasNew
-        default: return false
-        }
-    }
-
-    @MainActor
-    private func badgeValue(_ tab: NotchViewModel.Tab) -> String {
-        guard hasBadge(tab) else { return "" }
-        return tab == .shelf ? localized("New screenshot") : localized("Update available")
-    }
-
-    @MainActor
-    private func fill(for tab: NotchViewModel.Tab) -> Color {
-        if isLit(tab) { return Theme.selectedChip }
-        return hovered == tab ? Theme.surface : .clear
     }
 }
 

@@ -1,55 +1,19 @@
 import AppKit
 import SwiftUI
 
-// MARK: - Expand / Collapse (spec §6)
-
-/// The header's Expand / Collapse button: 22 × 22, `rectangle.expand.vertical`
-/// while the body is standard and `rectangle.compress.vertical` while it is
-/// tall, secondary, with the same word as its tooltip and its accessibility
-/// label.
-///
-/// A view of its own, taking a binding, because four tabs wear it — the lyric
-/// column now, and Shelf, Clipboard and Translate in the releases that follow
-/// (owner decisions 7 and 12). The host places it at `HeaderToolFrames.expand`,
-/// `(bw − 39, 8)`, and decides what the binding writes (`NotchViewModel
-/// .setExpanded`); this knows nothing of tabs or heights.
-struct ExpandCollapseButton: View {
-    @Binding var isExpanded: Bool
-
-    /// The word, for the tooltip and the accessibility label.
-    static func label(isExpanded: Bool) -> String {
-        isExpanded ? localized("Collapse") : localized("Expand")
-    }
-
-    static func symbol(isExpanded: Bool) -> String {
-        isExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical"
-    }
-
-    var body: some View {
-        let label = Self.label(isExpanded: isExpanded)
-        Button { isExpanded.toggle() } label: {
-            Image(systemName: Self.symbol(isExpanded: isExpanded))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.secondary)
-                .frame(width: HeaderToolFrames.side, height: HeaderToolFrames.side)
-                .contentShape(RoundedRectangle(cornerRadius: HeaderToolFrames.cornerRadius, style: .continuous))
-        }
-        .buttonStyle(PanelButtonStyle())
-        .help(label)
-        .accessibilityLabel(label)
-    }
-}
-
-extension HeaderToolFrames {
-    /// A 22 pt icon button's corner (spec §2.3).
+/// The stage foot's tools' size and corner (spec §19.6): 28 × 28, radius 7,
+/// 6 apart, the last ending 26 from the body's right edge.
+enum StageToolFrames {
+    static let side: CGFloat = 28
     static let cornerRadius: CGFloat = 7
+    static let spacing: CGFloat = 6
 }
 
 // MARK: - A header icon
 
-/// One of the lyric page's two other header tools, 22 × 22: a glyph at 12 pt,
-/// secondary, and — for a switch like Show Translation — the selected fill
-/// behind the filled glyph while it is on.
+/// One of the stage foot's tools, 28 × 28: a glyph at 13 pt, secondary, and —
+/// for a switch like Show Translation or the lit Hide Lyrics — white 0.18 behind
+/// the filled glyph while it is on (§19.6).
 struct HeaderIconButton: View {
     let symbol: String
     let label: String
@@ -59,14 +23,14 @@ struct HeaderIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(isOn ? Color.white : Theme.secondary)
-                .frame(width: HeaderToolFrames.side, height: HeaderToolFrames.side)
+                .frame(width: StageToolFrames.side, height: StageToolFrames.side)
                 .background(
-                    RoundedRectangle(cornerRadius: HeaderToolFrames.cornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: StageToolFrames.cornerRadius, style: .continuous)
                         .fill(isOn ? Theme.selectedChip : Color.clear)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: HeaderToolFrames.cornerRadius, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: StageToolFrames.cornerRadius, style: .continuous))
         }
         .buttonStyle(PanelButtonStyle())
         .help(label)
@@ -97,6 +61,8 @@ final class LyricsMoreMenuController: NSObject {
         var onlineOn: Bool
         var offset: TimeInterval
         var canNudge: Bool
+        var shuffle: Bool? = nil
+        var repeatMode: PlayerBridge.RepeatMode? = nil
     }
 
     struct Actions {
@@ -107,6 +73,8 @@ final class LyricsMoreMenuController: NSObject {
         var importFile: () -> Void = {}
         var searchAgain: () -> Void = {}
         var openSettings: () -> Void = {}
+        var toggleShuffle: () -> Void = {}
+        var cycleRepeat: () -> Void = {}
     }
 
     /// The menu is as wide as its longest row needs and no narrower than the
@@ -130,6 +98,8 @@ final class LyricsMoreMenuController: NSObject {
         case .removeBinding: return "minus.circle"
         case .importFile: return "doc.badge.plus"
         case .searchAgain: return "arrow.clockwise"
+        case .shuffle: return "shuffle"
+        case .repeatMode: return "repeat"
         case .header, .offset, .reset, .separator, .settings: return nil
         }
     }
@@ -143,7 +113,8 @@ final class LyricsMoreMenuController: NSObject {
         // The system's own appearance, as every menu in the app: nothing forced.
         let items = LyricsMoreMenuModel.items(
             localFileName: state.localFileName, hasBinding: state.hasBinding,
-            onlineOn: state.onlineOn, offset: state.offset, canNudge: state.canNudge
+            onlineOn: state.onlineOn, offset: state.offset, canNudge: state.canNudge,
+            shuffle: state.shuffle, repeatMode: state.repeatMode
         )
         for entry in items {
             switch entry.kind {
@@ -155,6 +126,7 @@ final class LyricsMoreMenuController: NSObject {
                 let item = NSMenuItem(title: entry.title, action: #selector(chosen(_:)), keyEquivalent: "")
                 item.target = self
                 item.isEnabled = entry.isEnabled
+                item.state = entry.isChecked ? .on : .off
                 if let symbol = Self.symbol(for: entry.kind) {
                     item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
                 }
@@ -184,6 +156,8 @@ final class LyricsMoreMenuController: NSObject {
         case .importFile: actions.importFile()
         case .searchAgain: actions.searchAgain()
         case .settings: actions.openSettings()
+        case .shuffle: actions.toggleShuffle()
+        case .repeatMode: actions.cycleRepeat()
         case .header, .offset, .separator: break
         }
     }
@@ -253,10 +227,10 @@ struct LyricsMoreButton: View {
         let label = localized("More Lyrics Options")
         Button { presenter.present() } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Theme.secondary)
-                .frame(width: HeaderToolFrames.side, height: HeaderToolFrames.side)
-                .contentShape(RoundedRectangle(cornerRadius: HeaderToolFrames.cornerRadius, style: .continuous))
+                .frame(width: StageToolFrames.side, height: StageToolFrames.side)
+                .contentShape(RoundedRectangle(cornerRadius: StageToolFrames.cornerRadius, style: .continuous))
         }
         .buttonStyle(PanelButtonStyle())
         .background(MenuAnchor { presenter.anchor = $0 })
@@ -533,79 +507,5 @@ struct TranslationToolButton: View {
         .background(MenuAnchor { presenter.anchor = $0 })
         .modifier(SecondaryClickMonitor(anchor: { presenter.anchor }, action: { presenter.present() }))
         .accessibilityAction(named: localized("Translate To")) { presenter.present() }
-    }
-}
-
-// MARK: - Expand alone (spec §6)
-
-/// The header's Expand / Collapse button for a tab that has no other header
-/// tool — the Shelf now, Clipboard and Translate in the releases after — laid
-/// over the strip after its accessibility element, as `LyricHeaderTools` lays
-/// its three (an inline button would be swallowed by the element's `.ignore`
-/// and unreachable to VoiceOver), and placed by its own offset so the rest of
-/// the strip keeps its click-to-close.
-struct ExpandHeaderTool: ViewModifier {
-    let isShown: Bool
-    let bodyWidth: CGFloat
-    @Binding var isExpanded: Bool
-
-    func body(content: Content) -> some View {
-        content.overlay(alignment: .topLeading) {
-            if isShown {
-                ExpandCollapseButton(isExpanded: $isExpanded)
-                    .offset(x: HeaderToolFrames.expand(bodyWidth: bodyWidth).minX, y: HeaderToolFrames.top)
-                    .transition(.opacity)
-            }
-        }
-    }
-}
-
-// MARK: - The tools together
-
-/// The lyric column's and the tall page's header tools, in the header's own
-/// coordinates: Show Translation (there while Translate Lyrics is on), More, and Expand / Collapse (spec §5.2).
-///
-/// Each tool is placed by its own offset instead of one full-width container, so
-/// the header's click-to-close — which is the rest of the strip — keeps every
-/// point that is not a button.
-struct LyricHeaderTools: ViewModifier {
-    /// Whether the tools are on screen: the lyric column and the tall page, on
-    /// the Music tab. A flag rather than a conditional application of the
-    /// modifier, so the header under it keeps its identity — and with it the
-    /// title's cross-fade — as the page opens and closes.
-    let isShown: Bool
-    let bodyWidth: CGFloat
-    let showsTranslation: Bool
-    let translationShown: Bool
-    let toggleTranslation: () -> Void
-    let translateController: LyricsTranslateMenuController
-    let moreController: LyricsMoreMenuController
-    @Binding var isExpanded: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .overlay(alignment: .topLeading) {
-                if isShown, showsTranslation {
-                    TranslationToolButton(
-                        isShown: translationShown, controller: translateController, toggle: toggleTranslation
-                    )
-                    .offset(x: HeaderToolFrames.showTranslation(bodyWidth: bodyWidth).minX, y: HeaderToolFrames.top)
-                    .transition(.opacity)
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                if isShown {
-                    LyricsMoreButton(controller: moreController)
-                        .offset(x: HeaderToolFrames.more(bodyWidth: bodyWidth).minX, y: HeaderToolFrames.top)
-                        .transition(.opacity)
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                if isShown {
-                    ExpandCollapseButton(isExpanded: $isExpanded)
-                        .offset(x: HeaderToolFrames.expand(bodyWidth: bodyWidth).minX, y: HeaderToolFrames.top)
-                        .transition(.opacity)
-                }
-            }
     }
 }

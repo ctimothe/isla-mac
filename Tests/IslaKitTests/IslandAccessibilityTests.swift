@@ -10,9 +10,9 @@ import XCTest
 /// hidden, so the resting island's tree held nothing but the hosting view and
 /// VoiceOver had nothing to find (H-001). Once something opened the panel
 /// pinned, nothing in it would close it again: the header strip was a bare tap
-/// gesture and the body answered no Escape (G-015). And the rail's five
-/// buttons sat loose beside the pane's controls, so reading by position
-/// interleaved "Translate From" between Music and Shelf.
+/// gesture and the body answered no Escape (G-015). The rail that once sat
+/// loose beside the pane's controls went with the tabs (§19.11): the open
+/// surface is one named group under the island.
 @MainActor
 final class IslandAccessibilityTests: XCTestCase {
     /// The lab's pill window: the panel's full width, two notches deep.
@@ -90,7 +90,7 @@ final class IslandAccessibilityTests: XCTestCase {
         defer { isolated.release() }
         let vm = try makeVM(isolated)
         vm.isOpen = true
-        vm.tab = .clipboard
+        vm.surface = .clipboard
         var clicks = 0
         vm.onIslandClick = { clicks += 1 }
 
@@ -102,7 +102,7 @@ final class IslandAccessibilityTests: XCTestCase {
         XCTAssertEqual(found.count, 1, root.dump)
         let header = try XCTUnwrap(found.first, root.dump)
         XCTAssertEqual(header.help, "Closes the panel", root.dump)
-        XCTAssertEqual(header.value, NotchViewModel.Tab.clipboard.title, root.dump)
+        XCTAssertEqual(header.value, NotchViewModel.Surface.clipboard.title, root.dump)
         // The strip at the top, at notch depth — not the whole panel.
         let headerFrame = try XCTUnwrap(header.frame, root.dump)
         XCTAssertEqual(headerFrame.minY, 0, accuracy: 0.5, root.dump)
@@ -110,30 +110,16 @@ final class IslandAccessibilityTests: XCTestCase {
         XCTAssertTrue(header.press(), root.dump)
         XCTAssertEqual(clicks, 1, "pressing the open header did not close the panel")
 
-        // The rail: five buttons together, and nothing of the pane among them.
-        let rails = root.all { $0.role == "AXGroup" && $0.label == "Tabs" }
-        XCTAssertEqual(rails.count, 1, root.dump)
-        let rail = try XCTUnwrap(rails.first, root.dump)
-        let inside = Array(rail.flattened.dropFirst())
-        XCTAssertEqual(inside.filter { $0.role == "AXButton" }.count, 5, rail.dump)
-        XCTAssertEqual(
-            Set(inside.map(\.label)),
-            Set((NotchViewModel.Tab.contentTabs + NotchViewModel.Tab.utilityTabs).map(\.title)),
-            rail.dump
-        )
+        // No rail: nothing of the tabs is left to find (§19.11).
+        XCTAssertNil(root.first(label: "Tabs"), root.dump)
 
-        // The pane: a group named for the tab, answering Cancel by closing.
-        let panes = root.all { $0.role == "AXGroup" && $0.label == NotchViewModel.Tab.clipboard.title }
+        // The surface: a group named for it, answering Cancel by closing.
+        let panes = root.all { $0.role == "AXGroup" && $0.label == NotchViewModel.Surface.clipboard.title }
         XCTAssertEqual(panes.count, 1, root.dump)
         let pane = try XCTUnwrap(panes.first, root.dump)
-        XCTAssertFalse(rail.flattened.contains { $0.element === pane.element }, root.dump)
         XCTAssertTrue(pane.actionNames.contains("AXCancel"), pane.dump)
         XCTAssertTrue(pane.cancel(), pane.dump)
         XCTAssertEqual(clicks, 2, "Cancel on the open pane did not close the panel")
-        // And from the rail, where VoiceOver's cursor is as likely to be.
-        XCTAssertTrue(rail.actionNames.contains("AXCancel"), rail.dump)
-        XCTAssertTrue(rail.cancel(), rail.dump)
-        XCTAssertEqual(clicks, 3, "Cancel on the rail did not close the panel")
     }
 
     /// The welcome is not a tab, so its group says what it is instead.

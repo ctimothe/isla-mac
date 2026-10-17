@@ -1,195 +1,165 @@
 import AppKit
 import SwiftUI
 
-/// Where everything on the Shelf sits (spec §8), as values.
+/// Where everything on the tray sits (spec §19.7, board `R2-Shelf-Open`), as
+/// values, in the content's coordinates: the board's shape coordinates less
+/// the tray's 24 pt shoulder across, and less the reference notch's 38 down
+/// (`SurfaceLayout.inContent`). A test that holds these numbers holds the
+/// pixels without rendering anything.
 ///
-/// The board is drawn in body coordinates, like the player's (`PlayerLayout`):
-/// the origin is the open body's top-left corner and the first `headerHeight`
-/// points are the header row. Every frame here is stated in those terms, as the
-/// spec writes it, and the view converts through `PlayerLayout.inPane` — the
-/// one conversion the app has — so a test that holds the spec's numbers holds
-/// the pixels, at 480, 560 and 620 and in Russian, without rendering anything.
-///
-/// It replaces the horizontal strip of 86 × 92 card plates, whose geometry was
-/// spread over `ShelfItem.cardWidth`, the card's own paddings and a scroll view
-/// that never knew how wide the panel had been set.
+/// The tray replaced §8.1's grid and §8.2's selection bar: one row of tiles,
+/// four in view, scrolling sideways past four — the tray never widens.
 enum ShelfLayout {
-    // MARK: - The grid (§8.1)
+    // MARK: - The row (§19.7)
 
-    /// A tile: 78 × 100, 4 apart across and 8 apart down.
-    static let tile = CGSize(width: 78, height: 100)
-    static let columnGap: CGFloat = 4
-    static let rowGap: CGFloat = 8
-    /// The first tile's top-left, in body coordinates. Its x is the pane's own
-    /// leading edge (`PlayerLayout.paneLeading`), so the grid starts flush with
-    /// the rail's right gap as the player's cover does.
-    static let gridOrigin = CGPoint(x: PlayerLayout.paneLeading, y: 44)
-    static let minimumColumns = 5
+    /// The shoulder the board's x is measured outside of.
+    static let shoulder: CGFloat = 24
 
-    static var pitch: CGSize {
-        CGSize(width: tile.width + columnGap, height: tile.height + rowGap)
-    }
+    /// A tile: 80 × 94, radius 16, on a 90 pitch.
+    static let tile = CGSize(width: 80, height: 94)
+    static let tileRadius: CGFloat = 16
+    static let pitch: CGFloat = 90
 
-    /// How many tiles fill a row at this body width: `bw − 72` is the pane,
-    /// and a row of `n` tiles is `82 n − 4` wide (the last has no gap after
-    /// it), so `n = ⌊(bw − 72 + 4) / 82⌋`. Six fill the 560 body to the point —
-    /// 6 × 78 + 5 × 4 = 488 — and five fill 480 with 2 to spare.
-    ///
-    /// The spec's prose writes `(bw − 72) / 82`, which is 5.95 at 560 and so
-    /// drops a column the same paragraph says is there; the gap after the last
-    /// tile is not a tile's worth of room, and the boards draw six. Never below
-    /// five, which is also what 480 gives.
-    static func columns(bodyWidth: CGFloat) -> Int {
-        let pane = PlayerLayout.paneWidth(bodyWidth: bodyWidth)
-        return max(minimumColumns, Int(((pane + columnGap) / pitch.width).rounded(.down)))
-    }
+    /// The first tile's corner: (41.9, 47.5) on the board.
+    static let firstTile = CGPoint(x: 41.9 - shoulder, y: 47.5 - SurfaceLayout.referenceNotchHeight)
 
-    static func rows(count: Int, columns: Int) -> Int {
-        guard count > 0 else { return 0 }
-        return (count + columns - 1) / columns
-    }
+    /// How many tiles the tray shows before it scrolls.
+    static let visibleTiles = 4
 
-    /// Tile `index`'s frame, in the grid's own coordinates (the scrolled
-    /// content's, origin at the first tile's top-left). Newest first, row by
-    /// row.
-    static func tileFrame(index: Int, columns: Int) -> CGRect {
-        let row = index / columns
-        let column = index % columns
-        return CGRect(
-            x: CGFloat(column) * pitch.width, y: CGFloat(row) * pitch.height,
+    /// The 16 pt fades at a clipped end of the row.
+    static let edgeFade: CGFloat = 16
+
+    /// A tile's frame inside the row's scrolled content.
+    static func tileFrame(index: Int) -> CGRect {
+        CGRect(
+            x: firstTile.x + CGFloat(index) * pitch, y: firstTile.y,
             width: tile.width, height: tile.height
         )
     }
 
-    /// The tile under a point in the grid's coordinates, or nil between tiles
-    /// and past the last one.
-    ///
-    /// Pure so hover is a *decision* rather than a side effect of tracking
-    /// areas moving with their views: the pane re-asks it whenever the pointer
-    /// moves, the shelf changes or the content scrolls, which is what keeps a
-    /// ✕ under a pointer that has not moved after the card above it was
-    /// removed (the bug `ShelfPane`'s old comment describes).
-    static func tileIndex(at point: CGPoint, count: Int, columns: Int) -> Int? {
-        guard point.x >= 0, point.y >= 0 else { return nil }
-        let column = Int(point.x / pitch.width)
-        let row = Int(point.y / pitch.height)
-        guard column < columns else { return nil }
-        let index = row * columns + column
-        guard index < count, tileFrame(index: index, columns: columns).contains(point) else { return nil }
+    /// The row's scrolled content: the tiles and the same margin after the
+    /// last as before the first.
+    static func contentWidth(count: Int) -> CGFloat {
+        guard count > 0 else { return 0 }
+        return 2 * firstTile.x + CGFloat(count - 1) * pitch + tile.width
+    }
+
+    /// The viewport the row scrolls in: the board's 385.3 across, centred in
+    /// the body — which is that width unless a wide notch widened the tray
+    /// (`bodyWidth(notchWidth:)`) — and the content's whole height below the
+    /// header strip. Four tiles keep the board's margins either way.
+    static func viewport(bodyWidth: CGFloat) -> CGRect {
+        let width = min(bodyWidth, referenceBodyWidth)
+        return CGRect(
+            x: ((bodyWidth - width) / 2).rounded(), y: 0,
+            width: width, height: SurfaceLayout.trayReference.height - SurfaceLayout.referenceNotchHeight
+        )
+    }
+
+    // MARK: - The tray's width (§19.7, amended 2026-10-18)
+
+    /// The board's tray body: 433.3 less its two 24 pt shoulders.
+    static let referenceBodyWidth: CGFloat = SurfaceLayout.trayReference.width - 2 * shoulder
+
+    /// The tray's body under a notch `notchWidth` wide. The board's 385.3
+    /// leaves the header about 100 pt either side of a 185 pt notch; under a
+    /// 220 or 240 pt one (§19.12) the count had 17 pt for "60" and Remove All
+    /// ran into the notch (R8 review). So the body is at least the notch plus
+    /// what the header needs on its wider side, on both sides, since the tray
+    /// is centred on the notch. The tiles stay four, centred.
+    static func bodyWidth(notchWidth: CGFloat) -> CGFloat {
+        max(referenceBodyWidth, notchWidth + 2 * headerSideRoom())
+    }
+
+    /// What the header needs on one side of the notch: the glyph and the
+    /// count at its widest ("60", the Shelf's limit) on the left, Remove All
+    /// in the language on screen on the right — each with the clearance every
+    /// header item keeps from the notch.
+    static func headerSideRoom() -> CGFloat {
+        let left = headerCountX + maximumCountWidth() + SurfaceHeaderLayout.notchClearance
+        let right = (44 - shoulder) + removeAllWidth() + SurfaceHeaderLayout.notchClearance
+        return ceil(max(left, right))
+    }
+
+    /// "60" in the count's 15 pt with tabular digits.
+    static func maximumCountWidth() -> CGFloat {
+        ceil(("60" as NSString).size(withAttributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: headerCountSize, weight: .regular),
+        ]).width)
+    }
+
+    /// Remove All as drawn (`ShelfRemoveAllButton`): `trash` 18, 5 apart,
+    /// "All" in 15 regular, and 6 of padding either side.
+    static func removeAllWidth() -> CGFloat {
+        let text = ceil((localized("All") as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: 15, weight: .regular),
+        ]).width)
+        return 18 + 5 + text + 12
+    }
+
+    /// Whether the row scrolls at all: more than four tiles.
+    static func scrolls(count: Int) -> Bool { count > visibleTiles }
+
+    /// The tile under `point`, in the row's scrolled content, or nil between
+    /// tiles. Decided from the layout, not from each tile's own hover: a tile
+    /// that slides under a pointer that has not moved gets no hover event (the
+    /// reason the grid this replaced worked this way).
+    static func tileIndex(at point: CGPoint, count: Int) -> Int? {
+        guard point.x >= firstTile.x else { return nil }
+        let index = Int((point.x - firstTile.x) / pitch)
+        guard index < count, tileFrame(index: index).contains(point) else { return nil }
         return index
     }
 
-    /// The scrolled content's height: the rows, plus the 7 pt the last row's
-    /// age spills under its 100 pt tile when a name takes two lines (the
-    /// board's name block is 65 + 28 + 2 + 12 tall).
-    static func contentHeight(count: Int, columns: Int) -> CGFloat {
-        let rows = rows(count: count, columns: columns)
-        guard rows > 0 else { return 0 }
-        return CGFloat(rows) * pitch.height - rowGap + nameOverhang
-    }
+    // MARK: - A tile (§19.7)
 
-    static let nameOverhang: CGFloat = 8
-
-    // MARK: - A tile (§8.1, §8.2)
-
-    /// The icon or thumbnail: 52 × 52 at (13, 5) in the tile.
-    static let icon = CGRect(x: 13, y: 5, width: 52, height: 52)
-    /// The selection and hover well behind the icon: 60 × 60 at (9, 1), radius
-    /// 8 (spec §2.3).
-    static let well = CGRect(x: 9, y: 1, width: 60, height: 60)
-    static let wellRadius: CGFloat = 8
-    /// The ⓧ remove badge: 18 pt at the tile's (4, −3), so it overhangs the
-    /// tile's top edge by 3.
-    static let badge = CGRect(x: 4, y: -3, width: 18, height: 18)
-    /// The name block: starts 65 below the tile's top, 6 wider than the tile on
-    /// each side so a full-width highlight is not clipped, centred.
-    static let nameTop: CGFloat = 65
-    static let nameBleed: CGFloat = 6
-    /// The column a name is broken and cut to. The board's text block is 76
-    /// wide (the tile less 2); two points less again are held back so the
-    /// measure and the drawing can differ by a hair without a third line.
-    static let nameWidth: CGFloat = 74
+    /// The file's thumbnail or icon: 42 × 42 at (19, 9).
+    static let icon = CGRect(x: 19, y: 9, width: 42, height: 42)
+    /// The name: 11.5 semibold, white 0.86, centred, two lines, cut in the
+    /// middle, at (4, 60.4), 72 wide.
+    static let nameOrigin = CGPoint(x: 4, y: 60.4)
+    static let nameWidth: CGFloat = 72
+    static let nameSize: CGFloat = 11.5
     static let nameLineHeight: CGFloat = 14
-    static let ageLineHeight: CGFloat = 12
     static let maximumNameLines = 2
+    /// The remove badge: `xmark.circle.fill` 17 over a 14 pt disc, at (57.75, 5.5).
+    static let badge = CGRect(x: 57.75, y: 5.5, width: 17, height: 17)
+    static let badgeDisc: CGFloat = 14
 
-    /// A thumbnail's size, fitted in the 52 pt box the way Finder fits one: the
-    /// picture's own shape, its long side 52, never enlarged past it. The
-    /// white border and the shadow are drawn on *this* rect, not on the box —
-    /// a landscape screenshot has no border round the empty band above it.
+    /// A picture's box: a thumbnail at its own shape, long side `box`.
     static func fittedSize(of image: CGSize, in box: CGFloat = icon.width) -> CGSize {
         guard image.width > 0, image.height > 0 else { return CGSize(width: box, height: box) }
         let scale = box / max(image.width, image.height)
         return CGSize(width: (image.width * scale).rounded(), height: (image.height * scale).rounded())
     }
 
-    // MARK: - The pane's regions (body coordinates)
+    // MARK: - The header (§19.7)
 
-    /// The bar's top: 37 above the body's foot, which is 22 tall and 15 clear
-    /// of the edge. The board draws 171 on the 208 body.
-    static func barTop(bodyHeight: CGFloat) -> CGFloat { bodyHeight - 37 }
-    static let barHeight: CGFloat = 22
-    /// The air kept between the grid's viewport and the bar.
-    static let barClearance: CGFloat = 6
+    /// `tray.full.fill`, 26 × 20, at the board's x 52.6; the count, SF Pro
+    /// Rounded 15, tabular, at its x 82. Centred in the header strip.
+    static let headerGlyph = CGSize(width: 26, height: 20)
+    static let headerGlyphX: CGFloat = 52.6 - shoulder
+    static let headerCountX: CGFloat = 82 - shoulder
+    static let headerCountSize: CGFloat = 15
+    /// Remove All ends 44 from the board's right edge, which is the shape's.
+    static func removeAllTrailing(bodyWidth: CGFloat) -> CGFloat { bodyWidth - (44 - shoulder) }
 
-    /// The window the grid scrolls in: from the first row's top to just above
-    /// the bar, the pane's full width.
-    ///
-    /// On the 208 body that is 121 points — one row and 21 of the next, which
-    /// the 26 pt mask fades out so the second row is a hint of more, not a
-    /// row cut by the bar. (The spec's prose says two rows show; its own
-    /// coordinates, and every board, leave room for one and a quarter.)
-    /// Expanded, 313 points is three rows.
-    static func viewport(bodySize: CGSize) -> CGRect {
-        let top = gridOrigin.y
-        return CGRect(
-            x: gridOrigin.x, y: top,
-            width: PlayerLayout.paneWidth(bodyWidth: bodySize.width),
-            height: max(0, barTop(bodyHeight: bodySize.height) - barClearance - top)
-        )
-    }
-
-    /// The fade at the viewport's foot while a row is cut by it (spec §8.1).
-    static let overflowFade: CGFloat = 26
-
-    /// Where the bar sits: from the pane's leading edge to its trailing one.
-    static func bar(bodySize: CGSize) -> CGRect {
-        CGRect(
-            x: gridOrigin.x, y: barTop(bodyHeight: bodySize.height),
-            width: PlayerLayout.paneWidth(bodyWidth: bodySize.width), height: barHeight
-        )
-    }
-
-    /// The body size a pane of this size belongs to, on a notch whose header is
-    /// `headerHeight` tall: the inverse of what the shell cuts the pane from
-    /// (`NotchGeometry.contentHeight(forBodyHeight:)`).
-    static func bodySize(paneSize: CGSize, headerHeight: CGFloat) -> CGSize {
-        CGSize(
-            width: PlayerLayout.bodyWidth(paneWidth: paneSize.width),
-            height: paneSize.height + headerHeight + NotchGeometry.bodyBottomPadding
-        )
-    }
+    /// The empty tray's line: "Drag files to the notch to keep them here."
+    static let emptyLineSize: CGFloat = 13
 }
 
-// MARK: - A tile's well (§8.2, §8.4)
+// MARK: - A tile's plate (§19.7)
 
-/// The rounded square drawn behind a tile's icon, if any, and in what dress.
-///
-/// One value for the three things that light it, so the order they win in is a
-/// test: an "already kept" flash over a click's selection over the pointer's
-/// hover. The flash wins because it is the one the person did not cause by
-/// pointing, and the one that has to be seen in the second it lasts.
+/// What a tile's plate says beyond white 0.10, if anything: a drop that
+/// matched without adding first, then a pick, then hover. The flash wins
+/// because it is the one the person did not cause by pointing, and the one
+/// that has to be seen in the second it lasts.
 enum ShelfWell: Equatable {
-    /// White 0.07, with the ⓧ badge (§8.2).
     case hover
-    /// White 0.14, with the name highlighted in the accent (§8.2).
     case selected
-    /// The tile a drop matched without adding (§8.4, `Shelf-Already`): the
-    /// 60 × 60 well, lit in the accent at 0.18 inside a 2 pt accent ring — the
-    /// drop wells' own lit look, so "this is where it went" is one visual word.
-    /// The spec's prose says only "its selection well"; the board lights it in
-    /// the accent, because a plain 0.14 well is indistinguishable from a click
-    /// and the flash exists to be told apart from one.
+    /// The tile a drop matched without adding (§8.4, `Shelf-Already`): lit in
+    /// the accent inside a 2 pt accent ring — the drop targets' own lit look,
+    /// so "this is where it went" is one visual word.
     case alreadyKept
 
     static func state(isSelected: Bool, isHovered: Bool, isAlreadyKept: Bool) -> ShelfWell? {
@@ -198,49 +168,25 @@ enum ShelfWell: Equatable {
         if isHovered { return .hover }
         return nil
     }
+
+    /// Whether the tile wears its remove badge: hovered or selected
+    /// (decision 9).
+    static func showsBadge(isSelected: Bool, isHovered: Bool) -> Bool { isSelected || isHovered }
 }
 
-// MARK: - The header (§8.1)
+// MARK: - The header (§19.7)
 
-/// What the Shelf's header says at its trailing edge.
 enum ShelfHeader {
-    /// "%d items", or "1 item" — the spec's one string is plural-only, and a
-    /// shelf of one is common enough (a screenshot just taken) that "1 items"
-    /// would be read on most days. Russian takes the same shape for every
-    /// number ("Всего: %d", which replaced "Объектов: %d" in review 2026-10-15 for the width).
+    /// What the count says to VoiceOver: "%d items", or "1 item" — the board
+    /// draws the bare number beside the glyph.
     static func countText(_ count: Int) -> String {
         count == 1 ? localized("1 item") : localized("%d items", count)
     }
 
-    /// What the count keeps clear of the header's own 16 pt trailing padding:
-    /// the 22 pt Expand button and the 8 pt gap before it, less the 1 pt the
-    /// source tag's padding adds — 31 puts the count's right edge at `bw − 47`,
-    /// where the board has it.
-    static let countClearance: CGFloat = 31
-
-    /// Where the count sits in the header, in body coordinates, for a text
-    /// `textWidth` wide: right-aligned to `bw − 47` (see `countClearance`),
-    /// 22 tall at the tools' own 8 from the top. Stated so the notch-band test
-    /// can hold that the notch (centred on the body, 185 to 220 pt wide) never
-    /// covers it — a longer Russian count reaches furthest toward it.
-    static func countFrame(bodyWidth: CGFloat, textWidth: CGFloat) -> CGRect {
-        CGRect(
-            x: bodyWidth - 47 - textWidth, y: HeaderToolFrames.top,
-            width: textWidth, height: HeaderToolFrames.side
-        )
-    }
-
-    /// The count is drawn with items on the Shelf, and never over the empty
-    /// well (`Shelf-Empty` has none).
+    /// The count and Remove All are drawn with items on the Shelf, and never
+    /// over the empty line.
     static func showsCount(itemCount: Int) -> Bool { itemCount > 0 }
-
-    /// Expand is there while there is something to grow for — and while the
-    /// body is already tall, even if the last item has just left it. Clear on
-    /// the tall Shelf empties it; hiding Collapse then would strand the
-    /// person in a 400 pt well with no way back to 208.
-    static func showsExpand(itemCount: Int, isExpanded: Bool) -> Bool {
-        itemCount > 0 || isExpanded
-    }
+    static func showsRemoveAll(itemCount: Int) -> Bool { itemCount > 0 }
 }
 
 // MARK: - A tile's name (§8.1)
@@ -353,14 +299,15 @@ enum ShelfTileName {
         return String(cut) + ellipsis
     }
 
-    /// The name as it is drawn: the body role, regular — medium while picked,
-    /// as Finder sets a selected name — with the role's tracking. A count of
-    /// characters is no measure of a proportional line, which is the lesson of
-    /// `ShelfItem.measureCardName` this replaces.
+    /// The name as it is drawn: 11.5 semibold (§19.7), with its size's
+    /// tracking. A count of characters is no measure of a proportional line,
+    /// which is the lesson of `ShelfItem.measureCardName` this replaces.
+    /// `selected` is kept for the callers that still say it; the tray sets a
+    /// picked name in the same weight.
     static func measure(_ text: String, selected: Bool = false) -> CGFloat {
-        let size = Theme.TypeRole.body.size
+        let size = ShelfLayout.nameSize
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: size, weight: selected ? .medium : .regular),
+            .font: NSFont.systemFont(ofSize: size, weight: .semibold),
             .kern: Theme.tracking(forSize: size),
         ]
         return ceil(NSAttributedString(string: text, attributes: attributes).size().width)
@@ -439,115 +386,6 @@ struct ShelfIconView: View {
     }
 }
 
-/// Whether a verb belongs to the bar's selection group.
-enum ShelfVerb: CaseIterable, Equatable {
-    case quickLook, airDrop, copy, showInFinder, remove
-
-    var title: String {
-        switch self {
-        case .quickLook: return localized("Quick Look")
-        case .airDrop: return localized("AirDrop")
-        case .copy: return localized("Copy")
-        case .showInFinder: return localized("Show in Finder")
-        case .remove: return localized("Remove")
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .quickLook: return "eye"
-        case .airDrop: return ShelfIcon.airDropFallbackSymbol
-        case .copy: return "doc.on.doc"
-        case .showInFinder: return "folder"
-        case .remove: return "trash"
-        }
-    }
-
-    /// What the overflow menu draws beside the verb: AirDrop wears the real
-    /// icon, every other verb its symbol.
-    var icon: ShelfIcon {
-        self == .airDrop ? ShelfIcon.airDropOnThisMac : .symbol(symbol)
-    }
-}
-
-/// What the bar at the foot of the Shelf shows, decided from the shelf's state
-/// alone so each of the spec's states is a test and not a screenshot.
-///
-/// - Selection: "%d selected", the Deselect All ⓧ, and the five verbs.
-/// - Nothing selected: the drag hint and Clear.
-/// - A notice replaces the leading text — the eviction sentence, "Already on
-///   the Shelf", an AirDrop refusal — as before (`ShelfStore.Notice`).
-/// - Clearing: the question and its two answers replace everything.
-/// - Below `ShelfBar.moreWidth` the bar keeps Quick Look and Remove and moves
-///   the rest into a "…" menu (`Stress-Shelf-RU-480`).
-struct ShelfBar: Equatable {
-    enum Leading: Equatable {
-        case selection(count: Int)
-        case notice(ShelfStore.Notice)
-        case hint
-        /// "Remove all %d items? Files are untouched."
-        case clearQuestion(count: Int)
-    }
-
-    enum Trailing: Equatable {
-        /// The five verbs, in order, with the ones that did not fit moved
-        /// under "…" when `overflow` is not empty.
-        case verbs(inline: [ShelfVerb], overflow: [ShelfVerb])
-        case clear
-        case confirmClear
-        case nothing
-    }
-
-    var leading: Leading
-    var trailing: Trailing
-
-    /// Below this body width the bar folds (spec §8.2, §13).
-    static let moreWidth: CGFloat = 540
-
-    /// The verbs kept inline when the bar folds.
-    static let foldedInline: [ShelfVerb] = [.quickLook, .remove]
-
-    static func verbs(bodyWidth: CGFloat) -> (inline: [ShelfVerb], overflow: [ShelfVerb]) {
-        guard bodyWidth < moreWidth else { return (ShelfVerb.allCases, []) }
-        return (foldedInline, ShelfVerb.allCases.filter { !foldedInline.contains($0) })
-    }
-
-    /// This bar with the verbs folded, whatever the width: what the view falls
-    /// back to when the full row does not fit its pane — Russian's "Быстрый
-    /// просмотр" and "Показать в Finder" overrun 488 pt well above 540, which
-    /// is where the spec folds.
-    var folded: ShelfBar {
-        guard case .verbs = trailing else { return self }
-        return ShelfBar(
-            leading: leading,
-            trailing: .verbs(
-                inline: Self.foldedInline,
-                overflow: ShelfVerb.allCases.filter { !Self.foldedInline.contains($0) }
-            )
-        )
-    }
-
-    static func make(
-        itemCount: Int, selectionCount: Int, notice: ShelfStore.Notice?,
-        isConfirmingClear: Bool, bodyWidth: CGFloat
-    ) -> ShelfBar {
-        if isConfirmingClear && itemCount > 0 {
-            return ShelfBar(leading: .clearQuestion(count: itemCount), trailing: .confirmClear)
-        }
-        // A notice owns the leading slot while nothing is selected, or when it
-        // answers a press of a verb in this very bar (`showsOverSelection`).
-        let noticeWins = notice.map { selectionCount == 0 || $0.showsOverSelection } ?? false
-        if selectionCount > 0 {
-            let folded = verbs(bodyWidth: bodyWidth)
-            return ShelfBar(
-                leading: noticeWins ? .notice(notice!) : .selection(count: selectionCount),
-                trailing: .verbs(inline: folded.inline, overflow: folded.overflow)
-            )
-        }
-        return ShelfBar(leading: noticeWins ? .notice(notice!) : .hint, trailing: itemCount > 0 ? .clear : .nothing)
-    }
-}
-
 // MARK: - Dropping in (§8.3)
 
 /// Which of the two wells a drag would land on.
@@ -555,18 +393,11 @@ enum ShelfDropTarget: Equatable {
     case keep
     case airDrop
 
-    /// The well's own caption at rest, and lit.
-    var restingCaption: String {
-        switch self {
-        case .keep: return localized("Drop to keep on the Shelf")
-        case .airDrop: return localized("Send to a nearby device")
-        }
-    }
-
-    var litCaption: String {
+    /// The target's second line (§19.7): what letting go does.
+    var caption: String {
         switch self {
         case .keep: return localized("Release to add to the Shelf")
-        case .airDrop: return localized("Release to send with AirDrop")
+        case .airDrop: return localized("Send to a nearby device")
         }
     }
 
@@ -579,7 +410,7 @@ enum ShelfDropTarget: Equatable {
 
     var symbol: String {
         switch self {
-        case .keep: return "tray.and.arrow.down"
+        case .keep: return "tray.full"
         case .airDrop: return ShelfIcon.airDropFallbackSymbol
         }
     }
@@ -591,37 +422,43 @@ enum ShelfDropTarget: Equatable {
 
     // MARK: Geometry
 
-    /// The two wells, in body coordinates: side by side across the pane, 8
-    /// apart, from y 46 down to 22 above the body's foot — 140 tall on the
-    /// standard body, as the board draws, and filling the tall one.
-    static let wellTop: CGFloat = 46
-    static let wellGap: CGFloat = 8
-    static let wellFootInset: CGFloat = 22
+    /// The two targets (spec §19.7), in body coordinates: at the board's y 46
+    /// — 46 − 38 below the header strip, whatever the notch's height — each
+    /// `(bw − 48) / 2` × 114, 16 apart from x 16, radius 14.
+    static let top: CGFloat = 46
+    static let height: CGFloat = 114
+    static let gap: CGFloat = 16
+    static let leading: CGFloat = 16
+    static let radius: CGFloat = 14
+    /// The glyph: 22 pt.
+    static let glyphSize: CGFloat = 22
 
-    static func well(_ target: ShelfDropTarget, bodySize: CGSize) -> CGRect {
-        let pane = PlayerLayout.paneWidth(bodyWidth: bodySize.width)
-        let width = (pane - wellGap) / 2
-        let x = PlayerLayout.paneLeading + (target == .keep ? 0 : width + wellGap)
-        return CGRect(
-            x: x, y: wellTop, width: width,
-            height: max(0, bodySize.height - wellFootInset - wellTop)
-        )
+    static func well(
+        _ target: ShelfDropTarget, bodyWidth: CGFloat,
+        notchHeight: CGFloat = SurfaceLayout.referenceNotchHeight
+    ) -> CGRect {
+        let width = (bodyWidth - 48) / 2
+        let x = leading + (target == .keep ? 0 : width + gap)
+        return CGRect(x: x, y: SurfaceLayout.y(top, notchHeight: notchHeight), width: width, height: height)
     }
 
     /// The target a drop at `point` (body coordinates) takes.
     ///
-    /// AirDrop is chosen only by being *over* its well — the well's frame, with
+    /// AirDrop is chosen only by being *over* its target — its frame, with
     /// the gap between the two counted as AirDrop's half so the choice does not
-    /// flicker through a dead strip. Everywhere else — the other well, the
-    /// header, the rail, the margins — is Keep: the window accepts a drop all
-    /// over the panel (`NotchRootView.dropRect`), keeping has always been what a
-    /// drop does, and a stray release must never send someone's file to a
+    /// flicker through a dead strip. Everywhere else — the other target, the
+    /// header, the margins — is Keep: the window accepts a drop all over the
+    /// panel (`NotchRootView.dropRect`), keeping has always been what a drop
+    /// does, and a stray release must never send someone's file to a
     /// stranger's phone.
-    static func target(atBodyPoint point: CGPoint, bodySize: CGSize) -> ShelfDropTarget {
-        let airDrop = well(.airDrop, bodySize: bodySize)
+    static func target(
+        atBodyPoint point: CGPoint, bodyWidth: CGFloat,
+        notchHeight: CGFloat = SurfaceLayout.referenceNotchHeight
+    ) -> ShelfDropTarget {
+        let airDrop = well(.airDrop, bodyWidth: bodyWidth, notchHeight: notchHeight)
         let zone = CGRect(
-            x: airDrop.minX - wellGap / 2, y: airDrop.minY,
-            width: airDrop.width + wellGap / 2, height: airDrop.height
+            x: airDrop.minX - gap / 2, y: airDrop.minY,
+            width: airDrop.width + gap / 2, height: airDrop.height
         )
         return zone.contains(point) ? .airDrop : .keep
     }

@@ -34,7 +34,7 @@ final class VisualLabSettingsRowsTests: VisualLabCase {
                 ledger: MemoryRepairLedger()
             )
             hud.refresh()
-            return Self.scene(try await self.openPanel(session, tab: .settings, hud: hud, configure: { vm in
+            return Self.scene(try await self.openPanel(session, surface: .settings, hud: hud, configure: { vm in
                 vm.settingsSection = section
             }), variant, height: size.height)
         }

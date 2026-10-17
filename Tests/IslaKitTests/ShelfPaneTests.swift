@@ -3,10 +3,10 @@ import SwiftUI
 import XCTest
 @testable import IslaKit
 
-/// The Shelf's behaviour around the grid (redesign 2026-10-15, spec §8): what
-/// the controller does with the Delete key, how a drop that was already kept
-/// looks, how Clear asks, what a tile's thumbnail is, where an AirDrop-aimed
-/// promise goes, and how the pane lays itself out at the three widths.
+/// The Shelf's behaviour around the tray (spec §8, §19.7): what the controller
+/// does with the Delete key, how a drop that was already kept looks, how Remove
+/// All asks, what a tile's thumbnail is, where an AirDrop-aimed promise goes,
+/// and how the tray lays its row out.
 ///
 /// Nothing here opens a file, shows Quick Look, starts AirDrop, writes the
 /// general pasteboard or reserves a real key: stores are isolated, files live
@@ -66,7 +66,7 @@ final class ShelfPaneTests: XCTestCase {
     // MARK: - Already kept (§8.4)
 
     /// A drop of what the shelf already holds adds nothing, lights the tile it
-    /// matched — and only that one — and says so in the bar, for 1.2 s.
+    /// matched — and only that one — and says so under the row, for 1.2 s.
     func testADropOfWhatIsKeptLightsItsTileAndAddsNothing() throws {
         let fixture = try Fixture(names: ["a.txt", "b.txt", "c.txt"])
         defer { fixture.release() }
@@ -137,14 +137,7 @@ final class ShelfPaneTests: XCTestCase {
 
         clear.ask(count: shelf.items.count)
         XCTAssertTrue(clear.isAsking)
-        XCTAssertEqual(
-            ShelfBar.make(
-                itemCount: shelf.items.count, selectionCount: shelf.selection.count, notice: nil,
-                isConfirmingClear: clear.isAsking, bodyWidth: 560
-            ),
-            ShelfBar(leading: .clearQuestion(count: 3), trailing: .confirmClear)
-        )
-        XCTAssertEqual(spoken, ["Remove all 3 items? Files are untouched."], "a person who cannot see the bar is told")
+        XCTAssertEqual(spoken, ["Remove all 3 items? Files are untouched."], "a person who cannot see the tray change is told")
 
         clear.cancel()
         XCTAssertFalse(clear.isAsking)
@@ -349,7 +342,7 @@ final class ShelfPaneTests: XCTestCase {
         vm.shelf.add(urls)
 
         vm.isOpen = true
-        vm.tab = .shelf
+        vm.surface = .tray
         vm.shelf.select(vm.shelf.items[0], modifiers: [])
         XCTAssertFalse(controller.holdsDeleteKey, "the pointer is not on the Shelf yet")
         vm.isPointerOnShelf = true
@@ -361,10 +354,10 @@ final class ShelfPaneTests: XCTestCase {
         vm.isPointerOnShelf = true
         XCTAssertTrue(controller.holdsDeleteKey)
 
-        vm.tab = .clipboard
+        vm.surface = .clipboard
         XCTAssertFalse(controller.holdsDeleteKey, "the tab changed")
         XCTAssertTrue(vm.shelf.selection.isEmpty, "and the selection did not wait for the Shelf's return")
-        vm.tab = .shelf
+        vm.surface = .tray
         XCTAssertFalse(controller.holdsDeleteKey, "coming back finds nothing picked, so nothing held")
         vm.shelf.select(vm.shelf.items[0], modifiers: [])
         XCTAssertTrue(controller.holdsDeleteKey)
@@ -398,7 +391,7 @@ final class ShelfPaneTests: XCTestCase {
         vm.shelf.add(["a", "b"].map { URL(fileURLWithPath: "/tmp/isla-delete-stale-\($0).txt") })
 
         vm.isOpen = true
-        vm.tab = .shelf
+        vm.surface = .tray
         vm.isPointerOnShelf = true
         vm.shelf.select(vm.shelf.items[0], modifiers: [])
         XCTAssertTrue(controller.holdsDeleteKey, "Monday")
@@ -431,7 +424,7 @@ final class ShelfPaneTests: XCTestCase {
         defer { isolated.release(); controller.teardown() }
         vm.shelf.add([URL(fileURLWithPath: "/tmp/isla-delete-active.txt")])
         vm.isOpen = true
-        vm.tab = .shelf
+        vm.surface = .tray
         vm.isPointerOnShelf = true
         vm.shelf.select(vm.shelf.items[0], modifiers: [])
         XCTAssertTrue(controller.holdsDeleteKey)
@@ -453,7 +446,7 @@ final class ShelfPaneTests: XCTestCase {
         controller.removeOutsideClickMonitor = { _ in removed += 1 }
         vm.shelf.add([URL(fileURLWithPath: "/tmp/isla-watch.txt")])
         vm.isOpen = true
-        vm.tab = .shelf
+        vm.surface = .tray
         XCTAssertEqual(installed, 0)
         vm.shelf.select(vm.shelf.items[0], modifiers: [])
         XCTAssertEqual(installed, 1, "first selection installs the watch")
@@ -469,7 +462,7 @@ final class ShelfPaneTests: XCTestCase {
         defer { isolated.release(); controller.teardown() }
         vm.shelf.add([URL(fileURLWithPath: "/tmp/isla-delete-outside.txt")])
         vm.isOpen = true
-        vm.tab = .shelf
+        vm.surface = .tray
         vm.isPointerOnShelf = true
         vm.shelf.select(vm.shelf.items[0], modifiers: [])
         XCTAssertTrue(controller.holdsDeleteKey)
@@ -487,7 +480,7 @@ final class ShelfPaneTests: XCTestCase {
         defer { isolated.release(); controller.teardown() }
         vm.shelf.add(["a", "b", "c"].map { URL(fileURLWithPath: "/tmp/isla-delete-press-\($0).txt") })
         vm.isOpen = true
-        vm.tab = .shelf
+        vm.surface = .tray
         vm.shelf.select(vm.shelf.items[0], modifiers: [])
         vm.shelf.select(vm.shelf.items[1], modifiers: .command)
         vm.isPointerOnShelf = true
@@ -516,7 +509,7 @@ final class ShelfPaneTests: XCTestCase {
         defer { isolated.release() }
         vm.shelf.add([URL(fileURLWithPath: "/tmp/isla-delete-teardown.txt")])
         vm.isOpen = true
-        vm.tab = .shelf
+        vm.surface = .tray
         vm.isPointerOnShelf = true
         vm.shelf.select(vm.shelf.items[0], modifiers: [])
         XCTAssertTrue(controller.holdsDeleteKey)
@@ -525,90 +518,74 @@ final class ShelfPaneTests: XCTestCase {
         XCTAssertTrue(fake.live.isEmpty)
     }
 
-    // MARK: - The pane at three widths
+    // MARK: - The tray's row
 
-    private func paneSize(bodyWidth: CGFloat) -> CGSize {
-        CGSize(width: PlayerLayout.paneWidth(bodyWidth: bodyWidth), height: 208 - 38 - NotchGeometry.bodyBottomPadding)
+    /// The tray's content, `ShelfLayout.viewport`: 385.3 wide — the tray never
+    /// widens, whatever the body width setting says — and 120 under the header row.
+    private var traySize: CGSize {
+        ShelfLayout.viewport(bodyWidth: SurfaceLayout.trayReference.width - 2 * ShelfLayout.shoulder).size
+    }
+
+    private func tray(_ shelf: ShelfStore, clear: ShelfClearConfirmation = ShelfClearConfirmation()) -> ShelfPane {
+        ShelfPane(shelf: shelf, clear: clear)
     }
 
     private func names(_ count: Int) -> [String] { (0..<count).map { String(format: "file-%02d.txt", $0) } }
 
-    /// The first row holds as many tiles as the width allows, side by side from
-    /// the pane's left edge, at 480, 560 and 620.
-    func testTheGridFillsRowsByWidth() async throws {
-        for (width, columns) in [(CGFloat(480), 5), (560, 6), (620, 6)] {
-            let fixture = try Fixture(names: names(12))
-            defer { fixture.release() }
-            let size = paneSize(bodyWidth: width)
-            let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: size)
-            let tiles = root.all(role: "AXButton").filter { $0.label.hasPrefix("file-") }
-            let frames = tiles.compactMap(\.frame)
-            XCTAssertEqual(frames.count, tiles.count, root.dump)
-            let top = frames.map(\.minY).min() ?? 0
-            let firstRow = frames.filter { abs($0.minY - top) < 1 }.sorted { $0.minX < $1.minX }
-            XCTAssertEqual(firstRow.count, columns, "columns at \(width)\n\(root.dump)")
-            XCTAssertEqual(firstRow.first?.minX ?? -1, 0, accuracy: 1, "from the pane's left edge at \(width)")
-            XCTAssertEqual(firstRow.first?.width ?? 0, 78, accuracy: 1)
-            XCTAssertEqual(firstRow.first?.height ?? 0, 100, accuracy: 1)
-            if firstRow.count > 1 {
-                XCTAssertEqual(firstRow[1].minX - firstRow[0].minX, 82, accuracy: 1, "82 pt apart")
-            }
-            XCTAssertLessThanOrEqual(firstRow.last?.maxX ?? 0, size.width + 1, "inside the pane at \(width)")
+    /// One row of tiles from the board's (17.9, 9.5), 80 × 94 on a 90 pitch:
+    /// four in view, and a fifth running past the edge, which is what the
+    /// row scrolls for.
+    func testTheRowIsOneLineOfTilesFourInView() async throws {
+        let fixture = try Fixture(names: names(12))
+        defer { fixture.release() }
+        let size = traySize
+        let root = await AXProbe.tree(of: tray(fixture.shelf), size: size)
+        let tiles = root.all(role: "AXButton").filter { $0.label.hasPrefix("file-") }
+        let frames = tiles.compactMap(\.frame).sorted { $0.minX < $1.minX }
+        XCTAssertEqual(frames.count, tiles.count, root.dump)
+        XCTAssertGreaterThanOrEqual(frames.count, ShelfLayout.visibleTiles + 1, "the fifth is built, past the edge\n\(root.dump)")
+        let first = ShelfLayout.tileFrame(index: 0)
+        XCTAssertEqual(frames[0].minX, first.minX, accuracy: 1, "from the board's x")
+        XCTAssertEqual(frames[0].minY, first.minY, accuracy: 1, "on the board's y")
+        XCTAssertEqual(frames[0].width, 80, accuracy: 1)
+        XCTAssertEqual(frames[0].height, 94, accuracy: 1)
+        XCTAssertEqual(Set(frames.map { ($0.minY * 2).rounded() }).count, 1, "one row: no tile wraps under another\n\(root.dump)")
+        for (a, b) in zip(frames, frames.dropFirst()) {
+            XCTAssertEqual(b.minX - a.minX, 90, accuracy: 1, "90 pt apart")
         }
+        for frame in frames.prefix(ShelfLayout.visibleTiles) {
+            XCTAssertLessThanOrEqual(frame.maxX, size.width + 1, "the first four are inside the tray")
+        }
+        XCTAssertGreaterThan(frames[ShelfLayout.visibleTiles].maxX, size.width, "and the fifth runs past it")
     }
 
-    /// Below 540 the bar keeps Quick Look and Remove and carries the rest under
-    /// "More"; from 540 up all five verbs show. Every control sits inside the
-    /// pane, so none is clipped.
-    func testTheSelectionBarAtEachWidth() async throws {
-        for width in [CGFloat(480), 560, 620] {
-            let fixture = try Fixture(names: names(4))
-            defer { fixture.release() }
-            fixture.shelf.select(fixture.shelf.items[0], modifiers: [])
-            fixture.shelf.select(fixture.shelf.items[1], modifiers: .command)
-            let size = paneSize(bodyWidth: width)
-            let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: size)
-            let buttons = root.all(role: "AXButton")
-            func has(_ label: String) -> Bool { buttons.contains { $0.label == label || $0.title == label } }
-
-            XCTAssertTrue(has("Quick Look"), "at \(width)\n\(root.dump)")
-            XCTAssertTrue(has("Remove"), "at \(width)\n\(root.dump)")
-            XCTAssertTrue(has("Deselect All"), "at \(width)\n\(root.dump)")
-            let folded = !has("AirDrop")
-            XCTAssertEqual(folded, width < 540, "folded below 540 only (\(width))\n\(root.dump)")
-            XCTAssertEqual(has("More"), width < 540, "More carries the rest (\(width))\n\(root.dump)")
-            XCTAssertEqual(has("Copy"), width >= 540, "\(width)")
-            XCTAssertEqual(has("Show in Finder"), width >= 540, "\(width)")
-            XCTAssertTrue(words(root).contains("2 selected"), root.dump)
-            for label in ["Quick Look", "Remove", "Deselect All", "AirDrop", "More"] {
-                guard let frame = buttons.first(where: { $0.label == label || $0.title == label })?.frame else { continue }
-                XCTAssertGreaterThanOrEqual(frame.minX, -1, "\(label) at \(width)")
-                XCTAssertLessThanOrEqual(frame.maxX, size.width + 1, "\(label) at \(width)")
-            }
+    /// Four or fewer tiles do not scroll: the row is the tray's width and no more.
+    func testFourTilesNeedNoScrolling() async throws {
+        let fixture = try Fixture(names: names(4))
+        defer { fixture.release() }
+        let size = traySize
+        let root = await AXProbe.tree(of: tray(fixture.shelf), size: size)
+        let frames = root.all(role: "AXButton").filter { $0.label.hasPrefix("file-") }.compactMap(\.frame)
+        XCTAssertEqual(frames.count, 4, root.dump)
+        for frame in frames {
+            XCTAssertGreaterThanOrEqual(frame.minX, -1)
+            XCTAssertLessThanOrEqual(frame.maxX, size.width + 1)
         }
+        XCTAssertFalse(ShelfLayout.scrolls(count: frames.count))
     }
 
-    func testWithoutASelectionTheBarHintsAndOffersClear() async throws {
+    /// Pressing Remove All (the header's, which asks the model's confirmation)
+    /// puts the question where the row was, with its two answers; Cancel takes
+    /// it away and everything is where it was.
+    func testRemoveAllAsksInPlaceAndCancelPutsItAway() async throws {
         let fixture = try Fixture(names: names(3))
         defer { fixture.release() }
-        let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: paneSize(bodyWidth: 560))
-        XCTAssertTrue(words(root).contains("Drag an item out to use it anywhere."), root.dump)
-        XCTAssertTrue(root.all(role: "AXButton").contains { $0.label == "Clear" || $0.title == "Clear" }, root.dump)
-        XCTAssertFalse(root.all(role: "AXButton").contains { $0.label == "Quick Look" || $0.title == "Quick Look" }, root.dump)
-    }
-
-    /// Pressing Clear puts the question in the bar, with its two answers; Cancel
-    /// takes it away and everything is where it was.
-    func testClearAsksInPlaceAndCancelPutsItAway() async throws {
-        let fixture = try Fixture(names: names(3))
-        defer { fixture.release() }
-        let size = paneSize(bodyWidth: 560)
-        let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: size)
-        guard let clear = root.all(role: "AXButton").first(where: { $0.label == "Clear" || $0.title == "Clear" }) else {
-            return XCTFail(root.dump)
-        }
-        XCTAssertTrue(clear.press(), root.dump)
-        let asking = await clear.reread()
+        let ask = ShelfClearConfirmation()
+        let root = await AXProbe.tree(of: tray(fixture.shelf, clear: ask), size: traySize)
+        XCTAssertFalse(words(root).contains("Remove all 3 items? Files are untouched."), root.dump)
+        ask.ask(count: fixture.shelf.items.count)
+        defer { ask.cancel() }
+        let asking = await AXProbe.tree(of: tray(fixture.shelf, clear: ask), size: traySize)
         XCTAssertTrue(words(asking).contains("Remove all 3 items? Files are untouched."), asking.dump)
         XCTAssertTrue(asking.all(role: "AXButton").contains { $0.label == "Cancel" || $0.title == "Cancel" }, asking.dump)
         XCTAssertTrue(asking.all(role: "AXButton").contains { $0.label == "Remove All" || $0.title == "Remove All" }, asking.dump)
@@ -618,20 +595,45 @@ final class ShelfPaneTests: XCTestCase {
             return XCTFail(asking.dump)
         }
         XCTAssertTrue(cancel.press(), asking.dump)
-        let after = await cancel.reread()
+        XCTAssertFalse(ask.isAsking)
+        let after = await asking.reread()
         XCTAssertFalse(words(after).contains("Remove all 3 items? Files are untouched."), after.dump)
         XCTAssertEqual(fixture.shelf.items.count, 3, "Cancel keeps every tile")
+    }
+
+    /// The header's Remove All asks the view model's question — the one the
+    /// tray draws in place of its row — and Escape or leaving the tray takes
+    /// it back with nothing removed (§19.7, amended 2026-10-18).
+    func testTheHeaderAsksTheTraysQuestionAndEscapeOrLeavingTakesItBack() throws {
+        let (controller, vm, isolated, _) = try rig()
+        defer { isolated.release(); controller.teardown() }
+        let fixture = try Fixture(names: names(2))
+        defer { fixture.release() }
+        vm.shelf.requestThumbnail = { _, done in done(nil) }
+        vm.shelf.makeBookmark = { _ in nil }
+        vm.shelf.add(fixture.files)
+        XCTAssertEqual(vm.shelf.items.count, 2)
+        vm.open(.tray)
+
+        vm.askToRemoveAll()
+        XCTAssertTrue(vm.shelfClear.isAsking, "the header's button asks the tray's question")
+        XCTAssertTrue(vm.consumeEscape(), "Escape is the question's before it is the panel's")
+        XCTAssertFalse(vm.shelfClear.isAsking)
+
+        vm.askToRemoveAll()
+        vm.open(.tools)
+        XCTAssertFalse(vm.shelfClear.isAsking, "leaving the tray takes the question back")
+        vm.open(.tray)
+        XCTAssertFalse(vm.shelfClear.isAsking, "and coming back does not find it waiting")
+        XCTAssertEqual(vm.shelf.items.count, 2, "nothing was removed")
     }
 
     func testRemoveAllClearsTheShelf() async throws {
         let fixture = try Fixture(names: names(3))
         defer { fixture.release() }
-        let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: paneSize(bodyWidth: 560))
-        guard let clear = root.all(role: "AXButton").first(where: { $0.label == "Clear" || $0.title == "Clear" }) else {
-            return XCTFail(root.dump)
-        }
-        XCTAssertTrue(clear.press())
-        let asking = await clear.reread()
+        let ask = ShelfClearConfirmation()
+        ask.ask(count: 3)
+        let asking = await AXProbe.tree(of: tray(fixture.shelf, clear: ask), size: traySize)
         guard let removeAll = asking.all(role: "AXButton").first(where: { $0.label == "Remove All" || $0.title == "Remove All" }) else {
             return XCTFail(asking.dump)
         }
@@ -640,8 +642,8 @@ final class ShelfPaneTests: XCTestCase {
         for file in fixture.files { XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "files are untouched") }
     }
 
-    /// A disk that is not plugged in: the tile stays, says why where its age
-    /// would be, and the bar's verbs have no file to act on.
+    /// A disk that is not plugged in: the tile stays, and says why in its
+    /// accessibility value.
     func testAnOfflineTileSaysWhy() async throws {
         let fixture = try Fixture(names: [])
         defer { fixture.release() }
@@ -652,40 +654,10 @@ final class ShelfPaneTests: XCTestCase {
         await fixture.shelf.refreshFromDisk().value
         XCTAssertEqual(fixture.shelf.items.first?.isOffline, true)
 
-        let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: paneSize(bodyWidth: 560))
+        let root = await AXProbe.tree(of: tray(fixture.shelf), size: traySize)
         let tile = root.all(role: "AXButton").first { $0.label == "q3.pdf" }
         XCTAssertNotNil(tile, root.dump)
         XCTAssertTrue(tile?.value.contains("Disk not connected") ?? false, root.dump)
-    }
-
-    // MARK: - The header's Expand
-
-    func testExpandHeaderToolIsTheSameButton() async {
-        let size = CGSize(width: 560, height: 38)
-        let collapsed = await AXProbe.tree(
-            of: Text("Shelf").frame(width: size.width, height: size.height, alignment: .leading)
-                .modifier(ExpandHeaderTool(isShown: true, bodyWidth: size.width, isExpanded: .constant(false))),
-            size: size
-        )
-        XCTAssertNotNil(collapsed.first(label: "Expand"), collapsed.dump)
-        let frame = collapsed.first(label: "Expand")?.frame
-        XCTAssertEqual(frame?.minX ?? -1, 521, accuracy: 1, "bw − 39")
-        XCTAssertEqual(frame?.minY ?? -1, 8, accuracy: 1)
-        XCTAssertEqual(frame?.width ?? 0, 22, accuracy: 1)
-
-        let expanded = await AXProbe.tree(
-            of: Text("Shelf").frame(width: size.width, height: size.height, alignment: .leading)
-                .modifier(ExpandHeaderTool(isShown: true, bodyWidth: size.width, isExpanded: .constant(true))),
-            size: size
-        )
-        XCTAssertNotNil(expanded.first(label: "Collapse"), expanded.dump)
-
-        let hidden = await AXProbe.tree(
-            of: Text("Shelf").frame(width: size.width, height: size.height, alignment: .leading)
-                .modifier(ExpandHeaderTool(isShown: false, bodyWidth: size.width, isExpanded: .constant(false))),
-            size: size
-        )
-        XCTAssertNil(hidden.first(label: "Expand"), hidden.dump)
     }
 
     private func words(_ root: AXNode) -> [String] {

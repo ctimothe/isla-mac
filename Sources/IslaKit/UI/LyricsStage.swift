@@ -5,12 +5,12 @@ import SwiftUI
 ///
 /// Until the redesign (2026-10-15, spec §5) this was a page of its own with a
 /// header of utilities, a blurred cover behind it and a back chevron. It is now
-/// the lyric region of the player's other two states — the column beside the
-/// controls and the tall page above them — and everything that was the page's
-/// own furniture has moved to where the spec puts it: the timing nudge, import,
-/// edit, unbind and search-again live in the More menu in the panel's header
-/// (`LyricsMoreMenuController`), the way back is the Lyrics button, and the
-/// ground is the panel's black.
+/// the lines of the lyrics stage (spec §19.6), the one lyric surface in the
+/// island — the lyric column and the tall page of §5.1 went with the tabs on
+/// 2026-10-17. Everything that was the page's own furniture lives in the
+/// stage's foot (`LyricsStageSurface`): the timing nudge, import, edit, unbind
+/// and search-again in its More menu (`LyricsMoreMenuController`), the way back
+/// in Hide Lyrics, and the ground is the panel's black.
 ///
 /// What a *line* does has not changed, and it is all still here. The caption
 /// said *what is being sung now*; this says *where the song is* — the sung line
@@ -27,30 +27,18 @@ import SwiftUI
 /// left alone it comes back by itself four seconds after the last scroll — once
 /// the pointer has left the stage.
 struct LyricsStage: View {
-    /// Which of the player's two lyric states the area is in: the column beside
-    /// the controls (13 pt, 23 pt apart) or the tall page above them (17 pt,
-    /// 34 pt apart). The defaults are the tall page's, which is what an
-    /// unconfigured stage — the render tests', the lab's — has always been the
-    /// nearest thing to.
-    enum Mode: Equatable {
-        case column
-        case tall
-
-        var metrics: Metrics { self == .column ? .column : .tall }
-    }
-
-    /// What a mode sets in type and in space (spec §5.1). One value per mode, so
-    /// the page's arithmetic — the slot every row occupies, which is what lets
-    /// the clock map to a row by plain subtraction — reads from one place.
+    /// What the stage sets in type and in space (spec §19.6). One value, so the
+    /// page's arithmetic — the slot every row occupies, which is what lets the
+    /// clock map to a row by plain subtraction — reads from one place.
     struct Metrics: Equatable {
-        /// Distance between two rows' tops: the fixed slot each occupies.
+        /// Distance between two rows' tops: a 28 pt line and the 10 between
+        /// lines. A line that wraps takes its second line's 28 more, and the
+        /// lines after it move down (§19.6).
         let pitch: CGFloat
-        /// The same with a translation under every line (spec §5.1, `Ct` and
-        /// `Tt`): a line and its translation are one slot, 46 in the column and
-        /// 52 on the tall page. Every slot takes it at once — an untranslated
-        /// line (a credit, a line already in the target language) and an
-        /// interlude included — so the page still maps the clock to a row by
-        /// plain subtraction.
+        /// The same with a translation under every line (spec §5.3): the line,
+        /// the 2 pt gap, a 13 pt row and the 10 between. Every slot takes it at
+        /// once — an untranslated line (a credit, a line already in the target
+        /// language) and an interlude included.
         let translatedPitch: CGFloat
         /// The size every line is set in. The sung line is never larger
         /// (decision 6): weight and brightness set it apart.
@@ -58,13 +46,17 @@ struct LyricsStage: View {
         /// The sung line's weight, and the other lines'.
         let weight: Font.Weight
         let contextWeight: Font.Weight
-        let tall: Bool
+        /// The height one line of `fontSize` is given.
+        let lineHeight: CGFloat
+        /// How many lines one lyric may take before its tail is cut. Two: a
+        /// line cut at one was the owner's one complaint about the redesign's
+        /// first lyric column (2026-10-16), and a third would push the sung
+        /// line's neighbours off a 268 pt area.
+        let lineLimit: Int
 
-        static let column = Metrics(
-            pitch: 23, translatedPitch: 46, fontSize: 13, weight: .bold, contextWeight: .semibold, tall: false
-        )
-        static let tall = Metrics(
-            pitch: 34, translatedPitch: 52, fontSize: 17, weight: .bold, contextWeight: .bold, tall: true
+        static let stage = Metrics(
+            pitch: 38, translatedPitch: 56, fontSize: 22, weight: .bold, contextWeight: .bold,
+            lineHeight: 28, lineLimit: 2
         )
 
         /// The slot a row takes: one line, or a line over its translation.
@@ -90,16 +82,15 @@ struct LyricsStage: View {
     /// state's sentence (spec §5.4); nil when it names none.
     var invalidLine: Int? = nil
     /// Kept so the stage can still be built as it was; the way back to the
-    /// player is the Lyrics button now, which the host draws.
+    /// player is Hide Lyrics, which the host draws.
     var dismiss: () -> Void = {}
-    var mode: Mode = .tall
     /// Whether Look Up Lyrics Online is on: decides whether a miss offers Search
     /// Online. The setting's own reading by default; a test hands in a value so
     /// the stage never reads the owner's preferences.
     var onlineEnabled: () -> Bool = { NotchViewModel.onlineLyricsEnabled }
-    /// Where the sung line sits, measured from the top of this area (spec §5.1:
-    /// y 96 in the column's body coordinates, 166 on the tall page). Nil centres
-    /// it, which is what a stage with no board to follow does.
+    /// Where the sung line's centre sits, measured from the top of this area
+    /// (spec §19.6: its top at y 138 in the body). Nil centres it, which is what
+    /// a stage with no board to follow does.
     var readingCentre: CGFloat? = nil
     /// The translated lines (spec §5.3). The session's service in the panel; the
     /// idle one — which translates nothing — everywhere a stage is drawn on its
@@ -146,7 +137,7 @@ struct LyricsStage: View {
     /// coloured from the cover is unreadable the moment the cover is pale.
     private let accent: Color = .white
 
-    private var metrics: Metrics { mode.metrics }
+    private var metrics: Metrics { .stage }
 
     /// The one lead, shared with the caption and the lock card: the base plus
     /// all three offset layers, so a per-track nudge moves every surface.
@@ -256,8 +247,7 @@ struct LyricsStage: View {
             if DebugTrail.openLyrics {
                 DebugTrail.note("stage appeared: \(debugStateDescription)")
             }
-            // The lyric column or the tall page is on screen: translations are
-            // wanted, and only now (spec §5.3; `LyricTranslation.setDemand`).
+            // The stage is on screen: translations are wanted, and only now (spec §5.3; `LyricTranslation.setDemand`).
             demandEpoch = translation.demandEpoch
             translation.setDemand(.lyricArea, true)
         }
@@ -326,11 +316,9 @@ struct LyricsStage: View {
     /// breath too short to be an interlude, an outro.
     static let unlitOffset = 99
 
-    /// The tall page's slot — 34 pt a row with no gap — which `centeringAir` and
-    /// the visual lab's page-step keyframes measure against. The page was 40 pt
-    /// rows 8 apart (48 pt a step) until the redesign; each mode's own pitch is
-    /// `Metrics.pitch` now, 23 pt in the column and 34 on the tall page.
-    static let slotHeight: CGFloat = Metrics.tall.pitch
+    /// The stage's slot — a 28 pt line and the 10 under it — which
+    /// `centeringAir` and the visual lab's page-step keyframes measure against.
+    static let slotHeight: CGFloat = Metrics.stage.pitch
     static let slotSpacing: CGFloat = 0
 
     /// Padding above the first line and below the last, so both ends can reach
@@ -358,8 +346,8 @@ struct LyricsStage: View {
     ///
     /// The anchor aligns the same unit point of the row with the same unit point
     /// of the viewport, so a row's centre lands at the anchor's own y only for
-    /// 0.5; anywhere else it is off by `(0.5 − anchor) × slot` — 5 pt on the tall
-    /// page at the board's y. Solving `anchor·H − anchor·slot + slot/2 = centre`
+    /// 0.5; anywhere else it is off by `(0.5 − anchor) × slot` — several points
+    /// at the board's y. Solving `anchor·H − anchor·slot + slot/2 = centre`
     /// for the anchor puts the centre where the board says.
     static func anchorUnit(centre: CGFloat, viewport: CGFloat, slot: CGFloat) -> CGFloat {
         guard viewport > slot else { return 0.5 }
@@ -434,7 +422,10 @@ struct LyricsStage: View {
                                     )
                                 }
                             }
-                            .frame(height: pitch, alignment: .leading)
+                            // At least the slot: a line that wraps grows its
+                            // own row, and the rows after it move down rather
+                            // than the line being cut (§19.6).
+                            .frame(minHeight: pitch, alignment: .leading)
                             .id(slot)
                         }
                     }
@@ -551,23 +542,17 @@ struct LyricsStage: View {
     }
 
     /// The notice's height: the board's 40, which holds two lines of 11 pt text
-    /// at the tall page's width; in the narrower column the same words wrap to
-    /// more lines and it grows to hold them.
-    private var noticeHeight: CGFloat {
-        mode == .column ? Self.columnNoticeHeight : Theme.mismatchNoticeHeight
-    }
+    /// at the stage's width.
+    private var noticeHeight: CGFloat { Theme.mismatchNoticeHeight }
 
-    /// The column's notice: 56, four lines of 11 pt at 1.3 under 10 pt of air
-    /// either side would be 72; the text is held to three lines and the row to
-    /// what they take.
-    static let columnNoticeHeight: CGFloat = 56
+    /// The column fades over its top and bottom 24 pt (§19.6).
+    static let edgeFadeHeight: CGFloat = 24
 
-    /// The soft edges, from the viewport's own height: about 22 pt at the top and
-    /// 30 pt at the foot, never more than a quarter of it, so a short viewport
-    /// keeps its middle.
+    /// The soft edges, from the viewport's own height: 24 pt at each end, never
+    /// more than a quarter of it, so a short viewport keeps its middle.
     private func edgeFade(height: CGFloat) -> LinearGradient {
-        let top = min(0.25, 22 / max(height, 1))
-        let bottom = min(0.25, 30 / max(height, 1))
+        let top = min(0.25, Self.edgeFadeHeight / max(height, 1))
+        let bottom = min(0.25, Self.edgeFadeHeight / max(height, 1))
         return LinearGradient(
             stops: [
                 .init(color: .clear, location: 0),
@@ -656,8 +641,8 @@ struct LyricsStage: View {
     }
 
     /// How far the page may drift before the way back is worth offering: the
-    /// column shows about five lines and the tall page about eight, so one line
-    /// either side of the sung one is still in view and needs no rescuing.
+    /// stage shows about six lines, so one line either side of the sung one is
+    /// still in view and needs no rescuing.
     static let strayedEnoughToOfferSync = 2
 
     /// Rows between the row being read and the row being sung. Plain index
@@ -717,14 +702,14 @@ struct LyricsStage: View {
             // Only the sung row reads the clock per frame; every other row is
             // lit whole or not at all.
             clock: isCurrent ? LyricSweep.frameClock(media: media, lead: lead) : nil,
-            // The area reads at the mode's size, one line to a slot: the column
-            // at 13 pt and the tall page at 17, the sung line bold at full
-            // white and never larger (decision 6). A longer line is cut at its
-            // tail, its full words still what VoiceOver reads.
+            // The stage reads at 22 bold, the sung line at full white and never
+            // larger (decision 6). A long line wraps to a second and only past
+            // that is cut at its tail, its full words still what VoiceOver
+            // reads.
             fontSize: metrics.fontSize,
             weight: metrics.weight,
             contextWeight: metrics.contextWeight,
-            lineLimit: 1,
+            lineLimit: metrics.lineLimit,
             accent: accent,
             reduceMotion: reduceMotion,
             wordTimingEnabled: wordTimingEnabled,
@@ -751,7 +736,7 @@ struct LyricsStage: View {
             },
             // The board's own depth: lines above the sung one dimmer than the
             // lines below it, raised where the contrast floor needs it.
-            board: .init(offset: offset, tall: metrics.tall),
+            board: .init(offset: offset),
             translation: translation,
             // A bilingual line is drawn as its first row alone; the second is
             // the translation row under it, or hidden with the rest.
@@ -801,7 +786,7 @@ struct LyricsStage: View {
     // MARK: - Notice
 
     /// One quiet notice at the top of the area (spec §5.4, `Lyrics-Version-
-    /// Mismatch`): 40 tall in the tall page's width, radius 9, white 0.07 with a
+    /// Mismatch`): 40 tall in the stage's width, radius 9, white 0.07 with a
     /// hairline, a `clock.arrow.circlepath` at 12 pt and the existing words at
     /// 11 pt, wrapping. It takes the room it needs from the lines below rather
     /// than covering a lyric. VoiceOver hears it from `NotchViewModel`, which
@@ -816,7 +801,7 @@ struct LyricsStage: View {
                 .islandFont(.body, weight: .regular)
                 .foregroundStyle(.white)
                 .lineSpacing(1.5)
-                .lineLimit(mode == .column ? 3 : 2)
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

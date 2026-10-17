@@ -200,16 +200,16 @@ final class PanelKeyRoutingTests: XCTestCase {
         translator.pasteboard = probe.pasteboard
         probe.pasteboard.clearContents()
 
-        vm.select(.translate)
+        vm.open(.translate)
         XCTAssertFalse(vm.copyTranslationIfShowing(), "no answer yet")
 
         translator.input = "Good morning"
         translator.received("Доброе утро", for: "Good morning", by: .intelligence)
-        vm.select(.clipboard)
+        vm.open(.clipboard)
         XCTAssertFalse(vm.copyTranslationIfShowing(), "the translation is not what is on screen")
         XCTAssertNil(probe.pasteboard.string(forType: .string))
 
-        vm.select(.translate)
+        vm.open(.translate)
         XCTAssertTrue(vm.copyTranslationIfShowing())
         XCTAssertEqual(probe.pasteboard.string(forType: .string), "Доброе утро")
         XCTAssertEqual(spoken.last, "Copied")

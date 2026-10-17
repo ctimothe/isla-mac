@@ -16,9 +16,13 @@ class VisualLabCase: XCTestCase {
     }
 
     /// The window the panel lives in, cropped to the part a panel can reach:
-    /// the 208 pt body and its shadow. The window itself is 444 pt tall for a
-    /// tab that no longer exists, and below the panel it is only transparent.
-    static let panelSize = CGSize(width: VisualLab.windowSize.width, height: 268)
+    /// the 198 pt player and its shadow, which also holds the tray, Tools, Clipboard
+    /// and Translate. The window itself is 444 pt tall for the tallest surface,
+    /// and below a shorter one it is only transparent.
+    static let panelSize = CGSize(width: VisualLab.windowSize.width, height: 340)
+    /// The lyrics stage and Settings are 400 tall (§19.6, §19.8): their crop is
+    /// the tallest body and its shadow.
+    static let stageSize = CGSize(width: VisualLab.windowSize.width, height: 460)
     static let pillSize = CGSize(width: VisualLab.windowSize.width, height: 84)
 
     /// The island in its window over the stand-in desktop.
@@ -40,7 +44,7 @@ class VisualLabCase: XCTestCase {
 
     /// A panel, open, on a tab, with whatever the state needs set up first.
     func openPanel(
-        _ session: LabSession, tab: NotchViewModel.Tab = .media, physical: Bool = true,
+        _ session: LabSession, surface: NotchViewModel.Surface = .player, physical: Bool = true,
         track: LabFixtures.Track? = nil,
         lyrics: LyricsAvailability? = nil,
         hud: MediaKeyHUD? = nil,
@@ -58,7 +62,7 @@ class VisualLabCase: XCTestCase {
         let vm = NotchViewModel(geometry: geometry, stores: stores, defaults: session.suite)
         labTrace("vm made")
         vm.isOpen = true
-        vm.tab = tab
+        vm.surface = surface
         configure(vm)
         return vm
     }
@@ -170,14 +174,14 @@ final class VisualLabPanelTests: VisualLabCase {
         if variant.backend == .host, track.cover != nil { track.cover = blurredCover }
         let vm = try await openPanel(session, track: track, lyrics: lyrics)
         if precision { LabFixtures.enablePrecision(on: vm.media, lyrics: vm.lyrics) }
-        vm.isShowingLyrics = true
-        return Self.scene(vm, variant, height: Self.panelSize.height)
+        vm.openStage()
+        return Self.scene(vm, variant, height: Self.stageSize.height)
     }
 
     func testLyricsStage() async throws {
         let session = try makeSession()
         let shoot = LabPhotographer(session: session, surface: "panel-lyrics-stage")
-        let size = Self.panelSize
+        let size = Self.stageSize
         let note = "Hosting render: the stage's 60 pt ambience blur is drawn from a pre-blurred cover, since cacheDisplay cannot draw SwiftUI blur."
         let blurredCover = LabFixtures.preblurred(LabFixtures.cover())
 
@@ -240,7 +244,7 @@ final class VisualLabPanelTests: VisualLabCase {
             try Data("[00:01.00]a\n[00:7x.00]b".utf8).write(to: broken, options: .atomic)
             let vm = try await self.openPanel(session, track: track, lyrics: LabFixtures.timeline())
             vm.importLocalLyricsFile(at: broken, for: nil, from: .stage)
-            vm.isShowingLyrics = true
+            vm.openStage()
             return Self.scene(vm, variant, height: size.height)
         }
         try await shoot.shoot("no-artwork", variants: [.base], size: size, settle: 0.3) { variant in
@@ -306,29 +310,33 @@ final class VisualLabPanelTests: VisualLabCase {
         let full = try shelfFiles(session, count: 60)
 
         try await shoot.shoot("empty", variants: LabVariant.panel, size: size) { variant in
-            Self.scene(try await self.openPanel(session, tab: .shelf), variant, height: size.height)
+            Self.scene(try await self.openPanel(session, surface: .tray), variant, height: size.height)
         }
         // M-22: under a drag the headline says what letting go does.
         // Russian at 480 pt is the longest it gets and the narrowest it is
         // drawn, here and on the populated strip's pill below.
         let russianNarrowDrag = LabVariant(name: "ru-w480", width: 480, language: "ru")
         try await shoot.shoot("drop-target", variants: [.base, .contrast, russianNarrowDrag], size: size,
-                              notes: "A drag over the island: the dashed well lights and the headline says Release.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .shelf, configure: { $0.isDropTargeted = true }), variant, height: size.height)
+                              notes: "A drag over the island: the drop surface, with the Keep target lit and its second line saying Release.") { variant in
+            Self.scene(try await self.openPanel(session, surface: .tray, configure: { $0.isDropTargeted = true }), variant, height: size.height)
         }
         // M-22: a drag over a strip of cards had no target to see, since the
         // well is the empty state's.
         try await shoot.shoot("drag-over-populated", variants: [.base, .contrast, .motion, .russian, russianNarrowDrag],
                               size: size, settle: 0.8,
                               notes: note + " A drag over a shelf that has cards: a pill over the strip says where the file goes.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { self.stock($0.shelf, session: session, urls: few) },
+            Self.scene(try await self.openPanel(session, surface: .tray, prepare: { self.stock($0.shelf, session: session, urls: few) },
                                                 configure: { $0.isDropTargeted = true }), variant, height: size.height)
         }
+        // Each shot names both targets in the language on screen, and none
+        // keeps the copy of the drop well the drop surface replaced (§19.7).
         for (state, variant, expected, absent) in [
             ("drop-target", "dark", "Release to add to the Shelf", "Drop files here to keep them"),
-            ("drop-target", "ru-w480", "Отпустите, чтобы положить на полку", "Download Multiple"),
-            ("drag-over-populated", "dark", "Drop to keep on the Shelf", "Download Multiple"),
-            ("drag-over-populated", "ru-w480", "Отпустите, чтобы оставить на полке", "Download Multiple"),
+            ("drop-target", "dark", "Send to a nearby device", "Drop to keep on the Shelf"),
+            ("drop-target", "ru-w480", "Отпустите, чтобы положить на полку", "Перетащите сюда файлы, чтобы держать их под рукой"),
+            ("drop-target", "ru-w480", "Отправить на устройство поблизости", "Отпустите, чтобы оставить на полке"),
+            ("drag-over-populated", "dark", "Release to add to the Shelf", "Drop to keep on the Shelf"),
+            ("drag-over-populated", "ru-w480", "Отпустите, чтобы положить на полку", "Отпустите, чтобы оставить на полке"),
         ] {
             let url = session.root.appendingPathComponent("a11y/panel-shelf/\(state)__\(variant).txt")
             let tree = try String(contentsOf: url, encoding: .utf8)
@@ -336,43 +344,28 @@ final class VisualLabPanelTests: VisualLabCase {
             XCTAssertFalse(tree.contains(absent), "\(state) \(variant) still says \(absent)\n\(tree)")
         }
         try await shoot.shoot("a-few-cards", variants: LabVariant.panel, size: size, settle: 0.8, notes: note) { variant in
-            Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { self.stock($0.shelf, session: session, urls: few) }),
+            Self.scene(try await self.openPanel(session, surface: .tray, prepare: { self.stock($0.shelf, session: session, urls: few) }),
                        variant, height: size.height)
         }
-        // F-037: with cards picked, the footer is the action bar. Russian at
-        // 480 pt is the narrowest it is ever drawn, and the reason the bar
-        // folds below 540 (redesign 2026-10-15, spec §8.2): Quick Look and
-        // Remove stay, the rest go under "…".
-        let russianNarrow = LabVariant(name: "ru-w480", width: 480, language: "ru")
-        try await shoot.shoot("two-selected", variants: [.base, .contrast, .russian, russianNarrow], size: size, settle: 0.8,
-                              notes: note + " Two cards picked: the footer is the action bar.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { stores in
+        // A picked tile wears its ring and its remove badge (decision 9); the
+        // selection bar went with the grid (§19.11).
+        try await shoot.shoot("two-selected", variants: [.base, .contrast, .russian], size: size, settle: 0.8,
+                              notes: note + " Two tiles picked: each wears a blue ring and its remove badge.") { variant in
+            Self.scene(try await self.openPanel(session, surface: .tray, prepare: { stores in
                 self.stock(stores.shelf, session: session, urls: few)
             }, configure: { vm in
                 vm.shelf.select(vm.shelf.items[0], modifiers: [])
                 vm.shelf.select(vm.shelf.items[2], modifiers: .command)
             }), variant, height: size.height)
         }
-        for (variant, labels) in [
-            ("dark", ["Quick Look", "AirDrop", "Copy", "Show in Finder", "Remove", "Deselect All"]),
-            ("ru-w480", ["Быстрый просмотр", "Убрать", "Ещё", "Снять выбор"]),
-        ] {
-            let url = session.root.appendingPathComponent("a11y/panel-shelf/two-selected__\(variant).txt")
-            let tree = try String(contentsOf: url, encoding: .utf8)
-            let buttons = tree.split(separator: "\n").filter { $0.contains("[AXButton") }
-            for label in labels {
-                XCTAssertTrue(buttons.contains { $0.contains("label=\"\(label)\"") },
-                              "two-selected \(variant) has no \(label) button\n\(tree)")
-            }
-        }
         try await shoot.shoot("at-the-60-cap", variants: [.base, .w480, .w620], size: size, settle: 1.5,
-                              notes: note + " Sixty cards, the shelf's limit; the grid scrolls down.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { self.stock($0.shelf, session: session, urls: full) }),
+                              notes: note + " Sixty cards, the shelf's limit; the row scrolls sideways.") { variant in
+            Self.scene(try await self.openPanel(session, surface: .tray, prepare: { self.stock($0.shelf, session: session, urls: full) }),
                        variant, height: size.height)
         }
         try await shoot.shoot("at-the-60-cap-after-a-drop", variants: [.base, .w480, .russian], size: size, settle: 1.5,
                               notes: note + " One more file dropped on a full shelf: the oldest card leaves and the footer says so.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { stores in
+            Self.scene(try await self.openPanel(session, surface: .tray, prepare: { stores in
                 self.stock(stores.shelf, session: session, urls: full)
                 // A real file, or opening the shelf finds it gone and drops
                 // the card again: the counter would read 59.
@@ -385,14 +378,14 @@ final class VisualLabPanelTests: VisualLabCase {
         try await shoot.shoot("missing-file-pruned", variants: [.base], size: size, settle: 0.8,
                               notes: "Four cards stored, one file deleted first: the shelf has no missing-file card — opening it drops the card.") { variant in
             let missing = session.temp.appendingPathComponent("shelf/Deleted meanwhile.png")
-            return Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { stores in
+            return Self.scene(try await self.openPanel(session, surface: .tray, prepare: { stores in
                 self.stock(stores.shelf, session: session, urls: Array(few.prefix(3)) + [missing])
             }), variant, height: size.height)
         }
         try await shoot.shoot("clear-armed", variants: [.base, .russian], size: size, settle: 0.8,
-                              notes: "Clear pressed once (through its accessibility action): the bar asks, with Cancel and Remove All.",
-                              interact: { LabAccessibility.press(localized("Clear"), in: $0) }) { variant in
-            Self.scene(try await self.openPanel(session, tab: .shelf, prepare: { self.stock($0.shelf, session: session, urls: few) }),
+                              notes: "Remove All pressed (through its accessibility action): the tray asks, with Cancel and Remove All.",
+                              interact: { LabAccessibility.press(localized("Remove All"), in: $0) }) { variant in
+            Self.scene(try await self.openPanel(session, surface: .tray, prepare: { self.stock($0.shelf, session: session, urls: few) }),
                        variant, height: size.height)
         }
     }
@@ -423,26 +416,26 @@ final class VisualLabPanelTests: VisualLabCase {
         let size = Self.panelSize
 
         try await shoot.shoot("empty", variants: LabVariant.panel, size: size) { variant in
-            Self.scene(try await self.openPanel(session, tab: .clipboard), variant, height: size.height)
+            Self.scene(try await self.openPanel(session, surface: .clipboard), variant, height: size.height)
         }
         try await shoot.shoot("empty-history-off", variants: [.base, .russian, .w480], size: size,
                               defaults: [NotchViewModel.clipboardHistoryKey: false]) { variant in
-            Self.scene(try await self.openPanel(session, tab: .clipboard), variant, height: size.height)
+            Self.scene(try await self.openPanel(session, surface: .clipboard), variant, height: size.height)
         }
         try await shoot.shoot("populated", variants: LabVariant.panel, size: size) { variant in
-            Self.scene(try await self.openPanel(session, tab: .clipboard, prepare: { self.fill(session, $0.clipboard) }),
+            Self.scene(try await self.openPanel(session, surface: .clipboard, prepare: { self.fill(session, $0.clipboard) }),
                        variant, height: size.height)
         }
         try await shoot.shoot("privacy-covered", variants: LabVariant.panel, size: size,
                               notes: "The dots drift on a clock, so their pattern differs per render.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .clipboard, prepare: { stores in
+            Self.scene(try await self.openPanel(session, surface: .clipboard, prepare: { stores in
                 self.fill(session, stores.clipboard)
                 stores.privacy.setCovering(.clipboard, true)
             }), variant, height: size.height)
         }
         try await shoot.shoot("one-row-revealed", variants: [.base, .contrast, .russian], size: size,
                               notes: "Privacy on and the second row revealed by its eye: the state a reveal leaves.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .clipboard, prepare: { stores in
+            Self.scene(try await self.openPanel(session, surface: .clipboard, prepare: { stores in
                 self.fill(session, stores.clipboard)
                 stores.privacy.setCovering(.clipboard, true)
                 stores.privacy.toggle(stores.clipboard.items[1].id.uuidString)
@@ -451,12 +444,12 @@ final class VisualLabPanelTests: VisualLabCase {
         try await shoot.shoot("row-just-copied", variants: [.base], size: size,
                               notes: "A row's copy action, pressed through accessibility: the checkmark and the word Copied it shows for 1.1 s. Copies onto the lab's private pasteboard.",
                               interact: { LabAccessibility.press(Self.topRowName, in: $0) }) { variant in
-            Self.scene(try await self.openPanel(session, tab: .clipboard, prepare: { self.fill(session, $0.clipboard) }),
+            Self.scene(try await self.openPanel(session, surface: .clipboard, prepare: { self.fill(session, $0.clipboard) }),
                        variant, height: size.height)
         }
         try await shoot.shoot("clear-armed", variants: [.base, .russian], size: size,
                               interact: { LabAccessibility.press(localized("Clear"), in: $0) }) { variant in
-            Self.scene(try await self.openPanel(session, tab: .clipboard, prepare: { self.fill(session, $0.clipboard) }),
+            Self.scene(try await self.openPanel(session, surface: .clipboard, prepare: { self.fill(session, $0.clipboard) }),
                        variant, height: size.height)
         }
         // Paste from Other Apps set to Don't Allow (J-001): the store's own
@@ -468,14 +461,14 @@ final class VisualLabPanelTests: VisualLabCase {
         }
         try await shoot.shoot("access-denied", variants: [.base, .light, .contrast, .w480, .russian], size: size,
                               notes: "Paste from Other Apps set to Don't Allow, with history kept from before the refusal.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .clipboard, prepare: { stores in
+            Self.scene(try await self.openPanel(session, surface: .clipboard, prepare: { stores in
                 self.fill(session, stores.clipboard)
                 denied(stores.clipboard)
             }), variant, height: size.height)
         }
         try await shoot.shoot("access-denied-empty", variants: [.base, .russian], size: size,
                               notes: "Paste from Other Apps set to Don't Allow, nothing kept.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .clipboard, prepare: { denied($0.clipboard) }),
+            Self.scene(try await self.openPanel(session, surface: .clipboard, prepare: { denied($0.clipboard) }),
                        variant, height: size.height)
         }
         for (variant, sentence) in [
@@ -499,11 +492,11 @@ final class VisualLabPanelTests: VisualLabCase {
         let sentence = "Where is the nearest train station?"
 
         try await shoot.shoot("empty", variants: LabVariant.panel, size: size) { variant in
-            Self.scene(try await self.openPanel(session, tab: .translate), variant, height: size.height)
+            Self.scene(try await self.openPanel(session, surface: .translate), variant, height: size.height)
         }
         try await shoot.shoot("result", variants: LabVariant.panel, size: size, settle: 0.12,
                               notes: "The answer is handed in as an engine would hand it in; no engine runs.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .translate, prepare: { stores in
+            Self.scene(try await self.openPanel(session, surface: .translate, prepare: { stores in
                 stores.translator.input = sentence
                 stores.translator.received("Где ближайшая железнодорожная станция?", for: sentence, by: .system)
             }), variant, height: size.height)
@@ -515,14 +508,14 @@ final class VisualLabPanelTests: VisualLabCase {
         try await shoot.shoot("long-cyrillic-word", variants: [.base, .w480, .russian], size: size, settle: 0.12,
                               notes: "Russian typed in, English handed back: no word may break in the middle.") { variant in
             let russian = "Где находится железнодорожная станция?"
-            return Self.scene(try await self.openPanel(session, tab: .translate, prepare: { stores in
+            return Self.scene(try await self.openPanel(session, surface: .translate, prepare: { stores in
                 stores.translator.input = russian
                 stores.translator.received("Where is the railway station?", for: russian, by: .system)
             }), variant, height: size.height)
         }
         try await shoot.shoot("result-online", variants: [.base], size: size, settle: 0.12,
                               notes: "An answer from the online service carries its globe.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .translate, prepare: { stores in
+            Self.scene(try await self.openPanel(session, surface: .translate, prepare: { stores in
                 stores.translator.choose(target: .uzbek)
                 stores.translator.input = sentence
                 stores.translator.received("Eng yaqin temir yo'l bekati qayerda?", for: sentence, by: .online)
@@ -532,7 +525,7 @@ final class VisualLabPanelTests: VisualLabCase {
             let long = "The island sits at the notch and stays out of the way until it is asked for. " +
                 "Click it and the panel opens: the music, a shelf for files, the clipboard, and this — a place to " +
                 "turn a sentence into another language without leaving what you were doing."
-            return Self.scene(try await self.openPanel(session, tab: .translate, prepare: { stores in
+            return Self.scene(try await self.openPanel(session, surface: .translate, prepare: { stores in
                 stores.translator.input = long
                 stores.translator.received(
                     "Остров сидит у выреза и не мешает, пока его не позовут. Нажмите — и панель откроется: музыка, " +
@@ -542,7 +535,7 @@ final class VisualLabPanelTests: VisualLabCase {
         }
         try await shoot.shoot("needs-online", variants: LabVariant.panel, size: size, settle: 0.12,
                               notes: "Uzbek with online translation off: the obstacle and its one remedy.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .translate, prepare: { stores in
+            Self.scene(try await self.openPanel(session, surface: .translate, prepare: { stores in
                 stores.translator.choose(target: .uzbek)
                 stores.translator.input = sentence
                 stores.translator.capabilitiesOverride = { _ in
@@ -555,7 +548,7 @@ final class VisualLabPanelTests: VisualLabCase {
         }
         try await shoot.shoot("offline-error", variants: LabVariant.panel, size: size, settle: 0.12,
                               notes: "Online on, the network refused by the lab's guard: the real failure path.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .translate, prepare: { stores in
+            Self.scene(try await self.openPanel(session, surface: .translate, prepare: { stores in
                 stores.translator.choose(target: .uzbek)
                 stores.translator.input = sentence
                 stores.translator.capabilitiesOverride = { _ in
@@ -569,7 +562,7 @@ final class VisualLabPanelTests: VisualLabCase {
         }
         try await shoot.shoot("missing-language-pack", variants: LabVariant.panel, size: size, settle: 0.12,
                               notes: "The system offers the pair but has not downloaded it.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .translate, prepare: { stores in
+            Self.scene(try await self.openPanel(session, surface: .translate, prepare: { stores in
                 stores.translator.choose(target: .german)
                 stores.translator.input = sentence
                 stores.translator.capabilitiesOverride = { _ in
@@ -581,7 +574,7 @@ final class VisualLabPanelTests: VisualLabCase {
             }), variant, height: size.height)
         }
         try await shoot.shoot("apple-intelligence-off", variants: [.base, .russian], size: size, settle: 0.12) { variant in
-            Self.scene(try await self.openPanel(session, tab: .translate, prepare: { stores in
+            Self.scene(try await self.openPanel(session, surface: .translate, prepare: { stores in
                 stores.translator.choose(target: .german)
                 stores.translator.input = sentence
                 stores.translator.capabilitiesOverride = { _ in
@@ -594,7 +587,7 @@ final class VisualLabPanelTests: VisualLabCase {
             }), variant, height: size.height)
         }
         try await shoot.shoot("privacy-covered-input", variants: [.base, .contrast], size: size, settle: 0.12) { variant in
-            Self.scene(try await self.openPanel(session, tab: .translate, prepare: { stores in
+            Self.scene(try await self.openPanel(session, surface: .translate, prepare: { stores in
                 stores.privacy.setCovering(.translate, true)
                 stores.translator.input = sentence
                 stores.translator.received("Где ближайшая железнодорожная станция?", for: sentence, by: .system)
@@ -612,28 +605,28 @@ final class VisualLabPanelTests: VisualLabCase {
         let size = CGSize(width: VisualLab.windowSize.width, height: 460)
 
         try await shoot.shoot("viewport-top", variants: LabVariant.panel, size: size, settle: 0.3) { variant in
-            Self.scene(try await self.openPanel(session, tab: .settings), variant, height: size.height)
+            Self.scene(try await self.openPanel(session, surface: .settings), variant, height: size.height)
         }
         // Every section with the defaults, in the panel the way a person sees it.
         for section in SettingsSection.allCases {
             try await shoot.shoot("section-\(section.rawValue)", variants: [.base, .contrast, .transparency, .russian],
                                   size: size, settle: 0.4,
                                   notes: "Settings on its \(section.rawValue) section, every switch at its default.") { variant in
-                Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+                Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
                     vm.settingsSection = section
                 }), variant, height: size.height)
             }
         }
         try await shoot.shoot("section-music-opened-from-the-player", variants: [.base, .russian], size: size, settle: 0.4,
                               notes: "Reached from the Music tab's Open Settings (J-007): on the Music section, Music Only first.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+            Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
                 vm.settingsSection = .music
             }), variant, height: size.height)
         }
         try await shoot.shoot("section-general-open-on-hover", variants: [.base, .russian], size: size, settle: 0.3,
                               defaults: [NotchViewModel.opensOnHoverKey: true],
                               notes: "Open on Hover on: the Hover Delay slider joins the General group.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .settings), variant, height: size.height)
+            Self.scene(try await self.openPanel(session, surface: .settings), variant, height: size.height)
         }
         // LY-16: with a song and its lyrics playing, the Lyric Delay row
         // previews the caption's line between Earlier and Later, and says how
@@ -645,7 +638,7 @@ final class VisualLabPanelTests: VisualLabCase {
         try await shoot.shoot("section-lyrics-delay-preview", variants: [.base], size: size, settle: 0.4,
                               defaults: [NotchViewModel.showLyricsKey: true],
                               notes: "A track playing 25 s in, with lyrics: the Lyric Delay row previews the line the caption shows.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .settings, prepare: playingWithLyrics, configure: { vm in
+            Self.scene(try await self.openPanel(session, surface: .settings, prepare: playingWithLyrics, configure: { vm in
                 vm.settingsSection = .lyrics
             }), variant, height: size.height)
         }
@@ -653,14 +646,14 @@ final class VisualLabPanelTests: VisualLabCase {
                               variants: [LabVariant(name: "ru-w480", width: 480, language: "ru")],
                               size: size, settle: 0.4, defaults: [NotchViewModel.showLyricsKey: true],
                               notes: "The same at 480 in Russian, where labels wrap before controls.") { variant in
-            Self.scene(try await self.openPanel(session, tab: .settings, prepare: playingWithLyrics, configure: { vm in
+            Self.scene(try await self.openPanel(session, surface: .settings, prepare: playingWithLyrics, configure: { vm in
                 vm.settingsSection = .lyrics
             }), variant, height: size.height)
         }
         try await shoot.shoot("section-spotify-connected", variants: [.base], size: size, settle: 0.4,
                               notes: "A connected Spotify account, stood in by the lab's isolated account and its temporary credential file.") { variant in
             await session.connectSpotify(liked: false)
-            return Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+            return Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
                 vm.settingsSection = .spotify
             }), variant, height: size.height)
         }

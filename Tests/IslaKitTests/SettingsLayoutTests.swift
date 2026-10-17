@@ -2,16 +2,18 @@ import SwiftUI
 import XCTest
 @testable import IslaKit
 
-/// Where Settings' sidebar and form sit (redesign 2026-10-15, spec §10): the
-/// numbers the board is drawn with, held at 480, 540, 560 and 620.
+/// Where Settings' sidebar and form sit (redesign 2026-10-15, spec §10, moved
+/// by §19.8 now the rail is gone): the numbers the board is drawn with, held at
+/// 480, 540, 560 and 620. Every leading coordinate §10 placed at 58 for the rail
+/// moved to 16, and every width running from it to a `bw − n` edge grew by 42.
 @MainActor
 final class SettingsLayoutTests: XCTestCase {
-    func testTheSidebarIsOneTwentyTwoWideAtFiftyEightByFortySixWithRowsTwentySixApart() {
-        XCTAssertEqual(SettingsLayout.sidebarFrame(), CGRect(x: 58, y: 46, width: 122, height: 260))
+    func testTheSidebarIsOneTwentyTwoWideAtSixteenByFortySixWithRowsTwentySixApart() {
+        XCTAssertEqual(SettingsLayout.sidebarFrame(), CGRect(x: 16, y: 46, width: 122, height: 260))
         for index in 0..<10 {
             XCTAssertEqual(
                 SettingsLayout.sidebarRow(index),
-                CGRect(x: 58, y: 46 + CGFloat(index) * 26, width: 122, height: 24), "row \(index)"
+                CGRect(x: 16, y: 46 + CGFloat(index) * 26, width: 122, height: 24), "row \(index)"
             )
         }
         XCTAssertEqual(SettingsSection.allCases.count, 10)
@@ -22,28 +24,29 @@ final class SettingsLayoutTests: XCTestCase {
         XCTAssertEqual(SettingsLayout.sidebarLabelInset, 32)
         XCTAssertEqual(SettingsLayout.sidebarLabelWidth, 86, "a long name is cut to this and truncates at its tail")
         XCTAssertEqual(SettingsLayout.sidebarLabelInset + SettingsLayout.sidebarLabelWidth, 118, "4 pt short of the row's edge")
-        XCTAssertEqual(SettingsLayout.dividerLeading, 185)
+        XCTAssertEqual(SettingsLayout.dividerLeading, 143, "5 pt past the sidebar: 185 − 42")
     }
 
-    /// The form is 354 at the default 560 (`bw − 206`) and 274 below 540, where
-    /// the labels wrap before the controls give way.
-    func testTheFormIsThreeFiftyFourAtFiveSixtyAndTwoSeventyFourBelowFiveForty() {
-        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 354)
-        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 560 - 206)
-        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 620), 414)
-        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 540), 334, "540 is the first wide width")
+    /// The form is 396 at the default 560 (`bw − 164`) and 316 below 540, where
+    /// the labels wrap before the controls give way (§19.8: 354 and 274 grown
+    /// by the rail's 42).
+    func testTheFormIsThreeNinetySixAtFiveSixtyAndThreeSixteenBelowFiveForty() {
+        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 396)
+        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 560 - 164)
+        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 620), 456)
+        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 540), 376, "540 is the first wide width")
         for width: CGFloat in [480, 500, 520, 539] {
-            XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: width), 274, "below 540 at \(width)")
+            XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: width), 316, "below 540 at \(width)")
             XCTAssertTrue(SettingsLayout.isNarrow(bodyWidth: width))
         }
         XCTAssertFalse(SettingsLayout.isNarrow(bodyWidth: 540))
         XCTAssertFalse(SettingsLayout.isNarrow(bodyWidth: 560))
     }
 
-    func testTheFormStartsAtOneNinetyTwoByFortySixAndEndsInsideTheBody() {
+    func testTheFormStartsAtOneFiftyByFortySixAndEndsInsideTheBody() {
         for width: CGFloat in [480, 539, 540, 560, 620] {
             let form = SettingsLayout.formFrame(bodyWidth: width)
-            XCTAssertEqual(form.minX, 192)
+            XCTAssertEqual(form.minX, 150)
             XCTAssertEqual(form.minY, 46)
             XCTAssertEqual(form.width, SettingsLayout.formWidth(bodyWidth: width))
             XCTAssertEqual(form.maxY, 386, "the body's 400 less its 14 pt of padding")
@@ -51,21 +54,20 @@ final class SettingsLayoutTests: XCTestCase {
             XCTAssertLessThanOrEqual(form.maxX, width - 14, "inside the body's padding at \(width)")
         }
         let wide = SettingsLayout.formFrame(bodyWidth: 560)
-        XCTAssertEqual(wide, CGRect(x: 192, y: 46, width: 354, height: 340))
+        XCTAssertEqual(wide, CGRect(x: 150, y: 46, width: 396, height: 340))
     }
 
-    /// Body coordinates, as the spec writes them, and the pane's own, through
-    /// the one conversion every pane uses: the pane starts at (58, header).
-    func testThePaneCoordinatesFollowTheHeader() {
+    /// Body coordinates, as the spec writes them, and the content's own, through
+    /// the one conversion every surface uses: the content starts at the body's
+    /// own x, under the header row, so only y moves (46 − 38).
+    func testTheContentCoordinatesAreTheBodysLessTheHeaderRow() {
         let form = SettingsLayout.formFrame(bodyWidth: 560)
-        XCTAssertEqual(SettingsLayout.inPane(form, headerHeight: 38), CGRect(x: 134, y: 8, width: 354, height: 340))
-        XCTAssertEqual(
-            SettingsLayout.inPane(form, headerHeight: 32).minY, 14,
-            "a shorter notch has a taller pane and the same screen position"
-        )
-        // The form's right edge is the pane's right edge: bw − 72 wide.
-        XCTAssertEqual(PlayerLayout.paneWidth(bodyWidth: 560), 488)
-        XCTAssertEqual(SettingsLayout.inPane(form, headerHeight: 38).maxX, 488)
+        XCTAssertEqual(SettingsLayout.inContent(form), CGRect(x: 150, y: 8, width: 396, height: 340))
+        XCTAssertEqual(SettingsLayout.inContent(SettingsLayout.sidebarFrame()).origin, CGPoint(x: 16, y: 8))
+        // The form ends 14 short of the body's right edge at the widths it is
+        // designed for.
+        XCTAssertEqual(SettingsLayout.inContent(form).maxX, 560 - 14)
+        XCTAssertEqual(SettingsLayout.inContent(SettingsLayout.formFrame(bodyWidth: 620)).maxX, 620 - 14)
     }
 
     func testGroupsAndRowsAreTheSpecs() {
@@ -78,26 +80,21 @@ final class SettingsLayoutTests: XCTestCase {
         XCTAssertEqual(ToolbarPushButtonStyle.height, 22, "a push button fits the 28 pt row with 3 pt either side")
     }
 
-    /// Four previews across the form, 80 × 52 at 354, shrinking with it so the
-    /// four never run past the edge.
+    /// Four previews across the form, 80 × 52 at 396, shrinking with it so the
+    /// four never run past the edge. At the narrow 316 they are 72 × 46: the
+    /// room is 316 less 8 and three 6 pt gaps, a quarter of 290 rounded down.
     func testTheStylePreviewsFitTheFormAtEveryWidth() {
-        XCTAssertEqual(SettingsLayout.previewSize(formWidth: 354), CGSize(width: 80, height: 52))
-        XCTAssertEqual(SettingsLayout.previewSize(formWidth: 414), CGSize(width: 80, height: 52))
-        let narrow = SettingsLayout.previewSize(formWidth: 274)
-        XCTAssertEqual(narrow.width, 62)
-        XCTAssertEqual(narrow.height, 40)
-        for form: CGFloat in [274, 334, 354, 414] {
+        XCTAssertEqual(SettingsLayout.previewSize(formWidth: 396), CGSize(width: 80, height: 52))
+        XCTAssertEqual(SettingsLayout.previewSize(formWidth: 456), CGSize(width: 80, height: 52))
+        let narrow = SettingsLayout.previewSize(formWidth: 316)
+        XCTAssertEqual(narrow.width, 72)
+        XCTAssertEqual(narrow.height, 46)
+        for form: CGFloat in [316, 376, 396, 456] {
             let size = SettingsLayout.previewSize(formWidth: form)
             let used = size.width * 4 + SettingsLayout.previewMinimumGap * 3 + 8
             XCTAssertLessThanOrEqual(used, form, "four previews and their gaps fit \(form)")
             XCTAssertEqual(size.width / size.height, 80.0 / 52.0, accuracy: 0.05, "the card's own proportions")
         }
-    }
-
-    /// The header strip carries no control on this tab, so there is nothing to put
-    /// under the notch (`HeaderNotchBandTests` holds it for every other tab).
-    func testSettingsHasNoHeaderControls() {
-        XCTAssertTrue(SettingsLayout.headerControlFrames.isEmpty)
     }
 
     /// The tokens: group fill white 0.055, the selected row 0.12, the header

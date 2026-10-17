@@ -95,17 +95,24 @@ struct LyricsMoreMenuItem: Equatable {
         case importFile
         case searchAgain
         case settings
+        /// The player's own switches, moved here from the player (§19.6).
+        case shuffle
+        case repeatMode
     }
 
     let kind: Kind
     let title: String
     var isEnabled = true
+    var isChecked = false
 }
 
 enum LyricsMoreMenuModel {
     /// The menu, top to bottom:
     ///
     /// ```
+    /// ✓ Shuffle                          (only when the player reports it)
+    /// Repeat: All Tracks                 (only when the player reports it)
+    /// ─────
     /// Lyric Timing                       (header)
     /// − Lyrics Earlier
     /// + Lyrics Later
@@ -135,11 +142,26 @@ enum LyricsMoreMenuModel {
     ///   - canNudge: whether there are synced words to correct. Without them a
     ///     nudge would sit in the overlay and be eaten by the next cache hit
     ///     (`LyricsStage.canNudgeTrack`'s reason), so Earlier and Later dim.
+    ///   - shuffle, repeatMode: the player's switches as it reports them (§4.4),
+    ///     nil where it has none — a browser, a player that refused Automation.
+    ///     They left the player for this menu on 2026-10-17 (§19.6) and lead it:
+    ///     they are about the song, the rest about its words.
     static func items(
         localFileName: String?, hasBinding: Bool = true, onlineOn: Bool, offset: TimeInterval,
-        canNudge: Bool = true
+        canNudge: Bool = true, shuffle: Bool? = nil, repeatMode: PlayerBridge.RepeatMode? = nil
     ) -> [LyricsMoreMenuItem] {
-        var items: [LyricsMoreMenuItem] = [
+        var items: [LyricsMoreMenuItem] = []
+        if let shuffle {
+            items.append(.init(kind: .shuffle, title: localized("Shuffle"), isChecked: shuffle))
+        }
+        if let repeatMode {
+            items.append(.init(
+                kind: .repeatMode, title: localized("Repeat: %@", repeatValueLabel(repeatMode)),
+                isChecked: repeatMode != .off
+            ))
+        }
+        if !items.isEmpty { items.append(.init(kind: .separator, title: "")) }
+        items += [
             .init(kind: .header, title: localized("Lyric Timing")),
             .init(kind: .earlier, title: localized("Lyrics Earlier"), isEnabled: canNudge),
             .init(kind: .later, title: localized("Lyrics Later"), isEnabled: canNudge),
@@ -162,6 +184,15 @@ enum LyricsMoreMenuModel {
         items.append(.init(kind: .separator, title: ""))
         items.append(.init(kind: .settings, title: localized("Lyrics Settings…")))
         return items
+    }
+
+    /// The word Repeat's row ends in, as the player's button used to say it.
+    static func repeatValueLabel(_ mode: PlayerBridge.RepeatMode) -> String {
+        switch mode {
+        case .off: return localized("Off")
+        case .all: return localized("All Tracks")
+        case .one: return localized("This Track")
+        }
     }
 
     /// A correction under this is none: the old readout drew nothing for it,

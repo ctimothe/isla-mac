@@ -78,70 +78,77 @@ final class RealAppIconPaneTests: XCTestCase {
 
     // MARK: The empty player's buttons
 
-    private func emptyPlayer(icons: AppIcons, bodyWidth: CGFloat) async -> (AXNode, PlayerLayout) {
+    /// The player's content: the reference body wide, 160 tall under the header
+    /// row (the player has one size, §19.6).
+    private static let playerContent = CGSize(width: PlayerLayout.referenceBodyWidth, height: 160)
+
+    private func emptyPlayer(icons: AppIcons) async -> (AXNode, PlayerLayout) {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        let layout = PlayerLayout(bodyWidth: bodyWidth)
+        let layout = PlayerLayout()
         let pane = MediaPane(
             media: isolated.stores.media, lyrics: isolated.stores.lyrics, morph: nil,
             audio: AudioWatch(read: { ([], 0, nil) }, readMuted: { false }, installListeners: {}, removeListeners: {}),
             icons: icons
         )
         .defaultAppStorage(isolated.suite)
-        return (await AXProbe.tree(of: pane, size: layout.paneSize), layout)
+        return (await AXProbe.tree(of: pane, size: Self.playerContent), layout)
     }
 
     /// Apple Music and Spotify lead, then the others by name; no more than
     /// three; none is a podcast app or Telegram; and every button is whole
-    /// inside the pane, 22 tall, 8 apart.
+    /// inside the content, 22 tall, 8 apart.
     func testTheEmptyPlayerOffersTheInstalledMusicAppsInOrderUpToThree() async throws {
-        for width in [CGFloat(480), 560, 620] {
-            let (root, layout) = await emptyPlayer(icons: SettingsFixture.macWithApps(mac), bodyWidth: width)
-            let buttons = root.all { $0.role == "AXButton" }
-            XCTAssertFalse(buttons.isEmpty, "\(width)\n\(root.dump)")
-            XCTAssertLessThanOrEqual(buttons.count, 3, "\(width)")
-            let order = ["Open Apple Music", "Open Spotify", "Open Deezer"]
-            XCTAssertEqual(buttons.map(\.label), Array(order.prefix(buttons.count)), "\(width)\n\(root.dump)")
-            XCTAssertFalse(root.dump.contains("Telegram"), "Telegram is not a player to start a song in")
-            XCTAssertFalse(root.dump.contains("Подкасты"), "nor is a podcast app")
-            let pane = CGRect(origin: .zero, size: layout.paneSize)
-            for button in buttons {
-                let frame = try XCTUnwrap(button.frame)
-                XCTAssertTrue(pane.contains(frame), "\(button.label) \(frame) leaves \(pane) at \(width)")
-                XCTAssertEqual(frame.height, PlayerLayout.EmptyFrames.buttonHeight, accuracy: 1)
-            }
-            for (a, b) in zip(buttons, buttons.dropFirst()) {
-                XCTAssertEqual(try XCTUnwrap(b.frame).minX - (try XCTUnwrap(a.frame)).maxX,
-                               PlayerLayout.EmptyFrames.buttonSpacing, accuracy: 1)
-            }
+        let (root, _) = await emptyPlayer(icons: SettingsFixture.macWithApps(mac))
+        let buttons = root.all { $0.role == "AXButton" }
+        XCTAssertFalse(buttons.isEmpty, root.dump)
+        XCTAssertLessThanOrEqual(buttons.count, 3)
+        let order = ["Open Apple Music", "Open Spotify", "Open Deezer"]
+        XCTAssertEqual(buttons.map(\.label), Array(order.prefix(buttons.count)), root.dump)
+        XCTAssertFalse(root.dump.contains("Telegram"), "Telegram is not a player to start a song in")
+        XCTAssertFalse(root.dump.contains("Подкасты"), "nor is a podcast app")
+        let content = CGRect(origin: .zero, size: Self.playerContent)
+        for button in buttons {
+            let frame = try XCTUnwrap(button.frame)
+            XCTAssertTrue(content.contains(frame), "\(button.label) \(frame) leaves \(content)")
+            XCTAssertEqual(frame.height, PlayerLayout.EmptyFrames.buttonHeight, accuracy: 1)
+        }
+        for (a, b) in zip(buttons, buttons.dropFirst()) {
+            XCTAssertEqual(try XCTUnwrap(b.frame).minX - (try XCTUnwrap(a.frame)).maxX,
+                           PlayerLayout.EmptyFrames.buttonSpacing, accuracy: 1)
         }
     }
 
     /// Without Apple Music or Spotify installed the other music apps are still
     /// offered, and a Mac with no music app offers none.
     func testTheEmptyPlayerOffersWhatIsInstalled() async {
-        let (some, _) = await emptyPlayer(icons: SettingsFixture.macWithApps(["com.deezer.deezer-desktop": "Deezer"]), bodyWidth: 560)
+        let (some, _) = await emptyPlayer(icons: SettingsFixture.macWithApps(["com.deezer.deezer-desktop": "Deezer"]))
         XCTAssertEqual(some.all { $0.role == "AXButton" }.map(\.label), ["Open Deezer"])
-        let (none, _) = await emptyPlayer(icons: SettingsFixture.macWithApps([:]), bodyWidth: 560)
+        let (none, _) = await emptyPlayer(icons: SettingsFixture.macWithApps([:]))
         XCTAssertTrue(none.all { $0.role == "AXButton" }.isEmpty)
     }
 
-    /// Russian at 480: «Открыть Apple Music» and «Открыть Spotify» both stay, whole
-    /// and inside the pane, even though they cannot fit with icons; Deezer waits.
-    func testRussianAt480KeepsBothLeadersUntruncated() async throws {
+    /// Russian: «Открыть Apple Music» and «Открыть Spotify» both stay, whole and
+    /// inside the content; Deezer waits. The row has 317.7 pt (the controls row's
+    /// span) where the old 480 pane gave it 260, so the two fit with their
+    /// icons — the form the row is drawn in is whatever `MediaPane.openOffers`
+    /// chose for the room, and the buttons are as wide as that form needs.
+    func testRussianKeepsBothLeadersUntruncated() async throws {
         LabLocalization.use("ru")
-        let (root, layout) = await emptyPlayer(icons: SettingsFixture.macWithApps(mac), bodyWidth: 480)
+        let icons = SettingsFixture.macWithApps(mac)
+        let (root, _) = await emptyPlayer(icons: icons)
         let buttons = root.all { $0.role == "AXButton" }
         XCTAssertEqual(buttons.map(\.label), ["Открыть Apple Music", "Открыть Spotify"], root.dump)
-        let pane = CGRect(origin: .zero, size: layout.paneSize)
+        let form = MediaPane.openOffers(from: icons.installedMusicApps()).form
+        let content = CGRect(origin: .zero, size: Self.playerContent)
         for button in buttons {
             let frame = try XCTUnwrap(button.frame)
-            XCTAssertTrue(pane.contains(frame), "\(button.label) \(frame) leaves \(pane)")
+            XCTAssertTrue(content.contains(frame), "\(button.label) \(frame) leaves \(content)")
             let need = PlayerLayout.measuredLabelWidth(button.label)
             // The measured width is an upper bound (rounded up, plus a point):
             // a button as wide as its words, within that point and a half of
             // rounding, shows them whole; a cut one would be narrower by much.
-            let bound = PlayerLayout.openButtonWidth(labelWidth: need, form: .iconless)
+            let bound = PlayerLayout.openButtonWidth(labelWidth: need, form: form)
             XCTAssertLessThanOrEqual(frame.width, bound + 0.5, "\(button.label) wider than measured")
             XCTAssertGreaterThanOrEqual(frame.width, bound - 3, "\(button.label) is cut: \(frame.width) < \(bound)")
         }

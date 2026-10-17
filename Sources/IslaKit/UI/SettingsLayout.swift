@@ -1,28 +1,31 @@
 import CoreGraphics
 import SwiftUI
 
-/// Where everything in the tall Settings body sits (redesign 2026-10-15, spec §10).
+/// Where everything on the Settings surface sits (spec §10, moved by §19.8).
 ///
 /// Stated the way the board states it — in *body coordinates*, the origin at the
 /// open body's top-left corner at the top of the screen (spec §1) — and converted
-/// to the pane's own through `PlayerLayout.inPane`, the one conversion every
-/// pane uses, so a test that holds the spec's numbers holds the pixels.
+/// to the content's own, under the header row, through `SurfaceLayout.inContent`,
+/// so a test that holds the spec's numbers holds the pixels. §10 placed the
+/// sidebar at 58, beside the rail; with the rail gone every leading edge moved
+/// 42 left and every width running to a `bw − n` edge grew by 42.
 ///
 /// Pure: the sidebar and the form are laid by these numbers, and
 /// `SettingsLayoutTests` reads them at 480, 540, 560 and 620.
 enum SettingsLayout {
-    /// Settings always opens 400 tall (spec §10), whatever any tab was expanded
-    /// to: no Expand button reaches it, because the sidebar is the structure
-    /// that earns the height and a body that folded to 208 would be a sidebar of
-    /// ten rows in a window of seven.
-    static let bodyHeight: CGFloat = NotchMetrics.tallestBody.height
+    /// Settings is 400 tall (§19.8): the sidebar is the structure that earns
+    /// the height, and a shorter body would be a sidebar of ten rows in a
+    /// window of seven.
+    static let bodyHeight: CGFloat = SurfaceLayout.settingsHeight
+    /// What the form leaves under itself at the body's foot.
+    static let bottomInset: CGFloat = 14
 
     /// Where the sidebar and the form begin, under the 38 pt header and a gap.
     static let contentTop: CGFloat = 46
 
     // MARK: Sidebar
 
-    static let sidebarLeading: CGFloat = 58
+    static let sidebarLeading: CGFloat = 16
     static let sidebarWidth: CGFloat = 122
     /// Rows are 26 apart: a 24 pt row and a 2 pt gap, so the selected row's well
     /// never touches the next one's.
@@ -46,18 +49,19 @@ enum SettingsLayout {
 
     // MARK: Form
 
-    static let formLeading: CGFloat = 192
-    /// Below this body width the form is the narrow 274 and the controls give
+    static let formLeading: CGFloat = 150
+    /// Below this body width the form is the narrow 316 and the controls give
     /// way in a fixed order (`Stress-Settings-RU-480`): sliders shrink first,
     /// then labels wrap, and a control never does.
     static let narrowBelow: CGFloat = 540
-    static let narrowFormWidth: CGFloat = 274
+    static let narrowFormWidth: CGFloat = 316
 
-    /// The form's width: `bw − 206` — 354 at the default 560 — and the narrow
-    /// 274 below 540, where the sidebar keeps its 122 and the form takes the one
-    /// width the boards design for. At 620 it is 414.
+    /// The form's width: `bw − 164` — 396 at the default 560 — and the narrow
+    /// 316 below 540, where the sidebar keeps its 122 and the form takes the one
+    /// width the boards design for. At 620 it is 456. Either way it ends 14 short
+    /// of the body's right edge at the widths it is designed for.
     static func formWidth(bodyWidth: CGFloat) -> CGFloat {
-        bodyWidth < narrowBelow ? narrowFormWidth : bodyWidth - 206
+        bodyWidth < narrowBelow ? narrowFormWidth : bodyWidth - 164
     }
 
     static func isNarrow(bodyWidth: CGFloat) -> Bool { bodyWidth < narrowBelow }
@@ -68,7 +72,7 @@ enum SettingsLayout {
         CGRect(
             x: formLeading, y: contentTop,
             width: formWidth(bodyWidth: bodyWidth),
-            height: bodyHeight - NotchGeometry.bodyBottomPadding - contentTop
+            height: bodyHeight - bottomInset - contentTop
         )
     }
 
@@ -100,15 +104,10 @@ enum SettingsLayout {
     static let hairlineInset: CGFloat = 10
     static let hairlineHeight: CGFloat = 0.5
 
-    /// The header strip carries no control on this tab: no Expand (Settings is
-    /// always tall), no tools. What `HeaderNotchBandTests` holds for every other
-    /// tab holds here trivially, and a control added later has to be listed.
-    static let headerControlFrames: [CGRect] = []
-
     // MARK: Lock Screen style previews (spec §10)
 
-    /// Four previews across the form, 80 × 52 at 354. Narrower, they shrink with
-    /// the form — 62 × 40 at 274 — so the four always fit with 6 pt between them
+    /// Four previews across the form, 80 × 52 at 396. Narrower, they shrink with
+    /// the form — 73 × 47 at 316 — so the four always fit with 6 pt between them
     /// at the least, rather than the last one running under the edge.
     static let previewNominalSize = CGSize(width: 80, height: 52)
     static let previewRadius: CGFloat = 7
@@ -124,11 +123,11 @@ enum SettingsLayout {
         )
     }
 
-    // MARK: Pane coordinates
+    // MARK: Content coordinates
 
-    /// A frame in body coordinates, in the pane's: Settings is a pane like any
-    /// other and starts where the rail ends and the header does.
-    static func inPane(_ body: CGRect, headerHeight: CGFloat) -> CGRect {
-        PlayerLayout.inPane(body, headerHeight: headerHeight)
+    /// A frame in body coordinates, in the content's: Settings is a surface
+    /// like any other and starts under the header row.
+    static func inContent(_ body: CGRect) -> CGRect {
+        SurfaceLayout.inContent(body)
     }
 }

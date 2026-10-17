@@ -2,202 +2,200 @@ import AppKit
 import XCTest
 @testable import IslaKit
 
-/// The Music player's board, as arithmetic (redesign 2026-10-15, spec §4.1,
-/// §4.5, §4.8, §13). Every frame the view places is read from `PlayerLayout`,
-/// so these numbers are the pixels: a board that moves fails here first.
+/// The player's board, as arithmetic (spec §19.6, board `R2-Music-Open`). Every
+/// frame the view places is read from `PlayerLayout`, so these numbers are the
+/// pixels: a board that moves fails here first.
+///
+/// The board measures from the shape's left edge, shoulders and all: 425.4 wide
+/// with a 34 pt shoulder each side, so the body the panel lays out is 357.4 and a
+/// board x is a body x plus 34. Vertically the content starts under the header
+/// row, so a board y is a content y plus 38. The rail, the tall page and the
+/// lyric band that stood between the title and the progress are gone (§19.11):
+/// the sung line is the subtitle's, so no frame depends on the lyrics.
 @MainActor
 final class PlayerLayoutTests: XCTestCase {
-    private func layout(
-        _ width: CGFloat = 560, header: CGFloat = 38, band: Bool = true, output: Bool = true
-    ) -> PlayerLayout {
-        PlayerLayout(bodyWidth: width, headerHeight: header, hasLyricBand: band, hasOutputButton: output)
+    private func layout(output: Bool = true) -> PlayerLayout {
+        PlayerLayout(hasOutputButton: output)
     }
 
-    // MARK: - Body to pane: the one conversion
+    // MARK: - The board to the content: the one conversion
 
-    /// The pane's origin in body coordinates is 14 (the shell's padding) + 30 (the
-    /// rail) + 14 (the gap) = 58 from the left and the header's height from the
-    /// top: the cover's x of 58 is the pane's own left edge.
-    func testThePaneStartsWhereTheRailAndThePaddingEnd() {
-        XCTAssertEqual(PlayerLayout.paneLeading, 58)
-        XCTAssertEqual(PlayerLayout.bodyInset + PlayerLayout.railWidth + PlayerLayout.railGap, 58)
-        XCTAssertEqual(PlayerLayout.paneTrailing, 14)
-        XCTAssertEqual(layout().inPane(layout().cover).minX, 0, "the cover is the pane's origin in x")
-        XCTAssertEqual(layout().inPane(layout().cover).minY, 54 - 38)
+    func testABoardXIsTheBodysPlusTheShoulderAndABoardYIsTheContentsPlus38() {
+        XCTAssertEqual(PlayerLayout.shoulder, 34)
+        XCTAssertEqual(PlayerLayout.referenceBodyWidth, 425.4 - 68, accuracy: 0.0001)
+        XCTAssertEqual(PlayerLayout.x(54), 20)
+        XCTAssertEqual(PlayerLayout.y(38), 0)
+        XCTAssertEqual(PlayerLayout.y(164.6), 126.6, accuracy: 0.0001)
+        XCTAssertEqual(layout().right(54.2), 357.4 + 34 - 54.2, accuracy: 0.0001, "an edge given from the shape's right")
+        XCTAssertEqual(layout().centre, 357.4 / 2, accuracy: 0.0001, "m, the shape's centre, which is the body's")
+        XCTAssertEqual(PlayerLayout.referenceHeaderHeight, 38)
+        // The body's own size is the same arithmetic, from the layout type.
+        let notch = CGSize(width: 185, height: 38)
+        XCTAssertEqual(SurfaceLayout.bodySize(for: .player, bodyWidth: 560, notch: notch).width, PlayerLayout.referenceBodyWidth, accuracy: 0.0001)
     }
 
-    /// A Mac whose notch is 32 pt tall must put the rows where a 38 pt notch
-    /// does: the pane is simply taller there, and a body y is the pane y plus
-    /// the header's height whatever it is.
-    func testABodyYIsTheSameOnScreenWhateverTheHeaderHeight() {
-        for header in [CGFloat(24), 32, 38, 44] {
-            let l = layout(header: header)
-            for rect in [l.cover, l.title, l.progress, l.transport, l.lyrics] {
-                XCTAssertEqual(l.inPane(rect).minY + header, rect.minY, "header \(header)")
-                XCTAssertEqual(l.inPane(rect).minX + PlayerLayout.paneLeading, rect.minX)
+    /// The content is 160 tall on every notch: the body moves with the notch
+    /// (`SurfaceLayout.y`), and the content starts under the header row.
+    func testTheContentIs160TallOnEveryNotch() {
+        for height in [CGFloat(24), 32, 38, 44] {
+            let body = SurfaceLayout.bodySize(for: .player, bodyWidth: 560, notch: CGSize(width: 185, height: height))
+            XCTAssertEqual(body.height - height, 160, accuracy: 0.0001, "notch \(height)")
+        }
+    }
+
+    // MARK: - The table (§19.6)
+
+    func testTheBoard() {
+        let l = layout()
+        XCTAssertEqual(l.cover, CGRect(x: 20, y: 0, width: 60, height: 60), "(54, 38), 60 × 60")
+        XCTAssertEqual(PlayerLayout.coverRadius, 10)
+        XCTAssertEqual(l.textLeading, 95.2, accuracy: 0.0001, "x 129.2")
+        XCTAssertEqual(l.titleBaseline, 27, accuracy: 0.0001, "baseline 65")
+        XCTAssertEqual(l.subtitleBaseline, 46.5, accuracy: 0.0001, "baseline 84.5")
+        XCTAssertEqual(PlayerLayout.titleSize, 16)
+        XCTAssertEqual(PlayerLayout.subtitleSize, 14)
+        XCTAssertEqual(l.equalizer.size, CGSize(width: 23, height: 18))
+        XCTAssertEqual(l.equalizer.minY, 11, accuracy: 0.0001, "top 49")
+        XCTAssertEqual(l.equalizer.maxX, 337.2, accuracy: 0.0001, "ending 54.2 from the shape's right edge")
+        XCTAssertEqual(l.timesTop, 76, accuracy: 0.0001, "114")
+        XCTAssertEqual(l.elapsedLeading, 19.5, accuracy: 0.0001, "53.5")
+        XCTAssertEqual(l.timesTrailing, 337.2, accuracy: 0.0001, "ending 54.2 from the right")
+        XCTAssertEqual(l.progress.minX, 62.7, accuracy: 0.0001, "96.7")
+        XCTAssertEqual(l.progress.minY, 79.4, accuracy: 0.0001, "117.4")
+        XCTAssertEqual(l.progress.width, 231.3, accuracy: 0.0001)
+        XCTAssertEqual(l.progress.height, 7)
+        XCTAssertEqual(PlayerLayout.progressRadius, 3.5)
+        XCTAssertEqual(l.controlsMidY, 126.6, accuracy: 0.0001, "164.6")
+        XCTAssertEqual(PlayerLayout.hitTarget, 42, "every control is a 42 × 42 target")
+    }
+
+    /// The title truncates before the equalizer, 8 short of it; the subtitle
+    /// runs to the equalizer's right edge, with nothing standing beside it.
+    func testTheTextColumnEndsAtTheEqualizer() {
+        let l = layout()
+        XCTAssertEqual(l.titleWidth, l.equalizer.minX - 8 - l.textLeading, accuracy: 0.0001)
+        XCTAssertEqual(l.titleWidth, 211, accuracy: 0.0001)
+        XCTAssertEqual(l.subtitleWidth, 242, accuracy: 0.0001)
+        XCTAssertEqual(l.textLeading + l.subtitleWidth, l.equalizer.maxX, accuracy: 0.0001)
+        XCTAssertGreaterThan(l.textLeading, l.cover.maxX, "the text starts right of the cover")
+    }
+
+    /// The five controls' centres: `m − 133`, `m − 69`, `m`, `m + 69`, `m + 133`,
+    /// each a 42 pt target on the row, with the glyph sizes the board gives.
+    func testTheFiveControlsAreCentredWhereTheBoardSaysTheyAre() {
+        let l = layout()
+        let m = l.centre
+        for (control, offset) in [
+            (PlayerLayout.Control.favourite, -133), (.previous, -69), (.playPause, 0), (.next, 69), (.output, 133),
+        ] as [(PlayerLayout.Control, CGFloat)] {
+            let target = l.target(control)
+            XCTAssertEqual(target.midX, m + offset, accuracy: 0.0001, "\(control)")
+            XCTAssertEqual(target.midY, 126.6, accuracy: 0.0001, "\(control)")
+            XCTAssertEqual(target.size, CGSize(width: 42, height: 42), "\(control)")
+        }
+        XCTAssertEqual(PlayerLayout.Control.favourite.glyph, CGSize(width: 28, height: 27))
+        XCTAssertEqual(PlayerLayout.Control.output.glyph, CGSize(width: 28, height: 27))
+        XCTAssertEqual(PlayerLayout.Control.previous.glyph, CGSize(width: 35, height: 22))
+        XCTAssertEqual(PlayerLayout.Control.next.glyph, CGSize(width: 35, height: 22))
+        XCTAssertEqual(PlayerLayout.Control.playPause.glyph, CGSize(width: 29, height: 34))
+        XCTAssertEqual(l.output, l.target(.output))
+    }
+
+    /// Nothing in the controls row overlaps its neighbour: the 69 pt pitch is
+    /// wider than a 42 pt target, and a glyph is never wider than its target.
+    func testTheControlsRowNeverOverlaps() {
+        let l = layout()
+        let row = PlayerLayout.Control.allCases.sorted { $0.offset < $1.offset }
+        for (a, b) in zip(row, row.dropFirst()) {
+            XCTAssertLessThanOrEqual(l.target(a).maxX, l.target(b).minX, "\(a) overlaps \(b)")
+        }
+        for control in row {
+            XCTAssertLessThanOrEqual(control.glyph.width, PlayerLayout.hitTarget)
+            XCTAssertLessThanOrEqual(control.glyph.height, PlayerLayout.hitTarget)
+        }
+    }
+
+    /// Every frame is inside the content, at the reference width and at the
+    /// wider body a wide notch asks for (§19.2: never narrower than the notch plus
+    /// 20): nothing is cut by the pane's own clip.
+    func testEveryFrameIsInsideTheContent() {
+        for bodyWidth in [PlayerLayout.referenceBodyWidth, 420, 460] {
+            let l = PlayerLayout(bodyWidth: bodyWidth)
+            let content = CGRect(x: 0, y: 0, width: bodyWidth, height: 160)
+            var frames = [l.cover, l.equalizer, l.progress]
+            frames += PlayerLayout.Control.allCases.map { l.target($0) }
+            for frame in frames {
+                XCTAssertTrue(content.contains(frame), "\(frame) leaves \(content) at \(bodyWidth)")
             }
+            XCTAssertLessThanOrEqual(l.timesTrailing, bodyWidth)
         }
     }
 
-    func testThePaneIsTheBodyLessTheRailAndBothPaddings() {
-        for width in [CGFloat(480), 540, 560, 620] {
-            XCTAssertEqual(PlayerLayout.paneWidth(bodyWidth: width), width - 72)
-            XCTAssertEqual(PlayerLayout.bodyWidth(paneWidth: PlayerLayout.paneWidth(bodyWidth: width)), width)
-        }
-        let size = layout(560, header: 38).paneSize
-        XCTAssertEqual(size.width, 488)
-        XCTAssertEqual(size.height, 208 - NotchGeometry.bodyBottomPadding - 38)
+    /// A body wider than the reference — the notch plus 20 asks for it — moves
+    /// the trailing edge with the shape and leaves the leading content where
+    /// it was (§19.2).
+    func testAWiderBodyKeepsTheLeadingContentAndMovesTheTrailingEdge() {
+        let narrow = PlayerLayout(bodyWidth: PlayerLayout.referenceBodyWidth)
+        let wide = PlayerLayout(bodyWidth: PlayerLayout.referenceBodyWidth + 60)
+        XCTAssertEqual(wide.cover, narrow.cover)
+        XCTAssertEqual(wide.textLeading, narrow.textLeading)
+        XCTAssertEqual(wide.elapsedLeading, narrow.elapsedLeading)
+        XCTAssertEqual(wide.progress.minX, narrow.progress.minX)
+        XCTAssertEqual(wide.equalizer.maxX - narrow.equalizer.maxX, 60, accuracy: 0.0001)
+        XCTAssertEqual(wide.timesTrailing - narrow.timesTrailing, 60, accuracy: 0.0001)
+        XCTAssertEqual(wide.progress.width - narrow.progress.width, 60, accuracy: 0.0001)
     }
 
     /// The cover is the one the morph travels to: one description of its size.
+    /// The player's cover is 60 pt at radius 10 (§19.6) — and
+    /// `Theme.artworkMetrics(isOpen: true)`, the morph's open end, must say the
+    /// same, or the cover travels to a size it is not drawn at.
     func testTheCoverIsTheOpenEndOfTheMorph() {
         let open = Theme.artworkMetrics(isOpen: true)
-        XCTAssertEqual(open.side, 132, "redesign 2026-10-15, spec §4.1: it was 118")
-        XCTAssertEqual(open.cornerRadius, 14)
+        XCTAssertEqual(open.side, 60, "§19.6: the cover is 60 × 60")
+        XCTAssertEqual(open.cornerRadius, PlayerLayout.coverRadius)
         XCTAssertEqual(layout().cover.size, CGSize(width: open.side, height: open.side))
-        XCTAssertEqual(PlayerLayout.emptyWell.size, layout().cover.size, "the empty well keeps the cover's frame")
-    }
-
-    // MARK: - The table at 560 (§4.1)
-
-    func testTheBoardAt560WithALyricBand() {
-        let l = layout()
-        XCTAssertEqual(l.cover, CGRect(x: 58, y: 54, width: 132, height: 132))
-        XCTAssertEqual(l.title.origin, CGPoint(x: 206, y: 52))
-        XCTAssertEqual(l.title.width, 340, "bw − 220")
-        XCTAssertEqual(l.subtitle.origin, CGPoint(x: 206, y: 73))
-        XCTAssertEqual(l.sungLine.origin, CGPoint(x: 206, y: 99))
-        XCTAssertEqual(l.nextLine.origin, CGPoint(x: 206, y: 117))
-        XCTAssertEqual(l.progress, CGRect(x: 206, y: 141, width: 340, height: 12))
-        XCTAssertEqual(l.shuffle, CGRect(x: 206, y: 160, width: 24, height: 24))
-        XCTAssertEqual(l.transport, CGRect(x: 236, y: 158, width: 100, height: 28))
-        XCTAssertEqual(l.repeatButton, CGRect(x: 342, y: 160, width: 24, height: 24))
-        XCTAssertEqual(l.output, CGRect(x: 492, y: 159, width: 26, height: 26))
-        XCTAssertEqual(l.lyrics, CGRect(x: 520, y: 159, width: 26, height: 26))
-    }
-
-    /// `Music-NoLyrics`: the band folds away; the metadata steps down to 70 and
-    /// 91, and the progress row and everything under it rise by 20.
-    func testTheBoardAt560WithNoLyric() {
-        let l = layout(band: false)
-        XCTAssertEqual(l.cover, layout().cover, "the cover does not move")
-        XCTAssertEqual(l.title.minY, 70)
-        XCTAssertEqual(l.subtitle.minY, 91)
-        XCTAssertEqual(l.progress.minY, 121)
-        XCTAssertEqual(l.transport.minY, 138)
-        XCTAssertEqual(l.shuffle.minY, 140)
-        XCTAssertEqual(l.repeatButton.minY, 140)
-        XCTAssertEqual(l.output?.minY, 139)
-        XCTAssertEqual(l.lyrics.minY, 139)
-        XCTAssertEqual(layout().progress.minY - l.progress.minY, PlayerLayout.noLyricRise)
-        XCTAssertEqual(PlayerLayout.noLyricRise, 20)
-    }
-
-    /// The band is two lines 18 apart, each as tall as a caption slot, so a
-    /// line turning out is clipped to the slot it left (`MediaPane.captionHeight`).
-    func testTheBandIsTwoSlotsEighteenApart() {
-        let l = layout()
-        XCTAssertEqual(l.nextLine.minY - l.sungLine.minY, 18)
-        XCTAssertEqual(l.sungLine.height, MediaPane.captionHeight)
-        XCTAssertEqual(l.nextLine.height, MediaPane.captionHeight)
-        XCTAssertLessThan(l.nextLine.maxY, l.progress.minY, "the band ends above the progress row")
-    }
-
-    // MARK: - Width: 480, 540, 560, 620 (§4.5, §13)
-
-    /// The Output button is there at every width the panel can be. There is no
-    /// slider to fold into its menu below 540 any more: the volume left the
-    /// island on 2026-10-16, so the width decides nothing about the button.
-    func testTheOutputButtonIsThereAtEveryWidth() {
-        for width in [CGFloat(480), 500, 539.5, 540, 560, 620] {
-            XCTAssertNotNil(layout(width).output, "the Output button at \(width)")
-        }
-    }
-
-    /// `Stress-Music-620`: the trailing pair rides the edge — the last control ends
-    /// at `bw − 14`, the pane's own right edge.
-    func testTheTrailingControlsRideTheEdge() {
-        for width in [CGFloat(480), 540, 560, 620] {
-            let l = layout(width)
-            XCTAssertEqual(l.lyrics.maxX, width - 14, "the last control ends on the pane's right edge at \(width)")
-            XCTAssertEqual(l.lyrics.minX, width - 40)
-            XCTAssertEqual(l.output?.minX, width - 68)
-            XCTAssertEqual(l.output!.maxX + 2, l.lyrics.minX, "two pt between the pair")
-            XCTAssertEqual(l.progress.maxX, width - 14, "the progress row ends at the same edge")
-            XCTAssertEqual(l.title.width, width - 220)
-        }
-        XCTAssertEqual(layout(480).title.width, 260)
-    }
-
-    /// Nothing in the controls row overlaps its neighbour at every width the
-    /// panel can be.
-    func testTheControlsRowNeverOverlaps() {
-        for width in stride(from: CGFloat(480), through: 620, by: 20) {
-            for band in [true, false] {
-                let l = layout(width, band: band)
-                var row = [l.shuffle, l.transport, l.repeatButton]
-                if let output = l.output { row.append(output) }
-                row.append(l.lyrics)
-                for (a, b) in zip(row, row.dropFirst()) {
-                    XCTAssertLessThanOrEqual(a.maxX, b.minX, "\(a) overlaps \(b) at \(width), band \(band)")
-                }
-            }
-        }
-    }
-
-    /// Every frame is inside the pane, at 480 and 620 and on both notch heights:
-    /// nothing is cut by the pane's own clip.
-    func testEveryFrameIsInsideThePane() {
-        for width in [CGFloat(480), 540, 560, 620] {
-            for header in [CGFloat(32), 38] {
-                for band in [true, false] {
-                    let l = layout(width, header: header, band: band)
-                    let pane = CGRect(origin: .zero, size: l.paneSize)
-                    var frames = [l.cover, l.title, l.subtitle, l.progress, l.shuffle, l.transport,
-                                  l.repeatButton, l.lyrics]
-                    if band { frames += [l.sungLine, l.nextLine] }
-                    if let output = l.output { frames.append(output) }
-                    for frame in frames {
-                        let local = l.inPane(frame)
-                        XCTAssertTrue(pane.contains(local), "\(local) leaves \(pane) at \(width), header \(header), band \(band)")
-                    }
-                }
-            }
-        }
+        XCTAssertEqual(layout().emptyWell, layout().cover, "the empty well keeps the cover's frame")
     }
 
     // MARK: - Output Button off (§4.5)
 
-    /// Off hides the button and the band keeps its place.
-    func testOutputButtonOffHidesItAndTheBandKeepsItsPlace() {
+    /// Off hides the button and the other four keep their places.
+    func testOutputButtonOffHidesItAndTheOthersKeepTheirPlaces() {
         let on = layout()
         let off = layout(output: false)
+        XCTAssertNotNil(on.output)
         XCTAssertNil(off.output)
-        XCTAssertEqual(off.sungLine, on.sungLine)
-        XCTAssertEqual(off.nextLine, on.nextLine)
+        for control in PlayerLayout.Control.allCases where control != .output {
+            XCTAssertEqual(off.target(control), on.target(control), "\(control)")
+        }
         XCTAssertEqual(off.progress, on.progress)
-        XCTAssertEqual(off.lyrics, on.lyrics, "the lyrics button stays on the edge")
     }
 
-    // MARK: - Nothing playing (§4.8)
+    // MARK: - Nothing playing (§4.8, in §19.6's frame)
 
+    /// The empty player keeps the player's frame: the well where the cover goes,
+    /// the status and its line beside it in the title's column, the remedy on
+    /// the controls row (8 above its middle, a 22 pt row as wide as the times'),
+    /// and the reader-down pointer 8 under it.
     func testTheEmptyPlayersTable() {
-        XCTAssertEqual(
-            PlayerLayout.emptyFrames(for: .nothingPlaying),
-            PlayerLayout.EmptyFrames(titleY: 80, titleSize: 16, bodyY: 103, buttonsY: 132, footerY: nil)
-        )
-        XCTAssertEqual(
-            PlayerLayout.emptyFrames(for: .readerDown),
-            PlayerLayout.EmptyFrames(titleY: 70, titleSize: 16, bodyY: 93, buttonsY: 120, footerY: 153)
-        )
-        XCTAssertEqual(
-            PlayerLayout.emptyFrames(for: .hiddenByMusicOnly),
-            PlayerLayout.EmptyFrames(titleY: 72, titleSize: 16, bodyY: 115, buttonsY: 140, footerY: nil)
-        )
-        XCTAssertEqual(PlayerLayout.EmptyFrames.textWidth, 330)
+        let l = layout()
+        for message in [MediaPane.EmptyStateMessage.nothingPlaying, .hiddenByMusicOnly] {
+            let frames = PlayerLayout.emptyFrames(for: message)
+            XCTAssertEqual(frames.text, CGRect(x: l.textLeading, y: l.cover.minY, width: l.subtitleWidth, height: 92), "\(message)")
+            XCTAssertEqual(frames.headlineSize, 14)
+            XCTAssertEqual(frames.buttons.minX, l.elapsedLeading, accuracy: 0.0001)
+            XCTAssertEqual(frames.buttons.width, l.timesTrailing - l.elapsedLeading, accuracy: 0.0001)
+            XCTAssertEqual(frames.buttons.minY, l.controlsMidY - 11 - 8, accuracy: 0.0001)
+            XCTAssertEqual(frames.buttons.height, 22)
+            XCTAssertNil(frames.footer, "\(message)")
+        }
+        let down = PlayerLayout.emptyFrames(for: .readerDown)
+        guard let footer = down.footer else { return XCTFail("the reader-down state has a footer") }
+        XCTAssertEqual(footer, CGRect(x: l.elapsedLeading, y: down.buttons.maxY + 8, width: down.buttons.width, height: 14))
+        XCTAssertLessThanOrEqual(footer.maxY, 160, "the footer is inside the content")
         XCTAssertEqual(PlayerLayout.EmptyFrames.buttonHeight, 22)
         XCTAssertEqual(PlayerLayout.EmptyFrames.buttonSpacing, 8)
-        XCTAssertEqual(PlayerLayout.columnLeading, 206, "the text starts where the player's column does")
     }
 
     // MARK: - The "Open …" buttons: order and cap
@@ -209,12 +207,18 @@ final class PlayerLayoutTests: XCTestCase {
         )
     }
 
-    func testTheButtonsRoomRunsFromTheTextColumnToThePanesEdge() {
-        // The column starts 148 into the pane: 408 - 148 at 480, 548 - 148 at 620.
-        XCTAssertEqual(PlayerLayout.openButtonsRoom(paneWidth: PlayerLayout.paneWidth(bodyWidth: 480)), 260)
-        XCTAssertEqual(PlayerLayout.openButtonsRoom(paneWidth: PlayerLayout.paneWidth(bodyWidth: 560)), 340)
-        XCTAssertEqual(PlayerLayout.openButtonsRoom(paneWidth: PlayerLayout.paneWidth(bodyWidth: 620)), 400)
-        XCTAssertEqual(PlayerLayout.paneWidth(bodyWidth: 480), 408)
+    /// The row of buttons has the controls row's own span: from the elapsed
+    /// time's leading edge to the remaining time's trailing one — 317.7 at the
+    /// reference body — and a wider body, which the notch plus 20 can ask for,
+    /// gives it the extra.
+    func testTheButtonsRoomRunsFromTheElapsedTimeToTheRemainingOne() {
+        let reference = PlayerLayout.referenceBodyWidth
+        XCTAssertEqual(PlayerLayout.openButtonsRoom(bodyWidth: reference), 317.7, accuracy: 0.0001)
+        XCTAssertEqual(PlayerLayout.openButtonsRoom(bodyWidth: reference + 60), 377.7, accuracy: 0.0001)
+        XCTAssertEqual(
+            PlayerLayout.openButtonsRoom(bodyWidth: reference),
+            PlayerLayout().timesTrailing - PlayerLayout().elapsedLeading, accuracy: 0.0001
+        )
     }
 
     func testAButtonIsPaddingIconGapAndLabel() {
@@ -266,11 +270,12 @@ final class PlayerLayoutTests: XCTestCase {
         let apps = [app("com.apple.Music", "Apple Music"), app("com.spotify.client", "Spotify"), app("x", "Яндекс Музыка")]
         let order = ["com.apple.Music", "com.spotify.client", "x"]
         var previous = 0
-        for width in [CGFloat(480), 560, 620] {
-            let row = MediaPane.openOffers(from: apps, paneWidth: PlayerLayout.paneWidth(bodyWidth: width))
+        let reference = PlayerLayout.referenceBodyWidth
+        for width in [reference, reference + 60, reference + 120] {
+            let row = MediaPane.openOffers(from: apps, bodyWidth: width)
             XCTAssertEqual(Array(row.apps.map(\.bundleID).prefix(2)), Array(order.prefix(2)), "both leaders at \(width)")
             XCTAssertEqual(row.apps.map(\.bundleID), Array(order.prefix(row.apps.count)), "a prefix, in order")
-            XCTAssertGreaterThanOrEqual(row.apps.count, previous, "a wider panel never offers fewer")
+            XCTAssertGreaterThanOrEqual(row.apps.count, previous, "a wider body never offers fewer")
             previous = row.apps.count
         }
     }
@@ -288,15 +293,15 @@ final class PlayerLayoutTests: XCTestCase {
                     labelWidth: PlayerLayout.measuredLabelWidth(localized("Open %@", $1.name)), form: row.form)
             } + PlayerLayout.EmptyFrames.buttonSpacing * CGFloat(row.apps.count - 1)
         }
-        for bodyWidth in [CGFloat(480), 560, 620] {
-            let room = PlayerLayout.openButtonsRoom(paneWidth: PlayerLayout.paneWidth(bodyWidth: bodyWidth))
-            let row = MediaPane.openOffers(from: apps, paneWidth: PlayerLayout.paneWidth(bodyWidth: bodyWidth))
+        let reference = PlayerLayout.referenceBodyWidth
+        for bodyWidth in [reference, reference + 60] {
+            let room = PlayerLayout.openButtonsRoom(bodyWidth: bodyWidth)
+            let row = MediaPane.openOffers(from: apps, bodyWidth: bodyWidth)
             XCTAssertEqual(Array(row.apps.map(\.bundleID).prefix(2)), ["com.apple.Music", "com.spotify.client"], "\(bodyWidth)")
             XCTAssertLessThanOrEqual(width(row), room, "\(bodyWidth): \(row.form)")
         }
-        let at480 = MediaPane.openOffers(from: apps, paneWidth: PlayerLayout.paneWidth(bodyWidth: 480))
-        XCTAssertEqual(at480.apps.count, 2, "no room for a third at 480, and the two are not given up for it")
-        XCTAssertNotEqual(at480.form, .full, "Russian at 480 does not fit the full form")
+        let atReference = MediaPane.openOffers(from: apps, bodyWidth: reference)
+        XCTAssertEqual(atReference.apps.count, 2, "no room for a third, and the two are not given up for it")
     }
 
     /// The forms in order, by number: leaders that fit at full size stay full and
@@ -324,10 +329,11 @@ final class PlayerLayoutTests: XCTestCase {
     /// offered, whatever else is installed.
     func testReaderDownOffersOnlyWhatPlayerBridgeCanShow() {
         let apps = [app("com.apple.Music", "Apple Music"), app("com.spotify.client", "Spotify"), app("com.deezer.deezer-desktop", "Deezer")]
-        let width = PlayerLayout.paneWidth(bodyWidth: 620)
-        XCTAssertEqual(MediaPane.openOffers(from: apps, paneWidth: width, message: .readerDown).apps.map(\.bundleID),
+        // Room is not the variable here: a body wide enough for all three.
+        let width: CGFloat = 700
+        XCTAssertEqual(MediaPane.openOffers(from: apps, bodyWidth: width, message: .readerDown).apps.map(\.bundleID),
                        ["com.apple.Music", "com.spotify.client"])
-        XCTAssertEqual(MediaPane.openOffers(from: apps, paneWidth: width, message: .nothingPlaying).apps.count, 3)
+        XCTAssertEqual(MediaPane.openOffers(from: apps, bodyWidth: width, message: .nothingPlaying).apps.count, 3)
     }
 
     /// Only the reader-down state has a footnote, and it is the only one with a
@@ -335,7 +341,7 @@ final class PlayerLayoutTests: XCTestCase {
     func testOnlyTheReaderDownStateHasAFooter() {
         for message in [MediaPane.EmptyStateMessage.nothingPlaying, .readerDown, .hiddenByMusicOnly] {
             XCTAssertEqual(
-                message.footnote != nil, PlayerLayout.emptyFrames(for: message).footerY != nil,
+                message.footnote != nil, PlayerLayout.emptyFrames(for: message).footer != nil,
                 "\(message)"
             )
         }

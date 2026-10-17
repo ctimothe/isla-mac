@@ -24,7 +24,6 @@
 "About %@" = "About %@";
 
 /* Shelf */
-"%d selected" = "%d selected";
 "Deselect" = "Deselect";
 "Clear" = "Clear";
 "Copy" = "Copy";
@@ -140,8 +139,6 @@
 
 /* Table stakes: transport modes, hover delay, empty state */
 "Shuffle" = "Shuffle";
-"Repeat" = "Repeat";
-"On" = "On";
 "Off" = "Off";
 "All Tracks" = "All Tracks";
 "This Track" = "This Track";
@@ -308,8 +305,6 @@
 "No lyrics for live audio." = "No lyrics for live audio.";
 "This track has no title to look up." = "This track has no title to look up.";
 "Unlock your Mac to open Isla." = "Unlock your Mac to open Isla.";
-"Drop files here to keep them" = "Drop files here to keep them";
-"From Finder, Mail, Photos or a browser. Holds %d." = "From Finder, Mail, Photos or a browser. Holds %d.";
 "Select" = "Select";
 "Selected" = "Selected";
 
@@ -321,7 +316,6 @@
 "Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on." = "Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on.";
 "Opens the panel" = "Opens the panel";
 "Closes the panel" = "Closes the panel";
-"Tabs" = "Tabs";
 "Welcome" = "Welcome";
 "%@ is translated online only. Turning on Translate Online sends this text to MyMemory." = "%@ is translated online only. Turning on Translate Online sends this text to MyMemory.";
 "Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory." = "Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory.";
@@ -374,7 +368,6 @@
 "AirDrop is not available on this Mac." = "AirDrop is not available on this Mac.";
 "AirDrop cannot send these files." = "AirDrop cannot send these files.";
 "Release to add to the Shelf" = "Release to add to the Shelf";
-"Drop to keep on the Shelf" = "Drop to keep on the Shelf";
 "Moved 1 file to the Trash." = "Moved 1 file to the Trash.";
 "Moved %d files to the Trash." = "Moved %d files to the Trash.";
 "Only the first %@ characters were translated online." = "Only the first %@ characters were translated online.";
@@ -383,13 +376,6 @@
 "No Dock or menu-bar icon. Click the notch or press %@ to come back." = "No Dock or menu-bar icon. Click the notch or press %@ to come back.";
 "No Dock or menu-bar icon. Click the notch to come back." = "No Dock or menu-bar icon. Click the notch to come back.";
 "Nothing leaves your Mac unless you turn it on." = "Nothing leaves your Mac unless you turn it on.";
-"What's playing, with lyrics (%@)" = "What's playing, with lyrics (%@)";
-"What's playing, with lyrics" = "What's playing, with lyrics";
-"Files you drop on the notch" = "Files you drop on the notch";
-"What you copied, kept in memory" = "What you copied, kept in memory";
-"%@ translates what you copied" = "%@ translates what you copied";
-"Translates what you copied" = "Translates what you copied";
-"Privacy, shortcuts and Quit" = "Privacy, shortcuts and Quit";
 "Needs your approval in Login Items." = "Needs your approval in Login Items.";
 "Open Login Items…" = "Open Login Items…";
 "Launch at Login failed: %@" = "Launch at Login failed: %@";
@@ -403,7 +389,6 @@
 "Reduce Transparency" = "Reduce Transparency";
 "Increase Contrast" = "Increase Contrast";
 "A file from the drag could not be received." = "A file from the drag could not be received.";
-"New screenshot" = "New screenshot";
 "Isla could not open your browser for Spotify sign-in." = "Isla could not open your browser for Spotify sign-in.";
 "The account was not imported. Try again, or connect it anew." = "The account was not imported. Try again, or connect it anew.";
 "Spotify signed you in, but Isla could not save the account on this Mac." = "Spotify signed you in, but Isla could not save the account on this Mac.";
@@ -434,7 +419,6 @@
 "Output Button puts the sound output menu in the player. Lyric Band is the sung line and the next one, under the title." = "Output Button puts the sound output menu in the player. Lyric Band is the sung line and the next one, under the title.";
 
 /* The lyric column, the tall page and the header's tools (spec 5, 6, 15) */
-"Expand" = "Expand";
 "Collapse" = "Collapse";
 "Hide Lyrics" = "Hide Lyrics";
 "Show Translation" = "Show Translation";
@@ -468,16 +452,12 @@
 /* The Shelf as Finder's icon view (redesign 2026-10-15, spec 8, 15) */
 "%d items" = "%d items";
 "1 item" = "1 item";
-"Deselect All" = "Deselect All";
 "Remove" = "Remove";
-"Drag an item out to use it anywhere." = "Drag an item out to use it anywhere.";
 "Keep on Shelf" = "Keep on Shelf";
 "Send to a nearby device" = "Send to a nearby device";
-"Release to send with AirDrop" = "Release to send with AirDrop";
 "Remove all %d items? Files are untouched." = "Remove all %d items? Files are untouched.";
 "Remove All" = "Remove All";
 "Open With" = "Open With";
-"More" = "More";
 
 /* The Clipboard: kinds, pins, search, images (redesign 2026-10-15, spec 9, 15) */
 "Now" = "Now";
@@ -562,3 +542,16 @@
 /* The volume pop-up names what the brightness keys move (spec §19.5 d). */
 "Display Brightness" = "Display Brightness";
 "Keyboard Brightness" = "Keyboard Brightness";
+
+/* Activities first: the surfaces that replaced the tabs (spec §19.6–§19.8). */
+"Favorite" = "Favorite";
+"Remove from Favorites" = "Remove from Favorites";
+"Tools" = "Tools";
+"Empty" = "Empty";
+"or drag files here" = "or drag files here";
+"Drag files to the notch to keep them here." = "Drag files to the notch to keep them here.";
+"Click the island to open what’s playing." = "Click the island to open what’s playing.";
+"Right-click it for everything else." = "Right-click it for everything else.";
+"Drag files to the notch to keep them." = "Drag files to the notch to keep them.";
+"Pinned" = "Pinned";
+"↩ Copy" = "↩ Copy";

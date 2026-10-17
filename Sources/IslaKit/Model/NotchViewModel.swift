@@ -4,75 +4,6 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class NotchViewModel: ObservableObject {
-    enum Tab: String, CaseIterable, Identifiable {
-        case media, shelf, clipboard, translate, settings
-        var id: String { rawValue }
-
-        /// The rail's glyph, in its outline form; the rail fills the selected
-        /// one, the way a system tab bar does.
-        ///
-        /// Chosen on 2026-09-21 to replace a set that was, glyph for glyph, the
-        /// one the upstream project ships — `music.note`, `tray.full.fill`,
-        /// `list.clipboard.fill`, `translate`, `gearshape.fill` — so the rail
-        /// read as somebody else's island. Each of these is the system's own
-        /// word for its tab: the note, a stack of held things, the pasteboard
-        /// glyph macOS puts on Paste, a speech bubble with a letter in it
-        /// (localized by the system to the reader's script), and the controls
-        /// sliders.
-        ///
-        /// Music keeps the plain note on purpose. It was tried as `play.circle`,
-        /// which read as a button rather than a place, and as
-        /// `music.quarternote.3`, which read as busy; the owner asked on the
-        /// same day for the simple one back. It is the system's own glyph for
-        /// music, free to every Mac app, and with the other four changed the
-        /// rail as a whole is no longer anybody else's. `TabContractTests`
-        /// keeps those four out.
-        var symbol: String {
-            switch self {
-            case .media: return "music.note"
-            case .shelf: return "rectangle.stack"
-            case .clipboard: return "doc.on.clipboard"
-            case .translate: return "character.bubble"
-            case .settings: return "slider.horizontal.3"
-            }
-        }
-
-        /// Four of the glyphs the rail wore until 2026-09-21, from the upstream
-        /// project's own set, kept here only so a test can keep them from
-        /// coming back. The fifth, `music.note`, stayed: see `symbol`.
-        static let retiredSymbols: Set<String> = [
-            "tray.full.fill", "list.clipboard.fill", "translate", "gearshape.fill",
-        ]
-
-        var title: String {
-            switch self {
-            case .media: return localized("Music")
-            case .shelf: return localized("Shelf")
-            case .clipboard: return localized("Clipboard")
-            case .translate: return localized("Translate")
-            case .settings: return localized("Settings")
-            }
-        }
-
-        /// Tabs with a field in them. Landing on one hands it the keyboard, so
-        /// that arriving and typing is a single move. The Clipboard tab's search
-        /// field is not one of them: it asks only while it is open
-        /// (`NotchViewModel.tabWantsKeyboard`), because a tab that took the
-        /// keyboard on arrival would dim the caret of the window underneath
-        /// every time somebody glanced at their history.
-        var needsKeyboard: Bool { self == .translate }
-
-        /// One rail, in two groups. Four tabs is few enough that a second
-        /// column was only ever there to hold the overflow — and the overflow
-        /// is gone. Settings sits at the foot of the rail, below a gap: it is
-        /// not something to hover past on the way to a track, so it stays out
-        /// of the run people rest on.
-        static let contentTabs: [Tab] = [.media, .shelf, .clipboard, .translate]
-        static let utilityTabs: [Tab] = [.settings]
-        static let leftRail: [Tab] = contentTabs + utilityTabs
-        static let rightRail: [Tab] = []
-    }
-
     /// Whose cache the opening refreshes; `.shared` in the app, a test's own
     /// where it counts openings.
     var icons: AppIcons = .shared
@@ -92,7 +23,7 @@ final class NotchViewModel: ObservableObject {
             // back (spec §9.3): a field left open would be waiting, with its
             // query, inside the next visit.
             if !isOpen, oldValue {
-                closeClipboardSearch()
+                clipboardBrowser.clearQuery()
                 // Reading a translation aloud ends with the panel (spec §11), and
                 // the History list is for the visit it was opened in: the next
                 // opening starts on the cards, where the field is.
@@ -110,9 +41,9 @@ final class NotchViewModel: ObservableObject {
             }
             if isOpen, !oldValue {
                 // The installed voices are read again on each opening, off the
-                // main actor, while the Translate tab is the one on screen (the
-                // tab's own arrival does it for the other openings).
-                if tab == .translate { translator.speaker.refreshVoices() }
+                // main actor, while Translate is the surface on screen (the
+                // surface's own arrival does it for the other openings).
+                if surface == .translate { translator.speaker.refreshVoices() }
                 // Apps are installed and removed while Isla runs, so the music
                 // apps' icons and names are asked afresh once per opening —
                 // here, before any pane draws, and not from a pane's
@@ -241,40 +172,10 @@ final class NotchViewModel: ObservableObject {
     /// machine with the switch off (re-review 2026-10-15), so it is a closure a
     /// test replaces and production leaves at the real default.
     var showOnLockScreen: () -> Bool = { NotchViewModel.showOnLockScreenEnabled }
-    /// A screenshot arrived while another tab was showing; the rail marks the
-    /// Shelf until it comes into view.
-    @Published private(set) var shelfHasNew = false
-
-    /// The Clipboard tab's kind filter and search field (spec §9.3). Owned here
-    /// rather than by the pane because opening the field is a claim on the
-    /// keyboard, and every way it ends — a tab change, the panel folding,
-    /// Escape — has to reach it from outside the pane.
+    /// Clipboard's kind filter and search field (spec §9.3, §19.8). Owned here
+    /// rather than by the surface because what was typed has to be cleared from
+    /// outside it — Escape, the surface changing, the panel folding.
     let clipboardBrowser = ClipboardBrowser()
-
-    /// Whether `tab` wants the panel to hold the keyboard right now: the tabs
-    /// with a field in them, and the Clipboard tab for as long as its search
-    /// field is open. The one rule the tab change, a press inside the panel and
-    /// the search field's own opening all ask, so they cannot disagree.
-    nonisolated static func tabWantsKeyboard(tab: Tab, clipboardSearching: Bool) -> Bool {
-        tab.needsKeyboard || (tab == .clipboard && clipboardSearching)
-    }
-
-    /// The magnifier in the Clipboard header: the field replaces the filter and
-    /// the panel becomes key, the way it does for Translate.
-    func openClipboardSearch() {
-        guard tab == .clipboard, !isLockedPresentation else { return }
-        clipboardBrowser.beginSearch()
-        wantsKeyboard = true
-    }
-
-    /// Escape, the ⓧ, a tab change and the panel folding: the field goes, what
-    /// was typed goes with it, and the keyboard goes back. Only the claim the
-    /// search made — Translate's is its own.
-    func closeClipboardSearch() {
-        guard clipboardBrowser.isSearching else { return }
-        clipboardBrowser.endSearch()
-        if tab == .clipboard { wantsKeyboard = false }
-    }
 
     /// The Translate editor's frame in the window (top-left origin), for the
     /// panel's I-beam. Zero on every other tab; the pane that reports it is
@@ -336,40 +237,54 @@ final class NotchViewModel: ObservableObject {
         stores.hud.$suspectsStaleEntry.removeDuplicates().eraseToAnyPublisher()
     }
 
-    @Published var tab: Tab = .media {
+    /// The surface chosen (spec §19.1): what a click, a key or a card asked
+    /// for. What is drawn is `presented`, which lays the drop surface and the
+    /// welcome over it.
+    @Published var surface: Surface = .tools {
         didSet {
-            if tab == .shelf { shelfHasNew = false }
-            if tab == .translate, isOpen { translator.speaker.refreshVoices() }
-            if tab != .translate {
+            if surface == .translate, isOpen { translator.speaker.refreshVoices() }
+            if surface != .translate {
                 textInputRect = .zero
-                // A tab change ends speech and the list (spec §11); the pane's
-                // own disappearance stops the voice too, this is the model's
-                // half, so it holds without a view on screen.
+                // A surface change ends speech and the list (spec §11); the
+                // pane's own disappearance stops the voice too, this is the
+                // model's half, so it holds without a view on screen.
                 translator.speaker.stop()
                 translateShowsHistory = false
                 translator.revokeOnlineRequest()
             }
-            // The shelf can hold files inside the folders macOS guards, and
-            // looking at one raises a permission prompt. It is asked here,
-            // with the shelf on screen, rather than at launch with nothing to
-            // explain it.
-            if tab == .shelf { shelf.refreshFromDisk() }
-            // The Clipboard search belongs to the Clipboard tab: leaving it
-            // closes the field, and with it the claim on the keyboard.
-            if tab != .clipboard { clipboardBrowser.endSearch() }
+            // The tray can hold files inside the folders macOS guards, and
+            // looking at one raises a permission prompt. It is asked here, with
+            // the tray coming into view, rather than at launch with nothing to
+            // explain it — once per arrival, not on every write: a tray already
+            // on screen has its cards. A shut panel opening onto the tray it
+            // was left on is an arrival.
+            if surface == .tray, oldValue != .tray || !isOpen { shelf.refreshFromDisk() }
+            // What was typed into Clipboard's field belongs to that visit:
+            // a half-remembered query hiding most of the list the next time
+            // it opens would read as a broken history.
+            if surface != .clipboard { clipboardBrowser.clearQuery() }
             // A Shelf selection is for the visit it was made in: left standing
             // it would be waiting, with Delete behind it, the next time the
-            // Shelf is shown (review 2026-10-15).
-            if tab != .shelf { shelf.clearSelection() }
-            // Leaving the tab that types gives the keyboard straight back.
-            if !Self.tabWantsKeyboard(tab: tab, clipboardSearching: clipboardBrowser.isSearching) {
-                wantsKeyboard = false
-            }
-            // And leaving Music folds the stage, so coming back to the tab
-            // lands on the player rather than on a page of words left open
-            // three songs ago.
-            if tab != .media { isShowingLyrics = false }
+            // tray is shown (review 2026-10-15).
+            if surface != .tray { shelf.clearSelection() }
+            // Remove All's question belongs to the visit it was asked in, as
+            // the selection does.
+            if surface != .tray { shelfClear.cancel() }
+            // Leaving a surface that types gives the keyboard straight back.
+            if !surface.takesKeyboard { wantsKeyboard = false }
         }
+    }
+
+    /// What the open island draws: the drop surface while files are dragged
+    /// to the notch, the welcome for one launch, and otherwise the surface
+    /// chosen — except the stage with no song, which is the empty player:
+    /// there are no words to show and nothing for 400 points to hold
+    /// (⌃⌥⌘L on a silent Mac).
+    var presented: Surface {
+        if isDropTargeted { return .drop }
+        if isShowingWelcome { return .welcome }
+        if surface == .stage, media.track == nil { return .player }
+        return surface
     }
 
     /// The Settings section on screen (redesign 2026-10-15, spec §10): the one
@@ -395,84 +310,37 @@ final class NotchViewModel: ObservableObject {
     /// test's own suite otherwise.
     let defaults: UserDefaults
 
-    /// Whether the Music tab is showing the full lyrics page instead of the
+    /// Whether the lyrics stage is the surface chosen (spec §19.6) — a place
+    /// the app can be sent: ⌃⌥⌘L, the menu's Lyrics and a click on the
+    /// player's cover or title open it, and Hide Lyrics turns it back into the
     /// player.
-    ///
-    /// It lives here rather than inside `MediaPane` because it is a place the
-    /// app can be *sent*, not just a toggle the pane owns: ⌃⌥⌘L opens the panel
-    /// straight onto it, and the verification hook does the same without a
-    /// pointer. State that only the view holds is state nothing else can ask
-    /// for — which is what made the hook an `onAppear` reading an environment
-    /// variable rather than a route like every other way in.
-    ///
-    /// Since the redesign (spec §5.1) this is "the Music tab is on the lyric
-    /// column or the tall page" — the lyric page is no longer a pane of its own
-    /// but the player's state `C` (or `T`, see `musicPage`).
-    @Published var isShowingLyrics = false
+    var isShowingLyrics: Bool { surface == .stage }
 
-    /// The tabs the person has grown to the tall body (spec §6). Memory only: a
-    /// relaunch starts every tab collapsed, and neither closing the panel nor
-    /// changing tabs touches it — "a tab change keeps each tab's own expansion".
-    ///
-    /// For the Music tab, expanded means the **tall lyric page**. The player
-    /// itself never expands (it has no Expand button), so a Music tab that is
-    /// remembered as expanded but is showing the player is 208 tall; the memory
-    /// is what the Lyrics button opens onto next (`musicPage`).
-    @Published var expandedTabs: Set<Tab> = []
+    /// The stage: from the player's cover or title, ⌃⌥⌘L and the menu.
+    /// Through `choose`, so a key pressed during the welcome answers it.
+    func openStage() { choose(.stage) }
 
-    /// Where the Music tab is: the player, the lyric column, or the tall lyric
-    /// page — the one value `MediaPane`'s layout, the header's tools and the
-    /// body's height all read.
-    var musicPage: PlayerLayout.State {
-        Self.musicPage(showingLyrics: showsLyricPage, expandedTabs: expandedTabs)
+    /// Hide Lyrics: the stage turns back into the player.
+    func hideLyrics() { open(.player) }
+
+    /// The Spotify account, for the player's Favourite star — nil under the
+    /// test runner unless a test stands one in, so no test reads the owner's
+    /// keychain through the panel.
+    var spotifyAccount: SpotifyAccount? {
+        if PlayerBridge.isRunningTests, SpotifyAccount.sharedOverride == nil { return nil }
+        return SpotifyAccount.shared
     }
 
-    /// Whether the lyric page is what the Music tab shows: asked for, and a song
-    /// to put it on. With nothing playing the tab is the empty player whatever
-    /// was asked (⌃⌥⌘L on a silent Mac), and an empty player is 208 tall with
-    /// no lyric tools over it.
-    var showsLyricPage: Bool { isShowingLyrics && media.track != nil }
+    /// Remove All's question (spec §19.7): asked from the tray's header,
+    /// said in the tray in place of the row.
+    let shelfClear = ShelfClearConfirmation()
 
-    nonisolated static func musicPage(showingLyrics: Bool, expandedTabs: Set<Tab>) -> PlayerLayout.State {
-        guard showingLyrics else { return .player }
-        return expandedTabs.contains(.media) ? .tall : .column
+    /// The tray header's Remove All (spec §19.7): asks the question the tray
+    /// draws in place of its row. Escape (`ArmedConfirmations`) and leaving
+    /// the tray (`surface`) take it back.
+    func askToRemoveAll() {
+        shelfClear.ask(count: shelf.items.count)
     }
-
-    /// The height a tab's body asks for when open (spec §6): 400 when it is
-    /// expanded, else 208.
-    ///
-    /// **Settings is always tall** (release R4, spec §10): 400 whatever the set
-    /// holds, because its sidebar of ten sections is what the height is for and
-    /// no Expand button reaches it. It is the one tab that must not read
-    /// `expandedTabs` — a stray insert (a stored session, a test) leaves it
-    /// exactly as tall as it already is.
-    nonisolated static func openBodyHeight(
-        tab: Tab, showingLyrics: Bool, expandedTabs: Set<Tab>
-    ) -> CGFloat {
-        switch tab {
-        case .media:
-            return musicPage(showingLyrics: showingLyrics, expandedTabs: expandedTabs).bodyHeight
-        case .shelf, .clipboard, .translate:
-            return expandedTabs.contains(tab)
-                ? NotchMetrics.tallestBody.height : NotchMetrics.standardBodyHeight
-        case .settings:
-            return SettingsLayout.bodyHeight
-        }
-    }
-
-    /// Grows or folds a tab's body. The caller animates (`Theme.expand`); this
-    /// is state only, so the rects the controller cuts from `openBodySize` and
-    /// the drawn body change on the same turn.
-    func setExpanded(_ expanded: Bool, for tab: Tab) {
-        // Settings is always 400 (R4, spec §10) and has no Expand button;
-        // refusing here keeps a stray call from leaving a remembered "expanded"
-        // that would read as a choice nobody made.
-        guard tab != .settings else { return }
-        if expanded { expandedTabs.insert(tab) } else { expandedTabs.remove(tab) }
-    }
-
-    /// Whether the tab on screen is showing its tall body.
-    var isCurrentTabExpanded: Bool { openBodySize.height > NotchMetrics.standardBodyHeight }
 
     /// Edit Lyrics, from the header's More menu or from a state's button: the
     /// session the editor sheet is open on. Held here and not in `MediaPane`
@@ -505,7 +373,8 @@ final class NotchViewModel: ObservableObject {
             if case .ready = lyrics.availability, case .synced = lyrics.state { canNudge = true }
             return LyricsMoreMenuController.Context(
                 localFileName: localFile, hasBinding: lyrics.hasLocalOverride,
-                onlineOn: Self.onlineLyricsEnabled, offset: lyrics.trackOffset, canNudge: canNudge
+                onlineOn: Self.onlineLyricsEnabled, offset: lyrics.trackOffset, canNudge: canNudge,
+                shuffle: media.shuffleEnabled, repeatMode: media.repeatMode
             )
         },
         actions: LyricsMoreMenuController.Actions(
@@ -521,7 +390,9 @@ final class NotchViewModel: ObservableObject {
             removeBinding: { [weak self] in self?.lyricsCoordinator.removeLocalBinding() },
             importFile: { [weak self] in self?.chooseLocalLyricsFile(from: .stage) },
             searchAgain: { [weak self] in self?.lyricsCoordinator.retry() },
-            openSettings: { [weak self] in self?.openLyricsSettings() }
+            openSettings: { [weak self] in self?.openLyricsSettings() },
+            toggleShuffle: { [weak self] in self?.media.toggleShuffle() },
+            cycleRepeat: { [weak self] in self?.media.cycleRepeat() }
         )
     )
 
@@ -595,15 +466,15 @@ final class NotchViewModel: ObservableObject {
     /// already open. A step of its own inside `pointerCrossed` because a drag
     /// arriving must not run it; see there.
     ///
-    /// Music only for an arrival at the *closed* island: that is the glance at a
-    /// track the island exists for. A panel already open is not being arrived
-    /// at, it is being used — ⌃⌥⌘I opens on whatever tab was left, and the hand
-    /// that then went for a Clipboard row had the pane swap to Music under it
-    /// (J-008, 2026-10-11). The pin still goes either way: the pointer reaching
-    /// the panel is what hands it back, whatever tab it is on.
+    /// What a click would open, for an arrival at the *closed* island: Open on
+    /// Hover opens that (spec §19.1). A panel already open is not being arrived
+    /// at, it is being used — the hand that went for a Clipboard row once had
+    /// the pane swap under it (J-008, 2026-10-11). The pin still goes either
+    /// way: the pointer reaching the panel is what hands it back, whatever
+    /// surface it is on.
     func pointerArrived() {
         isPinnedOpen = false
-        if !isOpen { select(.media) }
+        if !isOpen { open(openTarget) }
     }
 
     /// What the pointer crossing the panel's boundary asks the panel to do.
@@ -627,8 +498,8 @@ final class NotchViewModel: ObservableObject {
     ///   collapsed hover rect while shut.
     /// - Parameter dragging: whether a drag session is in flight, in which case
     ///   the arrival is not counted at all. A drag is not a hover: the pointer
-    ///   arriving with a file in hand has already said which tab it wants —
-    ///   `onDragEntered` selects the Shelf — so the arrival must not reset it.
+    ///   arriving with a file in hand has already said what it wants — the
+    ///   drop surface — so the arrival must not reset what lies under it.
     ///   It used to, roughly `openDelay` after the file crossed the island,
     ///   which flipped the pane Shelf→Music mid-drag and took `ShelfPane`'s drop
     ///   highlight with it until the drop put it back. Leaving the pin standing
@@ -662,14 +533,14 @@ final class NotchViewModel: ObservableObject {
     ///   False only for a click that did not come from the mouse at all — the
     ///   compact island's accessibility action, which VoiceOver fires from the
     ///   keyboard with the cursor wherever it was left.
-    func clickOpened(pointerIsOnPanel: Bool, opening tab: Tab? = nil) {
-        // The tab first. A hover always landed on Music — the island is for
-        // glancing at a track, and the other tabs are somewhere to go once it
-        // is open, not somewhere to arrive. Skipping it meant a click opened
-        // whatever had been left behind and then swapped panes *during* the
-        // expansion, which is most of what read as an unsmooth open. What was
-        // clicked decides it now (spec §19.1): the bubble names the Shelf.
-        select(tab ?? clickTarget)
+    /// - Parameter surface: what was clicked asked for — the bubble names the
+    ///   tray — or nil for what the island shows (`openTarget`).
+    func clickOpened(pointerIsOnPanel: Bool, opening surface: Surface? = nil) {
+        // The surface first. Skipping it meant a click opened whatever had
+        // been left behind and then swapped panes *during* the expansion,
+        // which is most of what read as an unsmooth open. What was clicked
+        // decides it (spec §19.1).
+        open(surface ?? openTarget)
         // The hover lift goes out with the same animation that opens the panel,
         // rather than snapping off the instant `isOpen` flips.
         isHovering = false
@@ -700,7 +571,7 @@ final class NotchViewModel: ObservableObject {
     /// for as long as this answers true.
     ///
     /// "Escape" was the first way out the pin promised, and it was false: the
-    /// panel is key only while Translate asks for the keyboard, Escape is read
+    /// panel is key only while Translate or Clipboard asks for the keyboard, Escape is read
     /// only in `NotchPanel.sendEvent`, so after ⌃⌥⌘I on Music the key went to
     /// the app underneath and the panel stayed up (F-004). Making the panel key
     /// would have answered it at the cost of dimming the frontmost window and
@@ -732,7 +603,7 @@ final class NotchViewModel: ObservableObject {
     /// Whether the Shelf holds Delete and ⌘⌫, through hot keys registered only
     /// for as long as this answers true (spec §8.2, owner decision 9).
     ///
-    /// The panel is never key outside Translate, so a Delete pressed with the
+    /// The panel is never key outside Translate and Clipboard, so a Delete pressed with the
     /// pointer on the Shelf goes to whatever app is in front, and the key
     /// the spec promises would do nothing. The pinned panel's Escape set the
     /// precedent (`claimsEscape`): a Carbon hot key, which needs no permission
@@ -743,8 +614,8 @@ final class NotchViewModel: ObservableObject {
     /// registration that outlives its reason eats the person's Delete in every
     /// app until Isla quits — so the claim is as narrow as it can be made, and
     /// every term is one that must hold *now*:
-    /// - the panel is open, on the Shelf, and the welcome is not over it;
-    /// - the pointer is on the Shelf pane — leaving it, even to the rail, gives
+    /// - the panel is open on the tray, and nothing is presented over it;
+    /// - the pointer is on the tray — leaving it, even to the header, gives
     ///   Delete back, because that is the person saying their hands are
     ///   elsewhere;
     /// - there is a selection to remove — no selection, no key, so a Delete
@@ -780,60 +651,56 @@ final class NotchViewModel: ObservableObject {
         isPinnedOpen && activatedPID != ownPID
     }
 
-    /// Whether the body is showing the welcome instead of the selected tab.
+    /// Whether the body is showing the welcome instead of the surface chosen.
     ///
-    /// Not a `Tab`: `TabContractTests` asserts exactly five, and a sixth that
-    /// exists for one launch is not somewhere to navigate to. The rail keeps its
-    /// place beside it — the copy sends the reader to the bottom left, which is
-    /// where the rail's Settings icon is, so hiding the rail would leave that
-    /// sentence pointing at nothing.
+    /// Not a surface somebody can be sent to: it is presented over the choice
+    /// (`presented`) for one launch, and `open(.welcome)` refuses it.
     ///
     /// Lowered by anything that ends the panel it opened, and set by exactly
-    /// three things — Get Started, a tab picked out of the rail, and a shortcut
-    /// that asks for a tab (⌃⌥⌘T, ⌃⌥⌘L, the Service). Everything else
-    /// that takes it off screen leaves `hasCompletedFirstRun` alone, so the
-    /// welcome is shown once per account *until it is answered*, not once per
-    /// account full stop.
+    /// three things — Get Started, a surface chosen through the menu, and a
+    /// shortcut that asks for one (⌃⌥⌘V, ⌃⌥⌘T, ⌃⌥⌘L, the Service). Everything
+    /// else that takes it off screen leaves `hasCompletedFirstRun` alone, so
+    /// the welcome is shown once per account *until it is answered*, not once
+    /// per account full stop.
     @Published var isShowingWelcome = false
 
     /// The welcome has been read. Sets the flag that keeps it from ever coming
-    /// back, and lands on Music: the island is for glancing at a track, and the
-    /// welcome replaced whatever pane would have been there.
+    /// back, and lands on what a click would have opened.
     func dismissWelcome() {
         isShowingWelcome = false
         Self.completeFirstRun()
-        select(.media)
+        open(openTarget)
     }
 
-    /// A tab the user picked out of the rail, or asked for by shortcut.
+    /// A surface somebody asked for — by shortcut, by the menu, by a Tools
+    /// card.
     ///
-    /// Distinct from `select` because `select` is also how the *machinery* moves
-    /// the panel to a tab — the pointer arriving, a file being dragged on — and
-    /// none of those is an answer to anything. A hot key used to count as
-    /// machinery too, and its tab opened invisibly behind the welcome (J-018). `pointerArrived()` in particular selects Music on a closed
-    /// island, and the pointer arrives by definition on the way to the Get
-    /// Started button, so dismissing
-    /// the welcome from `select` would have wiped it out from under the cursor
-    /// reaching for it. Reaching for a tab is a decision; the pointer crossing
-    /// the panel is not.
-    func chooseTab(_ tab: Tab) {
+    /// Distinct from `open` because `open` is also how the *machinery* moves
+    /// the panel — the pointer arriving, a click on the island — and none of
+    /// those is an answer to anything. A hot key used to count as machinery
+    /// too, and its surface opened invisibly behind the welcome (J-018). The
+    /// pointer arrives by definition on the way to the Get Started button, so
+    /// dismissing the welcome from `open` would have wiped it out from under
+    /// the cursor reaching for it. Reaching for a surface is a decision; the
+    /// pointer crossing the panel is not.
+    func choose(_ surface: Surface) {
         if isShowingWelcome {
             isShowingWelcome = false
             Self.completeFirstRun()
         }
-        select(tab)
+        open(surface)
     }
 
     /// Text that ⌃⌥⌘T or the "Translate in Isla" service brought, already
     /// through `Translator.prepareCommandInput`. The controller decides
     /// whether the panel may open at all (the lock refusal) and holds it open;
-    /// this decides what the pane shows.
+    /// this decides what the surface shows.
     ///
-    /// Through `chooseTab`, not `select`: a shortcut is somebody asking for
-    /// this tab as much as a click on the rail is, and the welcome prints the
-    /// shortcut, so the first thing a new user does with it is press it.
-    /// Through `select` the text landed in a field the welcome was covering,
-    /// the keyboard went to it unseen and the panel folded (J-018).
+    /// Through `choose`, not `open`: a shortcut is somebody asking for this
+    /// surface, and the welcome prints the shortcut, so the first thing a new
+    /// user does with it is press it. Through `open` the text landed in a field
+    /// the welcome was covering, the keyboard went to it unseen and the panel
+    /// folded (J-018).
     ///
     /// No text leaves the field as it was — an image on the clipboard is not
     /// a reason to throw away a sentence somebody typed — and only the notice
@@ -859,12 +726,12 @@ final class NotchViewModel: ObservableObject {
         // field, not the line under it, so a blind user would hear the panel
         // open on an unchanged field and nothing about why.
         if let notice = prepared.notice { Announcer.shared.announce(notice) }
-        chooseTab(.translate)
+        choose(.translate)
     }
 
     /// Translate, from a Clipboard row's menu (spec §9.2): the entry's text goes
     /// where ⌃⌥⌘T and the service put theirs — through the same preparation
-    /// (trimmed, capped, noticed) and the same landing on the Translate tab.
+    /// (trimmed, capped, noticed) and the same landing on Translate.
     func translateClipboardText(_ text: String) {
         receiveCommandedTranslation(Translator.prepareCommandInput(text))
     }
@@ -885,21 +752,36 @@ final class NotchViewModel: ObservableObject {
     /// The same for the Shelf's bubble (spec §19.7).
     var onBubbleClick: (() -> Void)?
 
-    /// What a click on the island opens: what it shows (spec §19.1). The
-    /// Shelf opens today's Shelf tab until R8 gives it the tray; everything
-    /// else opens Music, as every click did before the Shelf was live.
-    var clickTarget: Tab {
-        if case .shelf = activity { return .shelf }
-        return .media
+    /// The live activity under any alert: what the island goes back to when
+    /// the alert folds (spec §19.1).
+    var liveActivity: IslandActivity {
+        IslandActivity.current(
+            hud: nil, ambient: nil, isPeeking: isPeeking,
+            musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount
+        )
+    }
+
+    /// What a click on the island does: open what it shows, or fold an alert
+    /// (spec §19.1's first table).
+    var islandClick: IslandClick {
+        Self.click(on: activity, live: liveActivity, hasTrack: media.track != nil)
+    }
+
+    /// What ⌃⌥⌘I, Open on Hover and a click open: the player for the song, the
+    /// tray for the Shelf, Tools on the bare notch — over an alert, what the
+    /// click would open once it folds.
+    var openTarget: Surface {
+        Self.openTarget(live: liveActivity, hasTrack: media.track != nil)
     }
 
     /// Whether the panel currently holds the keyboard.
     ///
-    /// Tracked apart from `tab` because the two come apart in one direction:
-    /// clicking into another app drops the claim without changing which tab is
-    /// showing, so the text one was typing survives and the panel is free to
-    /// collapse. Landing on a tab that types always raises it again — there is
-    /// no such thing as a panel that shows a field but cannot receive a key.
+    /// Tracked apart from `surface` because the two come apart in one
+    /// direction: clicking into another app drops the claim without changing
+    /// the surface, so the text one was typing survives and the panel is free
+    /// to collapse. Landing on a surface that types always raises it again —
+    /// there is no such thing as a panel that shows a field but cannot receive
+    /// a key.
     @Published var wantsKeyboard = false
 
     let geometry: NotchGeometry
@@ -1198,7 +1080,8 @@ final class NotchViewModel: ObservableObject {
         lyrics.dismissUnassignedLegacyOffset(named: filename)
     }
 
-    /// Body this tab takes when open — asked whether it is open yet or not.
+    /// Body the presented surface takes when open — asked whether it is open
+    /// yet or not.
     ///
     /// Separate from `bodySize` because the rects are cut one step before the
     /// panel is marked open: `setOpen` grows the interactive area first, so
@@ -1207,20 +1090,16 @@ final class NotchViewModel: ObservableObject {
     /// that step the collapsed size and leave the whole body drawn but deaf to
     /// the pointer.
     ///
-    /// One tab is taller than the rest. Type large enough to read at a glance
-    /// leaves room for two lines in the standard body, and two lines is not a
-    /// teleprompter — it is a countdown. The extra height buys the paragraph
-    /// the reader needs to see coming.
-    ///
-    /// The height is now per tab (spec §6): 208 standard, 400 when the tab is
-    /// expanded. The window is cut for 620 × 400 once and never resized, so only
-    /// the rects and the drawn body follow this.
+    /// One size per surface (spec §19.6–§19.8, `SurfaceLayout`). The window is
+    /// cut for the tallest once and never resized, so only the rects and the
+    /// drawn body follow this.
     var openBodySize: CGSize {
-        CGSize(
-            width: geometry.expandedSize.width,
-            height: Self.openBodyHeight(tab: tab, showingLyrics: showsLyricPage, expandedTabs: expandedTabs)
-        )
+        SurfaceLayout.bodySize(for: presented, bodyWidth: geometry.expandedSize.width, notch: geometry.notchSize)
     }
+
+    /// The open shape's shoulder and bottom corner, for the presented surface.
+    var openTopRadius: CGFloat { presented.topRadius }
+    var openBottomRadius: CGFloat { presented.bottomRadius }
 
     /// Bumped each time the island is hovered while the Mac is locked.
     ///
@@ -1317,17 +1196,17 @@ final class NotchViewModel: ObservableObject {
         case alreadyOpen
     }
 
-    /// Show Isla and reopening the app: an open panel, on whatever tab, is
-    /// already the panel.
+    /// Show Isla and reopening the app: an open panel, on whatever surface,
+    /// is already the panel.
     nonisolated static func showVerdict(isOpen: Bool) -> ShowVerdict {
         isOpen ? .alreadyOpen : .open
     }
 
-    /// Show Lyrics: only the lyrics page itself is already shown. Open on the
-    /// player or another tab, it goes on to the words — where ⌃⌥⌘L's toggle
-    /// would fold the page instead.
-    nonisolated static func showLyricsVerdict(isOpen: Bool, tab: Tab, showingLyrics: Bool) -> ShowVerdict {
-        isOpen && tab == .media && showingLyrics ? .alreadyOpen : .open
+    /// Show Lyrics: only the stage itself is already shown. Open on the player
+    /// or another surface, it goes on to the words — where ⌃⌥⌘L's toggle would
+    /// turn the stage back into the player instead.
+    nonisolated static func showLyricsVerdict(isOpen: Bool, surface: Surface) -> ShowVerdict {
+        isOpen && surface == .stage ? .alreadyOpen : .open
     }
 
 
@@ -1937,24 +1816,30 @@ final class NotchViewModel: ObservableObject {
     /// to photograph their island turns it off and takes the picture.
     static var hideFromCaptureEnabled: Bool { SettingsRowID.hideFromRecording.isOn(in: .standard) }
 
-    /// Hover and click both land here. A tab that types takes the keyboard
-    /// either way: showing a field one cannot type into is worse than briefly
-    /// dimming the caret of the window underneath, and the dwell threshold on
-    /// the rail already keeps a passing pointer from arriving here at all.
-    func select(_ tab: Tab) {
-        self.tab = tab
-        if tab.needsKeyboard { wantsKeyboard = true }
+    /// Every way to a surface lands here. A surface that types takes the
+    /// keyboard: showing a field one cannot type into is worse than briefly
+    /// dimming the caret of the window underneath. The drop surface and the
+    /// welcome are presented, never chosen, and are refused.
+    ///
+    /// Never the keyboard over the lock: typing there belongs to the password
+    /// field, and a panel the lock lifted above the shield must not hold it.
+    /// The tab model guarded Clipboard's search this way; R8's first cut of
+    /// this function dropped the guard with the search toggle (R8 review).
+    func open(_ surface: Surface) {
+        guard surface != .drop, surface != .welcome else { return }
+        self.surface = surface
+        if surface.takesKeyboard, !isLockedPresentation { wantsKeyboard = true }
     }
 
     /// Settings, on `section`. The section goes first so the pane that appears
-    /// for the tab change finds it already selected; every route in — the Music
-    /// tab's remedy, the lyric menu's "Lyrics Settings…", a future one — is this.
+    /// for the change finds it already selected; every route in — the player's
+    /// remedy, the lyric menu's "Lyrics Settings…", the gear on Tools — is this.
     func openSettings(at section: SettingsSection) {
         settingsSection = section
-        select(.settings)
+        open(.settings)
     }
 
-    /// The Music tab's remedy when Music Only keeps a playing source off the
+    /// The player's remedy when Music Only keeps a playing source off the
     /// island: Settings, on the Music section, where Music Only is the first
     /// switch that is not a failure.
     func openMusicOnlySetting() {
@@ -1983,7 +1868,7 @@ final class NotchViewModel: ObservableObject {
     /// an earlier version of this comment said otherwise.
     func consumeEscape() -> Bool {
         if ArmedConfirmations.shared.disarmAll() { return true }
-        switch tab {
+        switch presented {
         // An open History list is the nearest thing to cancel (spec §11); the
         // text under it is untouched.
         case .translate where translateShowsHistory:
@@ -1992,18 +1877,54 @@ final class NotchViewModel: ObservableObject {
         case .translate where !translator.input.isEmpty:
             translator.reset()
             return true
-        // The open search field takes the first Escape (spec §9.3), so Escape
-        // in a field means "stop searching" and never "close the panel".
-        case .clipboard where clipboardBrowser.isSearching:
-            closeClipboardSearch()
+        // A search takes the first Escape and the next one closes (spec
+        // §19.8), so Escape in a field with words in it means "stop searching".
+        case .clipboard where !clipboardBrowser.query.isEmpty:
+            clipboardBrowser.clearQuery()
             return true
         default:
             return false
         }
     }
 
+    /// What a list key did (`consumeListKey`).
+    enum ListKeyOutcome: Equatable {
+        /// Not this surface's key: it goes on to the field.
+        case ignored
+        case handled
+        /// Taken, and the panel closes: Return copied the row.
+        case handledAndClose
+    }
+
+    /// ↑, ↓ and Return on Clipboard (spec §19.8): the arrows move the
+    /// selection through what the list shows, stopping at either end, and
+    /// Return copies the selected row and closes the panel. Every other
+    /// surface lets the key through.
+    func consumeListKey(_ key: NotchPanel.ListKey) -> ListKeyOutcome {
+        guard presented == .clipboard else { return .ignored }
+        let listing = ClipboardBrowser.listing(
+            of: clipboard.items, filter: clipboardBrowser.filter, query: clipboardBrowser.query,
+            isHidden: { [privacy] in privacy.hides(.clipboard, $0.id.uuidString) }
+        )
+        switch key {
+        case .up:
+            clipboardBrowser.selection = ClipboardBrowser.moved(-1, in: listing, selection: clipboardBrowser.selection)
+            return .handled
+        case .down:
+            clipboardBrowser.selection = ClipboardBrowser.moved(1, in: listing, selection: clipboardBrowser.selection)
+            return .handled
+        case .enter:
+            guard let index = ClipboardBrowser.selectedIndex(in: listing, selection: clipboardBrowser.selection) else {
+                return .handled
+            }
+            clipboard.copy(listing.items[index])
+            Announcer.shared.announce(localized("Copied"))
+            return .handledAndClose
+        }
+    }
+
     /// ⇧⌘C, asked by the panel before the source field gets the key (H-018).
-    /// Returns false when there is no translation on screen — another tab, or
+    /// Returns false when there is no translation on screen — another surface, or
     /// no answer yet — and the key falls back to an ordinary copy.
     ///
     /// An answer to text since edited claims the key and copies nothing: the
@@ -2014,7 +1935,7 @@ final class NotchViewModel: ObservableObject {
     /// Announced here rather than by the button, which only speaks for its
     /// own presses; the button still ticks, through `outputCopies`.
     func copyTranslationIfShowing() -> Bool {
-        guard tab == .translate, !translator.output.isEmpty else { return false }
+        guard presented == .translate, !translator.output.isEmpty else { return false }
         if translator.copyOutput() {
             Announcer.shared.announce(localized("Copied"))
         }
@@ -2026,41 +1947,19 @@ final class NotchViewModel: ObservableObject {
     /// panel directly. It is already on the shelf by the time this is called;
     /// this only decides whether to show it.
     ///
-    /// Only switches tabs when the panel is actually open and nobody is
-    /// mid-sentence. Switching while collapsed changed nothing anybody could
-    /// see, and cost a full pass over the shelf — a `checkResourceIsReachable`
-    /// per card plus thumbnail requests — which is exactly how a background
-    /// copy from a phone used to raise a Desktop-or-Documents permission
-    /// prompt with no visible cause. The shelf's counter shows the new picture
-    /// the moment the panel is opened, so nothing is lost by waiting.
-    ///
-    /// Nor while the welcome is up, for the same reason it waits on a keyboard:
-    /// the welcome is drawn over the pane switch, so the shelf would not appear
-    /// anyway, and moving the tab underneath it would only light Shelf in the
-    /// rail beside a body showing something else. Unlike a drag, a picture that
-    /// arrived by itself is nobody asking for anything, so it does not get to
-    /// take the welcome down — see `showShelfForDrag()`.
-    ///
-    /// Nor when the shelf is already showing: the new card is on screen the
-    /// moment `add` puts it there, and assigning the tab again re-ran
-    /// `refreshFromDisk` — a reachability check and a fresh QuickLook request
-    /// for every card, each preview landing as a whole-panel redraw.
-    ///
-    /// It no longer switches tabs at all (owner decision 14, FOC-01). A tab
-    /// that changes under somebody who is reading the clipboard, or whose
-    /// VoiceOver cursor is in it, is the app moving the user for something the
-    /// user did not ask for. The only reason it ever moved was visibility, and
-    /// the rail already has a mark for exactly that: the Shelf wears a dot
-    /// until it is looked at. A drag or a drop is still a user action and still
-    /// switches (`showShelfForDrag`).
+    /// It never moves an open panel (owner decision 14, FOC-01): a surface
+    /// that changes under somebody reading the clipboard, or whose VoiceOver
+    /// cursor is in it, is the app moving the user for something the user did
+    /// not ask for. Nor does it refresh the tray while shut: that pass — a
+    /// `checkResourceIsReachable` per card plus thumbnail requests — is exactly
+    /// how a background copy from a phone used to raise a Desktop-or-Documents
+    /// permission prompt with no visible cause.
     ///
     /// The island shows it for a moment (`isShowingCollected`), unless a
     /// surface is open or the shield is up: the island is not on screen then,
     /// and a moment kept for later would be news from the past.
     func receivedScreenshot(at url: URL) {
         if !isOpen, !isLockedPresentation { showCollectedMoment() }
-        guard tab != .shelf else { return }
-        shelfHasNew = true
     }
 
     /// Shows the Shelf, or restarts its moment if one is showing: a burst of
@@ -2084,20 +1983,13 @@ final class NotchViewModel: ObservableObject {
         if isShowingCollected { isShowingCollected = false }
     }
 
-    /// A file the user dropped on the panel by hand — switching to the shelf
-    /// is the point, not a side effect to guard against.
-    ///
-    /// Usually it is already there: the drag that carried the files put the
-    /// shelf up and refreshed it, and `add` loads the new cards' previews
-    /// itself, so showing it again only redid the whole pass over the shelf.
-    /// The welcome still comes down if the drop beat it.
+    /// A file the user dropped on the island by hand. The drop surface folds
+    /// with the drag, and the Shelf is live (spec §19.7): compact on the
+    /// island, or the bubble beside a song. The surface underneath is not
+    /// moved — a drop over an open Clipboard is a file kept, not a request to
+    /// look at the Shelf.
     func accept(urls: [URL]) -> Bool {
         shelf.add(urls)
-        if tab != .shelf {
-            showShelfForDrag()
-        } else if isShowingWelcome {
-            isShowingWelcome = false
-        }
         return true
     }
 
@@ -2113,34 +2005,4 @@ final class NotchViewModel: ObservableObject {
         return accept(urls: urls)
     }
 
-    /// A drag has arrived over the island, or a file has just landed on it.
-    /// Puts the body on the shelf and takes the welcome down with it.
-    ///
-    /// The welcome is drawn *over* the pane switch, so leaving it up made a drop
-    /// during the first launch completely invisible: no drop highlight, no card,
-    /// no counter — and the `setOpen(true)` that follows a drag early-returns on
-    /// the panel the welcome had already opened, so nothing on screen moved at
-    /// all and the file looked like it had gone nowhere.
-    ///
-    /// Deliberately does **not** set `hasCompletedFirstRun`. A drop is a real
-    /// interaction with the app, but it is not the user answering the welcome:
-    /// their attention was on the file, the pane went away underneath it, and the
-    /// thing the welcome exists to say — that Quit lives in Settings, because an
-    /// `LSUIElement` app is not in Force Quit — is exactly what somebody who has
-    /// only ever dropped a file on the island still does not know. Unanswered,
-    /// the next launch asks again, on the same terms as `setOpen(false)`.
-    ///
-    /// Assigning the tab is what refreshes the shelf, so it is assigned only
-    /// when the shelf is really coming into view. A drag leaving the island and
-    /// crossing back is another `draggingEntered`, and so is every later drag,
-    /// and each one used to pass over the whole shelf again — a reachability
-    /// check and a fresh QuickLook request per card. A panel left closed on the
-    /// shelf is the other case: the drag is about to open it there, and that is
-    /// the shelf coming into view.
-    func showShelfForDrag() {
-        let shelfInView = isOpen && tab == .shelf && !isShowingWelcome
-        isShowingWelcome = false
-        guard !shelfInView else { return }
-        tab = .shelf
-    }
 }

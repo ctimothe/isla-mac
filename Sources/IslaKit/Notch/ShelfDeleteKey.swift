@@ -90,16 +90,14 @@ extension NotchPanel {
 // MARK: - Where the pointer counts as "on the Shelf"
 
 extension ShelfLayout {
-    /// The Shelf pane in screen coordinates, from the open body's rect in the
-    /// same: everything right of the rail, below the header and above the
-    /// body's padding — the grid, the bar and the wells, and not the header
-    /// row, so a pointer heading for Expand has already let go of Delete.
+    /// The tray in screen coordinates, from the open body's rect in the same:
+    /// everything below the header strip — the row of tiles and its margins —
+    /// and not the strip, so a pointer heading for Remove All has already let
+    /// go of Delete.
     static func pointerZone(bodyScreenRect body: CGRect, headerHeight: CGFloat) -> CGRect {
         CGRect(
-            x: body.minX + PlayerLayout.paneLeading,
-            y: body.minY + NotchGeometry.bodyBottomPadding,
-            width: max(0, body.width - PlayerLayout.paneLeading - PlayerLayout.paneTrailing),
-            height: max(0, body.height - headerHeight - NotchGeometry.bodyBottomPadding)
+            x: body.minX, y: body.minY,
+            width: body.width, height: max(0, body.height - headerHeight)
         )
     }
 }

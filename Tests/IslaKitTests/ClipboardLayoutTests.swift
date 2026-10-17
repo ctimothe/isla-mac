@@ -3,30 +3,32 @@ import SwiftUI
 import XCTest
 @testable import IslaKit
 
-/// The Clipboard's numbers (redesign spec §9, §13), held as values at 480, 560
-/// and 620 so a board that moves moves in `ClipboardLayout` and here.
+/// Clipboard's numbers (spec §9, §13, §19.8), held as values at 480, 560 and 620
+/// so a board that moves moves in `ClipboardLayout` and here. Frames are in the
+/// content's coordinates — the board's y less the reference notch's 38, the x the
+/// body's own now the rail is gone.
 @MainActor
 final class ClipboardLayoutTests: XCTestCase {
-    private func body(_ width: CGFloat, _ height: CGFloat = 208) -> CGSize { CGSize(width: width, height: height) }
-
     // MARK: Rows
 
-    func testRowsAre28TallTwoApartFromFiftyEightSeventyFour() {
-        XCTAssertEqual(ClipboardLayout.rowHeight, 28)
-        XCTAssertEqual(ClipboardLayout.rowGap, 2)
-        XCTAssertEqual(ClipboardLayout.listOrigin, CGPoint(x: 58, y: 74), "30 pt lower than the spec: the filter row is above")
-        XCTAssertEqual(ClipboardLayout.listOriginWithoutFilterRow, CGPoint(x: 58, y: 44))
+    /// Rows from y 84 on a 34 pitch, x 16 to `bw − 16`, radius 7: each 30 tall
+    /// with 4 between.
+    func testRowsAre30TallFourApartFromSixteenFortySix() {
+        XCTAssertEqual(ClipboardLayout.rowHeight, 30)
+        XCTAssertEqual(ClipboardLayout.rowGap, 4)
+        XCTAssertEqual(ClipboardLayout.pitch, 34)
+        XCTAssertEqual(ClipboardLayout.listOrigin, CGPoint(x: 16, y: 46), "the board's (16, 84) less the header row")
         XCTAssertEqual(ClipboardLayout.rowRadius, 7)
+        XCTAssertEqual(ClipboardLayout.rowFrame(index: 2, bodyWidth: 560), CGRect(x: 0, y: 68, width: 528, height: 30))
     }
 
-    func testRowsAreBodyWidthLessSeventyTwo() {
-        XCTAssertEqual(ClipboardLayout.rowWidth(bodyWidth: 560), 488)
-        XCTAssertEqual(ClipboardLayout.rowWidth(bodyWidth: 480), 408)
-        XCTAssertEqual(ClipboardLayout.rowWidth(bodyWidth: 620), 548)
+    func testRowsAreBodyWidthLessThirtyTwo() {
+        XCTAssertEqual(ClipboardLayout.rowWidth(bodyWidth: 560), 528)
+        XCTAssertEqual(ClipboardLayout.rowWidth(bodyWidth: 480), 448)
+        XCTAssertEqual(ClipboardLayout.rowWidth(bodyWidth: 620), 588)
     }
 
     func testTheMarkAndContentSitWhereTheBoardPutsThem() {
-        // Board x 66 to 86 and 94, against a row that starts at 58.
         XCTAssertEqual(ClipboardLayout.rowInset, 8)
         XCTAssertEqual(ClipboardLayout.rowInset + ClipboardLayout.markSide, 28)
         XCTAssertEqual(ClipboardLayout.contentLeading, 36)
@@ -37,28 +39,26 @@ final class ClipboardLayoutTests: XCTestCase {
     }
 
     func testTheListEndsTenAboveTheFootAndYieldsToTheAlertAndTheQuestion() {
-        let standard = ClipboardLayout.viewport(bodySize: body(560))
-        XCTAssertEqual(standard, CGRect(x: 58, y: 74, width: 488, height: 124), "the board's 198 foot, from the filter row's foot")
-        let tall = ClipboardLayout.viewport(bodySize: body(560, 400))
-        XCTAssertEqual(tall.maxY, 390)
-        XCTAssertEqual(tall.minY, 74)
-        let alert = ClipboardLayout.viewport(bodySize: body(560), showsAlert: true)
-        XCTAssertEqual(alert.minY, 126, "the list sits 8 below the 44 pt alert")
-        let asking = ClipboardLayout.viewport(bodySize: body(560), confirming: true)
-        XCTAssertEqual(asking.maxY, ClipboardLayout.confirmBar(bodySize: body(560)).minY)
+        XCTAssertEqual(ClipboardLayout.contentHeight, 300 - 38)
+        let standard = ClipboardLayout.viewport(bodyWidth: 560)
+        XCTAssertEqual(standard, CGRect(x: 16, y: 46, width: 528, height: 206), "from the first row's top to 10 above the foot")
+        XCTAssertEqual(standard.maxY, ClipboardLayout.contentHeight - 10)
+        let alert = ClipboardLayout.viewport(bodyWidth: 560, showsAlert: true)
+        XCTAssertEqual(alert.minY, 98, "the list sits 8 below the 44 pt alert")
+        let asking = ClipboardLayout.viewport(bodyWidth: 560, confirming: true)
+        XCTAssertEqual(asking.maxY, ClipboardLayout.confirmBar(bodyWidth: 560).minY)
         XCTAssertEqual(ClipboardLayout.overflowFade, 26)
-        // No history, no filter row: the empty state and the alert start where the spec had them.
-        XCTAssertEqual(ClipboardLayout.viewport(bodySize: body(560), hasFilterRow: false).minY, 44)
-        XCTAssertEqual(ClipboardLayout.viewport(bodySize: body(560), showsAlert: true, hasFilterRow: false).minY, 96)
+        // Six rows are whole in the standard window: 5 gaps and a row.
+        XCTAssertLessThanOrEqual(5 * ClipboardLayout.pitch + ClipboardLayout.rowHeight, standard.height)
     }
 
     func testTheQuestionBarIsTheBoards() {
-        let bar = ClipboardLayout.confirmBar(bodySize: body(560))
-        XCTAssertEqual(bar, CGRect(x: 58, y: 166, width: 488, height: 34))
-        XCTAssertEqual(ClipboardLayout.confirmBar(bodySize: body(560, 400)).minY, 358)
+        let bar = ClipboardLayout.confirmBar(bodyWidth: 560)
+        XCTAssertEqual(bar, CGRect(x: 16, y: 220, width: 528, height: 34), "34 tall, ending 8 above the body's foot")
+        XCTAssertEqual(bar.maxY, ClipboardLayout.contentHeight - 8)
     }
 
-    func testTheDeniedAlertIs488By44WithTheWarningColours() {
+    func testTheDeniedAlertIsBodyLessThirtyTwoBy44WithTheWarningColours() {
         XCTAssertEqual(ClipboardLayout.alertHeight, 44)
         XCTAssertEqual(ClipboardLayout.alertRadius, 9)
         XCTAssertEqual(ClipboardLayout.alertFillOpacity, 0.12)
@@ -75,9 +75,9 @@ final class ClipboardLayoutTests: XCTestCase {
         XCTAssertEqual(ClipboardLayout.imageTile, CGSize(width: 88, height: 66))
         XCTAssertEqual(ClipboardLayout.imageGap, 12)
         XCTAssertEqual(ClipboardLayout.imageRadius, 8)
-        XCTAssertEqual(ClipboardLayout.imageColumns(bodyWidth: 560), 5, "5 × 88 + 4 × 12 = 488")
-        XCTAssertEqual(ClipboardLayout.imageColumns(bodyWidth: 480), 4)
-        XCTAssertEqual(ClipboardLayout.imageColumns(bodyWidth: 620), 5)
+        XCTAssertEqual(ClipboardLayout.imageColumns(bodyWidth: 560), 5, "5 × 88 + 4 × 12 = 488 of 528")
+        XCTAssertEqual(ClipboardLayout.imageColumns(bodyWidth: 480), 4, "4 × 88 + 3 × 12 = 388 of 448")
+        XCTAssertEqual(ClipboardLayout.imageColumns(bodyWidth: 620), 6, "6 × 88 + 5 × 12 = 588 of 588: it just fits")
         // The board puts the tiles at 100 pt steps.
         XCTAssertEqual(ClipboardLayout.imageTileFrame(index: 3, columns: 5).minX, 300)
         XCTAssertEqual(ClipboardLayout.imageTileFrame(index: 0, columns: 5).size, CGSize(width: 88, height: 66))
@@ -89,62 +89,66 @@ final class ClipboardLayoutTests: XCTestCase {
         )
     }
 
-    // MARK: The header
+    // MARK: The search and the Kind filter
 
-    func testTheHeaderToolsAtTheDefaultWidth() {
-        // Driver correction, review 2026-10-15: the filter and the field left the
-        // header (the notch sat on them) for a row at (58, 44), 22 tall.
-        XCTAssertEqual(ClipboardHeader.filterRow(bodyWidth: 560), CGRect(x: 58, y: 44, width: 488, height: 22))
-        XCTAssertEqual(ClipboardHeader.filter(bodyWidth: 560), CGRect(x: 58, y: 45, width: 270, height: 20), "left-aligned, centred in the row")
-        XCTAssertEqual(ClipboardHeader.search(bodyWidth: 560), CGRect(x: 493, y: 8, width: 22, height: 22))
-        XCTAssertEqual(HeaderToolFrames.expand(bodyWidth: 560), CGRect(x: 521, y: 8, width: 22, height: 22))
-        XCTAssertEqual(ClipboardHeader.searchField(bodyWidth: 560), CGRect(x: 58, y: 44, width: 488, height: 22), "the whole row")
+    /// The search field at (16, 46), 270 × 28, radius 8, white 0.10, and the
+    /// Kind filter from (298, 48) to `bw − 16`, 24 tall (§19.8), both below
+    /// the header strip: the first redesign put them in it and the notch sat
+    /// on them.
+    func testTheSearchFieldAndTheFilterAtTheDefaultWidth() {
+        XCTAssertEqual(ClipboardHeader.searchField, CGRect(x: 16, y: 8, width: 270, height: 28))
+        XCTAssertEqual(ClipboardHeader.filter(bodyWidth: 560), CGRect(x: 298, y: 10, width: 246, height: 24))
+        XCTAssertEqual(ClipboardHeader.searchFieldRadius, 8)
+        XCTAssertEqual(ClipboardHeader.searchFieldFillOpacity, 0.10)
+        XCTAssertEqual(ClipboardHeader.searchRingWidth, 1.5)
+        XCTAssertEqual(ClipboardHeader.searchRingOpacity, 0.70)
+        XCTAssertEqual(ClipboardHeader.clearSide, 16)
     }
 
-    func testTheRowSpansTheListAndTheTrailingToolsRideTheEdgeAtEveryWidth() {
+    func testTheFilterRidesTheTrailingMarginAtEveryWidth() {
         for width in [CGFloat(480), 540, 560, 620] {
-            XCTAssertEqual(ClipboardHeader.search(bodyWidth: width).minX, width - 67)
-            XCTAssertEqual(ClipboardHeader.filterRow(bodyWidth: width).width, width - 72)
-            XCTAssertEqual(ClipboardHeader.filterRow(bodyWidth: width).minX, ClipboardLayout.listOrigin.x)
-            XCTAssertEqual(ClipboardHeader.searchField(bodyWidth: width).maxX, ClipboardLayout.listOrigin.x + ClipboardLayout.rowWidth(bodyWidth: width))
-            XCTAssertLessThan(ClipboardHeader.filterRow(bodyWidth: width).maxY, ClipboardLayout.listOrigin.y, "the row ends above the list")
+            let filter = ClipboardHeader.filter(bodyWidth: width)
+            XCTAssertEqual(filter.maxX, width - 16, "ends on the trailing margin at \(width)")
+            XCTAssertEqual(filter.minX, 298)
+            XCTAssertGreaterThan(filter.minX, ClipboardHeader.searchField.maxX, "right of the field at \(width)")
+            XCTAssertEqual(ClipboardHeader.controlFrames(bodyWidth: width).map(\.name), ["Search field", "Kind filter"])
+            XCTAssertEqual(ClipboardLayout.rowFrame(index: 0, bodyWidth: width).minX + ClipboardLayout.listOrigin.x, 16)
+            XCTAssertLessThan(filter.maxY, ClipboardLayout.listOrigin.y, "the row ends above the list")
+            XCTAssertLessThan(ClipboardHeader.searchField.maxY, ClipboardLayout.listOrigin.y)
         }
-        XCTAssertTrue(ClipboardHeader.showsFilterRow(itemCount: 1, isSearching: false))
-        XCTAssertFalse(ClipboardHeader.showsFilterRow(itemCount: 0, isSearching: false))
-        XCTAssertTrue(ClipboardHeader.showsFilterRow(itemCount: 0, isSearching: true), "an open field is never stranded")
     }
 
-    func testBelow540TheSegmentsAreSymbolsAndAgesNarrow() {
-        XCTAssertFalse(ClipboardHeader.usesSymbols(bodyWidth: 540))
-        XCTAssertFalse(ClipboardHeader.usesSymbols(bodyWidth: 620))
-        XCTAssertTrue(ClipboardHeader.usesSymbols(bodyWidth: 539))
-        XCTAssertTrue(ClipboardHeader.usesSymbols(bodyWidth: 480))
-        XCTAssertEqual(ClipboardHeader.filterSize(bodyWidth: 480), CGSize(width: 150, height: 20))
-        XCTAssertEqual(ClipboardHeader.filterSize(bodyWidth: 560), CGSize(width: 270, height: 20))
-        let narrow = ClipboardHeader.filter(bodyWidth: 480)
-        XCTAssertEqual(narrow.minX, 58, "left-aligned on the row, as at every width")
-        XCTAssertEqual(narrow.size, CGSize(width: 150, height: 20))
+    /// Where the four names do not fit the filter as words — 480 in English,
+    /// every width in Russian — the segments are symbols with the names as
+    /// tooltips and labels (§13: a control is never truncated). Below 540 the
+    /// ages shorten.
+    func testTheSegmentsAreSymbolsWhereTheWordsDoNotFit() {
+        XCTAssertFalse(ClipboardHeader.usesSymbolSegments(bodyWidth: 560), "English fits at the default")
+        XCTAssertFalse(ClipboardHeader.usesSymbolSegments(bodyWidth: 620))
+        XCTAssertTrue(ClipboardHeader.usesSymbolSegments(bodyWidth: 480), "English does not fit 166 pt")
+        // The rule itself, from a measure of the test's choosing: four segments
+        // of the widest name and 8 of air, and the control's 4.
+        XCTAssertTrue(ClipboardHeader.wordsFit(bodyWidth: 560, measure: { _ in 20 }))
+        XCTAssertFalse(ClipboardHeader.wordsFit(bodyWidth: 560, measure: { _ in 100 }))
+        XCTAssertEqual(ClipboardHeader.segmentWidth(measure: { _ in 40 }), 48)
+        // 4 × (60 + 8) + 4 = 276: past the 246 pt filter at 560, inside 306 at 620.
+        XCTAssertFalse(ClipboardHeader.wordsFit(bodyWidth: 560, measure: { _ in 60 }))
+        XCTAssertTrue(ClipboardHeader.wordsFit(bodyWidth: 620, measure: { _ in 60 }))
+
+        XCTAssertTrue(ClipboardHeader.usesNarrowAges(bodyWidth: 539))
+        XCTAssertFalse(ClipboardHeader.usesNarrowAges(bodyWidth: 540))
+        XCTAssertFalse(ClipboardHeader.usesNarrowAges(bodyWidth: 620))
     }
 
-    func testTheKindControlIsFiveNamedChoicesInBothModes() async {
+    func testTheKindControlIsFourNamedChoicesInBothModes() async {
         for width in [CGFloat(480), 560] {
             let control = ClipboardKindControl(selection: .constant(.links), bodyWidth: width)
-            let root = await AXProbe.tree(of: control, size: ClipboardHeader.filterSize(bodyWidth: width))
+            let root = await AXProbe.tree(of: control, size: ClipboardHeader.filter(bodyWidth: width).size)
             let groups = root.all(role: "AXRadioGroup")
             XCTAssertEqual(groups.map { $0.label.isEmpty ? $0.title : $0.label }, ["Kind"], "a radio group named Kind at \(width)\n\(root.dump)")
             let names = root.all(role: "AXRadioButton").map { $0.title.isEmpty ? $0.label : $0.title }
-            XCTAssertEqual(names, ["All", "Text", "Links", "Images", "Files"], "named even as symbols\n\(root.dump)")
+            XCTAssertEqual(names, ["All", "Text", "Links", "Images"], "named even as symbols\n\(root.dump)")
         }
-    }
-
-    func testToolsAppearWhereTheyAreOfUse() {
-        XCTAssertFalse(ClipboardHeader.showsSearch(itemCount: 0), "nothing to search")
-        XCTAssertTrue(ClipboardHeader.showsSearch(itemCount: 1))
-        XCTAssertFalse(ClipboardHeader.showsTools(itemCount: 0, isExpanded: false, isSearching: false))
-        XCTAssertTrue(ClipboardHeader.showsTools(itemCount: 0, isExpanded: true, isSearching: false), "Collapse is never stranded")
-        XCTAssertTrue(ClipboardHeader.showsTools(itemCount: 3, isExpanded: false, isSearching: false))
-        XCTAssertEqual(ClipboardHeader.searchFieldRadius, 7)
-        XCTAssertEqual(ClipboardHeader.searchFieldFillOpacity, 0.10)
     }
 
     // MARK: Marks and the text beside them

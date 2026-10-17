@@ -2,16 +2,18 @@ import SwiftUI
 import XCTest
 @testable import IslaKit
 
-/// The player inside the real shell: the board's body coordinates, converted once
-/// in `PlayerLayout`, land where the spec says on the open panel (spec §1, §4.1).
+/// The player inside the real shell: the board's coordinates, converted once in
+/// `PlayerLayout` (a board x less the 34 pt shoulder, a board y less 38), land
+/// where the spec says on the open panel (spec §19.2, §19.6).
 ///
 /// `PlayerPaneTests` holds the pane against its own layout; this holds the layout
-/// against the shell — the 14 pt padding, the 30 pt rail, the 14 pt gap and the
-/// header's height that the conversion is made of. A change to any of them that
-/// forgot the player fails here, at the cover's left edge or the transport's top.
+/// against the shell — the body centred in the window, hanging from the top of the
+/// screen, with the content starting under the header row. A change to either
+/// that forgot the player fails here, at the cover's left edge or the transport's
+/// middle.
 @MainActor
 final class PlayerShellLayoutTests: XCTestCase {
-    func testTheOpenPanelPutsTheControlsAtTheSpecsBodyCoordinates() async throws {
+    func testTheOpenPanelPutsTheControlsAtTheSpecsCoordinates() async throws {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         isolated.suite.set(true, forKey: NotchViewModel.lyricBandKey)
@@ -23,49 +25,55 @@ final class PlayerShellLayoutTests: XCTestCase {
             granularity: .line
         )))
         vm.isOpen = true
-        vm.tab = .media
+        vm.open(.player)
+        XCTAssertEqual(vm.presented, .player)
 
-        let bodyWidth = vm.bodySize.width
+        let bodyWidth = vm.openBodySize.width
+        XCTAssertEqual(bodyWidth, PlayerLayout.referenceBodyWidth, accuracy: 0.001)
+        let header = geometry.notchSize.height
         let size = CGSize(width: VisualLab.windowSize.width, height: vm.geometry.windowSize.height)
         let root = await AXProbe.tree(of: NotchContentView(vm: vm).defaultAppStorage(isolated.suite), size: size)
 
-        // The body is centred in the window and hangs from its top.
-        let origin = CGPoint(x: (size.width - bodyWidth) / 2, y: 0)
-        let layout = PlayerLayout(
-            bodyWidth: bodyWidth, headerHeight: geometry.notchSize.height, hasLyricBand: true, hasOutputButton: true
-        )
-        func body(_ node: AXNode) throws -> CGRect {
+        // The body is centred in the window and hangs from its top; the content
+        // starts under the header row.
+        let origin = CGPoint(x: (size.width - bodyWidth) / 2, y: header)
+        let layout = PlayerLayout(bodyWidth: bodyWidth, hasOutputButton: true)
+        func content(_ node: AXNode) throws -> CGRect {
             let frame = try XCTUnwrap(node.frame, root.dump)
             return frame.offsetBy(dx: -origin.x, dy: -origin.y)
         }
 
-        // Spec §4.1, in body coordinates: Lyrics at (bw − 40, 159), 26 × 26.
-        let lyricsButton = try XCTUnwrap(root.all { $0.label == "Lyrics" && $0.role == "AXButton" && $0.frame?.width == 26 }.first, root.dump)
-        let lyricsFrame = try body(lyricsButton)
-        XCTAssertEqual(lyricsFrame.minX, bodyWidth - 40, accuracy: 1)
-        XCTAssertEqual(lyricsFrame.minY, 159, accuracy: 1)
-        XCTAssertEqual(lyricsFrame, layout.lyrics, accuracy: 1)
+        // The cover: a button at (54, 38) on the board, 60 × 60.
+        let cover = try XCTUnwrap(root.all { $0.label == "Lyrics" && $0.role == "AXButton" && $0.value.isEmpty }.first, root.dump)
+        XCTAssertEqual(try content(cover), layout.cover, accuracy: 1)
 
-        // The transport: (236, 158), previous at its left edge and next 72 in.
-        let previous = try body(try XCTUnwrap(root.first(label: "Previous Track"), root.dump))
-        XCTAssertEqual(previous.minX, 236, accuracy: 1)
-        XCTAssertEqual(previous.minY, 158, accuracy: 1)
-        let next = try body(try XCTUnwrap(root.first(label: "Next Track"), root.dump))
-        XCTAssertEqual(next.maxX, 336, accuracy: 1, "the transport is 100 wide")
+        // The transport, each control centred where the board puts it.
+        let previous = try content(try XCTUnwrap(root.first(label: "Previous Track"), root.dump))
+        XCTAssertEqual(previous.midX, layout.target(.previous).midX, accuracy: 1)
+        XCTAssertEqual(previous.midY, layout.target(.previous).midY, accuracy: 1)
+        let next = try content(try XCTUnwrap(root.first(label: "Next Track"), root.dump))
+        XCTAssertEqual(next.midX, layout.target(.next).midX, accuracy: 1)
+        XCTAssertEqual(next.midY, layout.controlsMidY, accuracy: 1)
+        let pause = try content(try XCTUnwrap(root.first(label: "Pause"), root.dump))
+        XCTAssertEqual(pause.midX, layout.centre, accuracy: 1, "Play / Pause is on m")
+        XCTAssertEqual(next.midX - previous.midX, 138, accuracy: 1, "the transport's 69 pitch, twice")
 
-        // The sung line: (206, 99).
+        // The sung line has the subtitle: (129.2 − 34, baseline 84.5), running
+        // to the equalizer's right edge.
         let band = try XCTUnwrap(root.all { $0.label == "Lyrics" && $0.value == "Third line" }.first, root.dump)
-        let bandFrame = try body(band)
-        XCTAssertEqual(bandFrame.minX, 206, accuracy: 1)
-        XCTAssertEqual(bandFrame.minY, 99, accuracy: 1)
-        XCTAssertEqual(bandFrame.width, bodyWidth - 220, accuracy: 1)
+        let bandFrame = try content(band)
+        let box = MediaPane.textBox(
+            x: layout.textLeading, baseline: layout.subtitleBaseline, width: layout.subtitleWidth,
+            size: PlayerLayout.subtitleSize, weight: .semibold
+        )
+        XCTAssertEqual(bandFrame.minX, box.minX, accuracy: 1)
+        XCTAssertEqual(bandFrame.minY, box.minY, accuracy: 1)
+        XCTAssertEqual(bandFrame.width, layout.subtitleWidth, accuracy: 1)
 
-        // The rail's own left edge and width (14, 30) are what the 58 is made of.
-        let rail = try XCTUnwrap(root.all { $0.role == "AXGroup" && $0.label == "Tabs" }.first, root.dump)
-        let railFrame = try body(rail)
-        XCTAssertEqual(railFrame.minX, 14, accuracy: 1)
-        XCTAssertEqual(railFrame.width, 30, accuracy: 1)
-        XCTAssertEqual(railFrame.maxX + PlayerLayout.railGap, PlayerLayout.paneLeading, accuracy: 1)
+        // The rail is gone: no group of tabs, and the open surface is the one
+        // group, named for it.
+        XCTAssertNil(root.first(label: "Tabs"), root.dump)
+        XCTAssertEqual(root.all { $0.role == "AXGroup" && $0.label == vm.presented.title }.count, 1, root.dump)
     }
 }
 

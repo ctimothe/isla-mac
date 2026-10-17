@@ -1,180 +1,150 @@
+import AppKit
 import CoreGraphics
 import SwiftUI
 
-/// Where everything in the 208 pt Music player sits (spec §4.1, §4.8).
+/// Where everything on the player sits (spec §19.6, board `R2-Music-Open`).
 ///
-/// The board is drawn in *body coordinates* — the origin is the open body's
-/// top-left corner, which sits at the top of the screen, and the first
-/// `headerHeight` points are the header row (spec §1). The pane the player is
-/// drawn in starts to the right of the rail and under the header, so every frame
-/// here is stated twice: in body coordinates, as the spec writes it, and — through
-/// `inPane(_:)`, the one conversion — in the pane's own, which is what the view
-/// places things by. Nothing else in the app converts between the two, so a test
-/// that holds the spec's numbers holds the pixels, and a board that moves moves
-/// here and nowhere else.
+/// The board measures the player from the shape's left edge, shoulders and all:
+/// the shape is 425.4 wide with a 34 pt shoulder each side, so the body the
+/// panel lays out is 357.4 and a board x is a body x plus 34 (`x(_:)`). An edge
+/// the board gives as a distance from the shape's *right* edge is a body x
+/// through `right(_:)`. Vertically the content starts under the header row, so
+/// a board y is a content y plus 38 on every notch (`SurfaceLayout.inContent`).
 ///
-/// Why the conversion is `(58, headerHeight)`: the shell pads the body 14 pt on
-/// each side, the rail is 30 pt wide and a 14 pt gap follows it — 14 + 30 + 14 =
-/// 58, which is exactly where the board puts the cover's left edge, so the cover
-/// is the pane's own origin. Vertically the pane starts where the header ends, so
-/// a body y is the pane y plus the header's height *whatever that height is*: a
-/// Mac whose notch is 32 pt tall puts the player's rows at the same screen
-/// position as one whose notch is 38, because the pane is simply taller there.
-///
-/// Pure, so the layout is something a test reads at 480, 560 and 620 and in
-/// Russian without rendering anything.
+/// One place for the numbers, and pure, so a test reads the table without
+/// rendering anything and a board that moves moves here.
 struct PlayerLayout: Equatable {
-    // MARK: - Body to pane
-
-    /// The shell's own padding either side of the rail and the pane
-    /// (`NotchContentView.content`), the rail's width (`Rail`) and the gap
-    /// between rail and pane. One home for the three numbers the cover's
-    /// x of 58 is made of.
-    static let bodyInset: CGFloat = 14
-    static let railWidth: CGFloat = 30
-    static let railGap: CGFloat = 14
-
-    /// The pane's left edge in body coordinates: 14 + 30 + 14.
-    static var paneLeading: CGFloat { bodyInset + railWidth + railGap }
-    /// What the pane leaves free on its right: the body's padding.
-    static var paneTrailing: CGFloat { bodyInset }
-    /// The header's height on a 14-inch MacBook Pro, which the boards are drawn
-    /// with. Used where a pane is rendered with no notch around it.
-    static let referenceHeaderHeight: CGFloat = 38
-
-    /// The pane's width for a body of `bodyWidth`.
-    static func paneWidth(bodyWidth: CGFloat) -> CGFloat {
-        bodyWidth - paneLeading - paneTrailing
-    }
-
-    /// The body width a pane of `paneWidth` belongs to — the inverse, so the
-    /// view can learn `bw` from the width it is handed.
-    static func bodyWidth(paneWidth: CGFloat) -> CGFloat {
-        paneWidth + paneLeading + paneTrailing
-    }
-
-    // MARK: - Thresholds
-
-    /// How far the progress row, the transport and the controls rise when the
-    /// lyric band folds away (spec §4.1 last paragraph). The metadata does the
-    /// opposite — the title steps *down* 18, from 52 to 70, so the two lines of
-    /// text sit in the middle of the cover's height instead of hugging its top
-    /// with a hole under them (`Music-NoLyrics`).
-    static let noLyricRise: CGFloat = 20
-
-    // MARK: - Inputs
+    /// The shape's shoulder on the player (`Surface.topRadius`).
+    static let shoulder: CGFloat = 34
+    /// The header row's height the boards are drawn with — a 14-inch MacBook
+    /// Pro's notch. Kept for the surfaces that are rendered with no notch
+    /// around them.
+    static let referenceHeaderHeight: CGFloat = SurfaceLayout.referenceNotchHeight
 
     let bodyWidth: CGFloat
-    let headerHeight: CGFloat
-    /// Whether the two-line lyric band is drawn (spec §4.3).
-    let hasLyricBand: Bool
-    /// Whether the person has the Output button on (Settings › Music, stored
-    /// under `NotchViewModel.volumeAndOutputKey`). Off, the button is absent
-    /// and the band keeps its place (spec §4.5). There is no volume bar to
-    /// count here: volume left the island on 2026-10-16 — it is the Mac's, not
-    /// the player's — and only the lock card still draws it.
+    /// Whether the person has the Output button on (Settings › Music). Off, its
+    /// place is empty and the other controls keep theirs.
     let hasOutputButton: Bool
 
-    init(
-        bodyWidth: CGFloat,
-        headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight,
-        hasLyricBand: Bool = true,
-        hasOutputButton: Bool = true
-    ) {
+    init(bodyWidth: CGFloat = Self.referenceBodyWidth, hasOutputButton: Bool = true) {
         self.bodyWidth = bodyWidth
-        self.headerHeight = headerHeight
-        self.hasLyricBand = hasLyricBand
         self.hasOutputButton = hasOutputButton
     }
 
-    /// The body is wider than 560 by this much; everything against the trailing
-    /// edge moves by it, and the title column takes it.
-    var widthDelta: CGFloat { bodyWidth - NotchMetrics.defaultBodyWidth }
+    /// The player's body: the board's shape less its two shoulders.
+    static var referenceBodyWidth: CGFloat { SurfaceLayout.playerReference.width - 2 * shoulder }
 
-    // MARK: - The conversion
+    /// A board x, measured from the shape's left edge, as a body x.
+    static func x(_ board: CGFloat) -> CGFloat { board - shoulder }
 
-    /// A frame in body coordinates, in the pane's. The one conversion: the
-    /// pane's origin is `(paneLeading, headerHeight)` in body coordinates.
-    static func inPane(_ body: CGRect, headerHeight: CGFloat) -> CGRect {
-        body.offsetBy(dx: -paneLeading, dy: -headerHeight)
+    /// A board distance from the shape's right edge, as a body x.
+    func right(_ inset: CGFloat) -> CGFloat { bodyWidth + Self.shoulder - inset }
+
+    /// `m`, the shape's centre, which is the body's.
+    var centre: CGFloat { bodyWidth / 2 }
+
+    /// A board y, in the content's coordinates.
+    static func y(_ board: CGFloat) -> CGFloat { board - SurfaceLayout.referenceNotchHeight }
+
+    // MARK: - Frames, in content coordinates
+
+    /// (54, 38), 60 × 60, radius 10: the cover, and the button the stage opens
+    /// from.
+    var cover: CGRect { CGRect(x: Self.x(54), y: Self.y(38), width: Self.coverSide, height: Self.coverSide) }
+    static let coverSide: CGFloat = 60
+    static let coverRadius: CGFloat = 10
+
+    /// The title's and the subtitle's leading edge, x 129.2.
+    var textLeading: CGFloat { Self.x(129.2) }
+    /// The title's baseline, 65; the subtitle's, 84.5.
+    var titleBaseline: CGFloat { Self.y(65) }
+    var subtitleBaseline: CGFloat { Self.y(84.5) }
+    static let titleSize: CGFloat = 16
+    static let subtitleSize: CGFloat = 14
+
+    /// 23 × 18 at top 49, ending 54.2 from the shape's right edge.
+    var equalizer: CGRect {
+        CGRect(x: right(54.2) - 23, y: Self.y(49), width: 23, height: 18)
     }
 
-    func inPane(_ body: CGRect) -> CGRect {
-        Self.inPane(body, headerHeight: headerHeight)
-    }
+    /// The gap the title keeps before the equalizer.
+    static let titleClearance: CGFloat = 8
 
-    /// The pane's own size at this body width, on a 208 pt body with the
-    /// shell's 14 pt below it.
-    var paneSize: CGSize {
-        CGSize(
-            width: Self.paneWidth(bodyWidth: bodyWidth),
-            height: NotchMetrics.standardBodyHeight - NotchGeometry.bodyBottomPadding - headerHeight
-        )
-    }
+    /// The title truncates before the equalizer.
+    var titleWidth: CGFloat { equalizer.minX - Self.titleClearance - textLeading }
+    /// The subtitle runs to the equalizer's right edge: nothing stands beside
+    /// it.
+    var subtitleWidth: CGFloat { equalizer.maxX - textLeading }
 
-    // MARK: - Frames, in body coordinates
+    /// The times' row: Elapsed at (53.5, 114), Remaining at top 114 ending
+    /// 54.2 from the right edge.
+    var timesTop: CGFloat { Self.y(114) }
+    var elapsedLeading: CGFloat { Self.x(53.5) }
+    var timesTrailing: CGFloat { right(54.2) }
 
-    /// What a no-band layout moves up by.
-    private var rise: CGFloat { hasLyricBand ? 0 : Self.noLyricRise }
-
-    /// The text column's width: `bw − 220`, the title's and subtitle's ceiling,
-    /// the band's, and the progress row's.
-    var columnWidth: CGFloat { bodyWidth - 220 }
-
-    static let columnLeading: CGFloat = 206
-
-    var cover: CGRect { CGRect(x: Self.paneLeading, y: 54, width: 132, height: 132) }
-
-    /// 16 pt semibold; 52, or 70 without a band (see `noLyricRise`).
-    var title: CGRect {
-        CGRect(x: Self.columnLeading, y: hasLyricBand ? 52 : 70, width: columnWidth, height: 20)
-    }
-
-    var subtitle: CGRect {
-        CGRect(x: Self.columnLeading, y: title.minY + 21, width: columnWidth, height: 16)
-    }
-
-    /// The sung line and the next one, 18 pt apart. Absent without a band.
-    var sungLine: CGRect { CGRect(x: Self.columnLeading, y: 99, width: columnWidth, height: 17) }
-    var nextLine: CGRect { CGRect(x: Self.columnLeading, y: 117, width: columnWidth, height: 17) }
-
+    /// (96.7, 117.4), 231.3 × 7, radius 3.5 — ending 97.4 from the shape's
+    /// right edge, so it is 231.3 on the board's 425.4.
     var progress: CGRect {
-        CGRect(x: Self.columnLeading, y: 141 - rise, width: columnWidth, height: 12)
+        let minX = Self.x(96.7)
+        return CGRect(x: minX, y: Self.y(117.4), width: right(97.4) - minX, height: 7)
+    }
+    static let progressRadius: CGFloat = 3.5
+
+    /// The controls row's centre, y 164.6.
+    var controlsMidY: CGFloat { Self.y(164.6) }
+    /// Every control is a 42 × 42 target.
+    static let hitTarget: CGFloat = 42
+
+    /// The five controls' centres: `m − 133`, `m − 69`, `m`, `m + 69`, `m + 133`.
+    enum Control: CaseIterable, Equatable {
+        case favourite, previous, playPause, next, output
+
+        var offset: CGFloat {
+            switch self {
+            case .favourite: return -133
+            case .previous: return -69
+            case .playPause: return 0
+            case .next: return 69
+            case .output: return 133
+            }
+        }
+
+        /// The glyph's drawn size on the board.
+        var glyph: CGSize {
+            switch self {
+            case .favourite, .output: return CGSize(width: 28, height: 27)
+            case .previous, .next: return CGSize(width: 35, height: 22)
+            case .playPause: return CGSize(width: 29, height: 34)
+            }
+        }
     }
 
-    var shuffle: CGRect { CGRect(x: Self.columnLeading, y: transport.minY + 2, width: 24, height: 24) }
-    var transport: CGRect { CGRect(x: 236, y: 158 - rise, width: 100, height: 28) }
-    var repeatButton: CGRect { CGRect(x: 342, y: transport.minY + 2, width: 24, height: 24) }
-
-    /// The trailing pair rides the edge: Output at `bw − 68`, Lyrics at
-    /// `bw − 40`, each 26 × 26 — the last one ends at `bw − 14`, which is the
-    /// pane's own right edge.
-    var output: CGRect? {
-        guard hasOutputButton else { return nil }
-        return CGRect(x: bodyWidth - 68, y: 159 - rise, width: 26, height: 26)
+    /// The 42 × 42 target a control is centred in.
+    func target(_ control: Control) -> CGRect {
+        let side = Self.hitTarget
+        return CGRect(x: centre + control.offset - side / 2, y: controlsMidY - side / 2, width: side, height: side)
     }
 
-    var lyrics: CGRect {
-        CGRect(x: bodyWidth - 40, y: 159 - rise, width: 26, height: 26)
-    }
+    /// The Output button's target, or nil while the person has it off.
+    var output: CGRect? { hasOutputButton ? target(.output) : nil }
 
-    // MARK: - Nothing playing (spec §4.8)
+    // MARK: - Nothing playing (spec §4.8, in §19.6's frame)
 
-    /// The well that stands where the cover goes: the playing layout's frame.
-    static let emptyWell = CGRect(x: paneLeading, y: 54, width: 132, height: 132)
+    /// The well where the cover goes, at the cover's frame.
+    var emptyWell: CGRect { cover }
 
-    /// What the empty tab lays out, by state — pure, so the table in §4.8 is a
-    /// test. `titleY`, `bodyY`, `buttonsY` are body y for the elements the
-    /// table lists; `footerY` is the reader-down line under the buttons.
+    /// What the empty player lays out, by state — pure, so §4.8's three states
+    /// in the player's frame are a test. The status and its line of why are in
+    /// the title's column, top-aligned with the well; the remedy is the
+    /// controls row; the reader-down pointer sits under it.
     struct EmptyFrames: Equatable {
-        let titleY: CGFloat
-        let titleSize: CGFloat
-        let bodyY: CGFloat
-        let buttonsY: CGFloat
-        let footerY: CGFloat?
+        /// The status and the line under it, as one column.
+        let text: CGRect
+        let headlineSize: CGFloat
+        /// The row of buttons, as wide as the times' row.
+        let buttons: CGRect
+        let footer: CGRect?
 
-        /// Wrapping width of the title and the body (spec: "wraps at 330").
-        static let textWidth: CGFloat = 330
         static let buttonHeight: CGFloat = 22
         static let buttonSpacing: CGFloat = 8
         static let openButtonHorizontalPadding: CGFloat = 10
@@ -182,19 +152,17 @@ struct PlayerLayout: Equatable {
 
     // MARK: - The empty player's "Open …" buttons
 
-    /// Most buttons the empty player offers. Three is what a 480-wide panel can
-    /// hold in the 260 pt right of the text column with the shortest names; the
-    /// fit below decides the rest, per name and per width.
+    /// Most buttons the empty player offers. The fit below decides how many
+    /// of the three the 318 pt row holds, per name.
     static let maxOpenButtons = 3
     /// The app's own icon at the button's leading edge, and the gap after it.
     static let openButtonIconSide: CGFloat = 16
     static let openButtonIconGap: CGFloat = 6
 
-    /// What the row of buttons may occupy: from the text column's left edge to
-    /// the pane's right edge. The buttons start where the title does
-    /// (`columnLeading`), so a pane's width alone says how far they can run.
-    static func openButtonsRoom(paneWidth: CGFloat) -> CGFloat {
-        paneWidth - (columnLeading - paneLeading)
+    /// What the row of buttons may occupy: the controls row's own span, from
+    /// the elapsed time's leading edge to the remaining time's trailing one.
+    static func openButtonsRoom(bodyWidth: CGFloat) -> CGFloat {
+        PlayerLayout(bodyWidth: bodyWidth).timesTrailing - x(53.5)
     }
 
     /// How a row of "Open …" buttons is dressed, from the generous form to the
@@ -293,377 +261,72 @@ struct PlayerLayout: Equatable {
         openButtonRow(apps, room: room, spacing: spacing, limit: limit, labelWidth: labelWidth).apps
     }
 
-    static func emptyFrames(for message: MediaPane.EmptyStateMessage) -> EmptyFrames {
+    static func emptyFrames(
+        for message: MediaPane.EmptyStateMessage, bodyWidth: CGFloat = referenceBodyWidth
+    ) -> EmptyFrames {
+        let layout = PlayerLayout(bodyWidth: bodyWidth)
+        let leading = layout.elapsedLeading
+        let width = layout.timesTrailing - leading
+        let text = CGRect(x: layout.textLeading, y: layout.cover.minY, width: layout.subtitleWidth, height: 92)
+        let buttons = CGRect(
+            x: leading, y: layout.controlsMidY - EmptyFrames.buttonHeight / 2 - 8,
+            width: width, height: EmptyFrames.buttonHeight
+        )
         switch message {
-        case .nothingPlaying:
-            return EmptyFrames(titleY: 80, titleSize: 16, bodyY: 103, buttonsY: 132, footerY: nil)
+        case .nothingPlaying, .hiddenByMusicOnly:
+            return EmptyFrames(text: text, headlineSize: 14, buttons: buttons, footer: nil)
         case .readerDown:
-            return EmptyFrames(titleY: 70, titleSize: 16, bodyY: 93, buttonsY: 120, footerY: 153)
-        case .hiddenByMusicOnly:
-            // 15 / semibold on the board, wrapping: the `title` role's 16 is the
-            // size that ships (spec §2.2 maps 15 and 16 to it).
-            return EmptyFrames(titleY: 72, titleSize: 16, bodyY: 115, buttonsY: 140, footerY: nil)
+            return EmptyFrames(
+                text: text, headlineSize: 14, buttons: buttons,
+                footer: CGRect(x: leading, y: buttons.maxY + 8, width: width, height: 14)
+            )
         }
     }
 }
 
-// MARK: - Player, column, tall (spec §5.1, §6)
+// MARK: - The lyric ramp (spec §19.6)
 
-/// The three views of one model: the player `P`, the lyric column `C` and the
-/// tall lyric page `T` (spec §5.1).
-///
-/// They are not three panes swapped by a transition. The cover, the title, the
-/// progress row, the transport and the two buttons are the very
-/// same views in all three, and what changes with the state is only the frame
-/// each is placed in — so a state change is an animation of frames, and every
-/// element *travels* to its next place instead of fading out where it was and
-/// in where it goes. (`matchedGeometryEffect` is for a pair of views one of
-/// which is inserted while the other leaves; here nothing leaves, which is
-/// both simpler and sturdier: there is no id pair to drift apart.) The one
-/// matched pair left is the cover's, with the island's own — see `MediaPane`.
-///
-/// Every frame is a row of the table in the spec, so `frames(for:)` is that
-/// table and the tests read it at 480, 560 and 620.
 extension PlayerLayout {
-    enum State: Equatable, CaseIterable {
-        case player
-        case column
-        case tall
-
-        /// The body height the state sits in: the player and the column in the
-        /// standard 208, the tall page in the 400 the window was cut for
-        /// (`NotchMetrics.tallestBody`). One home for the pair, so `openBodySize`
-        /// and the layout cannot disagree about what "tall" is.
-        var bodyHeight: CGFloat {
-            self == .tall ? NotchMetrics.tallestBody.height : NotchMetrics.standardBodyHeight
-        }
-
-        /// What the Lyrics button does from here: the player opens the column,
-        /// and the column or the tall page closes back to the player (§5.1:
-        /// "P ↔ C on the Lyrics button").
-        var afterLyricsButton: Bool { self == .player }
-    }
-
-    /// Every element's frame in body coordinates for one state. `nil` where the
-    /// state does not draw it.
-    struct StateFrames: Equatable {
-        var bodyHeight: CGFloat
-        var cover: CGRect
-        var coverRadius: CGFloat
-        var title: CGRect
-        /// The size the title is set in: 16 in the player, 13 in the column and
-        /// on the tall page (role `title` / `subhead`).
-        var titleSize: CGFloat
-        /// The player's "Artist — Album" line; the column's and the tall page's
-        /// artist-only line. The two are drawn as one frame each state.
-        var subtitle: CGRect
-        var subtitleSize: CGFloat
-        /// Whether the subtitle is the full line (the player) or the artist
-        /// alone (the column and the tall page).
-        var subtitleIsArtistOnly: Bool
-        var progress: CGRect
-        var transport: CGRect
-        /// Shuffle and Repeat flank the transport in the player and fold away
-        /// in the column and the tall page ("for reading", the board says); the
-        /// frames are still given so they fold *into* the transport instead of
-        /// vanishing from nowhere.
-        var shuffle: CGRect
-        var repeatButton: CGRect
-        var showsModes: Bool
-        var output: CGRect?
-        var lyrics: CGRect
-        /// The lyric lines' region — the page the lines scroll in. The player
-        /// has none: its two-line band is `sungLine` / `nextLine`.
-        var lyricArea: CGRect?
-        /// The sung line's frame in the column and on the tall page, so the
-        /// reading centre is one number that comes from the table: the line the
-        /// song is in sits here and the lines move through it.
-        var sungLine: CGRect?
-        /// Distance between two lines' tops, the fixed slot every row occupies.
-        var lyricPitch: CGFloat?
-        var lyricSize: CGFloat?
-    }
-
-    /// The spec's table, for this layout's width, header and settings.
-    ///
-    /// `translated` is the `Ct` and `Tt` columns of the board (§5.1): a
-    /// translation under each line, which grows the pitch and — on the tall
-    /// page — moves where the sung pair sits. The player has no lines of its own
-    /// to translate, so it ignores the flag.
-    func frames(for state: State, translated: Bool = false) -> StateFrames {
-        var frames = untranslatedFrames(for: state)
-        guard translated, state != .player, let sung = frames.sungLine, let pitch = Self.translatedPitch(for: state) else {
-            return frames
-        }
-        frames.lyricPitch = pitch
-        frames.sungLine = Self.translatedSungLine(for: state, plain: sung)
-        return frames
-    }
-
-    /// The sung pair's frame when each line carries a translation: the line and
-    /// its translation as one block, centred where the sung line was centred in
-    /// the column (`Ct`: the line moves from y 96 to 89 and the translation
-    /// under it ends the block, so the middle is the same) and, on the tall page,
-    /// where the board puts it (`Tt`: y 188, the block's middle at 208 — the
-    /// middle of the page between the cover row and the footer, which the lone
-    /// line's 166 sat above).
-    static func translatedSungLine(for state: State, plain: CGRect) -> CGRect {
-        switch state {
-        case .column: return CGRect(x: plain.minX, y: 89, width: plain.width, height: 32)
-        case .tall: return CGRect(x: plain.minX, y: 188, width: plain.width, height: 40)
-        case .player: return plain
-        }
-    }
-
-    /// Distance between two lines' tops with a translation under each (§5.1):
-    /// 23 → 46 in the column, 34 → 52 on the tall page.
-    static func translatedPitch(for state: State) -> CGFloat? {
-        switch state {
-        case .column: return 46
-        case .tall: return 52
-        case .player: return nil
-        }
-    }
-
-    /// The translation row's type (§5.1, §2.2 roles): 10.5 → `caption` in the
-    /// column and 12 → `reading` on the tall page, regular; the sung line's
-    /// 11.5 → `body` and 13 → `subhead`, medium. Plain text throughout — the
-    /// sung line's translation sweeps nothing.
-    static func translationStyle(tall: Bool, isSung: Bool) -> (size: CGFloat, weight: Font.Weight) {
-        switch (tall, isSung) {
-        case (false, false): return (Theme.TypeRole.caption.size, .regular)
-        case (false, true): return (Theme.TypeRole.body.size, .medium)
-        case (true, false): return (Theme.TypeRole.reading.size, .regular)
-        case (true, true): return (Theme.TypeRole.subhead.size, .medium)
-        }
-    }
-
-    /// How bright a translation row is drawn: the sung line's at the board's
-    /// 0.62 (0.66 on the tall page) and every other line's at the panel's
-    /// tertiary label grey, 0.50 (0.65 with Increase Contrast).
-    ///
-    /// The board dims a context line's translation to 0.24–0.34, as it dims the
-    /// line above it, but a translation is 10–12.5 pt regular text and the
-    /// panel's contrast floor for text that small is `Theme.tertiaryOpacity`
-    /// (4.5:1 over black); the spec says the floor wins over the boards (§2.1).
-    /// The lyric ramp's own 0.36 floor is the large-type one and would leave a
-    /// 10 pt row at 3.1:1. The sung translation clears the floor already, and is
-    /// raised to it under Increase Contrast, where 0.62 would fall under 0.65.
-    static func translationOpacity(isSung: Bool, tall: Bool, increaseContrast: Bool) -> Double {
-        let floor = Theme.tertiaryOpacity(increaseContrast: increaseContrast)
-        guard isSung else { return floor }
-        return max(tall ? 0.66 : 0.62, floor)
-    }
-
-    private func untranslatedFrames(for state: State) -> StateFrames {
-        switch state {
-        case .player:
-            return StateFrames(
-                bodyHeight: state.bodyHeight,
-                cover: cover, coverRadius: 14,
-                title: title, titleSize: Theme.TypeRole.title.size,
-                subtitle: subtitle, subtitleSize: Theme.TypeRole.reading.size, subtitleIsArtistOnly: false,
-                progress: progress, transport: transport,
-                shuffle: shuffle, repeatButton: repeatButton, showsModes: true,
-                output: output, lyrics: lyrics,
-                lyricArea: nil, sungLine: hasLyricBand ? sungLine : nil, lyricPitch: nil, lyricSize: nil
-            )
-        case .column:
-            return StateFrames(
-                bodyHeight: state.bodyHeight,
-                cover: CGRect(x: Self.paneLeading, y: 50, width: 52, height: 52), coverRadius: 9,
-                title: CGRect(x: 122, y: 53, width: Self.columnTitleWidth, height: 16),
-                titleSize: Theme.TypeRole.subhead.size,
-                subtitle: CGRect(x: 122, y: 71, width: Self.columnTitleWidth, height: 14),
-                subtitleSize: Theme.TypeRole.body.size, subtitleIsArtistOnly: true,
-                progress: CGRect(x: Self.paneLeading, y: 116, width: 190, height: 12),
-                transport: CGRect(x: 84, y: 136, width: 138, height: 28),
-                shuffle: CGRect(x: 84, y: 138, width: 24, height: 24),
-                repeatButton: CGRect(x: 200, y: 138, width: 24, height: 24), showsModes: false,
-                output: hasOutputButton ? CGRect(x: 197, y: 169, width: 26, height: 26) : nil,
-                lyrics: CGRect(x: 225, y: 169, width: 26, height: 26),
-                // From the header's foot to the pane's bottom, `bw − 282` wide:
-                // 268 is where the lines start, the pane's own edge `bw − 14`
-                // where they end.
-                lyricArea: CGRect(
-                    x: Self.columnLinesLeading, y: headerHeight,
-                    width: bodyWidth - Self.columnLinesLeading - Self.paneTrailing,
-                    height: state.bodyHeight - NotchGeometry.bodyBottomPadding - headerHeight
-                ),
-                sungLine: CGRect(x: Self.columnLinesLeading, y: 96, width: bodyWidth - Self.columnLinesLeading - Self.paneTrailing, height: 17),
-                lyricPitch: 23, lyricSize: Theme.TypeRole.subhead.size
-            )
-        case .tall:
-            // The footer row, right to left, from the trailing edge: Lyrics at
-            // `bw − 45`, Output at `bw − 75`, the progress row's right end 12
-            // before Output. At 560 that is the board's 515 / 485 and a bar
-            // 315 wide. It used to stop at a volume bar of 78 sitting 19 before
-            // Output (218 wide); the volume left the island on 2026-10-16, and
-            // the bar takes the room instead of leaving a hole there.
-            let outputX = bodyWidth - 75
-            return StateFrames(
-                bodyHeight: state.bodyHeight,
-                cover: CGRect(x: Self.paneLeading, y: 46, width: 34, height: 34), coverRadius: 7,
-                title: CGRect(x: 102, y: 46, width: bodyWidth - 102 - Self.paneTrailing, height: 16),
-                titleSize: Theme.TypeRole.subhead.size,
-                subtitle: CGRect(x: 102, y: 63, width: bodyWidth - 102 - Self.paneTrailing, height: 14),
-                subtitleSize: Theme.TypeRole.body.size, subtitleIsArtistOnly: true,
-                progress: CGRect(x: 158, y: 358, width: outputX - 12 - 158, height: 12),
-                transport: CGRect(x: 60, y: 350, width: 92, height: 28),
-                shuffle: CGRect(x: 60, y: 352, width: 24, height: 24),
-                repeatButton: CGRect(x: 128, y: 352, width: 24, height: 24), showsModes: false,
-                output: hasOutputButton ? CGRect(x: outputX, y: 351, width: 26, height: 26) : nil,
-                lyrics: CGRect(x: bodyWidth - 45, y: 351, width: 26, height: 26),
-                // The page between the cover row and the footer: the lines run
-                // the pane's width from the cover's own left edge.
-                lyricArea: CGRect(
-                    x: Self.paneLeading, y: Self.tallAreaTop,
-                    width: bodyWidth - Self.paneLeading - Self.paneTrailing,
-                    height: Self.tallAreaBottom - Self.tallAreaTop
-                ),
-                sungLine: CGRect(x: Self.paneLeading, y: 166, width: bodyWidth - Self.paneLeading - Self.paneTrailing, height: 21),
-                lyricPitch: 34, lyricSize: Theme.TypeRole.lyric.size
-            )
-        }
-    }
-
-    /// The same table without building an instance, for a test or a caller that
-    /// has only a width.
-    static func frames(
-        for state: State, bodyWidth: CGFloat, headerHeight: CGFloat = referenceHeaderHeight,
-        hasOutputButton: Bool = true, translated: Bool = false
-    ) -> StateFrames {
-        PlayerLayout(bodyWidth: bodyWidth, headerHeight: headerHeight, hasOutputButton: hasOutputButton)
-            .frames(for: state, translated: translated)
-    }
-
-    /// Where the column's lines start (`x 268`), and how wide the title may be
-    /// before it: from the title's 122 to the lines, less the 6 pt a lyric needs
-    /// to not read as the title's continuation.
-    static let columnLinesLeading: CGFloat = 268
-    static let columnTitleWidth: CGFloat = 140
-
-    /// The tall page's lyric region: under the cover row (46…80) and above the
-    /// footer (350).
-    static let tallAreaTop: CGFloat = 86
-    static let tallAreaBottom: CGFloat = 338
-
-    // MARK: Lyric ramp (spec §5.1)
-
-    /// The opacity the board gives the line `offset` rows from the sung one
-    /// (negative above). The column's are 0.22, 0.36, **1.0**, 0.5, 0.32, 0.18;
-    /// the tall page's 0.16, 0.30, **1.0**, 0.50, 0.32, 0.20, 0.12. Past the
-    /// board's last row a line is the faintest there is.
-    static func boardLyricOpacity(offset: Int, tall: Bool) -> Double {
-        let column: [Int: Double] = [-2: 0.22, -1: 0.36, 0: 1, 1: 0.5, 2: 0.32, 3: 0.18]
-        let page: [Int: Double] = [-2: 0.16, -1: 0.30, 0: 1, 1: 0.50, 2: 0.32, 3: 0.20, 4: 0.12]
-        let table = tall ? page : column
-        if let value = table[offset] { return value }
-        return tall ? 0.12 : 0.18
+    /// The opacity the stage's board gives the line `offset` rows from the sung
+    /// one (negative above): lines already sung 0.34 and 0.20 by distance, lines
+    /// to come 0.50, 0.32 and 0.18, and past the board's last row the faintest.
+    static func boardLyricOpacity(offset: Int) -> Double {
+        let board: [Int: Double] = [-2: 0.20, -1: 0.34, 0: 1, 1: 0.50, 2: 0.32, 3: 0.18]
+        if let value = board[offset] { return value }
+        return offset < 0 ? 0.20 : 0.18
     }
 
     /// The opacity a context line is *drawn* at: the board's, raised to the
     /// ramp's contrast floor where the board is dimmer.
     ///
-    /// The canvas draws its far lines at white 0.12–0.32; `Theme`'s contrast
-    /// floor (`LyricRow.Ramp`, WCAG 3:1 over black, held by `ContrastRampTests`)
-    /// is 0.36 and the neighbour's 0.42, and the spec says the floor wins over
-    /// the boards (§2.1). So the board's order — above the sung line dimmer than
-    /// below it, the next line the brightest context — is kept where it clears
-    /// the floor, and a line the board draws under it is drawn at the floor:
-    /// the column's 0.22/0.32/0.18 and the tall page's 0.16/0.30/0.32/0.20/0.12
-    /// all become 0.36, the line above the sung one 0.42, and the line after it
-    /// stays 0.5 (it already clears). Reading by hand lifts every context line
-    /// to the ramp's reading step, as it does everywhere.
-    static func lyricOpacity(
-        offset: Int, tall: Bool, ramp: LyricRow.Ramp, reading: Bool
-    ) -> Double {
+    /// `Theme`'s floor (`LyricRow.Ramp`, WCAG 3:1 over black, held by
+    /// `ContrastRampTests`) is 0.36 and the neighbour's 0.42, and the floor wins
+    /// over the boards (§2.1). So the board's order — the line after the sung
+    /// one the brightest context, the lines above dimmer than those below — is
+    /// kept where it clears the floor: the line above becomes 0.42, the line
+    /// after it stays 0.50, and every line the board draws under the floor is
+    /// drawn at it. Reading by hand lifts every context line to the ramp's
+    /// reading step, as it does everywhere.
+    static func lyricOpacity(offset: Int, ramp: LyricRow.Ramp, reading: Bool) -> Double {
         if offset == 0 { return 1 }
         if reading { return ramp.reading }
         let floor = abs(offset) == 1 ? ramp.neighbour : ramp.floor
-        return max(boardLyricOpacity(offset: offset, tall: tall), floor)
+        return max(boardLyricOpacity(offset: offset), floor)
     }
 
-    // MARK: Animation (spec §2.4)
-
-    /// How a change of state is animated: P ↔ C on `openAnimation` (the body
-    /// keeps its height, so only the content moves, critically damped), and
-    /// C ↔ T — and a straight P ↔ T, the tall state remembered across a visit
-    /// to the player — on the outline's spring, because the body grows or
-    /// shrinks and everything travels with it (spec §19.3). Reduce Motion takes
-    /// the travel away from all three: the 0.24 crossfade (`Theme.reducedMotion`).
-    static func animation(from: State, to: State, reduceMotion: Bool) -> Animation {
-        if reduceMotion { return Theme.reducedMotion }
-        return from.bodyHeight == to.bodyHeight ? Theme.openAnimation : Theme.islandSpring
+    /// The translation row's type (§5.3 on the stage): 13 regular, under the
+    /// sung line and every other.
+    static func translationStyle(isSung: Bool) -> (size: CGFloat, weight: Font.Weight) {
+        (13, .regular)
     }
 
-    // MARK: A new track (spec §5.1)
-
-    /// Whether a column opened before the track changed should fall back to the
-    /// player: only when the new song has no lyrics to put in it — a miss the
-    /// lookup has *settled*, never the moment of the change, when the answer is
-    /// not in yet. Otherwise the column stays: it is where the person chose to
-    /// be.
-    static func shouldReturnToPlayer(awaitingNewTrack: Bool, availability: LyricsAvailability) -> Bool {
-        guard awaitingNewTrack else { return false }
-        switch availability {
-        case .noLocalLyrics, .invalidLocalFile, .cannotLookUp: return true
-        case .disabled, .resolving, .findingLocalLyrics, .ready: return false
-        }
-    }
-
-    /// Whether the new-track wait survives a change of page: only on the
-    /// column, the one page that can fold back. Leaving it (to the tall page,
-    /// or to the player) ends the wait, so coming back later cannot fold on a
-    /// stale flag.
-    static func keepsWaiting(awaitingNewTrack: Bool, page: State) -> Bool {
-        awaitingNewTrack && page == .column
-    }
-
-    /// The whole fold-back decision, as the pane takes it when its timer fires
-    /// or the availability settles.
-    ///
-    /// Three things beyond `shouldReturnToPlayer` (review 2026-10-15):
-    ///
-    /// - **Only from the column.** Spec §5.1 sends a person back to the player
-    ///   from the column; the tall page is where they chose to be, and folding
-    ///   it dropped the body 400 → 208 under a pointer resting on its lower
-    ///   half — the close rect shrank to leave the pointer outside it, and the
-    ///   panel folded shut on someone who had touched nothing.
-    /// - **Only for the song the timer was set for.** The 1 s timer used to
-    ///   outlive its song: skipping A → B → C quickly let B's timer read B's
-    ///   stale "no lyrics" and fold C back although C had lyrics. A timer that
-    ///   fires for a track that is no longer current decides nothing.
-    /// - A timer fired with no current track (the player emptied) decides
-    ///   nothing either.
-    static func shouldFoldBack(
-        awaitingNewTrack: Bool, availability: LyricsAvailability, page: State,
-        scheduledFor scheduledTrack: String, currentTrack: String?
-    ) -> Bool {
-        guard page == .column, currentTrack == scheduledTrack else { return false }
-        return shouldReturnToPlayer(awaitingNewTrack: awaitingNewTrack, availability: availability)
-    }
-}
-
-/// The three header tools' frames, in body coordinates (spec §5.2, §6): Show
-/// Translation at `bw − 91`, More at `bw − 65` and Expand / Collapse at
-/// `bw − 39`, each 22 × 22 and 8 below the top. Fixed in every state, so the
-/// two that are always there never move and the one that is hidden until the
-/// translation release leaves a gap rather than sliding its neighbour.
-enum HeaderToolFrames {
-    static let side: CGFloat = 22
-    static let top: CGFloat = 8
-    static let spacing: CGFloat = 4
-
-    static func showTranslation(bodyWidth: CGFloat) -> CGRect {
-        CGRect(x: bodyWidth - 91, y: top, width: side, height: side)
-    }
-
-    static func more(bodyWidth: CGFloat) -> CGRect {
-        CGRect(x: bodyWidth - 91 + side + spacing, y: top, width: side, height: side)
-    }
-
-    static func expand(bodyWidth: CGFloat) -> CGRect {
-        CGRect(x: bodyWidth - 39, y: top, width: side, height: side)
+    /// How bright a translation row is drawn: the sung line's at the board's
+    /// 0.66, every other line's at 0.45 — raised to the panel's tertiary label
+    /// grey, which is the floor for 13 pt regular text (4.5:1 over black), so
+    /// 0.50, and 0.65 with Increase Contrast. The spec says the floor wins over
+    /// the boards (§2.1); the lyric ramp's own 0.36 floor is the large-type one.
+    static func translationOpacity(isSung: Bool, increaseContrast: Bool) -> Double {
+        let floor = Theme.tertiaryOpacity(increaseContrast: increaseContrast)
+        return max(isSung ? 0.66 : 0.45, floor)
     }
 }

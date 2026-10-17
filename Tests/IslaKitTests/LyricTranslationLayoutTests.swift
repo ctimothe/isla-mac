@@ -3,80 +3,52 @@ import SwiftUI
 import XCTest
 @testable import IslaKit
 
-/// How a translated lyric is laid out and reached (spec §5.1 `Ct`/`Tt`, §5.2,
-/// §5.3): the pitch with and without a translation under each line, where the
-/// sung pair sits, the translation row's type and brightness, the header tool's
-/// menu as a pure function, and the stage in the accessibility tree.
+/// How a translated lyric is laid out and reached (spec §19.6, §5.3): the pitch
+/// with and without a translation under each line, where the sung pair sits, the
+/// translation row's type and brightness, the header tool's menu as a pure
+/// function, and the stage in the accessibility tree. The column's `Ct` and the
+/// tall page's `Tt` (§5.1) were withdrawn with those states (§19.11): the stage
+/// is the one lyric surface, with one pitch and one pitch for a pair.
 @MainActor
 final class LyricTranslationLayoutTests: XCTestCase {
-    // MARK: - Pitch and frames (spec §5.1)
+    // MARK: - Pitch and frames (spec §19.6)
 
-    func testAPairIsTwiceTheColumnsPitchAndFiftyTwoOnTheTallPage() throws {
-        XCTAssertEqual(LyricsStage.Metrics.column.slot(translated: false), 23)
-        XCTAssertEqual(LyricsStage.Metrics.column.slot(translated: true), 46, "column 23 → 46 per translated pair")
-        XCTAssertEqual(LyricsStage.Metrics.tall.slot(translated: false), 34)
-        XCTAssertEqual(LyricsStage.Metrics.tall.slot(translated: true), 52, "tall 34 → 52")
+    /// A line is a 28 pt line and the 10 between lines: 38 a slot; a pair is the
+    /// line, the 2 pt gap, a 13 pt row and the 10 between: 56.
+    func testAPairIsFiftySixWhereALoneLineIsThirtyEight() throws {
+        XCTAssertEqual(LyricsStage.Metrics.stage.slot(translated: false), 38)
+        XCTAssertEqual(LyricsStage.Metrics.stage.slot(translated: true), 56, "38 → 56 per translated pair")
+        XCTAssertEqual(LyricsStage.Metrics.stage.lineHeight, 28)
+        XCTAssertEqual(LyricsStage.slotHeight, 38)
 
+        // Nothing else moves: the translation is a change of the lines' region
+        // and its pitch, never of the foot around it — the stage's frames take
+        // no translation at all.
         for width: CGFloat in [480, 560, 620] {
-            let column = PlayerLayout.frames(for: .column, bodyWidth: width)
-            let columnT = PlayerLayout.frames(for: .column, bodyWidth: width, translated: true)
-            XCTAssertEqual(column.lyricPitch, 23)
-            XCTAssertEqual(columnT.lyricPitch, 46, "Ct at \(width)")
-            XCTAssertEqual(columnT.lyricPitch, LyricsStage.Metrics.column.translatedPitch)
-            let tall = PlayerLayout.frames(for: .tall, bodyWidth: width)
-            let tallT = PlayerLayout.frames(for: .tall, bodyWidth: width, translated: true)
-            XCTAssertEqual(tall.lyricPitch, 34)
-            XCTAssertEqual(tallT.lyricPitch, 52, "Tt at \(width)")
-            XCTAssertEqual(tallT.lyricPitch, LyricsStage.Metrics.tall.translatedPitch)
-
-            // Nothing else moves: the translation is a change of the lines'
-            // region and its pitch, never of the controls around it.
-            for (plain, translated) in [(column, columnT), (tall, tallT)] {
-                XCTAssertEqual(plain.cover, translated.cover)
-                XCTAssertEqual(plain.transport, translated.transport)
-                XCTAssertEqual(plain.progress, translated.progress)
-                XCTAssertEqual(plain.lyricArea, translated.lyricArea)
-                XCTAssertEqual(plain.lyricSize, translated.lyricSize, "the lines keep their size")
-            }
+            let layout = StageLayout(bodyWidth: width)
+            XCTAssertEqual(layout.lines, CGRect(x: 24, y: 0, width: width - 48, height: 268), "lines at \(width)")
+            XCTAssertLessThan(layout.lines.maxY, layout.hairline.minY, "the lines end above the foot's hairline")
         }
     }
 
-    /// The sung pair: in the column the line steps up from y 96 to 89 so the pair
-    /// is centred where the lone line was (the board's `Ct`); on the tall page
-    /// the board seats it at y 188, the block's middle at 208.
-    func testTheSungPairSitsWhereTheBoardPutsIt() throws {
-        let column = try XCTUnwrap(PlayerLayout.frames(for: .column, bodyWidth: 560).sungLine)
-        let columnT = try XCTUnwrap(PlayerLayout.frames(for: .column, bodyWidth: 560, translated: true).sungLine)
-        XCTAssertEqual(columnT.minY, 89, "Ct: the sung line at y 89")
-        XCTAssertEqual(columnT.minX, column.minX)
-        XCTAssertEqual(columnT.midY, column.midY, accuracy: 1, "the column keeps its reading centre")
-
-        let tall = try XCTUnwrap(PlayerLayout.frames(for: .tall, bodyWidth: 560).sungLine)
-        let tallT = try XCTUnwrap(PlayerLayout.frames(for: .tall, bodyWidth: 560, translated: true).sungLine)
-        XCTAssertEqual(tallT.minY, 188, "Tt: the sung line at y 188")
-        XCTAssertEqual(tallT.minX, tall.minX)
-        // Inside the page between the cover row and the footer.
-        XCTAssertGreaterThan(tallT.minY, PlayerLayout.tallAreaTop)
-        XCTAssertLessThan(tallT.maxY, PlayerLayout.tallAreaBottom)
-
-        // The player has no lines of its own to translate.
-        XCTAssertEqual(
-            PlayerLayout.frames(for: .player, bodyWidth: 560, translated: true),
-            PlayerLayout.frames(for: .player, bodyWidth: 560)
-        )
+    /// The sung line's top is at y 138 on the board: its centre in the lines'
+    /// own coordinates is 138 − 38 + 14. A pair is centred on the same place
+    /// (the stage's anchor does the centring), so the reading centre does not
+    /// depend on a translation.
+    func testTheReadingCentreIsTheBoards() {
+        XCTAssertEqual(StageLayout.readingCentre, 138 - 38 + 28.0 / 2)
+        XCTAssertEqual(StageLayout.readingCentre, 114)
+        XCTAssertLessThan(StageLayout.readingCentre, StageLayout.linesHeight / 2, "above the middle: more lines to come than gone")
     }
 
     /// A pair is centred in its slot, so the arithmetic the stage already does —
     /// the anchor that puts a row's centre at the reading centre — holds for the
     /// taller slot exactly as it did for the lone line.
     func testTheAnchorLandsATranslatedRowsCentreOnTheReadingCentre() throws {
-        for state in [PlayerLayout.State.column, .tall] {
-            let f = PlayerLayout.frames(for: state, bodyWidth: 560, translated: true)
-            let area = try XCTUnwrap(f.lyricArea)
-            let sung = try XCTUnwrap(f.sungLine)
-            let slot = try XCTUnwrap(f.lyricPitch)
-            let centre = LyricsStage.holdingCentre(centre: sung.midY - area.minY, viewport: area.height)
-            XCTAssertEqual(centre, sung.midY - area.minY, "\(state): inside the viewport, held where the table has it")
+        let area = StageLayout(bodyWidth: 560).lines
+        for slot in [LyricsStage.Metrics.stage.slot(translated: false), LyricsStage.Metrics.stage.slot(translated: true)] {
+            let centre = LyricsStage.holdingCentre(centre: StageLayout.readingCentre, viewport: area.height)
+            XCTAssertEqual(centre, StageLayout.readingCentre, "inside the viewport, held where the board has it")
             let unit = LyricsStage.anchorUnit(centre: centre, viewport: area.height, slot: slot)
             XCTAssertEqual(unit * area.height - unit * slot + slot / 2, centre, accuracy: 0.001)
             let air = LyricsStage.air(viewport: area.height, slot: slot, centre: centre)
@@ -85,51 +57,45 @@ final class LyricTranslationLayoutTests: XCTestCase {
         }
     }
 
-    // MARK: - The translation row's type and brightness (spec §2.2, §2.1)
+    // MARK: - The translation row's type and brightness (spec §19.6, §2.1)
 
-    func testTheTranslationRowsTypeIsTheBoardsByRole() {
-        let column = PlayerLayout.translationStyle(tall: false, isSung: false)
-        XCTAssertEqual(column.size, Theme.TypeRole.caption.size, "10.5 → the caption role")
-        XCTAssertEqual(column.weight, .regular)
-        let columnSung = PlayerLayout.translationStyle(tall: false, isSung: true)
-        XCTAssertEqual(columnSung.size, Theme.TypeRole.body.size, "11.5 → the body role")
-        XCTAssertEqual(columnSung.weight, .medium)
-        let tall = PlayerLayout.translationStyle(tall: true, isSung: false)
-        XCTAssertEqual(tall.size, Theme.TypeRole.reading.size, "12 → the reading role")
-        XCTAssertEqual(tall.weight, .regular)
-        let tallSung = PlayerLayout.translationStyle(tall: true, isSung: true)
-        XCTAssertEqual(tallSung.size, Theme.TypeRole.subhead.size, "13 → the subhead role")
-        XCTAssertEqual(tallSung.weight, .medium)
-        XCTAssertLessThan(column.size, columnSung.size)
-        XCTAssertLessThan(tall.size, tallSung.size)
+    /// 13 regular under every line, the sung one's as well (§19.6).
+    func testTheTranslationRowsTypeIs13Regular() {
+        for isSung in [false, true] {
+            let style = PlayerLayout.translationStyle(isSung: isSung)
+            XCTAssertEqual(style.size, 13, "sung \(isSung)")
+            XCTAssertEqual(style.size, Theme.TypeRole.subhead.size, "13 → the subhead role")
+            XCTAssertEqual(style.weight, .regular)
+        }
         // A line over its translation fits the slot it is given, gap included.
-        XCTAssertLessThanOrEqual(13 * 1.25 + LyricRow.translationGap + 11 * 1.25, 46)
-        XCTAssertLessThanOrEqual(17 * 1.25 + LyricRow.translationGap + 13 * 1.25, 52)
+        // The pair: the 28 pt line, the 2 pt gap, the 13 pt row's 16 pt line and the
+        // 10 between pairs.
+        XCTAssertEqual(
+            Double(LyricsStage.Metrics.stage.lineHeight) + Double(LyricRow.translationGap) + 16 + 10,
+            Double(LyricsStage.Metrics.stage.translatedPitch)
+        )
     }
 
-    /// The board dims a context line's translation to 0.24–0.34; that is under the
+    /// The board dims a context line's translation to 0.45; that is under the
     /// contrast floor for text this small, and the floor wins (§2.1). The sung
-    /// line's is the board's 0.62 (0.66 on the tall page), never under the floor.
+    /// line's is the board's 0.66, never under the floor.
     func testTranslationsHoldTheContrastFloorOverBlack() {
         for increaseContrast in [false, true] {
             let floor = Theme.tertiaryOpacity(increaseContrast: increaseContrast)
-            for tall in [false, true] {
-                for isSung in [false, true] {
-                    let opacity = PlayerLayout.translationOpacity(isSung: isSung, tall: tall, increaseContrast: increaseContrast)
-                    XCTAssertGreaterThanOrEqual(opacity, floor)
-                    XCTAssertGreaterThanOrEqual(
-                        Theme.contrast(textOpacity: opacity, overGrey: 0), 4.5,
-                        "AA for 10–13 pt text over the island's black (tall \(tall), sung \(isSung), IC \(increaseContrast))"
-                    )
-                }
+            for isSung in [false, true] {
+                let opacity = PlayerLayout.translationOpacity(isSung: isSung, increaseContrast: increaseContrast)
+                XCTAssertGreaterThanOrEqual(opacity, floor)
+                XCTAssertGreaterThanOrEqual(
+                    Theme.contrast(textOpacity: opacity, overGrey: 0), 4.5,
+                    "AA for 13 pt text over the island's black (sung \(isSung), IC \(increaseContrast))"
+                )
             }
         }
-        XCTAssertEqual(PlayerLayout.translationOpacity(isSung: true, tall: false, increaseContrast: false), 0.62)
-        XCTAssertEqual(PlayerLayout.translationOpacity(isSung: true, tall: true, increaseContrast: false), 0.66)
-        XCTAssertEqual(PlayerLayout.translationOpacity(isSung: false, tall: false, increaseContrast: false), 0.50)
+        XCTAssertEqual(PlayerLayout.translationOpacity(isSung: true, increaseContrast: false), 0.66)
+        XCTAssertEqual(PlayerLayout.translationOpacity(isSung: false, increaseContrast: false), 0.50)
         XCTAssertGreaterThan(
-            PlayerLayout.translationOpacity(isSung: true, tall: false, increaseContrast: false),
-            PlayerLayout.translationOpacity(isSung: false, tall: false, increaseContrast: false),
+            PlayerLayout.translationOpacity(isSung: true, increaseContrast: false),
+            PlayerLayout.translationOpacity(isSung: false, increaseContrast: false),
             "the sung line's translation is the brightest"
         )
     }
@@ -264,17 +230,18 @@ final class LyricTranslationLayoutTests: XCTestCase {
 
     // MARK: - The stage, in the accessibility tree
 
-    private static let size = CGSize(width: 278, height: 156)
+    /// The lines' own area at the default 560 body: `bw − 48` by 268.
+    private static let size = CGSize(width: 512, height: 268)
     private static let lines: [LyricsStore.Line] = [
         .init(at: 1, text: "First line"), .init(at: 4, text: "Second line"), .init(at: 8, text: "Third line"),
     ]
 
     private func stage(
-        lyrics: LyricsStore, media: MediaController, translation: LyricTranslation, mode: LyricsStage.Mode
+        lyrics: LyricsStore, media: MediaController, translation: LyricTranslation
     ) -> LyricsStage {
         LyricsStage(
-            media: media, lyrics: lyrics, mode: mode, onlineEnabled: { false },
-            readingCentre: mode == .column ? 66.5 : 90.5, translation: translation
+            media: media, lyrics: lyrics, onlineEnabled: { false },
+            readingCentre: StageLayout.readingCentre, translation: translation
         )
     }
 
@@ -289,7 +256,7 @@ final class LyricTranslationLayoutTests: XCTestCase {
     }
 
     func testTheStageDrawsATranslationUnderEachLineAtTheLargerPitch() async throws {
-        for (mode, plain, translated) in [(LyricsStage.Mode.column, CGFloat(23), CGFloat(46)), (.tall, 34, 52)] {
+        for (plain, translated) in [(CGFloat(38), CGFloat(56))] {
             let isolated = ProbeFixtures.isolatedStores()
             defer { isolated.release() }
             let store = LyricsStore(
@@ -311,13 +278,13 @@ final class LyricTranslationLayoutTests: XCTestCase {
 
             // Without a translation: the plain pitch.
             let bare = await AXProbe.tree(
-                of: stage(lyrics: store, media: isolated.stores.media, translation: .idle, mode: mode)
+                of: stage(lyrics: store, media: isolated.stores.media, translation: .idle)
                     .defaultAppStorage(isolated.suite),
                 size: Self.size
             )
             XCTAssertEqual(
                 try rowPitch(bare, labels: ["First line", "Second line"]), [plain], accuracy: 0.5,
-                "\(mode): \(bare.dump)"
+                "\(bare.dump)"
             )
 
             // With one: a pair a slot, and the translation is read with its line.
@@ -327,16 +294,16 @@ final class LyricTranslationLayoutTests: XCTestCase {
             service.present(lines: Self.lines)
             await service.settled()
             let root = await AXProbe.tree(
-                of: stage(lyrics: store, media: isolated.stores.media, translation: service, mode: mode)
+                of: stage(lyrics: store, media: isolated.stores.media, translation: service)
                     .defaultAppStorage(isolated.suite),
                 size: Self.size
             )
             XCTAssertNotNil(
-                root.first(label: "First line. перевод: First line"), "\(mode): the row says its translation\n\(root.dump)"
+                root.first(label: "First line. перевод: First line"), "the row says its translation\n\(root.dump)"
             )
             XCTAssertEqual(
                 try rowPitch(root, labels: ["First line", "Second line"]), [translated], accuracy: 0.5,
-                "\(mode): \(root.dump)"
+                "\(root.dump)"
             )
         }
     }
@@ -357,12 +324,12 @@ final class LyricTranslationLayoutTests: XCTestCase {
         let service = LyricTranslation(defaults: isolated.suite, backend: .inert)
         XCTAssertFalse(service.isEnabled)
         let root = await AXProbe.tree(
-            of: stage(lyrics: store, media: isolated.stores.media, translation: service, mode: .column)
+            of: stage(lyrics: store, media: isolated.stores.media, translation: service)
                 .defaultAppStorage(isolated.suite),
             size: Self.size
         )
         XCTAssertNotNil(root.first(label: "First line. Первая строка"), root.dump)
-        XCTAssertEqual(try rowPitch(root, labels: ["First line", "Second line"]), [46], accuracy: 0.5, root.dump)
+        XCTAssertEqual(try rowPitch(root, labels: ["First line", "Second line"]), [56], accuracy: 0.5, root.dump)
     }
 }
 

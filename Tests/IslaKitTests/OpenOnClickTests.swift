@@ -97,27 +97,29 @@ final class OpenOnClickTests: XCTestCase {
                 vm.isPinnedOpen,
                 "with hover-to-open off the pointer still takes the panel back"
             )
-            XCTAssertEqual(vm.tab, .media, "arriving always lands on Music")
+            XCTAssertEqual(vm.surface, vm.openTarget, "arriving at the shut island opens what a click would")
+            XCTAssertEqual(vm.surface, .tools, "nothing is playing: the bare notch opens Tools")
         }
     }
 
-    /// ⌃⌥⌘I opens the panel on whatever tab was left — Clipboard, say — and
+    /// ⌃⌥⌘I opens the panel on whatever surface was left — Clipboard, say — and
     /// pins it, with the pointer somewhere else. The hand then goes for a row,
     /// and that arrival used to run `select(.media)`: the pane swapped to Music
-    /// under the cursor reaching into it (J-008). Landing on Music is a rule for
-    /// arriving at the *closed* island; a panel already open is not being
-    /// arrived at, it is being used. The arrival still takes the pin back.
-    func testArrivingOnAPanelTheKeyboardOpenedKeepsItsTab() {
+    /// under the cursor reaching into it (J-008). Landing on what a click would
+    /// open is a rule for arriving at the *closed* island; a panel already open
+    /// is not being arrived at, it is being used. The arrival still takes the
+    /// pin back.
+    func testArrivingOnAPanelTheKeyboardOpenedKeepsItsSurface() {
         withDefault(false) {
             guard let vm = makeViewModel() else { return }
 
             // What the hot key leaves behind.
             vm.isOpen = true
-            vm.tab = .clipboard
+            vm.surface = .clipboard
             vm.isPinnedOpen = true
 
             XCTAssertEqual(vm.pointerCrossed(inside: true), .standsAsItIs)
-            XCTAssertEqual(vm.tab, .clipboard, "the pane the hand was reaching for stays put")
+            XCTAssertEqual(vm.surface, .clipboard, "the surface the hand was reaching for stays put")
             XCTAssertFalse(vm.isPinnedOpen, "arriving still hands the panel back to the pointer")
         }
     }
@@ -176,7 +178,7 @@ final class OpenOnClickTests: XCTestCase {
                 vm.holdsOpen,
                 "a click the pointer made needs no pin — the pointer is already holding it"
             )
-            XCTAssertEqual(vm.tab, .media, "a click opens on Music")
+            XCTAssertEqual(vm.surface, .tools, "a click on the bare notch opens Tools (§19.1)")
 
             // Walking away.
             XCTAssertEqual(
@@ -211,29 +213,31 @@ final class OpenOnClickTests: XCTestCase {
         }
     }
 
-    /// A drag hovering the island keeps the Shelf.
+    /// A drag hovering the island keeps the drop surface.
     ///
-    /// `onDragEntered` selects the Shelf so the file has somewhere to land. The
-    /// pointer arrival that follows roughly `openDelay` later used to run
-    /// `select(.media)` anyway, flipping the pane Shelf→Music with the file
+    /// `onDragEntered` presents the drop surface so the file has somewhere to
+    /// land. The pointer arrival that follows roughly `openDelay` later used to
+    /// run `select(.media)` anyway, flipping the pane Shelf→Music with the file
     /// still in the air and taking `ShelfPane`'s drop highlight with it; only
     /// the drop put it back. A drag is not a hover — it has already said where
-    /// it is going.
-    func testADragHoveringTheIslandKeepsTheShelf() {
+    /// it is going — so the arrival must not reset what lies under the surface
+    /// either.
+    func testADragHoveringTheIslandKeepsTheDropSurface() {
         withDefault(false) {
             guard let vm = makeViewModel() else { return }
 
-            // What `onDragEntered` does.
-            vm.tab = .shelf
+            // What `onDragEntered` does: the drop surface over the surface left.
+            vm.surface = .tray
             vm.isDropTargeted = true
 
             XCTAssertEqual(vm.pointerCrossed(inside: true, dragging: true), .standsAsItIs)
-            XCTAssertEqual(vm.tab, .shelf, "the file is still over the island")
+            XCTAssertEqual(vm.presented, .drop, "the file is still over the island")
+            XCTAssertEqual(vm.surface, .tray, "and what lies under the drop surface was not reset")
 
             // The same arrival without a file in hand is an ordinary hover, and
-            // a hover lands on Music.
+            // a hover on the shut island lands on what a click would open.
             XCTAssertEqual(vm.pointerCrossed(inside: true, dragging: false), .standsAsItIs)
-            XCTAssertEqual(vm.tab, .media)
+            XCTAssertEqual(vm.surface, .tools)
         }
     }
 }

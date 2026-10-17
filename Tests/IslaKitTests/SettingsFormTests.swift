@@ -22,12 +22,13 @@ final class SettingsFormTests: XCTestCase {
     }
 
     /// Where the sidebar and the form sit in the pane, which is the board's
-    /// (58, 46) and (192, 46) less the pane's own origin (58, 38).
+    /// (16, 46) and (150, 46) less the pane's own origin (0, 38) — §19.8 moved
+    /// every x that was placed for the rail.
     func testTheSidebarAndTheFormAreWhereTheBoardPutsThem() async {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         for width in widths {
-            let root = await SettingsFixture.tree(isolated, section: .general, bodyWidth: width, height: 348)
+            let root = await SettingsFixture.tree(isolated, section: .general, bodyWidth: width, height: 362)
             let formWidth = SettingsLayout.formWidth(bodyWidth: width)
 
             let sidebar = root.all(where: { $0.label == localized("Settings sections") }).first
@@ -35,7 +36,7 @@ final class SettingsFormTests: XCTestCase {
             XCTAssertEqual(buttons.count, 10, root.dump)
             for (index, button) in buttons.enumerated() {
                 let frame = button.frame ?? .zero
-                XCTAssertEqual(frame.minX, 0, accuracy: 0.5, "row \(index) at \(width)")
+                XCTAssertEqual(frame.minX, 16, accuracy: 0.5, "row \(index) at \(width)")
                 XCTAssertEqual(frame.width, 122, accuracy: 0.5, "row \(index) at \(width)")
                 XCTAssertEqual(frame.minY, 8 + CGFloat(index) * 26, accuracy: 0.5, "row \(index) at \(width)")
                 XCTAssertEqual(frame.height, 24, accuracy: 0.5, "row \(index) at \(width)")
@@ -44,29 +45,28 @@ final class SettingsFormTests: XCTestCase {
             guard let launch = root.all(role: "AXCheckBox").first(where: { $0.label == localized("Launch at Login") })?.frame else {
                 return XCTFail("no Launch at Login switch at \(width)\n\(root.dump)")
             }
-            XCTAssertEqual(launch.minX, 134, accuracy: 0.5, "the form starts at body x 192 (pane 134) at \(width)")
+            XCTAssertEqual(launch.minX, 150, accuracy: 0.5, "the form starts at body x 150 at \(width)")
             XCTAssertEqual(launch.width, formWidth, accuracy: 0.5, "the row is the form's width at \(width)")
             XCTAssertEqual(launch.height, 28, accuracy: 0.5, "rows are 28 tall at \(width)")
         }
-        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 354)
+        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 396)
     }
 
-    /// The pane keeps the board's screen position on a Mac whose notch is not 38
-    /// tall: the sidebar and the form begin at body y 46, so a 32 pt header gives
-    /// a pane that starts 6 pt higher in its own coordinates.
-    func testThePaneFollowsTheHeaderHeight() async {
+    /// The pane starts under the header row, so the sidebar and the form begin
+    /// at the board's y 46 less the 38 reference row on any Mac: the pane has no
+    /// header height of its own to follow (the shell's body moves with the
+    /// notch instead, `SurfaceLayout.y`).
+    func testThePaneStartsUnderTheHeaderRow() async {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        for header: CGFloat in [32, 38, 50] {
-            let root = await AXProbe.tree(
-                of: SettingsFixture.pane(isolated, section: .general, headerHeight: header),
-                size: CGSize(width: 488, height: 400 - 14 - header)
-            )
-            let first = root.all(where: { $0.label == localized("Settings sections") }).first?.all(role: "AXButton").first
-            XCTAssertEqual(first?.frame?.minY ?? -1, 46 - header, accuracy: 0.5, "sidebar at header \(header)")
-            let launch = root.all(role: "AXCheckBox").first { $0.label == localized("Launch at Login") }
-            XCTAssertEqual((launch?.frame?.minY ?? -1) + header, 46 + 19, accuracy: 1.5, "form's first row at header \(header)")
-        }
+        let root = await AXProbe.tree(
+            of: SettingsFixture.pane(isolated, section: .general),
+            size: SettingsFixture.paneSize()
+        )
+        let first = root.all(where: { $0.label == localized("Settings sections") }).first?.all(role: "AXButton").first
+        XCTAssertEqual(first?.frame?.minY ?? -1, 46 - 38, accuracy: 0.5, "sidebar")
+        let launch = root.all(role: "AXCheckBox").first { $0.label == localized("Launch at Login") }
+        XCTAssertEqual((launch?.frame?.minY ?? -1), 46 - 38 + 19, accuracy: 1.5, "form's first row")
     }
 
     /// The section holds at both ends of the width range and in Russian: every
@@ -82,7 +82,7 @@ final class SettingsFormTests: XCTestCase {
             for width in [CGFloat(480), 620] {
                 let isolated = ProbeFixtures.isolatedStores()
                 defer { isolated.release() }
-                let formLeading = SettingsLayout.formLeading - PlayerLayout.paneLeading
+                let formLeading = SettingsLayout.formLeading
                 let formWidth = SettingsLayout.formWidth(bodyWidth: width)
                 for section in SettingsSection.allCases {
                     let root = await SettingsFixture.tree(isolated, section: section, bodyWidth: width, height: 1600)

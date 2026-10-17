@@ -758,16 +758,30 @@ final class MediaController: ObservableObject {
         }
     }
 
+    /// Music's favourite as a test's stand-in for the bridge answers it — the
+    /// player's star is drawn only where the bridge can set it.
+    var musicFavoriteForTests: Bool? {
+        didSet { musicFavorite = musicFavoriteForTests }
+    }
+
+    /// Whether Music's current song is a favourite (spec §19.6), read in the
+    /// same round trip as shuffle and repeat. Nil wherever the bridge cannot
+    /// set it: another player, a browser, Music refusing Automation, or no
+    /// current track. The player's star is drawn only when this is known, or
+    /// when the Spotify account can save the song instead.
+    @Published private(set) var musicFavorite: Bool?
+
     /// Asks the displayed player where its switches stand. Cheap enough to
     /// call on pane appearance and after every toggle; a no-op for sessions
     /// that cannot answer.
     func refreshPlaybackModes() {
         // A test's stand-in for the player's answer stands until it is cleared;
         // the real question would script a running player (`PlayerBridge`).
-        if playbackModesForTests != nil { return }
+        if playbackModesForTests != nil || musicFavoriteForTests != nil { return }
         guard let app = displayedPlayerApp else {
             shuffleEnabled = nil
             repeatMode = nil
+            musicFavorite = nil
             return
         }
         supportsRepeatOne = app == .music
@@ -776,7 +790,28 @@ final class MediaController: ObservableObject {
             guard let self, self.displayedPlayerApp == app else { return }
             self.shuffleEnabled = modes?.shuffle
             self.repeatMode = modes?.repeatMode
+            self.musicFavorite = app == .music ? modes?.favorite : nil
         }
+    }
+
+    /// Brings the app playing the song forward: the cover of a song with no
+    /// lyrics to open is a way back to its player (spec §19.6). The player's own
+    /// window — Isla itself never activates.
+    func bringPlayerForward() {
+        guard !PlayerBridge.isRunningTests, let pid = displayedPlayerPID,
+              let app = NSRunningApplication(processIdentifier: pid) else { return }
+        app.activate()
+    }
+
+    /// Music's star, optimistic like shuffle: the star answers the click now
+    /// and the read-back corrects it if Music refused.
+    func toggleMusicFavorite() {
+        guard let current = musicFavorite else { return }
+        musicFavorite = !current
+        if musicFavoriteForTests != nil { return }
+        guard let app = displayedPlayerApp, app == .music else { return }
+        PlayerBridge.setFavorite(app, !current)
+        readBackModes()
     }
 
     func toggleShuffle() {
@@ -1841,6 +1876,12 @@ final class MediaController: ObservableObject {
             // id costs nothing; the lookup is for when it did not.
             adoptAnnouncedTrackID()
             requestSpotifyTrackID(for: key, playerPID: snapshot.playerPID, attempt: 0)
+            // The star is the song's, not the player's: a new song in the same
+            // Music is asked again rather than wearing the last one's answer.
+            if musicFavoriteForTests == nil {
+                musicFavorite = nil
+                if trackChanged, !playerChanged, isActive { refreshPlaybackModes() }
+            }
         }
         if playerChanged {
             positionSettled = false
@@ -2192,6 +2233,7 @@ final class MediaController: ObservableObject {
         playbackRate = 1
         shuffleEnabled = nil
         repeatMode = nil
+        if musicFavoriteForTests == nil { musicFavorite = nil }
         // The rest of the clock's state, which used to survive the session it
         // belonged to: a leftover `pendingSeek` gated the *next* session's
         // first snapshot through the seek-settle path, and the precision loop

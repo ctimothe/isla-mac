@@ -30,7 +30,6 @@
 "About %@" = "О программе %@";
 
 /* Полка */
-"%d selected" = "Выбрано %d";
 "Deselect" = "Снять выбор";
 "Clear" = "Очистить";
 "Copy" = "Копировать";
@@ -146,8 +145,6 @@
 
 /* Table stakes: transport modes, hover delay, empty state */
 "Shuffle" = "Перемешать";
-"Repeat" = "Повтор";
-"On" = "Вкл";
 "Off" = "Выкл";
 "All Tracks" = "Все треки";
 "This Track" = "Этот трек";
@@ -314,8 +311,6 @@
 "No lyrics for live audio." = "Для прямого эфира текста нет.";
 "This track has no title to look up." = "У этого трека нет названия для поиска.";
 "Unlock your Mac to open Isla." = "Разблокируйте Mac, чтобы открыть Isla.";
-"Drop files here to keep them" = "Перетащите сюда файлы, чтобы держать их под рукой";
-"From Finder, Mail, Photos or a browser. Holds %d." = "Из Finder, Почты, Фото или браузера. Помещается %d.";
 "Select" = "Выбрать";
 "Selected" = "Выбрано";
 
@@ -327,7 +322,6 @@
 "Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on." = "Скопированный текст не сохраняется. Пока включено «Сохранять скриншоты из буфера», скопированное проверяется на скриншоты.";
 "Opens the panel" = "Открывает панель";
 "Closes the panel" = "Закрывает панель";
-"Tabs" = "Вкладки";
 "Welcome" = "Добро пожаловать";
 "%@ is translated online only. Turning on Translate Online sends this text to MyMemory." = "%@: перевод есть только онлайн. Если включить «Переводить онлайн», текст уйдёт в MyMemory.";
 "Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory." = "На этом Mac для перевода нужна macOS 26 или новее. Если включить «Переводить онлайн», текст уйдёт в MyMemory.";
@@ -380,7 +374,6 @@
 "AirDrop is not available on this Mac." = "AirDrop недоступен на этом Mac.";
 "AirDrop cannot send these files." = "AirDrop не может отправить эти файлы.";
 "Release to add to the Shelf" = "Отпустите, чтобы положить на полку";
-"Drop to keep on the Shelf" = "Отпустите, чтобы оставить на полке";
 "Moved 1 file to the Trash." = "Перемещён в Корзину 1 файл.";
 "Moved %d files to the Trash." = "Перемещено в Корзину файлов: %d.";
 "Only the first %@ characters were translated online." = "Онлайн переведены только первые %@ символов.";
@@ -389,13 +382,6 @@
 "No Dock or menu-bar icon. Click the notch or press %@ to come back." = "Значка в Dock и строке меню нет. Нажмите на вырез или %@, чтобы вернуться.";
 "No Dock or menu-bar icon. Click the notch to come back." = "Значка в Dock и строке меню нет. Нажмите на вырез, чтобы вернуться.";
 "Nothing leaves your Mac unless you turn it on." = "Ничто не покидает ваш Mac, пока вы это не включите.";
-"What's playing, with lyrics (%@)" = "Что играет — с текстом песни (%@)";
-"What's playing, with lyrics" = "Что играет — с текстом песни";
-"Files you drop on the notch" = "Файлы, брошенные на вырез";
-"What you copied, kept in memory" = "Скопированное, только в памяти";
-"%@ translates what you copied" = "%@ переводит скопированное";
-"Translates what you copied" = "Переводит скопированное";
-"Privacy, shortcuts and Quit" = "Приватность, сочетания клавиш и выход";
 "Needs your approval in Login Items." = "Нужно ваше разрешение в разделе «Объекты входа».";
 "Open Login Items…" = "Открыть «Объекты входа»…";
 "Launch at Login failed: %@" = "Не удалось включить автозапуск: %@";
@@ -409,7 +395,6 @@
 "Reduce Transparency" = "Понижение прозрачности";
 "Increase Contrast" = "Увеличение контраста";
 "A file from the drag could not be received." = "Не удалось получить файл из перетаскивания.";
-"New screenshot" = "Новый скриншот";
 "Isla could not open your browser for Spotify sign-in." = "Isla не смогла открыть браузер для входа в Spotify.";
 "The account was not imported. Try again, or connect it anew." = "Учётная запись не перенесена. Повторите попытку или подключите её заново.";
 "Spotify signed you in, but Isla could not save the account on this Mac." = "Вход в Spotify выполнен, но Isla не смогла сохранить учётную запись на этом Mac.";
@@ -440,7 +425,6 @@
 "Output Button puts the sound output menu in the player. Lyric Band is the sung line and the next one, under the title." = "«Кнопка выхода звука» добавляет в плеер меню выбора выхода звука. «Строка текста» — исполняемая и следующая строки под названием.";
 
 /* The lyric column, the tall page and the header's tools (spec 5, 6, 15) */
-"Expand" = "Развернуть";
 "Collapse" = "Свернуть";
 "Hide Lyrics" = "Скрыть текст";
 "Show Translation" = "Показать перевод";
@@ -474,16 +458,12 @@
 /* The Shelf as Finder's icon view (redesign 2026-10-15, spec 8, 15) */
 "%d items" = "Всего: %d";
 "1 item" = "Всего: 1";
-"Deselect All" = "Снять выбор";
 "Remove" = "Убрать";
-"Drag an item out to use it anywhere." = "Перетащите объект, чтобы использовать его где угодно.";
 "Keep on Shelf" = "Оставить на полке";
 "Send to a nearby device" = "Отправить на устройство поблизости";
-"Release to send with AirDrop" = "Отпустите, чтобы отправить через AirDrop";
 "Remove all %d items? Files are untouched." = "Убрать все объекты (%d)? Сами файлы не затрагиваются.";
 "Remove All" = "Убрать все";
 "Open With" = "Открыть в приложении";
-"More" = "Ещё";
 
 /* The Clipboard: kinds, pins, search, images (redesign 2026-10-15, spec 9, 15) */
 "Now" = "Сейчас";
@@ -568,3 +548,16 @@
 /* The volume pop-up names what the brightness keys move (spec §19.5 d). */
 "Display Brightness" = "Яркость дисплея";
 "Keyboard Brightness" = "Подсветка клавиатуры";
+
+/* Activities first: the surfaces that replaced the tabs (spec §19.6–§19.8). */
+"Favorite" = "В избранное";
+"Remove from Favorites" = "Убрать из избранного";
+"Tools" = "Инструменты";
+"Empty" = "Пусто";
+"or drag files here" = "или перетащите файлы сюда";
+"Drag files to the notch to keep them here." = "Перетащите файлы к вырезу, чтобы они хранились здесь.";
+"Click the island to open what’s playing." = "Нажмите на остров, чтобы открыть то, что играет.";
+"Right-click it for everything else." = "Всё остальное — по правому щелчку.";
+"Drag files to the notch to keep them." = "Перетащите файлы к вырезу, чтобы сохранить их.";
+"Pinned" = "Закреплено";
+"↩ Copy" = "↩ Скопировать";

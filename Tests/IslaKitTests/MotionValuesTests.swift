@@ -60,7 +60,6 @@ final class MotionValuesTests: XCTestCase {
             String(describing: Theme.close(reduceMotion: false)),
             String(describing: Theme.islandSpring.delay(Theme.closeShapeDelay))
         )
-        XCTAssertEqual(PlayerLayout.animation(from: .column, to: .tall, reduceMotion: false), Theme.islandSpring)
         XCTAssertEqual(Theme.island(reduceMotion: true), Theme.reducedMotion)
 
         // The shell's own sites, read from the source because the curve a
@@ -199,10 +198,15 @@ final class MotionValuesTests: XCTestCase {
     /// The caption's line turn stays inside its slot. The travel is clipped at
     /// the slot's edge, so a travel past half the slot would have the arriving
     /// line cut off mid-glyph before it settled; and it is a real travel, not a
-    /// crossfade wearing an offset — under 3 pt reads as a shiver.
+    /// crossfade wearing an offset — under 3 pt reads as a shiver. The slot is
+    /// the player's subtitle box (§19.6): one line of 14 semibold, as tall as
+    /// SF's ascender and descender at that size.
     @MainActor
     func testTheLineTurnTravelsWithinTheCaptionSlot() {
-        XCTAssertLessThan(LyricLineTurn.travel, MediaPane.captionHeight / 2,
+        let slot = MediaPane.textBox(
+            x: 0, baseline: 0, width: 0, size: PlayerLayout.subtitleSize, weight: .semibold
+        ).height
+        XCTAssertLessThan(LyricLineTurn.travel, slot / 2,
                           "the turn must settle before the clip takes it")
         XCTAssertGreaterThanOrEqual(LyricLineTurn.travel, 3, "a turn, not a shiver")
         // Both ends of the modifier: gone and arrived.
@@ -316,7 +320,9 @@ final class MotionValuesTests: XCTestCase {
 
         // And the sites F-046 named go through it with the value that moves.
         let sites: [(file: String, call: String)] = [
-            ("MediaPane.swift", ".symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)"),
+            ("MediaPane.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
+            ("MediaPane.swift", ".symbolSwap(value: favourite.isOn, reduceMotion: reduceMotion)"),
+            ("LyricsStageSurface.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
             ("LockScreenCard.swift", ".symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)"),
             ("LockScreenCard.swift", ".symbolSwap(value: isSaved, reduceMotion: reduceMotion)"),
             ("LockScreenCard.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),

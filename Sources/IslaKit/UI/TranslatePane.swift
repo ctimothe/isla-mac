@@ -1,13 +1,13 @@
+import AppKit
 import SwiftUI
 
-/// The Translate tab (redesign 2026-10-15, spec §11): a pair bar of two pop-up
+/// The Translate surface (spec §11, §19.8): a pair row of two pop-up
 /// buttons with the swap between them, a source card you type into on the left
 /// and the answer as plain text on the right, and — with Keep History on — a
 /// list of the last twenty translations in place of both.
 ///
-/// Every frame comes from `TranslateLayout`, in the board's body coordinates, and
-/// is converted once by `PlayerLayout.inPane`, so what a test holds is what is
-/// drawn at 480, 560 and 620. Nothing here decides *what* is translated or by
+/// Every frame comes from `TranslateLayout`, in the content's coordinates under
+/// the header row, so what a test holds is what is drawn at 480, 560 and 620. Nothing here decides *what* is translated or by
 /// which engine: that is `Translator`, whose rules (engines, availability,
 /// obstacles, online consent) this view only draws.
 ///
@@ -28,8 +28,7 @@ struct TranslatePane: View {
     /// Whether the History list is up in place of the cards: the header's
     /// History button toggles it (`NotchViewModel.translateShowsHistory`).
     @Binding var showsHistory: Bool
-    /// The header's height on this Mac, for the body-to-pane conversion.
-    private let headerHeight: CGFloat
+    private let bodyWidth: CGFloat
 
     /// Observed on their own: nested objects do not propagate, and the answer's
     /// sweep and the list must redraw without the whole pane being re-evaluated
@@ -49,13 +48,13 @@ struct TranslatePane: View {
         privacy: PrivacyMode,
         wantsKeyboard: Binding<Bool>,
         showsHistory: Binding<Bool> = .constant(false),
-        headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight
+        bodyWidth: CGFloat = NotchMetrics.defaultBodyWidth
     ) {
         self.translator = translator
         self.privacy = privacy
         _wantsKeyboard = wantsKeyboard
         _showsHistory = showsHistory
-        self.headerHeight = headerHeight
+        self.bodyWidth = bodyWidth
         _history = ObservedObject(wrappedValue: translator.history)
         _speaker = ObservedObject(wrappedValue: translator.speaker)
         _keepHistory = AppStorage(wrappedValue: false, NotchViewModel.translateKeepHistoryKey, store: translator.defaults)
@@ -191,30 +190,24 @@ struct TranslatePane: View {
         return .nothing
     }
 
-    /// The type size of both cards' text: 15 on the standard body, 13.5 on the
-    /// tall one, where a long message has to fit (spec §11).
-    static func textSize(expanded: Bool) -> CGFloat {
-        expanded ? TranslateLayout.tallTextSize : TranslateLayout.textSize
+    /// The extra leading that sets the source's lines 1.35 of its size apart
+    /// (§19.8), over what the system font already leaves between them.
+    static func lineSpacing(size: CGFloat) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: size, weight: .medium)
+        let natural = font.ascender - font.descender + font.leading
+        return max(0, size * TranslateLayout.lineHeight - natural)
     }
 
     // MARK: - Body
 
-    /// A frame in the board's body coordinates, in this pane's.
-    private func pane(_ rect: CGRect) -> CGRect {
-        PlayerLayout.inPane(rect, headerHeight: headerHeight)
-    }
-
-    /// Places a view at a pane frame.
+    /// Places a view at a content frame.
     private func placed(_ rect: CGRect) -> some ViewModifier {
-        Placement(frame: pane(rect))
+        Placement(frame: rect)
     }
 
     var body: some View {
-        GeometryReader { geo in
-            let size = ClipboardLayout.bodySize(paneSize: geo.size, headerHeight: headerHeight)
-            content(size)
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
-        }
+        content(CGSize(width: bodyWidth, height: TranslateLayout.contentHeight))
+            .frame(width: bodyWidth, height: TranslateLayout.contentHeight, alignment: .topLeading)
         // One task for both the text and the retry counter: a keystroke
         // cancels the pending sleep, so only a pause actually translates.
         .task(id: translator.request) { await schedule() }
@@ -249,8 +242,7 @@ struct TranslatePane: View {
 
     private func cards(_ size: CGSize) -> some View {
         let route = translator.route
-        let expanded = size.height > NotchMetrics.standardBodyHeight
-        let fontSize = Self.textSize(expanded: expanded)
+        let fontSize = TranslateLayout.textSize
         return ZStack(alignment: .topLeading) {
             pairBar(size, route: route)
             sourceCard(size, fontSize: fontSize)
@@ -261,7 +253,7 @@ struct TranslatePane: View {
     // MARK: - Pair bar (§11)
 
     private func pairBar(_ size: CGSize, route: Translator.Route) -> some View {
-        let bar = TranslateLayout.pairBar(bodyWidth: size.width, headerHeight: headerHeight)
+        let bar = TranslateLayout.pairBar(bodyWidth: size.width)
         return ZStack(alignment: .topLeading) {
             TranslatePopUp(
                 translator: translator, side: .source,
@@ -290,8 +282,8 @@ struct TranslatePane: View {
             Image(systemName: "arrow.left.arrow.right")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Theme.secondary)
-                .frame(width: TranslateLayout.swapSide, height: TranslateLayout.swapSide)
-                .contentShape(RoundedRectangle(cornerRadius: HeaderToolFrames.cornerRadius, style: .continuous))
+                .frame(width: TranslateLayout.swapWidth, height: TranslateLayout.pairHeight)
+                .contentShape(RoundedRectangle(cornerRadius: StageToolFrames.cornerRadius, style: .continuous))
         }
         .buttonStyle(PanelButtonStyle())
         .help(localized("Swap Languages"))
@@ -307,7 +299,7 @@ struct TranslatePane: View {
     // MARK: - Source card (§11)
 
     private func sourceCard(_ size: CGSize, fontSize: CGFloat) -> some View {
-        let card = TranslateLayout.sourceCard(bodySize: size, headerHeight: headerHeight)
+        let card = TranslateLayout.sourceCard(bodyWidth: size.width)
         let local = { (rect: CGRect) in rect.offsetBy(dx: -card.minX, dy: -card.minY) }
         let text = local(TranslateLayout.sourceText(card: card))
         let isEmpty = translator.input.isEmpty
@@ -333,7 +325,7 @@ struct TranslatePane: View {
             }
         }
         .frame(width: card.width, height: card.height, alignment: .topLeading)
-        .offset(x: pane(card).minX, y: pane(card).minY)
+        .offset(x: card.minX, y: card.minY)
     }
 
     private func editor(fontSize: CGFloat) -> some View {
@@ -357,8 +349,9 @@ struct TranslatePane: View {
             .textEditorStyle(.plain)
             .scrollContentBackground(.hidden)
             .scrollIndicators(.hidden)
-            // The cards' type: 15 medium, 13.5 on the tall body (spec §11).
+            // The source's type: 15 medium, its lines 1.35 apart (§19.8).
             .font(.system(size: fontSize, weight: .medium))
+            .lineSpacing(Self.lineSpacing(size: fontSize))
             .foregroundStyle(.white)
             // Grey rather than the system accent: the caret has to say
             // where typing lands without being the brightest thing in a
@@ -469,8 +462,8 @@ struct TranslatePane: View {
         if let notice = translator.notice {
             noticeLine(notice)
                 .modifier(Placement(frame: local(CGRect(
-                    x: card.minX + TranslateLayout.textInset, y: card.maxY - 34,
-                    width: card.width - 2 * TranslateLayout.textInset, height: 26
+                    x: card.minX + TranslateLayout.sourceInset.horizontal, y: card.maxY - 34,
+                    width: card.width - 2 * TranslateLayout.sourceInset.horizontal, height: 26
                 )), alignment: .bottomLeading))
         } else {
             Text(Self.counterText(count: translator.input.count))
@@ -499,7 +492,7 @@ struct TranslatePane: View {
     // MARK: - Result (§11)
 
     private func resultCard(_ size: CGSize, route: Translator.Route, fontSize: CGFloat) -> some View {
-        let card = TranslateLayout.resultCard(bodySize: size, headerHeight: headerHeight)
+        let card = TranslateLayout.resultCard(bodyWidth: size.width)
         let local = { (rect: CGRect) in rect.offsetBy(dx: -card.minX, dy: -card.minY) }
         let text = local(TranslateLayout.resultText(card: card))
         let showing = Self.showing(
@@ -547,7 +540,7 @@ struct TranslatePane: View {
             }
         }
         .frame(width: card.width, height: card.height, alignment: .topLeading)
-        .offset(x: pane(card).minX, y: pane(card).minY)
+        .offset(x: card.minX, y: card.minY)
     }
 
     /// The answer: plain text, 15 semibold, wrapping at the card's text width
@@ -641,7 +634,7 @@ struct TranslatePane: View {
                 title: localized("Copy Translation"),
                 shortcut: "⇧⌘C",
                 copiesElsewhere: translator.outputCopies,
-                side: TranslateLayout.footerButton
+                side: TranslateLayout.footerButton.height
             ) { translator.copyOutput() }
                 .disabled(!translator.answersInput)
                 .opacity(translator.answersInput ? 1 : 0.4)
@@ -693,12 +686,12 @@ struct TranslatePane: View {
             Image(systemName: "speaker.wave.2.fill")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(speaking ? Color.white : Theme.secondary)
-                .frame(width: TranslateLayout.footerButton, height: TranslateLayout.footerButton)
+                .frame(width: TranslateLayout.footerButton.width, height: TranslateLayout.footerButton.height)
                 .background(
-                    RoundedRectangle(cornerRadius: HeaderToolFrames.cornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: StageToolFrames.cornerRadius, style: .continuous)
                         .fill(speaking ? Theme.accent : Color.clear)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: HeaderToolFrames.cornerRadius, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: StageToolFrames.cornerRadius, style: .continuous))
         }
         .buttonStyle(PanelButtonStyle())
         .disabled(!canSpeak && !speaking)
@@ -737,8 +730,11 @@ struct TranslatePane: View {
                 .fixedSize(horizontal: false, vertical: true)
             if !alert.actions.isEmpty { actionRow(alert.actions) }
         }
-        .frame(width: card.width - TranslateLayout.resultTextTrailing, alignment: .leading)
-        .modifier(Placement(frame: CGRect(x: 0, y: 10, width: card.width - TranslateLayout.resultTextTrailing, height: card.height - 10)))
+        .frame(width: card.width - 2 * TranslateLayout.resultInset.horizontal, alignment: .leading)
+        .modifier(Placement(frame: CGRect(
+            x: TranslateLayout.resultInset.horizontal, y: 10,
+            width: card.width - 2 * TranslateLayout.resultInset.horizontal, height: card.height - 10
+        )))
     }
 
     /// The buttons: push buttons on the toolbar plate, side by side where they
@@ -781,12 +777,12 @@ struct TranslatePane: View {
     /// click puts the pair and both texts back (`Translator.restore`) and returns
     /// to the cards. Covered like the rest of the pane: one reveal uncovers it.
     private func historyList(_ size: CGSize) -> some View {
-        let viewport = pane(TranslateLayout.historyViewport(bodySize: size, headerHeight: headerHeight))
-        let label = pane(CGRect(
-            x: PlayerLayout.paneLeading + TranslateLayout.historyRowInset,
-            y: TranslateLayout.historyLabelTop(headerHeight: headerHeight),
+        let viewport = TranslateLayout.historyViewport(bodyWidth: size.width)
+        let label = CGRect(
+            x: TranslateLayout.margin + TranslateLayout.historyRowInset,
+            y: TranslateLayout.historyLabelTop,
             width: 200, height: 16
-        ))
+        )
         let hidden = privacy.hides(.translate, Self.revealID) && !history.entries.isEmpty
         return ZStack(alignment: .topLeading) {
             Text(localized("Recent"))

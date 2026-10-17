@@ -37,25 +37,6 @@ final class ReduceMotionContractTests: XCTestCase {
                 + "`LockScreenCard.stage` — so only the window's glide is left here.)"
         ),
         Allowed(
-            file: "MediaPane.swift",
-            line: ".animation(reduceMotion ? nil : Theme.contentAnimation, value: layout.hasLyricBand)",
-            count: 1,
-            reason: "the player's block moving 20 pt when the lyric band folds away or arrives "
-                + "(redesign 2026-10-15, spec §4.1): the progress row and the transport travel, "
-                + "and spec §13 says nothing travels under Reduce Motion. The band itself still "
-                + "fades in and out on its own transition."
-        ),
-        Allowed(
-            file: "MediaPane.swift",
-            line: "reduceMotion ? nil : PlayerLayout.animation(from: settledPage, to: page, reduceMotion: false),",
-            count: 1,
-            reason: "the player, the lyric column and the tall page are one view whose elements "
-                + "travel (redesign 2026-10-15, spec §5.1) — cover 132 to 52 to 34, the controls "
-                + "across the pane. That is geometry, and spec §13 says nothing travels under Reduce "
-                + "Motion: the pane gives each state an identity of its own instead and the change "
-                + "is the 0.24 s crossfade (`MediaPane.body`)."
-        ),
-        Allowed(
             file: "Theme.swift",
             line: ".animation(reduceMotion ? nil : Theme.contentAnimation, value: configuration.isOn)",
             count: 1,

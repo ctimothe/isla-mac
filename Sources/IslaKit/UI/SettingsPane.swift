@@ -87,9 +87,6 @@ struct SettingsPane: View {
     /// is also what the next open restores. Constant in the tests and the lab,
     /// where a test names the section it wants to look at.
     var selection: Binding<SettingsSection> = .constant(.default)
-    /// The header strip's height, so the sidebar and the form stay where the
-    /// board puts them (body y 46) on a Mac whose notch is not 38 pt tall.
-    var headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight
     /// Where switches are read and written: the standard domain in the app, a
     /// test's own suite in a test, so pressing one never reaches the owner's.
     var settingsDefaults: UserDefaults = .standard
@@ -301,20 +298,21 @@ struct SettingsPane: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let bodyWidth = PlayerLayout.bodyWidth(paneWidth: proxy.size.width)
-            // The board's y of 46 less the header: a Mac with a shorter notch
-            // has a taller pane and the same screen position.
-            let top = SettingsLayout.contentTop - headerHeight
-            let formX = SettingsLayout.formLeading - PlayerLayout.paneLeading
+            // The content is the body's full width now the rail is gone.
+            let bodyWidth = proxy.size.width
+            // The board's y of 46 less the header row: the content starts
+            // under it on any notch.
+            let top = SettingsLayout.inContent(SettingsLayout.formFrame(bodyWidth: bodyWidth)).minY
+            let formX = SettingsLayout.formLeading
             let formWidth = SettingsLayout.formWidth(bodyWidth: bodyWidth)
             ZStack(alignment: .topLeading) {
                 SettingsSidebar(selection: selection, icons: icons)
-                    .offset(y: top)
+                    .offset(x: SettingsLayout.sidebarLeading, y: top)
                 // The hairline between the two, 5 pt past the sidebar.
                 Rectangle()
                     .fill(Theme.hairline)
                     .frame(width: 0.5, height: max(0, proxy.size.height - top))
-                    .offset(x: SettingsLayout.dividerLeading - PlayerLayout.paneLeading, y: top)
+                    .offset(x: SettingsLayout.dividerLeading, y: top)
                     .accessibilityHidden(true)
                 form(width: formWidth, narrow: SettingsLayout.isNarrow(bodyWidth: bodyWidth))
                     .frame(width: formWidth, height: max(0, proxy.size.height - top), alignment: .topLeading)

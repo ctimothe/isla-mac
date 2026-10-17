@@ -100,13 +100,13 @@ final class TranslateSpeechTests: XCTestCase {
         )
     }
 
-    /// The panel closing and the tab changing, from the view model: no view on
-    /// screen to notice.
-    func testClosingThePanelAndChangingTabsStopIt() throws {
+    /// The panel closing and the surface changing, from the view model: no view
+    /// on screen to notice.
+    func testClosingThePanelAndChangingSurfacesStopIt() throws {
         let rig = TranslateRig()
         defer { rig.release() }
         let vm = try model(rig)
-        vm.select(.translate)
+        vm.open(.translate)
         rig.answer()
         vm.isOpen = true
         rig.translator.speaker.speak("Привет", languageCode: "ru")
@@ -115,8 +115,8 @@ final class TranslateSpeechTests: XCTestCase {
 
         vm.isOpen = true
         rig.translator.speaker.speak("Привет", languageCode: "ru")
-        vm.select(.shelf)
-        XCTAssertFalse(rig.translator.speaker.isSpeaking, "the tab changing")
+        vm.open(.tray)
+        XCTAssertFalse(rig.translator.speaker.isSpeaking, "the surface changing")
     }
 
     func testTurningSpeakButtonOffStopsIt() throws {

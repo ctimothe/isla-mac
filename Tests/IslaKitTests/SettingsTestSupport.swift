@@ -21,8 +21,7 @@ enum SettingsFixture {
         automation: AutomationAccess? = nil,
         updates: UpdateCheck? = nil,
         installer: UpdateInstaller? = nil,
-        icons: AppIcons? = nil,
-        headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight
+        icons: AppIcons? = nil
     ) -> SettingsPane {
         let stores = isolated.stores
         let lyricStore = lyrics ?? LyricsStore(
@@ -39,7 +38,6 @@ enum SettingsFixture {
             automation: automation ?? AutomationAccess(),
             icons: icons ?? Self.macWithApps([:]),
             selection: .constant(section),
-            headerHeight: headerHeight,
             settingsDefaults: isolated.suite
         )
     }
@@ -55,11 +53,12 @@ enum SettingsFixture {
         ))
     }
 
-    /// The pane's own size in the panel at a body width: `bw − 72` wide (the
-    /// rail, its gap and the padding take 72) and 348 tall in the 400 body, or
-    /// the height asked for where a test wants every row on screen at once.
-    static func paneSize(bodyWidth: CGFloat = 560, height: CGFloat = 348) -> CGSize {
-        CGSize(width: PlayerLayout.paneWidth(bodyWidth: bodyWidth), height: height)
+    /// The pane's own size in the panel at a body width: the body's full width
+    /// (there is no rail to take any of it, §19.8) and 362 tall — the 400 body
+    /// less the 38 pt header row — or the height asked for where a test wants
+    /// every row on screen at once.
+    static func paneSize(bodyWidth: CGFloat = 560, height: CGFloat = 400 - SurfaceLayout.referenceNotchHeight) -> CGSize {
+        CGSize(width: bodyWidth, height: height)
     }
 
     /// The section as an assistive client reads it, at `bodyWidth`.

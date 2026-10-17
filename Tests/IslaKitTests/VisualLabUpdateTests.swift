@@ -142,7 +142,7 @@ final class VisualLabUpdateTests: VisualLabCase {
             try await shoot.shoot(scene.rawValue, variants: [.base, .light, .russian], size: size, settle: 0.4,
                                   notes: notes[scene]) { variant in
                 try await self.stage(scene)
-                return Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+                return Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
                     vm.settingsSection = .about
                 }), variant, height: size.height)
             }
@@ -150,21 +150,21 @@ final class VisualLabUpdateTests: VisualLabCase {
         try await shoot.shoot("available", variants: [LabVariant(name: "ru-w480", width: 480, language: "ru"), .w480],
                               size: size, settle: 0.4, notes: "The longest copy at the narrowest panel.") { variant in
             try await self.stage(.available)
-            return Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+            return Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
                 vm.settingsSection = .about
             }), variant, height: size.height)
         }
         try await shoot.shoot("downloading", variants: [.motion], size: size, settle: 0.4,
                               notes: "Reduce Motion: the bar steps and nothing sweeps.") { variant in
             try await self.stage(.downloading)
-            return Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+            return Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
                 vm.settingsSection = .about
             }), variant, height: size.height)
         }
         try await shoot.shoot("installing", variants: [.motion], size: size, settle: 0.4,
                               notes: "Reduce Motion: the endless bar fades in and out instead of sweeping.") { variant in
             try await self.stage(.installing)
-            return Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+            return Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
                 vm.settingsSection = .about
             }), variant, height: size.height)
         }
@@ -188,7 +188,7 @@ final class VisualLabUpdateTests: VisualLabCase {
             try await shoot.shoot(scene.rawValue, variants: [.base, .light, .russian], size: size, settle: 0.4,
                                   notes: notes[scene]) { variant in
                 try await self.stage(scene)
-                return Self.scene(try await self.openPanel(session, tab: .settings, configure: { vm in
+                return Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
                     vm.settingsSection = .about
                 }), variant, height: size.height)
             }

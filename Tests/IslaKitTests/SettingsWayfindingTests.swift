@@ -17,7 +17,7 @@ import XCTest
 /// About button is the section's head; Privacy is the second row of the sidebar.
 @MainActor
 final class SettingsWayfindingTests: XCTestCase {
-    /// The pane's own size in the 400 pt body at the default width: 488 × 348.
+    /// The pane's own size in the 400 pt body at the default width: 560 × 362.
     private static let viewport = SettingsFixture.paneSize()
 
     private func probePane(_ section: SettingsSection, height: CGFloat) async -> (AXNode, ProbeStores) {

@@ -2119,6 +2119,14 @@ rail on any surface.
   `closeDelay`, and a click on the notch's own span of an open surface's header
   row (the island closes what it opened).
 
+*Amended 2026-10-18 (R8 build).* The header row's items are placed by their
+centre line, not by the reference's y: a 26 pt well and a 16 pt title sit on
+the row's middle whatever the notch's height (38 on the reference, 32 on a
+display scaled for more space), so the y values §19.6–§19.8 give for a 38 pt
+row (6 for a well, 11 for a line) are that centring at 38. Only the notch's
+own span closes the panel; the rest of the row is the surface's, and it is
+also where a right-click opens the menu (19.9).
+
 The surfaces, and every way to reach each:
 
 | Surface | Reached by |
@@ -2407,6 +2415,29 @@ shadow. Board `R2-Lyrics` (drawn at 404; 400 keeps the window's single cut,
   Here) and §5.5's Edit Lyrics sheet hold, in the stage's frame.
 - Hide Lyrics turns the stage back into the player.
 
+*Amended 2026-10-18 (R8 build).* **A paused song is still a song.** "With
+nothing playing there is no player and a click opens Tools" is read as *no
+song at all*. A song paused long enough for the island to rest is not live
+(§19.1), but a click on the bare notch over it — and ⌃⌥⌘I, and Open on
+Hover — opens the player, paused, where play is one click away; sending
+somebody who paused and came back to Tools would put play one click further
+off. With no song, the bare notch opens Tools as §19.1 says
+(`NotchViewModel.openTarget`). Owner to confirm.
+
+*Amended 2026-10-18 (R8 build).* **Favourite and Spotify.** The Spotify
+account already asks for `user-library-read user-library-modify` — the lock
+card's heart needs them — so a connected account is one that can save, and no
+new scope is asked for. The star shows for Spotify while the account is
+connected and its API is answering; it reads the library's answer, off until
+the library has said. **The stage's lines wrap to two.** A line longer than
+`bw − 48` at 22 bold takes a second line and is cut at the tail after it
+(`LyricsStage.Metrics.stage.lineLimit`); a third would push the sung line's
+neighbours out of the 268 pt the lines have. Lines after a wrapped one move
+down, as above. **With no song** the stage is not drawn: ⌃⌥⌘L on a silent Mac
+shows the empty player, and the stage's §5.4 states show only for a song
+whose words are being looked for, missing or unreadable — the stage never
+folds back to the player on its own.
+
 The lyric column (C) and the tall page (T) of §5.1 are withdrawn; the stage
 is the one lyric surface in the island.
 
@@ -2447,6 +2478,26 @@ island grown by its hover margins, as today) opens the drop surface: `bw` ×
   the tiles. §8.2's selection bar and §8.1's grid are withdrawn.
 - An empty Shelf opened from Tools or the menu shows one line, centred, 13
   regular, white 0.55: "Drag files to the notch to keep them here."
+
+*Amended 2026-10-18 (R8 build).* Three things the board left open, settled:
+**Notices** the Shelf raises (a file that could not be kept, AirDrop refusing,
+Move to Trash) show as one line, 11 regular, white 0.55, centred under the
+tiles, for as long as they did before; they never cover a tile. **Remove
+All** asks in place of the tiles' row: "Remove all %d items? Files are
+untouched." with Cancel and Remove All (destructive) under it; Escape and
+leaving the tray take the question back. **The selected tile** is white 0.18
+with a 1.5 pt blue ring inside its edge; on the drop surface a file already
+on the Shelf lights its tile blue 0.18 with a 2 pt ring, as the lit target
+does. The drop surface's captions do not change when a target is lit: only
+their brightness does, so nothing reflows under a moving pointer.
+**The tray's width follows a wide notch.** The board's 385.3 leaves the
+header about 100 pt either side of a 185 pt notch; under the 220 and 240 pt
+notches §19.12 names, the count lost "60" and Remove All ran into the notch.
+The tray is therefore at least the notch plus what its header needs on the
+wider side (the count's "60" or Remove All in the language on screen, each
+with 8 pt of clearance), on both sides; under 200 pt and narrower it is the
+board's 385.3. The four tiles keep the board's margins, centred. More items
+still never widen it.
 
 **The bubble** — `R2-Shelf-Bubble`. 58 × `H`, shoulders 8.67, bottom corners
 14, stroke white 0.14, its left edge 16 right of the island's outline. Centred
@@ -2494,6 +2545,15 @@ stays 16 right of the island's outline; it grows to the right.
   typing searches, ↑ ↓ select, ↩ copies the selection and closes, Escape
   clears the search, then closes. `NotchPanel.canBecomeKey` is true while
   Clipboard or Translate asks for it, and never otherwise.
+
+*Amended 2026-10-18 (R8 build).* One exception to "never otherwise": a
+shortcut field in Settings › Shortcuts takes the keyboard while it records,
+because a shortcut is recorded from a key press and a panel that cannot be
+key never hears one. It gives the keyboard back when the recording ends, is
+cancelled, or Settings closes. The arrows and Return reach Clipboard from the
+panel itself, ahead of the search field, which would otherwise take ↑ ↓ as
+caret moves; a row clicked copies and shows "Copied" as §9.2 says, and only
+Return closes.
 - §9.1's kinds and detection, §9.2's row menus (Pin, Paste, Paste as Plain
   Text, Clear Everything…), §9.4's persistence and privacy hold.
 

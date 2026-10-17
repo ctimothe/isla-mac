@@ -1,43 +1,42 @@
 import AppKit
 import SwiftUI
 
-/// The Clipboard tab (redesign spec §9): a list of 28 pt rows that each read as
-/// what they are — text, a colour, code, a link, a picture, files — pinned
-/// entries first above a hairline, a grid of thumbnails for the Images filter,
-/// a search that replaces the filter in the header, and the same Expand as the
-/// other tabs that can grow.
+/// Clipboard (spec §19.8, board `R2-Clipboard`): the search field and the Kind
+/// filter under the header strip, and the history below them in 30 pt rows on
+/// a 34 pitch, each reading as what it is — text, a colour, code, a link, a
+/// picture, files — pinned entries first above a hairline, and a grid of
+/// thumbnails for the Images filter.
 ///
-/// Every frame comes from `ClipboardLayout`, in the board's body coordinates,
-/// and is converted once by `PlayerLayout.inPane`, so what a test holds is what
-/// is drawn. The store under it (the poll, the pasteboard-privacy rules, the
-/// 40-entry cap) is `ClipboardStore`; what is on show of it is
-/// `ClipboardBrowser`.
+/// Summoned, it takes the keyboard: typing searches, ↑ ↓ select, Return copies
+/// the selection and closes, Escape clears the search and then closes. The
+/// arrows and Return come through the panel (`NotchViewModel.consumeListKey`),
+/// Escape through `consumeEscape`; this view draws what they chose.
+///
+/// Every frame comes from `ClipboardLayout`, in the content's coordinates. The
+/// store under it (the poll, the pasteboard-privacy rules, the 40-entry cap)
+/// is `ClipboardStore`; what is on show of it is `ClipboardBrowser`.
 struct ClipboardPane: View {
     @ObservedObject var clipboard: ClipboardStore
     @ObservedObject var privacy: PrivacyMode
-    /// The filter and the search field, owned by the view model so the panel can
-    /// end a search from outside the pane. A pane built without one (a test, the
-    /// lab) gets a private browser showing everything.
+    /// The filter, the search and the selection, owned by the view model so the
+    /// panel can end a search and move the selection from outside the view. A
+    /// view built without one (a test, the lab) gets a private browser.
     @ObservedObject var browser: ClipboardBrowser
     /// Read through `@AppStorage` rather than once from
     /// `NotchViewModel.clipboardHistoryEnabled`, so Turn On below redraws the
-    /// pane the moment it writes the switch. The store is a parameter only so
+    /// surface the moment it writes the switch. The store is a parameter only so
     /// a test can hand it a private suite instead of the owner's defaults.
     @AppStorage private var historyEnabled: Bool
     /// The Settings switch, flipped on from here. Local only: history never
     /// leaves the Mac, so turning it on beside the sentence that says it is
     /// off asks nothing of anyone.
     private let turnOnHistory: () -> Void
-    /// Translate, from a row's menu: hands the entry's text to the Translate tab
-    /// the way ⌃⌥⌘T does (`NotchViewModel.translateClipboardText`).
+    /// Translate, from a row's menu: hands the entry's text to Translate the
+    /// way ⌃⌥⌘T does (`NotchViewModel.translateClipboardText`).
     private let translate: (String) -> Void
-    /// The header's height on this Mac, for the body-to-pane conversion.
-    private let headerHeight: CGFloat
-    /// The keyboard claim the search field follows (`NotchViewModel.wantsKeyboard`),
-    /// and the way it ends a search. The field lives on this pane's filter row,
-    /// not in the header strip (review 2026-10-15: the notch covered it there).
+    private let bodyWidth: CGFloat
+    /// The keyboard claim the search field follows (`NotchViewModel.wantsKeyboard`).
     @Binding private var wantsKeyboard: Bool
-    private let closeSearch: () -> Void
 
     @StateObject private var clear: ClipboardClearConfirmation
 
@@ -46,9 +45,8 @@ struct ClipboardPane: View {
         privacy: PrivacyMode,
         browser: ClipboardBrowser? = nil,
         historyDefaults: UserDefaults = .standard,
-        headerHeight: CGFloat = PlayerLayout.referenceHeaderHeight,
+        bodyWidth: CGFloat = NotchMetrics.defaultBodyWidth,
         wantsKeyboard: Binding<Bool> = .constant(false),
-        closeSearch: @escaping () -> Void = {},
         translate: @escaping (String) -> Void = { _ in },
         clearConfirmation: ClipboardClearConfirmation? = nil,
         turnOnHistory: @escaping () -> Void = {}
@@ -58,9 +56,8 @@ struct ClipboardPane: View {
         self.privacy = privacy
         _browser = ObservedObject(wrappedValue: browser ?? ClipboardBrowser())
         _historyEnabled = AppStorage(wrappedValue: true, NotchViewModel.clipboardHistoryKey, store: historyDefaults)
-        self.headerHeight = headerHeight
+        self.bodyWidth = bodyWidth
         _wantsKeyboard = wantsKeyboard
-        self.closeSearch = closeSearch
         self.translate = translate
         self.turnOnHistory = turnOnHistory
     }
@@ -79,29 +76,21 @@ struct ClipboardPane: View {
         for url in privacySettingsURLs where NSWorkspace.shared.open(url) { return }
     }
 
-    /// A frame in the board's body coordinates, in this pane's.
-    private func pane(_ rect: CGRect) -> CGRect {
-        PlayerLayout.inPane(rect, headerHeight: headerHeight)
-    }
-
     var body: some View {
-        GeometryReader { geo in
-            let size = ClipboardLayout.bodySize(paneSize: geo.size, headerHeight: headerHeight)
-            content(size)
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
-        }
-        // Don't Allow stops the poll, and a stopped poll cannot notice the
-        // switch going back to Allow. Looking at this tab is the moment a
-        // user back from System Settings expects history to resume, so the
-        // system is asked again here rather than on a timer.
-        .onAppear { clipboard.recheckAccess() }
-        // A question left standing would be waiting inside the next visit to
-        // the tab, one click from emptying it.
-        .onDisappear { clear.cancel() }
-        .onChange(of: clipboard.items.isEmpty) { _, empty in if empty { clear.cancel() } }
+        content
+            .frame(width: bodyWidth, height: ClipboardLayout.contentHeight, alignment: .topLeading)
+            // Don't Allow stops the poll, and a stopped poll cannot notice the
+            // switch going back to Allow. Looking at Clipboard is the moment a
+            // user back from System Settings expects history to resume, so the
+            // system is asked again here rather than on a timer.
+            .onAppear { clipboard.recheckAccess() }
+            // A question left standing would be waiting inside the next visit,
+            // one click from emptying the history.
+            .onDisappear { clear.cancel() }
+            .onChange(of: clipboard.items.isEmpty) { _, empty in if empty { clear.cancel() } }
     }
 
-    // MARK: - The tab, by state
+    // MARK: - By state
 
     private var showsAlert: Bool {
         // Only while something wants the pasteboard: with history and
@@ -113,100 +102,92 @@ struct ClipboardPane: View {
         )
     }
 
-    @ViewBuilder
-    private func content(_ size: CGSize) -> some View {
-        let alert = showsAlert
-        let confirming = clear.isAsking && !clipboard.items.isEmpty
-        let hasFilterRow = ClipboardHeader.showsFilterRow(itemCount: clipboard.items.count, isSearching: browser.isSearching)
-        let viewport = pane(ClipboardLayout.viewport(
-            bodySize: size, showsAlert: alert, confirming: confirming, hasFilterRow: hasFilterRow, headerHeight: headerHeight
-        ))
-        let listing = ClipboardBrowser.listing(
-            of: clipboard.items, filter: browser.filter, query: browser.query, searching: browser.isSearching,
+    private var listing: ClipboardBrowser.Listing {
+        ClipboardBrowser.listing(
+            of: clipboard.items, filter: browser.filter, query: browser.query,
             isHidden: { privacy.hides(.clipboard, $0.id.uuidString) }
         )
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        let alert = showsAlert
+        let confirming = clear.isAsking && !clipboard.items.isEmpty
+        let viewport = ClipboardLayout.viewport(bodyWidth: bodyWidth, showsAlert: alert, confirming: confirming)
+        let listing = listing
         ZStack(alignment: .topLeading) {
-            if alert { deniedAlert(size, hasFilterRow: hasFilterRow) }
-            if hasFilterRow { filterRow(size) }
+            Color.clear
+            ClipboardSearchField(browser: browser, wantsKeyboard: $wantsKeyboard)
+                .placedAt(ClipboardHeader.searchField)
+            ClipboardKindControl(selection: $browser.filter, bodyWidth: bodyWidth)
+                .placedAt(ClipboardHeader.filter(bodyWidth: bodyWidth))
+            if alert { deniedAlert }
             if clipboard.items.isEmpty {
-                emptyState(in: pane(ClipboardLayout.viewport(bodySize: size, showsAlert: alert, hasFilterRow: hasFilterRow, headerHeight: headerHeight)))
+                emptyState(in: viewport)
             } else if listing.items.isEmpty {
                 if listing.isSearch {
                     noResults(in: viewport)
-                } else if let title = browser.filter.emptyTitle, !browser.isSearching {
+                } else if let title = browser.filter.emptyTitle {
                     // Entries exist, but none of the chosen kind.
                     kindEmpty(title: title, symbol: browser.filter.symbol, in: viewport)
                 } else {
                     emptyState(in: viewport)
                 }
-            } else if browser.filter == .images, !browser.isSearching {
-                imageGrid(listing.items, size: size, viewport: viewport)
+            } else if browser.filter == .images, !listing.isSearch {
+                imageGrid(listing.items, viewport: viewport)
             } else {
-                list(listing, size: size, viewport: viewport)
+                list(listing, viewport: viewport)
             }
-            if confirming { confirmBar(size) }
+            if confirming { confirmBar }
         }
         .animation(Theme.contentAnimation, value: confirming)
     }
 
-    // MARK: - The filter row (§9.3)
+    // MARK: - The list (§19.8)
 
-    /// The Kind filter, or while Search is open the field that replaces it, on
-    /// the row under the header: (58, 44), `bw − 72` × 22. Drawn by the pane
-    /// rather than the header strip because it is below the strip, and a
-    /// control placed outside its parent's bounds is a hit-testing gamble.
-    @ViewBuilder
-    private func filterRow(_ size: CGSize) -> some View {
-        if browser.isSearching {
-            let frame = pane(ClipboardHeader.searchField(bodyWidth: size.width, headerHeight: headerHeight))
-            ClipboardSearchField(browser: browser, wantsKeyboard: $wantsKeyboard, close: closeSearch)
-                .frame(width: frame.width, height: frame.height)
-                .offset(x: frame.minX, y: frame.minY)
-                .transition(.opacity)
-        } else {
-            let frame = pane(ClipboardHeader.filter(bodyWidth: size.width, headerHeight: headerHeight))
-            ClipboardKindControl(selection: $browser.filter, bodyWidth: size.width)
-                .offset(x: frame.minX, y: frame.minY)
-                .transition(.opacity)
-        }
-    }
-
-    // MARK: - The list (§9.2)
-
-    private func list(_ listing: ClipboardBrowser.Listing, size: CGSize, viewport: CGRect) -> some View {
-        let narrow = ClipboardHeader.usesSymbols(bodyWidth: size.width)
-        return ScrollView(showsIndicators: false) {
-            // One clock for every covered row in the list — see
-            // `SpoilerClock` — and only while one is covered.
-            SpoilerClock(active: spoilerClockActive) {
-                // Re-read twice a minute, so "Now" does not linger into the
-                // afternoon on a list left open: one timeline for every age
-                // rather than one per row.
-                TimelineView(.periodic(from: .now, by: 30)) { context in
-                    LazyVStack(spacing: ClipboardLayout.rowGap) {
-                        ForEach(Array(listing.items.enumerated()), id: \.element.id) { index, item in
-                            ClipRow(
-                                item: item, clipboard: clipboard, privacy: privacy,
-                                query: listing.isSearch ? browser.query : "",
-                                now: context.date, narrowAges: narrow,
-                                translate: translate, askClear: askClear
-                            )
-                            if listing.separatorAfter == index { separator }
+    private func list(_ listing: ClipboardBrowser.Listing, viewport: CGRect) -> some View {
+        let narrow = ClipboardHeader.usesNarrowAges(bodyWidth: bodyWidth)
+        let selected = ClipboardBrowser.selectedIndex(in: listing, selection: browser.selection)
+        return ScrollViewReader { reader in
+            ScrollView(showsIndicators: false) {
+                // One clock for every covered row in the list — see
+                // `SpoilerClock` — and only while one is covered.
+                SpoilerClock(active: spoilerClockActive) {
+                    // Re-read twice a minute, so "Now" does not linger into the
+                    // afternoon on a list left open: one timeline for every age
+                    // rather than one per row.
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        LazyVStack(spacing: ClipboardLayout.rowGap) {
+                            ForEach(Array(listing.items.enumerated()), id: \.element.id) { index, item in
+                                ClipRow(
+                                    item: item, clipboard: clipboard, privacy: privacy,
+                                    query: listing.isSearch ? browser.query : "",
+                                    now: context.date, narrowAges: narrow,
+                                    isSelected: selected == index,
+                                    translate: translate, askClear: askClear
+                                )
+                                .id(item.id)
+                                if listing.separatorAfter == index { separator }
+                            }
                         }
                     }
                 }
             }
+            // Rows beyond the window fade out under 26 pt of mask instead of
+            // being cut square against the body's foot (H-017), and only while
+            // something is beyond the edge.
+            .scrollEdgeFade(.vertical, length: ClipboardLayout.overflowFade)
+            // The arrows keep the selected row in view.
+            .onChange(of: browser.selection) { _, id in
+                guard let id else { return }
+                withAnimation(Theme.contentAnimation) { reader.scrollTo(id) }
+            }
         }
-        // Rows beyond the window fade out under 26 pt of mask instead of
-        // being cut square against the body's foot (H-017, spec §9.2), and only
-        // while something is beyond the edge.
-        .scrollEdgeFade(.vertical, length: ClipboardLayout.overflowFade)
-        .frame(width: viewport.width, height: viewport.height)
-        .offset(x: viewport.minX, y: viewport.minY)
+        .placedAt(viewport, alignment: .topLeading)
     }
 
-    /// The hairline under the pinned rows: 7 pt of list with the line 3 down,
-    /// inset 8 each side.
+    /// The hairline under the pinned rows: 7 pt of list with the line in its
+    /// middle, inset 8 each side.
     private var separator: some View {
         Rectangle()
             .fill(Theme.hairline)
@@ -216,19 +197,16 @@ struct ClipboardPane: View {
             .accessibilityHidden(true)
     }
 
-    /// Whether the list's spoiler clock has anything to animate. The tab
-    /// used to run it unconditionally, and covers are off by default, so an
-    /// unchanging list redrew twenty times a second (F-016). Needs the
-    /// section covered and a row still hidden: revealing the last row stops
-    /// the clock, covering the section again starts it.
+    /// Whether the list's spoiler clock has anything to animate. It used to
+    /// run unconditionally, and covers are off by default, so an unchanging
+    /// list redrew twenty times a second (F-016). Needs the section covered
+    /// and a row still hidden.
     static func spoilerClockActive(covers: Bool, hiddenCount: Int) -> Bool {
         covers && hiddenCount > 0
     }
 
     private var spoilerClockActive: Bool {
         let covers = privacy.covers(.clipboard)
-        // Only walked when the section covers: `hides` is false for every
-        // row otherwise.
         let hidden = covers
             ? clipboard.items.filter { privacy.hides(.clipboard, $0.id.uuidString) }.count
             : 0
@@ -244,9 +222,9 @@ struct ClipboardPane: View {
     /// A picture is read by eye, so the Images filter is a grid: 88 × 66
     /// thumbnails, 12 apart, the age centred under each, and the one line that
     /// says where they live.
-    private func imageGrid(_ items: [ClipItem], size: CGSize, viewport: CGRect) -> some View {
-        let columns = ClipboardLayout.imageColumns(bodyWidth: size.width)
-        let narrow = ClipboardHeader.usesSymbols(bodyWidth: size.width)
+    private func imageGrid(_ items: [ClipItem], viewport: CGRect) -> some View {
+        let columns = ClipboardLayout.imageColumns(bodyWidth: bodyWidth)
+        let narrow = ClipboardHeader.usesNarrowAges(bodyWidth: bodyWidth)
         return ScrollView(showsIndicators: false) {
             SpoilerClock(active: spoilerClockActive) {
                 TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -278,21 +256,17 @@ struct ClipboardPane: View {
             }
         }
         .scrollEdgeFade(.vertical, length: ClipboardLayout.overflowFade)
-        .frame(width: viewport.width, height: viewport.height)
-        .offset(x: viewport.minX, y: viewport.minY)
+        .placedAt(viewport, alignment: .topLeading)
     }
 
     // MARK: - Empty, history off, no results (§9.3, §9.4)
 
-    /// The glyph alone used to be the whole empty tab, and VoiceOver read it
-    /// by its symbol's name, "Paste" (F-036, M-08). The words say what lands
-    /// here and what never does — concealed copies, which is what password
-    /// managers mark theirs as, are skipped before they are read — and the
-    /// glyph is drawing. Laid out like the empty Shelf, so the two tabs read
-    /// as one panel.
+    /// The words say what lands here and what never does — concealed copies,
+    /// which is what password managers mark theirs as, are skipped before they
+    /// are read — and the glyph is drawing (F-036, M-08).
     private func emptyState(in frame: CGRect) -> some View {
         VStack(spacing: 6) {
-            Image(systemName: NotchViewModel.Tab.clipboard.symbol)
+            Image(systemName: "doc.on.clipboard")
                 .font(.system(size: 26, weight: .regular))
                 .foregroundStyle(Theme.tertiary)
                 .accessibilityHidden(true)
@@ -308,8 +282,7 @@ struct ClipboardPane: View {
             } else {
                 // An empty list with history off is not "nothing copied yet",
                 // and saying which one it is saves a hunt. The way back on
-                // sits under the sentence: sending someone to Settings for a
-                // switch they could be handed here was a second hunt.
+                // sits under the sentence.
                 Text(localized("Clipboard History"))
                     .islandFont(.subhead, weight: .semibold)
                     .foregroundStyle(.white)
@@ -323,8 +296,7 @@ struct ClipboardPane: View {
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, 16)
-        .frame(width: frame.width, height: frame.height)
-        .offset(x: frame.minX, y: frame.minY)
+        .placedAt(frame, alignment: .center)
     }
 
     /// A filter with nothing of its kind (`ClipFilter.emptyTitle`): the kind's own
@@ -345,8 +317,7 @@ struct ClipboardPane: View {
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, 16)
-        .frame(width: frame.width, height: frame.height)
-        .offset(x: frame.minX, y: frame.minY)
+        .placedAt(frame, alignment: .center)
     }
 
     /// `magnifyingglass` 26 pt, the query in the title, and the way out. The
@@ -368,26 +339,20 @@ struct ClipboardPane: View {
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, 16)
-        .frame(width: frame.width, height: frame.height)
-        .offset(x: frame.minX, y: frame.minY)
+        .placedAt(frame, alignment: .center)
     }
 
     // MARK: - Denied (§9.4)
 
-    /// Paste from Other Apps set to Don't Allow (J-001), as an inline alert:
-    /// 488 × 44, radius 9, the warning orange at 0.12 with a 0.35 ring, the raised
-    /// hand, the sentence and the way to fix it. Inline above the list, because
-    /// the failure belongs to this section and to nothing else; Settings
-    /// carries no second banner for the same event. What was kept before the
-    /// refusal stays below it, still usable.
-    private func deniedAlert(_ size: CGSize, hasFilterRow: Bool) -> some View {
-        let origin = hasFilterRow
-            ? ClipboardLayout.listOrigin(headerHeight: headerHeight)
-            : ClipboardLayout.listOriginWithoutFilterRow(headerHeight: headerHeight)
-        let frame = pane(CGRect(
-            x: origin.x, y: origin.y,
-            width: ClipboardLayout.rowWidth(bodyWidth: size.width), height: ClipboardLayout.alertHeight
-        ))
+    /// Paste from Other Apps set to Don't Allow (J-001), as an inline alert
+    /// above the list: the warning orange at 0.12 with a 0.35 ring, the raised
+    /// hand, the sentence and the way to fix it. The failure belongs to this
+    /// surface and to nothing else; Settings carries no second banner for it.
+    private var deniedAlert: some View {
+        let frame = CGRect(
+            x: ClipboardLayout.listOrigin.x, y: ClipboardLayout.listOrigin.y,
+            width: ClipboardLayout.rowWidth(bodyWidth: bodyWidth), height: ClipboardLayout.alertHeight
+        )
         return HStack(spacing: 10) {
             Image(systemName: "hand.raised")
                 .font(.system(size: 14, weight: .regular))
@@ -422,8 +387,8 @@ struct ClipboardPane: View {
     /// "Clear %d entries? Pinned items stay." with Cancel and Clear History, in
     /// place at the list's foot. Escape answers it first
     /// (`ArmedConfirmations`), and it does not lapse by itself.
-    private func confirmBar(_ size: CGSize) -> some View {
-        let frame = pane(ClipboardLayout.confirmBar(bodySize: size))
+    private var confirmBar: some View {
+        let frame = ClipboardLayout.confirmBar(bodyWidth: bodyWidth)
         return HStack(spacing: 6) {
             Text(localized("Clear %d entries? Pinned items stay.", clear.count))
                 .islandFont(.body, weight: .regular)
@@ -461,6 +426,9 @@ struct ClipRow: View {
     var now = Date()
     /// Below 540 (spec §9.3) the age's weekday and date shorten.
     var narrowAges = false
+    /// The row the arrow keys are on (§19.8): white 0.10, and "↩ Copy" on
+    /// its right.
+    var isSelected = false
     var translate: (String) -> Void = { _ in }
     var askClear: () -> Void = {}
 
@@ -496,7 +464,7 @@ struct ClipRow: View {
         .frame(height: ClipboardLayout.rowHeight)
         .background(
             RoundedRectangle(cornerRadius: ClipboardLayout.rowRadius, style: .continuous)
-                .fill(hovering || justCopied ? Theme.clipboardWell : Color.clear)
+                .fill(isSelected || hovering || justCopied ? Theme.clipboardWell : Color.clear)
         )
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
@@ -695,11 +663,21 @@ struct ClipRow: View {
                     hoverButton(symbol: "xmark", label: localized("Remove Entry"), tint: Theme.secondary, weight: .semibold) {
                         clipboard.remove(item)
                     }
+                } else if isSelected {
+                    // What Return will do, where the eye already is.
+                    Text(localized("↩ Copy"))
+                        .islandFont(.body, weight: .regular)
+                        .foregroundStyle(Theme.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .accessibilityHidden(true)
                 } else if item.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 10, weight: .regular))
+                    // The word, where an unpinned row has its age (§19.8).
+                    Text(localized("Pinned"))
+                        .islandFont(.body, weight: .regular)
                         .foregroundStyle(Theme.tertiary)
-                        .frame(minWidth: 16)
+                        .lineLimit(1)
+                        .fixedSize()
                         .accessibilityHidden(true)
                 } else {
                     Text(ClipboardAge.text(of: item.date, now: now, narrow: narrowAges))

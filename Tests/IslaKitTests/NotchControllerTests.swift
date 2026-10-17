@@ -23,9 +23,11 @@ final class NotchControllerTests: XCTestCase {
 }
 
 /// The rects the controller cuts for an open panel follow the body as it grows
-/// and shrinks (spec §6), and shrink only once the body has stopped moving
-/// (review 2026-10-15: a 0.4 s hole where clicks on the still-drawn lower part
-/// went to the app beneath, and a pointer resting there folded the panel).
+/// and shrinks (spec §19.6–§19.8), and shrink only once the body has stopped
+/// moving (review 2026-10-15: a 0.4 s hole where clicks on the still-drawn
+/// lower part went to the app beneath, and a pointer resting there folded the
+/// panel). The body changes size when the surface does — Tools is 480 × 204 and
+/// Settings `bw` × 400 — which is what Expand and Collapse used to do.
 @MainActor
 final class NotchControllerRectTests: XCTestCase {
     private func rig() throws -> (NotchController, NotchViewModel, NotchRootView) {
@@ -34,68 +36,104 @@ final class NotchControllerRectTests: XCTestCase {
         let controller = NotchController()
         controller.attachForTesting(viewModel: vm, rootView: root)
         vm.isOpen = true
-        vm.tab = .shelf
+        vm.open(.tools)
         return (controller, vm, root)
     }
 
-    /// The active rect and the close rect a body of `height` should get.
-    private func expected(_ vm: NotchViewModel, height: CGFloat) -> (active: CGFloat, close: CGFloat) {
-        let size = CGSize(width: vm.geometry.expandedSize.width, height: height)
-        let slack = Theme.openTopRadius
+    /// Folding the panel gives the keyboard back, whatever surface held it.
+    /// Since R8 removed Clipboard's search toggle, `setOpen(false)` is the one
+    /// place that does it on a close (R8 review), so it is held here through
+    /// ⌃⌥⌘I's route, the command that closes an open panel.
+    func testClosingThePanelGivesTheKeyboardBack() throws {
+        let (controller, vm, _) = try rig()
+        for surface in [NotchViewModel.Surface.clipboard, .translate] {
+            vm.isOpen = true
+            vm.open(surface)
+            XCTAssertTrue(vm.wantsKeyboard, "\(surface)")
+            controller.toggle()
+            XCTAssertFalse(vm.wantsKeyboard, "closing on \(surface) gives the keyboard back")
+        }
+    }
+
+    /// The active rect and the close rect a body of `size` should get.
+    private func expected(_ vm: NotchViewModel, size: CGSize) -> (active: CGSize, close: CGSize) {
+        let slack = vm.openTopRadius
         let active = NotchRootView.reachingTopEdge(
             vm.geometry.contentRect(for: size).insetBy(dx: -slack, dy: 0),
             windowHeight: vm.geometry.windowSize.height
         )
-        return (active.height, vm.geometry.hoverRect(for: size).height)
+        return (active.size, vm.geometry.hoverRect(for: size).size)
     }
 
-    func testTheOpenRectsFollowExpandAtOnceAndCollapseOnceTheBodyHasSettled() throws {
+    private func bodySize(_ vm: NotchViewModel, _ surface: NotchViewModel.Surface) -> CGSize {
+        SurfaceLayout.bodySize(for: surface, bodyWidth: vm.geometry.expandedSize.width, notch: vm.geometry.notchSize)
+    }
+
+    func testTheOpenRectsFollowASurfaceChangeAtOnceAndShrinkOnceTheBodyHasSettled() throws {
         let (controller, vm, root) = try rig()
+        let tools = bodySize(vm, .tools)
+        let settings = bodySize(vm, .settings)
+        XCTAssertLessThan(tools.height, settings.height, "the two surfaces differ in height")
         controller.refreshOpenRects(bodySettled: true)
-        XCTAssertEqual(root.activeRect.height, expected(vm, height: 208).active, "open at the standard body")
-        XCTAssertEqual(controller.pointer.closeRect.height, expected(vm, height: 208).close)
+        XCTAssertEqual(vm.openBodySize, tools)
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: tools).active, "open at Tools")
+        XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: tools).close)
 
-        // Expand: the rects reach 400 on the turn the state changes.
-        vm.setExpanded(true, for: .shelf)
-        XCTAssertEqual(vm.openBodySize.height, 400)
+        // Settings, the taller: the rects reach it on the turn the surface changes.
+        vm.open(.settings)
+        XCTAssertEqual(vm.openBodySize, settings)
         controller.refreshOpenRects()
-        XCTAssertEqual(root.activeRect.height, expected(vm, height: 400).active, "growing is immediate")
-        XCTAssertEqual(controller.pointer.closeRect.height, expected(vm, height: 400).close)
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: settings).active, "growing is immediate")
+        XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: settings).close)
 
-        // Collapse: the body springs for 0.4 s, and the rects keep 400 meanwhile.
-        vm.setExpanded(false, for: .shelf)
+        // Back to Tools: the body springs for 0.5 s, and the rects keep Settings'
+        // size meanwhile.
+        vm.open(.tools)
         controller.refreshOpenRects()
-        XCTAssertEqual(root.activeRect.height, expected(vm, height: 400).active,
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: settings).active,
                        "the still-drawn lower half keeps its clicks, and the pointer on it its panel")
-        XCTAssertEqual(controller.pointer.closeRect.height, expected(vm, height: 400).close)
+        XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: settings).close)
 
-        // …and 208 once it has stopped.
+        // …and Tools' once it has stopped.
         controller.refreshOpenRects(bodySettled: true)
-        XCTAssertEqual(root.activeRect.height, expected(vm, height: 208).active)
-        XCTAssertEqual(controller.pointer.closeRect.height, expected(vm, height: 208).close)
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: tools).active)
+        XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: tools).close)
     }
 
-    /// The shrink arrives on its own after the spring, and a re-expand in the
-    /// meantime outdates it.
+    /// The shrink arrives on its own after the spring, and a newer change in
+    /// the meantime outdates it.
     func testTheShrinkIsScheduledForTheEndOfTheSpringAndOutdatedByANewerRefresh() async throws {
         let (controller, vm, root) = try rig()
-        vm.setExpanded(true, for: .shelf)
+        let tools = bodySize(vm, .tools)
+        let settings = bodySize(vm, .settings)
+        vm.open(.settings)
         controller.refreshOpenRects()
-        vm.setExpanded(false, for: .shelf)
+        vm.open(.tools)
         controller.refreshOpenRects()
-        XCTAssertEqual(root.activeRect.height, expected(vm, height: 400).active)
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: settings).active)
         try await Task.sleep(for: .seconds(Theme.expandSettle + 0.25))
-        XCTAssertEqual(root.activeRect.height, expected(vm, height: 208).active, "the pass after the spring shrank it")
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: tools).active, "the pass after the spring shrank it")
 
-        vm.setExpanded(true, for: .shelf)
+        vm.open(.settings)
         controller.refreshOpenRects()
-        vm.setExpanded(false, for: .shelf)
+        vm.open(.tools)
         controller.refreshOpenRects()
-        vm.setExpanded(true, for: .shelf)
+        vm.open(.settings)
         controller.refreshOpenRects()
         try await Task.sleep(for: .seconds(Theme.expandSettle + 0.25))
-        XCTAssertEqual(root.activeRect.height, expected(vm, height: 400).active,
-                       "a pass scheduled before the person expanded again must not cut a body that is tall")
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: settings).active,
+                       "a pass scheduled before the person went back to Settings must not cut a body that is tall")
+    }
+
+    /// Width and height each follow the rule on their own: the stage turning
+    /// into the player narrows the shape by two hundred points as well.
+    func testTheRuleHoldsForWidthAndHeightTogether() {
+        let wide = CGSize(width: 620, height: 204)
+        let narrow = CGSize(width: 357, height: 400)
+        XCTAssertEqual(NotchController.openRectSize(applied: wide, target: narrow, bodySettled: false), CGSize(width: 620, height: 400),
+                       "the height grows now, the width waits")
+        XCTAssertEqual(NotchController.openRectSize(applied: wide, target: narrow, bodySettled: true), narrow)
+        XCTAssertEqual(NotchController.openRectSize(applied: nil, target: narrow, bodySettled: false), narrow)
     }
 
     func testTheRuleInIsolation() {
@@ -111,8 +149,9 @@ final class NotchControllerRectTests: XCTestCase {
     /// — inward, on a shrink: past its first crossing the shape is smaller than
     /// the body it is going to, so inside the rect cut for it, and the swing
     /// back out is a tenth of a point. Held from the closed form over the
-    /// 192 pt fold from 400 to 208: from the hold on, no drawn point lies more
-    /// than half a point outside the smaller rect.
+    /// biggest fold a surface change makes — the stage's 400 down to the tray's
+    /// 158, 242 pt: from the hold on, no drawn point lies more than half a
+    /// point outside the smaller rect.
     func testTheShrinkHoldOutlastsTheIslandSpring() {
         let omega = 2 * Double.pi / Theme.islandResponse
         let zeta = Theme.islandDamping
@@ -120,7 +159,8 @@ final class NotchControllerRectTests: XCTestCase {
         func progress(_ t: Double) -> Double {
             1 - exp(-zeta * omega * t) * (cos(damped * t) + (zeta * omega / damped) * sin(damped * t))
         }
-        let travel = 192.0
+        let travel = Double(SurfaceLayout.stageHeight - SurfaceLayout.trayReference.height)
+        XCTAssertEqual(travel, 242)
         for t in stride(from: Theme.expandSettle, through: 3, by: 0.001) {
             // Progress short of 1 is a body still taller than its end.
             let outside = (1 - progress(t)) * travel

@@ -591,32 +591,32 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertEqual(second.settingsSection, .screenshots)
     }
 
-    /// Every way in that names a section selects it, opens the tab, and is
+    /// Every way in that names a section selects it, opens Settings, and is
     /// remembered like any other visit.
     func testDeepLinksSelectTheirSection() throws {
         let defaults = suite()
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores(), defaults: defaults)
-        vm.select(.media)
+        vm.open(.player)
 
         vm.openLyricsSettings()
-        XCTAssertEqual(vm.tab, .settings)
+        XCTAssertEqual(vm.surface, .settings)
         XCTAssertEqual(vm.settingsSection, .lyrics, "Lyrics Settings… opens Lyrics")
         XCTAssertEqual(SettingsSection.stored(in: defaults), .lyrics)
 
-        vm.select(.shelf)
+        vm.open(.tray)
         vm.openMusicOnlySetting()
-        XCTAssertEqual(vm.tab, .settings)
-        XCTAssertEqual(vm.settingsSection, .music, "the Music tab's remedy opens Music")
+        XCTAssertEqual(vm.surface, .settings)
+        XCTAssertEqual(vm.settingsSection, .music, "the player's remedy opens Music")
 
-        vm.select(.clipboard)
+        vm.open(.clipboard)
         vm.openSettings(at: .privacy)
-        XCTAssertEqual(vm.tab, .settings)
+        XCTAssertEqual(vm.surface, .settings)
         XCTAssertEqual(vm.settingsSection, .privacy)
 
-        // Leaving and coming back by the rail shows where it was, as a person
-        // coming back to a settings window expects.
-        vm.select(.media)
-        vm.select(.settings)
+        // Leaving and coming back (the gear on Tools) shows where it was, as a
+        // person coming back to a settings window expects.
+        vm.open(.player)
+        vm.open(.settings)
         XCTAssertEqual(vm.settingsSection, .privacy)
     }
 

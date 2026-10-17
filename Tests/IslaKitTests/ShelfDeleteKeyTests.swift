@@ -305,18 +305,20 @@ final class ShelfDeleteKeyTests: XCTestCase {
         XCTAssertEqual(reports, [true, false])
     }
 
-    /// The zone is the pane: right of the rail, below the header, above the
-    /// body's padding — and not the header row, where Expand is.
-    func testThePointerZoneIsThePane() {
-        let body = CGRect(x: 100, y: 500, width: 560, height: 208)
+    /// The zone is the tray: the body's whole width, below the header strip —
+    /// and not the strip, where Remove All is. There is no rail to the left of
+    /// it and no padding under it any more (§19.7).
+    func testThePointerZoneIsTheTray() {
+        let body = CGRect(x: 100, y: 500, width: 385.3, height: 158)
         let zone = ShelfLayout.pointerZone(bodyScreenRect: body, headerHeight: 38)
-        XCTAssertEqual(zone.minX, 158)
-        XCTAssertEqual(zone.maxX, 100 + 560 - 14)
-        XCTAssertEqual(zone.minY, 514)
-        XCTAssertEqual(zone.maxY, 500 + 208 - 38, "AppKit's y runs up: the header is the top 38")
-        XCTAssertFalse(zone.contains(CGPoint(x: 400, y: 500 + 208 - 10)), "the header row")
-        XCTAssertFalse(zone.contains(CGPoint(x: 120, y: 600)), "the rail")
-        XCTAssertTrue(zone.contains(CGPoint(x: 400, y: 600)))
+        XCTAssertEqual(zone.minX, 100)
+        XCTAssertEqual(zone.maxX, 100 + 385.3, accuracy: 0.001)
+        XCTAssertEqual(zone.minY, 500)
+        XCTAssertEqual(zone.maxY, 500 + 158 - 38, "AppKit's y runs up: the header is the top 38")
+        XCTAssertFalse(zone.contains(CGPoint(x: 300, y: 500 + 158 - 10)), "the header strip")
+        XCTAssertTrue(zone.contains(CGPoint(x: 120, y: 600)), "the first tile's column: no rail to be left of")
+        XCTAssertTrue(zone.contains(CGPoint(x: 300, y: 600)))
+        XCTAssertFalse(zone.contains(CGPoint(x: 99, y: 600)), "left of the body")
     }
 
     // MARK: - The key on a panel that is key

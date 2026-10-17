@@ -16,21 +16,23 @@ final class LyricRoutesTests: XCTestCase {
         XCTAssertEqual(HotKeyBinding.defaultModifiers, UInt32(controlKey | optionKey | cmdKey))
     }
 
-    /// Leaving Music folds the page. Without this, opening Shelf and coming
-    /// back landed on a wall of words from whatever was playing three songs
-    /// ago, rather than on the player the tab is named for.
-    func testLeavingTheMusicTabFoldsTheLyricsPage() {
+    /// Leaving the stage folds the lyrics. Without this, opening the tray and
+    /// coming back landed on a wall of words from whatever was playing three
+    /// songs ago, rather than on the player. The stage is a surface (§19.6),
+    /// not a flag on one, so choosing another surface is what leaves it.
+    func testLeavingTheStageFoldsTheLyrics() {
         guard let geometry = NotchGeometry.current() else {
             return XCTFail("a test host always has a screen")
         }
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
-        vm.select(.media)
-        vm.isShowingLyrics = true
-        vm.select(.shelf)
-        XCTAssertFalse(vm.isShowingLyrics, "the page belongs to the Music tab")
+        vm.open(.player)
+        vm.openStage()
+        XCTAssertTrue(vm.isShowingLyrics)
+        vm.open(.tray)
+        XCTAssertFalse(vm.isShowingLyrics, "the stage is a surface of its own")
 
-        // And coming back does not restore it: the tab opens on the player.
-        vm.select(.media)
+        // And coming back does not restore it: the player opens as the player.
+        vm.open(.player)
         XCTAssertFalse(vm.isShowingLyrics)
     }
 

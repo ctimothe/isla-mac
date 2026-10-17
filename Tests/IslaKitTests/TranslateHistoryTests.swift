@@ -156,16 +156,16 @@ final class TranslateHistoryTests: XCTestCase {
             stores: NotchStores(translator: rig.translator, privacy: rig.privacy),
             defaults: rig.defaults
         )
-        vm.select(.translate)
+        vm.open(.translate)
         vm.isOpen = true
         vm.translateShowsHistory = true
         vm.isOpen = false
         XCTAssertFalse(vm.translateShowsHistory, "closing")
         vm.isOpen = true
         vm.translateShowsHistory = true
-        vm.select(.shelf)
-        XCTAssertFalse(vm.translateShowsHistory, "changing tab")
-        vm.select(.translate)
+        vm.open(.tray)
+        XCTAssertFalse(vm.translateShowsHistory, "changing surface")
+        vm.open(.translate)
         vm.translateShowsHistory = true
         vm.receiveCommandedTranslation(.init(text: "from the hot key", notice: nil))
         XCTAssertFalse(vm.translateShowsHistory, "text arriving by hot key lands in the field, not under a list")

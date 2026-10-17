@@ -119,6 +119,48 @@ final class NotchPanel: NSPanel {
     /// keyboard it is already right (spec §8.2).
     var removeKeyHandled: (() -> Bool)?
 
+    /// A key that moves through a list or acts on its selection (spec §19.8):
+    /// ↑, ↓ and Return, with no modifier.
+    enum ListKey: Equatable {
+        case up, down, enter
+    }
+
+    /// The list key a press is, or nil. ⇧, ⌘, ⌥ and ⌃ disqualify a press —
+    /// ⇧↑ extends a selection in the field and ⌘↑ goes to its start — while
+    /// Caps Lock, fn and the arrows' own numeric-pad flag do not.
+    static func listKey(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> ListKey? {
+        guard flags.intersection([.command, .control, .option, .shift]).isEmpty else { return nil }
+        switch Int(keyCode) {
+        case 126: return .up
+        case 125: return .down
+        case 36, 76: return .enter
+        default: return nil
+        }
+    }
+
+    /// Asked on ↑, ↓ and Return while the panel is key. True means the
+    /// surface took the key — Clipboard moving its selection, or copying it —
+    /// and the field with the caret never hears of it.
+    var listKeyHandled: ((ListKey) -> Bool)?
+
+    /// Whether a press is ⌘, — Settings, the shortcut every Mac app gives its
+    /// settings (spec §19.1). Only ⌘ may be held, Caps Lock aside. The comma
+    /// is the one the press printed when it printed something Latin, which
+    /// keeps a layout that moves the comma working, and the US comma's key
+    /// position otherwise, as the editing keys fall back for Cyrillic.
+    static func isSettingsKey(keyCode: UInt16, characters: String?, flags: NSEvent.ModifierFlags) -> Bool {
+        guard flags.intersection([.command, .control, .option, .shift]) == .command else { return false }
+        if let first = characters?.first, first.isASCII { return first == "," }
+        return keyCode == 43
+    }
+
+    /// Asked on ⌘, while the panel is key. It is key only while a surface has
+    /// the keyboard, so this is the whole of "⌘, while a surface has the
+    /// keyboard": on every other surface ⌘, belongs to the app in front, and
+    /// the island never registers it as a global key. True means Settings
+    /// opened and the field with the caret never hears of it.
+    var settingsKeyHandled: (() -> Bool)?
+
     /// Raised on ⇧⌘C, before the source field hears of it. Returns true when
     /// a translation was there to copy (or was there, but answers text since
     /// edited, which nothing should copy). False — not on Translate, or no
@@ -190,6 +232,17 @@ final class NotchPanel: NSPanel {
         }
         if event.type == .keyDown, Self.isRemoveKey(keyCode: event.keyCode, flags: event.modifierFlags),
            removeKeyHandled?() == true {
+            return
+        }
+        if event.type == .keyDown, let key = Self.listKey(keyCode: event.keyCode, flags: event.modifierFlags) {
+            // A composition in progress owns its arrows and its Return, as it
+            // owns Escape: they pick and commit the candidate.
+            let composing = (firstResponder as? NSTextView)?.hasMarkedText() == true
+            if !composing, listKeyHandled?(key) == true { return }
+        }
+        if event.type == .keyDown,
+           Self.isSettingsKey(keyCode: event.keyCode, characters: event.characters, flags: event.modifierFlags),
+           settingsKeyHandled?() == true {
             return
         }
         if let command = Self.editingCommand(for: event) {

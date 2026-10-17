@@ -589,8 +589,8 @@ private struct OpenKeyframe: View {
     let canvas: CGSize
 
     var body: some View {
-        let topRadius = lerp(Theme.collapsedTopRadius, Theme.openTopRadius, p)
-        let bottomRadius = lerp(Theme.collapsedBottomRadius, Theme.openBottomRadius, p)
+        let topRadius = lerp(Theme.collapsedTopRadius, NotchViewModel.Surface.player.topRadius, p)
+        let bottomRadius = lerp(Theme.collapsedBottomRadius, NotchViewModel.Surface.player.bottomRadius, p)
         let width = lerp(pillBody.width, openBody.width, p)
         let height = lerp(pillBody.height, openBody.height, p)
         let clip = CGRect(x: (canvas.width - width) / 2, y: 0, width: width, height: height)
@@ -668,7 +668,9 @@ private struct CaptionTurnKeyframe: View {
                             tracking: Theme.tracking(forSize: Theme.TypeRole.body.size))
                     .modifier(LyricLineTurn(progress: 1 - incoming, direction: 1))
             }
-            .frame(height: MediaPane.captionHeight)
+            .frame(height: MediaPane.textBox(
+                x: 0, baseline: 0, width: 0, size: PlayerLayout.subtitleSize, weight: .semibold
+            ).height)
             .clipped()
             .padding(.top, 4)
         }

@@ -66,18 +66,17 @@ struct LyricRow: View {
     /// the song, and a correction made there would be made blind to the
     /// panel's own Reset.
     var syncHere: (() -> Void)?
-    /// Where this row stands against the sung one, for the redesign's own depth
-    /// (spec §5.1): a signed row offset, because the board dims the lines above
-    /// the sung one differently from the lines below it, and the page it is
-    /// drawn on (`tall`). Nil keeps the symmetric `Ramp.context` falloff, which
-    /// is what the lock card uses.
+    /// Where this row stands against the sung one, for the stage's own depth
+    /// (spec §19.6): a signed row offset, because the board dims the lines above
+    /// the sung one differently from the lines below it. Nil keeps the
+    /// symmetric `Ramp.context` falloff, which is what the lock card uses.
     var board: BoardDepth? = nil
     /// The translation drawn under the line (spec §5.3), or nil. Plain text in
     /// the board's own sizes (`PlayerLayout.translationStyle`) and brightness
     /// (`translationOpacity`): the sung line's translation sweeps nothing, so a
     /// song with word timing never has two things moving in one row. Needs
-    /// `board` — which says whether this is the column or the tall page — and is
-    /// ignored without it, which is what the lock card's rows are until R2.
+    /// `board`, the stage's, and is ignored without it, which is what the lock
+    /// card's rows are.
     var translation: String? = nil
     /// What to draw as the line itself when it is not the whole of `line.text`:
     /// a bilingual file's first row, its second being the translation. Nil is
@@ -87,7 +86,6 @@ struct LyricRow: View {
     struct BoardDepth: Equatable {
         /// Rows from the sung row, negative above it.
         let offset: Int
-        let tall: Bool
     }
 
     enum Surface {
@@ -269,13 +267,12 @@ struct LyricRow: View {
     @MainActor
     @ViewBuilder
     private var translationRow: some View {
-        if let translation, let board, !line.isCredit {
-            let style = PlayerLayout.translationStyle(tall: board.tall, isSung: isCurrent)
+        if let translation, board != nil, !line.isCredit {
+            let style = PlayerLayout.translationStyle(isSung: isCurrent)
             Text(translation)
                 .islandFont(style.size, weight: style.weight)
                 .foregroundStyle(.white.opacity(PlayerLayout.translationOpacity(
-                    isSung: isCurrent, tall: board.tall,
-                    increaseContrast: SystemAppearance.shared.increaseContrast
+                    isSung: isCurrent, increaseContrast: SystemAppearance.shared.increaseContrast
                 )))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -384,7 +381,7 @@ struct LyricRow: View {
     @MainActor
     private var contextOpacity: Double {
         if let board {
-            return PlayerLayout.lyricOpacity(offset: board.offset, tall: board.tall, ramp: ramp, reading: reading)
+            return PlayerLayout.lyricOpacity(offset: board.offset, ramp: ramp, reading: reading)
         }
         return ramp.context(distance: distance, reading: reading)
     }
