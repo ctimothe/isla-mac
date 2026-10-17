@@ -270,6 +270,7 @@ final class NotchViewModel: ObservableObject {
             // Remove All's question belongs to the visit it was asked in, as
             // the selection does.
             if surface != .tray { shelfClear.cancel() }
+            if surface != .clipboard { clipboardClear.cancel() }
             // Leaving a surface that types gives the keyboard straight back.
             if !surface.takesKeyboard { wantsKeyboard = false }
         }
@@ -334,6 +335,10 @@ final class NotchViewModel: ObservableObject {
     /// Remove All's question (spec §19.7): asked from the tray's header,
     /// said in the tray in place of the row.
     let shelfClear = ShelfClearConfirmation()
+    /// Clipboard's Clear All question, held here rather than by the pane so
+    /// Return can see it (`consumeListKey`) — and only it: a question armed
+    /// anywhere else is not Clipboard's to answer (R-10).
+    let clipboardClear = ClipboardClearConfirmation()
 
     /// The tray header's Remove All (spec §19.7): asks the question the tray
     /// draws in place of its row. Escape (`ArmedConfirmations`) and leaving
@@ -1938,7 +1943,7 @@ final class NotchViewModel: ObservableObject {
             // A standing question — Clear All's bar — is answered by its own
             // buttons or Escape; Return copying and closing behind it left
             // the question unanswered and the panel gone.
-            guard !ArmedConfirmations.shared.hasArmed,
+            guard !clipboardClear.isAsking,
                   let index = ClipboardBrowser.selectedIndex(in: listing, selection: clipboardBrowser.selection) else {
                 return .handled
             }

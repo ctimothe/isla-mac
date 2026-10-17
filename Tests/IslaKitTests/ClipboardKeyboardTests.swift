@@ -186,13 +186,34 @@ final class ClipboardKeyboardTests: XCTestCase {
     func testReturnLeavesAStandingQuestionAlone() {
         fill()
         vm.open(.clipboard)
-        let question = ClipboardClearConfirmation()
-        question.ask(count: 3)
-        defer { question.cancel() }
+        vm.clipboardClear.ask(count: 3)
+        defer { vm.clipboardClear.cancel() }
         let before = isolated.pasteboard.changeCount
         XCTAssertEqual(vm.consumeListKey(.enter), .handled)
         XCTAssertEqual(isolated.pasteboard.changeCount, before)
-        XCTAssertTrue(question.isAsking, "the question still stands")
+        XCTAssertTrue(vm.clipboardClear.isAsking, "the question still stands")
+    }
+
+    /// Only Clipboard's own question holds Return. One armed anywhere else —
+    /// a Settings row lapsing behind the panel — is not Clipboard's to answer
+    /// and must not silence the key (R-10).
+    func testAnotherQuestionDoesNotHoldReturn() {
+        fill()
+        vm.open(.clipboard)
+        let elsewhere = ArmedConfirmations.shared.register {}
+        defer { ArmedConfirmations.shared.withdraw(elsewhere) }
+        XCTAssertEqual(vm.consumeListKey(.enter), .handledAndClose)
+        XCTAssertEqual(isolated.pasteboard.string(forType: .string), "third")
+    }
+
+    /// Leaving Clipboard puts its question away, as leaving the tray does the
+    /// tray's: the bar is not waiting on the next visit.
+    func testLeavingClipboardPutsItsQuestionAway() {
+        fill()
+        vm.open(.clipboard)
+        vm.clipboardClear.ask(count: 3)
+        vm.open(.settings)
+        XCTAssertFalse(vm.clipboardClear.isAsking)
     }
 }
 

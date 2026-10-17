@@ -206,17 +206,23 @@ final class HotKeyTests: XCTestCase {
 
     /// A default that arrives with an update can land on a combination the
     /// user had already given another action — ⌃⌥⌘V came with R8. Their choice
-    /// wins: the new default is cleared, and stored as cleared so the next
-    /// launch does not bring it back. Two actions on one key could not both
-    /// fire (R8 review F11).
+    /// wins and Settings says so; two actions on one key could not both fire
+    /// (R8 review F11). The default gives way for this launch only and is
+    /// not stored as cleared, so it comes back once the user moves their own
+    /// choice elsewhere (R-9).
     func testANewDefaultGivesWayToTheUsersOwnChoice() {
         let v = HotKeyAction.showClipboard.defaultBinding
         HotKeyBinding.store(v, for: .openPanel, in: defaults)
         let center = HotKeyCenter(defaults: defaults, registrar: FakeRegistrar().register)
         XCTAssertEqual(center.bindings[.openPanel], v, "the user's own choice stands")
         XCTAssertNil(center.bindings[.showClipboard], "the new default gives way")
-        XCTAssertEqual(defaults.string(forKey: HotKeyAction.showClipboard.defaultsKey), HotKeyBinding.clearedMarker)
+        XCTAssertEqual(center.displaced, .init(binding: v, from: .showClipboard, to: .openPanel), "and Settings says so")
+        XCTAssertNil(defaults.object(forKey: HotKeyAction.showClipboard.defaultsKey), "nothing is written for it")
         XCTAssertEqual(center.bindings[.showLyrics], HotKeyAction.showLyrics.defaultBinding, "the others are untouched")
+
+        HotKeyBinding.store(nil, for: .openPanel, in: defaults)
+        let later = HotKeyCenter(defaults: defaults, registrar: FakeRegistrar().register)
+        XCTAssertEqual(later.bindings[.showClipboard], v, "with the clash gone, the default is back")
     }
 }
 

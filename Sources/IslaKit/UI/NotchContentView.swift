@@ -1292,6 +1292,7 @@ struct NotchContentView: View {
                 bodyWidth: bodyWidth,
                 wantsKeyboard: $vm.wantsKeyboard,
                 translate: { vm.translateClipboardText($0) },
+                clearConfirmation: vm.clipboardClear,
                 turnOnHistory: { vm.setClipboardHistory(true) }
             )
         case .translate:

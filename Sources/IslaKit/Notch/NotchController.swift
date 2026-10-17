@@ -59,6 +59,13 @@ final class NotchController {
     /// permission and sees nothing else that is typed. Registered and given up
     /// by `updateEscapeHotKey` alone.
     private var escapeHotKey: HotKeyRegistration?
+    /// Test seams: what registers the transient Escape — a test process must
+    /// not reserve a real key for the login session — and the menus whose
+    /// opening takes Escape back from it (`attachForTesting` passes its own).
+    var escapeKeyRegistrar: (@escaping () -> Void) -> HotKeyRegistration? = { action in
+        GlobalHotKey(keyCode: UInt32(kVK_Escape), modifiers: 0, action: action)
+    }
+    private(set) var menuTracking: MenuTracking = .shared
     /// Delete and ⌘⌫, held while the pointer is on the Shelf and something is
     /// selected there (spec §8.2) — see `NotchViewModel.claimsDelete` and
     /// `ShelfDeleteKeyHolder`, which is the only thing that registers them.
@@ -847,8 +854,12 @@ final class NotchController {
     /// closing rule): pinned, the panel ignored the pointer leaving and held
     /// Escape system-wide until a click elsewhere (R8 review F3). The menu's
     /// return grace covers a row that hung below the body.
+    ///
+    /// The panel's state is read again at the row as well: Open on Hover can
+    /// open it behind a menu popped from the closed island, and that open is
+    /// the pointer's (R-5).
     func performMenu(_ kind: IslandMenuItem.Kind, fromOpenPanel: Bool) {
-        let pin = !fromOpenPanel
+        let pin = !(fromOpenPanel || viewModel?.isOpen == true)
         switch kind {
         case .clipboard: openCommanded(.clipboard, pin: pin)
         case .translateClipboard: translateCommanded(NSPasteboard.general.string(forType: .string))
@@ -1202,16 +1213,16 @@ final class NotchController {
         let wanted = NotchViewModel.claimsEscape(
             pinned: pinned,
             panelHasKeyboard: panelHasKeyboard,
-            appIsActive: NSApp.isActive,
+            appIsActive: appIsActive(),
             locked: locked,
-            menuOpen: MenuTracking.shared.hasOpenMenus
+            menuOpen: menuTracking.hasOpenMenus
         )
         if wanted, escapeHotKey == nil {
             // Plain Escape, no modifiers. A combination macOS refuses leaves
             // the panel as it was before this existed — closed by the hot key
             // again or a click elsewhere — and says so in the log rather than
             // pretending.
-            escapeHotKey = GlobalHotKey(keyCode: UInt32(kVK_Escape), modifiers: 0) { [weak self] in
+            escapeHotKey = escapeKeyRegistrar { [weak self] in
                 self?.escapeHotKeyPressed()
             }
             if escapeHotKey == nil { Log.app.error("macOS refused the transient Escape hot key") }
@@ -1232,9 +1243,9 @@ final class NotchController {
         guard NotchViewModel.claimsEscape(
             pinned: vm.isPinnedOpen,
             panelHasKeyboard: vm.wantsKeyboard,
-            appIsActive: NSApp.isActive,
+            appIsActive: appIsActive(),
             locked: vm.isLockedPresentation,
-            menuOpen: MenuTracking.shared.hasOpenMenus
+            menuOpen: menuTracking.hasOpenMenus
         ) else { return }
         if panel.escapeHandled?() == true { return }
         panel.onEscape?()
@@ -1598,15 +1609,9 @@ final class NotchController {
             guard let self, self.viewModel?.isOpen == true else { return }
             self.pointer.setInside(true, grace: NotchMetrics.menuReturnGrace)
         }
-        // And Escape goes to an open menu rather than to the pin behind it.
-        MenuTracking.shared.onOpenChange = { [weak self] in
-            guard let self, let vm = self.viewModel else { return }
-            self.updateEscapeHotKey(
-                pinned: vm.isPinnedOpen, panelHasKeyboard: vm.wantsKeyboard, locked: vm.isLockedPresentation
-            )
-        }
         MenuTracking.shared.start()
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
+        pointer.collapsedIsland = { [weak self] in self?.collapsedIslandScreenRect() ?? .zero }
         pointer.onChange = { [weak self] inside in
             guard let self, let vm = self.viewModel else { return }
             // The edge is drawn from the shape's own `.onHover`, not from
@@ -1800,22 +1805,10 @@ final class NotchController {
             }
             .store(in: &cancellables)
 
-        // Escape for a pinned panel, held while the pin stands and the panel
-        // is not key — see `NotchViewModel.claimsEscape`. Driven by the pin
-        // itself, so every way a pin ends gives Escape back with it: the fold,
-        // the pointer arriving (`pointerArrived()` clears it without going
-        // through the controller), the outside click, a rebuild.
-        vm.$isPinnedOpen
-            .combineLatest(vm.$wantsKeyboard, vm.$isLockedPresentation)
-            .removeDuplicates { $0 == $1 }
-            .sink { [weak self] pinned, keyboard, locked in
-                MainActor.assumeIsolated {
-                    self?.updateEscapeHotKey(pinned: pinned, panelHasKeyboard: keyboard, locked: locked)
-                }
-            }
-            .store(in: &cancellables)
+        // Escape for a pinned panel; see `wireEscapeClaim`.
+        wireEscapeClaim(vm)
         wireShelfClaims(vm)
-        // And let go of it while this app is active: Quick Look and AirDrop
+        // And let go of Escape while this app is active: Quick Look and AirDrop
         // activate it from a Shelf card, and their windows answer Escape.
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .merge(with: NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification))
@@ -1876,7 +1869,14 @@ final class NotchController {
     /// route opens the panel and makes it key (R8 review F6).
     func setKeyboard(_ wants: Bool) {
         if wants {
-            guard viewModel?.isLockedPresentation != true else { return }
+            if let vm = viewModel, vm.isLockedPresentation {
+                // Lowered again, a pass later — not here, inside the claim's
+                // own publisher, where the write would land before the one
+                // that raised it. Left raised, every later raise was a
+                // duplicate the keyboard sink dropped (R-8).
+                DispatchQueue.main.async { [weak vm] in vm?.wantsKeyboard = false }
+                return
+            }
             setOpen(true)
             pointer.setInside(true)
         }
@@ -2040,6 +2040,12 @@ final class NotchController {
         let work = DispatchWorkItem { [weak self] in
             guard let self, let vm = self.viewModel else { return }
             self.collapseCheckWork = nil
+            // A panel that has closed since has nothing to fold, and its
+            // resync would undo `closedByHand()`: the pointer resting over
+            // where the body was, counted inside against the old rect, kept
+            // a hover from opening the island until it had left that rect
+            // (R-6). The sampler owns a closed panel's pointer.
+            guard vm.isOpen else { return }
             // Resync either way. A pointer that is still on the panel has to be
             // recorded as inside, or hover tracking stays convinced it left and
             // the panel hangs open until the notch is touched again.
@@ -2169,14 +2175,76 @@ final class NotchController {
             .store(in: &cancellables)
     }
 
+    /// Escape for a pinned panel, held while the pin stands and the panel
+    /// is not key — see `NotchViewModel.claimsEscape`. Driven by the pin
+    /// itself, so every way a pin ends gives Escape back with it: the fold,
+    /// the pointer arriving (`pointerArrived()` clears it without going
+    /// through the controller), the outside click, a rebuild. And re-read as
+    /// one of the app's menus opens or the last one closes: while a menu
+    /// tracks, Escape is the menu's (R8 review F4).
+    private func wireEscapeClaim(_ vm: NotchViewModel) {
+        vm.$isPinnedOpen
+            .combineLatest(vm.$wantsKeyboard, vm.$isLockedPresentation)
+            .removeDuplicates { $0 == $1 }
+            .sink { [weak self] pinned, keyboard, locked in
+                MainActor.assumeIsolated {
+                    self?.updateEscapeHotKey(pinned: pinned, panelHasKeyboard: keyboard, locked: locked)
+                }
+            }
+            .store(in: &cancellables)
+        menuTracking.onOpenChange = { [weak self] in
+            guard let self, let vm = self.viewModel else { return }
+            self.updateEscapeHotKey(
+                pinned: vm.isPinnedOpen, panelHasKeyboard: vm.wantsKeyboard, locked: vm.isLockedPresentation
+            )
+        }
+    }
+
+    /// The closed island as drawn now, in screen coordinates: every point a
+    /// click lands on — the padded strip, the shoulders `closedTopRadius`
+    /// wide, the Shelf's bubble. What `PointerWatcher.islandRect` reads.
+    func collapsedIslandScreenRect() -> CGRect {
+        guard let vm = viewModel else { return .zero }
+        let width = vm.bodySize.width, height = vm.bodySize.height
+        let bubble = vm.bubbleCount.map {
+            vm.geometry.bubbleScreenRect(islandWidth: width, height: height, count: $0)
+        } ?? .zero
+        return Self.collapsedIslandRect(
+            geometry: vm.geometry,
+            body: CGSize(width: width, height: max(vm.geometry.collapsedDepth, height)),
+            shoulder: vm.closedTopRadius,
+            bubble: bubble
+        )
+    }
+
+    /// The pure half of `collapsedIslandScreenRect()`: the hover strip, the
+    /// clickable shape with its shoulders, and the bubble when there is one.
+    nonisolated static func collapsedIslandRect(
+        geometry: NotchGeometry, body: CGSize, shoulder: CGFloat, bubble: CGRect
+    ) -> CGRect {
+        let strip = geometry.collapsedHoverRect(for: body.width, height: body.height)
+        let shape = geometry.contentScreenRect(for: body).insetBy(dx: -shoulder, dy: 0)
+        let island = strip.union(shape)
+        return bubble.isEmpty ? island : island.union(bubble)
+    }
+
     /// Test seam: gives the controller a model and a root view without building
     /// a panel, starting the stores or reading a screen, so the rect logic can be
     /// held at the controller rather than by its pure helpers alone.
-    func attachForTesting(viewModel: NotchViewModel, rootView: NotchRootView) {
+    func attachForTesting(
+        viewModel: NotchViewModel, rootView: NotchRootView, menuTracking: MenuTracking? = nil
+    ) {
         self.viewModel = viewModel
         self.rootView = rootView
         installOutsideClickMonitor = { _ in NSObject() }
         removeOutsideClickMonitor = { _ in }
+        // A private tracker, so no test touches the shared one, and an Escape
+        // that reserves nothing.
+        self.menuTracking = menuTracking ?? MenuTracking()
+        escapeKeyRegistrar = { _ in InertHotKeyRegistration() }
+        pointer.isPanelOpen = { [weak viewModel] in viewModel?.isOpen ?? false }
+        pointer.collapsedIsland = { [weak self] in self?.collapsedIslandScreenRect() ?? .zero }
+        wireEscapeClaim(viewModel)
         // The same sinks `build` installs, so a test that flips `isOpen`, the tab
         // or the pointer sees the registration follow without a manual refresh.
         wireShelfClaims(viewModel)
@@ -2792,4 +2860,9 @@ extension NotchController {
         }
         return [.startWatchdog, .resumeStores, .restartPointer]
     }
+}
+
+/// The Escape a test attaches: registers nothing, gives nothing back.
+private final class InertHotKeyRegistration: HotKeyRegistration {
+    func unregister() {}
 }

@@ -90,4 +90,114 @@ final class KeyboardAndMenuCloseTests: XCTestCase {
         controller.setKeyboard(true)
         XCTAssertFalse(vm.isOpen, "nothing opens over the lock to take the keyboard")
     }
+
+    // MARK: - Re-review (R-5, R-6, R-8, R-11)
+
+    /// Open on Hover can open the panel behind a menu popped from the closed
+    /// island. The row then finds the panel open and leaves the pointer in
+    /// charge, rather than pinning a panel the pointer opened (R-5).
+    func testAMenuRowAfterTheHoverOpenedThePanelDoesNotPin() throws {
+        let (controller, vm) = try rig()
+        vm.isOpen = true
+        vm.open(.player)
+        vm.isPinnedOpen = false
+        controller.performMenu(.clipboard, fromOpenPanel: false)
+        XCTAssertEqual(vm.presented, .clipboard)
+        XCTAssertFalse(vm.isPinnedOpen)
+    }
+
+    /// A row chosen on an open panel gives the pointer the menu's return
+    /// grace: a row that hung below the body is not a departure.
+    func testAMenuRowOnAnOpenPanelGivesThePointerTimeToComeBack() throws {
+        let (controller, vm) = try rig()
+        vm.isOpen = true
+        vm.open(.player)
+        let pointer = controller.pointer
+        defer { pointer.stop() }
+        let far = CGPoint(x: -1_000_000, y: -1_000_000)
+        pointer.location = { far }
+        controller.pointerLocation = { far }
+        pointer.closeDelay = 0
+        var changes: [Bool] = []
+        pointer.onChange = { changes.append($0) }
+
+        controller.performMenu(.settings, fromOpenPanel: true)
+        for _ in 0..<3 { pointer.start() }
+        XCTAssertEqual(changes, [], "within the grace the pointer may still be on its way back")
+    }
+
+    /// The check `setKeyboard(false)` schedules runs 0.6 s later. After a
+    /// keyboard close it found the pointer over where the list had been,
+    /// called it inside, and undid `closedByHand()`: with Open on Hover on,
+    /// moving onto the island then opened nothing until the pointer had left
+    /// that whole rect (R-6). A closed panel is left alone.
+    func testTheCollapseCheckLeavesAClosedPanelAlone() throws {
+        let (controller, vm) = try rig()
+        vm.isOpen = true
+        vm.open(.clipboard)
+        let onList = CGPoint(
+            x: vm.geometry.hoverRect(for: vm.openBodySize).midX,
+            y: vm.geometry.hoverRect(for: vm.openBodySize).midY
+        )
+        controller.pointerLocation = { onList }
+        controller.pointer.location = { onList }
+
+        controller.closeFromKeyboard()
+        controller.setKeyboard(false)
+        let settled = expectation(description: "the check has run")
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.pointerAwayCollapseDelay + 0.2) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 3)
+
+        XCTAssertFalse(vm.isOpen)
+        XCTAssertFalse(controller.pointer.isInside, "the pointer that closed it is not counted back in")
+    }
+
+    /// A claim refused over the lock is lowered again, a pass later. Left
+    /// raised, every later raise was a duplicate the keyboard sink dropped:
+    /// the field stayed dead after unlock (R-8).
+    func testARefusedKeyboardClaimIsLoweredAgain() throws {
+        let (controller, vm) = try rig()
+        vm.isLockedPresentation = true
+        vm.wantsKeyboard = true
+        controller.setKeyboard(true)
+        let drained = expectation(description: "main queue drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 2)
+        XCTAssertFalse(vm.wantsKeyboard)
+        XCTAssertFalse(vm.isOpen)
+    }
+
+    /// The pin holds Escape, and an open menu takes it back while it tracks:
+    /// the registration follows the menu, not only the pin (R-11).
+    func testTheEscapeKeyFollowsThePinAndTheMenu() throws {
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
+        let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
+        let controller = NotchController()
+        let tracking = MenuTracking()
+        controller.attachForTesting(viewModel: vm, rootView: root, menuTracking: tracking)
+        var live = 0
+        controller.escapeKeyRegistrar = { _ in
+            live += 1
+            return FakeEscapeRegistration { live -= 1 }
+        }
+        controller.appIsActive = { false }
+        let menu = NSMenu()
+
+        vm.isPinnedOpen = true
+        XCTAssertEqual(live, 1, "a pinned panel holds Escape")
+        tracking.began(ObjectIdentifier(menu))
+        XCTAssertEqual(live, 0, "an open menu takes it back")
+        tracking.ended(ObjectIdentifier(menu))
+        XCTAssertEqual(live, 1, "and returns it when the menu closes")
+        vm.isPinnedOpen = false
+        XCTAssertEqual(live, 0, "the pin ending gives it up")
+    }
+}
+
+private final class FakeEscapeRegistration: HotKeyRegistration {
+    private let onUnregister: () -> Void
+    init(_ onUnregister: @escaping () -> Void) { self.onUnregister = onUnregister }
+    func unregister() { onUnregister() }
 }

@@ -257,18 +257,19 @@ final class HotKeyCenter: ObservableObject {
         }
         // A default that arrived with an update can land on a combination the
         // user had already given another action — ⌃⌥⌘V came with R8. Their
-        // choice wins: the default is cleared, and stored as cleared so the
-        // next launch does not bring it back. Left alone, two actions shared
-        // one key and only one could register (R8 review F11).
+        // choice wins, and Settings says so through `displaced`; left alone,
+        // two actions shared one key and only one could register (R8 review
+        // F11). Given way for this launch only and never written: the rule runs
+        // again at every launch while the clash stands, and once the user moves
+        // their own choice elsewhere the default comes back (R-9).
         for action in HotKeyAction.allCases where defaults.object(forKey: action.defaultsKey) == nil {
-            guard let binding = bindings[action] else { continue }
-            let chosenElsewhere = HotKeyAction.allCases.contains { other in
-                other != action && defaults.object(forKey: other.defaultsKey) != nil && bindings[other] == binding
-            }
-            if chosenElsewhere {
-                bindings[action] = nil
-                HotKeyBinding.store(nil, for: action, in: defaults)
-            }
+            guard let binding = bindings[action],
+                  let owner = HotKeyAction.allCases.first(where: { other in
+                      other != action && defaults.object(forKey: other.defaultsKey) != nil && bindings[other] == binding
+                  })
+            else { continue }
+            bindings[action] = nil
+            displaced = Displaced(binding: binding, from: action, to: owner)
         }
     }
 

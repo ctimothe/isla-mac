@@ -127,8 +127,7 @@ final class OpenFromAWiderIslandTests: XCTestCase {
         let peek = vm.geometry.collapsedHoverRect(
             for: notch.width + NotchMetrics.sneakPeekExtension, height: NotchMetrics.sneakPeekHeight
         )
-        controller.pointer.openRect = peek
-        controller.pointer.bubbleRect = .zero
+        controller.pointer.collapsedIsland = { peek }
         let point = CGPoint(x: peek.minX + 6 + 8, y: peek.maxY - 10)
         controller.pointerLocation = { point }
         let player = SurfaceLayout.bodySize(
@@ -145,5 +144,97 @@ final class OpenFromAWiderIslandTests: XCTestCase {
         XCTAssertEqual(vm.presented, .player)
         XCTAssertFalse(vm.isPinnedOpen, "the pointer that clicked is on the island; no pin, so walking away closes")
         XCTAssertTrue(controller.pointer.landingRect.contains(point), "and the island it clicked holds the panel")
+    }
+
+    // MARK: - Re-review (R-1 … R-4)
+
+    /// With Open on Hover off an arrival opens nothing. The island it arrived
+    /// on must not hold the pointer "inside" once the peek has folded and the
+    /// pointer rests on bare menu bar: the inside flag refuses the next peek
+    /// and the charger's moment, and keeps one already showing up (R-1).
+    func testOnAClosedPanelTheIslandHoldsNothing() {
+        let watcher = PointerWatcher()
+        defer { watcher.stop() }
+        var changes: [Bool] = []
+        watcher.openDelay = 0
+        watcher.closeDelay = 0
+        watcher.isPanelOpen = { false }
+        watcher.onChange = { changes.append($0) }
+        watcher.openRect = Self.everywhere
+        watcher.closeRect = Self.nowhere
+
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [true], "the arrival")
+        watcher.openRect = Self.nowhere
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [true, false], "the peek folded: the pointer on the menu bar is away")
+    }
+
+    /// The collapse check resyncs with `setInside(true)` on an open panel. It
+    /// must keep the island it just counted as "on the panel", or the next
+    /// sample folds what the check had decided to keep (R-4).
+    func testAResyncOnTheOpenPanelKeepsTheIsland() {
+        let watcher = PointerWatcher()
+        defer { watcher.stop() }
+        var changes: [Bool] = []
+        var open = false
+        watcher.openDelay = 0
+        watcher.closeDelay = 0
+        watcher.isPanelOpen = { open }
+        watcher.onChange = { changes.append($0) }
+        watcher.openRect = Self.everywhere
+        watcher.closeRect = Self.nowhere
+
+        watcher.setInside(true)
+        open = true
+        watcher.openRect = Self.nowhere
+        watcher.setInside(true)
+        sample(watcher, times: 3)
+        XCTAssertEqual(changes, [], "still on the island the panel opened from")
+    }
+
+    /// The click lands anywhere the window takes it: the island's shoulders
+    /// reach `closedTopRadius` past the body, past the 6 pt the hover rect
+    /// pads. A click on that sliver of a peek is on the island too, and the
+    /// panel it opens stays open on the next samples under the same pointer
+    /// (R-3, and the controller half R-11 asked for).
+    func testAClickOnThePeeksShoulderOpensThePlayerAndItStaysOpen() throws {
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
+        let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
+        let controller = NotchController()
+        controller.attachForTesting(viewModel: vm, rootView: root)
+        vm.open(.settings)
+        vm.isOpen = false
+
+        let notch = vm.geometry.notchSize
+        let peek = CGSize(
+            width: notch.width + NotchMetrics.sneakPeekExtension,
+            height: max(notch.height, NotchMetrics.sneakPeekHeight)
+        )
+        let shoulder = IslandShapeRadii.closed(for: .peek).top
+        controller.pointer.collapsedIsland = {
+            NotchController.collapsedIslandRect(geometry: vm.geometry, body: peek, shoulder: shoulder, bubble: .zero)
+        }
+        let drawn = vm.geometry.contentScreenRect(for: peek)
+        let point = CGPoint(x: drawn.minX - shoulder + 1, y: drawn.maxY - 10)
+        XCTAssertFalse(
+            vm.geometry.collapsedHoverRect(for: peek.width, height: peek.height).contains(point),
+            "the case at hand: the hover rect stops short of the shoulder"
+        )
+        controller.pointerLocation = { point }
+        controller.pointer.location = { point }
+        var changes: [Bool] = []
+        controller.pointer.onChange = { changes.append($0) }
+        controller.pointer.openDelay = 0
+        controller.pointer.closeDelay = 0
+        defer { controller.pointer.stop() }
+
+        controller.islandClicked(opening: .player)
+        XCTAssertEqual(vm.presented, .player)
+        XCTAssertFalse(vm.isPinnedOpen, "a mouse click on the shoulder is on the island")
+
+        for _ in 0..<3 { controller.pointer.start() }
+        XCTAssertTrue(vm.isOpen)
+        XCTAssertEqual(changes, [], "the panel stays open under the pointer that opened it")
     }
 }

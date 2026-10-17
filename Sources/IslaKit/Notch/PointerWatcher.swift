@@ -22,7 +22,8 @@ final class PointerWatcher {
     var bubbleRect: CGRect = .zero
 
     /// The collapsed island the panel was opened from, counted as part of
-    /// `closeRect` until the pointer has once stood on the open body.
+    /// `closeRect` — while the panel is open — until the pointer has once
+    /// stood on the open body.
     ///
     /// Since R8 each surface has its own width, and two things that open one
     /// are wider than it: the new-track peek, notch + 300 (spec §3.5), opens
@@ -30,17 +31,34 @@ final class PointerWatcher {
     /// tray's edge under a 200 pt notch. A pointer that opened the panel from
     /// there stood outside the body it had opened, so the panel folded
     /// `closeDelay` later — and with Open on Hover on, the island under the
-    /// same pointer opened it again, round and round (R8 review F1). Captured
-    /// only by an open from the closed island; reaching the body, leaving
-    /// both, or any forced state lets it go.
+    /// same pointer opened it again, round and round (R8 review F1).
+    ///
+    /// Captured whenever the pointer is counted inside a closed panel — a
+    /// click, an arrival — but honoured only while the panel is open: with
+    /// Open on Hover off an arrival opens nothing, and a landing honoured on
+    /// a closed panel kept a pointer resting on bare menu bar "inside" after
+    /// the peek it arrived on had folded, refusing every later peek and
+    /// moment (R8 re-review R-1). Reaching the body, leaving, or a forced
+    /// "outside" lets it go.
     private(set) var landingRect: CGRect = .zero
 
-    /// The closed island as a pointer meets it: the padded strip and the
-    /// Shelf's bubble beside it. Meaningful only while the panel is closed,
-    /// when both are cut for the collapsed island.
+    /// The closed island as the controller draws it now, in screen
+    /// coordinates: every point that takes a click, shoulders and bubble
+    /// included. Built from the geometry rather than read from `openRect`,
+    /// which stays cut for the open body for a moment after a fold (R-2) and
+    /// pads 6 pt where the shoulders reach `closedTopRadius` (R-3).
+    var collapsedIsland: (() -> CGRect)?
+
+    /// The closed island a pointer can open the panel from: the controller's
+    /// drawing when it has one, else the padded strip and the Shelf's bubble.
     var islandRect: CGRect {
-        bubbleRect.isEmpty ? openRect : openRect.union(bubbleRect)
+        if let collapsedIsland { return collapsedIsland() }
+        return bubbleRect.isEmpty ? openRect : openRect.union(bubbleRect)
     }
+
+    /// Where the pointer is, in screen coordinates. A seam so a test can
+    /// place it.
+    var location: () -> CGPoint = { NSEvent.mouseLocation }
 
     /// Exactly the island as it is drawn, with none of `openRect`'s padding.
     ///
@@ -95,7 +113,7 @@ final class PointerWatcher {
             guard shelfRect != oldValue else { return }
             // Re-read with the pointer where it stands, so a rect cut under a
             // pointer already on it counts without a tick's delay.
-            sampleShelf(at: shelfRect.isEmpty ? nil : NSEvent.mouseLocation)
+            sampleShelf(at: shelfRect.isEmpty ? nil : location())
         }
     }
     /// The pointer entered or left `shelfRect`.
@@ -223,9 +241,11 @@ final class PointerWatcher {
     /// be used.
     func setInside(_ value: Bool, grace: TimeInterval = 0) {
         awaitingSince = nil
-        // Asked before the caller opens the panel, while the collapsed rects
-        // are still cut: the island the open is leaving from.
-        landingRect = value && !isPanelOpen() ? islandRect : .zero
+        // Asked before the caller opens the panel: the island the open is
+        // leaving from. Forced inside on a panel already open — the collapse
+        // check's resync, a command — the island it was opened from still
+        // stands: that check has just counted the pointer on it (R-4).
+        landingRect = value ? (isPanelOpen() ? landingRect : islandRect) : .zero
         isInside = value
         graceUntil = grace > 0 ? Date().addingTimeInterval(grace) : nil
         // Whatever forces the state is the newer word on it, so a departure the
@@ -265,7 +285,7 @@ final class PointerWatcher {
     }
 
     private func tick() {
-        let point = NSEvent.mouseLocation
+        let point = location()
         updateRate(for: point)
 
         let interactive = isDragging() || interactiveRect.contains(point) || bubbleRect.contains(point)
@@ -293,7 +313,8 @@ final class PointerWatcher {
         // from until the pointer first reaches the body (`landingRect`).
         let onBody = closeRect.contains(point)
         if isInside, onBody { landingRect = .zero }
-        let inside = isInside ? onBody || landingRect.contains(point) : openRect.contains(point)
+        let onLanding = isPanelOpen() && landingRect.contains(point)
+        let inside = isInside ? onBody || onLanding : openRect.contains(point)
 
         // Whether the panel is open and where the pointer is are two separate
         // facts, and only one of them is tracked here. They are supposed to
