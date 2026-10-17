@@ -72,13 +72,25 @@ final class NotchControllerRectTests: XCTestCase {
         XCTAssertEqual(vm.presented, .clipboard, "from another surface it goes to Clipboard rather than closing")
 
         controller.toggleClipboard()
+        // The keyboard goes at once and the fold one main-queue pass later
+        // (`setOpen(false)`), so the fold is read after that pass. Asserted
+        // straight away it saw the panel still open, and the lock half below
+        // then closed that panel instead of refusing (gate run, 2026-10-18).
+        XCTAssertFalse(vm.wantsKeyboard, "the keyboard goes back in the same pass")
+        drainMain()
         XCTAssertFalse(vm.isOpen, "pressed again on Clipboard it closes")
-        XCTAssertFalse(vm.wantsKeyboard)
 
         vm.isLockedPresentation = true
         controller.toggleClipboard()
         XCTAssertFalse(vm.isOpen, "nothing opens over the lock")
         XCTAssertEqual(vm.lockedHoverNudges, 1, "the refusal is the island's shake")
+    }
+
+    /// Lets the deferred half of a close land.
+    private func drainMain() {
+        let drained = expectation(description: "main queue drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 2)
     }
 
     /// The active rect and the close rect a body of `size` should get.
