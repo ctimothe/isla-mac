@@ -323,37 +323,48 @@ final class PageDotsTests: XCTestCase {
 
     /// A second dot for a page that lies between a straight leg's two pages
     /// in the row: it cannot join at either end without arriving from the
-    /// wrong side of a neighbour, so the pages go on to the nearer of the two
-    /// and, as that one reaches its place — the other then wholly out of
-    /// sight — set off for the new page from its own side. Nothing jumps on
-    /// the way and the row never bends (R8b re-review N2).
-    func testASecondDotBetweenAStraightLegsPagesGoesByTheNearerOne() throws {
+    /// wrong side of a neighbour, so the pages go on to one of the two and,
+    /// as that one reaches its place — every other page wholly out of sight —
+    /// set off for the new page from its own side, on a strip of those two
+    /// alone. Nothing jumps and the row never bends (R8b re-review N2, P2).
+    /// Which of the two: the one the pages are heading for, by where their
+    /// speed would carry them, so they turn once rather than twice (P6).
+    func testASecondDotBetweenAStraightLegsPagesGoesByTheOneTheyAreHeadingFor() throws {
         let clock = ManualPageClock()
         let vm = try openModel(on: .player, clock: clock)
         vm.travel(to: .translate, reduceMotion: false)
         clock.advance(0.06 - 1.0 / 120)
         let before = try frame(vm)
         clock.advance(1.0 / 120)
-        let position = try XCTUnwrap(vm.travellingLeg?.position)
-        XCTAssertLessThan(position, 0.5, "still nearer Music")
+        XCTAssertLessThan(try XCTUnwrap(vm.travellingLeg?.position), 0.5, "still nearer Music, but heading away")
         vm.travel(to: .tray, reduceMotion: false)
         XCTAssertEqual(vm.surface, .tray)
-        XCTAssertEqual(vm.travellingLeg?.strip.pages, [.player, .translate], "back toward Music first")
         let strips = try settleWatching(vm, clock, before: before)
-        XCTAssertTrue(strips.contains([.player, .tray, .clipboard, .translate]), "then the Shelf from Music's right")
+        XCTAssertEqual(strips, [[.player, .translate], [.tray, .translate]], "on to Translate, then the Shelf from its left")
         XCTAssertEqual(vm.presented, .tray)
 
-        let later = try openModel(on: .player, clock: clock)
-        later.travel(to: .translate, reduceMotion: false)
-        var ahead = try frame(later)
-        while (later.travellingLeg?.position ?? 1) < 0.6 {
-            ahead = try frame(later)
+        let unmoved = try openModel(on: .player, clock: clock)
+        unmoved.travel(to: .translate, reduceMotion: false)
+        unmoved.travel(to: .tray, reduceMotion: false)
+        XCTAssertEqual(try settleWatching(unmoved, clock), [[.player, .translate], [.player, .tray]], "not yet moving: from Music")
+    }
+
+    /// The hand-off at a page inside the row: on a strip of the whole row,
+    /// the pages' overshoot past it showed the page beyond for a few frames,
+    /// on the far side from where they were going (R8b re-review P2).
+    func testTheHandOffAtAPageInsideTheRowShowsNothingBeyondIt() throws {
+        let clock = ManualPageClock()
+        let vm = try openModel(on: .player, clock: clock)
+        vm.travel(to: .clipboard, reduceMotion: false)
+        var ahead = try frame(vm)
+        while (vm.travellingLeg?.position ?? 1) < 0.97 {
+            ahead = try frame(vm)
             clock.advance(1.0 / 120)
         }
-        later.travel(to: .tray, reduceMotion: false)
-        let onward = try settleWatching(later, clock, before: ahead)
-        XCTAssertTrue(onward.contains([.tray, .translate]), "past the middle: on to Translate, then the Shelf from its left")
-        XCTAssertEqual(later.presented, .tray)
+        vm.travel(to: .tray, reduceMotion: false)
+        let strips = try settleWatching(vm, clock, before: ahead)
+        XCTAssertEqual(strips, [[.player, .clipboard], [.tray, .clipboard]])
+        XCTAssertEqual(vm.presented, .tray)
     }
 
     /// A dot pressed while two fingers hold a straight leg past its far end:
@@ -373,15 +384,17 @@ final class PageDotsTests: XCTestCase {
         _ = vm.pageScroll(scroll(-200), over: true)
         XCTAssertGreaterThan(try XCTUnwrap(vm.travellingLeg?.position), 1, "held past Clipboard")
         vm.travel(to: .translate, reduceMotion: false)
-        try settleWatching(vm, clock)
+        let strips = try settleWatching(vm, clock)
+        XCTAssertEqual(strips, [[.player, .clipboard], [.clipboard, .translate]], "back to Clipboard, then on")
         XCTAssertEqual(vm.presented, .translate)
     }
 
     /// Settles the pages frame by frame, failing on any frame where the
     /// outline or a page on screen changed speed more than a spring does in
     /// one frame — a snap is a spike there, however fast the pages travel —
-    /// or a strip held its pages out of the row's order. Returns every strip
-    /// the leg was on.
+    /// where a page came on screen that does not lie between the pages shown
+    /// so far and the one the dot asked for, or where a strip held
+    /// its pages out of the row's order. Returns every strip the leg was on.
     /// `before` is a frame taken one frame ahead of the press, so a snap at
     /// the press itself shows too.
     @discardableResult
@@ -390,6 +403,7 @@ final class PageDotsTests: XCTestCase {
     ) throws -> [[Surface]] {
         var strips: [[Surface]] = []
         var frames: [Frame] = before.map { [$0] } ?? []
+        let target = try XCTUnwrap(vm.surface.pageIndex)
         for _ in 0..<1200 where clock.isRunning {
             if let leg = vm.travellingLeg {
                 if strips.last != leg.strip.pages { strips.append(leg.strip.pages) }
@@ -397,6 +411,16 @@ final class PageDotsTests: XCTestCase {
                 XCTAssertEqual(places, places.sorted(), "\(leg.strip.pages) keeps the row's order")
             }
             frames.append(try frame(vm))
+            // A spring that overshoots brings back a page it showed before;
+            // anything else coming on screen lies between where the pages
+            // have been and where they go.
+            let rows = frames.dropLast().flatMap(\.x.keys).compactMap(\.pageIndex) + [target]
+            for page in frames[frames.count - 1].x.keys where frames.count > 1 {
+                let row = try XCTUnwrap(page.pageIndex)
+                XCTAssertTrue(
+                    (rows.min()!...rows.max()!).contains(row), "\(page) came on screen beyond where the pages go"
+                )
+            }
             if frames.count >= 3 {
                 let (a, b, c) = (frames[frames.count - 3], frames[frames.count - 2], frames[frames.count - 1])
                 func change(_ value: (Frame) -> CGFloat?) -> CGFloat? {
@@ -433,7 +457,7 @@ final class PageDotsTests: XCTestCase {
     /// Where a page joins a straight leg it does not hold: beyond either end
     /// in the row's order, at that end, `shift` being how far the pages
     /// already on the strip moved along it. Between two of the leg's pages,
-    /// by the nearer of the two; past either end, held there by fingers, by
+    /// by the one nearer where the pages are heading; past either end, by
     /// that end.
     func testWhereAPageJoinsAStraightLeg() {
         let row = Surface.pages
@@ -450,6 +474,9 @@ final class PageDotsTests: XCTestCase {
         let wide = PageStrip(pages: [.player, .translate], widths: [492, 560])
         XCTAssertEqual(wide.joining(.tray, width: 413, row: row, at: 0.3), .via(0))
         XCTAssertEqual(wide.joining(.clipboard, width: 560, row: row, at: 0.7), .via(1))
+        XCTAssertEqual(
+            wide.joining(.tray, width: 413, row: row, at: 0.3, heading: 1.4), .via(1), "by where they are heading"
+        )
         XCTAssertEqual(early.joining(.translate, width: 560, row: row, at: 1.2), .via(1), "held past Clipboard")
         XCTAssertEqual(late.joining(.player, width: 492, row: row, at: -0.1), .via(0), "held past the Shelf")
     }

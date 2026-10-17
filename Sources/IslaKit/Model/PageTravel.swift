@@ -100,7 +100,7 @@ final class PageTravel: ObservableObject {
     /// the change of mind is a bend in its path rather than a stop and a
     /// start.
     func aim(strip: PageStrip, from position: CGFloat, to target: Int, reduceMotion: Bool) {
-        let velocity = leg?.strip == strip ? currentVelocity : 0
+        let velocity = leg?.strip == strip ? velocity : 0
         start(strip: strip, position: position, target: target, velocity: velocity, reduceMotion: reduceMotion)
     }
 
@@ -112,7 +112,7 @@ final class PageTravel: ObservableObject {
     func aim(onto strip: PageStrip, shift: CGFloat, to target: Int, reduceMotion: Bool) {
         guard let leg else { return }
         start(
-            strip: strip, position: leg.position + shift, target: target, velocity: currentVelocity,
+            strip: strip, position: leg.position + shift, target: target, velocity: velocity,
             reduceMotion: reduceMotion
         )
     }
@@ -122,11 +122,12 @@ final class PageTravel: ObservableObject {
     /// that page is `from` — at the speed they have then. For a page a leg
     /// cannot join without bending the row (`PageStrip.joining`). The pages
     /// set off the moment `via` is in place: every other page of the first
-    /// strip is then wholly out of sight, so the strip changes under it with
-    /// nothing on screen moving (R8b re-review N2).
+    /// strip is then wholly out of sight, and with `strip` holding only `via`
+    /// and the new page, nothing lies beyond `via` on either, so the strip
+    /// changes under it with nothing on screen moving (R8b re-review N2, P2).
     func aim(via: Int, then strip: PageStrip, from: Int, to target: Int, reduceMotion: Bool) {
         guard let leg else { return }
-        start(strip: leg.strip, position: leg.position, target: via, velocity: currentVelocity, reduceMotion: reduceMotion)
+        start(strip: leg.strip, position: leg.position, target: via, velocity: velocity, reduceMotion: reduceMotion)
         onward = Onward(
             via: via, side: leg.position - CGFloat(via), strip: strip, from: from, target: target,
             reduceMotion: reduceMotion
@@ -135,7 +136,7 @@ final class PageTravel: ObservableObject {
 
     /// Pages a second the settle under way has on screen, or none at rest and
     /// under the fingers.
-    private var currentVelocity: CGFloat { settle?.velocity(at: clock.now) ?? 0 }
+    var velocity: CGFloat { settle?.velocity(at: clock.now) ?? 0 }
 
     private func start(
         strip: PageStrip, position: CGFloat, target: Int, velocity: CGFloat, reduceMotion: Bool

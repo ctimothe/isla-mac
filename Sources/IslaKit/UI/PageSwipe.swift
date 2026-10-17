@@ -104,13 +104,17 @@ struct PageStrip: Equatable {
     /// A page beyond either end in `row`'s order joins at that end. One that
     /// lies between two of the strip's pages cannot: at either end it would
     /// arrive from the wrong side of a neighbour, and the row only teaches
-    /// where things are if it holds still (§19.16). The pages go by the nearer
-    /// of the two instead (R8b re-review N2). So do pages fingers hold past
-    /// either end: the rubber band is not a way toward a new page, and read as
-    /// one it drew the page in where there had been nothing (re-review N3).
-    /// Strips are kept in the row's order, which this relies on.
+    /// where things are if it holds still (§19.16). The pages go by one of
+    /// the two instead (R8b re-review N2): the one nearer `heading`, where
+    /// their speed would carry them, so they turn once rather than twice
+    /// (re-review P6). So do pages past either end — held there by fingers,
+    /// or carried there by the spring's overshoot: past the end is not a way
+    /// toward a new page, and read as one it drew the page in where there had
+    /// been nothing (re-review N3, P5). Strips are kept in the row's order,
+    /// which this relies on.
     func joining(
-        _ page: NotchViewModel.Surface, width: CGFloat, row: [NotchViewModel.Surface], at position: CGFloat
+        _ page: NotchViewModel.Surface, width: CGFloat, row: [NotchViewModel.Surface], at position: CGFloat,
+        heading: CGFloat? = nil
     ) -> Join {
         if position < 0 { return .via(0) }
         if position > CGFloat(lastIndex) { return .via(lastIndex) }
@@ -124,7 +128,8 @@ struct PageStrip: Equatable {
         }
         let after = places.firstIndex { $0 > place } ?? lastIndex
         let before = after - 1
-        return .via(position - CGFloat(before) <= CGFloat(after) - position ? before : after)
+        let aim = heading ?? position
+        return .via(abs(aim - CGFloat(before)) <= abs(CGFloat(after) - aim) ? before : after)
     }
 }
 

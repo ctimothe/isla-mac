@@ -373,6 +373,31 @@ final class ClipboardKeyboardTests: XCTestCase {
         XCTAssertTrue(vm.pressClaimsKeyboard(atBodyPoint: atRest), "at rest")
     }
 
+    /// A dot's target is 20 pt tall, taller than the band under the pages:
+    /// on the way onto Translate its source card slides under the top of the
+    /// row, and a press there, on the row, asked for the keyboard — which
+    /// stayed when the dot was Translate's own (R8b re-review P1).
+    func testNoPartOfADotAsksForTheKeyboardOnTheWay() throws {
+        let clock = ManualPageClock()
+        vm.pageTravel.clock = clock
+        vm.isOpen = true
+        vm.turnPage(to: .tray)
+        vm.travel(to: .translate, reduceMotion: false)
+        while (vm.travellingLeg?.position ?? 1) < 0.65 { clock.advance(1.0 / 120) }
+        let leg = try XCTUnwrap(vm.travellingLeg)
+        let drawn = vm.drawnOpenBodySize
+        let margin = (vm.openBodySize.width - drawn.width) / 2
+        let index = try XCTUnwrap(leg.strip.pages.firstIndex(of: .translate))
+        let paneX = leg.strip.x(ofPage: index, at: leg.position, outlineWidth: drawn.width)
+        let card = try XCTUnwrap(vm.fieldFrame(of: .translate)).offsetBy(dx: paneX, dy: 0)
+        let tops = PageDotsLayout.hitFrames(bodySize: drawn).map { CGPoint(x: $0.midX, y: $0.minY + 1) }
+        let overCard = tops.filter { card.contains($0) }
+        XCTAssertFalse(overCard.isEmpty, "the card is under the row's top")
+        for top in overCard {
+            XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: top.x + margin, y: top.y)), "a dot's top")
+        }
+    }
+
     /// The press as the panel hands it over, in window coordinates, read into
     /// the body by the controller: a y read the wrong way up or an x off the
     /// body's left edge would put the field somewhere else, and no other test

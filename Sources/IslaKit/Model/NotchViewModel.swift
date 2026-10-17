@@ -2007,7 +2007,11 @@ final class NotchViewModel: ObservableObject {
         }
         let drawn = drawnOpenBodySize
         let x = point.x - (openBodySize.width - drawn.width) / 2
-        guard x >= 0, x < drawn.width, point.y < drawn.height - SurfaceLayout.dotsBand(for: presented) else {
+        // The dots' row, not only their band: a dot's target is taller than
+        // the band, and the card slid under its top on the way onto
+        // Translate (R8b re-review P1).
+        guard x >= 0, x < drawn.width, point.y < drawn.height - SurfaceLayout.dotsBand(for: presented),
+              !PageDotsLayout.rowFrame(bodySize: drawn).contains(CGPoint(x: x, y: point.y)) else {
             return false
         }
         let paneX = leg.strip.x(ofPage: index, at: leg.position, outlineWidth: drawn.width)
@@ -2148,15 +2152,29 @@ final class NotchViewModel: ObservableObject {
             // hold: the pages carry on from where they are. Ending the first
             // leg put the outline at the first dot's page in one frame (R8b
             // review F5).
-            switch leg.strip.joining(page, width: openSize(of: page).width, row: row.pages, at: leg.position) {
+            // Where their speed would carry them, as a swipe's release is
+            // read: the page they are heading for, not the one they left.
+            let heading = leg.strip.position(
+                at: leg.strip.offset(of: leg.position) + PageSwipe.projection(
+                    velocity: pageTravel.velocity * leg.strip.pointsPerPage(at: leg.position)
+                )
+            )
+            switch leg.strip.joining(
+                page, width: openSize(of: page).width, row: row.pages, at: leg.position, heading: heading
+            ) {
             case .end(let strip, let shift):
                 guard let index = strip.pages.firstIndex(of: page) else { return }
                 pageTravel.aim(onto: strip, shift: shift, to: index, reduceMotion: false)
             case .via(let via):
-                let onward = straightLeg(from: leg.strip.pages[via], to: page)
-                pageTravel.aim(
-                    via: via, then: onward.strip, from: onward.from, to: onward.target, reduceMotion: false
-                )
+                // From there a strip of the two alone, even when they are
+                // neighbours: on the row, the pages' overshoot past `via`
+                // showed the page beyond it, on the far side from where they
+                // were going, for a few frames (R8b re-review P2).
+                let start = leg.strip.pages[via]
+                let pair = row.pages.filter { $0 == start || $0 == page }
+                let strip = PageStrip(pages: pair, widths: pair.map { openSize(of: $0).width })
+                guard let from = pair.firstIndex(of: start), let target = pair.firstIndex(of: page) else { return }
+                pageTravel.aim(via: via, then: strip, from: from, to: target, reduceMotion: false)
             }
         } else {
             pageTravel.finish()
