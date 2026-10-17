@@ -27,9 +27,11 @@ struct IslandMenuItem: Equatable {
 /// About stays in Settings › About: the menu is for going somewhere, and
 /// About is a place inside Settings already.
 enum IslandMenu {
-    /// The rows, top to bottom. Lyrics is enabled while a song plays: with
-    /// nothing playing, the stage it opens is the empty player.
-    static func items(bindings: [HotKeyAction: HotKeyBinding], songPlaying: Bool) -> [IslandMenuItem] {
+    /// The rows, top to bottom. Lyrics is enabled while there is a song,
+    /// playing or paused (spec §19.9, amended 2026-10-18): a paused song
+    /// still has words to show, and with no song the stage it opens is the
+    /// empty player.
+    static func items(bindings: [HotKeyAction: HotKeyBinding], hasSong: Bool) -> [IslandMenuItem] {
         [
             IslandMenuItem(kind: .clipboard, title: localized("Clipboard"), shown: bindings[.showClipboard]),
             IslandMenuItem(
@@ -37,7 +39,7 @@ enum IslandMenu {
                 shown: bindings[.translateClipboard]
             ),
             IslandMenuItem(kind: .shelf, title: localized("Shelf")),
-            IslandMenuItem(kind: .lyrics, title: localized("Lyrics"), shown: bindings[.showLyrics], isEnabled: songPlaying),
+            IslandMenuItem(kind: .lyrics, title: localized("Lyrics"), shown: bindings[.showLyrics], isEnabled: hasSong),
             IslandMenuItem(kind: .separator, title: ""),
             IslandMenuItem(kind: .settings, title: localized("Settings…")),
             IslandMenuItem(kind: .quit, title: localized("Quit Isla")),
@@ -71,11 +73,15 @@ enum IslandMenu {
         let onIsland = active.contains(point) || bubble.contains(point)
         if isLocked { return onIsland ? .shake : .passThrough }
         guard isOpen else { return onIsland ? .menu : .passThrough }
-        // `activeRect` reaches 2 pt past the window's top so a click parked on
-        // the edge lands (`NotchRootView.reachingTopEdge`); the row is measured
-        // down from that same top, which only gives it those 2 pt more.
+        // `activeRect` reaches `topEdgeReach` past the window's top so a click
+        // parked on the edge lands (`NotchRootView.reachingTopEdge`). The row
+        // hangs from the window's top, not from that reach: measured from
+        // the reach, the region kept the 2 pt above the row and lost the
+        // row's bottom 2 pt to the surface (R8 review F9).
+        let reach = NotchRootView.topEdgeReach
         let header = CGRect(
-            x: active.minX, y: active.maxY - headerHeight, width: active.width, height: headerHeight
+            x: active.minX, y: active.maxY - reach - headerHeight,
+            width: active.width, height: headerHeight + reach
         )
         return header.contains(point) ? .menu : .passThrough
     }

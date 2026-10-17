@@ -77,4 +77,17 @@ final class KeyboardAndMenuCloseTests: XCTestCase {
         XCTAssertEqual(vm.presented, .tray)
         XCTAssertTrue(vm.isPinnedOpen)
     }
+
+    /// Nothing takes the keyboard over the lock, whichever writer raises the
+    /// claim. Clipboard's search field writes `wantsKeyboard` directly when it
+    /// takes focus, past `open(_:)`'s lock guard, and the keyboard's own route
+    /// opened the panel and made it key with no check of its own (R8 review
+    /// F6). Unreachable while the pane is gone over the shield; held here so
+    /// the rule does not rest on view lifetime.
+    func testTheKeyboardIsNotTakenOverTheLock() throws {
+        let (controller, vm) = try rig()
+        vm.isLockedPresentation = true
+        controller.setKeyboard(true)
+        XCTAssertFalse(vm.isOpen, "nothing opens over the lock to take the keyboard")
+    }
 }

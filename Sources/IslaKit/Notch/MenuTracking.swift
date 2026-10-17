@@ -33,6 +33,9 @@ final class MenuTracking {
 
     /// Called once the last open menu has closed.
     var onAllClosed: (() -> Void)?
+    /// Called when `hasOpenMenus` changes: the first menu opening, the last
+    /// one closing. The transient Escape hot key is re-read on it.
+    var onOpenChange: (() -> Void)?
 
     private var observers: [NSObjectProtocol] = []
 
@@ -55,19 +58,26 @@ final class MenuTracking {
 
     func began(_ menu: ObjectIdentifier?) {
         guard let menu else { return }
+        let wasOpen = hasOpenMenus
         open.insert(menu)
+        if !wasOpen { onOpenChange?() }
     }
 
     /// A close for a menu never seen opening — one that opened before this
     /// started listening — changes nothing.
     func ended(_ menu: ObjectIdentifier?) {
         guard let menu, open.remove(menu) != nil else { return }
-        if open.isEmpty { onAllClosed?() }
+        if open.isEmpty {
+            onOpenChange?()
+            onAllClosed?()
+        }
     }
 
     /// Forgets every open menu. Called when the panel folds: whatever was
     /// counted open belonged to a panel that is gone.
     func reset() {
+        let wasOpen = hasOpenMenus
         open.removeAll()
+        if wasOpen { onOpenChange?() }
     }
 }

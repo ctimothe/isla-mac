@@ -2614,6 +2614,15 @@ drawn from `HotKeyCenter`.
 - Lyrics is enabled while a song plays. About stays in Settings › About.
 - With Tools, the menu is how everything is reached when nothing is live.
 
+*Amended 2026-10-18 (R8 review).* "While a song plays" reads "while there is
+a song", playing or paused, by the same ruling as §19.6's paused song (owner
+to confirm both together): a paused song still has words to show. A row
+chosen from the closed island opens its surface pinned, as a command does; a
+row chosen from an open surface's header leaves the pointer in charge, so
+walking away still closes it (§19.1), with the menu's return grace for a row
+that hung below the body. While one of the app's menus is open, Escape is the
+menu's and not the pin's.
+
 ### 19.10 Lock screen
 
 `R2-Lock`. A **Full Screen** layout becomes the default lock presentation;

@@ -14,8 +14,11 @@ final class NotchRootView: NSView {
     /// nothing else.
     static func reachingTopEdge(_ rect: CGRect, windowHeight: CGFloat) -> CGRect {
         guard rect.maxY >= windowHeight else { return rect }
-        return CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height + 2)
+        return CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height + topEdgeReach)
     }
+
+    /// How far past the window's top `reachingTopEdge` takes a rect.
+    static let topEdgeReach: CGFloat = 2
 
     var activeRect: CGRect = .zero {
         didSet {

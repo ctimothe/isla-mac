@@ -203,6 +203,21 @@ final class HotKeyTests: XCTestCase {
         XCTAssertEqual(center.bindings[.openPanel], HotKeyAction.openPanel.defaultBinding)
         XCTAssertNil(defaults.object(forKey: HotKeyAction.openPanel.defaultsKey))
     }
+
+    /// A default that arrives with an update can land on a combination the
+    /// user had already given another action — ⌃⌥⌘V came with R8. Their choice
+    /// wins: the new default is cleared, and stored as cleared so the next
+    /// launch does not bring it back. Two actions on one key could not both
+    /// fire (R8 review F11).
+    func testANewDefaultGivesWayToTheUsersOwnChoice() {
+        let v = HotKeyAction.showClipboard.defaultBinding
+        HotKeyBinding.store(v, for: .openPanel, in: defaults)
+        let center = HotKeyCenter(defaults: defaults, registrar: FakeRegistrar().register)
+        XCTAssertEqual(center.bindings[.openPanel], v, "the user's own choice stands")
+        XCTAssertNil(center.bindings[.showClipboard], "the new default gives way")
+        XCTAssertEqual(defaults.string(forKey: HotKeyAction.showClipboard.defaultsKey), HotKeyBinding.clearedMarker)
+        XCTAssertEqual(center.bindings[.showLyrics], HotKeyAction.showLyrics.defaultBinding, "the others are untouched")
+    }
 }
 
 // MARK: - A shortcut taken from another action, and key names by layout

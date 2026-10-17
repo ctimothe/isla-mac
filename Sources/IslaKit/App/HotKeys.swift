@@ -255,6 +255,21 @@ final class HotKeyCenter: ObservableObject {
                 bindings[action] = binding
             }
         }
+        // A default that arrived with an update can land on a combination the
+        // user had already given another action — ⌃⌥⌘V came with R8. Their
+        // choice wins: the default is cleared, and stored as cleared so the
+        // next launch does not bring it back. Left alone, two actions shared
+        // one key and only one could register (R8 review F11).
+        for action in HotKeyAction.allCases where defaults.object(forKey: action.defaultsKey) == nil {
+            guard let binding = bindings[action] else { continue }
+            let chosenElsewhere = HotKeyAction.allCases.contains { other in
+                other != action && defaults.object(forKey: other.defaultsKey) != nil && bindings[other] == binding
+            }
+            if chosenElsewhere {
+                bindings[action] = nil
+                HotKeyBinding.store(nil, for: action, in: defaults)
+            }
+        }
     }
 
     func install(_ handlers: [HotKeyAction: () -> Void]) {

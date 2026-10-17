@@ -12,7 +12,7 @@ final class IslandMenuTests: XCTestCase {
     )
 
     func testTheRowsAreTheBoardsInItsOrder() {
-        let items = IslandMenu.items(bindings: bindings, songPlaying: true)
+        let items = IslandMenu.items(bindings: bindings, hasSong: true)
         XCTAssertEqual(
             items.map(\.kind),
             [.clipboard, .translateClipboard, .shelf, .lyrics, .separator, .settings, .quit]
@@ -26,7 +26,7 @@ final class IslandMenuTests: XCTestCase {
     /// The keys are the hot keys' current bindings; Shelf, Settings… and Quit
     /// show none (the menu claims no key of its own).
     func testTheShownKeysAreTheCurrentBindings() {
-        let items = IslandMenu.items(bindings: bindings, songPlaying: true)
+        let items = IslandMenu.items(bindings: bindings, hasSong: true)
         func shown(_ kind: IslandMenuItem.Kind) -> HotKeyBinding? { items.first { $0.kind == kind }?.shown }
         XCTAssertEqual(shown(.clipboard), HotKeyAction.showClipboard.defaultBinding, "⌃⌥⌘V")
         XCTAssertEqual(shown(.translateClipboard), HotKeyAction.translateClipboard.defaultBinding)
@@ -39,15 +39,15 @@ final class IslandMenuTests: XCTestCase {
         var moved = bindings
         moved[.showLyrics] = HotKeyBinding(keyCode: UInt32(kVK_ANSI_K), modifiers: HotKeyBinding.defaultModifiers)
         moved[.translateClipboard] = nil
-        let after = IslandMenu.items(bindings: moved, songPlaying: true)
+        let after = IslandMenu.items(bindings: moved, hasSong: true)
         XCTAssertEqual(after.first { $0.kind == .lyrics }?.shown?.keyCode, UInt32(kVK_ANSI_K))
         XCTAssertNil(after.first { $0.kind == .translateClipboard }?.shown)
     }
 
-    func testLyricsIsEnabledOnlyWhileASongPlays() {
-        let silent = IslandMenu.items(bindings: bindings, songPlaying: false)
+    func testLyricsIsEnabledOnlyWhileThereIsASong() {
+        let silent = IslandMenu.items(bindings: bindings, hasSong: false)
         XCTAssertEqual(silent.filter { !$0.isEnabled }.map(\.kind), [.lyrics])
-        XCTAssertTrue(IslandMenu.items(bindings: bindings, songPlaying: true).allSatisfy(\.isEnabled))
+        XCTAssertTrue(IslandMenu.items(bindings: bindings, hasSong: true).allSatisfy(\.isEnabled))
     }
 
     func testAKeyEquivalentIsTheLetterAndItsModifiers() throws {
@@ -66,7 +66,7 @@ final class IslandMenuTests: XCTestCase {
 
     /// The menu AppKit draws matches the rows, and a row runs its kind.
     func testTheMenuMatchesTheRowsAndRunsThem() throws {
-        let items = IslandMenu.items(bindings: bindings, songPlaying: false)
+        let items = IslandMenu.items(bindings: bindings, hasSong: false)
         var ran: [IslandMenuItem.Kind] = []
         let menu = IslandMenu.menu(items) { ran.append($0) }
 
@@ -153,7 +153,11 @@ final class IslandMenuTests: XCTestCase {
         XCTAssertEqual(click(CGPoint(x: 330, y: 590), active: openBody, isOpen: true), .menu)
         XCTAssertEqual(click(CGPoint(x: 870, y: 566), active: openBody, isOpen: true), .menu)
         XCTAssertEqual(
-            click(CGPoint(x: 600, y: 562), active: openBody, isOpen: true), .passThrough,
+            click(CGPoint(x: 600, y: 563), active: openBody, isOpen: true), .menu,
+            "the row's bottom points are the row's: it is 38 down from the window's top at 600, not from the 2 pt the rect reaches past it"
+        )
+        XCTAssertEqual(
+            click(CGPoint(x: 600, y: 561), active: openBody, isOpen: true), .passThrough,
             "below the row the click is the surface's: a row's own menu, a tile's Open With"
         )
         XCTAssertEqual(click(CGPoint(x: 600, y: 400), active: openBody, isOpen: true), .passThrough)

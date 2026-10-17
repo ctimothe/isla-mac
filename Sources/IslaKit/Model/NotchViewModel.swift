@@ -596,7 +596,11 @@ final class NotchViewModel: ObservableObject {
     /// - **not while this app is active**: Quick Look and AirDrop activate it
     ///   from a Shelf card, and their windows answer Escape themselves;
     /// - **never over the shield**: a key the lock screen's password field does
-    ///   not get is one taken from the person unlocking.
+    ///   not get is one taken from the person unlocking;
+    /// - **not while one of this app's menus is open**: the island's menu pops
+    ///   from a pinned panel's header too, and a Carbon hot key is dispatched
+    ///   ahead of the menu's tracking, so the claim folded the panel behind a
+    ///   menu that stayed open (R8 review F4).
     ///
     /// The cost is that the one Escape pressed while a pin stands goes to Isla
     /// and not to the app in front — a vim user reading lyrics loses one
@@ -606,9 +610,10 @@ final class NotchViewModel: ObservableObject {
         pinned: Bool,
         panelHasKeyboard: Bool,
         appIsActive: Bool,
-        locked: Bool
+        locked: Bool,
+        menuOpen: Bool = false
     ) -> Bool {
-        pinned && !panelHasKeyboard && !appIsActive && !locked
+        pinned && !panelHasKeyboard && !appIsActive && !locked && !menuOpen
     }
 
     /// Whether the Shelf holds Delete and ⌘⌫, through hot keys registered only

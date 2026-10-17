@@ -826,7 +826,7 @@ final class NotchController {
             // A paused song still has words to show, so Lyrics follows the
             // song, not the play state.
             let items = IslandMenu.items(
-                bindings: HotKeyCenter.shared.bindings, songPlaying: vm.media.track != nil
+                bindings: HotKeyCenter.shared.bindings, hasSong: vm.media.track != nil
             )
             // Read before the menu tracks: a row's open is pinned only from
             // the closed island (see `performMenu`).
@@ -1203,7 +1203,8 @@ final class NotchController {
             pinned: pinned,
             panelHasKeyboard: panelHasKeyboard,
             appIsActive: NSApp.isActive,
-            locked: locked
+            locked: locked,
+            menuOpen: MenuTracking.shared.hasOpenMenus
         )
         if wanted, escapeHotKey == nil {
             // Plain Escape, no modifiers. A combination macOS refuses leaves
@@ -1232,7 +1233,8 @@ final class NotchController {
             pinned: vm.isPinnedOpen,
             panelHasKeyboard: vm.wantsKeyboard,
             appIsActive: NSApp.isActive,
-            locked: vm.isLockedPresentation
+            locked: vm.isLockedPresentation,
+            menuOpen: MenuTracking.shared.hasOpenMenus
         ) else { return }
         if panel.escapeHandled?() == true { return }
         panel.onEscape?()
@@ -1596,6 +1598,13 @@ final class NotchController {
             guard let self, self.viewModel?.isOpen == true else { return }
             self.pointer.setInside(true, grace: NotchMetrics.menuReturnGrace)
         }
+        // And Escape goes to an open menu rather than to the pin behind it.
+        MenuTracking.shared.onOpenChange = { [weak self] in
+            guard let self, let vm = self.viewModel else { return }
+            self.updateEscapeHotKey(
+                pinned: vm.isPinnedOpen, panelHasKeyboard: vm.wantsKeyboard, locked: vm.isLockedPresentation
+            )
+        }
         MenuTracking.shared.start()
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
         pointer.onChange = { [weak self] inside in
@@ -1859,9 +1868,15 @@ final class NotchController {
 
     // MARK: - Open / close
 
-    /// Hands the keyboard to the panel, or gives it back.
-    private func setKeyboard(_ wants: Bool) {
+    /// Hands the keyboard to the panel, or gives it back. Internal so a test
+    /// can ask without a panel.
+    ///
+    /// Never over the lock, whoever asked: Clipboard's search field raises the
+    /// claim directly when it takes focus, past `open(_:)`'s guard, and this
+    /// route opens the panel and makes it key (R8 review F6).
+    func setKeyboard(_ wants: Bool) {
         if wants {
+            guard viewModel?.isLockedPresentation != true else { return }
             setOpen(true)
             pointer.setInside(true)
         }
