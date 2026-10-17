@@ -216,4 +216,3 @@ final class ClipboardKeyboardTests: XCTestCase {
         XCTAssertFalse(vm.clipboardClear.isAsking)
     }
 }
-

@@ -1893,7 +1893,7 @@ ask:
   R10 merges.
 
 Owed on hardware, by release (spec §16, plan §"Hardware checks"): R7-H1…H5,
-R8-H1…H6, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
+R8-H1…H8, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
 when it is built, and records the tested Mac model and macOS version when they
 are run.
 
@@ -1972,8 +1972,27 @@ Owed on hardware (record the Mac model and macOS version when run):
 
 ### R8 — Surfaces without tabs (`feat/redesign-r8-surfaces`)
 
-- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
-  installed.
+- [x] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed — 2026-10-18. Gate: 11 of 11 steps, 2463 tests, 0 failures,
+  37 skipped (xctest defaults domain set aside). Codex on the R8 diff and
+  again on the fixes: no actionable regressions. Opus (high) found one high
+  finding — a click or hover on the far end of the new-track peek, wider
+  than the player it opens, pinned the panel or folded it under the pointer
+  — and four mediums (Escape and Return reopening the island with Open on
+  Hover on, menu rows pinning an open panel, the transient Escape stealing a
+  menu's, the list keys acting on the Images grid); all fixed test-first.
+  An Opus re-review of those fixes found one medium (the landing island
+  honoured on a closed panel) and nine lows; fixed the same way, each test
+  failing with its fix taken out. Commits 91da6f4…da5ff56.
+
+Known and accepted, low (R8 reviews): the keyboard claim follows the chosen
+surface, not the drop surface laid over it, so a file dragged over an open
+Clipboard leaves the panel key with no field until the drag ends (F7); the
+Delete claim reads the chosen surface too, harmless while the Shelf rect is
+empty during a drag (F8); the header row's menu region uses the wider rect
+for the half second a body narrows (F10); a display change with Clipboard
+open restores it without the caret (F13); a lost `didEndTracking` leaves a
+pinned panel without its transient Escape until it folds (R-7).
 
 Deliberate differences from spec §19, kept on purpose (each also written into
 the spec as a dated amendment):
@@ -2016,3 +2035,11 @@ Owed on hardware (record the Mac model and macOS version when run):
   the voice, and a long line wraps to two on the stage.
 - [ ] **R8-H6** Favourite in Music (the star follows Music's own heart both
   ways) and in Spotify with the account connected.
+- [ ] **R8-H7** A new track peeks: click its far end, cover side, a few
+  points in from the edge — the player opens and stays while the pointer
+  rests there, folds when the pointer walks away, and Escape in another app
+  is that app's. Again with Open on Hover on: hovering the far end opens the
+  player once, without folding and reopening. With Open on Hover off, pause
+  on the far end, let the peek fold, rest there: the next track still peeks.
+- [ ] **R8-H8** ⌃⌥⌘I, then right-click the header row and press Escape: the
+  menu closes and the panel stays. Escape again folds the panel.
